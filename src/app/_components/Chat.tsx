@@ -31,6 +31,10 @@ export default function Chat() {
                 You never give IDs to the user since those are just for you to keep track of. 
                 When a user asks to create a task and you don't know the project to add it to for sure, clarify with the user.
                 The current date is: ${new Date().toISOString().split('T')[0]}`
+    },
+    {
+      type: 'ai',
+      content: 'Hello! I\'m your AI assistant. How can I help you manage your tasks today?'
     }
   ]);
   const [input, setInput] = useState('');
@@ -117,7 +121,7 @@ export default function Chat() {
       >
         <Stack h="100%">
           <ScrollArea h="500px" viewportRef={viewport}>
-            {messages.map((message, index) => (
+            {messages.filter(message => message.type !== 'system').map((message, index) => (
               <Box
                 key={index}
                 mb="md"
