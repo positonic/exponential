@@ -18,8 +18,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${GeistSans.variable}`}>
-      <body>
+    <html lang="en" className={`${GeistSans.variable} h-full`}>
+      <body className="h-full bg-gradient-to-b from-[#111111] to-[#212121] ">
         <Layout>
           <TRPCReactProvider>{children}</TRPCReactProvider>
         </Layout>
