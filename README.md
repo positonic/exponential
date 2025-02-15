@@ -1,29 +1,109 @@
-# Create T3 App
+# Life OS
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+A personal productivity and project management system built with the T3 Stack.
 
-## What's next? How do I make an app with this?
+## Features
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+- 🚀 Project Management
+  - Create and track projects with status, priority, and progress
+  - Set review dates and next action dates
+  - Organize projects with custom priorities
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+- ⚡ Action Management
+  - Create and track actions linked to projects
+  - Flexible priority system (Quick, Scheduled, Priority levels 1-5, etc.)
+  - Smart action organization and filtering
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+- 🤖 AI Assistant
+  - Built-in chat interface for task management
+  - Semantic video search capabilities
+  - YouTube video processing and analysis
 
-## Learn More
+## Tech Stack
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+- **Framework**: [Next.js 15](https://nextjs.org/)
+- **Authentication**: [NextAuth.js](https://next-auth.js.org/) with Discord provider
+- **Database**: PostgreSQL with [Prisma](https://prisma.io)
+- **API**: [tRPC](https://trpc.io) for end-to-end typesafe APIs
+- **UI**: 
+  - [Mantine](https://mantine.dev/) for components
+  - [Tailwind CSS](https://tailwindcss.com) for styling
+- **Deployment**: Ready for [Vercel](https://vercel.com)
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+## Getting Started
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+1. Clone the repository
+2. Install dependencies:
 
-## How do I deploy this?
+```bash
+npm install
+```
 
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+3. Copy `.env.example` to `.env` and fill in the required environment variables:
+```
+DATABASE_URL=
+AUTH_SECRET=
+AUTH_DISCORD_ID=
+AUTH_DISCORD_SECRET=
+```
+
+4. Initialize the database:
+```bash
+npm run db:push
+```
+
+5. Start the development server:
+```bash
+npm run dev
+```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `AUTH_SECRET` | NextAuth.js secret |
+| `AUTH_DISCORD_ID` | Discord OAuth client ID |
+| `AUTH_DISCORD_SECRET` | Discord OAuth client secret |
+
+## Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run db:push` - Push database schema changes
+- `npm run db:studio` - Open Prisma Studio
+- `npm run lint` - Run ESLint
+- `npm run format:write` - Format code with Prettier
+
+## Project Structure
+
+```
+src/
+├── app/                 # Next.js app directory
+│   ├── _components/    # Shared components
+│   ├── actions/        # Actions page
+│   ├── projects/       # Projects page
+│   └── api/           # API routes
+├── server/             # Server-side code
+│   ├── api/           # tRPC routers
+│   ├── auth/          # Authentication configuration
+│   └── db.ts          # Database client
+├── styles/            # Global styles
+└── utils/             # Utility functions
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a new branch
+3. Make your changes
+4. Submit a pull request
+
+## License
+
+MIT License
+
+## Acknowledgments
+
+This project was bootstrapped with [create-t3-app](https://create.t3.gg/).
