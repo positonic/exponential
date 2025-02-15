@@ -21,7 +21,19 @@ export const actionRouter = createTRPCRouter({
         name: z.string().min(1),
         description: z.string().min(1),
         projectId: z.string(),
-        priority: z.enum(["NONE", "LOW", "MEDIUM", "HIGH"]).default("NONE"),
+        priority: z.enum([
+          "Quick",
+          "Scheduled",
+          "1st Priority",
+          "2nd Priority",
+          "3rd Priority",
+          "4th Priority",
+          "5th Priority",
+          "Errand",
+          "Remember",
+          "Watch",
+          "Someday Maybe"
+        ]).default("Quick"),
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]).default("ACTIVE"),
       }),
     )

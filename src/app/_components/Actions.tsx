@@ -7,6 +7,7 @@ export function Actions() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [priority, setPriority] = useState("");
 
   const utils = api.useUtils();
   const actions = api.action.getAll.useQuery();
@@ -18,6 +19,7 @@ export function Actions() {
       setName("");
       setDescription("");
       setProjectId("");
+      setPriority("");
       void utils.action.getAll.invalidate();
     },
   });
@@ -52,6 +54,7 @@ export function Actions() {
             name,
             description,
             projectId,
+            priority,
           });
         }}
         className="flex flex-col gap-2"
@@ -81,6 +84,19 @@ export function Actions() {
             </option>
           ))}
         </select>
+        
+        <select
+          value={priority}
+          onChange={(e) => setPriority(e.target.value)}
+          className="w-full rounded-md px-4 py-2 text-black"
+        >
+          <option value="">Select a priority</option>
+          <option value="NONE">None</option>
+          <option value="LOW">Low</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="HIGH">High</option>
+        </select>
+
         <button
           type="submit"
           className="rounded-md bg-white/10 px-4 py-2 font-semibold hover:bg-white/20"
