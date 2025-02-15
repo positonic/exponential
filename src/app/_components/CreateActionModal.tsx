@@ -1,0 +1,100 @@
+import { Modal, TextInput, Textarea, Button, Group, ActionIcon, Select } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
+import { IconCalendar, IconFlag, IconAlarm, IconDots } from '@tabler/icons-react';
+
+export function CreateActionModal() {
+  const [opened, { open, close }] = useDisclosure(false);
+
+  return (
+    <>
+      <Button onClick={open}>Create New Task</Button>
+
+      <Modal 
+        opened={opened} 
+        onClose={close}
+        size="lg"
+        radius="md"
+        padding="lg"
+        styles={{
+          header: { display: 'none' },
+          body: { padding: 0 },
+          content: {
+            backgroundColor: '#1A1B1E',
+            color: '#C1C2C5',
+          }
+        }}
+      >
+        <div className="p-4">
+          <TextInput
+            placeholder="Task name"
+            variant="unstyled"
+            size="xl"
+            styles={{
+              input: {
+                fontSize: '24px',
+                color: '#C1C2C5',
+                '&::placeholder': {
+                  color: '#C1C2C5',
+                },
+              },
+            }}
+          />
+          
+          <Textarea
+            placeholder="Description"
+            variant="unstyled"
+            styles={{
+              input: {
+                color: '#909296',
+                '&::placeholder': {
+                  color: '#909296',
+                },
+              },
+            }}
+          />
+
+          <Group gap="xs" mt="md">
+            <ActionIcon variant="subtle" color="gray" radius="xl">
+              <IconCalendar size={20} />
+            </ActionIcon>
+            <ActionIcon variant="subtle" color="gray" radius="xl">
+              <IconFlag size={20} />
+            </ActionIcon>
+            <ActionIcon variant="subtle" color="gray" radius="xl">
+              <IconAlarm size={20} />
+            </ActionIcon>
+            <ActionIcon variant="subtle" color="gray" radius="xl">
+              <IconDots size={20} />
+            </ActionIcon>
+          </Group>
+        </div>
+
+        <div className="border-t border-gray-800 p-4">
+          <Group justify="space-between">
+            <Select
+              placeholder="Inbox"
+              variant="unstyled"
+              data={[
+                { value: 'inbox', label: 'Inbox' },
+                // Add your project list here
+              ]}
+              styles={{
+                input: {
+                  color: '#C1C2C5',
+                },
+              }}
+            />
+            <Group>
+              <Button variant="subtle" color="gray" onClick={close}>
+                Cancel
+              </Button>
+              <Button>
+                Add task
+              </Button>
+            </Group>
+          </Group>
+        </div>
+      </Modal>
+    </>
+  );
+} 

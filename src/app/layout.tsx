@@ -5,6 +5,28 @@ import { GeistSans } from "geist/font/sans";
 import { type Metadata } from "next";
 
 import { TRPCReactProvider } from "~/trpc/react";
+import { MantineProvider, createTheme } from '@mantine/core';
+import '@mantine/core/styles.css';
+
+const theme = createTheme({
+  primaryColor: 'blue',
+  primaryShade: 6,
+  colorScheme: 'dark',
+  colors: {
+    dark: [
+      '#C1C2C5',
+      '#A6A7AB',
+      '#909296',
+      '#5C5F66',
+      '#373A40',
+      '#2C2E33',
+      '#25262B',
+      '#1A1B1E',
+      '#141517',
+      '#101113',
+    ],
+  },
+});
 
 export const metadata: Metadata = {
   title: "Create T3 App",
@@ -21,7 +43,11 @@ export default function RootLayout({
     <html lang="en" className={`${GeistSans.variable} h-full`}>
       <body className="h-full bg-gradient-to-b from-[#111111] to-[#212121] ">
         <Layout>
-          <TRPCReactProvider>{children}</TRPCReactProvider>
+          <MantineProvider theme={theme}>
+            <TRPCReactProvider>
+              {children}
+            </TRPCReactProvider>
+          </MantineProvider>
         </Layout>
       </body>
     </html>

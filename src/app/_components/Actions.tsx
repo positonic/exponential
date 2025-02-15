@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { api } from "~/trpc/react";
+import { Select, TextInput, Textarea, Button, Paper, Stack, Group } from '@mantine/core';
+import { IconPlus } from '@tabler/icons-react';
+import { ActionList } from './ActionList';
+import { CreateActionModal } from './CreateActionModal';
 
 export function Actions() {
   const [name, setName] = useState("");
@@ -24,87 +28,80 @@ export function Actions() {
     },
   });
 
-  return (
-    <div className="w-full max-w-2xl">
-      <div className="mt-8">
-        <h2 className="text-2xl font-bold">Actions</h2>
-        {actions.data?.map((action) => (
-          <div
-            key={action.id}
-            className="mt-4 rounded-md bg-white/10 p-4"
-          >
-            <h3 className="text-xl font-semibold">{action.name}</h3>
-            <p className="mt-2 text-sm">{action.description}</p>
-            <p className="mt-2 text-sm text-gray-400">
-              Project: {action.project.name}
-            </p>
-            <p className="mt-1 text-sm text-gray-400">
-              Status: {action.status}
-            </p>
-          </div>
-        ))}
-      </div>
-      <br/>
-      <br/>
-      <h2>Create a new action</h2>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          createAction.mutate({
-            name,
-            description,
-            projectId,
-            priority,
-          });
-        }}
-        className="flex flex-col gap-2"
-      >
-        <input
-          type="text"
-          placeholder="Action name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full rounded-md px-4 py-2 text-black"
-        />
-        <textarea
-          placeholder="Description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="w-full rounded-md px-4 py-2 text-black"
-        />
-        <select
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-          className="w-full rounded-md px-4 py-2 text-black"
-        >
-          <option value="">Select a project</option>
-          {projects.data?.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-        
-        <select
-          value={priority}
-          onChange={(e) => setPriority(e.target.value)}
-          className="w-full rounded-md px-4 py-2 text-black"
-        >
-          <option value="">Select a priority</option>
-          <option value="NONE">None</option>
-          <option value="LOW">Low</option>
-          <option value="MEDIUM">Medium</option>
-          <option value="HIGH">High</option>
-        </select>
+  const priorityData = [
+    { value: 'Quick', label: 'Quick ⚡', color: '#FFE5E5' },
+    { value: 'Scheduled', label: 'Scheduled 📅', color: '#FFE5F7' },
+    { value: '1st Priority', label: '1st Priority', color: '#FFE5D3' },
+    { value: '2nd Priority', label: '2nd Priority', color: '#E2FFE5' },
+    { value: '3rd Priority', label: '3rd Priority', color: '#E5F0FF' },
+    { value: '4th Priority', label: '4th Priority', color: '#F2F2F2' },
+    { value: '5th Priority', label: '5th Priority', color: '#F8F8F8' },
+    { value: 'Errand', label: 'Errand', color: '#F0E5FF' },
+    { value: 'Remember', label: 'Remember 🔄', color: '#FFE5F7' },
+    { value: 'Watch', label: 'Watch', color: '#F5F5F5' },
+    { value: 'Someday Maybe', label: 'Someday Maybe', color: '#FFF9E5' },
+  ];
 
-        <button
-          type="submit"
-          className="rounded-md bg-white/10 px-4 py-2 font-semibold hover:bg-white/20"
-          disabled={createAction.isLoading}
-        >
-          {createAction.isLoading ? "Creating..." : "Create Action"}
-        </button>
-      </form>
+  return (
+    <div className="max-w-2xl mx-auto p-4">
+      <div className="mb-4">
+        <CreateActionModal />
+      </div>
+      
+      <Paper withBorder p="md" radius="md" className="mb-8">
+        <Stack gap="md">
+          <TextInput
+            placeholder="Action name"
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          
+          <Textarea
+            placeholder="Action description"
+            label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            minRows={2}
+          />
+
+          <Select
+            label="Project"
+            placeholder="Select a project"
+            value={projectId}
+            onChange={(value) => setProjectId(value ?? '')}
+            data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
+          />
+
+          <Select
+            label="Priority"
+            value={priority}
+            onChange={(value) => setPriority(value ?? '')}
+            data={priorityData}
+            clearable
+            searchable
+          />
+
+          <Group justify="flex-end">
+            <Button
+              leftSection={<IconPlus size={16} />}
+              onClick={() => {
+                createAction.mutate({
+                  name,
+                  description,
+                  projectId,
+                  priority,
+                });
+              }}
+              loading={createAction.isLoading}
+            >
+              Add Action
+            </Button>
+          </Group>
+        </Stack>
+      </Paper>
+
+      <ActionList actions={actions.data ?? []} />
     </div>
   );
 } 
