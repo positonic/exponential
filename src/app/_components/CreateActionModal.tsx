@@ -1,13 +1,48 @@
 import { Modal, TextInput, Textarea, Button, Group, ActionIcon, Select } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { IconCalendar, IconFlag, IconAlarm, IconDots } from '@tabler/icons-react';
+import { useState } from "react";
+import { api } from "~/trpc/react";
+
+type ActionPriority = "Quick" | "Scheduled" | "FirstPriority" | "SecondPriority" | "ThirdPriority" | "FourthPriority" | "FifthPriority" | "Errand" | "Remember" | "Watch" | "SomedayMaybe";
 
 export function CreateActionModal() {
   const [opened, { open, close }] = useDisclosure(false);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [priority, setPriority] = useState<ActionPriority>("Quick");
+
+  const utils = api.useUtils();
+  const projects = api.project.getAll.useQuery();
+
+  const createAction = api.action.create.useMutation({
+    onSuccess: () => {
+      setName("");
+      setDescription("");
+      setProjectId("");
+      setPriority("Quick");
+      void utils.action.getAll.invalidate();
+      close();
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!name || !description || !projectId) {
+      return;
+    }
+
+    createAction.mutate({
+      name,
+      description,
+      projectId,
+      priority: priority || "Quick",
+    });
+  };
 
   return (
     <>
-      <Button onClick={open}>Create New Task</Button>
+      <Button onClick={open}>Create Action</Button>
 
       <Modal 
         opened={opened} 
@@ -29,6 +64,8 @@ export function CreateActionModal() {
             placeholder="Task name"
             variant="unstyled"
             size="xl"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
             styles={{
               input: {
                 fontSize: '24px',
@@ -43,6 +80,8 @@ export function CreateActionModal() {
           <Textarea
             placeholder="Description"
             variant="unstyled"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
             styles={{
               input: {
                 color: '#909296',
@@ -69,15 +108,16 @@ export function CreateActionModal() {
           </Group>
         </div>
 
-        <div className="border-t border-gray-800 p-4">
+        <div className="border-t border-gray-800 p-4 mt-4">
           <Group justify="space-between">
             <Select
-              placeholder="Inbox"
+              placeholder="Select a project"
               variant="unstyled"
-              data={[
-                { value: 'inbox', label: 'Inbox' },
-                // Add your project list here
-              ]}
+              value={projectId}
+              onChange={(value) => setProjectId(value ?? '')}
+              data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
+              required
+              error={!projectId && "Project is required"}
               styles={{
                 input: {
                   color: '#C1C2C5',
@@ -88,8 +128,11 @@ export function CreateActionModal() {
               <Button variant="subtle" color="gray" onClick={close}>
                 Cancel
               </Button>
-              <Button>
-                Add task
+              <Button 
+                onClick={handleSubmit}
+                loading={createAction.isPending}
+              >
+                New action
               </Button>
             </Group>
           </Group>

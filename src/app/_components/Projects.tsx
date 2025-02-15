@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "~/trpc/react";
-
+import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 export function     Projects() {
   const [name, setName] = useState("");
   const [status, setStatus] = useState("ACTIVE");
@@ -52,9 +52,7 @@ export function     Projects() {
         ))}
       </div>
       <br/>
-      <br/>
-      <h2>Create a new project</h2>
-      <form
+      {/* <form
         onSubmit={(e) => {
           e.preventDefault();
           createProject.mutate({
@@ -115,7 +113,8 @@ export function     Projects() {
         >
           {createProject.isLoading ? "Creating..." : "Create Project"}
         </button>
-      </form>
+      </form> */}
+      <CreateProjectModal />
     </div>
   );
 } 
