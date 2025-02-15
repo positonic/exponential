@@ -1,5 +1,8 @@
 import { Checkbox, Text, Stack, Group, Paper } from '@mantine/core';
 import { IconCalendar } from '@tabler/icons-react';
+import { type RouterOutputs } from "~/trpc/react";
+
+type Action = RouterOutputs["action"]["getAll"][0];
 
 export function ActionList({ actions }: { actions: Action[] }) {
   return (
@@ -38,15 +41,15 @@ export function ActionList({ actions }: { actions: Action[] }) {
                 )}
               </div>
             </Group>
-            
-            {action.dueDate && (
+
+            {/* {action.reviewDate && (
               <Group gap="xs" c="#909296">
                 <IconCalendar size={16} />
                 <Text size="sm">
                   {new Date(action.dueDate).toLocaleDateString()}
                 </Text>
               </Group>
-            )}
+            )} */}
           </Group>
         </Paper>
       ))}
