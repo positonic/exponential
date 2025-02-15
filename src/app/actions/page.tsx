@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Chat from "~/app/_components/Chat";
 
 //import { LatestPost } from "~/app/_components/post";
 import { auth } from "~/server/auth";
@@ -16,7 +15,8 @@ export default async function Home() {
     <HydrateClient>
       <main className="min-h-screen w-full bg-gradient-to-b from-[#111111] to-[#212121] text-white">       
          <div className="container mx-auto px-4 py-16 w-full">
-         {session?.user && <Chat />}
+          {session?.user && <Actions />}
+          {/* {session?.user && <LatestPost />} */}
         </div>
       </main>
     </HydrateClient>

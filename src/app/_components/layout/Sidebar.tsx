@@ -8,7 +8,7 @@ export default async function Sidebar() {
     <aside className="w-64 border-r border-gray-800 p-4 flex flex-col h-[calc(100vh-64px)]">
       <nav className="space-y-2 flex-grow">
         <Link
-          href="/"
+          href="/actions"
           className="block rounded-lg px-3 py-2 text-blue-400 hover:bg-gray-800"
         >
           Actions
@@ -19,12 +19,12 @@ export default async function Sidebar() {
         >
           Projects
         </Link>
-        <Link
+        {/* <Link
           href="/outcomes"
           className="block rounded-lg px-3 py-2 hover:bg-gray-800"
         >
           Outcomes
-        </Link>
+        </Link> */}
       </nav>
       
       <div className="mt-auto pt-4 border-t border-gray-800">

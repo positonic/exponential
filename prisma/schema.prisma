@@ -74,27 +74,13 @@ model VerificationToken {
     @@unique([identifier, token])
 }
 
-enum ActionPriority {
-  Quick
-  Scheduled
-  FirstPriority
-  SecondPriority
-  ThirdPriority
-  FourthPriority
-  FifthPriority
-  Errand
-  Remember
-  Watch
-  SomedayMaybe
-}
-
 model Action {
-    id              String         @id @default(cuid())
+    id              String   @id @default(cuid())
     name            String
     description     String
-    status          String         @default("ACTIVE")
-    priority        ActionPriority @default(Quick)
-    project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    status          String   @default("ACTIVE")
+    priority        String   @default("Quick")
+    project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
     projectId       String
 
     @@index([projectId])
