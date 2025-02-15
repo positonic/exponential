@@ -6,7 +6,8 @@ type Action = RouterOutputs["action"]["getAll"][0];
 
 export function ActionList({ actions }: { actions: Action[] }) {
   return (
-    <Stack gap="md" w="100%">
+    <>
+    <h2 className="text-2xl font-bold">Actions</h2>
       {actions.map((action) => (
         <Paper
           key={action.id}
@@ -42,17 +43,18 @@ export function ActionList({ actions }: { actions: Action[] }) {
               </div>
             </Group>
 
-            {/* {action.reviewDate && (
+            {action.dueDate && (
               <Group gap="xs" c="#909296">
                 <IconCalendar size={16} />
                 <Text size="sm">
                   {new Date(action.dueDate).toLocaleDateString()}
                 </Text>
               </Group>
-            )} */}
+            )}
           </Group>
         </Paper>
       ))}
-    </Stack>
+    </>
+      
   );
 } 

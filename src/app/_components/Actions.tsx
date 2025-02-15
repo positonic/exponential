@@ -8,7 +8,7 @@ export function Actions() {
   const actions = api.action.getAll.useQuery();
 
   return (
-    <div className="w-full max-w-6xl mx-auto">
+    <div className="w-full max-w-3xl mx-auto">
      <ActionList actions={actions.data ?? []} />
      <div className="mt-6">
         <CreateActionModal />
