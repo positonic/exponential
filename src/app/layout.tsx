@@ -1,4 +1,4 @@
-import Layout from "~/components/layout/Layout";
+import Layout from "~/app/_components/layout/Layout";
 import "~/styles/globals.css";
 
 import { GeistSans } from "geist/font/sans";

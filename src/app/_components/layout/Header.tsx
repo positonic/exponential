@@ -4,7 +4,7 @@ export default function Header() {
   return (
     <header className="flex h-14 items-center justify-between border-b border-gray-800 px-4">
       <Link href="/" className="text-xl font-bold">
-        My Project
+        🧘‍♂️ Life OS
       </Link>
       
       <div className="flex items-center gap-4">
