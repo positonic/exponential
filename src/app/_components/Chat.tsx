@@ -105,7 +105,16 @@ export default function Chat() {
 
   return (
     <>
-      <Paper shadow="md" radius="md" p="md" withBorder style={{ height: '600px' }}>
+      <Paper 
+        shadow="md" 
+        radius="md" 
+        p="md" 
+        withBorder 
+        style={{ 
+          height: '600px',
+          backgroundColor: '#1A1B1E'  // Dark background for the main container
+        }}
+      >
         <Stack h="100%">
           <ScrollArea h="500px" viewportRef={viewport}>
             {messages.map((message, index) => (
@@ -122,7 +131,7 @@ export default function Chat() {
                     <Avatar 
                       size="md" 
                       radius="xl" 
-                      src="/ai-avatar.png"  // Add your AI avatar image
+                      src="/ai-avatar.png"
                       alt="AI"
                     />
                   )}
@@ -131,13 +140,13 @@ export default function Chat() {
                     radius="lg"
                     style={{
                       maxWidth: '70%',
-                      backgroundColor: message.type === 'human' ? '#228be6' : '#e9ecef',
+                      backgroundColor: message.type === 'human' ? '#228be6' : '#2C2E33',  // Darker background for AI messages
                     }}
                   >
                     <Text
                       size="sm"
                       style={{
-                        color: message.type === 'human' ? 'white' : 'black',
+                        color: message.type === 'human' ? 'white' : '#C1C2C5',  // Light gray text for AI messages
                         whiteSpace: 'pre-wrap',
                       }}
                     >
@@ -148,7 +157,7 @@ export default function Chat() {
                     <Avatar 
                       size="md" 
                       radius="xl" 
-                      src="/user-avatar.png"  // Add your user avatar image
+                      src="/user-avatar.png"
                       alt="User"
                     />
                   )}
@@ -166,6 +175,15 @@ export default function Chat() {
                 style={{ flex: 1 }}
                 radius="xl"
                 size="md"
+                styles={{
+                  input: {
+                    backgroundColor: '#2C2E33',  // Dark input background
+                    color: '#C1C2C5',  // Light text color
+                    '&::placeholder': {
+                      color: '#5C5F66'  // Darker placeholder text
+                    }
+                  }
+                }}
                 rightSection={
                   <Button 
                     type="submit" 
@@ -184,8 +202,6 @@ export default function Chat() {
       </Paper>
 
       <Space h="xl" />
-
-      
     </>
   );
 }
