@@ -13,11 +13,15 @@ A personal productivity and project management system built with the T3 Stack.
   - Create and track actions linked to projects
   - Flexible priority system (Quick, Scheduled, Priority levels 1-5, etc.)
   - Smart action organization and filtering
+    
+<img width="1709" alt="image" src="https://github.com/user-attachments/assets/bbc16660-53c9-4bf1-ac87-af756ad3ec8c" />
 
 - 🤖 AI Assistant
   - Built-in chat interface for task management
   - Semantic video search capabilities
   - YouTube video processing and analysis
+    
+<img width="1713" alt="image" src="https://github.com/user-attachments/assets/5a7fd477-64f2-4e4a-9768-5bf237b3ce28" />
 
 ## Tech Stack
 
