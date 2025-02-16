@@ -1,4 +1,4 @@
-import { Checkbox, Text, Stack, Group, Paper, SegmentedControl } from '@mantine/core';
+import { Checkbox, Text, Stack, Group, Paper, SegmentedControl, Badge } from '@mantine/core';
 import { IconCalendar } from '@tabler/icons-react';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
@@ -75,9 +75,29 @@ export function ActionList({ actions }: { actions: Action[] }) {
                 }}
               />
               <div>
-                <Text size="md" fw={500} c="#C1C2C5">
-                  {action.name}
-                </Text>
+                <Group gap="xs">
+                  <Text size="md" fw={500} c="#C1C2C5">
+                    {action.name}
+                  </Text>
+                  <Badge 
+                    variant="filled"
+                    color={
+                      action.priority === '1st Priority' ? 'red' :
+                      action.priority === '2nd Priority' ? 'orange' :
+                      action.priority === '3rd Priority' ? 'yellow' :
+                      action.priority === '4th Priority' ? 'green' :
+                      action.priority === '5th Priority' ? 'blue' :
+                      action.priority === 'Quick' ? 'violet' :
+                      action.priority === 'Scheduled' ? 'pink' :
+                      action.priority === 'Errand' ? 'cyan' :
+                      action.priority === 'Remember' ? 'indigo' :
+                      action.priority === 'Watch' ? 'grape' :
+                      'gray' // for Someday Maybe
+                    }
+                  >
+                    {action.priority.split(' ')[0]}
+                  </Badge>
+                </Group>
                 {action.description && (
                   <Text size="sm" c="#909296">
                     {action.description}

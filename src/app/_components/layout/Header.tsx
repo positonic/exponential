@@ -8,8 +8,8 @@ export default function Header() {
       </Link>
       
       <div className="flex items-center gap-4">
-        <Link href="/about">About</Link>
-        <Link href="/contact">Contact</Link>
+        {/* <Link href="/about">About</Link>
+        <Link href="/contact">Contact</Link> */}
         <div className="flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5">
           <input
             type="search"
@@ -18,7 +18,7 @@ export default function Header() {
           />
           <kbd className="rounded border border-gray-700 px-1.5 text-xs">⌘K</kbd>
         </div>
-        <a href="https://github.com" target="_blank" rel="noopener noreferrer">
+        <a href="https://github.com/positonic/ai-todo" target="_blank" rel="noopener noreferrer">
           <GithubIcon className="h-6 w-6" />
         </a>
         <a href="https://discord.com" target="_blank" rel="noopener noreferrer">

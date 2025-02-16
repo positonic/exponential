@@ -4,7 +4,7 @@ import { IconCalendar, IconFlag, IconAlarm, IconDots } from '@tabler/icons-react
 import { useState } from "react";
 import { api } from "~/trpc/react";
 
-type ActionPriority = "Quick" | "Scheduled" | "FirstPriority" | "SecondPriority" | "ThirdPriority" | "FourthPriority" | "FifthPriority" | "Errand" | "Remember" | "Watch" | "SomedayMaybe";
+type ActionPriority = "Quick" | "Scheduled" | "1st Priority" | "2nd Priority" | "3rd Priority" | "4th Priority" | "5th Priority" | "Errand" | "Remember" | "Watch" | "Someday Maybe";
 
 export function CreateActionModal() {
   const [opened, { open, close }] = useDisclosure(false);

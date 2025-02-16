@@ -10,29 +10,17 @@ const addVideoSchema = z.object({
 export const gmTool = (ctx: any) => tool(
   async (input): Promise<string> => {
     try {
-      console.log('gm input is ', input);
-      const slug = extractYoutubeSlugFromUrl(input.videoUrl);
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-
-      const video = await ctx.db.video.create({
-        data: {
-          id: crypto.randomUUID(),
-          videoUrl: input.videoUrl,
-          slug: slug,
-          status: "pending",
-          isSearchable: input.isSearchable,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      return `Successfully added video to the database! The video ${input.isSearchable ? 'will' : 'will not'} be searchable. Processing will take a few minutes - you can track the progress at ${baseUrl}/videos. Video ID: ${video.id}`;
+      console.log('gmTool input is ', input);
+      
+      
+      return `Successfully Hit the GM Tool`;
     } catch (error) {
       console.error('Error adding video:', error);
       throw new Error(`Failed to add video: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
   {
-    name: "add_video",
+    name: "gm",
     description: "Adds a YouTube video to the database for processing. Provide the video URL and optionally specify if it should be searchable. Processing takes a few minutes.",
     schema: addVideoSchema,
   }
