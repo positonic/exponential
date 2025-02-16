@@ -82,7 +82,7 @@ export const toolRouter = createTRPCRouter({
             
             // Handle tool calls
             const toolResults = await Promise.all(response.tool_calls.map(async (toolCall) => {
-                if(!toolCall || !toolCall.args) return null;
+                if(!toolCall || !toolCall?.args) return null;
                 
                 const actionTools = createActionTools(ctx);
                 let toolResult;

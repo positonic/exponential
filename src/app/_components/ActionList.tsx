@@ -1,4 +1,4 @@
-import { Checkbox, Text, Stack, Group, Paper, SegmentedControl, Badge } from '@mantine/core';
+import { Checkbox, Text, Group, Paper, SegmentedControl, Badge } from '@mantine/core';
 import { IconCalendar } from '@tabler/icons-react';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
