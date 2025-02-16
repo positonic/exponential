@@ -7,6 +7,7 @@ import { OpenAIEmbeddings } from "@langchain/openai";
 import { extractYoutubeSlugFromUrl } from "~/utils/youtube";
 import { getTools } from "~/server/tools";
 import { createAddVideoTool } from "~/server/tools/addVideoTool";
+import { gmTool } from "~/server/tools/gmTool";
 import { createVideoSearchTool } from "~/server/tools/videoSearchTool";
 import { createActionTools } from "~/server/tools/actionTools";
 
@@ -58,6 +59,7 @@ export const toolRouter = createTRPCRouter({
                 "- read_action: Retrieves an action's details by ID.\n" +
                 "- update_status_action: Updates the status of an existing action. Favoured over create_action for existing actions\n" +
                 "- delete_action: Removes an action from the system.\n" +
+                "- gm: When a user says `gm` we will initiate their morning routing by asking them questions to figure out how to win the morning and the day.\n" +
                 "After using a tool, always provide a natural language response explaining the result."
             );
 
@@ -107,6 +109,9 @@ export const toolRouter = createTRPCRouter({
                             break;
                         case "delete_action":
                             toolResult = await actionTools.deleteActionTool.invoke(toolCall.args as any);
+                            break;
+                        case "gm":
+                            toolResult = await gmTool(ctx).invoke(toolCall.args as any);
                             break;
                         default:
                             throw new Error(`Unknown tool: ${toolCall.name}`);

@@ -43,6 +43,9 @@ export function ActionList({ actions }: { actions: Action[] }) {
             label: {
               color: '#C1C2C5',  
             },
+            indicator: {
+              backgroundColor: '#333',
+            },
           }}
         />
       </Group>
