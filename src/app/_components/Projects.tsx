@@ -60,12 +60,12 @@ function ProjectList({ projects }: { projects: Project[] }) {
 }
 
 export function     Projects() {
-  const [name, setName] = useState("");
-  const [status, setStatus] = useState("ACTIVE");
-  const [priority, setPriority] = useState("NONE");
-  const [progress, setProgress] = useState(0);
-  const [reviewDate, setReviewDate] = useState("");
-  const [nextActionDate, setNextActionDate] = useState("");
+  const [, setName] = useState("");
+  const [, setStatus] = useState("ACTIVE");
+  const [, setPriority] = useState("NONE");
+  const [, setProgress] = useState(0);
+  const [, setReviewDate] = useState("");
+  const [, setNextActionDate] = useState("");
 
   const utils = api.useUtils();
   const projects = api.project.getAll.useQuery();

@@ -97,8 +97,8 @@ export function LandingPage() {
           className="mx-auto max-w-2xl"
         >
           <Text size="xl" fs="italic" className="mb-4">
-            "Life OS has completely transformed how I manage my projects. It's
-            like having a personal assistant that never sleeps."
+            &ldquo;Life OS has completely transformed how I manage my projects. It&apos;s
+            like having a personal assistant that never sleeps.&rdquo;
           </Text>
           <Group>
             <Avatar
@@ -132,7 +132,7 @@ const features = [
   {
     icon: "⏳",
     title: "Save time",
-    description: "You task list is automatially kept up to date",
+    description: "Your task list is automatically kept up to date",
   },
   {
     icon: "👨‍🏫",
