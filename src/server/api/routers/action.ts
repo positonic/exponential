@@ -42,4 +42,18 @@ export const actionRouter = createTRPCRouter({
         data: input,
       });
     }),
+
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.action.update({
+        where: { id: input.id },
+        data: { status: input.status },
+      });
+    }),
 }); 
