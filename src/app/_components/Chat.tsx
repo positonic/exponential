@@ -65,7 +65,9 @@ export default function Chat() {
 
       setMessages(prev => [...prev, { 
         type: 'ai', 
-        content: response.response.toString() 
+        content: typeof response.response === 'string' 
+          ? response.response 
+          : JSON.stringify(response.response)
       }]);
     } catch (error) {
       console.error('Chat error:', error);
