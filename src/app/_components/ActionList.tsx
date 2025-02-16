@@ -41,10 +41,7 @@ export function ActionList({ actions }: { actions: Action[] }) {
               border: '1px solid #2C2E33',
             },
             label: {
-              color: '#C1C2C5',
-              '&[dataActive]': {
-                backgroundColor: '#333',
-              },
+              color: '#C1C2C5',  
             },
           }}
         />

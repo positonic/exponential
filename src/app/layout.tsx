@@ -11,7 +11,6 @@ import '@mantine/core/styles.css';
 const theme = createTheme({
   primaryColor: 'blue',
   primaryShade: 6,
-  colorScheme: 'dark',
   colors: {
     dark: [
       '#C1C2C5',
@@ -40,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${GeistSans.variable} h-full`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full`}>
       <body className="h-full bg-gradient-to-b from-[#111111] to-[#212121] ">
         <Layout>
           <MantineProvider theme={theme}>
