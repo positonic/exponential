@@ -28,14 +28,14 @@ export function CreateActionModal() {
   });
 
   const handleSubmit = () => {
-    if (!name || !description || !projectId) {
+    if (!name) {
       return;
     }
 
     createAction.mutate({
       name,
-      description,
-      projectId,
+      description: description || undefined,
+      projectId: projectId || undefined,
       priority: priority || "Quick",
     });
   };
@@ -111,13 +111,11 @@ export function CreateActionModal() {
         <div className="border-t border-gray-800 p-4 mt-4">
           <Group justify="space-between">
             <Select
-              placeholder="Select a project"
+              placeholder="Select a project (optional)"
               variant="unstyled"
               value={projectId}
               onChange={(value) => setProjectId(value ?? '')}
               data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
-              required
-              error={!projectId && "Project is required"}
               styles={{
                 input: {
                   color: '#C1C2C5',
