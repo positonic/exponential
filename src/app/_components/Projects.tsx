@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
+import { Badge } from "@mantine/core";
 
 type Project = RouterOutputs["project"]["getAll"][0];
 
@@ -14,6 +15,36 @@ function ProjectList({ projects }: { projects: Project[] }) {
       void utils.project.getAll.invalidate();
     },
   });
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "ACTIVE":
+        return "green";
+      case "ON_HOLD":
+        return "yellow";
+      case "COMPLETED":
+        return "blue";
+      case "CANCELLED":
+        return "gray";
+      default:
+        return "default";
+    }
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case "HIGH":
+        return "red";
+      case "MEDIUM":
+        return "orange";
+      case "LOW":
+        return "blue";
+      case "NONE":
+        return "gray";
+      default:
+        return "default";
+    }
+  };
 
   return (
     <>
@@ -41,8 +72,12 @@ function ProjectList({ projects }: { projects: Project[] }) {
             </svg>
           </button>
           <h3 className="text-xl font-semibold">{project.name}</h3>
-          <p className="mt-2 text-sm">Status: {project.status}</p>
-          <p className="mt-1 text-sm text-gray-400">Priority: {project.priority}</p>
+          <div className="mt-2 space-y-2">
+            <Badge color={getStatusColor(project.status)}>{project.status}</Badge>
+            <Badge color={getPriorityColor(project.priority)}>
+              Priority: {project.priority}
+            </Badge>
+          </div>
           {project.reviewDate && (
             <p className="mt-1 text-sm text-gray-400">
               Review Date: {new Date(project.reviewDate).toLocaleDateString()}
