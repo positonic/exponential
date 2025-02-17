@@ -47,7 +47,7 @@ export function CreateProjectModal() {
           header: { display: 'none' },
           body: { padding: 0 },
           content: {
-            backgroundColor: '#1A1B1E',
+            backgroundColor: '#262626',
             color: '#C1C2C5',
           }
         }}
@@ -96,12 +96,12 @@ export function CreateProjectModal() {
             mt="md"
             styles={{
               input: {
-                backgroundColor: '#1A1B1E',
+                backgroundColor: '#262626',
                 color: '#C1C2C5',
                 borderColor: '#373A40',
               },
               dropdown: {
-                backgroundColor: '#1A1B1E',
+                backgroundColor: '#262626',
                 borderColor: '#373A40',
                 color: '#C1C2C5',
               },
@@ -121,12 +121,12 @@ export function CreateProjectModal() {
             mt="md"
             styles={{
               input: {
-                backgroundColor: '#1A1B1E',
+                backgroundColor: '#262626',
                 color: '#C1C2C5',
                 borderColor: '#373A40',
               },
               dropdown: {
-                backgroundColor: '#1A1B1E',
+                backgroundColor: '#262626',
                 borderColor: '#373A40',
                 color: '#C1C2C5',
               },

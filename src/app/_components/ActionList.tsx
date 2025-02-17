@@ -111,7 +111,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
           ]}
           styles={{
             root: {
-              backgroundColor: '#1A1B1E',
+              backgroundColor: '#262626',
               border: '1px solid #2C2E33',
             },
             label: {
@@ -130,7 +130,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
           p="md"
           withBorder
           className="transition-all hover:shadow-md cursor-pointer"
-          bg="#1A1B1E"
+          bg="#262626"
           style={{
             borderColor: '#2C2E33',
           }}

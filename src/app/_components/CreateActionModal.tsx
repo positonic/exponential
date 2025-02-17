@@ -54,7 +54,7 @@ export function CreateActionModal() {
           header: { display: 'none' },
           body: { padding: 0 },
           content: {
-            backgroundColor: '#1A1B1E',
+            backgroundColor: '#262626',
             color: '#C1C2C5',
           }
         }}

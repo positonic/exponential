@@ -75,7 +75,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
         header: { display: 'none' },
         body: { padding: 0 },
         content: {
-          backgroundColor: '#1A1B1E',
+          backgroundColor: '#262626',
           color: '#C1C2C5',
         }
       }}
@@ -121,12 +121,12 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
             data={PRIORITY_OPTIONS.map(p => ({ value: p, label: p }))}
             styles={{
                 input: {
-                  backgroundColor: '#1A1B1E',
+                  backgroundColor: '#262626',
                   color: '#C1C2C5',
                   borderColor: '#373A40',
                 },
                 dropdown: {
-                  backgroundColor: '#1A1B1E',
+                  backgroundColor: '#262626',
                   borderColor: '#373A40',
                   color: '#C1C2C5',
                 },
@@ -154,13 +154,13 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
             data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
             styles={{
                 input: {
-                  backgroundColor: '#1A1B1E',
+                  backgroundColor: '#262626',
                   color: '#C1C2C5',
                   borderColor: '#373A40',
                   paddingLeft: '13px',
                 },
                 dropdown: {
-                  backgroundColor: '#1A1B1E',
+                  backgroundColor: '#262626',
                   borderColor: '#373A40',
                   color: '#C1C2C5',
                 },

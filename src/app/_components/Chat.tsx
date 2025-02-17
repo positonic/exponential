@@ -118,7 +118,7 @@ export default function Chat() {
         withBorder 
         style={{ 
           height: '600px',
-          backgroundColor: '#1A1B1E'  // Dark background for the main container
+          backgroundColor: '#262626'  // Dark background for the main container
         }}
       >
         <Stack h="100%">

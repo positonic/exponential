@@ -7,7 +7,7 @@ import { Suspense } from "react";
 export default async function Home() {
   return (
     <HydrateClient>
-      <main className="flex h-full flex-col items-center justify-center bg-gradient-to-b from-[#111111] to-[#212121] text-white">       
+      <main className="flex h-full flex-col items-center justify-center text-white">       
         <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16">
           <Suspense fallback={<div>Loading...</div>}>
             <ActionsWrapper />
