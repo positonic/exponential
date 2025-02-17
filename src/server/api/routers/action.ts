@@ -56,4 +56,31 @@ export const actionRouter = createTRPCRouter({
         data: { status: input.status },
       });
     }),
+
+  getToday: protectedProcedure.query(async ({ ctx }) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    return ctx.db.action.findMany({
+      where: {
+        createdById: ctx.session.user.id,
+        dueDate: {
+          gte: today,
+          lt: tomorrow,
+        },
+        status: "ACTIVE",
+      },
+      include: {
+        project: true,
+      },
+      orderBy: {
+        project: {
+          priority: "desc",
+        },
+      },
+    });
+  }),
 }); 

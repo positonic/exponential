@@ -64,6 +64,7 @@ model User {
     sessions      Session[]
     posts         Post[]
     projects      Project[]
+    actions       Action[]
 }
 
 model VerificationToken {
@@ -83,8 +84,11 @@ model Action {
     priority        String   @default("Quick")
     project         Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
     projectId       String?
+    createdBy       User     @relation(fields: [createdById], references: [id])
+    createdById     String
 
     @@index([projectId])
+    @@index([createdById])
 }
 
 model Outcome {
