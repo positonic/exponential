@@ -4,7 +4,6 @@ import {
   IconInbox,
   IconCalendarEvent,
   IconCalendarTime,
-  IconFolder,
   IconChevronDown,
   IconPlus,
 } from "@tabler/icons-react";
@@ -23,9 +22,10 @@ export default async function Sidebar() {
   return (
     <aside className="w-64 border-r border-gray-800 p-4 flex flex-col h-[calc(100vh-64px)] bg-[#262626]">
       <nav className="flex-grow space-y-2">
-        <Link href="/" className="text-xl font-bold">
-          🧘‍♂️ Life OS
+        <Link href="/" className="pl-3 mb-5 text-xl font-bold">
+          🧘‍♂️ Life OS<br/><br/>
         </Link>
+        
         <Link
           href="/inbox"
           className="group flex items-center rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-gray-800"
