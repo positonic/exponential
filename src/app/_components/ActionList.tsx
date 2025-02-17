@@ -3,10 +3,11 @@ import { IconCalendar } from '@tabler/icons-react';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
 import { useState } from "react";
+import React from "react";
 
 type Action = RouterOutputs["action"]["getAll"][0];
 
-export function ActionList({ viewDate, actions }: { viewDate: string, actions: Action[] }) {
+export function ActionList({ viewName, actions }: { viewName: string, actions: Action[] }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const utils = api.useUtils();
   
@@ -51,27 +52,31 @@ export function ActionList({ viewDate, actions }: { viewDate: string, actions: A
     });
   };
 
-  // Add new function to filter actions by date
-  const filterActionsByDate = (actions: Action[]) => {
+  // Memoize the filtered actions to prevent unnecessary recalculations
+  const filteredActions = React.useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
-    
-    if (viewDate === 'today') {
-      return actions.filter(action => 
-        action.dueDate && action.dueDate.toISOString().split('T')[0] === today
-      );
-    } else if (viewDate === 'upcoming') {
-      return actions.filter(action => {
-        if (!action.dueDate) return false;
-        if(!today) return false;
-        return action?.dueDate?.toISOString() > new Date().toISOString();
-      });
-    }
-    return actions;
-  };
+    console.log('viewName', viewName);
+    // First filter by date
+    const dateFiltered = (() => {
+      switch (viewName) {
+        case 'inbox':
+          return actions.filter(action => !action.projectId);
+        case 'today':
+          return actions.filter(action => 
+            action.dueDate && action.dueDate.toISOString().split('T')[0] === today
+          );
+        case 'upcoming':
+          return actions.filter(action => 
+            action.dueDate && action.dueDate.toISOString() > new Date().toISOString()
+          );
+        default:
+          return actions;
+      }
+    })();
 
-  // First filter by date, then by status
-  const filteredActions = filterActionsByDate(actions)
-    .filter((action) => action.status === filter);
+    // Then filter by status
+    return dateFiltered.filter((action) => action.status === filter);
+  }, [actions, viewName, filter]);
 
   return (
     <>
