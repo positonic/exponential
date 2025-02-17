@@ -4,11 +4,14 @@ import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
 import { useState } from "react";
 import React from "react";
+import { EditActionModal } from "./EditActionModal";
 
 type Action = RouterOutputs["action"]["getAll"][0];
 
 export function ActionList({ viewName, actions }: { viewName: string, actions: Action[] }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
+  const [selectedAction, setSelectedAction] = useState<Action | null>(null);
+  const [editModalOpened, setEditModalOpened] = useState(false);
   const utils = api.useUtils();
   
   const updateAction = api.action.update.useMutation({
@@ -51,6 +54,12 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
       status: newStatus,
     });
   };
+
+  const handleActionClick = (action: Action) => {
+    setSelectedAction(action);
+    setEditModalOpened(true);
+  };
+
   console.log('viewName is:', viewName);
   console.log('viewName ProjectID[2] is', viewName.split('-')[2]);
   console.log('viewName ProjectID[2] actions is',  actions.filter(action => 
@@ -114,6 +123,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
           }}
         />
       </Group>
+
       {filteredActions.map((action) => (
         <Paper
           key={action.id}
@@ -124,6 +134,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
           style={{
             borderColor: '#2C2E33',
           }}
+          onClick={() => handleActionClick(action)}
         >
           <Group justify="space-between" align="center">
             <Group gap="md">
@@ -131,7 +142,10 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
                 size="md"
                 radius="xl"
                 checked={action.status === "COMPLETED"}
-                onChange={(event) => handleCheckboxChange(action.id, event.currentTarget.checked)}
+                onChange={(event) => {
+                  event.stopPropagation();
+                  handleCheckboxChange(action.id, event.currentTarget.checked);
+                }}
                 disabled={updateAction.isPending}
                 styles={{
                   input: {
@@ -145,32 +159,10 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
                       action.priority === 'Errand' ? 'var(--mantine-color-cyan-filled)' :
                       action.priority === 'Remember' ? 'var(--mantine-color-indigo-filled)' :
                       action.priority === 'Watch' ? 'var(--mantine-color-grape-filled)' :
-                      '#373A40', // default color for 'Someday Maybe' or unknown priorities
+                      '#373A40',
                     backgroundColor: 'transparent',
                     cursor: 'pointer',
-                    '&::before': {
-                      content: '""',
-                      display: 'block',
-                      position: 'absolute',
-                      top: '2px',
-                      left: '2px',
-                      right: '2px',
-                      bottom: '2px',
-                      borderRadius: '50%',
-                      background: 'currentColor',
-                      transition: 'opacity 0.2s ease-in-out',
-                      opacity: '0',
-                    },
-                    '&:hover::before': {
-                      opacity: '0.3',
-                    }
                   },
-                  body: {
-                    cursor: 'pointer',
-                  },
-                  inner: {
-                    cursor: 'pointer',
-                  }
                 }}
               />
               <div>
@@ -191,7 +183,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
                       action.priority === 'Errand' ? 'cyan' :
                       action.priority === 'Remember' ? 'indigo' :
                       action.priority === 'Watch' ? 'grape' :
-                      'gray' // for Someday Maybe
+                      'gray'
                     }
                   >
                     {action.priority.split(' ')[0]}
@@ -216,6 +208,15 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
           </Group>
         </Paper>
       ))}
+
+      <EditActionModal
+        action={selectedAction}
+        opened={editModalOpened}
+        onClose={() => {
+          setEditModalOpened(false);
+          setSelectedAction(null);
+        }}
+      />
     </>
   );
 } 

@@ -53,13 +53,30 @@ export const actionRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]),
+        name: z.string().min(1).optional(),
+        description: z.string().optional(),
+        projectId: z.string().optional(),
+        priority: z.enum([
+          "Quick",
+          "Scheduled",
+          "1st Priority",
+          "2nd Priority",
+          "3rd Priority",
+          "4th Priority",
+          "5th Priority",
+          "Errand",
+          "Remember",
+          "Watch",
+          "Someday Maybe"
+        ]).optional(),
+        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const { id, ...updateData } = input;
       return ctx.db.action.update({
-        where: { id: input.id },
-        data: { status: input.status },
+        where: { id },
+        data: updateData,
       });
     }),
 
