@@ -2,6 +2,7 @@ import Link from "next/link";
 import { auth } from "~/server/auth";
 import { IconInbox, IconCalendarEvent, IconCalendarTime, IconFolder, IconChevronDown, IconPlus } from "@tabler/icons-react";
 import { api } from "~/trpc/server";
+import { type RouterOutputs } from "~/trpc/react";
 type Project = RouterOutputs["project"]["getAll"][0];
 
 export default async function Sidebar() {
@@ -16,24 +17,24 @@ export default async function Sidebar() {
     <aside className="w-64 border-r border-gray-800 p-4 flex flex-col h-[calc(100vh-64px)]">
       <nav className="space-y-2 flex-grow">
         <Link
-          href="/actions/inbox"
-          className="flex items-center rounded-lg px-3 py-2 text-gray-300 hover:bg-gray-800 group"
+          href="/inbox"
+          className="flex items-center rounded-lg px-3 py-2 text-gray-300 hover:bg-gray-800 group text-sm"
         >
           <IconInbox className="w-5 h-5 mr-3" />
           <span>Inbox</span>
           <span className="ml-auto text-gray-500">12</span>
         </Link>
         <Link
-          href="/actions/today"
-          className="flex items-center rounded-lg px-3 py-2 text-gray-300 hover:bg-gray-800 group bg-red-900/30"
+          href="/today"
+          className="flex items-center rounded-lg px-3 py-2 text-gray-300 hover:bg-gray-800 group bg-red-900/30 text-sm"
         >
           <IconCalendarEvent className="w-5 h-5 mr-3" />
           <span>Today</span>
           <span className="ml-auto text-gray-500">1</span>
         </Link>
         <Link
-          href="/actions/upcoming"
-          className="flex items-center rounded-lg px-3 py-2 text-gray-300 hover:bg-gray-800 group"
+          href="/upcoming"
+          className="flex items-center rounded-lg px-3 py-2 text-gray-300 hover:bg-gray-800 group text-sm"
         >
           <IconCalendarTime className="w-5 h-5 mr-3" />
           <span>Upcoming</span>
