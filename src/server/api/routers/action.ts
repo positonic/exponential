@@ -4,6 +4,9 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.action.findMany({
+      where: {
+        createdById: ctx.session.user.id,
+      },
       include: {
         project: true,
       },
@@ -39,7 +42,10 @@ export const actionRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       return ctx.db.action.create({
-        data: input,
+        data: {
+          ...input,
+          createdById: ctx.session.user.id,
+        },
       });
     }),
 

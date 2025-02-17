@@ -53,6 +53,7 @@ export const createActionTools = (ctx: any) => {
             dueDate: input.dueDate ? new Date(input.dueDate) : null,
             status: input.status,
             priority: input.priority,
+            createdById: ctx.session.user.id,
             
           },
         });

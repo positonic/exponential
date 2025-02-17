@@ -6,7 +6,7 @@ import { useState } from "react";
 
 type Action = RouterOutputs["action"]["getAll"][0];
 
-export function ActionList({ actions }: { actions: Action[] }) {
+export function ActionList({ viewDate, actions }: { viewDate: string, actions: Action[] }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const utils = api.useUtils();
   
@@ -51,7 +51,20 @@ export function ActionList({ actions }: { actions: Action[] }) {
     });
   };
 
-  const filteredActions = actions.filter((action) => action.status === filter);
+  // Add new function to filter actions by date
+  const filterActionsByDate = (actions: Action[]) => {
+    if (viewDate === 'today') {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      return actions.filter(action => 
+        action.dueDate && new Date(action.dueDate).toISOString().split('T')[0] === today
+      );
+    }
+    return actions;
+  };
+
+  // First filter by date, then by status
+  const filteredActions = filterActionsByDate(actions)
+    .filter((action) => action.status === filter);
 
   return (
     <>
