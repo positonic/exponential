@@ -2,10 +2,15 @@ import Link from "next/link";
 import { auth } from "~/server/auth";
 import { IconInbox, IconCalendarEvent, IconCalendarTime, IconFolder, IconChevronDown, IconPlus } from "@tabler/icons-react";
 import { api } from "~/trpc/server";
+type Project = RouterOutputs["project"]["getAll"][0];
 
 export default async function Sidebar() {
   const session = await auth();
-  const projects = await api.project.getAll();
+  const projects = await api.project.getAll({
+    include: {
+      actions: true
+    }
+  }) satisfies Array<Project & { actions?: Array<{ id: string }> }>;
 
   return (
     <aside className="w-64 border-r border-gray-800 p-4 flex flex-col h-[calc(100vh-64px)]">
@@ -51,14 +56,13 @@ export default async function Sidebar() {
             {projects.map((project) => (
               <Link
                 key={project.id}
-                href={`/projects/${project.id}`}
+                href={`/projects/${project.slug}-${project.id}`}
                 className="flex items-center rounded-lg px-3 py-2 text-gray-300 hover:bg-gray-800 group"
               >
                 <span className="text-gray-500 mr-2">#</span>
                 <span>{project.name}</span>
-                {project.actions?.length > 0 && (
-                  <span className="ml-auto text-gray-500">{project.actions.length}</span>
-                )}
+                <span className="ml-auto text-gray-500">{project.actions.filter(action => action.status !== "COMPLETED")?.length}</span>
+              
               </Link>
             ))}
           </div>

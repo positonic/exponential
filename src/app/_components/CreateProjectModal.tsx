@@ -2,6 +2,7 @@ import { Modal, TextInput, Button, Group, Select } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useState } from "react";
 import { api } from "~/trpc/react";
+import { slugify } from "~/utils/slugify";
 
 type ProjectStatus = "ACTIVE" | "COMPLETED" | "ON_HOLD";
 type ProjectPriority = "NONE" | "LOW" | "MEDIUM" | "HIGH";
@@ -12,6 +13,7 @@ export function CreateProjectModal() {
   const [status, setStatus] = useState<ProjectStatus>("ACTIVE");
   const [priority, setPriority] = useState<ProjectPriority>("NONE");
   const [progress, setProgress] = useState(0);
+  const [slug, setSlug] = useState("");
   const [reviewDate, setReviewDate] = useState("");
   const [nextActionDate, setNextActionDate] = useState("");
 
@@ -23,6 +25,7 @@ export function CreateProjectModal() {
       setStatus("ACTIVE");
       setPriority("NONE");
       setProgress(0);
+      setSlug(slugify(name));
       setReviewDate("");
       setNextActionDate("");
       void utils.project.getAll.invalidate();

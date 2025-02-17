@@ -5,6 +5,7 @@ import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
 import { Badge } from "@mantine/core";
+import { slugify } from "~/utils/slugify";
 
 type Project = RouterOutputs["project"]["getAll"][0];
 
@@ -99,6 +100,7 @@ export function     Projects() {
   const [, setStatus] = useState("ACTIVE");
   const [, setPriority] = useState("NONE");
   const [, setProgress] = useState(0);
+  const [, setSlug] = useState("");
   const [, setReviewDate] = useState("");
   const [, setNextActionDate] = useState("");
 
@@ -110,6 +112,7 @@ export function     Projects() {
       setName("");
       setStatus("ACTIVE");
       setPriority("NONE");
+      setSlug(slugify(name));
       setProgress(0);
       setReviewDate("");
       setNextActionDate("");

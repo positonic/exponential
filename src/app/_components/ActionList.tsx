@@ -51,11 +51,16 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
       status: newStatus,
     });
   };
-
-  // Memoize the filtered actions to prevent unnecessary recalculations
-  const filteredActions = React.useMemo(() => {
+  console.log('viewName is:', viewName);
+  console.log('viewName ProjectID[2] is', viewName.split('-')[2]);
+  console.log('viewName ProjectID[2] actions is',  actions.filter(action => 
+    action.projectId === viewName.split('-')[2]
+  ))
+          
+  // Filter the actions directly without memoization
+  const filteredActions = (() => {
     const today = new Date().toISOString().split('T')[0];
-    console.log('viewName', viewName);
+    
     // First filter by date
     const dateFiltered = (() => {
       switch (viewName) {
@@ -70,13 +75,19 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
             action.dueDate && action.dueDate.toISOString() > new Date().toISOString()
           );
         default:
+          // Handle project views - check if viewName starts with 'project-'
+          if (viewName.startsWith('project-')) {
+            return actions.filter(action => 
+              action.projectId === viewName.split('-')[2]
+            );
+          }
           return actions;
       }
     })();
 
     // Then filter by status
     return dateFiltered.filter((action) => action.status === filter);
-  }, [actions, viewName, filter]);
+  })();
 
   return (
     <>

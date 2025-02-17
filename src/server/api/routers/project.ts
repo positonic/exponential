@@ -1,17 +1,27 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { slugify } from "~/utils/slugify";
 
 export const projectRouter = createTRPCRouter({
-  getAll: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db.project.findMany({
-      where: {
-        createdById: ctx.session.user.id,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-  }),
+  getAll: protectedProcedure
+    .input(z.object({
+      include: z.object({
+        actions: z.boolean()
+      }).optional()
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.db.project.findMany({
+        where: {
+          createdById: ctx.session.user.id,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        include: {
+          actions: input?.include?.actions ?? false
+        }
+      });
+    }),
 
   create: protectedProcedure
     .input(
@@ -31,6 +41,7 @@ export const projectRouter = createTRPCRouter({
           status: input.status,
           priority: input.priority,
           progress: input.progress,
+          slug: slugify(input.name),
           reviewDate: input.reviewDate,
           nextActionDate: input.nextActionDate,
           createdBy: {
