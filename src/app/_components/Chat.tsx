@@ -137,7 +137,7 @@ export default function Chat() {
                     <Avatar 
                       size="md" 
                       radius="xl" 
-                      src="/ai-avatar.png"
+                      src={null}
                       alt="AI"
                     />
                   )}
@@ -163,7 +163,7 @@ export default function Chat() {
                     <Avatar 
                       size="md" 
                       radius="xl" 
-                      src="/user-avatar.png"
+                      src={null}
                       alt="User"
                     />
                   )}
