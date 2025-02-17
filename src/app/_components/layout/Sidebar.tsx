@@ -13,11 +13,49 @@ type Project = RouterOutputs["project"]["getAll"][0];
 
 export default async function Sidebar() {
   const session = await auth();
-  const projects = (await api.project.getAll({
+
+  if (!session?.user) {
+    return (
+      <aside className="w-64 border-r border-gray-800 p-4 flex flex-col h-[calc(100vh-64px)] bg-[#262626]">
+        <nav className="flex-grow space-y-2">
+          <Link href="/" className="pl-3 mb-5 text-xl font-bold">
+            🧘‍♂️ Life OS<br/><br/>
+          </Link>
+        </nav>
+        <div className="mt-auto border-t border-gray-800 pt-4">
+          <Link
+            href="/api/auth/signin"
+            className="flex w-full items-center rounded-lg px-3 py-2 text-red-400 hover:bg-gray-800"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="mr-2 h-5 w-5"
+            >
+              <path
+                fillRule="evenodd"
+                d="M3 4.25A2.25 2.25 0 015.25 2h5.5A2.25 2.25 0 0113 4.25v2a.75.75 0 01-1.5 0v-2a.75.75 0 00-.75-.75h-5.5a.75.75 0 00-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 00.75-.75v-2a.75.75 0 011.5 0v2A2.25 2.25 0 0110.75 18h-5.5A2.25 2.25 0 013 15.75V4.25z"
+                clipRule="evenodd"
+              />
+              <path
+                fillRule="evenodd"
+                d="M19 10a.75.75 0 00-.75-.75H8.704l1.048-.943a.75.75 0 10-1.004-1.114l-2.5 2.25a.75.75 0 000 1.114l2.5 2.25a.75.75 0 101.004-1.114l-1.048-.943h9.546A.75.75 0 0019 10z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Sign in
+          </Link>
+        </div>
+      </aside>
+    );
+  }
+
+  const projects = await api.project.getAll({
     include: {
       actions: true,
     },
-  })) satisfies Array<Project & { actions?: Array<{ id: string }> }>;
+  });
 
   return (
     <aside className="w-64 border-r border-gray-800 p-4 flex flex-col h-[calc(100vh-64px)] bg-[#262626]">
