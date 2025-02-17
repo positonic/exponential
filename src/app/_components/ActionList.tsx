@@ -9,16 +9,45 @@ type Action = RouterOutputs["action"]["getAll"][0];
 export function ActionList({ actions }: { actions: Action[] }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const utils = api.useUtils();
+  
   const updateAction = api.action.update.useMutation({
-    onSuccess: () => {
+    // Optimistically update the UI
+    onMutate: async ({ id, status }) => {
+      // Cancel outgoing refetches
+      await utils.action.getAll.cancel();
+      
+      // Snapshot the previous value
+      const previousActions = utils.action.getAll.getData();
+      
+      // Optimistically update the cache
+      utils.action.getAll.setData(undefined, (old) => {
+        if (!old) return previousActions;
+        return old.map((action) =>
+          action.id === id ? { ...action, status } : action
+        );
+      });
+      
+      return { previousActions };
+    },
+    
+    // If error, roll back
+    onError: (err, variables, context) => {
+      if (context?.previousActions) {
+        utils.action.getAll.setData(undefined, context.previousActions);
+      }
+    },
+    
+    // After success, sync with server
+    onSettled: () => {
       void utils.action.getAll.invalidate();
     },
   });
 
   const handleCheckboxChange = (actionId: string, checked: boolean) => {
+    const newStatus = checked ? "COMPLETED" : "ACTIVE";
     updateAction.mutate({
       id: actionId,
-      status: checked ? "COMPLETED" : "ACTIVE",
+      status: newStatus,
     });
   };
 
@@ -67,6 +96,7 @@ export function ActionList({ actions }: { actions: Action[] }) {
                 radius="xl"
                 checked={action.status === "COMPLETED"}
                 onChange={(event) => handleCheckboxChange(action.id, event.currentTarget.checked)}
+                disabled={updateAction.isPending}
                 styles={{
                   input: {
                     borderColor: '#373A40',
