@@ -53,11 +53,18 @@ export function ActionList({ viewDate, actions }: { viewDate: string, actions: A
 
   // Add new function to filter actions by date
   const filterActionsByDate = (actions: Action[]) => {
+    const today = new Date().toISOString().split('T')[0];
+    
     if (viewDate === 'today') {
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
       return actions.filter(action => 
-        action.dueDate && new Date(action.dueDate).toISOString().split('T')[0] === today
+        action.dueDate && action.dueDate.toISOString().split('T')[0] === today
       );
+    } else if (viewDate === 'upcoming') {
+      return actions.filter(action => {
+        if (!action.dueDate) return false;
+        if(!today) return false;
+        return action?.dueDate?.toISOString() > new Date().toISOString();
+      });
     }
     return actions;
   };
