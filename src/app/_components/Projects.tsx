@@ -95,8 +95,8 @@ function ProjectList({ projects }: { projects: Project[] }) {
   );
 }
 
-export function     Projects() {
-  const [, setName] = useState("");
+export function Projects() {
+  const [projectName, setProjectName] = useState("");
   const [, setStatus] = useState("ACTIVE");
   const [, setPriority] = useState("NONE");
   const [, setProgress] = useState(0);
@@ -109,10 +109,10 @@ export function     Projects() {
 
   const createProject = api.project.create.useMutation({
     onSuccess: () => {
-      setName("");
+      setProjectName("");
       setStatus("ACTIVE");
       setPriority("NONE");
-      setSlug(slugify(name));
+      setSlug(slugify(projectName));
       setProgress(0);
       setReviewDate("");
       setNextActionDate("");

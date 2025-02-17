@@ -4,8 +4,16 @@ import { Actions } from "~/app/_components/Actions";
 import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
 
-export default async function Home({ params }: { params: { slug: string } }) {
-  const  { slug } = params;
+interface PageProps {
+  params: Promise<{ slug: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function Home({ params }: PageProps) {
+  const resolvedParams = await params;
+  // If you need searchParams, await it as well:
+  // const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const { slug } = resolvedParams;
   return (
     <HydrateClient>
       <main className="flex h-full flex-col items-center justify-center text-white">       

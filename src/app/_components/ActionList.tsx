@@ -27,7 +27,9 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
       utils.action.getAll.setData(undefined, (old) => {
         if (!old) return previousActions;
         return old.map((action) =>
-          action.id === id ? { ...action, status } : action
+          action.id === id 
+            ? { ...action, status: status as string } 
+            : action
         );
       });
       

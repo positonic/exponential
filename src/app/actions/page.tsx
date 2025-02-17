@@ -20,5 +20,5 @@ export default async function Home() {
 
 async function ActionsWrapper() {
   const session = await auth();
-  return session?.user ? <Actions view=""/> : <Welcome />;
+  return session?.user ? <Actions viewName=""/> : <Welcome />;
 }
