@@ -91,6 +91,18 @@ export function CreateProjectModal() {
             onChange={(value) => setStatus(value as ProjectStatus)}
             required
             mt="md"
+            styles={{
+              input: {
+                backgroundColor: '#1A1B1E',
+                color: '#C1C2C5',
+                borderColor: '#373A40',
+              },
+              dropdown: {
+                backgroundColor: '#1A1B1E',
+                borderColor: '#373A40',
+                color: '#C1C2C5',
+              },
+            }}
           />
 
           <Select
@@ -104,23 +116,35 @@ export function CreateProjectModal() {
             onChange={(value) => setPriority(value as ProjectPriority)}
             required
             mt="md"
+            styles={{
+              input: {
+                backgroundColor: '#1A1B1E',
+                color: '#C1C2C5',
+                borderColor: '#373A40',
+              },
+              dropdown: {
+                backgroundColor: '#1A1B1E',
+                borderColor: '#373A40',
+                color: '#C1C2C5',
+              },
+            }}
           />
 
-          <TextInput
+          {/* <TextInput
             type="date"
             label="Review Date"
             value={reviewDate}
             onChange={(e) => setReviewDate(e.target.value)}
             mt="md"
-          />
+          /> */}
 
-          <TextInput
+          {/* <TextInput
             type="date"
             label="Next Action Date"
             value={nextActionDate}
             onChange={(e) => setNextActionDate(e.target.value)}
             mt="md"
-          />
+          /> */}
 
           <Group justify="flex-end" mt="xl">
             <Button variant="subtle" color="gray" onClick={close}>
