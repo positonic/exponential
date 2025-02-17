@@ -83,7 +83,7 @@ export function ActionList({ actions }: { actions: Action[] }) {
           key={action.id}
           p="md"
           withBorder
-          className="transition-all hover:shadow-md"
+          className="transition-all hover:shadow-md cursor-pointer"
           bg="#1A1B1E"
           style={{
             borderColor: '#2C2E33',
@@ -99,9 +99,42 @@ export function ActionList({ actions }: { actions: Action[] }) {
                 disabled={updateAction.isPending}
                 styles={{
                   input: {
-                    borderColor: '#373A40',
+                    borderColor: action.priority === '1st Priority' ? 'var(--mantine-color-red-filled)' :
+                      action.priority === '2nd Priority' ? 'var(--mantine-color-orange-filled)' :
+                      action.priority === '3rd Priority' ? 'var(--mantine-color-yellow-filled)' :
+                      action.priority === '4th Priority' ? 'var(--mantine-color-green-filled)' :
+                      action.priority === '5th Priority' ? 'var(--mantine-color-blue-filled)' :
+                      action.priority === 'Quick' ? 'var(--mantine-color-violet-filled)' :
+                      action.priority === 'Scheduled' ? 'var(--mantine-color-pink-filled)' :
+                      action.priority === 'Errand' ? 'var(--mantine-color-cyan-filled)' :
+                      action.priority === 'Remember' ? 'var(--mantine-color-indigo-filled)' :
+                      action.priority === 'Watch' ? 'var(--mantine-color-grape-filled)' :
+                      '#373A40', // default color for 'Someday Maybe' or unknown priorities
                     backgroundColor: 'transparent',
+                    cursor: 'pointer',
+                    '&::before': {
+                      content: '""',
+                      display: 'block',
+                      position: 'absolute',
+                      top: '2px',
+                      left: '2px',
+                      right: '2px',
+                      bottom: '2px',
+                      borderRadius: '50%',
+                      background: 'currentColor',
+                      transition: 'opacity 0.2s ease-in-out',
+                      opacity: '0',
+                    },
+                    '&:hover::before': {
+                      opacity: '0.3',
+                    }
                   },
+                  body: {
+                    cursor: 'pointer',
+                  },
+                  inner: {
+                    cursor: 'pointer',
+                  }
                 }}
               />
               <div>
