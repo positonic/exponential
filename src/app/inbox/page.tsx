@@ -1,5 +1,5 @@
 import { auth } from "~/server/auth";
-import { api, HydrateClient } from "~/trpc/server";
+import { HydrateClient } from "~/trpc/server";
 import { Actions } from "~/app/_components/Actions";
 import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";

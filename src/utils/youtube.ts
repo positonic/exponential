@@ -14,6 +14,7 @@ export function extractYoutubeSlugFromUrl(url: string): string {
 
     return videoId;
   } catch (error) {
+    console.error('Error extracting video ID from URL:', error);
     throw new Error('Invalid URL provided. Please provide a valid YouTube URL.');
   }
 } 

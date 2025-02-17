@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
-import { extractYoutubeSlugFromUrl } from "~/utils/youtube";
+//import { extractYoutubeSlugFromUrl } from "~/utils/youtube";
 
 const addVideoSchema = z.object({
   videoUrl: z.string().url(),
   isSearchable: z.boolean().default(true),
 });
 
-export const gmTool = (ctx: any) => tool(
+export const gmTool = () => tool(
   async (input): Promise<string> => {
     try {
       console.log('gmTool input is ', input);

@@ -9,7 +9,7 @@ export const getTools = (ctx: any) => {
   const actionTools = createActionTools(ctx);
   return [
     adderTool,
-    gmTool(ctx),
+    gmTool(),
     createVideoSearchTool(ctx),
     createAddVideoTool(ctx),
     actionTools.createActionTool,

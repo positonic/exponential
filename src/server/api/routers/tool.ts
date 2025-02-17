@@ -3,8 +3,6 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { ChatOpenAI } from "@langchain/openai";
 import { SystemMessage, AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
-import { OpenAIEmbeddings } from "@langchain/openai";
-import { extractYoutubeSlugFromUrl } from "~/utils/youtube";
 import { getTools } from "~/server/tools";
 import { createAddVideoTool } from "~/server/tools/addVideoTool";
 import { gmTool } from "~/server/tools/gmTool";
@@ -111,7 +109,7 @@ export const toolRouter = createTRPCRouter({
                             toolResult = await actionTools.deleteActionTool.invoke(toolCall.args as any);
                             break;
                         case "gm":
-                            toolResult = await gmTool(ctx).invoke(toolCall.args as any);
+                            toolResult = await gmTool().invoke(toolCall.args as any);
                             break;
                         default:
                             throw new Error(`Unknown tool: ${toolCall.name}`);

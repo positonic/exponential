@@ -9,7 +9,7 @@ type ProjectPriority = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 
 export function CreateProjectModal() {
   const [opened, { open, close }] = useDisclosure(false);
-  const [name, setName] = useState("");
+  const [projectName, setProjectName] = useState("");
   const [status, setStatus] = useState<ProjectStatus>("ACTIVE");
   const [priority, setPriority] = useState<ProjectPriority>("NONE");
   const [progress, setProgress] = useState(0);
@@ -21,11 +21,11 @@ export function CreateProjectModal() {
 
   const createProject = api.project.create.useMutation({
     onSuccess: () => {
-      setName("");
+      setProjectName("");
       setStatus("ACTIVE");
       setPriority("NONE");
       setProgress(0);
-      setSlug(slugify(name));
+      setSlug(slugify(projectName));
       setReviewDate("");
       setNextActionDate("");
       void utils.project.getAll.invalidate();
@@ -56,7 +56,7 @@ export function CreateProjectModal() {
           onSubmit={(e) => {
             e.preventDefault();
             createProject.mutate({
-              name,
+              name: projectName,
               status,
               priority,
               progress,
@@ -70,8 +70,8 @@ export function CreateProjectModal() {
             placeholder="Project name"
             variant="unstyled"
             size="xl"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
             required
             styles={{
               input: {

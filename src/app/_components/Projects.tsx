@@ -107,7 +107,7 @@ export function Projects() {
   const utils = api.useUtils();
   const projects = api.project.getAll.useQuery();
 
-  const createProject = api.project.create.useMutation({
+  api.project.create.useMutation({
     onSuccess: () => {
       setProjectName("");
       setStatus("ACTIVE");

@@ -1,5 +1,5 @@
 import { Modal, TextInput, Textarea, Button, Group, ActionIcon, Select } from '@mantine/core';
-import { IconCalendar, IconFlag, IconAlarm, IconDots } from '@tabler/icons-react';
+import { IconCalendar, IconAlarm, IconDots } from '@tabler/icons-react';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { type RouterOutputs } from "~/trpc/react";

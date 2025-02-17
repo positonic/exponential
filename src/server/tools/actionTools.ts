@@ -35,7 +35,7 @@ export const createActionTools = (ctx: any) => {
         console.log('input is ', input);
         
         // Clean up projectId - convert empty string to null
-        const projectId = input.projectId && input.projectId.trim() !== '' ? input.projectId : null;
+        // const projectId = input.projectId && input.projectId.trim() !== '' ? input.projectId : null;
 
         console.log('project is ', {
             data: {

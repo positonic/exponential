@@ -5,7 +5,6 @@ import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
 
 export default async function Home() {
-  const hello = await api.post.hello({ text: "from tRPC" });
   const session = await auth();
 
   if (session?.user) {

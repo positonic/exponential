@@ -4,12 +4,9 @@ import {
   Title,
   Text,
   Container,
-  Grid,
   Paper,
   Stack,
   Group,
-  List,
-  Box,
   Avatar,
 } from "@mantine/core";
 import "@mantine/core/styles.css";
