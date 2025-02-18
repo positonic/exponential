@@ -138,38 +138,44 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
           style={{
             borderColor: '#2C2E33',
           }}
-          onClick={() => handleActionClick(action)}
+          onClick={(e) => {
+            // Only open modal if we didn't click the checkbox
+            if (!(e.target as HTMLElement).closest('.checkbox-wrapper')) {
+              handleActionClick(action);
+            }
+          }}
         >
           <Group justify="space-between" align="center" wrap="nowrap">
             <Group gap="md" wrap="nowrap" className="min-w-0">
-              <Checkbox
-                size="md"
-                radius="xl"
-                checked={action.status === "COMPLETED"}
-                onChange={(event) => {
-                  event.stopPropagation();
-                  handleCheckboxChange(action.id, event.currentTarget.checked);
-                }}
-                disabled={updateAction.isPending}
-                styles={{
-                  input: {
-                    borderColor: action.priority === '1st Priority' ? 'var(--mantine-color-red-filled)' :
-                      action.priority === '2nd Priority' ? 'var(--mantine-color-orange-filled)' :
-                      action.priority === '3rd Priority' ? 'var(--mantine-color-yellow-filled)' :
-                      action.priority === '4th Priority' ? 'var(--mantine-color-green-filled)' :
-                      action.priority === '5th Priority' ? 'var(--mantine-color-blue-filled)' :
-                      action.priority === 'Quick' ? 'var(--mantine-color-violet-filled)' :
-                      action.priority === 'Scheduled' ? 'var(--mantine-color-pink-filled)' :
-                      action.priority === 'Errand' ? 'var(--mantine-color-cyan-filled)' :
-                      action.priority === 'Remember' ? 'var(--mantine-color-indigo-filled)' :
-                      action.priority === 'Watch' ? 'var(--mantine-color-grape-filled)' :
-                      '#373A40',
-                    backgroundColor: 'transparent',
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                  },
-                }}
-              />
+              <div className="checkbox-wrapper">
+                <Checkbox
+                  size="md"
+                  radius="xl"
+                  checked={action.status === "COMPLETED"}
+                  onChange={(event) => {
+                    handleCheckboxChange(action.id, event.currentTarget.checked);
+                  }}
+                  disabled={updateAction.isPending}
+                  styles={{
+                    input: {
+                      borderColor: action.priority === '1st Priority' ? 'var(--mantine-color-red-filled)' :
+                        action.priority === '2nd Priority' ? 'var(--mantine-color-orange-filled)' :
+                        action.priority === '3rd Priority' ? 'var(--mantine-color-yellow-filled)' :
+                        action.priority === '4th Priority' ? 'var(--mantine-color-green-filled)' :
+                        action.priority === '5th Priority' ? 'var(--mantine-color-blue-filled)' :
+                        action.priority === 'Quick' ? 'var(--mantine-color-violet-filled)' :
+                        action.priority === 'Scheduled' ? 'var(--mantine-color-pink-filled)' :
+                        action.priority === 'Errand' ? 'var(--mantine-color-cyan-filled)' :
+                        action.priority === 'Remember' ? 'var(--mantine-color-indigo-filled)' :
+                        action.priority === 'Watch' ? 'var(--mantine-color-grape-filled)' :
+                        '#373A40',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                    },
+                  }}
+                />
+              </div>
               <Text className="truncate">{action.name}</Text>
             </Group>
             {action.dueDate && (
