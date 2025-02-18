@@ -127,7 +127,9 @@ export function Projects() {
         <ProjectList projects={projects.data ?? []} />
       </div>
       <br/>
-      <CreateProjectModal />
+      <CreateProjectModal>
+        <div>Create Project</div>
+      </CreateProjectModal>
     </div>
   );
 } 

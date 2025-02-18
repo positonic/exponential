@@ -11,7 +11,7 @@ export function TodayActions() {
     <div className="w-full max-w-3xl mx-auto">
       <ActionList viewName="Today" actions={todayActions.data ?? []} />
       <div className="mt-6">
-        <CreateActionModal />
+        <CreateActionModal viewName="Today" />
       </div>
     </div>
   );
