@@ -77,7 +77,7 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
         priority: newAction.priority ?? "Quick",
         projectId: newAction.projectId ?? null,
         createdById: previousState.projects?.[0]?.createdById ?? "",
-        dueDate: new Date(), // Set to today by default for now
+        dueDate: newAction.dueDate ?? null,
         project: newAction.projectId 
           ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
           : null,
@@ -160,12 +160,25 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
       return;
     }
 
+    const getDueDate = () => {
+      const viewNameLower = viewName.toLowerCase();
+      if (viewNameLower === 'today') {
+        return new Date();
+      }
+      if (viewNameLower === 'upcoming') {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return tomorrow;
+      }
+      return undefined;
+    };
+
     const actionData = {
       name,
       description: description || undefined,
       projectId: projectId || undefined,
       priority: priority || "Quick",
-      ...(viewName.toLowerCase() === 'today' && { dueDate: new Date() }),
+      dueDate: getDueDate(),
     };
 
     console.log("Creating action with:", actionData);
