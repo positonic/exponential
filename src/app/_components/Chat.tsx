@@ -12,7 +12,6 @@ import {
   Group, 
   Text,
   Box,
-  Space,
   ActionIcon
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
@@ -89,11 +88,11 @@ export default function Chat() {
     }
   };
 
-  const handleMicClick = () => {
+  const handleMicClick = async () => {
     if (isRecording) {
       stopRecording();
     } else {
-      startRecording();
+      await startRecording();
     }
   };
 

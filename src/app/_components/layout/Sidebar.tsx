@@ -5,10 +5,9 @@ import {
   IconCalendarEvent,
   IconCalendarTime,
   IconChevronDown,
-  IconPlus,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/server";
-import { type RouterOutputs } from "~/trpc/react";
+import { AddProjectButton } from "../AddProjectButton";
 //type Project = RouterOutputs["project"]["getAll"][0];
 
 export default async function Sidebar() {
@@ -59,9 +58,7 @@ export default async function Sidebar() {
           <div className="flex items-center justify-between px-3 py-2 text-gray-400">
             <span className="text-sm font-medium">My Projects</span>
             <div className="flex items-center gap-2">
-              <button className="hover:text-gray-300">
-                <IconPlus className="h-4 w-4" />
-              </button>
+              <AddProjectButton />
               <button className="hover:text-gray-300">
                 <IconChevronDown className="h-4 w-4" />
               </button>

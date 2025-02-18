@@ -48,7 +48,7 @@ export const authConfig = {
         id: user.id,
       },
     }),
-    signIn: async ({ user, account, profile }) => {
+    signIn: async ({ user, account }) => {
       // Allow sign in if the user doesn't exist yet
       if (!user.email) {
         return true;

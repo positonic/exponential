@@ -2,7 +2,6 @@
 
 import { Button, Stack } from "@mantine/core";
 import { IconBrandDiscord, IconBrandGoogle } from "@tabler/icons-react";
-import { useState } from "react";
 import { signIn } from "next-auth/react";
 
 export function SignInButtons() {
