@@ -1,7 +1,7 @@
 'use client';
 
 import { Button, Stack } from "@mantine/core";
-import { IconBrandDiscord } from "@tabler/icons-react";
+import { IconBrandDiscord, IconBrandGoogle } from "@tabler/icons-react";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 
@@ -57,9 +57,22 @@ export function SignInButtons() {
       {/* Auth Options */}
       <Stack gap="sm">
         <Button
-          component="a"
+          onClick={() => signIn("google", { callbackUrl: "/" })}
+          size="lg"
+          variant="outline"
+          leftSection={<IconBrandGoogle size={20} />}
+          className="border-gray-700/50 hover:border-gray-600 hover:bg-gray-800/50 transition-all"
+          styles={{
+            root: {
+              color: '#E5E7EB',
+            },
+          }}
+        >
+          Continue with Google
+        </Button>
+
+        <Button
           onClick={() => signIn("discord", { callbackUrl: "/" })}
-          // href="/api/auth/signin/discord"
           size="lg"
           variant="outline"
           leftSection={<IconBrandDiscord size={20} />}
