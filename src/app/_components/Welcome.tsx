@@ -13,7 +13,7 @@ export function Welcome() {
         </Text>
         <Button
           component={Link}
-          href="/api/auth/signin"
+          href="/use-the-force"
           size="lg"
           radius="md"
           className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all"

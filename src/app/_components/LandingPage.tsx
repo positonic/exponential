@@ -10,6 +10,8 @@ import {
   Avatar,
 } from "@mantine/core";
 import "@mantine/core/styles.css";
+import Link from "next/link";
+
 export function LandingPage() {
   return (
     <Container size="xl" className="py-16">
@@ -23,9 +25,11 @@ export function LandingPage() {
           productivity system that actually works.
         </Text>
         <Group gap="md">
-          <Button size="lg" color="blue">
-            Get Started
-          </Button>
+          <Link href="/use-the-force">
+            <Button size="lg" color="blue">
+              Get Started
+            </Button>
+          </Link>
           <Button size="lg" variant="outline">
             Watch Demo
           </Button>
@@ -94,8 +98,8 @@ export function LandingPage() {
           className="mx-auto max-w-2xl"
         >
           <Text size="xl" fs="italic" className="mb-4">
-            &ldquo;Life OS has completely transformed how I manage my projects. It&apos;s
-            like having a personal assistant that never sleeps.&rdquo;
+            &ldquo;Life OS has completely transformed how I manage my projects.
+            It&apos;s like having a personal assistant that never sleeps.&rdquo;
           </Text>
           <Group>
             <Avatar
@@ -117,9 +121,11 @@ export function LandingPage() {
           Join thousands of productive professionals and take control of your
           workflow today.
         </Text>
-        <Button size="lg" color="blue">
-          Sign Up Now
-        </Button>
+        <Link href="/use-the-force">
+          <Button size="lg" color="blue">
+            Sign Up Now
+          </Button>
+        </Link>
       </Stack>
     </Container>
   );
