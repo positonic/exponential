@@ -8,6 +8,9 @@ import {
 } from "@tabler/icons-react";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
+import { InboxCount } from "./InboxCount";
+import { TodayCount } from "./TodayCount";
+import { UpcomingCount } from "./UpcomingCount";
 
 export default async function Sidebar() {
   const session = await auth();
@@ -29,7 +32,7 @@ export default async function Sidebar() {
         >
           <IconInbox className="mr-3 h-5 w-5" />
           <span>Inbox</span>
-          <span className="ml-auto text-gray-500">12</span>
+          <InboxCount />
         </Link>
         <Link
           href="/today"
@@ -37,7 +40,7 @@ export default async function Sidebar() {
         >
           <IconCalendarEvent className="mr-3 h-5 w-5" />
           <span>Today</span>
-          <span className="ml-auto text-gray-500">1</span>
+          <TodayCount />
         </Link>
         <Link
           href="/upcoming"
@@ -45,6 +48,7 @@ export default async function Sidebar() {
         >
           <IconCalendarTime className="mr-3 h-5 w-5" />
           <span>Upcoming</span>
+          <UpcomingCount />
         </Link>
 
         <div className="mt-6">
