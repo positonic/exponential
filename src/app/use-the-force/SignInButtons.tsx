@@ -1,12 +1,12 @@
 'use client';
 
-import { Button, TextInput, Stack, Group, Text } from "@mantine/core";
-import { IconBrandGoogle, IconMail, IconBrandDiscord } from "@tabler/icons-react";
+import { Button, Stack } from "@mantine/core";
+import { IconBrandDiscord } from "@tabler/icons-react";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 
 export function SignInButtons() {
-  const [email, setEmail] = useState("");
+  //const [email, setEmail] = useState("");
 
   return (
     <Stack gap="md">

@@ -13,7 +13,7 @@ export function CreateProjectModal() {
   const [status, setStatus] = useState<ProjectStatus>("ACTIVE");
   const [priority, setPriority] = useState<ProjectPriority>("NONE");
   const [progress, setProgress] = useState(0);
-  const [slug, setSlug] = useState("");
+  const [, setSlug] = useState("");
   const [reviewDate, setReviewDate] = useState("");
   const [nextActionDate, setNextActionDate] = useState("");
 

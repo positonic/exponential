@@ -9,7 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { api } from "~/trpc/server";
 import { type RouterOutputs } from "~/trpc/react";
-type Project = RouterOutputs["project"]["getAll"][0];
+//type Project = RouterOutputs["project"]["getAll"][0];
 
 export default async function Sidebar() {
   const session = await auth();
