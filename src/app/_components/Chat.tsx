@@ -43,7 +43,16 @@ export default function Chat() {
   const chunksRef = useRef<Blob[]>([]);
   const viewport = useRef<HTMLDivElement>(null);
 
-  const asanaChat = api.tools.chat.useMutation();
+  const utils = api.useUtils();
+  const asanaChat = api.tools.chat.useMutation({
+    onSuccess: async () => {
+      // Invalidate all action-related queries to refresh counts
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.action.getToday.invalidate()
+      ]);
+    }
+  });
   const transcribeAudio = api.tools.transcribe.useMutation();
 //const transcribeAudio = api.tools.transcribeFox.useMutation(); 
   // Scroll to bottom when messages change
