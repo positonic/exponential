@@ -44,7 +44,8 @@ export default function Chat() {
   const viewport = useRef<HTMLDivElement>(null);
 
   const asanaChat = api.tools.chat.useMutation();
-
+  const transcribeAudio = api.tools.transcribe.useMutation();
+//const transcribeAudio = api.tools.transcribeFox.useMutation(); 
   // Scroll to bottom when messages change
   useEffect(() => {
     if (viewport.current) {
@@ -67,10 +68,26 @@ export default function Chat() {
 
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        // Here you would typically send the audioBlob to your server
-        // For now, we'll just log it
-        console.log('Recording stopped, blob created:', audioBlob);
         stream.getTracks().forEach(track => track.stop());
+        
+        try {
+          // Convert blob to base64
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            const base64Audio = typeof reader.result === 'string' 
+              ? reader.result.split(',')[1]
+              : '';
+            if (base64Audio) {
+              const result = await transcribeAudio.mutateAsync({ audio: base64Audio });
+              if (result.text) {
+                setInput(result.text);
+              }
+            }
+          };
+        } catch (error) {
+          console.error('Transcription error:', error);
+        }
       };
 
       mediaRecorder.start();

@@ -8,6 +8,11 @@ import { createAddVideoTool } from "~/server/tools/addVideoTool";
 import { gmTool } from "~/server/tools/gmTool";
 import { createVideoSearchTool } from "~/server/tools/videoSearchTool";
 import { createActionTools } from "~/server/tools/actionTools";
+import OpenAI from "openai";
+import fs from "fs";
+import path from "path";
+import os from "os";
+import { createReadStream } from "fs";
 
 const adderSchema = z.object({
     a: z.number(),
@@ -26,6 +31,10 @@ const adderSchema = z.object({
     }
   );
 
+// Initialize the OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY // Your API key here
+});
 
 export const toolRouter = createTRPCRouter({
   chat: protectedProcedure
@@ -137,5 +146,56 @@ export const toolRouter = createTRPCRouter({
             console.error('Error:', error);
             throw new Error(`AI chat error: ${error instanceof Error ? error.message : String(error)}`);
         }
-    })
+    }),
+    transcribe: protectedProcedure
+    .input(z.object({ audio: z.string() }))
+    .mutation(async ({ input }) => {
+      try {
+        const tmpFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`);
+        await fs.promises.writeFile(tmpFilePath, Buffer.from(input.audio, "base64"));
+
+        const transcription = await openai.audio.transcriptions.create({
+          file: createReadStream(tmpFilePath),
+          model: "whisper-1",
+          response_format: "text"
+        });
+
+        // Clean up the temporary file
+        await fs.promises.unlink(tmpFilePath);
+        
+        return { text: transcription };
+      } catch (error) {
+        console.error('Error during transcription:', error);
+        throw error;
+      }
+    }),
+    transcribeFox: protectedProcedure
+    .input(z.object({ audio: z.string() }))
+    .mutation(async ({ input }) => {
+      try {
+        const formData = new FormData();
+        console.log('input.audio', input.audio);
+        formData.append('file', new Blob([await fs.promises.readFile(input.audio)]));
+        formData.append('language', 'english');
+        formData.append('response_format', 'json');
+
+        const response = await fetch('https://api.lemonfox.ai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.LEMONFOX_API_KEY}`
+          },
+          body: formData
+        });
+
+        if (!response.ok) {
+          throw new Error(`Lemonfox API error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        return { text: data.text };
+      } catch (error) {
+        console.error('Error during Lemonfox transcription:', error);
+        throw error;
+      }
+    }),
 }); 
