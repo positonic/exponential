@@ -103,31 +103,29 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
     <>
       <Group justify="space-between" mb="md" className="flex-col sm:flex-row gap-4">
         <h2 className="text-2xl font-bold">Actions</h2>
-        <SegmentedControl
-          value={filter}
-          onChange={(value) => setFilter(value as "ACTIVE" | "COMPLETED")}
-          data={[
-            { label: 'Active', value: 'ACTIVE' },
-            { label: 'Completed', value: 'COMPLETED' },
-          ]}
-          styles={{
-            root: {
-              backgroundColor: '#262626',
-              border: '1px solid #2C2E33',
-              width: '100%',
-              '@media (min-width: 640px)': {
-                width: 'auto',
+        <div className="w-full sm:w-auto">
+          <SegmentedControl
+            value={filter}
+            onChange={(value) => setFilter(value as "ACTIVE" | "COMPLETED")}
+            data={[
+              { label: 'Active', value: 'ACTIVE' },
+              { label: 'Completed', value: 'COMPLETED' },
+            ]}
+            styles={{
+              root: {
+                backgroundColor: '#262626',
+                border: '1px solid #2C2E33',
               },
-            },
-            label: {
-              color: '#C1C2C5',
-              padding: '8px 16px',
-            },
-            indicator: {
-              backgroundColor: '#333',
-            },
-          }}
-        />
+              label: {
+                color: '#C1C2C5',
+                padding: '8px 16px',
+              },
+              indicator: {
+                backgroundColor: '#333',
+              },
+            }}
+          />
+        </div>
       </Group>
 
       {filteredActions.map((action) => (
