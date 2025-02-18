@@ -18,13 +18,13 @@ export function LandingPage() {
       {/* Hero Section */}
       <Stack align="center" className="mb-16 text-center">
         <Title order={1} className="mb-6 text-5xl font-bold leading-tight">
-          Force Flow: Your All-in-One Personal Command Center
+          Harness Your Inner Force, Unleash Your Flow.
         </Title>
         <Text size="xl" c="dimmed" className="mb-8">
           Transform the way you manage your life and projects with an AI-powered
           productivity system that actually works.
         </Text>
-        <Group gap="md">
+        <Group gap="md" justify="center" wrap="wrap">
           <Link href="/use-the-force">
             <Button size="lg" color="blue">
               Get Started
@@ -98,8 +98,8 @@ export function LandingPage() {
           className="mx-auto max-w-2xl"
         >
           <Text size="xl" fs="italic" className="mb-4">
-            &ldquo;Force Flow has completely transformed how I manage my projects.
-            It&apos;s like having a personal assistant that never sleeps.&rdquo;
+            &ldquo;Force Flow is a dream come true.
+            Nothing can stop me now, not even me!
           </Text>
           <Group>
             <Avatar

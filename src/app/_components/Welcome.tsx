@@ -6,7 +6,7 @@ export function Welcome() {
     <Container size="md" className="h-screen flex items-center justify-center">
       <Stack align="center" gap="xl">
         <Title order={1} className="text-5xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
-          Welcome to 🧘‍♂️ LifeOS
+          Welcome to 🧘‍♂️ Force Flow
         </Title>
         <Text c="dimmed" size="xl" ta="center" className="max-w-lg">
           Organize your tasks, boost your productivity, and achieve your goals with our powerful task management system.

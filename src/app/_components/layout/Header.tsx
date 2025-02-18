@@ -11,7 +11,7 @@ export default async function Header() {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-[#121212] border-b border-gray-800">
       <div className="flex justify-between items-center px-4 py-3">
-        <Link href="/" className="text-xl font-bold">
+        <Link href="/" className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
           🧘‍♂️ Force Flow
         </Link>
         <Link
