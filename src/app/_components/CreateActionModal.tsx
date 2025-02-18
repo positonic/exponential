@@ -50,16 +50,23 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
   const createAction = api.action.create.useMutation({
     onMutate: async (newAction) => {
       console.log("1. onMutate started with:", newAction);
-      // Cancel any outgoing refetches
-      await utils.project.getAll.cancel();
-      await utils.action.getAll.cancel();
+      
+      // Cancel all related queries
+      const queriesToCancel = [
+        utils.project.getAll,
+        utils.action.getAll,
+        utils.action.getToday,
+      ];
+      await Promise.all(queriesToCancel.map(query => query.cancel()));
       console.log("2. Cancelled outgoing refetches");
 
-      // Snapshot previous values
-      const previousProjects = utils.project.getAll.getData();
-      const previousActions = utils.action.getAll.getData();
-      console.log("3. Previous projects:", previousProjects);
-      console.log("3a. Previous actions:", previousActions);
+      // Snapshot all previous states
+      const previousState = {
+        projects: utils.project.getAll.getData(),
+        actions: utils.action.getAll.getData(),
+        todayActions: utils.action.getToday.getData(),
+      };
+      console.log("3. Previous state:", previousState);
 
       // Create optimistic action
       const optimisticAction = {
@@ -69,73 +76,74 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
         status: "ACTIVE",
         priority: newAction.priority ?? "Quick",
         projectId: newAction.projectId ?? null,
-        createdById: previousProjects?.[0]?.createdById ?? "",
-        dueDate: null,
+        createdById: previousState.projects?.[0]?.createdById ?? "",
+        dueDate: new Date(), // Set to today by default for now
         project: newAction.projectId 
-          ? previousProjects?.find(p => p.id === newAction.projectId) ?? null
+          ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
           : null,
       } satisfies Action;
 
-      // Optimistically update actions
-      utils.action.getAll.setData(undefined, (old) => {
-        console.log("4. Updating actions list");
-        if (!old) return [optimisticAction];
-        return [...old, optimisticAction];
-      });
+      // Helper function to add action to a list
+      const addActionToList = (list: Action[] | undefined) => {
+        if (!list) return [optimisticAction];
+        return [...list, optimisticAction];
+      };
 
-      // Optimistically update projects if this action belongs to a project
-      if (newAction.projectId) {
-        console.log("5. Updating project:", newAction.projectId);
-        utils.project.getAll.setData(undefined, (old) => {
-          if (!old) {
-            console.log("5a. No existing projects, returning previous");
-            return previousProjects;
-          }
-          const updatedProjects = old.map(project => {
-            if (project.id === newAction.projectId) {
-              console.log("5b. Found matching project:", project.id);
-              console.log("5b-1. Project actions:", project.actions);
-              const updatedProject = {
-                ...project,
-                actions: Array.isArray(project.actions) 
-                  ? [...project.actions, optimisticAction]
-                  : [optimisticAction],
-              };
-              console.log("5c. Updated project actions:", updatedProject.actions.length);
-              return updatedProject;
-            }
-            return project;
-          });
-          console.log("5d. Returning updated projects");
-          return updatedProjects;
-        });
-      } else {
-        console.log("5. No projectId, skipping project update");
+      // Update all action lists
+      utils.action.getAll.setData(undefined, addActionToList);
+
+      // Update today's actions - only if we're in the today view
+      if (viewName.toLowerCase() === 'today') {
+        utils.action.getToday.setData(undefined, addActionToList);
       }
 
-      return { previousProjects, previousActions };
+      // Update project if action belongs to one
+      if (newAction.projectId) {
+        utils.project.getAll.setData(undefined, (old) => {
+          if (!old) return previousState.projects;
+          
+          return old.map(project => 
+            project.id === newAction.projectId
+              ? {
+                  ...project,
+                  actions: Array.isArray(project.actions)
+                    ? [...project.actions, optimisticAction]
+                    : [optimisticAction],
+                }
+              : project
+          );
+        });
+      }
+
+      return previousState;
     },
+
     onError: (err, newAction, context) => {
       console.log("Error in mutation:", err);
-      // If mutation fails, restore previous values
-      if (context?.previousProjects) {
-        console.log("Restoring previous projects");
-        utils.project.getAll.setData(undefined, context.previousProjects);
-      }
-      if (context?.previousActions) {
-        console.log("Restoring previous actions");
-        utils.action.getAll.setData(undefined, context.previousActions);
-      }
+      if (!context) return;
+
+      // Restore all previous states
+      const { projects, actions, todayActions } = context;
+      utils.project.getAll.setData(undefined, projects);
+      utils.action.getAll.setData(undefined, actions);
+      utils.action.getToday.setData(undefined, todayActions);
     },
+
     onSettled: async () => {
       console.log("Mutation settled, invalidating queries");
-      // Sync with server
-      await utils.project.getAll.invalidate();
-      await utils.action.getAll.invalidate();
+      // Invalidate all related queries
+      const queriesToInvalidate = [
+        utils.project.getAll,
+        utils.action.getAll,
+        utils.action.getToday,
+      ];
+      await Promise.all(queriesToInvalidate.map(query => query.invalidate()));
       console.log("Queries invalidated");
     },
+
     onSuccess: (data) => {
       console.log("Mutation succeeded with data:", data);
+      // Reset form state
       setName("");
       setDescription("");
       setProjectId("");
@@ -152,19 +160,16 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
       return;
     }
 
-    console.log("Creating action with:", {
+    const actionData = {
       name,
       description: description || undefined,
       projectId: projectId || undefined,
       priority: priority || "Quick",
-    });
+      ...(viewName.toLowerCase() === 'today' && { dueDate: new Date() }),
+    };
 
-    createAction.mutate({
-      name,
-      description: description || undefined,
-      projectId: projectId || undefined,
-      priority: priority || "Quick",
-    });
+    console.log("Creating action with:", actionData);
+    createAction.mutate(actionData);
   };
 
   return (
@@ -190,7 +195,13 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
           }
         }}
       >
-        <div className="p-4">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSubmit();
+          }}
+          className="p-4"
+        >
           <TextInput
             placeholder="Task name"
             variant="unstyled"
@@ -261,34 +272,35 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
               </ActionIcon>
             </Group>
           </Group>
-        </div>
-        <div className="border-t border-gray-800 p-4 mt-4">
-          <Group justify="space-between">
-            <Select
-              placeholder="Select a project (optional)"
-              variant="unstyled"
-              value={projectId}
-              onChange={(value) => setProjectId(value ?? '')}
-              data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
-              styles={{
-                input: {
-                  color: '#C1C2C5',
-                },
-              }}
-            />
-            <Group>
-              <Button variant="subtle" color="gray" onClick={close}>
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleSubmit}
-                loading={createAction.isPending}
-              >
-                New action
-              </Button>
+
+          <div className="border-t border-gray-800 p-4 mt-4">
+            <Group justify="space-between">
+              <Select
+                placeholder="Select a project (optional)"
+                variant="unstyled"
+                value={projectId}
+                onChange={(value) => setProjectId(value ?? '')}
+                data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
+                styles={{
+                  input: {
+                    color: '#C1C2C5',
+                  },
+                }}
+              />
+              <Group>
+                <Button variant="subtle" color="gray" onClick={close}>
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit"
+                  loading={createAction.isPending}
+                >
+                  New action
+                </Button>
+              </Group>
             </Group>
-          </Group>
-        </div>
+          </div>
+        </form>
       </Modal>
     </>
   );
