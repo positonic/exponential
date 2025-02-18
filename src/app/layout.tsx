@@ -28,8 +28,8 @@ const theme = createTheme({
 });
 
 export const metadata: Metadata = {
-  title: 'Life OS | Your All-in-One Personal Command Center',
-  description: 'Transform your productivity with Life OS - an AI-powered personal management system that helps you organize tasks, track projects, and make better decisions. Features smart project management, semantic search, and intelligent insights.',
+  title: 'Force Flow | Maybe the flow be with you',
+  description: 'Transform your productivity with Force Flow - an AI-powered personal management system that helps you organize tasks, track projects, and make better decisions. Features smart project management, semantic search, and intelligent insights.',
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 

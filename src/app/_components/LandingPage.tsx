@@ -18,7 +18,7 @@ export function LandingPage() {
       {/* Hero Section */}
       <Stack align="center" className="mb-16 text-center">
         <Title order={1} className="mb-6 text-5xl font-bold leading-tight">
-          Life OS: Your All-in-One Personal Command Center
+          Force Flow: Your All-in-One Personal Command Center
         </Title>
         <Text size="xl" c="dimmed" className="mb-8">
           Transform the way you manage your life and projects with an AI-powered
@@ -98,7 +98,7 @@ export function LandingPage() {
           className="mx-auto max-w-2xl"
         >
           <Text size="xl" fs="italic" className="mb-4">
-            &ldquo;Life OS has completely transformed how I manage my projects.
+            &ldquo;Force Flow has completely transformed how I manage my projects.
             It&apos;s like having a personal assistant that never sleeps.&rdquo;
           </Text>
           <Group>

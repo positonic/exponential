@@ -12,7 +12,7 @@ export default async function Header() {
     <header className="fixed top-0 left-0 right-0 z-50 bg-[#121212] border-b border-gray-800">
       <div className="flex justify-between items-center px-4 py-3">
         <Link href="/" className="text-xl font-bold">
-          🧘‍♂️ Life OS
+          🧘‍♂️ Force Flow
         </Link>
         <Link
           href="/use-the-force"

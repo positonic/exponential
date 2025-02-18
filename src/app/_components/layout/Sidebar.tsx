@@ -28,7 +28,7 @@ export default async function Sidebar() {
     <aside className="w-full sm:w-64 border-r border-gray-800 p-4 flex flex-col h-screen bg-[#262626]">
       <nav className="flex-grow space-y-2 mt-12 lg:mt-0">
         <Link href="/" className="pl-3 mb-5 text-xl font-bold">
-          🧘‍♂️ Life OS<br/><br/>
+          🧘‍♂️ Force Flow<br/><br/>
         </Link>
         
         <Link
