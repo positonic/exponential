@@ -27,12 +27,12 @@ export default async function Layout({ children }: PropsWithChildren) {
 
       <div className="flex">
         {/* Desktop Sidebar - server rendered */}
-        <div className="hidden lg:block">
+        <div className="hidden lg:block flex-shrink-0">
           <Sidebar />
         </div>
 
         {/* Main content */}
-        <main className="flex-1 p-4 lg:p-8 w-full lg:ml-64">
+        <main className="flex-1 p-4 lg:p-8 w-full">
           {children}
         </main>
       </div>

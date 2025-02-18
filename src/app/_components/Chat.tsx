@@ -110,15 +110,14 @@ export default function Chat() {
   };
 
   return (
-    <>
       <Paper 
         shadow="md" 
         radius="md" 
         p="md" 
-        withBorder 
+        w="100%"
         style={{ 
           height: '600px',
-          backgroundColor: '#262626'  // Dark background for the main container
+          backgroundColor: '#262626'
         }}
       >
         <Stack h="100%">
@@ -207,7 +206,5 @@ export default function Chat() {
         </Stack>
       </Paper>
 
-      <Space h="xl" />
-    </>
   );
 }

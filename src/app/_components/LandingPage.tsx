@@ -14,7 +14,7 @@ import Link from "next/link";
 
 export function LandingPage() {
   return (
-    <Container size="xl" className="py-16">
+    <Container size="xl" className="py-16" >
       {/* Hero Section */}
       <Stack align="center" className="mb-16 text-center">
         <Title order={1} className="mb-6 text-5xl font-bold leading-tight">

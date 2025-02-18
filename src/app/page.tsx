@@ -7,11 +7,9 @@ import { Suspense } from "react";
 export default async function Home() {
   return (
     <HydrateClient>
-      <main className="min-h-screen w-full bg-gradient-to-b from-[#111111] to-[#212121] text-white">       
-        <Suspense fallback={<div>Loading...</div>}>
-          <HomeContent />
-        </Suspense>
-      </main>
+      <Suspense fallback={<div>Loading...</div>}>
+        <HomeContent />
+      </Suspense>
     </HydrateClient>
   );
 }
