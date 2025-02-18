@@ -159,7 +159,7 @@ export default function Chat() {
   return (
       <Paper 
         shadow="md" 
-        radius="md" 
+        radius="sm"
         p="md" 
         w="100%"
         style={{ 
@@ -225,8 +225,8 @@ export default function Chat() {
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Type your message..."
                 style={{ flex: 1 }}
-                radius="xl"
-                size="md"
+                radius="sm"
+                size="lg"
                 styles={{
                   input: {
                     backgroundColor: '#2C2E33',
@@ -236,13 +236,15 @@ export default function Chat() {
                     }
                   }
                 }}
+                rightSectionWidth={100}
                 rightSection={
-                  <Group gap={4} mr={4}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <ActionIcon
                       onClick={handleMicClick}
                       variant="subtle"
                       color={isRecording ? "red" : "gray"}
                       className={isRecording ? "animate-pulse" : ""}
+                      size="sm"
                     >
                       {isRecording ? (
                         <IconMicrophoneOff size={16} />
@@ -252,13 +254,13 @@ export default function Chat() {
                     </ActionIcon>
                     <Button 
                       type="submit" 
-                      radius="xl" 
-                      size="xs"
+                      radius="sm"
+                      size="sm"
                       variant="filled"
                     >
                       <IconSend size={16} />
                     </Button>
-                  </Group>
+                  </div>
                 }
               />
             </Group>
