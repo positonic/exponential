@@ -58,8 +58,8 @@ export default async function Sidebar() {
   });
 
   return (
-    <aside className="w-64 border-r border-gray-800 p-4 flex flex-col h-[calc(100vh-64px)] bg-[#262626]">
-      <nav className="flex-grow space-y-2">
+    <aside className="w-full sm:w-64 border-r border-gray-800 p-4 flex flex-col h-screen bg-[#262626]">
+      <nav className="flex-grow space-y-2 mt-12 lg:mt-0">
         <Link href="/" className="pl-3 mb-5 text-xl font-bold">
           🧘‍♂️ Life OS<br/><br/>
         </Link>

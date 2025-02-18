@@ -102,7 +102,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
 
   return (
     <>
-      <Group justify="space-between" mb="md">
+      <Group justify="space-between" mb="md" className="flex-col sm:flex-row gap-4">
         <h2 className="text-2xl font-bold">Actions</h2>
         <SegmentedControl
           value={filter}
@@ -115,9 +115,14 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
             root: {
               backgroundColor: '#262626',
               border: '1px solid #2C2E33',
+              width: '100%',
+              '@media (min-width: 640px)': {
+                width: 'auto',
+              },
             },
             label: {
-              color: '#C1C2C5',  
+              color: '#C1C2C5',
+              padding: '8px 16px',
             },
             indicator: {
               backgroundColor: '#333',
@@ -131,15 +136,15 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
           key={action.id}
           p="md"
           withBorder
-          className="transition-all hover:shadow-md cursor-pointer"
+          className="transition-all hover:shadow-md cursor-pointer mb-3"
           bg="#262626"
           style={{
             borderColor: '#2C2E33',
           }}
           onClick={() => handleActionClick(action)}
         >
-          <Group justify="space-between" align="center">
-            <Group gap="md">
+          <Group justify="space-between" align="center" wrap="nowrap">
+            <Group gap="md" wrap="nowrap" className="min-w-0">
               <Checkbox
                 size="md"
                 radius="xl"
@@ -164,48 +169,16 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
                       '#373A40',
                     backgroundColor: 'transparent',
                     cursor: 'pointer',
+                    flexShrink: 0,
                   },
                 }}
               />
-              <div>
-                <Group gap="xs">
-                  <Text size="md" fw={500} c="#C1C2C5">
-                    {action.name}
-                  </Text>
-                  <Badge 
-                    variant="filled"
-                    color={
-                      action.priority === '1st Priority' ? 'red' :
-                      action.priority === '2nd Priority' ? 'orange' :
-                      action.priority === '3rd Priority' ? 'yellow' :
-                      action.priority === '4th Priority' ? 'green' :
-                      action.priority === '5th Priority' ? 'blue' :
-                      action.priority === 'Quick' ? 'violet' :
-                      action.priority === 'Scheduled' ? 'pink' :
-                      action.priority === 'Errand' ? 'cyan' :
-                      action.priority === 'Remember' ? 'indigo' :
-                      action.priority === 'Watch' ? 'grape' :
-                      'gray'
-                    }
-                  >
-                    {action.priority.split(' ')[0]}
-                  </Badge>
-                </Group>
-                {action.description && (
-                  <Text size="sm" c="#909296">
-                    {action.description}
-                  </Text>
-                )}
-              </div>
+              <Text className="truncate">{action.name}</Text>
             </Group>
-
             {action.dueDate && (
-              <Group gap="xs" c="#909296">
-                <IconCalendar size={16} />
-                <Text size="sm">
-                  {new Date(action.dueDate).toLocaleDateString()}
-                </Text>
-              </Group>
+              <Text size="sm" c="dimmed" className="hidden sm:block">
+                {action.dueDate.toLocaleDateString()}
+              </Text>
             )}
           </Group>
         </Paper>

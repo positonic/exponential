@@ -4,7 +4,30 @@ import { IconCalendar, IconFlag, IconAlarm, IconDots } from '@tabler/icons-react
 import { useState } from "react";
 import { api } from "~/trpc/react";
 
-type ActionPriority = "Quick" | "Scheduled" | "1st Priority" | "2nd Priority" | "3rd Priority" | "4th Priority" | "5th Priority" | "Errand" | "Remember" | "Watch" | "Someday Maybe";
+type ActionPriority = 
+  | "1st Priority"
+  | "2nd Priority"
+  | "3rd Priority"
+  | "4th Priority"
+  | "5th Priority"
+  | "Quick"
+  | "Scheduled"
+  | "Errand"
+  | "Remember"
+  | "Watch";
+
+const PRIORITY_OPTIONS: ActionPriority[] = [
+  "1st Priority",
+  "2nd Priority",
+  "3rd Priority",
+  "4th Priority",
+  "5th Priority",
+  "Quick",
+  "Scheduled",
+  "Errand",
+  "Remember",
+  "Watch"
+];
 
 export function CreateActionModal() {
   const [opened, { open, close }] = useDisclosure(false);
@@ -50,12 +73,16 @@ export function CreateActionModal() {
         size="lg"
         radius="md"
         padding="lg"
+        fullScreen={window.innerWidth < 640}
         styles={{
           header: { display: 'none' },
           body: { padding: 0 },
           content: {
             backgroundColor: '#262626',
             color: '#C1C2C5',
+          },
+          inner: {
+            padding: '16px',
           }
         }}
       >
@@ -74,6 +101,9 @@ export function CreateActionModal() {
                   color: '#C1C2C5',
                 },
               },
+              wrapper: {
+                width: '100%',
+              }
             }}
           />
           
@@ -89,22 +119,43 @@ export function CreateActionModal() {
                   color: '#909296',
                 },
               },
+              wrapper: {
+                width: '100%',
+              }
             }}
           />
 
-          <Group gap="xs" mt="md">
-            <ActionIcon variant="subtle" color="gray" radius="xl">
-              <IconCalendar size={20} />
-            </ActionIcon>
-            <ActionIcon variant="subtle" color="gray" radius="xl">
-              <IconFlag size={20} />
-            </ActionIcon>
-            <ActionIcon variant="subtle" color="gray" radius="xl">
-              <IconAlarm size={20} />
-            </ActionIcon>
-            <ActionIcon variant="subtle" color="gray" radius="xl">
-              <IconDots size={20} />
-            </ActionIcon>
+          <Group gap="xs" mt="md" className="flex-wrap">
+            <Select
+              placeholder="Priority"
+              value={priority}
+              onChange={(value) => setPriority(value as ActionPriority)}
+              data={PRIORITY_OPTIONS.map(p => ({ value: p, label: p }))}
+              className="w-full sm:w-auto"
+              styles={{
+                input: {
+                  backgroundColor: '#262626',
+                  color: '#C1C2C5',
+                  borderColor: '#373A40',
+                },
+                dropdown: {
+                  backgroundColor: '#262626',
+                  borderColor: '#373A40',
+                  color: '#C1C2C5',
+                },
+              }}
+            />
+            <Group gap="xs" className="w-full sm:w-auto justify-center sm:justify-start">
+              <ActionIcon variant="subtle" color="gray" radius="xl">
+                <IconCalendar size={20} />
+              </ActionIcon>
+              <ActionIcon variant="subtle" color="gray" radius="xl">
+                <IconAlarm size={20} />
+              </ActionIcon>
+              <ActionIcon variant="subtle" color="gray" radius="xl">
+                <IconDots size={20} />
+              </ActionIcon>
+            </Group>
           </Group>
         </div>
 
