@@ -52,61 +52,68 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
       console.log("1. onMutate started with:", newAction);
       // Cancel any outgoing refetches
       await utils.project.getAll.cancel();
+      await utils.action.getAll.cancel();
       console.log("2. Cancelled outgoing refetches");
 
       // Snapshot previous values
       const previousProjects = utils.project.getAll.getData();
+      const previousActions = utils.action.getAll.getData();
       console.log("3. Previous projects:", previousProjects);
+      console.log("3a. Previous actions:", previousActions);
+
+      // Create optimistic action
+      const optimisticAction = {
+        id: `temp-${Date.now()}`,
+        name: newAction.name,
+        description: newAction.description ?? null,
+        status: "ACTIVE",
+        priority: newAction.priority ?? "Quick",
+        projectId: newAction.projectId ?? null,
+        createdById: previousProjects?.[0]?.createdById ?? "",
+        dueDate: null,
+        project: newAction.projectId 
+          ? previousProjects?.find(p => p.id === newAction.projectId) ?? null
+          : null,
+      } satisfies Action;
+
+      // Optimistically update actions
+      utils.action.getAll.setData(undefined, (old) => {
+        console.log("4. Updating actions list");
+        if (!old) return [optimisticAction];
+        return [...old, optimisticAction];
+      });
 
       // Optimistically update projects if this action belongs to a project
       if (newAction.projectId) {
-        console.log("4. Updating project:", newAction.projectId);
+        console.log("5. Updating project:", newAction.projectId);
         utils.project.getAll.setData(undefined, (old) => {
           if (!old) {
-            console.log("4a. No existing projects, returning previous");
+            console.log("5a. No existing projects, returning previous");
             return previousProjects;
           }
           const updatedProjects = old.map(project => {
             if (project.id === newAction.projectId) {
-              console.log("4b. Found matching project:", project.id);
-              console.log("4b-1. Project actions:", project.actions);
+              console.log("5b. Found matching project:", project.id);
+              console.log("5b-1. Project actions:", project.actions);
               const updatedProject = {
                 ...project,
                 actions: Array.isArray(project.actions) 
-                  ? [...project.actions, {
-                      id: `temp-${Date.now()}`,
-                      name: newAction.name,
-                      description: newAction.description ?? null,
-                      status: "ACTIVE",
-                      priority: newAction.priority ?? "Quick",
-                      projectId: newAction.projectId,
-                      createdById: project.createdById,
-                      dueDate: null,
-                    }]
-                  : [{
-                      id: `temp-${Date.now()}`,
-                      name: newAction.name,
-                      description: newAction.description ?? null,
-                      status: "ACTIVE",
-                      priority: newAction.priority ?? "Quick",
-                      projectId: newAction.projectId,
-                      createdById: project.createdById,
-                      dueDate: null,
-                    }],
+                  ? [...project.actions, optimisticAction]
+                  : [optimisticAction],
               };
-              console.log("4c. Updated project actions:", updatedProject.actions.length);
+              console.log("5c. Updated project actions:", updatedProject.actions.length);
               return updatedProject;
             }
             return project;
           });
-          console.log("4d. Returning updated projects");
+          console.log("5d. Returning updated projects");
           return updatedProjects;
         });
       } else {
-        console.log("4. No projectId, skipping project update");
+        console.log("5. No projectId, skipping project update");
       }
 
-      return { previousProjects };
+      return { previousProjects, previousActions };
     },
     onError: (err, newAction, context) => {
       console.log("Error in mutation:", err);
@@ -115,11 +122,16 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
         console.log("Restoring previous projects");
         utils.project.getAll.setData(undefined, context.previousProjects);
       }
+      if (context?.previousActions) {
+        console.log("Restoring previous actions");
+        utils.action.getAll.setData(undefined, context.previousActions);
+      }
     },
     onSettled: async () => {
       console.log("Mutation settled, invalidating queries");
       // Sync with server
       await utils.project.getAll.invalidate();
+      await utils.action.getAll.invalidate();
       console.log("Queries invalidated");
     },
     onSuccess: (data) => {
