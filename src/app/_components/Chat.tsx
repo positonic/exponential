@@ -12,9 +12,10 @@ import {
   Group, 
   Text,
   Box,
-  Space
+  Space,
+  ActionIcon
 } from '@mantine/core';
-import { IconSend } from '@tabler/icons-react';
+import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
 
 interface Message {
     type: 'system' | 'human' | 'ai' | 'tool';
@@ -38,6 +39,9 @@ export default function Chat() {
     }
   ]);
   const [input, setInput] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const viewport = useRef<HTMLDivElement>(null);
 
   const asanaChat = api.tools.chat.useMutation();
@@ -48,6 +52,50 @@ export default function Chat() {
       viewport.current.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
     }
   }, [messages]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        // Here you would typically send the audioBlob to your server
+        // For now, we'll just log it
+        console.log('Recording stopped, blob created:', audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
+      alert('Could not access microphone. Please check your permissions.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleMicClick = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,7 +220,7 @@ export default function Chat() {
           </ScrollArea>
 
           <form onSubmit={handleSubmit} style={{ marginTop: 'auto' }}>
-            <Group gap="xs">
+            <Group align="flex-end">
               <TextInput
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -182,23 +230,36 @@ export default function Chat() {
                 size="md"
                 styles={{
                   input: {
-                    backgroundColor: '#2C2E33',  // Dark input background
-                    color: '#C1C2C5',  // Light text color
+                    backgroundColor: '#2C2E33',
+                    color: '#C1C2C5',
                     '&::placeholder': {
-                      color: '#5C5F66'  // Darker placeholder text
+                      color: '#5C5F66'
                     }
                   }
                 }}
                 rightSection={
-                  <Button 
-                    type="submit" 
-                    radius="xl" 
-                    size="xs"
-                    variant="filled"
-                    style={{ marginRight: 4 }}
-                  >
-                    <IconSend size={16} />
-                  </Button>
+                  <Group gap={4} mr={4}>
+                    <ActionIcon
+                      onClick={handleMicClick}
+                      variant="subtle"
+                      color={isRecording ? "red" : "gray"}
+                      className={isRecording ? "animate-pulse" : ""}
+                    >
+                      {isRecording ? (
+                        <IconMicrophoneOff size={16} />
+                      ) : (
+                        <IconMicrophone size={16} />
+                      )}
+                    </ActionIcon>
+                    <Button 
+                      type="submit" 
+                      radius="xl" 
+                      size="xs"
+                      variant="filled"
+                    >
+                      <IconSend size={16} />
+                    </Button>
+                  </Group>
                 }
               />
             </Group>

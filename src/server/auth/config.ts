@@ -29,12 +29,14 @@ declare module "next-auth" {
 export const authConfig = {
   pages: {
     signIn: '/use-the-force',
+    error: '/use-the-force', // Custom error page
   },
   providers: [
     DiscordProvider,
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      allowDangerousEmailAccountLinking: true,
     }),
   ],
   adapter: PrismaAdapter(db),
@@ -46,5 +48,37 @@ export const authConfig = {
         id: user.id,
       },
     }),
+    signIn: async ({ user, account, profile }) => {
+      // Allow sign in if the user doesn't exist yet
+      if (!user.email) {
+        return true;
+      }
+      
+      // Check if a user exists with this email
+      const existingUser = await db.user.findUnique({
+        where: { email: user.email },
+      });
+
+      // If no user exists, allow sign in
+      if (!existingUser) {
+        return true;
+      }
+
+      // If user exists and this is the same provider they used before, allow sign in
+      if (existingUser && account?.provider) {
+        const existingAccount = await db.account.findFirst({
+          where: {
+            userId: existingUser.id,
+            provider: account.provider,
+          },
+        });
+        if (existingAccount) {
+          return true;
+        }
+      }
+
+      // Allow linking accounts with same email
+      return true;
+    },
   },
 } satisfies NextAuthConfig;
