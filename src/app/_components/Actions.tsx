@@ -11,7 +11,7 @@ export function Actions({ viewName }: { viewName: string }) {
     <div className="w-full max-w-3xl mx-auto">
      <ActionList viewName={viewName} actions={actions.data ?? []} />
      <div className="mt-6">
-        <CreateActionModal />
+        <CreateActionModal viewName={viewName}/>
       </div>
     </div>
   );

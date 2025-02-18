@@ -3,6 +3,10 @@ import { useDisclosure } from '@mantine/hooks';
 import { IconCalendar, IconAlarm, IconDots } from '@tabler/icons-react';
 import { useState } from "react";
 import { api } from "~/trpc/react";
+import { type RouterOutputs } from "~/trpc/react";
+
+type Action = RouterOutputs["action"]["getAll"][0];
+type Project = RouterOutputs["project"]["getAll"][0];
 
 type ActionPriority = 
   | "1st Priority"
@@ -14,7 +18,8 @@ type ActionPriority =
   | "Scheduled"
   | "Errand"
   | "Remember"
-  | "Watch";
+  | "Watch"
+  | "Someday Maybe";
 
 const PRIORITY_OPTIONS: ActionPriority[] = [
   "1st Priority",
@@ -29,31 +34,118 @@ const PRIORITY_OPTIONS: ActionPriority[] = [
   "Watch"
 ];
 
-export function CreateActionModal() {
+export function CreateActionModal({ viewName }: { viewName: string }) {
+  
+  const initProjectId = (viewName.includes("project-")) ? viewName.split("-")[2] : '';
+  console.log("initProjectId is ", initProjectId)
   const [opened, { open, close }] = useDisclosure(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useState(initProjectId);
   const [priority, setPriority] = useState<ActionPriority>("Quick");
 
   const utils = api.useUtils();
   const projects = api.project.getAll.useQuery();
 
   const createAction = api.action.create.useMutation({
-    onSuccess: () => {
+    onMutate: async (newAction) => {
+      console.log("1. onMutate started with:", newAction);
+      // Cancel any outgoing refetches
+      await utils.project.getAll.cancel();
+      console.log("2. Cancelled outgoing refetches");
+
+      // Snapshot previous values
+      const previousProjects = utils.project.getAll.getData();
+      console.log("3. Previous projects:", previousProjects);
+
+      // Optimistically update projects if this action belongs to a project
+      if (newAction.projectId) {
+        console.log("4. Updating project:", newAction.projectId);
+        utils.project.getAll.setData(undefined, (old) => {
+          if (!old) {
+            console.log("4a. No existing projects, returning previous");
+            return previousProjects;
+          }
+          const updatedProjects = old.map(project => {
+            if (project.id === newAction.projectId) {
+              console.log("4b. Found matching project:", project.id);
+              console.log("4b-1. Project actions:", project.actions);
+              const updatedProject = {
+                ...project,
+                actions: Array.isArray(project.actions) 
+                  ? [...project.actions, {
+                      id: `temp-${Date.now()}`,
+                      name: newAction.name,
+                      description: newAction.description ?? null,
+                      status: "ACTIVE",
+                      priority: newAction.priority ?? "Quick",
+                      projectId: newAction.projectId,
+                      createdById: project.createdById,
+                      dueDate: null,
+                    }]
+                  : [{
+                      id: `temp-${Date.now()}`,
+                      name: newAction.name,
+                      description: newAction.description ?? null,
+                      status: "ACTIVE",
+                      priority: newAction.priority ?? "Quick",
+                      projectId: newAction.projectId,
+                      createdById: project.createdById,
+                      dueDate: null,
+                    }],
+              };
+              console.log("4c. Updated project actions:", updatedProject.actions.length);
+              return updatedProject;
+            }
+            return project;
+          });
+          console.log("4d. Returning updated projects");
+          return updatedProjects;
+        });
+      } else {
+        console.log("4. No projectId, skipping project update");
+      }
+
+      return { previousProjects };
+    },
+    onError: (err, newAction, context) => {
+      console.log("Error in mutation:", err);
+      // If mutation fails, restore previous values
+      if (context?.previousProjects) {
+        console.log("Restoring previous projects");
+        utils.project.getAll.setData(undefined, context.previousProjects);
+      }
+    },
+    onSettled: async () => {
+      console.log("Mutation settled, invalidating queries");
+      // Sync with server
+      await utils.project.getAll.invalidate();
+      console.log("Queries invalidated");
+    },
+    onSuccess: (data) => {
+      console.log("Mutation succeeded with data:", data);
       setName("");
       setDescription("");
       setProjectId("");
       setPriority("Quick");
-      void utils.action.getAll.invalidate();
       close();
+      console.log("Form reset and modal closed");
     },
   });
 
   const handleSubmit = () => {
+    console.log("Submit clicked with:", { name, description, projectId, priority });
     if (!name) {
+      console.log("No name provided, returning");
       return;
     }
+
+    console.log("Creating action with:", {
+      name,
+      description: description || undefined,
+      projectId: projectId || undefined,
+      priority: priority || "Quick",
+    });
 
     createAction.mutate({
       name,
@@ -158,7 +250,6 @@ export function CreateActionModal() {
             </Group>
           </Group>
         </div>
-
         <div className="border-t border-gray-800 p-4 mt-4">
           <Group justify="space-between">
             <Select

@@ -41,13 +41,13 @@ export default function RootLayout({
   return (
     <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full`}>
       <body className="h-full bg-gradient-to-b from-[#111111] to-[#212121] ">
-        <Layout>
+        <TRPCReactProvider>
           <MantineProvider theme={theme}>
-            <TRPCReactProvider>
+            <Layout>
               {children}
-            </TRPCReactProvider>
+            </Layout>
           </MantineProvider>
-        </Layout>
+        </TRPCReactProvider>
       </body>
     </html>
   );

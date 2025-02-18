@@ -3,11 +3,17 @@ import { useDisclosure } from '@mantine/hooks';
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { slugify } from "~/utils/slugify";
+import { type RouterOutputs } from "~/trpc/react";
 
+type Project = RouterOutputs["project"]["getAll"][0];
 type ProjectStatus = "ACTIVE" | "COMPLETED" | "ON_HOLD";
 type ProjectPriority = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 
-export function CreateProjectModal() {
+interface CreateProjectModalProps {
+  children: React.ReactNode; // This will be our trigger element
+}
+
+export function CreateProjectModal({ children }: CreateProjectModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [projectName, setProjectName] = useState("");
   const [status, setStatus] = useState<ProjectStatus>("ACTIVE");
@@ -20,6 +26,44 @@ export function CreateProjectModal() {
   const utils = api.useUtils();
 
   const createProject = api.project.create.useMutation({
+    onMutate: async (newProject) => {
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await utils.project.getAll.cancel();
+
+      // Snapshot the previous value
+      const previousProjects = utils.project.getAll.getData();
+
+      // Optimistically update to the new value
+      utils.project.getAll.setData(undefined, (old) => {
+        const optimisticProject = {
+          id: `temp-${Date.now()}`,
+          name: newProject.name,
+          slug: slugify(newProject.name),
+          status: newProject.status,
+          priority: newProject.priority,
+          progress: newProject.progress,
+          reviewDate: newProject.reviewDate,
+          nextActionDate: newProject.nextActionDate,
+          createdAt: new Date(),
+          createdById: "", // Will be set by the server
+          actions: [], // Empty array for new project
+          outcomes: [], // Empty array for new project
+        };
+        return old ? [...old, optimisticProject] : [optimisticProject];
+      });
+
+      return { previousProjects };
+    },
+    onError: (err, newProject, context) => {
+      // If the mutation fails, use the context we returned above
+      if (context?.previousProjects) {
+        utils.project.getAll.setData(undefined, context.previousProjects);
+      }
+    },
+    onSettled: () => {
+      // Sync with server once mutation has settled
+      void utils.project.getAll.invalidate();
+    },
     onSuccess: () => {
       setProjectName("");
       setStatus("ACTIVE");
@@ -28,14 +72,15 @@ export function CreateProjectModal() {
       setSlug(slugify(projectName));
       setReviewDate("");
       setNextActionDate("");
-      void utils.project.getAll.invalidate();
       close();
     },
   });
 
   return (
     <>
-      <Button onClick={open}>Create Project</Button>
+      <div onClick={open}>
+        {children}
+      </div>
 
       <Modal 
         opened={opened} 
