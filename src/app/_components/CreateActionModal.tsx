@@ -37,7 +37,6 @@ const PRIORITY_OPTIONS: ActionPriority[] = [
 export function CreateActionModal({ viewName }: { viewName: string }) {
   
   const initProjectId = (viewName.includes("project-")) ? viewName.split("-")[2] : '';
-  console.log("initProjectId is ", initProjectId)
   const [opened, { open, close }] = useDisclosure(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -49,8 +48,6 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
 
   const createAction = api.action.create.useMutation({
     onMutate: async (newAction) => {
-      console.log("1. onMutate started with:", newAction);
-      
       // Cancel all related queries
       const queriesToCancel = [
         utils.project.getAll,
@@ -58,7 +55,6 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
         utils.action.getToday,
       ];
       await Promise.all(queriesToCancel.map(query => query.cancel()));
-      console.log("2. Cancelled outgoing refetches");
 
       // Snapshot all previous states
       const previousState = {
@@ -66,7 +62,6 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
         actions: utils.action.getAll.getData(),
         todayActions: utils.action.getToday.getData(),
       };
-      console.log("3. Previous state:", previousState);
 
       // Create optimistic action
       const optimisticAction = {
@@ -119,7 +114,6 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
     },
 
     onError: (err, newAction, context) => {
-      console.log("Error in mutation:", err);
       if (!context) return;
 
       // Restore all previous states
@@ -130,7 +124,6 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
     },
 
     onSettled: async () => {
-      console.log("Mutation settled, invalidating queries");
       // Invalidate all related queries
       const queriesToInvalidate = [
         utils.project.getAll,
@@ -138,27 +131,20 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
         utils.action.getToday,
       ];
       await Promise.all(queriesToInvalidate.map(query => query.invalidate()));
-      console.log("Queries invalidated");
     },
 
-    onSuccess: (data) => {
-      console.log("Mutation succeeded with data:", data);
+    onSuccess: () => {
       // Reset form state
       setName("");
       setDescription("");
       setProjectId("");
       setPriority("Quick");
       close();
-      console.log("Form reset and modal closed");
     },
   });
 
   const handleSubmit = () => {
-    console.log("Submit clicked with:", { name, description, projectId, priority });
-    if (!name) {
-      console.log("No name provided, returning");
-      return;
-    }
+    if (!name) return;
 
     const getDueDate = () => {
       const viewNameLower = viewName.toLowerCase();
@@ -181,7 +167,6 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
       dueDate: getDueDate(),
     };
 
-    console.log("Creating action with:", actionData);
     createAction.mutate(actionData);
   };
 

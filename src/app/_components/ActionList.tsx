@@ -14,37 +14,49 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
   const utils = api.useUtils();
   
   const updateAction = api.action.update.useMutation({
-    // Optimistically update the UI
     onMutate: async ({ id, status }) => {
       // Cancel outgoing refetches
-      await utils.action.getAll.cancel();
+      await Promise.all([
+        utils.action.getAll.cancel(),
+        utils.action.getToday.cancel()
+      ]);
       
-      // Snapshot the previous value
-      const previousActions = utils.action.getAll.getData();
+      // Snapshot the previous values
+      const previousState = {
+        actions: utils.action.getAll.getData(),
+        todayActions: utils.action.getToday.getData()
+      };
       
-      // Optimistically update the cache
-      utils.action.getAll.setData(undefined, (old) => {
-        if (!old) return previousActions;
+      // Helper function to update action in a list
+      const updateActionInList = (old: Action[] | undefined) => {
+        if (!old) return previousState.actions;
         return old.map((action) =>
           action.id === id 
             ? { ...action, status: status as string } 
             : action
         );
-      });
+      };
+
+      // Optimistically update both caches
+      utils.action.getAll.setData(undefined, updateActionInList);
+      utils.action.getToday.setData(undefined, updateActionInList);
       
-      return { previousActions };
+      return previousState;
     },
     
-    // If error, roll back
     onError: (err, variables, context) => {
-      if (context?.previousActions) {
-        utils.action.getAll.setData(undefined, context.previousActions);
-      }
+      if (!context) return;
+      // Restore both caches
+      utils.action.getAll.setData(undefined, context.actions);
+      utils.action.getToday.setData(undefined, context.todayActions);
     },
     
-    // After success, sync with server
-    onSettled: () => {
-      void utils.action.getAll.invalidate();
+    onSettled: async () => {
+      // Invalidate both queries
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.action.getToday.invalidate()
+      ]);
     },
   });
 
@@ -61,19 +73,13 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
     setEditModalOpened(true);
   };
 
-  console.log('viewName is:', viewName);
-  console.log('viewName ProjectID[2] is', viewName.split('-')[2]);
-  console.log('viewName ProjectID[2] actions is',  actions.filter(action => 
-    action.projectId === viewName.split('-')[2]
-  ))
-          
   // Filter the actions directly without memoization
   const filteredActions = (() => {
     const today = new Date().toISOString().split('T')[0];
     
     // First filter by date
     const dateFiltered = (() => {
-      switch (viewName) {
+      switch (viewName.toLowerCase()) {
         case 'inbox':
           return actions.filter(action => !action.projectId);
         case 'today':
@@ -87,9 +93,8 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
         default:
           // Handle project views - check if viewName starts with 'project-'
           if (viewName.startsWith('project-')) {
-            return actions.filter(action => 
-              action.projectId === viewName.split('-')[2]
-            );
+            const projectId = viewName.split('-')[2];
+            return actions.filter(action => action.projectId === projectId);
           }
           return actions;
       }
