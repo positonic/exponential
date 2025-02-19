@@ -3,12 +3,13 @@ import { tool } from "@langchain/core/tools";
 
 // Schemas for the Action CRUD operations
 const createActionSchema = z.object({
+  create: z.literal(true), // This forces the AI to explicitly declare creation
   name: z.string(),
   description: z.string(),
   dueDate: z.string().optional(), // Date will be passed as ISO string
   status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]).default("ACTIVE"),
   priority: z.enum(["Quick", "Low", "Medium", "High"]).default("Quick"),
-  projectId: z.string(),
+  projectId: z.string().optional(), // Make projectId optional
 });
 
 const readActionSchema = z.object({
@@ -26,6 +27,12 @@ const updateActionSchema = z.object({
 
 const deleteActionSchema = z.object({
   id: z.string(),
+});
+
+const retrieveActionsSchema = z.object({
+  query_type: z.enum(['today', 'date', 'all']),
+  date: z.string().optional(),
+  include_completed: z.boolean().optional().default(false),
 });
 
 export const createActionTools = (ctx: any) => {
@@ -70,7 +77,7 @@ export const createActionTools = (ctx: any) => {
     },
     {
       name: "create_action",
-      description: "Creates a new action item with name, description, optional due date, status, priority, and optional project ID. If no project is specified make projectId null",
+      description: "Creates a new action item. MUST include create: true in the input. Example: { create: true, name: 'Task name', description: 'Task description' }",
       schema: createActionSchema
     }
   );
@@ -140,10 +147,55 @@ export const createActionTools = (ctx: any) => {
     }
   );
 
+  const retrieveActionsTool = tool(
+    async (input): Promise<string> => {
+      try {
+        const where: any = { 
+          createdById: ctx.session.user.id,
+          // Default to ACTIVE status unless include_completed is true
+          ...(input.include_completed ? {} : { status: 'ACTIVE' })
+        };
+        
+        if (input.query_type === 'today') {
+          const today = new Date();
+          const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+          const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+          where.dueDate = { gte: startOfDay, lte: endOfDay };
+        } else if (input.query_type === 'date' && input.date) {
+          const targetDate = new Date(input.date);
+          const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
+          const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
+          where.dueDate = { gte: startOfDay, lte: endOfDay };
+        }
+
+        console.log('Retrieve actions where clause:', where);
+
+        const actions = await ctx.db.action.findMany({
+          where,
+          orderBy: [
+            { priority: 'desc' },
+            { dueDate: 'asc' }
+          ]
+        });
+        
+        return JSON.stringify(actions, null, 2);
+      } catch (error) {
+        console.error('Error retrieving actions:', error);
+        throw new Error(`Failed to retrieve actions: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    },
+    {
+      name: "retrieve_actions",
+      description: "Retrieves actions from the system. Use query_type='today' for today's tasks, 'date' with a specific date, or 'all' for all tasks. By default, only shows ACTIVE tasks. Set include_completed=true to include completed tasks.",
+      schema: retrieveActionsSchema
+    }
+  );
+
   return {
     createActionTool,
     readActionTool,
     updateActionTool,
     deleteActionTool,
+    retrieveActionsTool,
   };
 }; 

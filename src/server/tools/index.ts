@@ -16,5 +16,6 @@ export const getTools = (ctx: any) => {
     actionTools.readActionTool,
     actionTools.updateActionTool,
     actionTools.deleteActionTool,
+    actionTools.retrieveActionsTool
   ]
 }

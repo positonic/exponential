@@ -36,6 +36,8 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY // Your API key here
 });
 
+const today = new Date().toISOString().split('T')[0];
+
 export const toolRouter = createTRPCRouter({
   chat: protectedProcedure
     .input(z.object({
@@ -49,24 +51,44 @@ export const toolRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
         try {
+            console.log('=== Starting chat mutation with input:', input.message);
+            
             const model = new ChatOpenAI({ 
                 modelName: process.env.LLM_MODEL,
                 modelKwargs: { "tool_choice": "auto" }
             });
 
             const tools = getTools(ctx);
+            console.log('=== Available tools:', tools.map(t => ({
+                name: t.name,
+                description: t.description,
+                schema: t.schema
+            })));
+            
             const llmWithTools = model.bindTools(tools);
 
             const systemMessage = new SystemMessage(
-                "You have access to the following tools:\n" +
+                "Tools are equivalent to actions in this system. You have access to the following tools:\n" +
                 "- adder: Adds two numbers together. Use this when asked to perform addition.\n" +
                 "- video_search: Search through video transcripts semantically. Use this when asked about video content or to find specific topics in videos.\n" +
+                "- retrieve_actions: Retrieves actions from the system. Examples:\n" +
+                `  * For today's active tasks: { "query_type": "today" }\n` +
+                `  * For all tasks including completed: { "query_type": "today", "include_completed": true }\n` +
+                `  * For specific date: { "query_type": "date", "date": "${today}" }\n` +
+                `  * For all tasks: { "query_type": "all" }\n` +
+                "- create_action: Creates a new action item. MUST include create: true flag. Example:\n" +
+                "  { \"create\": true, \"name\": \"Task name\", \"description\": \"Task description\" }\n" +
                 "- add_video: Adds a YouTube video to the database. Use this when users want to analyze or process a video.\n" +
-                "- create_action: Creates a new action item with specified details.\n" +
-                "- read_action: Retrieves an action's details by ID.\n" +
+                "- read_action: Retrieves an action's details by ID. Only use this when you have a specific action ID.\n" +
                 "- update_status_action: Updates the status of an existing action. Favoured over create_action for existing actions\n" +
                 "- delete_action: Removes an action from the system.\n" +
-                "- gm: When a user says `gm` we will initiate their morning routing by asking them questions to figure out how to win the morning and the day.\n" +
+                "- gm: When a user says `gm` we will initiate their morning routing by asking them questions to figure out how to win the morning and the day.\n\n" +
+                "IMPORTANT RULES:\n" +
+                "1. When users ask what to do or about tasks, use retrieve_actions with query_type='today'. This will show only ACTIVE tasks by default.\n" +
+                "2. Only include completed tasks when specifically requested using include_completed=true\n" +
+                "3. To create tasks, you MUST use create_action with create: true\n" +
+                "4. Never try to create a task when asked to show or list tasks\n" +
+                "5. When asked about today's tasks, use retrieve_actions with query_type='today'\n" +
                 "After using a tool, always provide a natural language response explaining the result."
             );
 
@@ -82,19 +104,33 @@ export const toolRouter = createTRPCRouter({
             messages.push(new HumanMessage(input.message));
 
             let response = await llmWithTools.invoke(messages);
+            console.log('=== Initial AI response:', {
+                content: response.content,
+                tool_calls: response.tool_calls
+            });
             
             if(!response.tool_calls || response.tool_calls.length === 0) {
+                console.log('=== No tool calls made');
                 return { response: response.content };
             }
             
             // Handle tool calls
             const toolResults = await Promise.all(response.tool_calls.map(async (toolCall) => {
-                if(!toolCall || !toolCall?.args) return null;
+                if(!toolCall || !toolCall?.args) {
+                    console.log('=== Invalid tool call:', toolCall);
+                    return null;
+                }
+                
+                console.log('=== Processing tool call:', {
+                    name: toolCall.name,
+                    args: JSON.stringify(toolCall.args, null, 2)
+                });
                 
                 const actionTools = createActionTools(ctx);
                 let toolResult;
                 
                 try {
+                    console.log('********* toolCall is ', toolCall);
                     switch(toolCall.name) {
                         case "adder":
                             toolResult = await adderTool.invoke(toolCall.args as any);
@@ -117,6 +153,9 @@ export const toolRouter = createTRPCRouter({
                         case "delete_action":
                             toolResult = await actionTools.deleteActionTool.invoke(toolCall.args as any);
                             break;
+                        case "retrieve_actions":
+                            toolResult = await actionTools.retrieveActionsTool.invoke(toolCall.args as any);
+                            break;
                         case "gm":
                             toolResult = await gmTool().invoke(toolCall.args as any);
                             break;
@@ -130,8 +169,12 @@ export const toolRouter = createTRPCRouter({
                     
                     return toolResult;
                 } catch (error) {
-                    console.error(`Error executing tool ${toolCall.name}:`, error);
-                    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+                    console.error('=== Tool execution error:', {
+                        tool: toolCall.name,
+                        args: toolCall.args,
+                        error: error instanceof Error ? error.message : String(error)
+                    });
+                    throw error;
                 }
             }));
             
