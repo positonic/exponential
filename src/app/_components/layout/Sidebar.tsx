@@ -14,14 +14,16 @@ export default async function Sidebar() {
 
   return (
     <aside className="w-full sm:w-64 border-r border-gray-800 p-4 flex flex-col h-screen bg-[#262626]">
-      <nav className="flex-grow space-y-2 mt-12 lg:mt-0">
+      <nav className="flex-grow space-y-6 mt-12 lg:mt-0">
         <Link href="/" className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
-          🧘‍♂️ Force Flow<br/><br/>
+          🧘‍♂️ Force Flow
         </Link>
         
-        <NavLinks />
+        <div className="space-y-2">
+          <NavLinks />
+        </div>
 
-        <div className="mt-6">
+        <div>
           <div className="flex items-center justify-between px-3 py-2 text-gray-400">
             <span className="text-sm font-medium">My Projects</span>
             <div className="flex items-center gap-2">
@@ -31,17 +33,15 @@ export default async function Sidebar() {
               </button>
             </div>
           </div>
-
           <ProjectList />
         </div>
-        <div className="mt-6">
+
+        <div>
           <div className="flex items-center justify-between px-3 py-2 text-gray-400">
             <span className="text-sm font-medium">Media</span>
-            <div className="flex items-center gap-2">
-              <button className="hover:text-gray-300">
-                <IconChevronDown className="h-4 w-4" />
-              </button>
-            </div>
+            <button className="hover:text-gray-300">
+              <IconChevronDown className="h-4 w-4" />
+            </button>
           </div>
           <div className="space-y-1">
             <Link
@@ -49,26 +49,25 @@ export default async function Sidebar() {
               className="flex items-center justify-between px-3 py-2 text-sm text-gray-400 hover:text-gray-300"
             >
               <div className="flex items-center">
-              <MediaList />
+                <span className="mr-2">📹</span>
+                <span>Videos</span>
               </div>
               <span>0</span>
             </Link>
           </div>
-          
         </div>
       </nav>
-      <div className="mt-auto border-t border-gray-800 pt-4">
+
+      <div className="flex flex-col gap-2 border-t border-gray-800 pt-4">
         <Link
-          href={"https://github.com/positonic/ai-todo"}
-          className="flex w-full items-center rounded-lg px-3 py-2 text-red-400 hover:bg-gray-800"
+          href="https://github.com/positonic/ai-todo"
+          className="flex w-full items-center rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800"
         >
           <GithubIcon className="h-6 w-6" />
         </Link>
-      </div>
-      <div className="mt-auto border-t border-gray-800 pt-4">
         <Link
           href={session ? "/api/auth/signout" : "/use-the-force"}
-          className="flex w-full items-center rounded-lg px-3 py-2 text-red-400 hover:bg-gray-800"
+          className="flex w-full items-center rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
