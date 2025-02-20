@@ -65,6 +65,7 @@ model User {
     posts         Post[]
     projects      Project[]
     actions       Action[]
+    videos        Video[]
 }
 
 model VerificationToken {
@@ -124,4 +125,34 @@ model Project {
     @@index([name])
     @@index([status])
     @@index([priority])
+}
+
+model Video {
+  id            String   @id @default(uuid())
+  slug          String?
+  title         String?
+  videoUrl      String
+  transcription String?
+  status        String
+  createdAt     DateTime?    @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime?    @default(now()) @updatedAt @db.Timestamptz(6)
+  userId        String
+  isSearchable  Boolean?     @default(false)
+  user          User         @relation(fields: [userId], references: [id])
+  VideoChunk    VideoChunk[]
+}
+
+model VideoChunk {
+  id              Int                    @id @default(autoincrement())
+  video_id        String?
+  chunk_text      String
+  //chunk_embedding Unsupported("vector(1536)") @map("chunk_embedding") // OpenAI embeddings are 1536 dimensions
+  chunk_start     Int?                   // character position start
+  chunk_end       Int?                   // character position end
+  chunk_start_time Float?                // timestamp in seconds
+  chunk_end_time   Float?                // timestamp in seconds
+  created_at      DateTime?              @default(now()) @db.Timestamptz(6)
+  Video           Video?                 @relation(fields: [video_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  //@@index([chunk_embedding(type: Vector)]) // For pgvector
 }

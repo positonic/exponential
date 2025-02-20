@@ -42,7 +42,7 @@ export default function RootLayout({
     <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full`}>
       <body className="h-full bg-gradient-to-b from-[#111111] to-[#212121] ">
         <TRPCReactProvider>
-          <MantineProvider theme={theme}>
+          <MantineProvider defaultColorScheme="dark" theme={theme}>
             <Layout>
               {children}
             </Layout>

@@ -6,6 +6,7 @@ import {
   IconInbox,
   IconCalendarEvent,
   IconCalendarTime,
+  IconVideo,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
@@ -46,6 +47,7 @@ export function NavLinks() {
         <span>Upcoming</span>
         <UpcomingCount />
       </Link>
+      
     </>
   );
 } 

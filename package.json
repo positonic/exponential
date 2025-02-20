@@ -25,6 +25,8 @@
     "@langchain/core": "^0.3.40",
     "@langchain/openai": "^0.4.4",
     "@mantine/core": "^7.16.3",
+    "@mantine/form": "^7.17.0",
+    "@mantine/notifications": "^7.17.0",
     "@prisma/client": "^5.14.0",
     "@t3-oss/env-nextjs": "^0.10.1",
     "@tabler/icons-react": "^3.30.0",

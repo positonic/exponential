@@ -4,7 +4,7 @@ import { IconChevronDown } from "@tabler/icons-react";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { NavLinks } from "./NavLinks";
-
+import { MediaList } from "./MediaList";
 export default async function Sidebar() {
   const session = await auth();
 
@@ -33,6 +33,28 @@ export default async function Sidebar() {
           </div>
 
           <ProjectList />
+        </div>
+        <div className="mt-6">
+          <div className="flex items-center justify-between px-3 py-2 text-gray-400">
+            <span className="text-sm font-medium">Media</span>
+            <div className="flex items-center gap-2">
+              <button className="hover:text-gray-300">
+                <IconChevronDown className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Link
+              href="/videos"
+              className="flex items-center justify-between px-3 py-2 text-sm text-gray-400 hover:text-gray-300"
+            >
+              <div className="flex items-center">
+              <MediaList />
+              </div>
+              <span>0</span>
+            </Link>
+          </div>
+          
         </div>
       </nav>
       <div className="mt-auto border-t border-gray-800 pt-4">
@@ -79,3 +101,4 @@ function GithubIcon(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
