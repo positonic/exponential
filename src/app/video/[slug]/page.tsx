@@ -66,7 +66,12 @@ export default async function VideoPage({ params }: {
                   {captions.length > 0 && (
                     <TranscriptionAccordion transcription={transcription}/>    
                   )}
-                  <Button>
+                  <Button
+                    disabled={!transcription || video.status !== 'COMPLETED'}
+                    title={!transcription ? "No transcription available" : 
+                           video.status !== 'COMPLETED' ? "Video processing not completed" : 
+                           "Generate summary"}
+                  >
                     Summarize transcription
                   </Button>
                 </div>
