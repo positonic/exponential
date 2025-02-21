@@ -4,7 +4,6 @@ import { auth } from "~/server/auth";
 import { HydrateClient } from "~/trpc/server";
 import { getVideoBySlug } from "~/server/api/routers/video";
 import { parseVTT } from '~/utils/vttParser';
-// import { Innertube } from 'youtubei.js/web';
 import { TranscriptionAccordion } from '~/app/_components/TranscriptionAccordion';
 
 export default async function VideoPage({ params }: {
@@ -14,16 +13,8 @@ export default async function VideoPage({ params }: {
   const session = await auth();
   const video = await getVideoBySlug(slug);
 
-  // Add video info logging
-  //const innertube = await Innertube.create();
-  //const videoInfo = await innertube.getInfo('9Yf7asDPBaE');
-  //console.log('YouTube Video Info:', videoInfo);
-  
-  console.log('video?.transcription', video?.transcription);
   const captions = video?.transcription ? parseVTT(video.transcription) : [];
   const transcription = captions.map(caption => caption.text).join(' ');
-
-  console.log('captions', captions);
   
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -72,7 +63,6 @@ export default async function VideoPage({ params }: {
                     <h2 className="text-lg font-semibold">Last Updated</h2>
                     <p>{new Date(video.updatedAt!).toLocaleString()}</p>
                   </div>
-                  
                   {captions.length > 0 && (
                     <TranscriptionAccordion transcription={transcription}/>    
                   )}

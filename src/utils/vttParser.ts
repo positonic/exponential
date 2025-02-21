@@ -7,18 +7,19 @@ interface Caption {
 }
 
 export function parseVTT(vttContent: string): Caption[] {
-    console.log('vttContent', vttContent);
+  // Strip off leading/trailing quotes if they exist
+  const cleanedContent = vttContent.charAt(0) === '"' && vttContent.charAt(vttContent.length - 1) === '"'
+    ? vttContent.slice(1, -1)
+    : vttContent;
+
   // Remove WEBVTT header and split into chunks
-  //const chunks = JSON.parse(vttContent)
-  const chunks = vttContent
-  .replace(/^"|"$/g, '')  // Remove leading/trailing quotes
-  .replace('WEBVTT\n\n', '')
+  const chunks = cleanedContent
+    .replace('WEBVTT\n\n', '')
     .trim()
     .split('\n\n');
-    console.log('chunks', chunks);
+
   const captions: Caption[] = [];
     
-
   for (const chunk of chunks) {
     const lines = chunk.split('\n');
     
