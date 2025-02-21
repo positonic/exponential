@@ -1,9 +1,9 @@
-import { Modal, TextInput, Textarea, Button, Group, ActionIcon, Select } from '@mantine/core';
-import { IconCalendar, IconAlarm, IconDots } from '@tabler/icons-react';
+import { Modal } from '@mantine/core';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { type RouterOutputs } from "~/trpc/react";
-import { ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
+import { type ActionPriority } from "~/types/action";
+import { ActionModalForm } from './ActionModalForm';
 
 type Action = RouterOutputs["action"]["getAll"][0];
 
@@ -18,9 +18,9 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
   const [priority, setPriority] = useState<ActionPriority>("Quick");
+  const [dueDate, setDueDate] = useState<Date | null>(null);
 
   const utils = api.useUtils();
-  const projects = api.project.getAll.useQuery();
 
   useEffect(() => {
     if (action) {
@@ -28,6 +28,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       setDescription(action.description ?? "");
       setProjectId(action.projectId ?? "");
       setPriority(action.priority as ActionPriority);
+      setDueDate(action.dueDate ? new Date(action.dueDate) : null);
     }
   }, [action]);
 
@@ -47,6 +48,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       description: description || undefined,
       projectId: projectId || undefined,
       priority,
+      dueDate: dueDate || undefined,
     });
   };
 
@@ -66,105 +68,22 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
         }
       }}
     >
-      <div className="p-4">
-        <TextInput
-          placeholder="Task name"
-          variant="unstyled"
-          size="xl"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          styles={{
-            input: {
-              fontSize: '24px',
-              color: '#C1C2C5',
-              '&::placeholder': {
-                color: '#C1C2C5',
-              },
-            },
-          }}
-        />
-        
-        <Textarea
-          placeholder="Description"
-          variant="unstyled"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          styles={{
-            input: {
-              color: '#909296',
-              '&::placeholder': {
-                color: '#909296',
-              },
-            },
-          }}
-        />
-
-        <Group gap="xs" mt="md">
-          <Select
-            placeholder="Priority"
-            value={priority}
-            onChange={(value) => setPriority(value as ActionPriority)}
-            data={PRIORITY_OPTIONS.map(p => ({ value: p, label: p }))}
-            styles={{
-                input: {
-                  backgroundColor: '#262626',
-                  color: '#C1C2C5',
-                  borderColor: '#373A40',
-                },
-                dropdown: {
-                  backgroundColor: '#262626',
-                  borderColor: '#373A40',
-                  color: '#C1C2C5',
-                },
-              }}
-          />
-          <ActionIcon variant="subtle" color="gray" radius="xl">
-            <IconCalendar size={20} />
-          </ActionIcon>
-          <ActionIcon variant="subtle" color="gray" radius="xl">
-            <IconAlarm size={20} />
-          </ActionIcon>
-          <ActionIcon variant="subtle" color="gray" radius="xl">
-            <IconDots size={20} />
-          </ActionIcon>
-        </Group>
-      </div>
-
-      <div className="border-t border-gray-800 p-4 mt-4">
-        <Group justify="space-between">
-          <Select
-            placeholder="Select a project"
-            variant="unstyled"
-            value={projectId}
-            onChange={(value) => setProjectId(value ?? '')}
-            data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
-            styles={{
-                input: {
-                  backgroundColor: '#262626',
-                  color: '#C1C2C5',
-                  borderColor: '#373A40',
-                  paddingLeft: '13px',
-                },
-                dropdown: {
-                  backgroundColor: '#262626',
-                  borderColor: '#373A40',
-                  color: '#C1C2C5',
-                },
-              }}
-          />
-          <Group>
-            <Button variant="subtle" color="gray" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleSubmit}
-              loading={updateAction.isPending}
-            >
-              Save changes
-            </Button>
-          </Group>
-        </Group>
-      </div>
+      <ActionModalForm
+        name={name}
+        setName={setName}
+        description={description}
+        setDescription={setDescription}
+        priority={priority}
+        setPriority={setPriority}
+        projectId={projectId}
+        setProjectId={setProjectId}
+        dueDate={dueDate}
+        setDueDate={setDueDate}
+        onSubmit={handleSubmit}
+        onClose={onClose}
+        submitLabel="Save changes"
+        isSubmitting={updateAction.isPending}
+      />
     </Modal>
   );
 } 

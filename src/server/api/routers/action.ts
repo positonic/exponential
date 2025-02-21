@@ -57,6 +57,7 @@ export const actionRouter = createTRPCRouter({
         name: z.string().min(1).optional(),
         description: z.string().optional(),
         projectId: z.string().optional(),
+        dueDate: z.date().optional(),
         priority: z.enum([
           "Quick",
           "Scheduled",
