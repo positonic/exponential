@@ -4,7 +4,6 @@ import { IconChevronDown } from "@tabler/icons-react";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { NavLinks } from "./NavLinks";
-import { MediaList } from "./MediaList";
 export default async function Sidebar() {
   const session = await auth();
 

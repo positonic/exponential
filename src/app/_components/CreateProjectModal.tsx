@@ -3,9 +3,7 @@ import { useDisclosure } from '@mantine/hooks';
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { slugify } from "~/utils/slugify";
-import { type RouterOutputs } from "~/trpc/react";
 
-type Project = RouterOutputs["project"]["getAll"][0];
 type ProjectStatus = "ACTIVE" | "COMPLETED" | "ON_HOLD";
 type ProjectPriority = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 

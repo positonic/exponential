@@ -16,8 +16,8 @@ export function VideosList() {
   const { data: videos, isLoading } = api.video.get.useQuery();
   const utils = api.useUtils();
   const addVideoMutation = api.video.create.useMutation({
-    onSuccess: () => {
-      utils.video.get.invalidate();
+    onSuccess: async () => {
+      await utils.video.get.invalidate();
     },
   });
 

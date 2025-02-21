@@ -14,8 +14,8 @@ interface VideoFormValues {
 export function VideoForm() {
   const utils = api.useUtils();
   const addVideoMutation = api.video.create.useMutation({
-    onSuccess: () => {
-      utils.video.get.invalidate();
+    onSuccess: async () => {
+      await utils.video.get.invalidate();
     },
   });
 

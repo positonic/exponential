@@ -6,7 +6,6 @@ import { api } from "~/trpc/react";
 import { type RouterOutputs } from "~/trpc/react";
 
 type Action = RouterOutputs["action"]["getAll"][0];
-type Project = RouterOutputs["project"]["getAll"][0];
 
 type ActionPriority = 
   | "1st Priority"

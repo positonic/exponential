@@ -1,6 +1,6 @@
 "use client";
 import { CreateProjectModal } from "./CreateProjectModal";
-import { api } from "~/trpc/react";
+
 export function AddProjectButton() {
   return (
     <CreateProjectModal>

@@ -1,5 +1,4 @@
 import { Paper, Badge, Button } from '@mantine/core';
-import { api } from "~/trpc/server";
 import Link from "next/link";
 import { auth } from "~/server/auth";
 import { HydrateClient } from "~/trpc/server";
@@ -7,11 +6,11 @@ import { getVideoBySlug } from "~/server/api/routers/video";
 import { parseVTT } from '~/utils/vttParser';
 // import { Innertube } from 'youtubei.js/web';
 import { TranscriptionAccordion } from '~/app/_components/TranscriptionAccordion';
-export default async function VideoDetailPage({
-  params: { slug },
-}: {
-  params: { slug: string };
+
+export default async function VideoPage({ params }: {
+  params: Promise<{ slug: string }>
 }) {
+  const slug = (await params).slug
   const session = await auth();
   const video = await getVideoBySlug(slug);
 
