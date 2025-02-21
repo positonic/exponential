@@ -1,53 +1,13 @@
 import { Modal, TextInput, Textarea, Button, Group, ActionIcon, Select, Popover, Stack, UnstyledButton, Text } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconCalendar, IconAlarm, IconDots, IconChevronLeft, IconChevronRight, IconClock } from '@tabler/icons-react';
+
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { type RouterOutputs } from "~/trpc/react";
 import { notifications } from '@mantine/notifications';
-
+import DateWidget from './DateWidget';
+import { ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 type Action = RouterOutputs["action"]["getAll"][0];
-
-type ActionPriority = 
-  | "1st Priority"
-  | "2nd Priority"
-  | "3rd Priority"
-  | "4th Priority"
-  | "5th Priority"
-  | "Quick"
-  | "Scheduled"
-  | "Errand"
-  | "Remember"
-  | "Watch"
-  | "Someday Maybe";
-
-const PRIORITY_OPTIONS: ActionPriority[] = [
-  "1st Priority",
-  "2nd Priority",
-  "3rd Priority",
-  "4th Priority",
-  "5th Priority",
-  "Quick",
-  "Scheduled",
-  "Errand",
-  "Remember",
-  "Watch"
-];
-
-// Helper functions
-const getNextWeekDate = () => {
-  const date = new Date();
-  date.setDate(date.getDate() + 7);
-  return date;
-};
-
-const getNextWeekendDate = () => {
-  const date = new Date();
-  while (date.getDay() !== 6) {
-    date.setDate(date.getDate() + 1);
-  }
-  return date;
-};
 
 export function CreateActionModal({ viewName }: { viewName: string }) {
   
@@ -61,7 +21,7 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
 
   const utils = api.useUtils();
   const projects = api.project.getAll.useQuery();
-
+  console.log('dueDate is', dueDate)
   const createAction = api.action.create.useMutation({
     onMutate: async (newAction) => {
       // Cancel all related queries
@@ -163,38 +123,18 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
   const handleSubmit = () => {
     if (!name) return;
 
-    const getDueDate = () => {
-      const viewNameLower = viewName.toLowerCase();
-      if (viewNameLower === 'today') {
-        return new Date();
-      }
-      if (viewNameLower === 'upcoming') {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        return tomorrow;
-      }
-      return undefined;
-    };
-
     const actionData = {
       name,
       description: description || undefined,
       projectId: projectId || undefined,
       priority: priority || "Quick",
-      dueDate: getDueDate(),
+      dueDate: dueDate ?? undefined,
     };
 
     createAction.mutate(actionData);
   };
 
-  const quickOptions = [
-    { label: 'Today', date: new Date(), icon: '📅', color: '#22c55e' },
-    { label: 'Tomorrow', date: new Date(Date.now() + 86400000), icon: '☀️', color: '#f97316' },
-    { label: 'Next week', date: getNextWeekDate(), icon: '📝', color: '#a855f7' },
-    { label: 'Next weekend', date: getNextWeekendDate(), icon: '🛋️', color: '#3b82f6' },
-    { label: 'No Date', date: null, icon: '⭕', color: '#6b7280' },
-  ];
-
+  
   return (
     <>
       <Button onClick={open}>Create Action</Button>
@@ -283,74 +223,21 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
                 },
               }}
             />
-            <Popover width={300} position="bottom-start">
-              <Popover.Target>
-                <ActionIcon variant="subtle" color="gray" radius="xl">
-                  <IconCalendar size={20} />
-                </ActionIcon>
-              </Popover.Target>
-
-              <Popover.Dropdown bg="#1a1b1e" p={0}>
-                <Stack gap="xs" p="md">
-                  {quickOptions.map((option) => (
-                    <UnstyledButton
-                      key={option.label}
-                      onClick={() => {
-                        setDueDate(option.date);
-                        notifications.show({
-                          title: 'Date Updated',
-                          message: option.date 
-                            ? `Task scheduled for ${option.date.toLocaleDateString('en-US', { 
-                                weekday: 'long', 
-                                day: 'numeric', 
-                                month: 'long' 
-                              })}`
-                            : 'Date removed from task',
-                          color: option.date ? 'blue' : 'gray',
-                          icon: option.icon,
-                          withBorder: true,
-                        });
-                      }}
-                      className="flex items-center justify-between p-2 hover:bg-[#25262b] rounded"
-                    >
-                      <Group gap="sm">
-                        <Text size="lg" style={{ color: option.color }}>{option.icon}</Text>
-                        <Text>{option.label}</Text>
-                      </Group>
-                      {option.date && (
-                        <Text size="sm" c="dimmed">
-                          {option.date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })}
-                        </Text>
-                      )}
-                    </UnstyledButton>
-                  ))}
-
-                  <div className="border-t border-[#2C2E33] mt-2 pt-2">
-                    <Group justify="space-between" mb="xs">
-                      <Text>February 2025</Text>
-                      <Group gap="xs">
-                        <ActionIcon variant="subtle" size="sm">
-                          <IconChevronLeft size={16} />
-                        </ActionIcon>
-                        <ActionIcon variant="subtle" size="sm">
-                          <IconChevronRight size={16} />
-                        </ActionIcon>
-                      </Group>
-                    </Group>
-
-                    {/* Calendar grid here */}
-                    {/* Add calendar implementation */}
-
-                    <UnstyledButton
-                      className="w-full p-3 border-t border-[#2C2E33] hover:bg-[#25262b] mt-2 flex items-center justify-center gap-2"
-                    >
-                      <IconClock size={16} />
-                      <Text>Time</Text>
-                    </UnstyledButton>
-                  </div>
-                </Stack>
-              </Popover.Dropdown>
-            </Popover>
+            <DateWidget 
+              date={dueDate}
+              setDueDate={setDueDate} 
+              onClear={() => {
+                setDueDate(null);
+                notifications.show({
+                  title: 'Date Removed',
+                  message: 'Date removed from task',
+                  color: 'gray',
+                  icon: '⭕',
+                  withBorder: true,
+                });
+              }} 
+            />
+            
           </Group>
 
           <div className="border-t border-gray-800 p-4 mt-4">

@@ -3,29 +3,15 @@ import { IconCalendar, IconAlarm, IconDots } from '@tabler/icons-react';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { type RouterOutputs } from "~/trpc/react";
+import { ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 
 type Action = RouterOutputs["action"]["getAll"][0];
-type ActionPriority = "Quick" | "Scheduled" | "1st Priority" | "2nd Priority" | "3rd Priority" | "4th Priority" | "5th Priority" | "Errand" | "Remember" | "Watch" | "Someday Maybe";
 
 interface EditActionModalProps {
   action: Action | null;
   opened: boolean;
   onClose: () => void;
 }
-
-const PRIORITY_OPTIONS = [
-  "Quick",
-  "Scheduled",
-  "1st Priority",
-  "2nd Priority",
-  "3rd Priority",
-  "4th Priority",
-  "5th Priority",
-  "Errand",
-  "Remember",
-  "Watch",
-  "Someday Maybe"
-] as const;
 
 export function EditActionModal({ action, opened, onClose }: EditActionModalProps) {
   const [name, setName] = useState("");
