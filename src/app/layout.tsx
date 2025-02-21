@@ -7,6 +7,7 @@ import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
 import { MantineProvider, createTheme } from '@mantine/core';
 import '@mantine/core/styles.css';
+import { Notifications } from '@mantine/notifications';
 
 const theme = createTheme({
   primaryColor: 'blue',
@@ -43,6 +44,7 @@ export default function RootLayout({
       <body className="h-full bg-gradient-to-b from-[#111111] to-[#212121] ">
         <TRPCReactProvider>
           <MantineProvider defaultColorScheme="dark" theme={theme}>
+            <Notifications position="top-right" />
             <Layout>
               {children}
             </Layout>
