@@ -8,7 +8,7 @@ interface Caption {
 
 export function parseVTT(vttContent: string): Caption[] {
   // Strip off leading/trailing quotes if they exist
-  const cleanedContent = vttContent.charAt(0) === '"' && vttContent.charAt(vttContent.length - 1) === '"'
+  const cleanedContent = vttContent.startsWith('"') && vttContent.endsWith('"')
     ? vttContent.slice(1, -1)
     : vttContent;
 
