@@ -116,6 +116,16 @@ export const videoRouter = createTRPCRouter({
       console.log("summarizeTranscription is", summary)
       return summary
     }),
+
+  getCount: publicProcedure
+    .query(async ({ ctx }) => {
+      const count = await ctx.db.video.count({
+        where: {
+          userId: ctx.session?.user?.id,
+        },
+      });
+      return count;
+    }),
 });
 
 export async function getVideoBySlug(slug: string) {

@@ -6,10 +6,12 @@ import {
   IconInbox,
   IconCalendarEvent,
   IconCalendarTime,
+  IconVideo,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { UpcomingCount } from "./UpcomingCount";
+import { VideoCount } from "./VideoCount";
 
 export function NavLinks() {
   const pathname = usePathname();
@@ -46,7 +48,16 @@ export function NavLinks() {
         <span>Upcoming</span>
         <UpcomingCount />
       </Link>
-      
+      <Link
+        href="/videos"
+        className={`group flex items-center rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-gray-800 ${
+          pathname === '/videos' ? 'bg-red-900/30' : ''
+        }`}
+      >
+        <IconVideo className="mr-3 h-5 w-5" />
+        <span>Videos</span>
+        <VideoCount />
+      </Link>
     </>
   );
 } 

@@ -35,7 +35,7 @@ export default async function Sidebar() {
           <ProjectList />
         </div>
 
-        <div>
+        {/* <div>
           <div className="flex items-center justify-between px-3 py-2 text-gray-400">
             <span className="text-sm font-medium">Media</span>
             <button className="hover:text-gray-300">
@@ -51,10 +51,10 @@ export default async function Sidebar() {
                 <span className="mr-2">📹</span>
                 <span>Videos</span>
               </div>
-              <span>0</span>
+              <span>NUM_VIDEOS</span>
             </Link>
           </div>
-        </div>
+        </div> */}
       </nav>
 
       <div className="flex flex-col gap-2 border-t border-gray-800 pt-4">
