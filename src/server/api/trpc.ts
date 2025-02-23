@@ -10,6 +10,8 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
+import jwt from 'jsonwebtoken';
+import { type Session } from "next-auth";
 
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
@@ -27,7 +29,48 @@ import { db } from "~/server/db";
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
+  // First try to get the session from NextAuth
   const session = await auth();
+
+  // If no session, check for JWT token in Authorization header
+  if (!session?.user) {
+    const authHeader = opts.headers.get('authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      try {
+        // Verify the JWT token
+        const decoded = jwt.verify(token, process.env.AUTH_SECRET ?? '') as {
+          userId: string;
+          email: string;
+        };
+
+        // Find the user
+        const user = await db.user.findUnique({
+          where: { id: decoded.userId }
+        });
+
+        if (user) {
+          // Create a session-like object from the JWT token
+          const jwtSession: Session = {
+            user: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              image: user.image,
+            },
+            expires: new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 minutes from now
+          };
+          return {
+            db,
+            session: jwtSession,
+            ...opts,
+          };
+        }
+      } catch (error) {
+        console.error('JWT verification failed:', error);
+      }
+    }
+  }
 
   return {
     db,
@@ -121,7 +164,7 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
 export const protectedProcedure = t.procedure
   .use(timingMiddleware)
   .use(({ ctx, next }) => {
-    if (!ctx.session || !ctx.session.user) {
+    if (!ctx.session?.user) {
       throw new TRPCError({ code: "UNAUTHORIZED" });
     }
     return next({
