@@ -5,6 +5,7 @@ import { HydrateClient } from "~/trpc/server";
 import { getVideoBySlug } from "~/server/api/routers/video";
 import { parseVTT } from '~/utils/vttParser';
 import { TranscriptionAccordion } from '~/app/_components/TranscriptionAccordion';
+import { SummarizeButton } from '~/app/_components/SummarizeButton';
 
 export default async function VideoPage({ params }: {
   params: Promise<{ slug: string }>
@@ -66,14 +67,11 @@ export default async function VideoPage({ params }: {
                   {captions.length > 0 && (
                     <TranscriptionAccordion transcription={transcription}/>    
                   )}
-                  <Button
-                    disabled={!transcription || video.status !== 'COMPLETED'}
-                    title={!transcription ? "No transcription available" : 
-                           video.status !== 'COMPLETED' ? "Video processing not completed" : 
-                           "Generate summary"}
-                  >
-                    Summarize transcription
-                  </Button>
+                  
+                  {(transcription && video.status.toLowerCase() === 'completed') && <SummarizeButton 
+                    transcription={transcription}
+                    isCompleted={video.status.toLowerCase() === 'completed'}
+                  />}
                 </div>
               )}
             </Paper>
