@@ -1,9 +1,9 @@
 'use client';
 
-import { Button, Paper, Title, Text, Group, Badge, Stack, Card, List, Table, Checkbox } from '@mantine/core';
+import { Button, Paper, Title, Text, Group, Badge, Table, Checkbox } from '@mantine/core';
 import { useState } from 'react';
 import { api } from '~/trpc/react';
-import { TranscriptionSummary } from "~/types/transcription";
+import type { TranscriptionSummary } from "~/types/transcription";
 
 interface SummarizeButtonProps {
   transcription: string;
@@ -11,7 +11,7 @@ interface SummarizeButtonProps {
 }
 
 export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonProps) {
-    console.log("SummarizeButton", {transcription, isCompleted})
+  console.log("SummarizeButton", {transcription, isCompleted})
   const [isLoading, setIsLoading] = useState(false);
   const [summary, setSummary] = useState<TranscriptionSummary | null>(null);
   const [selectedSetups, setSelectedSetups] = useState<string[]>([]);
@@ -28,9 +28,9 @@ export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonP
     },
   });
 
-  const handleSummarize = async () => {
+  const handleSummarize = () => {
     setIsLoading(true);
-    await summarizeMutation.mutate({ transcription });
+    summarizeMutation.mutate({ transcription });
   };
 
   return (
