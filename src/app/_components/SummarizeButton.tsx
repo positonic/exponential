@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Paper, Title, Text, Group, Badge, Table, Checkbox } from '@mantine/core';
+import { Button, Paper, Title, Text, Group, Badge, Table, Checkbox, Select } from '@mantine/core';
 import { useState } from 'react';
 import { api } from '~/trpc/react';
 import type { TranscriptionSummary } from "~/types/transcription";
@@ -15,6 +15,7 @@ export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonP
   const [isLoading, setIsLoading] = useState(false);
   const [summary, setSummary] = useState<TranscriptionSummary | null>(null);
   const [selectedSetups, setSelectedSetups] = useState<string[]>([]);
+  const [summaryType, setSummaryType] = useState<'basic' | 'trade-setups'>('basic');
   
   const summarizeMutation = api.video.summarizeTranscription.useMutation({
     onSuccess: (summary) => {
@@ -30,21 +31,32 @@ export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonP
 
   const handleSummarize = () => {
     setIsLoading(true);
-    summarizeMutation.mutate({ transcription });
+    summarizeMutation.mutate({ transcription, summaryType });
   };
 
   return (
     <div>
-      <Button
-        loading={isLoading}
-        disabled={!transcription || !isCompleted}
-        onClick={handleSummarize}
-        title={!transcription ? "No transcription available" : 
-               !isCompleted ? "Video processing not completed" : 
-               "Generate summary"}
-      >
-        Summarize transcription
-      </Button>
+      <Group gap="sm">
+        <Select
+          data={[
+            { value: 'basic', label: 'Basic Summary' },
+            { value: 'trade-setups', label: 'Trade Setups' },
+          ]}
+          value={summaryType}
+          onChange={(value) => setSummaryType(value as 'basic' | 'trade-setups')}
+          w={200}
+        />
+        <Button
+          loading={isLoading}
+          disabled={!transcription || !isCompleted}
+          onClick={handleSummarize}
+          title={!transcription ? "No transcription available" : 
+                 !isCompleted ? "Video processing not completed" : 
+                 "Generate summary"}
+        >
+          Summarize transcription
+        </Button>
+      </Group>
 
       {summary && (
         <Paper shadow="sm" p="md" radius="md" withBorder className="mt-4">

@@ -1,21 +1,7 @@
 import { TranscriptionSummary } from "~/types/transcription";
-export async function summarizeTranscription(transcription: string): Promise<TranscriptionSummary> {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-            model: "gpt-4-turbo-preview",
-            messages: [
-                {
-                    role: "system",
-                    content: "You are a crypto trading analysis assistant that extracts structured trade ideas from video transcripts. You focus on identifying specific trade setups, entry/exit points, and market context for each cryptocurrency mentioned."
-                },
-                {
-                    role: "user",
-                    content: `Below is a transcript of a crypto trading video from an influencer. The transcript contains both trade ideas and non-trading commentary. Please extract a list of trade ideas for each crypto coin or token mentioned. For each coin/token, provide a structured output in JSON format with the following details:
+
+const prompts = {
+  'trade-setups': `Below is a transcript of a crypto trading video from an influencer. The transcript contains both trade ideas and non-trading commentary. Please extract a list of trade ideas for each crypto coin or token mentioned. For each coin/token, provide a structured output in JSON format with the following details:
 
 - coin: The name (and symbol, if available) of the cryptocurrency.
 - sentiment: The overall sentiment expressed about the coin (bullish, bearish, or neutral).
@@ -82,8 +68,39 @@ Example Output:
 
 Remember: Output only the JSON.
 
-Transcript:
-${transcription}`
+Transcript:`,
+
+  'basic': `Please provide a concise summary of the following transcript in two parts:
+
+1. First, give me a 3-line overview that captures the main essence of the content.
+2. Then, list 3-5 key bullet points highlighting the most important specific information or takeaways.
+
+Keep the summary clear and focused, avoiding any unnecessary details.
+
+Transcript:`
+};
+
+const getPrompt = (summaryType: string) => {
+  return prompts[summaryType as keyof typeof prompts] || prompts['basic'];
+};
+
+export async function summarizeTranscription(transcription: string, summaryType: string): Promise<TranscriptionSummary> {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+            model: "gpt-4-turbo-preview",
+            messages: [
+                {
+                    role: "system",
+                    content: "You are a crypto trading analysis assistant that extracts structured trade ideas from video transcripts. You focus on identifying specific trade setups, entry/exit points, and market context for each cryptocurrency mentioned."
+                },
+                {
+                    role: "user",
+                    content: `${getPrompt(summaryType)}${transcription}`
                 }
             ],
             temperature: 0.7,

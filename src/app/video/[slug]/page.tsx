@@ -65,7 +65,10 @@ export default async function VideoPage({ params }: {
                     <p>{new Date(video.updatedAt!).toLocaleString()}</p>
                   </div>
                   {captions.length > 0 && (
-                    <TranscriptionAccordion transcription={transcription}/>    
+                    <>  
+                      <h2 className="text-lg font-semibold">Transcription</h2>
+                      <TranscriptionAccordion transcription={transcription}/>    
+                    </>
                   )}
                   
                   {(transcription && video.status.toLowerCase() === 'completed') && <SummarizeButton 

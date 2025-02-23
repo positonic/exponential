@@ -107,9 +107,12 @@ export const videoRouter = createTRPCRouter({
     }),
 
   summarizeTranscription: protectedProcedure
-    .input(z.object({ transcription: z.string() }))
+    .input(z.object({ 
+      transcription: z.string(),
+      summaryType: z.string()
+    }))
     .mutation(async ({ input }) => {
-      const summary = await summarizeTranscription(input.transcription)
+      const summary = await summarizeTranscription(input.transcription, input.summaryType)
       console.log("summarizeTranscription is", summary)
       return summary
     }),

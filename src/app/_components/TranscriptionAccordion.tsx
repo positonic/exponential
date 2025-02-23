@@ -10,7 +10,7 @@ export function TranscriptionAccordion({ transcription }: TranscriptionAccordion
   return (
     <Accordion>
       <Accordion.Item value="transcription">
-        <Accordion.Control>Transcription</Accordion.Control>
+        <Accordion.Control>View transcription</Accordion.Control>
         <Accordion.Panel>
           <div className="space-y-4">
             {transcription}
