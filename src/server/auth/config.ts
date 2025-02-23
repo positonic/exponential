@@ -40,14 +40,24 @@ export const authConfig = {
     }),
   ],
   adapter: PrismaAdapter(db),
+  session: {
+    strategy: "jwt",
+  },
   callbacks: {
-    session: ({ session, user }) => ({
+    session: ({ session, user, token }) => ({
       ...session,
       user: {
         ...session.user,
-        id: user.id,
+        id: user?.id ?? token.sub,
       },
     }),
+    jwt: ({ token, user }) => {
+      if (user) {
+        token.sub = user.id;
+        token.email = user.email;
+      }
+      return token;
+    },
     signIn: async ({ user, account }) => {
       // Allow sign in if the user doesn't exist yet
       if (!user.email) {
@@ -57,7 +67,7 @@ export const authConfig = {
       // Check if a user exists with this email
       const existingUser = await db.user.findUnique({
         where: { email: user.email },
-      });
+      }); 
 
       // If no user exists, allow sign in
       if (!existingUser) {

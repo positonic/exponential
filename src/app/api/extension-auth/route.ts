@@ -1,49 +1,38 @@
 import { NextResponse } from 'next/server';
 import { auth } from "~/server/auth";
-import jwt from 'jsonwebtoken';
+import { getToken } from "next-auth/jwt";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    console.log('Starting auth check...');
     const session = await auth();
-    console.log('Session:', session); // Debug log
-
+    console.log('Session:', session);
+    
     if (!session?.user) {
+      console.log('No session user found');
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    if (!process.env.AUTH_SECRET) {
-      console.error('AUTH_SECRET is not set');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
+    console.log('Attempting to get token...');
+    const token = await getToken({ 
+      req: request,
+      secret: process.env.AUTH_SECRET 
+    });
+    console.log('Token result:', token);
 
-    // Generate a short-lived JWT token with minimal user info
-    try {
-      const token = jwt.sign(
-        {
-          userId: session.user.id,
-          email: session.user.email,
-        },
-        process.env.AUTH_SECRET,
-        {
-          expiresIn: '5m', // Short 5-minute lifespan
-        }
-      );
-
-      // Return the token as JSON
-      return NextResponse.json({ token });
-    } catch (jwtError) {
-      console.error('JWT signing error:', jwtError);
+    if (!token) {
+      console.log('Token generation failed');
       return NextResponse.json(
         { error: 'Token generation failed' },
         { status: 500 }
       );
     }
+
+    // Return the token as JSON
+    return NextResponse.json({ token });
 
   } catch (error) {
     console.error('Extension auth error:', error);
