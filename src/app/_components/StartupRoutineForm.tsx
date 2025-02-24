@@ -16,8 +16,16 @@ import {
 import { IconBulb, IconWriting, IconStars, IconList } from "@tabler/icons-react";
 import { useLocalStorage } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { useState } from 'react';
-
+import { useState, useEffect } from 'react';
+import { RichTextEditor, Link } from '@mantine/tiptap';
+import { useEditor } from '@tiptap/react';
+import Highlight from '@tiptap/extension-highlight';
+import StarterKit from '@tiptap/starter-kit';
+import Underline from '@tiptap/extension-underline';
+import TextAlign from '@tiptap/extension-text-align';
+import Superscript from '@tiptap/extension-superscript';
+import SubScript from '@tiptap/extension-subscript';
+import '@mantine/tiptap/styles.css';
 interface DailyEntry {
   date: string;
   intention: string;
@@ -25,6 +33,7 @@ interface DailyEntry {
   exercise: string;
   journalName: string;
   journalDate: string;
+  journalContent: string;
   notToDo: string[];
   completedItems: string[];
 }
@@ -43,6 +52,7 @@ const createEmptyEntry = (date: string): DailyEntry => ({
   exercise: '',
   journalName: '',
   journalDate: date,
+  journalContent: '',
   notToDo: [],
   completedItems: [],
 });
@@ -65,9 +75,38 @@ export function StartupRoutineForm() {
   const [exercise, setExercise] = useState(todayEntry.exercise);
   const [journalName, setJournalName] = useState(todayEntry.journalName);
   const [journalDate, setJournalDate] = useState(todayEntry.journalDate);
+  const [journalContent, setJournalContent] = useState(todayEntry.journalContent);
   const [notToDo, setNotToDo] = useState(todayEntry.notToDo);
   const [completedItems, setCompletedItems] = useState<string[]>(todayEntry.completedItems);
   const [newNotToDo, setNewNotToDo] = useState('');
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Underline,
+      Link,
+      Superscript,
+      SubScript,
+      Highlight,
+      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+    ],
+    content: journalContent,
+    onUpdate: ({ editor }) => {
+      setJournalContent(editor.getHTML());
+    },
+    editorProps: {
+      attributes: {
+        class: 'min-h-[300px] prose prose-invert max-w-none',
+      },
+    },
+  });
+
+  // Update editor content when journalContent changes
+  useEffect(() => {
+    if (editor && editor.getHTML() !== journalContent) {
+      editor.commands.setContent(journalContent);
+    }
+  }, [journalContent, editor]);
 
   // Save entry
   const saveEntry = () => {
@@ -78,6 +117,7 @@ export function StartupRoutineForm() {
       exercise,
       journalName,
       journalDate,
+      journalContent,
       notToDo,
       completedItems,
     };
@@ -109,6 +149,7 @@ export function StartupRoutineForm() {
         exercise,
         journalName,
         journalDate,
+        journalContent,
         notToDo,
         completedItems: newItems,
       };
@@ -205,27 +246,75 @@ export function StartupRoutineForm() {
           <Text c="dimmed">
             Paper is more patient than people. Put your thoughts to the test.
           </Text>
-          <Accordion variant="contained" className="bg-[#1E1E1E]">
-            <Accordion.Item value="daily-tracking">
-              <Accordion.Control>📊 Daily tracking</Accordion.Control>
-              <Accordion.Panel>
-                <Stack gap="sm">
-                  <TextInput
-                    label="Name"
-                    placeholder="Entry name"
-                    value={journalName}
-                    onChange={(e) => setJournalName(e.target.value)}
-                  />
-                  <TextInput
-                    label="Date"
-                    type="date"
-                    value={journalDate}
-                    onChange={(e) => setJournalDate(e.target.value)}
-                  />
-                </Stack>
-              </Accordion.Panel>
-            </Accordion.Item>
-          </Accordion>
+          <RichTextEditor 
+            editor={editor}
+            styles={{
+              root: {
+                border: '1px solid #373A40',
+                backgroundColor: '#1E1E1E',
+              },
+              toolbar: {
+                backgroundColor: '#262626',
+                border: 'none',
+                borderBottom: '1px solid #373A40',
+              },
+              content: {
+                backgroundColor: '#1E1E1E',
+                color: '#C1C2C5',
+                '& .ProseMirror': {
+                  padding: '16px',
+                  minHeight: '300px',
+                },
+              },
+            }}
+          >
+            <RichTextEditor.Toolbar sticky stickyOffset={60}>
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Bold />
+                <RichTextEditor.Italic />
+                <RichTextEditor.Underline />
+                <RichTextEditor.Strikethrough />
+                <RichTextEditor.ClearFormatting />
+                <RichTextEditor.Highlight />
+                <RichTextEditor.Code />
+              </RichTextEditor.ControlsGroup>
+
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.H1 />
+                <RichTextEditor.H2 />
+                <RichTextEditor.H3 />
+                <RichTextEditor.H4 />
+              </RichTextEditor.ControlsGroup>
+
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Blockquote />
+                <RichTextEditor.Hr />
+                <RichTextEditor.BulletList />
+                <RichTextEditor.OrderedList />
+                <RichTextEditor.Subscript />
+                <RichTextEditor.Superscript />
+              </RichTextEditor.ControlsGroup>
+
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Link />
+                <RichTextEditor.Unlink />
+              </RichTextEditor.ControlsGroup>
+
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.AlignLeft />
+                <RichTextEditor.AlignCenter />
+                <RichTextEditor.AlignJustify />
+                <RichTextEditor.AlignRight />
+              </RichTextEditor.ControlsGroup>
+
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Undo />
+                <RichTextEditor.Redo />
+              </RichTextEditor.ControlsGroup>
+            </RichTextEditor.Toolbar>
+
+            <RichTextEditor.Content />
+          </RichTextEditor>
         </Stack>
       </Paper>
 

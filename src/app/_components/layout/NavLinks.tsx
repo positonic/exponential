@@ -9,6 +9,7 @@ import {
   IconVideo,
   IconSunrise,
   IconMoonStars,
+  IconWriting,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
@@ -77,6 +78,15 @@ export function NavLinks() {
       >
         <IconMoonStars className="mr-3 h-5 w-5" />
         <span>Wind Down</span>
+      </Link>
+      <Link
+        href="/journal"
+        className={`group flex items-center rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-gray-800 ${
+          pathname === '/journal' ? 'bg-red-900/30' : ''
+        }`}
+      >
+        <IconWriting size={20} className="mr-3 h-5 w-5" />
+        <span>Journal</span>
       </Link>
     </>
   );
