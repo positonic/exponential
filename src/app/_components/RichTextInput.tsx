@@ -96,6 +96,11 @@ export const RichTextInput = forwardRef<HTMLDivElement, RichTextInputProps>(
             root: {
               border: 'none',
               backgroundColor: 'transparent',
+              '&:focus, &:focus-within': {
+                outline: 'none',
+                ring: 'none',
+                border: 'none',
+              },
             },
             content: {
               backgroundColor: 'transparent',
@@ -104,6 +109,11 @@ export const RichTextInput = forwardRef<HTMLDivElement, RichTextInputProps>(
               padding: 0,
               '& p': {
                 margin: 0,
+              },
+              '&:focus': {
+                outline: 'none',
+                ring: 'none',
+                border: 'none',
               },
               ...styles?.input,
             },

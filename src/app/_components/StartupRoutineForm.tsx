@@ -264,7 +264,6 @@ export function StartupRoutineForm() {
           <Text c="dimmed">You want to consider daily</Text>
           <List spacing="sm">
             {[
-              'How can I make a big impact in Gitcoin',
               'How do I feel today?',
               'What are you currently procrastinating on?',
               'How can I respect myself today?',
