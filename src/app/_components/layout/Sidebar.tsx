@@ -48,10 +48,18 @@ export default async function Sidebar() {
               className="flex items-center justify-between px-3 py-2 text-sm text-gray-400 hover:text-gray-300"
             >
               <div className="flex items-center">
-                <span className="mr-2">📹</span>
+                <span className="mr-2">🌅</span>
                 <span>Startup Routine</span>
               </div>
-             
+            </Link>
+            <Link
+              href="/wind-down"
+              className="flex items-center justify-between px-3 py-2 text-sm text-gray-400 hover:text-gray-300"
+            >
+              <div className="flex items-center">
+                <span className="mr-2">🌙</span>
+                <span>Wind Down</span>
+              </div>
             </Link>
           </div>
         </div>
