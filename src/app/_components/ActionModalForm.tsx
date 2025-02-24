@@ -1,22 +1,19 @@
 import { TextInput, Textarea, Button, Group, Select } from '@mantine/core';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
-import { type RouterOutputs } from "~/trpc/react";
-import DateWidget from './DateWidget';
 import { api } from "~/trpc/react";
-
-type Action = RouterOutputs["action"]["getAll"][0];
+import DateWidget from './DateWidget';
 
 interface ActionModalFormProps {
   name: string;
-  setName: (name: string) => void;
+  setName: (value: string) => void;
   description: string;
-  setDescription: (description: string) => void;
+  setDescription: (value: string) => void;
   priority: ActionPriority;
-  setPriority: (priority: ActionPriority) => void;
-  projectId: string;
-  setProjectId: (projectId: string) => void;
-  dueDate?: Date | null;
-  setDueDate?: (date: Date | null) => void;
+  setPriority: (value: ActionPriority) => void;
+  projectId: string | undefined;
+  setProjectId: (value: string | undefined) => void;
+  dueDate: Date | null;
+  setDueDate: (value: Date | null) => void;
   onSubmit: () => void;
   onClose: () => void;
   submitLabel: string;
@@ -122,7 +119,7 @@ export function ActionModalForm({
             placeholder="Select a project (optional)"
             variant="unstyled"
             value={projectId}
-            onChange={(value) => setProjectId(value ?? '')}
+            onChange={(value) => setProjectId(value ?? undefined)}
             data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
             styles={{
               input: {

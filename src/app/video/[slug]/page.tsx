@@ -1,4 +1,4 @@
-import { Paper, Badge, Button } from '@mantine/core';
+import { Paper, Badge } from '@mantine/core';
 import Link from "next/link";
 import { auth } from "~/server/auth";
 import { HydrateClient } from "~/trpc/server";

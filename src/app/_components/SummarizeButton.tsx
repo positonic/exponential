@@ -48,7 +48,8 @@ export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonP
         />
         <Button
           loading={isLoading}
-          disabled={!transcription || !isCompleted}
+          //disabled={!transcription || !isCompleted}
+          disabled={true}
           onClick={handleSummarize}
           title={!transcription ? "No transcription available" : 
                  !isCompleted ? "Video processing not completed" : 

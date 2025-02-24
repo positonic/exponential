@@ -76,7 +76,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
         priority={priority}
         setPriority={setPriority}
         projectId={projectId}
-        setProjectId={setProjectId}
+        setProjectId={(value: string | undefined) => setProjectId(value || "")}
         dueDate={dueDate}
         setDueDate={setDueDate}
         onSubmit={handleSubmit}
@@ -86,4 +86,4 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       />
     </Modal>
   );
-} 
+}

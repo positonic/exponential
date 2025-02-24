@@ -33,7 +33,7 @@ type DailyEntries = Record<string, DailyEntry>;
 
 const getTodayString = (): string => {
   const now = new Date();
-  return now.toISOString().split('T')[0];
+  return now.toISOString().split('T')[0]!;
 };
 
 const createEmptyEntry = (date: string): DailyEntry => ({

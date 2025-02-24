@@ -2,27 +2,21 @@ import { Modal } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useState } from "react";
 import { api } from "~/trpc/react";
-import { type RouterOutputs } from "~/trpc/react";
-import { notifications } from '@mantine/notifications';
-import DateWidget from './DateWidget';
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
 import { Button } from '@mantine/core';
-type Action = RouterOutputs["action"]["getAll"][0];
 
 export function CreateActionModal({ viewName }: { viewName: string }) {
   
-  const initProjectId = (viewName.includes("project-")) ? viewName.split("-")[2] : '';
+  const initProjectId = viewName.includes("project-") ? viewName.split("-")[2] : '';
   const [opened, { open, close }] = useDisclosure(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [projectId, setProjectId] = useState(initProjectId);
+  const [projectId, setProjectId] = useState<string | undefined>(initProjectId || undefined);
   const [priority, setPriority] = useState<ActionPriority>("Quick");
   const [dueDate, setDueDate] = useState<Date | null>(null);
 
   const utils = api.useUtils();
-  const projects = api.project.getAll.useQuery();
-  console.log('dueDate is', dueDate)
   const createAction = api.action.create.useMutation({
     onMutate: async (newAction) => {
       // Cancel all related queries
@@ -53,10 +47,10 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
         project: newAction.projectId 
           ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
           : null,
-      } satisfies Action;
+      };
 
       // Helper function to add action to a list
-      const addActionToList = (list: Action[] | undefined) => {
+      const addActionToList = (list: typeof previousState.actions) => {
         if (!list) return [optimisticAction];
         return [...list, optimisticAction];
       };
@@ -114,7 +108,7 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
       // Reset form state
       setName("");
       setDescription("");
-      setProjectId("");
+      setProjectId(undefined);
       setPriority("Quick");
       setDueDate(null);
       close();
@@ -135,7 +129,6 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
     createAction.mutate(actionData);
   };
 
-  
   return (
     <>
       <Button onClick={open}>Create Action</Button>
