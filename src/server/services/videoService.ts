@@ -85,6 +85,9 @@ const getPrompt = (summaryType: string) => {
 };
 
 export async function summarizeTranscription(transcription: string, summaryType: string): Promise<TranscriptionSummary> {
+    
+    const responseFormat = summaryType === 'trade-setups' ? { type: "json_object" } : { type: "text" }
+
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -105,7 +108,7 @@ export async function summarizeTranscription(transcription: string, summaryType:
             ],
             temperature: 0.7,
             max_tokens: 1500,
-            response_format: { type: "json_object" }
+            response_format: responseFormat,
         }),
     });
 

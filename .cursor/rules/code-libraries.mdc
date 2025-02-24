@@ -1,0 +1,9 @@
+---
+description: Our app is a todo application. We are using Mantine v7 ui components with NextJS v15. We are using NextAuth v5.  Always use strict typescript.
+globs: 
+---
+
+# Your rule content
+
+- You can @ files here
+- You can use markdown but dont have to
