@@ -7,6 +7,15 @@ import { EditActionModal } from "./EditActionModal";
 
 type Action = RouterOutputs["action"]["getAll"][0];
 
+// Helper component to render HTML content safely
+const HTMLContent = ({ html, className }: { html: string, className?: string }) => (
+  <div 
+    className={className}
+    dangerouslySetInnerHTML={{ __html: html }}
+    style={{ display: 'inline' }}
+  />
+);
+
 export function ActionList({ viewName, actions }: { viewName: string, actions: Action[] }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
@@ -181,7 +190,9 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
                   }}
                 />
               </div>
-              <Text className="truncate">{action.name}</Text>
+              <div className="truncate">
+                <HTMLContent html={action.name} />
+              </div>
             </Group>
             {action.dueDate && (
               <Text size="sm" c="dimmed" className="hidden sm:block">

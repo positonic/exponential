@@ -20,6 +20,15 @@ interface RichTextInputProps {
   styles?: Record<string, any>;
 }
 
+// Helper function to strip paragraph tags
+const stripParagraphTags = (html: string) => {
+  return html
+    .replace(/^<p>/, '') // Remove opening <p> tag
+    .replace(/<\/p>$/, '') // Remove closing </p> tag
+    .replace(/<p>/g, ' ') // Replace other opening <p> tags with space
+    .replace(/<\/p>/g, ' '); // Replace other closing </p> tags with space
+};
+
 export const RichTextInput = forwardRef<HTMLDivElement, RichTextInputProps>(
   ({ value, onChange, placeholder, styles, ...props }, ref) => {
     const editor = useEditor({
@@ -39,7 +48,9 @@ export const RichTextInput = forwardRef<HTMLDivElement, RichTextInputProps>(
       ],
       content: value,
       onUpdate: ({ editor }) => {
-        onChange(editor.getHTML());
+        // Strip paragraph tags before saving
+        const html = stripParagraphTags(editor.getHTML());
+        onChange(html);
       },
       editorProps: {
         handlePaste: (view, event: ClipboardEvent) => {
@@ -91,6 +102,9 @@ export const RichTextInput = forwardRef<HTMLDivElement, RichTextInputProps>(
               fontSize: '24px',
               color: '#C1C2C5',
               padding: 0,
+              '& p': {
+                margin: 0,
+              },
               ...styles?.input,
             },
           }}
