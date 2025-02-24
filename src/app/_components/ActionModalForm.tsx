@@ -2,6 +2,7 @@ import { TextInput, Textarea, Button, Group, Select } from '@mantine/core';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import { api } from "~/trpc/react";
 import DateWidget from './DateWidget';
+import { RichTextInput } from './RichTextInput';
 
 interface ActionModalFormProps {
   name: string;
@@ -46,19 +47,14 @@ export function ActionModalForm({
       }}
       className="p-4"
     >
-      <TextInput
-        placeholder="Task name"
-        variant="unstyled"
-        size="xl"
+      <RichTextInput
         value={name}
-        onChange={(e) => setName(e.target.value)}
+        onChange={setName}
+        placeholder="Task name"
         styles={{
           input: {
             fontSize: '24px',
             color: '#C1C2C5',
-            '&::placeholder': {
-              color: '#C1C2C5',
-            },
           },
           wrapper: {
             width: '100%',
