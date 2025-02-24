@@ -19,6 +19,39 @@ rules:
   - Include example usage where appropriate
   - Explain any non-obvious implementation details
 
+description: "Base rules for AI interactions across the project"
+pattern: "**/*"
+rules:
+  # Vercel Build Requirements
+  - Ensure all code follows Next.js best practices
+  - Follow strict ESLint rules for Vercel deployment
+  - Verify import/export syntax compatibility
+  - Check for proper TypeScript types
+  - Avoid common Vercel build pitfalls
+
+  # Code Quality
+  - Follow language-specific best practices
+  - Maintain consistent indentation (2 spaces)
+  - Use meaningful variable and function names
+  - Group related code blocks logically
+  
+  # Next.js Specific
+  - Use App Router patterns correctly
+  - Implement proper error boundaries
+  - Follow Server Component best practices
+  - Handle client/server code separation properly
+  
+  # TypeScript Compliance
+  - Use strict TypeScript checking
+  - Implement proper type definitions
+  - Avoid type assertions unless necessary
+  - Use proper generic constraints
+
+  # Reference Rules
+  @file .cursor/rules/vercel.rules
+  @file .cursor/rules/typescript.rules
+  @file .cursor/rules/react.rules 
+  
 ##  Techstack
 
 Always use the apis of the latest version of NextJS (currently v15) and React (currently v19)

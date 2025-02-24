@@ -1,0 +1,29 @@
+description: "Vercel deployment and build rules"
+pattern: "**/*"
+rules:
+  # Vercel Build Compatibility
+  - Follow Next.js App Router patterns strictly
+  - Ensure proper module imports/exports
+  - Validate all file paths are case-sensitive
+  - Check environment variable usage
+  - Verify proper handling of dynamic imports
+  - Follow serverless function format for API routes
+  - Ensure proper usage of next/image and next/link
+  
+  # ESLint Compliance
+  - Follow project ESLint configuration strictly
+  - Avoid unused variables and imports
+  - Use proper import ordering
+  - Maintain consistent quote style (double quotes)
+  - Follow proper naming conventions
+  - Ensure proper prop-types usage in React
+  - Avoid direct DOM manipulation
+  - Use proper async/await patterns
+  
+  # Build Process
+  - Verify all imports have corresponding dependencies
+  - Ensure proper module resolution
+  - Check for circular dependencies
+  - Validate proper tree-shaking support
+  - Verify correct usage of getStaticProps/getServerSideProps
+  - Ensure proper middleware implementation 
