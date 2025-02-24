@@ -145,12 +145,14 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
       {filteredActions.map((action) => (
         <Paper
           key={action.id}
-          p="md"
+          // p="md"
           withBorder
           className="transition-all hover:shadow-md cursor-pointer mb-3"
-          bg="#262626"
+          //bg="#262626"
+          bg="#1E1E1E"
           style={{
-            borderColor: '#2C2E33',
+            //borderColor: '#2C2E33',
+            borderColor: '#1E1E1E',
           }}
           onClick={(e) => {
             // Only open modal if we didn't click the checkbox

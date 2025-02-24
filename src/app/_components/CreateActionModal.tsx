@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
-import { Button } from '@mantine/core';
+import { IconPlus } from '@tabler/icons-react';
 
 export function CreateActionModal({ viewName }: { viewName: string }) {
   
@@ -131,7 +131,13 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
 
   return (
     <>
-      <Button onClick={open}>Create Action</Button>
+      <button
+        onClick={open}
+        className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-gray-300 transition-colors"
+      >
+        <IconPlus size={16} />
+        <span>Add task</span>
+      </button>
 
       <Modal 
         opened={opened} 

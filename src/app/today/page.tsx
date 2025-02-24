@@ -17,8 +17,8 @@ export default async function Home() {
     </HydrateClient>
   );
 }
-
 async function ActionsWrapper() {
   const session = await auth();
   return session?.user ? <Actions viewName="today"/> : <Welcome />;
 }
+
