@@ -61,6 +61,15 @@ export default async function Sidebar() {
                 <span>Wind Down</span>
               </div>
             </Link>
+            <Link
+              href="/days"
+              className="flex items-center justify-between px-3 py-2 text-sm text-gray-400 hover:text-gray-300"
+            >
+              <div className="flex items-center">
+                <span className="mr-2">📅</span>
+                <span>Days</span>
+              </div>
+            </Link>
           </div>
         </div>
         {/* <div>
