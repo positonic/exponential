@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure.query(async ({ ctx }) => {
+    console.log("in getAll")
     return ctx.db.action.findMany({
       where: {
         createdById: ctx.session.user.id,
@@ -12,7 +13,7 @@ export const actionRouter = createTRPCRouter({
       },
       orderBy: {
         project: {
-          priority: "desc",
+          priority: "asc",
         },
       },
     });
