@@ -1,4 +1,4 @@
-import { Checkbox, Text, Group, Paper, SegmentedControl } from '@mantine/core';
+import { Checkbox, Text, Group, Paper } from '@mantine/core';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
 import { useState } from "react";
@@ -117,41 +117,22 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
     <>
       <Group justify="space-between" mb="md" className="flex-col sm:flex-row gap-4">
         <h2 className="text-2xl font-bold">Actions</h2>
-        <div className="w-full sm:w-auto">
-          <SegmentedControl
-            value={filter}
-            onChange={(value) => setFilter(value as "ACTIVE" | "COMPLETED")}
-            data={[
-              { label: 'Active', value: 'ACTIVE' },
-              { label: 'Completed', value: 'COMPLETED' },
-            ]}
-            styles={{
-              root: {
-                backgroundColor: '#262626',
-                border: '1px solid #2C2E33',
-              },
-              label: {
-                color: '#C1C2C5',
-                padding: '8px 16px',
-              },
-              indicator: {
-                backgroundColor: '#333',
-              },
-            }}
-          />
-        </div>
+        <button
+          onClick={() => setFilter(filter === "ACTIVE" ? "COMPLETED" : "ACTIVE")}
+          className="text-gray-400 hover:text-gray-300 transition-colors"
+        >
+          {filter === "ACTIVE" ? "Completed" : "Active"}
+        </button>
       </Group>
 
       {filteredActions.map((action) => (
         <Paper
           key={action.id}
-          // p="md"
+          py="sm"
           withBorder
           className="transition-all hover:shadow-md cursor-pointer mb-3"
-          //bg="#262626"
           bg="#1E1E1E"
           style={{
-            //borderColor: '#2C2E33',
             borderColor: '#1E1E1E',
           }}
           onClick={(e) => {
