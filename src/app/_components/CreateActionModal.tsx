@@ -1,5 +1,6 @@
 import { Modal } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import { useViewportSize } from '@mantine/hooks';
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
@@ -8,6 +9,7 @@ import { IconPlus } from '@tabler/icons-react';
 
 export function CreateActionModal({ viewName }: { viewName: string }) {
   
+  const { width } = useViewportSize();
   const initProjectId = viewName.includes("project-") ? viewName.split("-")[2] : '';
   const [opened, { open, close }] = useDisclosure(false);
   const [name, setName] = useState("");
@@ -145,7 +147,7 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
         size="lg"
         radius="md"
         padding="lg"
-        fullScreen={window.innerWidth < 640}
+        fullScreen={width < 640}
         styles={{
           header: { display: 'none' },
           body: { padding: 0 },
