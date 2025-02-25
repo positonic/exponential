@@ -13,7 +13,7 @@ export default function WindDown() {
           End Your Day With Reflection
         </Title>
         <Text c="dimmed" size="lg">
-          Take a moment to reflect and learn from your day. Your evening routine shapes tomorrow's success.
+          Take a moment to reflect and learn from your day. Your evening routine shapes tomorrow&apos;s success.
         </Text>
       </div>
 

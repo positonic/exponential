@@ -124,4 +124,6 @@ export const RichTextInput = forwardRef<HTMLDivElement, RichTextInputProps>(
       </Box>
     );
   }
-); 
+);
+
+RichTextInput.displayName = 'RichTextInput'; 

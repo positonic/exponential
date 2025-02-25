@@ -4,6 +4,8 @@ import { IconChevronDown } from "@tabler/icons-react";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { NavLinks } from "./NavLinks";
+import { SidebarContent } from "./SidebarContent";
+
 export default async function Sidebar() {
   const session = await auth();
 
@@ -22,76 +24,7 @@ export default async function Sidebar() {
           <NavLinks />
         </div>
 
-        <div>
-          <div className="flex items-center justify-between px-3 py-2 text-gray-400">
-            <span className="text-sm font-medium">My Projects</span>
-            <div className="flex items-center gap-2">
-              <AddProjectButton />
-              <button className="hover:text-gray-300">
-                <IconChevronDown className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-          <ProjectList />
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between px-3 py-2 text-gray-400">
-            <span className="text-sm font-medium">Routines</span>
-            <button className="hover:text-gray-300">
-              <IconChevronDown className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="space-y-1">
-            <Link
-              href="/startup-routine"
-              className="flex items-center justify-between px-3 py-2 text-sm text-gray-400 hover:text-gray-300"
-            >
-              <div className="flex items-center">
-                <span className="mr-2">🌅</span>
-                <span>Startup Routine</span>
-              </div>
-            </Link>
-            <Link
-              href="/wind-down"
-              className="flex items-center justify-between px-3 py-2 text-sm text-gray-400 hover:text-gray-300"
-            >
-              <div className="flex items-center">
-                <span className="mr-2">🌙</span>
-                <span>Wind Down</span>
-              </div>
-            </Link>
-            <Link
-              href="/days"
-              className="flex items-center justify-between px-3 py-2 text-sm text-gray-400 hover:text-gray-300"
-            >
-              <div className="flex items-center">
-                <span className="mr-2">📅</span>
-                <span>Days</span>
-              </div>
-            </Link>
-          </div>
-        </div>
-        {/* <div>
-          <div className="flex items-center justify-between px-3 py-2 text-gray-400">
-            <span className="text-sm font-medium">Media</span>
-            <button className="hover:text-gray-300">
-              <IconChevronDown className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="space-y-1">
-            <Link
-              href="/videos"
-              className="flex items-center justify-between px-3 py-2 text-sm text-gray-400 hover:text-gray-300"
-            >
-              <div className="flex items-center">
-                <span className="mr-2">📹</span>
-                <span>Videos</span>
-              </div>
-              <span>NUM_VIDEOS</span>
-            </Link>
-          </div>
-        </div> */}
+        <SidebarContent />
       </nav>
 
       <div className="flex flex-col gap-2 border-t border-gray-800 pt-4">

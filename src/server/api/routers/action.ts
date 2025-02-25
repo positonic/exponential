@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { PRIORITY_VALUES, type Priority } from "~/types/priority";
 
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure.query(async ({ ctx }) => {
@@ -26,19 +27,7 @@ export const actionRouter = createTRPCRouter({
         description: z.string().optional(),
         projectId: z.string().optional(),
         dueDate: z.date().optional(),
-        priority: z.enum([
-          "Quick",
-          "Scheduled",
-          "1st Priority",
-          "2nd Priority",
-          "3rd Priority",
-          "4th Priority",
-          "5th Priority",
-          "Errand",
-          "Remember",
-          "Watch",
-          "Someday Maybe"
-        ]).default("Quick"),
+        priority: z.enum(PRIORITY_VALUES).default("Quick"),
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]).default("ACTIVE"),
       }),
     )
@@ -59,19 +48,7 @@ export const actionRouter = createTRPCRouter({
         description: z.string().optional(),
         projectId: z.string().optional(),
         dueDate: z.date().optional(),
-        priority: z.enum([
-          "Quick",
-          "Scheduled",
-          "1st Priority",
-          "2nd Priority",
-          "3rd Priority",
-          "4th Priority",
-          "5th Priority",
-          "Errand",
-          "Remember",
-          "Watch",
-          "Someday Maybe"
-        ]).optional(),
+        priority: z.enum(PRIORITY_VALUES).optional(),
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]).optional(),
       }),
     )

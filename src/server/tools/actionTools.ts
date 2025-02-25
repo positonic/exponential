@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
+import { PRIORITY_VALUES } from "~/types/priority";
 
 // Schemas for the Action CRUD operations
 const createActionSchema = z.object({
@@ -8,7 +9,7 @@ const createActionSchema = z.object({
   description: z.string(),
   dueDate: z.string().optional(), // Date will be passed as ISO string
   status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]).default("ACTIVE"),
-  priority: z.enum(["Quick", "Low", "Medium", "High"]).default("Quick"),
+  priority: z.enum(PRIORITY_VALUES).default("Quick"),
   projectId: z.string().optional(), // Make projectId optional
 });
 
@@ -22,7 +23,7 @@ const updateActionSchema = z.object({
   description: z.string().optional(),
   dueDate: z.string().optional(),
   status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]).optional(),
-  priority: z.enum(["Quick", "Low", "Medium", "High"]).optional(),
+  priority: z.enum(PRIORITY_VALUES).optional(),
 });
 
 const deleteActionSchema = z.object({

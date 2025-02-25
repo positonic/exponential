@@ -1,4 +1,4 @@
-import { Container, Title, SegmentedControl, Table, Paper } from "@mantine/core";
+import { Container, Title, SegmentedControl, Table, Paper, Button } from "@mantine/core";
 import { DaysTable } from "~/app/_components/DaysTable";
 
 export default function Days() {
@@ -12,6 +12,13 @@ export default function Days() {
         >
           🌻 Daily tracking
         </Title>
+        <Button 
+          variant="filled" 
+          color="dark"
+          leftSection="+"
+        >
+          Add task
+        </Button>
       </div>
 
       {/* Content */}

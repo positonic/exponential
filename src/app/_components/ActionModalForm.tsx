@@ -83,7 +83,7 @@ export function ActionModalForm({
       <Group gap="xs" mt="md" className="flex-wrap">
         <Select
           placeholder="Priority"
-          value={priority}
+          value={priority ?? '5th Priority'}
           onChange={(value) => setPriority(value as ActionPriority)}
           data={PRIORITY_OPTIONS.map(p => ({ value: p, label: p }))}
           className="w-full sm:w-auto"
