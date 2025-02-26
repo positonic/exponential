@@ -46,16 +46,18 @@ export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonP
           onChange={(value) => setSummaryType(value as 'basic' | 'trade-setups')}
           w={200}
         />
-        <Button
-          loading={isLoading}
-          disabled={!transcription || !isCompleted}
-          onClick={handleSummarize}
-          title={!transcription ? "No transcription available" : 
-                 !isCompleted ? "Video processing not completed" : 
-                 "Generate summary"}
-        >
-          Summarize transcription
-        </Button>
+        <div>
+          <Button
+            loading={isLoading}
+            disabled={!transcription || !isCompleted}
+            onClick={handleSummarize}
+            title={!transcription ? "No transcription available" : 
+                   !isCompleted ? "Video processing not completed" : 
+                   "Generate summary"}
+          >
+            Summarize transcription
+          </Button>
+        </div>
       </Group>
 
       {summary && (
@@ -69,9 +71,10 @@ export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonP
               <Title order={4} mb="xs">{coin.coin}</Title>
               <Group gap="xs" mb="xs">
                 <Badge 
+                  key={`${coin.coin}-${coin.sentiment}`}
                   variant="light"
-                  color={coin.sentiment.toLowerCase().includes('bullish') ? 'green' : 
-                         coin.sentiment.toLowerCase().includes('bearish') ? 'red' : 'blue'}
+                  color={coin.sentiment?.toLowerCase().includes('bullish') ? 'green' : 
+                         coin.sentiment?.toLowerCase().includes('bearish') ? 'red' : 'blue'}
                 >
                   {coin.sentiment}
                 </Badge>
@@ -81,30 +84,30 @@ export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonP
               <Table>
                 <Table.Thead>
                   <Table.Tr>
-                    <Table.Th>Position</Table.Th>
-                    <Table.Th>Entry Triggers</Table.Th>
-                    <Table.Th>Entry Price</Table.Th>
-                    <Table.Th>Take Profit</Table.Th>
-                    <Table.Th>Stop Loss</Table.Th>
-                    <Table.Th>Timeframe</Table.Th>
-                    <Table.Th />
+                    <Table.Th key="position">Position</Table.Th>
+                    <Table.Th key="entry-triggers">Entry Triggers</Table.Th>
+                    <Table.Th key="entry-price">Entry Price</Table.Th>
+                    <Table.Th key="take-profit">Take Profit</Table.Th>
+                    <Table.Th key="stop-loss">Stop Loss</Table.Th>
+                    <Table.Th key="timeframe">Timeframe</Table.Th>
+                    <Table.Th key="actions" />
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {coin.tradeSetups.map((setup) => (
+                  {coin.tradeSetups?.map((setup) => (
                     <Table.Tr
                       key={`${coin.coin}-${setup.position}`}
                       bg={selectedSetups.includes(`${coin.coin}-${setup.position}`) 
                           ? 'var(--mantine-color-blue-light)' 
                           : undefined}
                     >
-                      <Table.Td>{setup.position}</Table.Td>
-                      <Table.Td>{setup.entryTriggers}</Table.Td>
-                      <Table.Td>{setup.entryPrice}</Table.Td>
-                      <Table.Td>{setup.takeProfit}</Table.Td>
-                      <Table.Td>{setup.stopLoss}</Table.Td>
-                      <Table.Td>{setup.timeframe}</Table.Td>
-                      <Table.Td>
+                      <Table.Td key="position">{setup.position}</Table.Td>
+                      <Table.Td key="entry-triggers">{setup.entryTriggers}</Table.Td>
+                      <Table.Td key="entry-price">{setup.entryPrice}</Table.Td>
+                      <Table.Td key="take-profit">{setup.takeProfit}</Table.Td>
+                      <Table.Td key="stop-loss">{setup.stopLoss}</Table.Td>
+                      <Table.Td key="timeframe">{setup.timeframe}</Table.Td>
+                      <Table.Td key="actions">
                         <Checkbox
                           aria-label="Select setup"
                           checked={selectedSetups.includes(`${coin.coin}-${setup.position}`)}

@@ -65,7 +65,7 @@ model User {
     posts         Post[]
     projects      Project[]
     actions       Action[]
-    videos        Video[]
+    userVideos    UserVideo[]
     exercises     UserExercise[]
     goals         Goal[]
 }
@@ -131,15 +131,28 @@ model Video {
   id            String   @id @default(uuid())
   slug          String?
   title         String?
-  videoUrl      String
+  videoUrl      String  @unique  // Add unique constraint to prevent duplicate videos
   transcription String?
   status        String
   createdAt     DateTime?    @default(now()) @db.Timestamptz(6)
   updatedAt     DateTime?    @default(now()) @updatedAt @db.Timestamptz(6)
-  userId        String
   isSearchable  Boolean?     @default(false)
-  user          User         @relation(fields: [userId], references: [id])
+  users         UserVideo[]
   VideoChunk    VideoChunk[]
+}
+
+model UserVideo {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  video     Video    @relation(fields: [videoId], references: [id])
+  videoId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, videoId])
+  @@index([userId])
+  @@index([videoId])
 }
 
 model VideoChunk {

@@ -15,11 +15,11 @@ export function SidebarContent() {
             <div className="flex items-center justify-between text-gray-400 hover:text-gray-300">
               <span className="text-sm font-medium">My Projects</span>
               <div className="flex items-center gap-2">
-                <AddProjectButton />
               </div>
             </div>
           </Accordion.Control>
           <Accordion.Panel>
+             <AddProjectButton />
             <ProjectList />
           </Accordion.Panel>
         </Accordion.Item>

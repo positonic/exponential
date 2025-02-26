@@ -7,6 +7,7 @@ import {
   publicProcedure,
 } from "~/server/api/trpc";
 import { extractYoutubeSlugFromUrl } from "~/utils/youtube";
+import { VideoService } from "~/server/services/videoService";
 
 export const videoRouter = createTRPCRouter({
   hello: publicProcedure
@@ -30,22 +31,31 @@ export const videoRouter = createTRPCRouter({
 
   getLatest: protectedProcedure.query(async ({ ctx }) => {
     const video = await ctx.db.video.findFirst({
+      where: {
+        users: {
+          some: {
+            userId: ctx.session.user.id
+          }
+        }
+      },
       orderBy: { createdAt: "desc" },
-      //where: { createdBy: { id: ctx.session.user.id } },
     });
 
     return video ?? null;
   }),
 
-  get: protectedProcedure
-    .query(async ({ ctx }) => {
-      return await ctx.db.video.findMany({
-        where: {
-          userId: ctx.session.user.id
-        },
-        orderBy: { createdAt: "desc" },
-      });
-    }),
+  get: protectedProcedure.query(async ({ ctx }) => {
+    return await ctx.db.video.findMany({
+      where: {
+        users: {
+          some: {
+            userId: ctx.session.user.id
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }),
 
   getSecretMessage: protectedProcedure.query(() => {
     return "you can now see this secret message!";
@@ -86,14 +96,13 @@ export const videoRouter = createTRPCRouter({
     .input(z.object({ url: z.string().url() }))
     .mutation(async ({ ctx, input }) => {
       const slug = extractYoutubeSlugFromUrl(input.url);
+      const videoService = new VideoService(ctx.db);
       
-      return await ctx.db.video.create({
-        data: {
-          videoUrl: input.url,
-          status: 'pending',
-          userId: ctx.session.user.id,
-          slug,
-        },
+      return await videoService.createVideo({
+        videoUrl: input.url,
+        status: 'pending',
+        slug,
+        userId: ctx.session.user.id
       });
     }),
 
@@ -117,15 +126,18 @@ export const videoRouter = createTRPCRouter({
       return summary
     }),
   
-  getCount: publicProcedure
-    .query(async ({ ctx }) => {
-      const count = await ctx.db.video.count({
-        where: {
-          userId: ctx.session?.user?.id,
-        },
-      });
-      return count;
-    }),
+  getCount: publicProcedure.query(async ({ ctx }) => {
+    const count = await ctx.db.video.count({
+      where: {
+        users: {
+          some: {
+            userId: ctx.session?.user?.id
+          }
+        }
+      }
+    });
+    return count;
+  }),
 });
 
 export async function getVideoBySlug(slug: string) {
