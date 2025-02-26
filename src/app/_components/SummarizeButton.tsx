@@ -1,11 +1,21 @@
-'use client';
+"use client";
 
-import { Button, Paper, Title, Text, Group, Badge, Table, Checkbox, Select } from '@mantine/core';
-import { useState } from 'react';
-import { api } from '~/trpc/react';
+import {
+  Button,
+  Paper,
+  Title,
+  Text,
+  Group,
+  Badge,
+  Table,
+  Checkbox,
+  Select,
+} from "@mantine/core";
+import { useState } from "react";
+import { api } from "~/trpc/react";
 import type { TranscriptionSetups } from "~/types/transcription";
-import ReactMarkdown from 'react-markdown';
-import type { Caption } from '~/utils/vttParser';
+import ReactMarkdown from "react-markdown";
+import type { Caption } from "~/utils/vttParser";
 interface SummarizeButtonProps {
   transcription: string;
   captions: Caption[];
@@ -13,54 +23,61 @@ interface SummarizeButtonProps {
   videoUrl?: string;
 }
 
-export function SummarizeButton({ transcription, captions, isCompleted, videoUrl }: SummarizeButtonProps) {
+export function SummarizeButton({
+  transcription,
+  captions,
+  isCompleted,
+  videoUrl,
+}: SummarizeButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [findingSetups, setFindingSetups] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [setups, setSetups] = useState<TranscriptionSetups | null>(null);
   const [selectedSetups, setSelectedSetups] = useState<string[]>([]);
-  const [summaryType, setSummaryType] = useState<'basic' | 'trade-setups' | 'sluis'>('basic');
-  
-    const setupsMutation =  api.video.getSetups.useMutation({
-        onSuccess: (setups) => {
-          console.log("summarizeMutation onSuccess", summary)
-          setSetups(setups);
-          setFindingSetups(false);
-        },
-        onError: (error) => {
-          console.error('Error generating summary:', error);
-          setFindingSetups(false);
-        },
-      });
-  
-    const summarizeMutation = api.video.summarizeTranscription.useMutation({
-    onSuccess: ({content}) => {
-      console.log("summarizeMutation onSuccess", summary)
+  const [summaryType, setSummaryType] = useState<
+    "basic" | "trade-setups" | "sluis"
+  >("basic");
+
+  const setupsMutation = api.video.getSetups.useMutation({
+    onSuccess: (setups) => {
+      console.log("summarizeMutation onSuccess", summary);
+      setSetups(setups);
+      setFindingSetups(false);
+    },
+    onError: (error) => {
+      console.error("Error generating summary:", error);
+      setFindingSetups(false);
+    },
+  });
+
+  const summarizeMutation = api.video.summarizeTranscription.useMutation({
+    onSuccess: ({ content }) => {
+      console.log("summarizeMutation onSuccess", summary);
       setSummary(content);
       setIsLoading(false);
     },
     onError: (error) => {
-      console.error('Error generating summary:', error);
+      console.error("Error generating summary:", error);
       setIsLoading(false);
     },
   });
 
   const handleSummarize = () => {
     setIsLoading(true);
-    summarizeMutation.mutate({ 
-      transcription, 
-      summaryType, 
-      captions: captions.map(c => ({
+    summarizeMutation.mutate({
+      transcription,
+      summaryType,
+      captions: captions.map((c) => ({
         text: c.text,
         startSeconds: c.startSeconds,
-        endSeconds: c.endSeconds
+        endSeconds: c.endSeconds,
       })),
-      videoUrl 
+      videoUrl,
     });
   };
   const handleGetSetups = () => {
     setFindingSetups(true);
-    setupsMutation.mutate({ transcription, summaryType: 'trade-setups' });
+    setupsMutation.mutate({ transcription, summaryType: "trade-setups" });
   };
 
   return (
@@ -68,12 +85,14 @@ export function SummarizeButton({ transcription, captions, isCompleted, videoUrl
       <Group gap="sm">
         <Select
           data={[
-            { value: 'basic', label: 'Basic Summary' },
-            { value: 'trade-setups', label: 'Trade Setups' },
-            { value: 'sluis', label: 'Sluis' },
+            { value: "basic", label: "Basic Summary" },
+            { value: "trade-setups", label: "Trade Setups" },
+            { value: "sluis", label: "Sluis" },
           ]}
           value={summaryType}
-          onChange={(value) => setSummaryType(value as 'basic' | 'trade-setups' | 'sluis')}
+          onChange={(value) =>
+            setSummaryType(value as "basic" | "trade-setups" | "sluis")
+          }
           w={200}
         />
         <div>
@@ -81,9 +100,13 @@ export function SummarizeButton({ transcription, captions, isCompleted, videoUrl
             loading={isLoading}
             disabled={!transcription || !isCompleted}
             onClick={handleSummarize}
-            title={!transcription ? "No transcription available" : 
-                   !isCompleted ? "Video processing not completed" : 
-                   "Generate summary"}
+            title={
+              !transcription
+                ? "No transcription available"
+                : !isCompleted
+                  ? "Video processing not completed"
+                  : "Generate summary"
+            }
           >
             Summarize transcription
           </Button>
@@ -99,17 +122,45 @@ export function SummarizeButton({ transcription, captions, isCompleted, videoUrl
       </Group>
       {summary && (
         <Paper shadow="sm" p="md" radius="md" withBorder className="mt-4">
-          <Title order={2} mb="md">Summary</Title>
-          <ReactMarkdown 
+          <Title order={2} mb="md">
+            Summary
+          </Title>
+          <ReactMarkdown
             components={{
-              h2: ({children}) => <Title order={2} mt="md" mb="xs">{children}</Title>,
-              h3: ({children}) => <Title order={3} mt="md" mb="xs">{children}</Title>,
-              ul: ({children}) => <ul className="list-disc pl-6 mb-4">{children}</ul>,
-              li: ({children}) => <li className="mb-2">{children}</li>,
-              p: ({children}) => <Text size="sm" mb="md">{children}</Text>,
-              strong: ({children}) => <Text span fw={700}>{children}</Text>,
-              em: ({children}) => <Text span fs="italic">{children}</Text>,
-              code: ({children}) => <code className="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">{children}</code>,
+              h2: ({ children }) => (
+                <Title order={2} mt="md" mb="xs">
+                  {children}
+                </Title>
+              ),
+              h3: ({ children }) => (
+                <Title order={3} mt="md" mb="xs">
+                  {children}
+                </Title>
+              ),
+              ul: ({ children }) => (
+                <ul className="mb-4 list-disc pl-6">{children}</ul>
+              ),
+              li: ({ children }) => <li className="mb-2">{children}</li>,
+              p: ({ children }) => (
+                <Text size="sm" mb="md">
+                  {children}
+                </Text>
+              ),
+              strong: ({ children }) => (
+                <Text span fw={700}>
+                  {children}
+                </Text>
+              ),
+              em: ({ children }) => (
+                <Text span fs="italic">
+                  {children}
+                </Text>
+              ),
+              code: ({ children }) => (
+                <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-800">
+                  {children}
+                </code>
+              ),
             }}
           >
             {summary}
@@ -118,25 +169,47 @@ export function SummarizeButton({ transcription, captions, isCompleted, videoUrl
       )}
       {setups && (
         <Paper shadow="sm" p="md" radius="md" withBorder className="mt-4">
-          <Title order={3} mb="md">Setups</Title>
-          <Text size="sm" c="dimmed" mb="md">{setups.coins?.length} coins analyzed</Text>
-          <Text size="sm" mb="md">{setups.generalMarketContext}</Text>
-          
+          <Title order={3} mb="md">
+            Setups
+          </Title>
+          <Text size="sm" c="dimmed" mb="md">
+            {setups.coins?.length} coins analyzed
+          </Text>
+          <Text size="sm" mb="md">
+            {setups.generalMarketContext}
+          </Text>
+
           {setups.coins?.map((coin) => (
-            <Paper key={coin.coin} shadow="xs" p="sm" radius="sm" withBorder mb="md">
-              <Title order={4} mb="xs">{coin.coin}</Title>
+            <Paper
+              key={coin.coin}
+              shadow="xs"
+              p="sm"
+              radius="sm"
+              withBorder
+              mb="md"
+            >
+              <Title order={4} mb="xs">
+                {coin.coin}
+              </Title>
               <Group gap="xs" mb="xs">
-                <Badge 
+                <Badge
                   key={`${coin.coin}-${coin.sentiment}`}
                   variant="light"
-                  color={coin.sentiment?.toLowerCase().includes('bullish') ? 'green' : 
-                         coin.sentiment?.toLowerCase().includes('bearish') ? 'red' : 'blue'}
+                  color={
+                    coin.sentiment?.toLowerCase().includes("bullish")
+                      ? "green"
+                      : coin.sentiment?.toLowerCase().includes("bearish")
+                        ? "red"
+                        : "blue"
+                  }
                 >
                   {coin.sentiment}
                 </Badge>
               </Group>
-              <Text size="sm" mb="md">{coin.marketContext}</Text>
-              
+              <Text size="sm" mb="md">
+                {coin.marketContext}
+              </Text>
+
               <Table>
                 <Table.Thead>
                   <Table.Tr>
@@ -153,12 +226,18 @@ export function SummarizeButton({ transcription, captions, isCompleted, videoUrl
                   {coin.tradeSetups?.map((setup) => (
                     <Table.Tr
                       key={`${coin.coin}-${setup.position}`}
-                      bg={selectedSetups.includes(`${coin.coin}-${setup.position}`) 
-                          ? 'var(--mantine-color-blue-light)' 
-                          : undefined}
+                      bg={
+                        selectedSetups.includes(
+                          `${coin.coin}-${setup.position}`,
+                        )
+                          ? "var(--mantine-color-blue-light)"
+                          : undefined
+                      }
                     >
                       <Table.Td key="position">{setup.position}</Table.Td>
-                      <Table.Td key="entry-triggers">{setup.entryTriggers}</Table.Td>
+                      <Table.Td key="entry-triggers">
+                        {setup.entryTriggers}
+                      </Table.Td>
                       <Table.Td key="entry-price">{setup.entryPrice}</Table.Td>
                       <Table.Td key="take-profit">{setup.takeProfit}</Table.Td>
                       <Table.Td key="stop-loss">{setup.stopLoss}</Table.Td>
@@ -166,12 +245,20 @@ export function SummarizeButton({ transcription, captions, isCompleted, videoUrl
                       <Table.Td key="actions">
                         <Checkbox
                           aria-label="Select setup"
-                          checked={selectedSetups.includes(`${coin.coin}-${setup.position}`)}
+                          checked={selectedSetups.includes(
+                            `${coin.coin}-${setup.position}`,
+                          )}
                           onChange={(event) =>
                             setSelectedSetups(
                               event.currentTarget.checked
-                                ? [...selectedSetups, `${coin.coin}-${setup.position}`]
-                                : selectedSetups.filter(id => id !== `${coin.coin}-${setup.position}`)
+                                ? [
+                                    ...selectedSetups,
+                                    `${coin.coin}-${setup.position}`,
+                                  ]
+                                : selectedSetups.filter(
+                                    (id) =>
+                                      id !== `${coin.coin}-${setup.position}`,
+                                  ),
                             )
                           }
                         />
@@ -186,4 +273,4 @@ export function SummarizeButton({ transcription, captions, isCompleted, videoUrl
       )}
     </div>
   );
-} 
+}
