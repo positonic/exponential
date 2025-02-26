@@ -1,5 +1,6 @@
 import { type PrismaClient } from "@prisma/client";
-
+import type { Caption } from "~/utils/vttParser";
+import type { TranscriptionSummary, TranscriptionSetups } from "~/types/transcription";
 // Define types based on Prisma schema
 type VideoCreateInput = {
   id?: string;
@@ -22,29 +23,29 @@ type VideoUpdateInput = {
   updatedAt?: Date;
 };
 
-type TranscriptionSummary = {
-  generalMarketContext: string;
-  coins: Array<{
-    coin: string;
-    sentiment: 'bullish' | 'bearish' | 'neutral';
-    marketContext: string;
-    tradeSetups: Array<{
-      position: 'long' | 'short' | 'abstain';
-      entryTriggers: string;
-      entryPrice: string;
-      timeframe: string;
-      takeProfit: string;
-      t1: string;
-      t2: string;
-      t3: string;
-      stopLoss: string;
-      stopLossPrice: number;
-      invalidation: string;
-      confidenceLevel: string;
-      transcriptExcerpt: string;
-    }>;
-  }>;
-};
+// type TranscriptionSetups = {
+//   generalMarketContext: string;
+//   coins: Array<{
+//     coin: string;
+//     sentiment: 'bullish' | 'bearish' | 'neutral';
+//     marketContext: string;
+//     tradeSetups: Array<{
+//       position: 'long' | 'short' | 'abstain';
+//       entryTriggers: string;
+//       entryPrice: string;
+//       timeframe: string;
+//       takeProfit: string;
+//       t1: string;
+//       t2: string;
+//       t3: string;
+//       stopLoss: string;
+//       stopLossPrice: number;
+//       invalidation: string;
+//       confidenceLevel: string;
+//       transcriptExcerpt: string;
+//     }>;
+//   }>;
+// };
 
 const prompts = {
   'trade-setups': `Below is a transcript of a crypto trading video from an influencer. The transcript contains both trade ideas and non-trading commentary. Please extract a list of trade ideas for each crypto coin or token mentioned. For each coin/token, provide a structured output in JSON format with the following details:
@@ -122,19 +123,150 @@ const prompts = {
   2. Then, list 3-5 key bullet points highlighting the most important specific information or takeaways.
   
   Keep the summary clear and focused, avoiding any unnecessary details.
+  Example Output:
+  {
+    overview: "The transcript is a mix of casual greetings, personal reflections, and cryptocurrency trade analysis. The speaker discusses the challenging current state of the market, offers bullish sentiments on Bitcoin, and provides specific trade insights on several cryptocurrencies. The tone is informal and interspersed with personal anecdotes and motivational advice.",
+    takeaways: [
+      "- **Market Sentiment**: Recent times have been tough for many in the cryptocurrency space, with significant losses and a sobering market environment. However, the speaker believes that we might have hit the bottom, citing various indicators and events (e.g., the collapse of meme coins, major hacks, etc.) that suggest the worst may be behind us.\n",
+      "- **Bitcoin Analysis**: The speaker is bullish on Bitcoin, noting that despite negative headlines, its price hasn't broken new lows. They argue that Bitcoin remains the best risk-adjusted asset in the market and suggest that if prices drop to the range lows again, it might be a strong buying opportunity.\n",
+     '- **Altcoin Insights**: Detailed trade setups and analyses were provided for several cryptocurrencies, including Ethereum (ETH), Solana (SOL), and others. The speaker suggests focusing on coins with utility and potential for solving real problems, indicating a shift in the market away from meme coins and towards more substantive projects.\n',1
+    "- **General Trade Advice**: Emphasizes the importance of not being overly bearish unless there's a significant change in the market structure or fundamentals. The speaker also reflects on the importance of resilience, learning from losses, and maintaining a positive outlook despite market downturns."
+    ]
+  }
   
-  Transcript:`
+  Transcript:`,
+  
+    'sluis': `You are a crypto trading analyst expert. Below is a transcript of a crypto trading video that you created. Please extract and structure the information using markdown formatting. The transcript includes timestamps that you should use to create clickable links to the video sections.
+
+  IMPORTANT: The transcript is provided with timestamps in the format "(123.45) Some text here". You MUST use these exact timestamps from the transcript to create your section links. DO NOT use arbitrary timestamps. Each section should use the timestamp of the first relevant mention of that topic in the transcript.
+
+  1. Start with a "MARKET CONTEXT" section that captures the overall market sentiment and conditions discussed.
+  Use the timestamp of the first market context discussion from the transcript.
+  
+  2. For each cryptocurrency discussed, create a section with:
+     - The coin/token symbol in caps (e.g., "BTC", "ETH")
+     - A timestamp link using the EXACT timestamp when that coin is first mentioned in the transcript
+     - Format: [MM:SS]({{VIDEO_URL}}?t=N) where N is the exact number of seconds from the transcript
+     Example: If BTC is first mentioned at timestamp (123.45), use [02:03]({{VIDEO_URL}}?t=123)
+     - The key price levels discussed (support, resistance, targets)
+     - The trading setup or analysis provided
+     - The trader's sentiment (bullish, bearish, neutral)
+     - Specific trade recommendations if given (entry, exit, stop loss)
+  
+  3. Include relevant "MEMBER QUESTION" sections when they provide valuable trading insights or market wisdom.
+     Use the exact timestamp when the question is asked in the transcript.
+
+  Rules:
+  - ALWAYS use the exact timestamps from the provided transcript - DO NOT make up timestamps
+  - Each section MUST use the timestamp of when that topic is first mentioned in the transcript
+  - Focus only on actionable trading information and meaningful market insights
+  - Skip casual conversation and non-trading related content
+  - Use clear, concise language
+  - Maintain chronological order from the stream
+  - For each section, note key price levels and specific trade setups when mentioned
+  - Include exact quotes when they provide important context or insight
+  - Add timestamp links at the start of each major section using the exact seconds from the transcript
+
+  Format each section like this:
+
+  ### MARKET CONTEXT ([02:03]({{VIDEO_URL}}?t=123))
+  [Overall market summary and conditions]
+
+  ### COIN ANALYSIS
+  #### BTC ([05:30]({{VIDEO_URL}}?t=330))
+  [Analysis and trading setup details]
+
+  ### MEMBER QUESTIONS
+  #### [Question] ([10:15]({{VIDEO_URL}}?t=615))
+  [Question and response if trading relevant]
+
+  Rules:
+  - Use markdown headers (##, ###) for sections
+  - Use bullet points (*) for lists
+  - Use **bold** for emphasis on important points
+  - Use *italic* for secondary emphasis
+  - Format price levels and numbers with code blocks where appropriate
+  - Focus only on actionable trading information
+  - Skip casual conversation
+  - Maintain chronological order
+  - Format timestamps as MM:SS in the display text
+  - Use the exact seconds from the transcript in the URL
+  - Make timestamps clickable links to the video section
+
+  The transcript includes timestamps in the format "(seconds) text", for example:
+  "(66.64) What about Bitcoin? (69.18) Let's look at the chart"
+  You MUST use these exact timestamps (converting to MM:SS format for display) when creating your sections.
+
+  VIDEO_URL: {{VIDEO_URL}}
+  VIDEO_ID: {{VIDEO_ID}}
+  
+  Transcript:{{TRANSCRIPT_WITH_SECONDS}}
+  `,
 } as const;
 
 const getPrompt = (summaryType: string): string => {
   return summaryType in prompts ? prompts[summaryType as keyof typeof prompts] : prompts.basic;
 };
 
-export async function summarizeTranscription(transcription: string, summaryType: string): Promise<TranscriptionSummary> {
+export async function summarizeTranscription(transcription: string, summaryType: string, captions: {text: string, startSeconds: number, endSeconds: number}[], videoUrl?: string): Promise<TranscriptionSummary> {
+    
+    const formattedCaptions = captions
+        .map(caption => `(${caption.startSeconds.toFixed(2)}) ${caption.text}`)
+        .join(" ");
     const responseFormat = summaryType === 'trade-setups' ? { type: "json_object" } : { type: "text" }
+    
+    // Format video URL to maintain proper query parameter structure
+    const formattedVideoUrl = videoUrl?.includes('?v=') 
+        ? videoUrl.replace('?v=', '?v=').split('&')[0]
+        : videoUrl;
+    
+    const prompt = summaryType === 'sluis' 
+        ? getPrompt(summaryType)
+            .replace('{{TRANSCRIPT_WITH_SECONDS}}', JSON.stringify(formattedCaptions))
+            .replace(/\{\{VIDEO_URL\}\}/g, formattedVideoUrl ? `${formattedVideoUrl}&t=` : '')
+        : getPrompt(summaryType);
+
     console.log("createVideo: summaryType is ", summaryType)
     console.log("createVideo: responseFormat is ", responseFormat)
-    console.log("createVideo: Full prompt is ", `${getPrompt(summaryType)}${transcription}`)
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+            model: "gpt-4-turbo-preview",
+            messages: [
+                {
+                    role: "system",
+                    content: "You are a crypto trading analysis assistant that extracts structured trade ideas from video transcripts. You focus on identifying specific trade setups, entry/exit points, and market context for each cryptocurrency mentioned."
+                },
+                {
+                    role: "user",
+                    content: `${prompt}${transcription}`
+                }
+            ],
+            temperature: 0.7,
+            max_tokens: 1500,
+            response_format: responseFormat,
+        }),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    const content = summaryType === 'trade-setups' ? JSON.parse(data.choices[0].message.content) : data.choices[0].message;
+    
+    if (summaryType === 'trade-setups' && (!content.generalMarketContext || !Array.isArray(content.coins)) ){
+        throw new Error('Invalid response format from OpenAI');
+    }
+
+    return content;
+}
+export async function getSetups(transcription: string, summaryType: string): Promise<TranscriptionSetups> {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -155,7 +287,7 @@ export async function summarizeTranscription(transcription: string, summaryType:
             ],
             temperature: 0.7,
             max_tokens: 1500,
-            response_format: responseFormat,
+            response_format: { type: "json_object" },
         }),
     });
 
@@ -164,16 +296,19 @@ export async function summarizeTranscription(transcription: string, summaryType:
         throw new Error(`OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
+    //console.log("createVideo: response is ", response)
+
     const data = await response.json();
-    const content = JSON.parse(data.choices[0].message.content);
+    console.log("createVideo: data is ", data)
+    console.log("createVideo: 'sluis' data.choices[0].message is ", data.choices[0].message)
+    const content = JSON.parse(data.choices[0].message.content) 
     console.log("createVideo: content is ", content)
-    if (!content.generalMarketContext || !Array.isArray(content.coins)) {
+    if (!content.generalMarketContext || !Array.isArray(content.coins) ){
         throw new Error('Invalid response format from OpenAI');
     }
 
     return content;
 }
-
 export class VideoService {
   private prisma: PrismaClient;
 
@@ -245,7 +380,7 @@ export class VideoService {
     return await this.prisma.video.findUnique({
       where: { id },
       include: {
-        userVideos: {
+        users: {
           include: {
             user: true
           }
@@ -258,7 +393,7 @@ export class VideoService {
     return await this.prisma.video.findFirst({
       where: { slug },
       include: {
-        userVideos: {
+        users: {
           include: {
             user: true
           }
@@ -270,7 +405,7 @@ export class VideoService {
   async getVideos() {
     return await this.prisma.video.findMany({
       include: {
-        userVideos: {
+        users: {
           include: {
             user: true
           }

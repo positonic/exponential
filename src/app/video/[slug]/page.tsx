@@ -44,7 +44,11 @@ export default async function VideoPage({ params }: {
             
             {video && (
               <div className="space-y-4">
-                <h1 className="text-2xl font-bold mb-4">{video.title}</h1>
+                <h1 className="text-2xl font-bold mb-4">
+                  <a href={video.videoUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                    {video.title}
+                  </a>
+                </h1>
                 <div>
                   <h2 className="text-lg font-semibold">Video URL</h2>
                   <p>{video.videoUrl}</p>
@@ -76,7 +80,9 @@ export default async function VideoPage({ params }: {
                   <HydrateClient>
                     <SummarizeButton 
                       transcription={transcription}
+                      captions={captions}
                       isCompleted={video.status.toLowerCase() === 'completed'}
+                      videoUrl={video.videoUrl}
                     />
                   </HydrateClient>
                 )}

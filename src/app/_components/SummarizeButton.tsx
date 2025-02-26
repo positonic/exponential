@@ -3,24 +3,40 @@
 import { Button, Paper, Title, Text, Group, Badge, Table, Checkbox, Select } from '@mantine/core';
 import { useState } from 'react';
 import { api } from '~/trpc/react';
-import type { TranscriptionSummary } from "~/types/transcription";
-
+import type { TranscriptionSetups } from "~/types/transcription";
+import ReactMarkdown from 'react-markdown';
+import type { Caption } from '~/utils/vttParser';
 interface SummarizeButtonProps {
   transcription: string;
+  captions: Caption[];
   isCompleted: boolean;
+  videoUrl?: string;
 }
 
-export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonProps) {
-  console.log("SummarizeButton", {transcription, isCompleted})
+export function SummarizeButton({ transcription, captions, isCompleted, videoUrl }: SummarizeButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [summary, setSummary] = useState<TranscriptionSummary | null>(null);
+  const [findingSetups, setFindingSetups] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [setups, setSetups] = useState<TranscriptionSetups | null>(null);
   const [selectedSetups, setSelectedSetups] = useState<string[]>([]);
-  const [summaryType, setSummaryType] = useState<'basic' | 'trade-setups'>('basic');
+  const [summaryType, setSummaryType] = useState<'basic' | 'trade-setups' | 'sluis'>('basic');
   
-  const summarizeMutation = api.video.summarizeTranscription.useMutation({
-    onSuccess: (summary) => {
+    const setupsMutation =  api.video.getSetups.useMutation({
+        onSuccess: (setups) => {
+          console.log("summarizeMutation onSuccess", summary)
+          setSetups(setups);
+          setFindingSetups(false);
+        },
+        onError: (error) => {
+          console.error('Error generating summary:', error);
+          setFindingSetups(false);
+        },
+      });
+  
+    const summarizeMutation = api.video.summarizeTranscription.useMutation({
+    onSuccess: ({content}) => {
       console.log("summarizeMutation onSuccess", summary)
-      setSummary(summary);
+      setSummary(content);
       setIsLoading(false);
     },
     onError: (error) => {
@@ -31,7 +47,20 @@ export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonP
 
   const handleSummarize = () => {
     setIsLoading(true);
-    summarizeMutation.mutate({ transcription, summaryType });
+    summarizeMutation.mutate({ 
+      transcription, 
+      summaryType, 
+      captions: captions.map(c => ({
+        text: c.text,
+        startSeconds: c.startSeconds,
+        endSeconds: c.endSeconds
+      })),
+      videoUrl 
+    });
+  };
+  const handleGetSetups = () => {
+    setFindingSetups(true);
+    setupsMutation.mutate({ transcription, summaryType: 'trade-setups' });
   };
 
   return (
@@ -41,9 +70,10 @@ export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonP
           data={[
             { value: 'basic', label: 'Basic Summary' },
             { value: 'trade-setups', label: 'Trade Setups' },
+            { value: 'sluis', label: 'Sluis' },
           ]}
           value={summaryType}
-          onChange={(value) => setSummaryType(value as 'basic' | 'trade-setups')}
+          onChange={(value) => setSummaryType(value as 'basic' | 'trade-setups' | 'sluis')}
           w={200}
         />
         <div>
@@ -57,16 +87,42 @@ export function SummarizeButton({ transcription, isCompleted }: SummarizeButtonP
           >
             Summarize transcription
           </Button>
+          <Button
+            loading={findingSetups}
+            disabled={!transcription || !isCompleted}
+            onClick={handleGetSetups}
+            title={"Create setups"}
+          >
+            Find setups
+          </Button>
         </div>
       </Group>
-
       {summary && (
         <Paper shadow="sm" p="md" radius="md" withBorder className="mt-4">
-          <Title order={3} mb="md">Summary</Title>
-          <Text size="sm" c="dimmed" mb="md">{summary.coins.length} coins analyzed</Text>
-          <Text size="sm" mb="md">{summary.generalMarketContext}</Text>
+          <Title order={2} mb="md">Summary</Title>
+          <ReactMarkdown 
+            components={{
+              h2: ({children}) => <Title order={2} mt="md" mb="xs">{children}</Title>,
+              h3: ({children}) => <Title order={3} mt="md" mb="xs">{children}</Title>,
+              ul: ({children}) => <ul className="list-disc pl-6 mb-4">{children}</ul>,
+              li: ({children}) => <li className="mb-2">{children}</li>,
+              p: ({children}) => <Text size="sm" mb="md">{children}</Text>,
+              strong: ({children}) => <Text span fw={700}>{children}</Text>,
+              em: ({children}) => <Text span fs="italic">{children}</Text>,
+              code: ({children}) => <code className="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">{children}</code>,
+            }}
+          >
+            {summary}
+          </ReactMarkdown>
+        </Paper>
+      )}
+      {setups && (
+        <Paper shadow="sm" p="md" radius="md" withBorder className="mt-4">
+          <Title order={3} mb="md">Setups</Title>
+          <Text size="sm" c="dimmed" mb="md">{setups.coins?.length} coins analyzed</Text>
+          <Text size="sm" mb="md">{setups.generalMarketContext}</Text>
           
-          {summary.coins.map((coin) => (
+          {setups.coins?.map((coin) => (
             <Paper key={coin.coin} shadow="xs" p="sm" radius="sm" withBorder mb="md">
               <Title order={4} mb="xs">{coin.coin}</Title>
               <Group gap="xs" mb="xs">

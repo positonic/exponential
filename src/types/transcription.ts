@@ -21,7 +21,12 @@ interface CoinAnalysis {
     tradeSetups: TradeSetup[];
 }
 
-export interface TranscriptionSummary {
+export interface TranscriptionSetups {
     generalMarketContext: string;
     coins: CoinAnalysis[];
+}
+
+export interface TranscriptionSummary {
+    content: string;
+    role: string;
 }

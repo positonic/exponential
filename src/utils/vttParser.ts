@@ -1,4 +1,4 @@
-interface Caption {
+export interface Caption {
   startTime: string;
   endTime: string;
   text: string;
@@ -31,7 +31,7 @@ export function parseVTT(vttContent: string): Caption[] {
     const startTime = timeMatch[1]!;
     const endTime = timeMatch[2]!;
     const text = lines.slice(1).join(' ');
-
+    
     captions.push({
       startTime,
       endTime,
