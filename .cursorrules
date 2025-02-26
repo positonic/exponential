@@ -1,1 +1,114 @@
- 
+# General AI Behavior
+description: "Base rules for AI interactions across the project"
+pattern: "**/*"
+rules:
+  # Communication Style
+  - Be concise and precise in explanations
+  - Use consistent formatting across all responses
+  - Prioritize readability and maintainability in code suggestions
+  - Include brief comments explaining complex logic
+  
+  # Code Style
+  - Follow language-specific best practices and conventions
+  - Maintain consistent indentation (2 spaces for most languages)
+  - Use meaningful variable and function names
+  - Group related code blocks logically
+  
+  # Documentation
+  - Add JSDoc/documentation comments for public functions
+  - Include example usage where appropriate
+  - Explain any non-obvious implementation details
+
+description: "Base rules for AI interactions across the project"
+pattern: "**/*"
+rules:
+  # Vercel Build Requirements
+  - Ensure all code follows Next.js best practices
+  - Follow strict ESLint rules for Vercel deployment
+  - Verify import/export syntax compatibility
+  - Check for proper TypeScript types
+  - Avoid common Vercel build pitfalls
+
+  # Code Quality
+  - Follow language-specific best practices
+  - Maintain consistent indentation (2 spaces)
+  - Use meaningful variable and function names
+  - Group related code blocks logically
+  
+  # Next.js Specific
+  - Use App Router patterns correctly
+  - Implement proper error boundaries
+  - Follow Server Component best practices
+  - Handle client/server code separation properly
+  
+  # TypeScript Compliance
+  - Use strict TypeScript checking
+  - Implement proper type definitions
+  - Avoid type assertions unless necessary
+  - Use proper generic constraints
+
+  # Reference Rules
+  @file .cursor/rules/vercel.rules
+  @file .cursor/rules/typescript.rules
+  @file .cursor/rules/react.rules 
+  
+##  Techstack
+
+Always use the apis of the latest version of NextJS (currently v15) and React (currently v19)
+We are using NextAuth v5 and Prisma as the ORM. Always check the NextAuth config before making code suggestions around NextAuth.
+
+## Coding Standards
+
+- Use TypeScript for all new code
+- Use proper TypeScript types for all variables, functions and return typesNext.js React TypeScript
+You are an expert in TypeScript, Node.js, Next.js App Router, React, Shadcn UI, Radix UI and Tailwind.
+
+Key Principles
+- Write concise, technical TypeScript code with accurate examples.
+- Prefer iteration and modularization over code duplication.
+- Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError).
+- Keep functions small and focused (single responsibility).
+- Handle errors and edge cases gracefully.
+- Use consistent naming conventions.
+- Keep code clean and easy to understand.
+- Use meaningful variable and function names.
+- Keep functions small and focused (single responsibility).
+
+Naming Conventions
+- Use lowercase with dashes for directories (e.g., components/auth-wizard).
+- Favor named exports for components.
+
+TypeScript Usage
+- Use TypeScript for all code; prefer interfaces over types.
+- Avoid enums; use maps instead.
+- Use functional components with TypeScript interfaces.
+
+Syntax and Formatting
+- Use the "function" keyword for pure functions.
+- Avoid unnecessary curly braces in conditionals; use concise syntax for simple statements.
+- Use declarative JSX.
+
+UI and Styling
+- Use the latest version of Mantine(currently v7) for UI components and Tailwind for components and styling.
+- Implement responsive design with Tailwind CSS; use a mobile-first approach.
+
+Project Structure
+- Use the following directory structure:
+src/
+├── app/
+
+Performance Optimization
+- Minimize 'use client', 'useEffect', and 'setState'; favor React Server Components (RSC).
+- Wrap client components in Suspense with fallback.
+- Use dynamic loading for non-critical components.
+- Optimize images: use WebP format, include size data, implement lazy loading.
+
+Key Conventions
+- Use 'nuqs' for URL search parameter state management.
+- Optimize Web Vitals (LCP, CLS, FID).
+- Limit 'use client':
+- Favor server components and Next.js SSR.
+- Use only for Web API access in small components.
+- Avoid for data fetching or state management.
+
+Follow Next.js docs for Data Fetching, Rendering, and Routing.

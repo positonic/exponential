@@ -19,7 +19,7 @@ export function DaysTable() {
   };
 
   // Sample data - in a real app, this would come from your database
-  const entries = [
+  const days = [
     {
       id: '1',
       date: new Date(),
@@ -34,7 +34,7 @@ export function DaysTable() {
       formattedDate: new Date(Date.now() - 86400000).toLocaleDateString(),
       weekRange: getWeekRange(new Date(Date.now() - 86400000)),
     },
-    // Add more entries as needed
+    // Add more days as needed
   ];
 
   return (
@@ -62,7 +62,7 @@ export function DaysTable() {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {entries.map((entry) => (
+            {days.map((entry) => (
               <Table.Tr key={entry.id} className="hover:bg-[#2C2E33] cursor-pointer">
                 <Table.Td>
                   <Link href={`/days/${entry.id}`} className="flex items-center no-underline text-gray-300">

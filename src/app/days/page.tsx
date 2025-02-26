@@ -17,7 +17,7 @@ export default function Days() {
           color="dark"
           leftSection="+"
         >
-          Add task
+          Add day
         </Button>
       </div>
 
