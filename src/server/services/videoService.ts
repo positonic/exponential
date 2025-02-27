@@ -1,6 +1,8 @@
 import { type PrismaClient } from "@prisma/client";
 import type { Caption } from "~/utils/vttParser";
 import type { TranscriptionSummary, TranscriptionSetups } from "~/types/transcription";
+import { VideoRepository } from "~/server/repositories/videoRepository";
+import { db } from "~/server/db";
 // Define types based on Prisma schema
 type VideoCreateInput = {
   id?: string;
@@ -136,7 +138,7 @@ const prompts = {
   
   Transcript:`,
   
-    'sluis': `You are a crypto trading analyst expert. Below is a transcript of a crypto trading video that you created. Please extract and structure the information using markdown formatting. The transcript includes timestamps that you should use to create clickable links to the video sections.
+    'description': `You are a crypto trading analyst expert. Below is a transcript of a crypto trading video that you created. Please extract and structure the information using markdown formatting. The transcript includes timestamps that you should use to create clickable links to the video sections.
 
   IMPORTANT: The transcript is provided with timestamps in the format "(123.45) Some text here". You MUST use these exact timestamps from the transcript to create your section links. DO NOT use arbitrary timestamps. Each section should use the timestamp of the first relevant mention of that topic in the transcript.
 
@@ -208,11 +210,20 @@ const getPrompt = (summaryType: string): string => {
   return summaryType in prompts ? prompts[summaryType as keyof typeof prompts] : prompts.basic;
 };
 
-export async function summarizeTranscription(transcription: string, summaryType: string, captions: {text: string, startSeconds: number, endSeconds: number}[], videoUrl?: string): Promise<TranscriptionSummary> {
-    
-    const formattedCaptions = captions
-        .map(caption => `(${caption.startSeconds.toFixed(2)}) ${caption.text}`)
-        .join(" ");
+export async function summarizeTranscription(transcription: string, summaryType: string, captions?: {text: string, startSeconds: number, endSeconds: number}[], videoUrl?: string): Promise<TranscriptionSummary> {
+    console.log("transcription, summaryType, captions, videoUrl ", transcription, summaryType, captions, videoUrl)    
+    const isDescription = summaryType === 'description';
+
+    if(isDescription && (!captions || captions.length === 0 || !videoUrl)){
+        throw new Error('Captions and videoUrl are required for description summary type');
+    }
+
+    if(isDescription) {
+
+    }
+    const formattedCaptions = isDescription && captions 
+        ? captions.map(caption => `(${caption.startSeconds.toFixed(2)}) ${caption.text}`).join(" ") 
+        : "";
     const responseFormat = summaryType === 'trade-setups' ? { type: "json_object" } : { type: "text" }
     
     // Format video URL to maintain proper query parameter structure
@@ -220,7 +231,7 @@ export async function summarizeTranscription(transcription: string, summaryType:
         ? videoUrl.replace('?v=', '?v=').split('&')[0]
         : videoUrl;
     
-    const prompt = summaryType === 'sluis' 
+    const prompt = isDescription
         ? getPrompt(summaryType)
             .replace('{{TRANSCRIPT_WITH_SECONDS}}', JSON.stringify(formattedCaptions))
             .replace(/\{\{VIDEO_URL\}\}/g, formattedVideoUrl ? `${formattedVideoUrl}&t=` : '')
@@ -300,7 +311,7 @@ export async function getSetups(transcription: string, summaryType: string): Pro
 
     const data = await response.json();
     console.log("createVideo: data is ", data)
-    console.log("createVideo: 'sluis' data.choices[0].message is ", data.choices[0].message)
+    console.log("createVideo: 'description' data.choices[0].message is ", data.choices[0].message)
     const content = JSON.parse(data.choices[0].message.content) 
     console.log("createVideo: content is ", content)
     if (!content.generalMarketContext || !Array.isArray(content.coins) ){
@@ -309,114 +320,82 @@ export async function getSetups(transcription: string, summaryType: string): Pro
 
     return content;
 }
+export async function summarizeAndSaveSummary(
+  videoId: string,
+  transcription: string,
+  summaryType: string,
+  captions?: { text: string; startSeconds: number; endSeconds: number }[],
+  videoUrl?: string
+): Promise<string> {
+  // Get the summary using existing function
+  const summary = await summarizeTranscription(transcription, summaryType, captions, videoUrl);
+  const content = summary.content;
+  // Use the existing db instance and create a repository
+  const repository = new VideoRepository(db);
+
+  console.log("summarizeAndSaveSummary: content is ", content)
+  // Save the summary
+  if (content) {
+    await repository.saveSummary(videoId, content, summaryType);
+  }
+
+  return content;
+}
+
 export class VideoService {
-  private prisma: PrismaClient;
+  private repository: VideoRepository;
 
   constructor(prisma: PrismaClient) {
-    this.prisma = prisma;
+    this.repository = new VideoRepository(prisma);
+  }
+
+  async summarizeAndSave(videoId: string, transcription: string, summaryType: string) {
+    const summary = await summarizeTranscription(transcription, summaryType);
+    
+    // Save to database based on summary type
+    return await this.repository.updateVideoContent(videoId, {
+      summary: summaryType === 'basic' ? summary.content : undefined,
+      description: summaryType === 'description' ? summary.content : undefined,
+    });
   }
 
   async createVideo(data: VideoCreateInput) {
     // First, check if a video with this URL already exists
-    const existingVideo = await this.prisma.video.findFirst({
-      where: { videoUrl: data.videoUrl }
-    });
+    const existingVideo = await this.repository.getVideoByUrl(data.videoUrl);
     console.log("createVideo: existingVideo is ", existingVideo?.videoUrl)
     
     if (existingVideo) {
       // Check if the user-video relation already exists
-      const existingUserVideo = await this.prisma.userVideo.findFirst({
-        where: {
-          userId: data.userId,
-          videoId: existingVideo.id
-        }
-      });
+      const existingUserVideo = await this.repository.getUserVideo(data.userId, existingVideo.id);
 
       // Only create the relation if it doesn't exist
       if (!existingUserVideo) {
-        await this.prisma.userVideo.create({
-          data: {
-            userId: data.userId,
-            videoId: existingVideo.id
-          }
-        });
+        await this.repository.createUserVideo(data.userId, existingVideo.id);
       }
       return existingVideo;
     }
 
     // If video doesn't exist, create it and the UserVideo relation
-    return await this.prisma.$transaction(async (tx) => {
-      const video = await tx.video.create({
-        data: {
-          id: data.id,
-          slug: data.slug,
-          title: data.title,
-          videoUrl: data.videoUrl,
-          transcription: data.transcription,
-          status: data.status,
-          isSearchable: data.isSearchable,
-          users: {
-            create: {
-              userId: data.userId
-            }
-          }
-        }
-      });
-      return video;
-    });
+    return await this.repository.createVideo(data);
   }
 
   async updateVideo(id: string, data: VideoUpdateInput) {
-    return this.prisma.video.update({
-      where: { id },
-      data: {
-        ...data,
-        updatedAt: new Date()
-      }
-    });
+    return this.repository.updateVideo(id, data);
   }
 
   async getVideo(id: string) {
-    return await this.prisma.video.findUnique({
-      where: { id },
-      include: {
-        users: {
-          include: {
-            user: true
-          }
-        }
-      }
-    });
+    return await this.repository.getVideo(id);
   }
 
   async getVideoBySlug(slug: string) {
-    return await this.prisma.video.findFirst({
-      where: { slug },
-      include: {
-        users: {
-          include: {
-            user: true
-          }
-        }
-      }
-    });
+    return await this.repository.getVideoBySlug(slug);
   }
 
   async getVideos() {
-    return await this.prisma.video.findMany({
-      include: {
-        users: {
-          include: {
-            user: true
-          }
-        }
-      }
-    });
+    return await this.repository.getVideos();
   }
 
   async deleteVideo(id: string) {
-    return await this.prisma.video.delete({
-      where: { id }
-    });
+    return await this.repository.deleteVideo(id);
   }
 }

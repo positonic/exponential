@@ -4,7 +4,6 @@ import { auth } from "~/server/auth";
 import { HydrateClient } from "~/trpc/server";
 import { getVideoBySlug } from "~/server/api/routers/video";
 import { parseVTT } from '~/utils/vttParser';
-import { TranscriptionAccordion } from '~/app/_components/TranscriptionAccordion';
 import { SummarizeButton } from '~/app/_components/SummarizeButton';
 
 export default async function VideoPage({ params }: {
@@ -49,32 +48,15 @@ export default async function VideoPage({ params }: {
                     {video.title}
                   </a>
                 </h1>
-                <div>
-                  <h2 className="text-lg font-semibold">Video URL</h2>
-                  <p>{video.videoUrl}</p>
-                </div>
+               
                 <div>
                   <h2 className="text-lg font-semibold">Status</h2>
                   <Badge color={getStatusColor(video.status)} variant="light">
                     {video.status}
                   </Badge>
                 </div>
-                <div>
-                  <h2 className="text-lg font-semibold">Created At</h2>
-                  <p>{new Date(video.createdAt!).toLocaleString()}</p>
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold">Last Updated</h2>
-                  <p>{new Date(video.updatedAt!).toLocaleString()}</p>
-                </div>
-                {captions.length > 0 && (
-                  <>  
-                    <h2 className="text-lg font-semibold">Transcription</h2>
-                    <HydrateClient>
-                      <TranscriptionAccordion transcription={transcription}/>    
-                    </HydrateClient>
-                  </>
-                )}
+                
+                
                 
                 {(transcription && video.status.toLowerCase() === 'completed') && (
                   <HydrateClient>

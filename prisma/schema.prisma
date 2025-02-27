@@ -129,9 +129,11 @@ model Project {
 
 model Video {
   id            String   @id @default(uuid())
-  slug          String?
+  slug          String? @unique
   title         String?
-  videoUrl      String  @unique  // Add unique constraint to prevent duplicate videos
+  videoUrl      String  @unique
+  summary       String?  @db.Text    // Added field for short summary
+  description   String?  @db.Text    // Added field for longer description
   transcription String?
   status        String
   createdAt     DateTime?    @default(now()) @db.Timestamptz(6)
