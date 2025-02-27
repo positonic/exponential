@@ -50,7 +50,6 @@ export default async function VideoPage({ params }: {
                 </h1>
                
                 <div>
-                  <h2 className="text-lg font-semibold">Status</h2>
                   <Badge color={getStatusColor(video.status)} variant="light">
                     {video.status}
                   </Badge>
@@ -65,6 +64,7 @@ export default async function VideoPage({ params }: {
                       captions={captions}
                       isCompleted={video.status.toLowerCase() === 'completed'}
                       videoUrl={video.videoUrl}
+                      video={video}
                     />
                   </HydrateClient>
                 )}

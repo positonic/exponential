@@ -16,17 +16,33 @@ export class VideoRepository {
     });
   }
 
-  async saveSummary(videoId: string, content: string, summaryType: string) {
-    console.log("saveSummary: ", videoId, content, summaryType)
+  async saveSummary(videoId: string | undefined, content: string, summaryType: string, videoUrl?: string) {
+    
+    console.log("saveSummary: videoId: ", videoId)
+    console.log("saveSummary: content: ", content)
+    console.log("saveSummary: summaryType: ", summaryType)
+    console.log("saveSummary: videoUrl: ", videoUrl)
+    // Validate input parameters based on summary type
+    if (summaryType === 'description') {
+      if (!videoUrl) {
+        throw new Error('videoUrl is required for description summary type');
+      }
+    } else if (summaryType === 'basic') {
+      if (!videoId) {
+        throw new Error('videoId is required for basic summary type');
+      }
+    } else {
+      throw new Error(`Invalid summary type: ${summaryType}`);
+    }
+
     const data = summaryType === 'description' 
       ? { description: content }
       : { summary: content };
     
-      console.log("saveSummary: data: ", data)
-      console.log("saveSummary: videoId: ", videoId)
-      console.log("saveSummary: summaryType: ", summaryType)
     return this.prisma.video.update({
-      where: { slug: videoId },
+      where: summaryType === 'description' 
+        ? { videoUrl } 
+        : { slug: videoId },
       data: {
         ...data,
         updatedAt: new Date(),

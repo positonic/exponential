@@ -119,23 +119,28 @@ const prompts = {
   
   Transcript:`,
   
-    'basic': `Please provide a concise summary of the following transcript in two parts:
+    'basic': `Please provide a concise summary of the following transcript in markdown format:
   
   1. First, give me a 3-line overview that captures the main essence of the content.
   2. Then, list 3-5 key bullet points highlighting the most important specific information or takeaways.
   
   Keep the summary clear and focused, avoiding any unnecessary details.
+
   Example Output:
-  {
-    overview: "The transcript is a mix of casual greetings, personal reflections, and cryptocurrency trade analysis. The speaker discusses the challenging current state of the market, offers bullish sentiments on Bitcoin, and provides specific trade insights on several cryptocurrencies. The tone is informal and interspersed with personal anecdotes and motivational advice.",
-    takeaways: [
-      "- **Market Sentiment**: Recent times have been tough for many in the cryptocurrency space, with significant losses and a sobering market environment. However, the speaker believes that we might have hit the bottom, citing various indicators and events (e.g., the collapse of meme coins, major hacks, etc.) that suggest the worst may be behind us.\n",
-      "- **Bitcoin Analysis**: The speaker is bullish on Bitcoin, noting that despite negative headlines, its price hasn't broken new lows. They argue that Bitcoin remains the best risk-adjusted asset in the market and suggest that if prices drop to the range lows again, it might be a strong buying opportunity.\n",
-     '- **Altcoin Insights**: Detailed trade setups and analyses were provided for several cryptocurrencies, including Ethereum (ETH), Solana (SOL), and others. The speaker suggests focusing on coins with utility and potential for solving real problems, indicating a shift in the market away from meme coins and towards more substantive projects.\n',1
-    "- **General Trade Advice**: Emphasizes the importance of not being overly bearish unless there's a significant change in the market structure or fundamentals. The speaker also reflects on the importance of resilience, learning from losses, and maintaining a positive outlook despite market downturns."
-    ]
-  }
-  
+  ### Overview
+  The transcript covers crypto market analysis, focusing on Bitcoin's recent price action and potential trade setups. The speaker discusses market sentiment, technical indicators, and specific entry/exit points. Several altcoins are analyzed with detailed trade recommendations.
+
+  ### Key Takeaways
+  * **Market Sentiment**: Recent times have been tough, with significant losses across the crypto space. However, several indicators suggest we might have hit bottom.
+
+  * **Bitcoin Analysis**: Currently bullish on Bitcoin, with key support at $45k. Technical indicators suggest potential for upward movement, particularly if $48k resistance is broken.
+
+  * **Altcoin Insights**: Detailed trade setups provided for ETH, SOL, and others. Focus on utility-driven projects rather than meme coins.
+
+  * **Trading Strategy**: Emphasis on risk management and position sizing. Recommends scaling into positions and having clear exit strategies.
+
+  Remember: Output only the markdown formatted text.
+
   Transcript:`,
   
     'description': `You are a crypto trading analyst expert. Below is a transcript of a crypto trading video that you created. Please extract and structure the information using markdown formatting. The transcript includes timestamps that you should use to create clickable links to the video sections.
@@ -337,6 +342,28 @@ export async function summarizeAndSaveSummary(
   // Save the summary
   if (content) {
     await repository.saveSummary(videoId, content, summaryType);
+  }
+
+  return content;
+}
+
+//input.transcription, input.summaryType, input.captions, input.vi
+export async function describeAndSave(
+  transcription: string,
+  summaryType: string,
+  captions?: { text: string; startSeconds: number; endSeconds: number }[],
+  videoUrl?: string
+): Promise<string> {
+  // Get the summary using existing function
+  const summary = await summarizeTranscription(transcription, summaryType, captions, videoUrl);
+  const content = summary.content;
+  // Use the existing db instance and create a repository
+  const repository = new VideoRepository(db);
+
+  console.log("summarizeAndSaveSummary: content is ", content)
+  // Save the summary
+  if (content) {
+    await repository.saveSummary(undefined, content, summaryType, videoUrl);
   }
 
   return content;

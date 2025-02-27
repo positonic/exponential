@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { OpenAIEmbeddings } from "@langchain/openai";
-import { summarizeTranscription, summarizeAndSaveSummary, getSetups } from "~/server/services/videoService";
+import { summarizeTranscription, describeAndSave, summarizeAndSaveSummary, getSetups } from "~/server/services/videoService";
 import {
   createTRPCRouter,
   protectedProcedure,
@@ -141,10 +141,11 @@ export const videoRouter = createTRPCRouter({
       videoUrl: z.string().optional()
     }))
     .mutation(async ({ input }) => {
-      const summary = await summarizeTranscription(input.transcription, input.summaryType, input.captions, input.videoUrl)
-      console.log("summarizeTranscription is", summary.content)
-      return summary.content
+      const description = await describeAndSave(input.transcription, input.summaryType, input.captions, input.videoUrl)
+      console.log("summarizeTranscription is", description)
+      return description
     }),
+
   getSetups: protectedProcedure
     .input(z.object({ 
       transcription: z.string(),
