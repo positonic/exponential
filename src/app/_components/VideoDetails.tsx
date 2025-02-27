@@ -19,19 +19,19 @@ import type { Caption } from "~/utils/vttParser";
 import { getVideoIdFromYoutubeUrl } from "~/utils/youtube";
 import { TranscriptionAccordion } from "~/app/_components/TranscriptionAccordion";
 
-interface SummarizeButtonProps {
+interface VideoDetailsProps {
   transcription: string;
   captions: Caption[];
   isCompleted: boolean;
   videoUrl: string;
 }
 
-export function SummarizeButton({
+export function VideoDetails({
   transcription,
   captions,
   isCompleted,
   videoUrl,
-}: SummarizeButtonProps) {
+}: VideoDetailsProps) {
   const [creatingSetups, setCreatingSetups] = useState(false);
   const [creatingDescription, setCreatingDescription] = useState(false);
   const [creatingSummary, setCreatingSummary] = useState(false);

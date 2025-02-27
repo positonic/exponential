@@ -4,7 +4,7 @@ import { auth } from "~/server/auth";
 import { HydrateClient } from "~/trpc/server";
 import { getVideoBySlug } from "~/server/api/routers/video";
 import { parseVTT } from '~/utils/vttParser';
-import { SummarizeButton } from '~/app/_components/SummarizeButton';
+import { VideoDetails } from '~/app/_components/VideoDetails';
 
 export default async function VideoPage({ params }: {
   params: Promise<{ slug: string }>
@@ -60,7 +60,7 @@ export default async function VideoPage({ params }: {
                 
                 {(transcription && video.status.toLowerCase() === 'completed') && (
                   <HydrateClient>
-                    <SummarizeButton 
+                    <VideoDetails 
                       transcription={transcription}
                       captions={captions}
                       isCompleted={video.status.toLowerCase() === 'completed'}
