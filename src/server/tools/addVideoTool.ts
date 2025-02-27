@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
-import { extractYoutubeSlugFromUrl } from "~/utils/youtube";
+import { getVideoIdFromYoutubeUrl } from "~/utils/youtube";
 
 const addVideoSchema = z.object({
   videoUrl: z.string().url(),
@@ -10,7 +10,7 @@ const addVideoSchema = z.object({
 export const createAddVideoTool = (ctx: any) => tool(
   async (input): Promise<string> => {
     try {
-      const slug = extractYoutubeSlugFromUrl(input.videoUrl);
+      const slug = getVideoIdFromYoutubeUrl(input.videoUrl);
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
       const video = await ctx.db.video.create({

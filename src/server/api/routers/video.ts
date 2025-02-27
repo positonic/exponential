@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { OpenAIEmbeddings } from "@langchain/openai";
-import { summarizeTranscription, getSetups } from "~/server/services/videoService";
+import { summarizeTranscription, summarizeAndSaveSummary, getSetups } from "~/server/services/videoService";
 import {
   createTRPCRouter,
   protectedProcedure,
   publicProcedure,
 } from "~/server/api/trpc";
-import { extractYoutubeSlugFromUrl } from "~/utils/youtube";
+import { getVideoIdFromYoutubeUrl } from "~/utils/youtube";
 import { VideoService } from "~/server/services/videoService";
 
 export const videoRouter = createTRPCRouter({
@@ -95,7 +95,7 @@ export const videoRouter = createTRPCRouter({
   create: protectedProcedure
     .input(z.object({ url: z.string().url() }))
     .mutation(async ({ ctx, input }) => {
-      const slug = extractYoutubeSlugFromUrl(input.url);
+      const slug = getVideoIdFromYoutubeUrl(input.url);
       const videoService = new VideoService(ctx.db);
       
       return await videoService.createVideo({
@@ -117,6 +117,20 @@ export const videoRouter = createTRPCRouter({
 
   summarizeTranscription: protectedProcedure
     .input(z.object({ 
+      videoId: z.string(),
+      transcription: z.string(),
+      summaryType: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const summary = await summarizeAndSaveSummary(input.videoId, input.transcription, input.summaryType)
+      console.log("summarizeTranscription is", summary)
+      return summary
+    }),
+
+   
+    // Creates a detailed description more than a summary.
+  describeTranscription: protectedProcedure
+    .input(z.object({ 
       transcription: z.string(),
       summaryType: z.string(),
       captions: z.array(z.object({
@@ -128,11 +142,10 @@ export const videoRouter = createTRPCRouter({
     }))
     .mutation(async ({ input }) => {
       const summary = await summarizeTranscription(input.transcription, input.summaryType, input.captions, input.videoUrl)
-      console.log("summarizeTranscription is", summary)
-      return summary
+      console.log("summarizeTranscription is", summary.content)
+      return summary.content
     }),
-
-    getSetups: protectedProcedure
+  getSetups: protectedProcedure
     .input(z.object({ 
       transcription: z.string(),
       summaryType: z.string()
@@ -142,7 +155,7 @@ export const videoRouter = createTRPCRouter({
       console.log("summarizeTranscription is", summary)
       return summary
     }),
-  
+
   getCount: publicProcedure.query(async ({ ctx }) => {
     const count = await ctx.db.video.count({
       where: {

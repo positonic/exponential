@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
-//import { extractYoutubeSlugFromUrl } from "~/utils/youtube";
+//import { getVideoIdFromYoutubeUrl } from "~/utils/youtube";
 
 const addVideoSchema = z.object({
   videoUrl: z.string().url(),
