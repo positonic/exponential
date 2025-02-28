@@ -4,6 +4,7 @@ import { api } from "~/trpc/react";
 import { useState } from "react";
 import React from "react";
 import { EditActionModal } from "./EditActionModal";
+import type { Priority } from "~/types/action";
 
 type Action = RouterOutputs["action"]["getAll"][0];
 
@@ -38,7 +39,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
       
       // Helper function to update action in a list
       const updateActionInList = (old: Action[] | undefined) => {
-        if (!old) return previousState.actions;
+        if (!old) return [];
         return old.map((action) =>
           action.id === id 
             ? { ...action, status: status as string } 
@@ -55,17 +56,9 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
     
     onError: (err, variables, context) => {
       if (!context) return;
-      // Restore both caches
+      // Restore both caches on error
       utils.action.getAll.setData(undefined, context.actions);
       utils.action.getToday.setData(undefined, context.todayActions);
-    },
-    
-    onSettled: async () => {
-      // Invalidate both queries
-      await Promise.all([
-        utils.action.getAll.invalidate(),
-        utils.action.getToday.invalidate()
-      ]);
     },
   });
 
@@ -84,10 +77,10 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
 
   // Filter the actions directly without memoization
   const filteredActions = (() => {
-    const today = new Date().toISOString().split('T')[0];
-    
-    // First filter by date
+    // First filter by view
     const dateFiltered = (() => {
+      const today = new Date().toISOString().split('T')[0];
+      
       switch (viewName.toLowerCase()) {
         case 'inbox':
           return actions.filter(action => !action.projectId);
@@ -100,7 +93,6 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
             action.dueDate && action.dueDate.toISOString() > new Date().toISOString()
           );
         default:
-          // Handle project views - check if viewName starts with 'project-'
           if (viewName.startsWith('project-')) {
             const projectId = viewName.split('-')[2];
             return actions.filter(action => action.projectId === projectId);
@@ -109,8 +101,25 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
       }
     })();
 
-    // Then filter by status
-    return dateFiltered.filter((action) => action.status === filter);
+    // Then filter by status and sort by priority
+    return dateFiltered
+      .filter((action) => action.status === filter)
+      .sort((a, b) => {
+        const priorityOrder: Record<Priority, number> = {
+          '1st Priority': 1,
+          '2nd Priority': 2,
+          '3rd Priority': 3,
+          '4th Priority': 4,
+          '5th Priority': 5,
+          'Quick': 6,
+          'Scheduled': 7,
+          'Errand': 8,
+          'Remember': 9,
+          'Watch': 10
+        };
+        
+        return (priorityOrder[a.priority as Priority] || 999) - (priorityOrder[b.priority as Priority] || 999);
+      });
   })();
 
   return (

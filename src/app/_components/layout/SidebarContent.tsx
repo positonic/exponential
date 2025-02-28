@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { Accordion } from '@mantine/core';
+import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
-import { IconSunrise, IconMoonStars, IconCalendarEvent, IconVideo, IconWriting, } from "@tabler/icons-react";
+import { IconCalendarEvent, IconVideo, IconWriting } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 export function SidebarContent() {
@@ -14,19 +14,20 @@ export function SidebarContent() {
           <Accordion.Control>
             <div className="flex items-center justify-between text-gray-400 hover:text-gray-300">
               <span className="text-sm font-medium">My Projects</span>
-              <div className="flex items-center gap-2">
-              </div>
+              <div className="flex items-center gap-2"></div>
             </div>
           </Accordion.Control>
           <Accordion.Panel>
-             <AddProjectButton />
             <ProjectList />
+            <AddProjectButton />
           </Accordion.Panel>
         </Accordion.Item>
 
         <Accordion.Item value="Tools">
           <Accordion.Control>
-            <span className="text-sm font-medium text-gray-400 hover:text-gray-300">Tools</span>
+            <span className="text-sm font-medium text-gray-400 hover:text-gray-300">
+              Tools
+            </span>
           </Accordion.Control>
           <Accordion.Panel>
             <div className="space-y-1">
@@ -42,15 +43,14 @@ export function SidebarContent() {
               <NavLink href="/videos" icon={IconVideo}>
                 Media
                 <VideoCount />
-            </NavLink>
-            <NavLink href="/journal" icon={IconWriting}>
+              </NavLink>
+              <NavLink href="/journal" icon={IconWriting}>
                 Journal
-            </NavLink>
+              </NavLink>
             </div>
-            
           </Accordion.Panel>
         </Accordion.Item>
       </Accordion>
     </div>
   );
-} 
+}
