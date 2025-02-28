@@ -27,7 +27,7 @@ export function getVideoIdFromYoutubeUrl(url: string): string {
   try {
     // First try using URL parsing for watch?v= format
     const parsedUrl = new URL(url);
-    let videoId = parsedUrl.searchParams.get('v');
+    const videoId = parsedUrl.searchParams.get('v');
     
     if (videoId && /^[\w-]{11}$/.test(videoId)) {
       return videoId;

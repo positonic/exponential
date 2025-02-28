@@ -61,7 +61,10 @@ export class VideoRepository {
       const video = await tx.video.create({
         data: {
           id: crypto.randomUUID(),
-          ...data,
+          videoUrl: data.videoUrl,
+          status: data.status,
+          slug: data.slug,
+          isSearchable: data.isSearchable,
           users: {
             create: {
               userId: data.userId
