@@ -32,7 +32,17 @@ export const authConfig = {
     error: '/use-the-force', // Custom error page
   },
   providers: [
-    DiscordProvider,
+    DiscordProvider({
+      clientId: process.env.AUTH_DISCORD_ID!,
+      clientSecret: process.env.AUTH_DISCORD_SECRET!,
+      authorization: {
+        url: "https://discord.com/api/oauth2/authorize",
+        params: {
+          scope: "identify email guilds",
+        },
+      },
+      allowDangerousEmailAccountLinking: true,
+    }),
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
@@ -44,17 +54,26 @@ export const authConfig = {
     strategy: "jwt",
   },
   callbacks: {
-    session: ({ session, user, token }) => ({
-      ...session,
-      user: {
-        ...session.user,
-        id: user?.id ?? token.sub,
-      },
-    }),
-    jwt: ({ token, user }) => {
+    session: ({ session, user, token }) => {
+      const tokenId = typeof token.id === 'string' ? token.id : 
+                     typeof token.sub === 'string' ? token.sub : '';
+      
+      return {
+        ...session,
+        token,
+        user: {
+          ...session.user,
+          id: user?.id ?? tokenId
+        }
+      };
+    },
+    jwt: ({ token, account, user }) => {
       if (user) {
         token.sub = user.id;
         token.email = user.email;
+      }
+      if (account) {
+        token.accessToken = account.access_token;
       }
       return token;
     },

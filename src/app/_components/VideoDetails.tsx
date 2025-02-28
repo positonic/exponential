@@ -13,7 +13,8 @@ import {
 } from "@mantine/core";
 import { useState } from "react";
 import { api } from "~/trpc/react";
-import type { TranscriptionSetups } from "~/types/transcription";0
+import type { TranscriptionSetups } from "~/types/transcription";
+import type { Video } from "~/types/video";
 import type { Caption } from "~/utils/vttParser";
 import { getVideoIdFromYoutubeUrl } from "~/utils/youtube";
 import { ContentAccordion } from "~/app/_components/ContentAccordion";
@@ -45,6 +46,10 @@ export function VideoDetails({
   >("basic");
 
   const videoId = getVideoIdFromYoutubeUrl(videoUrl);
+  if (!videoId) {
+    throw new Error("Invalid YouTube URL");
+  }
+
   const handleGetSetups = () => {
     setCreatingSetups(true);
     setupsMutation.mutate({ transcription, summaryType: "trade-setups" });
@@ -127,7 +132,7 @@ export function VideoDetails({
         />
       )}
 
-      {setups && (
+      {/* {setups && (
         <Paper shadow="sm" p="md" radius="md" withBorder>
           <Title order={3} mb="md">
             Setups
@@ -230,7 +235,7 @@ export function VideoDetails({
             </Paper>
           ))}
         </Paper>
-      )}
+      )} */}
 
       {captions.length > 0 && (
         <ContentAccordion 
@@ -268,14 +273,14 @@ export function VideoDetails({
           Create Description
         </Button>
 
-        <Button
+        {/* <Button
           loading={creatingSetups}
           disabled={!transcription || !isCompleted}
           onClick={handleGetSetups}
           title={"Create setups"}
         >
           Find setups
-        </Button>
+        </Button> */}
       </Group>
 
       
