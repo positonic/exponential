@@ -44,7 +44,7 @@ export default function Chat() {
   const viewport = useRef<HTMLDivElement>(null);
 
   const utils = api.useUtils();
-  const asanaChat = api.tools.chat.useMutation({
+  const chat = api.tools.chat.useMutation({
     onSuccess: async () => {
       // Invalidate all action-related queries to refresh counts
       await Promise.all([
@@ -131,7 +131,7 @@ export default function Chat() {
     setInput('');
 
     try {
-      const response = await asanaChat.mutateAsync({
+      const response = await chat.mutateAsync({
         message: input,
         history: messages
       });
