@@ -1,9 +1,11 @@
 import { NextPage } from "next";
 import React from "react";
+import { Container, Stack, Title, Text, Card } from "@mantine/core";
 
 interface RoadmapItem {
   title: string;
   description: string;
+  embed?: React.ReactNode;
 }
 
 interface RoadmapSection {
@@ -30,9 +32,19 @@ const roadmapData: RoadmapSection[] = [
           "The AI dictates your exercise routine and automatically logs completed actions into relevant projects.",
       },
       {
-        title: "Natural Language Task Creation with LLM Agents",
+        title: "Natural Language Task Management with LLM Agents",
         description:
           "Users can ask the AI to create tasks using natural language (e.g., 'Today I want to call my mum, go shopping, and rent a car'). Tasks are placed in relevant projects at the right time and place.",
+        embed: (
+          <div style={{ position: 'relative', paddingBottom: '62.43%', height: 0 }}>
+            <iframe 
+              src="https://www.loom.com/embed/cd1e3584aac1429fa448ef67723591f7?sid=90418359-b813-423f-8e84-7786bf59dd53"
+              frameBorder="0"
+              allowFullScreen
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+            />
+          </div>
+        ),
       },
     ],
   },
@@ -79,21 +91,31 @@ const roadmapData: RoadmapSection[] = [
 
 const RoadmapPage: NextPage = () => {
   return (
-    <div className="min-h-screen bg-gray-100 text-gray-900">
-      <div className="max-w-4xl mx-auto py-12 px-6">
-        <h1 className="text-4xl font-bold text-center mb-8">🚀 Product Roadmap</h1>
+    <Container size="lg" py="xl">
+      <Title order={1} mb="md" ta="center">
+        🚀 Product Roadmap
+      </Title>
 
+      <Stack gap="xl">
         {roadmapData.map((section) => (
-          <div key={section.title} className="mb-10">
-            <h2 className="text-2xl font-semibold mb-4">{section.title}</h2>
-            <ul className="space-y-4">
+          <div key={section.title}>
+            <Title order={2} mb="md">
+              {section.title}
+            </Title>
+            
+            <Stack gap="md">
               {section.items.map((item) => (
-                <li key={item.title} className="p-4 bg-white rounded-lg shadow">
-                  <h3 className="text-xl font-medium">{item.title}</h3>
-                  <p className="text-gray-700">{item.description}</p>
-                </li>
+                <Card key={item.title} withBorder>
+                  <Text size="lg" fw={500} mb="xs">
+                    {item.title}
+                  </Text>
+                  <Text c="dimmed" mb={item.embed ? "md" : 0}>
+                    {item.description}
+                  </Text>
+                  {item.embed}
+                </Card>
               ))}
-            </ul>
+            </Stack>
           </div>
         ))}
 
@@ -103,8 +125,8 @@ const RoadmapPage: NextPage = () => {
             roadmap and influence upcoming features.
           </p>
         </div>
-      </div>
-    </div>
+      </Stack>
+    </Container>
   );
 };
 
