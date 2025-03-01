@@ -40,20 +40,12 @@ export const createActionTools = (ctx: any) => {
   const createActionTool = tool(
     async (input): Promise<string> => {
       try {
+        if (!input) {
+          throw new Error("Input is required");
+        }
+
         console.log('input is ', input);
         
-        // Clean up projectId - convert empty string to null
-        // const projectId = input.projectId && input.projectId.trim() !== '' ? input.projectId : null;
-
-        console.log('project is ', {
-            data: {
-              name: input.name,
-              description: input.description,
-              dueDate: input.dueDate ? new Date(input.dueDate) : null,
-              status: input.status,
-              priority: input.priority
-            },
-          });
         const action = await ctx.db.action.create({
           data: {
             name: input.name,
@@ -62,16 +54,20 @@ export const createActionTools = (ctx: any) => {
             status: input.status,
             priority: input.priority,
             createdById: ctx.session.user.id,
-            
+            projectId: input.projectId,
           },
         });
         
         console.log('create action is ', action);
         return `Successfully created action "${action.name}" with ID: ${action.id}`;
       } catch (error) {
-        console.error('Error creating action:', error);
+        console.error('Error creating action:', {
+          error: error instanceof Error ? error.message : String(error),
+          input
+        });
+        
         if (error instanceof Error && error.message.includes('foreign key')) {
-          return `Created action "${input.name}" without a project association`;
+          return `Created action "${input?.name ?? 'unknown'}" without a project association`;
         }
         throw new Error(`Failed to create action: ${error instanceof Error ? error.message : String(error)}`);
       }

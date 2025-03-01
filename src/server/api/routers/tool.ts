@@ -51,21 +51,20 @@ export const toolRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
         try {
-            console.log('=== Starting chat mutation with input:', input.message);
-            
+            // Fetch user's projects
+            const projects = await ctx.db.project.findMany({
+              where: { createdById: ctx.session.user.id },
+              select: { id: true, name: true }
+            });
+
+            const projectsList = projects
+              .map(p => `"projectName": "${p.name}" (projectId: ${p.id})`)
+              .join(', ');
+
             const model = new ChatOpenAI({ 
                 modelName: process.env.LLM_MODEL,
                 modelKwargs: { "tool_choice": "auto" }
             });
-
-            const tools = getTools(ctx);
-            console.log('=== Available tools:', tools.map(t => ({
-                name: t.name,
-                description: t.description,
-                schema: t.schema
-            })));
-            
-            const llmWithTools = model.bindTools(tools);
 
             const systemMessage = new SystemMessage(
                 "Tools are equivalent to actions in this system. You have access to the following tools:\n" +
@@ -76,8 +75,17 @@ export const toolRouter = createTRPCRouter({
                 `  * For all tasks including completed: { "query_type": "today", "include_completed": true }\n` +
                 `  * For specific date: { "query_type": "date", "date": "${today}" }\n` +
                 `  * For all tasks: { "query_type": "all" }\n` +
+                `Available projects: ${projectsList}\n` +
                 "- create_action: Creates a new action item. MUST include create: true flag. Example:\n" +
-                "  { \"create\": true, \"name\": \"Task name\", \"description\": \"Task description\" }\n" +
+                "  { \"create\": true, \"name\": \"Task name\", \"description\": \"Task description\", \"projectId\": \"project-id\" }\n" +
+                "  If a user mentions a project by name, try to match it to one of the available projects above and pass the projectId to the create_action tool.\n" +
+                "  IMPORTANT: When users mention activities they've already completed (like 'I went for a run'), ALWAYS create a completed action using create_action with these parameters:\n" +
+                "  - status: \"COMPLETED\"\n" +
+                "  - name: The activity in past tense\n" +
+                "  - description: Details about the activity\n" +
+                "  - dueDate: Today's date\n" +
+                `  Example: For "I went for a run for 2.3 hours" use:\n` +
+                `  { \"create\": true, \"name\": \"Completed a 2.3 hour run\", \"description\": \"Went for a run that lasted 2.3 hours\", \"status\": \"COMPLETED\", \"dueDate\": \"${today}\" }\n` +
                 "- add_video: Adds a YouTube video to the database. Use this when users want to analyze or process a video.\n" +
                 "- read_action: Retrieves an action's details by ID. Only use this when you have a specific action ID.\n" +
                 "- update_status_action: Updates the status of an existing action. Favoured over create_action for existing actions\n" +
@@ -91,6 +99,15 @@ export const toolRouter = createTRPCRouter({
                 "5. When asked about today's tasks, use retrieve_actions with query_type='today'\n" +
                 "After using a tool, always provide a natural language response explaining the result."
             );
+            console.log('=== System message:', systemMessage.content);
+            const tools = getTools(ctx);
+            console.log('=== Available tools:', tools.map(t => ({
+                name: t.name,
+                description: t.description,
+                schema: t.schema
+            })));
+            
+            const llmWithTools = model.bindTools(tools);
 
             const messages = [systemMessage, ...input.history.map(msg => {
                 switch (msg.type) {
