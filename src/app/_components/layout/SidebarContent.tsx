@@ -3,6 +3,7 @@
 import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
+import { GoalList } from "./GoalList";
 import { IconCalendarEvent, IconVideo, IconWriting } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
@@ -19,6 +20,18 @@ export function SidebarContent() {
           </Accordion.Control>
           <Accordion.Panel>
             <ProjectList />
+            <AddProjectButton />
+          </Accordion.Panel>
+        </Accordion.Item>
+        <Accordion.Item value="goals">
+          <Accordion.Control>
+            <div className="flex items-center justify-between text-gray-400 hover:text-gray-300">
+              <span className="text-sm font-medium">My Goals</span>
+              <div className="flex items-center gap-2"></div>
+            </div>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <GoalList />
             <AddProjectButton />
           </Accordion.Panel>
         </Accordion.Item>

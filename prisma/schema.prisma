@@ -68,6 +68,8 @@ model User {
     userVideos    UserVideo[]
     exercises     UserExercise[]
     goals         Goal[]
+    outcomes      Outcome[]
+    days          UserDay[]
 }
 
 model VerificationToken {
@@ -97,8 +99,12 @@ model Action {
 model Outcome {
     id          String   @id @default(cuid())
     description String
+    dueDate      DateTime?
     projects    Project[]  @relation("ProjectOutcomes")
     goals       Goal[]     @relation("GoalOutcomes")
+    user         User        @relation(fields: [userId], references: [id])
+    userId       String
+    @@index([userId])
 }
 
 model Project {
@@ -121,6 +127,7 @@ model Project {
     // User relation (same as your existing Post model)
     createdBy       User        @relation(fields: [createdById], references: [id])
     createdById     String
+    goals           Goal[]      @relation("GoalProjects")
 
     @@index([name])
     @@index([status])
@@ -184,6 +191,7 @@ model Day {
   weekId      Int
   exercises   UserExercise[]
   journals    Journal[]
+  users       UserDay[]
   
   @@index([weekId])
 }
@@ -219,6 +227,7 @@ model Goal {
   user         User        @relation(fields: [userId], references: [id])
   userId       String
   outcomes     Outcome[]   @relation("GoalOutcomes")
+  projects     Project[]   @relation("GoalProjects")
 
   @@index([lifeDomainId])
   @@index([userId])
@@ -239,5 +248,19 @@ model Journal {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([dayId])
+}
+
+model UserDay {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  day       Day      @relation(fields: [dayId], references: [id])
+  dayId     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, dayId])
+  @@index([userId])
   @@index([dayId])
 }

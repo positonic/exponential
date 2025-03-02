@@ -57,9 +57,8 @@ export const toolRouter = createTRPCRouter({
               select: { id: true, name: true }
             });
 
-            const projectsList = projects
-              .map(p => `"projectName": "${p.name}" (projectId: ${p.id})`)
-              .join(', ');
+            // Convert projects to a more structured format
+            const projectsJson = JSON.stringify(projects);
 
             const model = new ChatOpenAI({ 
                 modelName: process.env.LLM_MODEL,
@@ -75,17 +74,22 @@ export const toolRouter = createTRPCRouter({
                 `  * For all tasks including completed: { "query_type": "today", "include_completed": true }\n` +
                 `  * For specific date: { "query_type": "date", "date": "${today}" }\n` +
                 `  * For all tasks: { "query_type": "all" }\n` +
-                `Available projects: ${projectsList}\n` +
+                `Available projects: ${projectsJson}\n` +
                 "- create_action: Creates a new action item. MUST include create: true flag. Example:\n" +
                 "  { \"create\": true, \"name\": \"Task name\", \"description\": \"Task description\", \"projectId\": \"project-id\" }\n" +
                 "  If a user mentions a project by name, try to match it to one of the available projects above and pass the projectId to the create_action tool.\n" +
-                "  IMPORTANT: When users mention activities they've already completed (like 'I went for a run'), ALWAYS create a completed action using create_action with these parameters:\n" +
+                "  IMPORTANT: When users mention ANY activities they've already completed (including calls, meetings, exercise, etc.), you MUST ALWAYS create a completed action using create_action with these parameters:\n" +
                 "  - status: \"COMPLETED\"\n" +
                 "  - name: The activity in past tense\n" +
                 "  - description: Details about the activity\n" +
-                "  - dueDate: Today's date\n" +
-                `  Example: For "I went for a run for 2.3 hours" use:\n` +
-                `  { \"create\": true, \"name\": \"Completed a 2.3 hour run\", \"description\": \"Went for a run that lasted 2.3 hours\", \"status\": \"COMPLETED\", \"dueDate\": \"${today}\" }\n` +
+                "  - dueDate: Today's date (unless a specific date is mentioned)\n" +
+                "  - projectId: For exercise activities, use the exercise project ID \"cm7q7bjf80000zu1r77bdcqdj\"\n" +
+                `  Examples:\n` +
+                `  For "I went for a run for 2.3 hours" use:\n` +
+                `  { \"create\": true, \"name\": \"Completed a 2.3 hour run\", \"description\": \"Went for a run that lasted 2.3 hours\", \"status\": \"COMPLETED\", \"dueDate\": \"${today}\", \"projectId\": \"cm7q7bjf80000zu1r77bdcqdj\"}\n` +
+                `  For "I called my mom for 12 mins" use:\n` +
+                `  { \"create\": true, \"name\": \"Called mom for 12 minutes\", \"description\": \"Had a phone call with mom that lasted 12 minutes\", \"status\": \"COMPLETED\", \"dueDate\": \"${today}\" }\n` +
+                "  Note: Always create the action even if no project is specified. The projectId is optional.\n" +
                 "- add_video: Adds a YouTube video to the database. Use this when users want to analyze or process a video.\n" +
                 "- read_action: Retrieves an action's details by ID. Only use this when you have a specific action ID.\n" +
                 "- update_status_action: Updates the status of an existing action. Favoured over create_action for existing actions\n" +
