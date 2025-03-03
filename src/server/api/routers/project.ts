@@ -30,9 +30,9 @@ export const projectRouter = createTRPCRouter({
         description: z.string().optional(),
         status: z.string(),
         priority: z.string(),
-        progress: z.number().min(0).max(100),
-        reviewDate: z.date().nullable(),
-        nextActionDate: z.date().nullable(),
+        progress: z.number().min(0).max(100).optional().default(0),
+        reviewDate: z.date().nullable().optional(),
+        nextActionDate: z.date().nullable().optional(),
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
       }),
@@ -44,10 +44,10 @@ export const projectRouter = createTRPCRouter({
           description: input.description,
           status: input.status,
           priority: input.priority,
-          progress: input.progress,
+          progress: input.progress ?? 0,
           slug: slugify(input.name),
-          reviewDate: input.reviewDate,
-          nextActionDate: input.nextActionDate,
+          reviewDate: input.reviewDate ?? null,
+          nextActionDate: input.nextActionDate ?? null,
           createdBy: {
             connect: {
               id: ctx.session.user.id,
@@ -89,21 +89,44 @@ export const projectRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...data } = input;
+      const { id, goalIds, outcomeIds, ...updateData } = input;
+      
       return ctx.db.project.update({
         where: {
           id,
           createdById: ctx.session.user.id,
         },
         data: {
-          ...data,
-          slug: slugify(data.name),
-          goals: data.goalIds?.length ? {
-            set: data.goalIds.map(id => ({ id: parseInt(id) })),
+          ...updateData,
+          slug: slugify(updateData.name),
+          goals: goalIds?.length ? {
+            set: goalIds.map(id => ({ id: parseInt(id) })),
           } : undefined,
-          outcomes: data.outcomeIds?.length ? {
-            set: data.outcomeIds.map(id => ({ id })),
+          outcomes: outcomeIds?.length ? {
+            set: outcomeIds.map(id => ({ id })),
           } : undefined,
+        },
+      });
+    }),
+
+  getById: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.project.findUnique({
+        where: { id: input.id },
+        include: {
+          goals: true,
+          outcomes: true,
+        },
+      });
+    }),
+
+  getTeamMembers: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.teamMember.findMany({
+        where: {
+          projectId: input.projectId,
         },
       });
     }),

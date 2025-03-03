@@ -70,6 +70,7 @@ model User {
     goals         Goal[]
     outcomes      Outcome[]
     days          UserDay[]
+    teamMemberships TeamMember[]
 }
 
 model VerificationToken {
@@ -114,10 +115,10 @@ model Project {
     slug            String    @unique
     status          String    @default("ACTIVE")
     priority        String    @default("NONE")
-    progress        Float     @default(0)
+    progress        Float?    @default(0)
     
     // Dates
-    createdAt       DateTime    @default(now())
+    createdAt       DateTime  @default(now())
     reviewDate      DateTime?
     nextActionDate  DateTime?
     
@@ -129,6 +130,7 @@ model Project {
     createdBy       User        @relation(fields: [createdById], references: [id])
     createdById     String
     goals           Goal[]      @relation("GoalProjects")
+    teamMembers     TeamMember[]
 
     @@index([name])
     @@index([status])
@@ -264,4 +266,19 @@ model UserDay {
   @@unique([userId, dayId])
   @@index([userId])
   @@index([dayId])
+}
+
+model TeamMember {
+  id               String    @id @default(cuid())
+  name             String
+  role             String
+  responsibilities String[]
+  avatarUrl        String?
+  project          Project   @relation(fields: [projectId], references: [id])
+  projectId        String
+  user             User      @relation(fields: [userId], references: [id])
+  userId           String
+
+  @@index([projectId])
+  @@index([userId])
 }
