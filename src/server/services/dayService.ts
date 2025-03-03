@@ -1,4 +1,5 @@
 import { type Context } from "~/server/auth/types";
+import { startOfDay, endOfDay } from "date-fns";
 
 export async function getUserDays({ ctx }: { ctx: Context }) {
   const userId = ctx.session?.user?.id;
@@ -27,6 +28,27 @@ export async function createUserDay({ ctx, input }: { ctx: Context, input: { dat
           userId: ctx.session.user.id
         }
       }
+    }
+  });
+}
+
+export async function getDayByDate({ ctx, input }: { ctx: Context, input: { date: Date } }) {
+  return await ctx.db.day.findFirst({
+    where: {
+      date: {
+        gte: startOfDay(input.date),
+        lt: endOfDay(input.date)
+      },
+      users: {
+        some: {
+          userId: ctx.session?.user?.id
+        }
+      }
+    },
+    include: {
+      exercises: true,
+      journals: true,
+      users: true
     }
   });
 }

@@ -1,14 +1,9 @@
 import { type Context } from "~/server/auth/types";
 
 export async function getMyOutcomes({ ctx }: { ctx: Context }) {
-  const userId = ctx.session?.user?.id;
   return await ctx.db.outcome.findMany({
     where: {
-      userId
-    },
-    include: {
-      projects: true,
-      goals: true
+      userId: ctx.session?.user?.id
     }
   });
 }
@@ -16,31 +11,16 @@ export async function getMyOutcomes({ ctx }: { ctx: Context }) {
 export async function createOutcome({ ctx, input }: { 
   ctx: Context, 
   input: { 
-    description: string, 
-    dueDate?: Date,
-    projectIds?: string[],
-    goalIds?: number[]
-  } 
-}) {
-  if (!ctx.session?.user?.id) {
-    throw new Error("User not authenticated");
+    description: string;
+    dueDate?: Date;
   }
-
+}) {
+  if (!ctx.session?.user?.id) throw new Error("Unauthorized");
+  
   return await ctx.db.outcome.create({
     data: {
-      description: input.description,
-      dueDate: input.dueDate,
+      ...input,
       userId: ctx.session.user.id,
-      projects: input.projectIds ? {
-        connect: input.projectIds.map(id => ({ id }))
-      } : undefined,
-      goals: input.goalIds ? {
-        connect: input.goalIds.map(id => ({ id }))
-      } : undefined
-    },
-    include: {
-      projects: true,
-      goals: true
     }
   });
 } 

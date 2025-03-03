@@ -1,21 +1,20 @@
 'use client';
 
 import { Container, Title, Paper, Stack, Group, Button } from '@mantine/core';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { IconArrowLeft } from '@tabler/icons-react';
+import { type Day } from "@prisma/client";
 
-export default function DayPage() {
-  const params = useParams();
-  const router = useRouter();
-  const dayId = params.id as string;
-
-  // In a real app, you would fetch the day's data here using the ID
-  const dayData = {
-    id: dayId,
-    date: new Date(),
-    name: `${new Date().getDate()}th ${new Date().toLocaleString('default', { month: 'long' })} ${new Date().getFullYear()}`,
-    formattedDate: new Date().toLocaleDateString(),
+interface DayViewProps {
+  day: Day & {
+    exercises: any[];
+    journals: any[];
+    users: any[];
   };
+}
+
+export function DayView({ day }: DayViewProps) {
+  const router = useRouter();
 
   return (
     <Container size="md" className="py-8">
@@ -32,14 +31,13 @@ export default function DayPage() {
 
         <Title order={2} className="flex items-center gap-2">
           <span>🌻</span>
-          {dayData.name}
+          {day.date.toLocaleDateString()}
         </Title>
 
         <Paper p="md" className="bg-[#262626]">
           <Stack gap="md">
-            {/* Add your day-specific content here */}
             <p className="text-gray-400">
-              This is where you can add specific content for {dayData.name}. 
+              This is where you can add specific content for {day.date.toLocaleDateString()}. 
               You might want to include:
             </p>
             <ul className="list-disc list-inside text-gray-400">

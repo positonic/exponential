@@ -121,7 +121,7 @@ const RoadmapPage: NextPage = () => {
 
         <div className="mt-12 text-center">
           <p className="text-lg">
-            🚀 **Get Involved:** Join discussions on **GitHub** to help shape the
+            🚀 **Get Involved:** Join discussions on **[GitHub](https://github.com/positonic/ai-todo/discussions)** to help shape the
             roadmap and influence upcoming features.
           </p>
         </div>

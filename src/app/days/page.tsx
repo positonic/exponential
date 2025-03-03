@@ -1,7 +1,33 @@
+"use client";
 import { Container, Title, SegmentedControl, Table, Paper, Button } from "@mantine/core";
 import { DaysTable } from "~/app/_components/DaysTable";
+import { useRouter } from "next/navigation";
+import { format } from "date-fns";
+import { api } from "~/trpc/react";
 
 export default function Days() {
+  const router = useRouter();
+  const { mutate } = api.day.createUserDay.useMutation({
+    onError: (error) => {
+      // Handle error - maybe show toast
+      console.error(error);
+    }
+  });
+
+  const handleTodayClick = async () => {
+    const today = new Date();
+    const formattedDate = format(today, "yyyy-MM-dd");
+    
+    // Navigate immediately
+    router.push(`/days/${formattedDate}`);
+    
+    // Create record in background
+    mutate({
+      date: today,
+      weekId: 1,
+    });
+  };
+
   return (
     <Container size="xl" className="py-8">
       {/* Header */}
@@ -13,12 +39,13 @@ export default function Days() {
           🌻 Daily tracking
         </Title>
         <Button 
-          variant="filled" 
-          color="dark"
-          leftSection="+"
-        >
-          Add day
-        </Button>
+            variant="filled" 
+            color="dark"
+            leftSection="+"
+            onClick={handleTodayClick}
+          >
+            Today
+          </Button>
       </div>
 
       {/* Content */}

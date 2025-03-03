@@ -13,7 +13,7 @@ import {
   Accordion,
   List,
 } from "@mantine/core";
-import { IconBulb, IconWriting, IconStars, IconList } from "@tabler/icons-react";
+import { IconBulb, IconWriting, IconStars, IconList, IconPlus } from "@tabler/icons-react";
 import { useLocalStorage } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useState, useEffect } from 'react';
@@ -26,6 +26,7 @@ import TextAlign from '@tiptap/extension-text-align';
 import Superscript from '@tiptap/extension-superscript';
 import SubScript from '@tiptap/extension-subscript';
 import '@mantine/tiptap/styles.css';
+import { api } from "~/trpc/react";
 interface DailyEntry {
   date: string;
   intention: string;
@@ -171,16 +172,46 @@ export function StartupRoutineForm() {
     }
   };
 
+  const createOutcome = api.outcome.createOutcome.useMutation();
+
+  const handleSaveAsOutcome = () => {
+    if (!intention.trim()) return;
+    
+    createOutcome.mutate({
+      description: intention,
+      dueDate: new Date(),
+    }, {
+      onSuccess: () => {
+        notifications.show({
+          title: 'Outcome Created',
+          message: 'Your intention was saved as an outcome',
+          color: 'green',
+        });
+      }
+    });
+  };
+
   return (
     <Stack gap="xl">
       {/* What would make today great */}
       <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
         <Stack gap="md">
-          <Group>
-            <IconBulb className="text-yellow-500" size={24} />
-            <Title order={2} className="text-2xl">
-              What would make today great?
-            </Title>
+          <Group justify="space-between">
+            <Group>
+              <IconBulb className="text-yellow-500" size={24} />
+              <Title order={2} className="text-2xl">
+                What would make today great?
+              </Title>
+            </Group>
+            <Button
+              variant="light"
+              color="blue"
+              leftSection={<IconPlus size={16} />}
+              onClick={handleSaveAsOutcome}
+              disabled={!intention.trim()}
+            >
+              Save as Outcome
+            </Button>
           </Group>
           <TextInput
             placeholder="Enter your intention for today..."
