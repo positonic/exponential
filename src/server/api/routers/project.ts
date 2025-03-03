@@ -27,17 +27,21 @@ export const projectRouter = createTRPCRouter({
     .input(
       z.object({
         name: z.string().min(1),
+        description: z.string().optional(),
         status: z.string(),
         priority: z.string(),
         progress: z.number().min(0).max(100),
         reviewDate: z.date().nullable(),
         nextActionDate: z.date().nullable(),
+        goalIds: z.array(z.string()).optional(),
+        outcomeIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       return ctx.db.project.create({
         data: {
           name: input.name,
+          description: input.description,
           status: input.status,
           priority: input.priority,
           progress: input.progress,
@@ -49,6 +53,12 @@ export const projectRouter = createTRPCRouter({
               id: ctx.session.user.id,
             },
           },
+          goals: input.goalIds?.length ? {
+            connect: input.goalIds.map(id => ({ id: parseInt(id) })),
+          } : undefined,
+          outcomes: input.outcomeIds?.length ? {
+            connect: input.outcomeIds.map(id => ({ id })),
+          } : undefined,
         },
       });
     }),
@@ -67,26 +77,33 @@ export const projectRouter = createTRPCRouter({
     }),
 
   update: protectedProcedure
-    .input(z.object({
-      id: z.string(),
-      status: z.enum(["ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"]).optional(),
-      priority: z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]).optional(),
-      progress: z.number().min(0).max(100).optional(),
-      reviewDate: z.date().nullable().optional(),
-      nextActionDate: z.date().nullable().optional(),
-    }))
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1),
+        description: z.string().optional(),
+        status: z.enum(["ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"]),
+        priority: z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]),
+        goalIds: z.array(z.string()).optional(),
+        outcomeIds: z.array(z.string()).optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
       return ctx.db.project.update({
         where: {
-          id: input.id,
+          id,
           createdById: ctx.session.user.id,
         },
         data: {
-          ...(input.status && { status: input.status }),
-          ...(input.priority && { priority: input.priority }),
-          ...(input.progress !== undefined && { progress: input.progress }),
-          ...(input.reviewDate !== undefined && { reviewDate: input.reviewDate }),
-          ...(input.nextActionDate !== undefined && { nextActionDate: input.nextActionDate }),
+          ...data,
+          slug: slugify(data.name),
+          goals: data.goalIds?.length ? {
+            set: data.goalIds.map(id => ({ id: parseInt(id) })),
+          } : undefined,
+          outcomes: data.outcomeIds?.length ? {
+            set: data.outcomeIds.map(id => ({ id })),
+          } : undefined,
         },
       });
     }),

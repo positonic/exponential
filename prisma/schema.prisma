@@ -110,7 +110,8 @@ model Outcome {
 model Project {
     id              String    @id @default(cuid())
     name            String
-    slug            String   @unique
+    description     String?   @db.Text
+    slug            String    @unique
     status          String    @default("ACTIVE")
     priority        String    @default("NONE")
     progress        Float     @default(0)
