@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { api } from "~/trpc/react";
-import { slugify } from "~/utils/slugify";
-
+import { NavLink } from "./NavLinks";
 export function GoalList() {
   const pathname = usePathname();
   const { data: goals } = api.goal.getAllMyGoals.useQuery();
@@ -13,7 +12,10 @@ export function GoalList() {
   
   return (
     <div className="mt-1 space-y-1">
-      {goals.map((goal) => {
+      <NavLink href="/goals" >Goals</NavLink>
+      <NavLink href="/outcomes">Outcomes</NavLink>
+          
+      {/* {goals.map((goal) => {
         const goalPath = `/goals/${slugify(goal.title)}-${goal.id}`;
         const isActive = pathname === goalPath;
 
@@ -28,15 +30,15 @@ export function GoalList() {
             <span className="mr-2 text-gray-500">#</span>
             <span>{goal.title}</span>
             <span className="ml-auto text-gray-500">
-              {/* {
+              {/ * {
                 goal.actions.filter(
                   (action) => action.status !== "COMPLETED",
                 )?.length
-              } */}
+              } * /}
             </span>
           </Link>
         );
-      })}
+      })} */}
     </div>
   );
 } 

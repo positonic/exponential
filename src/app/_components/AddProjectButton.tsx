@@ -1,14 +1,14 @@
 "use client";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { IconPlus } from "@tabler/icons-react";
+
 export function AddProjectButton() {
   return (
     <CreateProjectModal>
       <button
-        // onClick={open}
-        className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-300"
+        className="group flex w-full items-center rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-gray-800"
       >
-        <IconPlus size={16} />
+        <IconPlus className="mr-3 h-5 w-5" />
         <span>New project</span>
       </button>
     </CreateProjectModal>

@@ -65,4 +65,29 @@ export const projectRouter = createTRPCRouter({
         },
       });
     }),
+
+  update: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      status: z.enum(["ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"]).optional(),
+      priority: z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]).optional(),
+      progress: z.number().min(0).max(100).optional(),
+      reviewDate: z.date().nullable().optional(),
+      nextActionDate: z.date().nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.project.update({
+        where: {
+          id: input.id,
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          ...(input.status && { status: input.status }),
+          ...(input.priority && { priority: input.priority }),
+          ...(input.progress !== undefined && { progress: input.progress }),
+          ...(input.reviewDate !== undefined && { reviewDate: input.reviewDate }),
+          ...(input.nextActionDate !== undefined && { nextActionDate: input.nextActionDate }),
+        },
+      });
+    }),
 }); 

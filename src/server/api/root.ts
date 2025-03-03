@@ -4,9 +4,10 @@ import { actionRouter } from "./routers/action";
 import { projectRouter } from "./routers/project";
 import { toolRouter } from "./routers/tool";
 import { videoRouter } from "~/server/api/routers/video";
-import { goalRouter } from "~/server/api/routers/goal";
+import { goalRouter } from "./routers/goal";
 import { dayRouter } from "~/server/api/routers/day";
-import { outcomeRouter } from "~/server/api/routers/outcome";
+import { outcomeRouter } from "./routers/outcome";
+import { lifeDomainRouter } from "./routers/lifeDomain";
 
 /**
  * This is the primary router for your server.
@@ -22,6 +23,7 @@ export const appRouter = createTRPCRouter({
   goal: goalRouter,
   day: dayRouter,
   outcome: outcomeRouter,
+  lifeDomain: lifeDomainRouter,
 });
 
 // export type definition of API

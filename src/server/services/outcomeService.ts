@@ -4,6 +4,10 @@ export async function getMyOutcomes({ ctx }: { ctx: Context }) {
   return await ctx.db.outcome.findMany({
     where: {
       userId: ctx.session?.user?.id
+    },
+    include: {
+      projects: true,
+      goals: true
     }
   });
 }
@@ -21,6 +25,10 @@ export async function createOutcome({ ctx, input }: {
     data: {
       ...input,
       userId: ctx.session.user.id,
+    },
+    include: {
+      projects: true,
+      goals: true
     }
   });
 } 

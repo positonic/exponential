@@ -3,6 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { api } from "~/trpc/react";
+import { NavLink } from "./NavLinks";
+type Priority = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+
+const priorityOrder: Record<Priority, number> = {
+  HIGH: 0,
+  MEDIUM: 1,
+  LOW: 2,
+  NONE: 3,
+};
 
 export function ProjectList() {
   const pathname = usePathname();
@@ -14,19 +23,21 @@ export function ProjectList() {
 
   if (!projects) return null;
 
+  const sortedProjects = [...projects].sort((a, b) => {
+    return (priorityOrder[a.priority as Priority ?? 'NONE'] ?? 4) - (priorityOrder[b.priority as Priority ?? 'NONE'] ?? 4);
+  });
+
   return (
     <div className="mt-1 space-y-1">
-      {projects.map((project) => {
+      {sortedProjects.filter((project) => project.status === "ACTIVE").map((project) => {
         const projectPath = `/projects/${project.slug}-${project.id}`;
         const isActive = pathname === projectPath;
 
         return (
-          <Link
+          <NavLink
             key={project.id}
             href={projectPath}
-            className={`group flex items-center rounded-lg px-3 py-2 text-gray-300 hover:bg-gray-800 ${
-              isActive ? 'bg-red-900/30' : ''
-            }`}
+            
           >
             <span className="mr-2 text-gray-500">#</span>
             <span>{project.name}</span>
@@ -37,7 +48,7 @@ export function ProjectList() {
                 )?.length
               }
             </span>
-          </Link>
+          </NavLink>
         );
       })}
     </div>

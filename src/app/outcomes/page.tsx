@@ -1,32 +1,32 @@
 "use client";
 import { Container, Title, Button } from "@mantine/core";
-import { GoalsTable } from "~/app/_components/GoalsTable";
-import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import { OutcomesTable } from "~/app/_components/OutcomesTable";
+//import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 
-export default function Goals() {
+export default function Outcomes() {
   return (
     <Container size="xl" className="py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <Title
           order={1}
-          className="text-4xl font-bold bg-gradient-to-r from-green-400 to-teal-400 bg-clip-text text-transparent"
+          className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent"
         >
-          🎯 Goals
+          🎯 Outcomes
         </Title>
-        <CreateGoalModal>
+        {/* <CreateOutcomeModal>
           <Button 
             variant="filled" 
             color="dark"
             leftSection="+"
           >
-            Add Goal
+            Add Outcome
           </Button>
-        </CreateGoalModal>
+        </CreateOutcomeModal> */}
       </div>
 
       {/* Content */}
-      <GoalsTable />
+      <OutcomesTable />
     </Container>
   );
-}
+} 

@@ -1,8 +1,5 @@
 import Link from "next/link";
 import { auth } from "~/server/auth";
-import { IconChevronDown } from "@tabler/icons-react";
-import { AddProjectButton } from "../AddProjectButton";
-import { ProjectList } from "./ProjectList";
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
 

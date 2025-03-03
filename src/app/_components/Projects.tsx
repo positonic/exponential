@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
-import { Badge } from "@mantine/core";
+import { Badge, Select } from "@mantine/core";
 import { slugify } from "~/utils/slugify";
 
 type Project = RouterOutputs["project"]["getAll"][0];
@@ -17,6 +17,19 @@ function ProjectList({ projects }: { projects: Project[] }) {
     },
   });
 
+  const updateProject = api.project.update.useMutation({
+    onSuccess: () => {
+      void utils.project.getAll.invalidate();
+    },
+  });
+
+  const statusOptions = [
+    { value: "ACTIVE", label: "Active" },
+    { value: "ON_HOLD", label: "On Hold" },
+    { value: "COMPLETED", label: "Completed" },
+    { value: "CANCELLED", label: "Cancelled" },
+  ];
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "ACTIVE":
@@ -28,7 +41,7 @@ function ProjectList({ projects }: { projects: Project[] }) {
       case "CANCELLED":
         return "gray";
       default:
-        return "default";
+        return "gray";
     }
   };
 
@@ -41,57 +54,107 @@ function ProjectList({ projects }: { projects: Project[] }) {
       case "LOW":
         return "blue";
       case "NONE":
-        return "gray";
       default:
-        return "default";
+        return "gray";
     }
   };
 
+  const priorityOptions = [
+    { value: "HIGH", label: "High" },
+    { value: "MEDIUM", label: "Medium" },
+    { value: "LOW", label: "Low" },
+    { value: "NONE", label: "None" },
+  ];
+
   return (
-    <>
-      {projects.map((project) => (
-        <div
-          key={project.id}
-          className="mt-4 rounded-md bg-white/10 p-4 relative"
-        >
-          <button
-            onClick={() => deleteProject.mutate({ id: project.id })}
-            className="absolute top-4 right-4 text-gray-400 hover:text-red-500"
-            aria-label="Delete project"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5"
-              viewBox="0 0 20 20"
-              fill="currentColor"
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="border-b border-gray-700">
+            <th className="px-4 py-2 text-left">Name</th>
+            <th className="px-4 py-2 text-left">Status</th>
+            <th className="px-4 py-2 text-left">Priority</th>
+            <th className="px-4 py-2 text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {projects.map((project) => (
+            <tr 
+              key={project.id} 
+              className="border-b border-gray-700 hover:bg-white/5"
             >
-              <path
-                fillRule="evenodd"
-                d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
-          <h3 className="text-xl font-semibold">{project.name}</h3>
-          <div className="mt-2 space-y-2">
-            <Badge color={getStatusColor(project.status)}>{project.status}</Badge>
-            <Badge color={getPriorityColor(project.priority)}>
-              Priority: {project.priority}
-            </Badge>
-          </div>
-          {project.reviewDate && (
-            <p className="mt-1 text-sm text-gray-400">
-              Review Date: {new Date(project.reviewDate).toLocaleDateString()}
-            </p>
-          )}
-          {project.nextActionDate && (
-            <p className="mt-1 text-sm text-gray-400">
-              Next Action: {new Date(project.nextActionDate).toLocaleDateString()}
-            </p>
-          )}
-        </div>
-      ))}
-    </>
+              <td className="px-4 py-2">{project.name}</td>
+              <td className="px-4 py-2">
+                <Select
+                  value={project.status}
+                  onChange={(newStatus) => {
+                    if (newStatus) {
+                      updateProject.mutate({
+                        id: project.id,
+                        status: newStatus as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
+                      });
+                    }
+                  }}
+                  data={statusOptions}
+                  variant="filled"
+                  size="xs"
+                  styles={{
+                    input: {
+                      backgroundColor: `var(--mantine-color-${getStatusColor(project.status)}-light)`,
+                      color: `var(--mantine-color-${getStatusColor(project.status)}-darker)`,
+                      fontWeight: 500,
+                    }
+                  }}
+                />
+              </td>
+              <td className="px-4 py-2">
+                <Select
+                  value={project.priority}
+                  onChange={(newPriority) => {
+                    if (newPriority) {
+                      updateProject.mutate({
+                        id: project.id,
+                        priority: newPriority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
+                      });
+                    }
+                  }}
+                  data={priorityOptions}
+                  variant="filled"
+                  size="xs"
+                  styles={{
+                    input: {
+                      backgroundColor: `var(--mantine-color-${getPriorityColor(project.priority)}-light)`,
+                      color: `var(--mantine-color-${getPriorityColor(project.priority)}-darker)`,
+                      fontWeight: 500,
+                    }
+                  }}
+                />
+              </td>
+              <td className="px-4 py-2">
+                <button
+                  onClick={() => deleteProject.mutate({ id: project.id })}
+                  className="text-gray-400 hover:text-red-500"
+                  aria-label="Delete project"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
