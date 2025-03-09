@@ -71,6 +71,9 @@ model User {
     outcomes      Outcome[]
     days          UserDay[]
     teamMemberships TeamMember[]
+    userPairs     UserPair[]
+    exchangeUsers ExchangeUser[]
+
 }
 
 model VerificationToken {
@@ -151,6 +154,7 @@ model Video {
   isSearchable  Boolean?     @default(false)
   users         UserVideo[]
   VideoChunk    VideoChunk[]
+  setups        Setup[]
 }
 
 model UserVideo {
@@ -282,3 +286,63 @@ model TeamMember {
   @@index([projectId])
   @@index([userId])
 }
+
+// Aka 'Idea'
+model Setup {
+  id              String   @id @default(uuid())
+  content         String   @db.Text
+  entryPrice      Decimal?
+  takeProfitPrice Decimal?
+  stopPrice       Decimal?
+  timeframe       String?  // e.g., "short_term", "long_term"
+  confidence      Int?     // 1-5 scale
+  direction       String
+  status          String   @default("active") // active, expired, completed
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  videoId         String?
+  video           Video?    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  pairId          Int
+  pair            Pair     @relation(fields: [pairId], references: [id])
+
+  @@index([videoId])
+  @@index([pairId])
+}
+
+model Pair {
+  id        Int       @id @default(autoincrement())
+  symbol    String    @unique
+  userPairs UserPair[]
+  setups     Setup[]
+}
+
+model UserPair {
+  id         Int     @id @default(autoincrement())
+  userId     String
+  pairId     Int
+  exchangeId Int
+  lastTradesSyncTime DateTime?
+  
+  user       User     @relation(fields: [userId], references: [id])
+  pair       Pair     @relation(fields: [pairId], references: [id])
+  exchange   Exchange @relation(fields: [exchangeId], references: [id])
+
+  @@unique([userId, pairId, exchangeId])
+}
+
+model Exchange {
+  id           Int        @id @default(autoincrement())
+  name         String     @unique
+  userPairs    UserPair[]
+  exchangeUsers ExchangeUser[]
+}
+
+model ExchangeUser {
+  id           Int        @id @default(autoincrement())
+  userId       String
+  exchangeId   Int
+  lastTradesSyncTime DateTime?
+  user       User     @relation(fields: [userId], references: [id])
+  exchange   Exchange @relation(fields: [exchangeId], references: [id])
+}
+ 
