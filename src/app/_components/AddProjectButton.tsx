@@ -4,7 +4,7 @@ import { IconPlus } from "@tabler/icons-react";
 
 export function AddProjectButton() {
   return (
-    <CreateProjectModal>
+    <CreateProjectModal >
       <button
         className="group flex w-full items-center rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-gray-800"
       >

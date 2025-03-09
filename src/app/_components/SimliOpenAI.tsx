@@ -55,7 +55,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   const audioChunkQueueRef = useRef<Int16Array[]>([]);
   const isProcessingChunkRef = useRef(false);
 
-
   /**
    * Processes the next audio chunk in the queue.
    */
@@ -67,9 +66,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       isProcessingChunkRef.current = true;
       const audioChunk = audioChunkQueueRef.current.shift();
       if (audioChunk) {
-        const chunkDurationMs = (audioChunk.length / 16000) * 1000; // Calculate chunk duration in milliseconds
-
-        // Send audio chunks to Simli immediately
+        const chunkDurationMs = (audioChunk.length / 16000) * 1000;
         simliClient?.sendAudioData(audioChunk as any);
         console.log(
           "Sent audio chunk to Simli:",
@@ -84,210 +81,10 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     }
   }, []);
 
-
-/**
-   * Starts audio recording from the user's microphone.
-   */
-const startRecording = useCallback(async () => {
-  if (!audioContextRef.current) {
-    audioContextRef.current = new AudioContext({ sampleRate: 24000 });
-  }
-
-  try {
-    console.log("Starting audio recording...");
-    streamRef.current = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-    });
-    const source = audioContextRef.current.createMediaStreamSource(
-      streamRef.current
-    );
-    processorRef.current = audioContextRef.current.createScriptProcessor(
-      2048,
-      1,
-      1
-    );
-
-    processorRef.current.onaudioprocess = (e) => {
-      const inputData = e.inputBuffer.getChannelData(0);
-      const audioData = new Int16Array(inputData.length);
-      let sum = 0;
-
-      for (let i = 0; i < inputData.length; i++) {
-        const sample = Math.max(-1, Math.min(1, inputData[i]!));
-        audioData[i] = Math.floor(sample * 32767);
-        sum += Math.abs(sample);
-      }
-
-      openAIClientRef.current?.appendInputAudio(audioData);
-    };
-
-    source.connect(processorRef.current);
-    processorRef.current.connect(audioContextRef.current.destination);
-    console.log("Audio recording started");
-  } catch (err) {
-    console.error("Error accessing microphone:", err);
-    throw err; // Re-throw to be handled by caller
-  }
-}, []);
-
-  const initializeOpenAIClient = useCallback(async () => {
-    try {
-      console.log("Initializing OpenAI client...");
-      openAIClientRef.current = new RealtimeClient({
-        model: openai_model,
-        apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
-        dangerouslyAllowAPIKeyInBrowser: true,
-      });
-
-      openAIClientRef.current.updateSession({
-        instructions: initialPrompt,
-        voice: openai_voice,
-        turn_detection: { type: "server_vad" },
-        input_audio_transcription: { model: "whisper-1" },
-      });
-
-      // Set up event listeners
-      openAIClientRef.current.on(
-        "conversation.updated",
-        handleConversationUpdate
-      );
-
-      openAIClientRef.current.on(
-        "conversation.interrupted",
-        interruptConversation
-      );
-
-      openAIClientRef.current.on(
-        "input_audio_buffer.speech_stopped",
-        handleSpeechStopped
-      );
-      // openAIClientRef.current.on('response.canceled', handleResponseCanceled);
-
-      
-      await openAIClientRef.current.connect();
-      console.log("OpenAI Client connected successfully");
-      openAIClientRef.current?.createResponse();
-      await startRecording();
-
-      setIsAvatarVisible(true);
-    } catch (error: any) {  
-      console.error("Error initializing OpenAI client:", error);
-      throw error; // Re-throw to be handled by caller
-    }
-  }, [openai_model, openai_voice, initialPrompt, startRecording]);
-
-  const eventListenerSimli = useCallback(() => {
-    if (simliClient) {
-      simliClient?.on("connected", async () => {
-        console.log("SimliClient connected");
-        const audioData = new Uint8Array(6000).fill(0);
-        simliClient?.sendAudioData(audioData);
-        console.log("Sent initial audio data");
-        await initializeOpenAIClient();
-      });
-
-      simliClient?.on("disconnected", () => {
-        console.log("SimliClient disconnected");
-        openAIClientRef.current?.disconnect();
-        if (audioContextRef.current) {
-          audioContextRef.current?.close();
-        }
-      });
-    }
-  }, [initializeOpenAIClient]);
-/**
-   * Downsamples audio data from one sample rate to another using linear interpolation
-   * and anti-aliasing filter.
-   *
-   * @param audioData - Input audio data as Int16Array
-   * @param inputSampleRate - Original sampling rate in Hz
-   * @param outputSampleRate - Target sampling rate in Hz
-   * @returns Downsampled audio data as Int16Array
-   */
-const downsampleAudio = (
-  audioData: Int16Array,
-  inputSampleRate: number,
-  outputSampleRate: number
-): Int16Array => {
-  if (inputSampleRate === outputSampleRate) {
-    return audioData;
-  }
-
-  if (inputSampleRate < outputSampleRate) {
-    throw new Error("Upsampling is not supported");
-  }
-
-  // Apply low-pass filter to prevent aliasing
-  // Cut off at slightly less than the Nyquist frequency of the target sample rate
-  const filteredData = applyLowPassFilter(
-    audioData,
-    outputSampleRate * 0.45, // Slight margin below Nyquist frequency
-    inputSampleRate
-  );
-
-  const ratio = inputSampleRate / outputSampleRate;
-  const newLength = Math.floor(audioData.length / ratio);
-  const result = new Int16Array(newLength);
-
-  // Linear interpolation
-  for (let i = 0; i < newLength; i++) {
-    const position = i * ratio;
-    const index = Math.floor(position);
-    const fraction = position - index;
-
-    if (index + 1 < filteredData.length) {
-      const a = filteredData[index]!;
-      const b = filteredData[index + 1]!;
-      result[i] = Math.round(a + fraction * (b - a));
-    } else {
-      result[i] = filteredData[index]!;
-    }
-  }
-
-  return result;
-};
-
-  /**
-   * Handles conversation updates, including user and assistant messages.
-   */
-  const handleConversationUpdate = useCallback((event: any) => {
-    console.log("Conversation updated:", event);
-    const { item, delta } = event;
-
-    if (item.type === "message" && item.role === "assistant") {
-      console.log("Assistant message detected");
-      if (delta && delta.audio) {
-        const downsampledAudio = downsampleAudio(delta.audio, 24000, 16000);
-        audioChunkQueueRef.current.push(downsampledAudio);
-        if (!isProcessingChunkRef.current) {
-          processNextAudioChunk();
-        }
-      }
-    } else if (item.type === "message" && item.role === "user") {
-      setUserMessage(item.content[0].transcript);
-    }
-  }, [processNextAudioChunk, downsampleAudio]);
-
-  /**
-   * Handles interruptions in the conversation flow.
-   */
-  const interruptConversation = () => {
-    console.warn("User interrupted the conversation");
-    simliClient?.ClearBuffer();
-    openAIClientRef.current?.cancelResponse("");
-  };
-
-  /**
-   * Handles the end of user speech.
-   */
-  const handleSpeechStopped = useCallback((event: any) => {
-    console.log("Speech stopped event received", event);
-  }, []);
-
   /**
    * Applies a simple low-pass filter to prevent aliasing of audio
    */
-  const applyLowPassFilter = (
+  const applyLowPassFilter = useCallback((
     data: Int16Array,
     cutoffFreq: number,
     sampleRate: number
@@ -329,10 +126,243 @@ const downsampleAudio = (
     }
 
     return result;
+  }, []);
+
+  /**
+   * Handles the end of user speech.
+   */
+  const handleSpeechStopped = useCallback((event: any) => {
+    console.log("Speech stopped event received", event);
+  }, []);
+
+  /**
+   * Handles conversation updates, including user and assistant messages.
+   */
+  const handleConversationUpdate = useCallback((event: any) => {
+    console.log("Conversation updated:", event);
+    const { item, delta } = event;
+
+    const downsampleAudio = (
+      audioData: Int16Array,
+      inputSampleRate: number,
+      outputSampleRate: number
+    ): Int16Array => {
+      if (inputSampleRate === outputSampleRate) {
+        return audioData;
+      }
+
+      if (inputSampleRate < outputSampleRate) {
+        throw new Error("Upsampling is not supported");
+      }
+
+      const filteredData = applyLowPassFilter(
+        audioData,
+        outputSampleRate * 0.45,
+        inputSampleRate
+      );
+
+      const ratio = inputSampleRate / outputSampleRate;
+      const newLength = Math.floor(audioData.length / ratio);
+      const result = new Int16Array(newLength);
+
+      for (let i = 0; i < newLength; i++) {
+        const position = i * ratio;
+        const index = Math.floor(position);
+        const fraction = position - index;
+
+        if (index + 1 < filteredData.length) {
+          const a = filteredData[index]!;
+          const b = filteredData[index + 1]!;
+          result[i] = Math.round(a + fraction * (b - a));
+        } else {
+          result[i] = filteredData[index]!;
+        }
+      }
+
+      return result;
+    };
+
+    if (item.type === "message" && item.role === "assistant") {
+      console.log("Assistant message detected");
+      if (delta && delta.audio) {
+        const downsampledAudio = downsampleAudio(delta.audio, 24000, 16000);
+        audioChunkQueueRef.current.push(downsampledAudio);
+        if (!isProcessingChunkRef.current) {
+          processNextAudioChunk();
+        }
+      }
+    } else if (item.type === "message" && item.role === "user") {
+      setUserMessage(item.content[0].transcript);
+    }
+  }, [processNextAudioChunk, applyLowPassFilter]);
+
+  /**
+   * Starts audio recording from the user's microphone.
+   */
+  const startRecording = useCallback(async () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext({ sampleRate: 24000 });
+    }
+
+    try {
+      console.log("Starting audio recording...");
+      streamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      const source = audioContextRef.current.createMediaStreamSource(
+        streamRef.current
+      );
+      processorRef.current = audioContextRef.current.createScriptProcessor(
+        2048,
+        1,
+        1
+      );
+
+      processorRef.current.onaudioprocess = (e) => {
+        const inputData = e.inputBuffer.getChannelData(0);
+        const audioData = new Int16Array(inputData.length);
+
+        for (let i = 0; i < inputData.length; i++) {
+          const sample = Math.max(-1, Math.min(1, inputData[i]!));
+          audioData[i] = Math.floor(sample * 32767);
+        }
+
+        openAIClientRef.current?.appendInputAudio(audioData);
+      };
+
+      source.connect(processorRef.current);
+      processorRef.current.connect(audioContextRef.current.destination);
+      console.log("Audio recording started");
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      throw err; // Re-throw to be handled by caller
+    }
+  }, []);
+
+  const initializeOpenAIClient = useCallback(async () => {
+    try {
+      console.log("Initializing OpenAI client...");
+      openAIClientRef.current = new RealtimeClient({
+        model: openai_model,
+        apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+        dangerouslyAllowAPIKeyInBrowser: true,
+      });
+
+      openAIClientRef.current.updateSession({
+        instructions: initialPrompt,
+        voice: openai_voice,
+        turn_detection: { type: "server_vad" },
+        input_audio_transcription: { model: "whisper-1" },
+      });
+
+      openAIClientRef.current.on(
+        "conversation.updated",
+        handleConversationUpdate
+      );
+
+      openAIClientRef.current.on(
+        "conversation.interrupted",
+        interruptConversation
+      );
+
+      openAIClientRef.current.on(
+        "input_audio_buffer.speech_stopped",
+        handleSpeechStopped
+      );
+      
+      await openAIClientRef.current.connect();
+      console.log("OpenAI Client connected successfully");
+      void openAIClientRef.current?.createResponse();
+      await startRecording();
+
+      setIsAvatarVisible(true);
+    } catch (error: any) {  
+      console.error("Error initializing OpenAI client:", error);
+      throw error;
+    }
+  }, [openai_model, openai_voice, initialPrompt, startRecording, handleConversationUpdate, handleSpeechStopped]);
+
+  const eventListenerSimli = useCallback(() => {
+    if (simliClient) {
+      simliClient?.on("connected", () => {
+        void (async () => {
+          console.log("SimliClient connected");
+          const audioData = new Uint8Array(6000).fill(0);
+          simliClient?.sendAudioData(audioData);
+          console.log("Sent initial audio data");
+          await initializeOpenAIClient();
+        })();
+      });
+
+      simliClient?.on("disconnected", () => {
+        console.log("SimliClient disconnected");
+        void openAIClientRef.current?.disconnect();
+        if (audioContextRef.current) {
+          void audioContextRef.current?.close();
+        }
+      });
+    }
+  }, [initializeOpenAIClient]);
+
+  /**
+   * Downsamples audio data from one sample rate to another using linear interpolation
+   * and anti-aliasing filter.
+   *
+   * @param audioData - Input audio data as Int16Array
+   * @param inputSampleRate - Original sampling rate in Hz
+   * @param outputSampleRate - Target sampling rate in Hz
+   * @returns Downsampled audio data as Int16Array
+   */
+  const downsampleAudio = (
+    audioData: Int16Array,
+    inputSampleRate: number,
+    outputSampleRate: number
+  ): Int16Array => {
+    if (inputSampleRate === outputSampleRate) {
+      return audioData;
+    }
+
+    if (inputSampleRate < outputSampleRate) {
+      throw new Error("Upsampling is not supported");
+    }
+
+    // Apply low-pass filter to prevent aliasing
+    const filteredData = applyLowPassFilter(
+      audioData,
+      outputSampleRate * 0.45,
+      inputSampleRate
+    );
+
+    const ratio = inputSampleRate / outputSampleRate;
+    const newLength = Math.floor(audioData.length / ratio);
+    const result = new Int16Array(newLength);
+
+    for (let i = 0; i < newLength; i++) {
+      const position = i * ratio;
+      const index = Math.floor(position);
+      const fraction = position - index;
+
+      if (index + 1 < filteredData.length) {
+        const a = filteredData[index]!;
+        const b = filteredData[index + 1]!;
+        result[i] = Math.round(a + fraction * (b - a));
+      } else {
+        result[i] = filteredData[index]!;
+      }
+    }
+
+    return result;
   };
 
-  
-  
+  /**
+   * Handles interruptions in the conversation flow.
+   */
+  const interruptConversation = () => {
+    console.warn("User interrupted the conversation");
+    simliClient?.ClearBuffer();
+    openAIClientRef.current?.cancelResponse("");
+  };
+
   /**
    * Stops audio recording from the user's microphone
    */
@@ -369,15 +399,17 @@ const downsampleAudio = (
         SimliURL: "",
         enableConsoleLogs: true
       });
-      await simliClient?.start();
-      eventListenerSimli();
+      
+      // Fix floating promise by awaiting
+      await Promise.resolve(simliClient?.start());
+      void eventListenerSimli();
     } catch (error: any) {
       console.error("Error starting interaction:", error);
     } finally {
       setIsAvatarVisible(true);
       setIsLoading(false);
     }
-  }, [onStart, simliKey, simli_faceid, videoRef, audioRef, eventListenerSimli]);
+  }, [simliKey, simli_faceid, eventListenerSimli]);
 
   /**
    * Handles stopping the interaction, cleaning up resources and resetting states.
@@ -387,10 +419,10 @@ const downsampleAudio = (
     setIsLoading(false);
     stopRecording();
     setIsAvatarVisible(false);
-    simliClient?.close();
-    openAIClientRef.current?.disconnect();
+    void simliClient?.close();
+    void openAIClientRef.current?.disconnect();
     if (audioContextRef.current) {
-      audioContextRef.current?.close();
+      void audioContextRef.current?.close();
       audioContextRef.current = null;
     }
     stopRecording();

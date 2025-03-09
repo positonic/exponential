@@ -1,23 +1,28 @@
 import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import type { Project, Goal, Outcome } from '@prisma/client';
 import { useState } from "react";
 import { api } from "~/trpc/react";
-import { slugify } from "~/utils/slugify";
 
-type ProjectStatus = "ACTIVE" | "COMPLETED" | "ON_HOLD";
-type ProjectPriority = "NONE" | "LOW" | "MEDIUM" | "HIGH";
+type ProjectStatus = "ACTIVE" | "COMPLETED" | "ON_HOLD" | "CANCELLED";
+type ProjectPriority = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+
+type ProjectWithRelations = Project & {
+  goals?: Goal[];
+  outcomes?: Outcome[];
+};
 
 interface CreateProjectModalProps {
   children: React.ReactNode;
-  project?: Project;
+  project?: ProjectWithRelations;
 }
 
 export function CreateProjectModal({ children, project }: CreateProjectModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [projectName, setProjectName] = useState(project?.name ?? "");
   const [description, setDescription] = useState(project?.description ?? "");
-  const [status, setStatus] = useState<ProjectStatus>(project?.status ?? "ACTIVE");
-  const [priority, setPriority] = useState<ProjectPriority>(project?.priority ?? "NONE");
+  const [status, setStatus] = useState<ProjectStatus>(project?.status as ProjectStatus ?? "ACTIVE");
+  const [priority, setPriority] = useState<ProjectPriority>(project?.priority as ProjectPriority ?? "NONE");
   const [selectedGoals, setSelectedGoals] = useState<string[]>(project?.goals?.map(g => g.id.toString()) ?? []);
   const [selectedOutcomes, setSelectedOutcomes] = useState<string[]>(project?.outcomes?.map(o => o.id) ?? []);
 
@@ -27,19 +32,19 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
   const { data: goals } = api.goal.getAllMyGoals.useQuery();
   const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
 
-  const mutation = project 
-    ? api.project.update.useMutation({
-        onSuccess: () => {
-          void utils.project.getAll.invalidate();
-          close();
-        },
-      })
-    : api.project.create.useMutation({
-        onSuccess: () => {
-          void utils.project.getAll.invalidate();
-          close();
-        },
-      });
+  const updateMutation = api.project.update.useMutation({
+    onSuccess: () => {
+      void utils.project.getAll.invalidate();
+      close();
+    },
+  });
+
+  const createMutation = api.project.create.useMutation({
+    onSuccess: () => {
+      void utils.project.getAll.invalidate();
+      close();
+    },
+  });
 
   return (
     <>
@@ -65,19 +70,25 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            const data = {
-              name: projectName,
-              description,
-              status,
-              priority,
-              goalIds: selectedGoals,
-              outcomeIds: selectedOutcomes,
-            };
-            
             if (project) {
-              mutation.mutate({ id: project.id, ...data });
+              updateMutation.mutate({
+                id: project.id,
+                name: projectName,
+                description,
+                status: status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
+                priority: priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
+                goalIds: selectedGoals,
+                outcomeIds: selectedOutcomes,
+              });
             } else {
-              mutation.mutate(data);
+              createMutation.mutate({
+                name: projectName,
+                description,
+                status,
+                priority,
+                goalIds: selectedGoals,
+                outcomeIds: selectedOutcomes,
+              });
             }
           }}
           className="p-4"
@@ -201,7 +212,7 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             </Button>
             <Button 
               type="submit"
-              loading={mutation.isPending}
+              loading={updateMutation.isPending || createMutation.isPending}
             >
               {project ? 'Update Project' : 'Create Project'}
             </Button>

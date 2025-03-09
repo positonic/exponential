@@ -92,7 +92,9 @@ function ProjectList({ projects }: { projects: Project[] }) {
                     if (newStatus) {
                       updateProject.mutate({
                         id: project.id,
+                        name: project.name,
                         status: newStatus as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
+                        priority: project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
                       });
                     }
                   }}
@@ -115,6 +117,8 @@ function ProjectList({ projects }: { projects: Project[] }) {
                     if (newPriority) {
                       updateProject.mutate({
                         id: project.id,
+                        name: project.name,
+                        status: project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
                         priority: newPriority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
                       });
                     }

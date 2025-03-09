@@ -4,7 +4,7 @@ import { Paper, Text, Badge, Group } from '@mantine/core';
 import { CreateProjectModal } from './CreateProjectModal';
 import { type RouterOutputs } from "~/trpc/react";
 
-type Project = RouterOutputs["project"]["getBySlug"];
+type Project = RouterOutputs["project"]["getById"];
 
 export default function ProjectDetails({ project }: { project: Project }) {
 

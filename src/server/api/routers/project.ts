@@ -18,7 +18,9 @@ export const projectRouter = createTRPCRouter({
           createdAt: "desc",
         },
         include: {
-          actions: input?.include?.actions ?? false
+          actions: input?.include?.actions ?? false,
+          goals: true,
+          outcomes: true
         }
       });
     }),
