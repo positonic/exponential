@@ -27,6 +27,7 @@ import Superscript from '@tiptap/extension-superscript';
 import SubScript from '@tiptap/extension-subscript';
 import '@mantine/tiptap/styles.css';
 import { api } from "~/trpc/react";
+
 interface DailyEntry {
   date: string;
   intention: string;
@@ -60,6 +61,12 @@ const createEmptyEntry = (date: string): DailyEntry => ({
 
 export function StartupRoutineForm() {
   const todayString = getTodayString();
+  
+  // Configuration state
+  const [doMindset, setDoMindset] = useState(false);
+  const [doConsider, setDoConsider] = useState(false);
+  const [doNotToDo, setDoNotToDo] = useState(true);
+  const [doQuestions, setDoQuestions] = useState(false);
   
   // Local storage for daily entries
   const [dailyEntries, setDailyEntries] = useLocalStorage<DailyEntries>({
@@ -214,7 +221,7 @@ export function StartupRoutineForm() {
             </Button>
           </Group>
           <TextInput
-            placeholder="Enter your intention for today..."
+            placeholder="What you MUST achieve today?"
             value={intention}
             onChange={(e) => setIntention(e.target.value)}
             size="md"
@@ -233,7 +240,7 @@ export function StartupRoutineForm() {
             </Title>
           </Group>
           <TextInput
-            placeholder="What exercise will you do today?"
+            placeholder="What will you do to nourish your body today?"
             value={exercise}
             onChange={(e) => setExercise(e.target.value)}
             size="md"
@@ -350,7 +357,7 @@ export function StartupRoutineForm() {
       </Paper>
 
       {/* Consider Section - Axioms */}
-      <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
+      {doConsider && <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
         <Stack gap="md">
           <Title order={2} className="text-2xl">Consider</Title>
           <Text size="lg" fw={500} className="text-purple-400">
@@ -375,10 +382,10 @@ export function StartupRoutineForm() {
             ))}
           </List>
         </Stack>
-      </Paper>
+      </Paper>}
 
       {/* Important Questions */}
-      <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
+      {doQuestions && <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
         <Stack gap="md">
           <Title order={2} className="text-2xl">Important questions</Title>
           <Text c="dimmed">You want to consider daily</Text>
@@ -401,10 +408,10 @@ export function StartupRoutineForm() {
             ))}
           </List>
         </Stack>
-      </Paper>
+      </Paper>}
 
       {/* Not-to-Do List */}
-      <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
+      {doNotToDo && <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
         <Stack gap="md">
           <Title order={2} className="text-2xl">Not-to-Do List</Title>
           <Text c="dimmed">Things to avoid for a better day</Text>
@@ -431,10 +438,10 @@ export function StartupRoutineForm() {
             ))}
           </List>
         </Stack>
-      </Paper>
+      </Paper>}
 
       {/* Mindset Section */}
-      <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
+      {doMindset && <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
         <Stack gap="md">
           <Title order={2} className="text-2xl">Mindset</Title>
           <Text c="dimmed">At least 2 minutes</Text>
@@ -458,6 +465,36 @@ export function StartupRoutineForm() {
           >
             Do your visualization at this point
           </Button>
+        </Stack>
+      </Paper>}
+
+      {/* Configuration Panel */}
+      <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
+        <Stack gap="md">
+          <Title order={2} className="text-2xl">Configure</Title>
+          <Text c="dimmed">Customize your startup routine by enabling or disabling sections</Text>
+          <Group>
+            <Checkbox
+              label="Show Mindset Section"
+              checked={doMindset}
+              onChange={(event) => setDoMindset(event.currentTarget.checked)}
+            />
+            <Checkbox
+              label="Show Consider Section"
+              checked={doConsider}
+              onChange={(event) => setDoConsider(event.currentTarget.checked)}
+            />
+            <Checkbox
+              label="Show Not-to-Do List"
+              checked={doNotToDo}
+              onChange={(event) => setDoNotToDo(event.currentTarget.checked)}
+            />
+            <Checkbox
+              label="Show Important Questions"
+              checked={doQuestions}
+              onChange={(event) => setDoQuestions(event.currentTarget.checked)}
+            />
+          </Group>
         </Stack>
       </Paper>
 
