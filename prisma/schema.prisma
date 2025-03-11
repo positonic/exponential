@@ -304,16 +304,41 @@ model Setup {
   video           Video?    @relation(fields: [videoId], references: [id], onDelete: Cascade)
   pairId          Int
   pair            Pair     @relation(fields: [pairId], references: [id])
+  coinId          Int?
+  coin            Coin?    @relation(fields: [coinId], references: [id])
 
   @@index([videoId])
   @@index([pairId])
+  @@index([coinId])
+}
+
+model Coin {
+  id        Int        @id @default(autoincrement())
+  name      String
+  symbol    String
+  imageUrl  String?
+  coinId    String?    @unique
+  setups    Setup[]
+  pairs     PairCoin[]
 }
 
 model Pair {
-  id        Int       @id @default(autoincrement())
-  symbol    String    @unique
+  id        Int        @id @default(autoincrement())
+  symbol    String     @unique
   userPairs UserPair[]
-  setups     Setup[]
+  setups    Setup[]
+  coins     PairCoin[]
+}
+
+model PairCoin {
+  pair      Pair     @relation(fields: [pairId], references: [id])
+  pairId    Int
+  coin      Coin     @relation(fields: [coinId], references: [id])
+  coinId    Int
+
+  @@id([pairId, coinId])
+  @@index([coinId])
+  @@index([pairId])
 }
 
 model UserPair {
