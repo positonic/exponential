@@ -1,34 +1,16 @@
 import Layout from "~/app/_components/layout/Layout";
 import "~/styles/globals.css";
-
 import { GeistSans } from "geist/font/sans";
 import { type Metadata } from "next";
-
 import { TRPCReactProvider } from "~/trpc/react";
-import { MantineProvider, createTheme } from '@mantine/core';
+import { MantineProvider } from '@mantine/core';
 import '@mantine/core/styles.css';
 import { Notifications } from '@mantine/notifications';
-import { headers } from 'next/headers';
 import { ThemeProvider } from '~/providers/ThemeProvider';
+import { themes, type ValidDomain } from '~/config/themes';
+import { getThemeDomain } from '~/config/site';
+import { mantineThemes } from '~/config/themes';
 
-const theme = createTheme({
-  primaryColor: 'blue',
-  primaryShade: 6,
-  colors: {
-    dark: [
-      '#C1C2C5',
-      '#A6A7AB',
-      '#909296',
-      '#5C5F66',
-      '#373A40',
-      '#2C2E33',
-      '#25262B',
-      '#262626',
-      '#141517',
-      '#101113',
-    ],
-  },
-});
 
 export const metadata: Metadata = {
   title: 'Force Flow | Maybe the flow be with you',
@@ -36,20 +18,20 @@ export const metadata: Metadata = {
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const headersList = headers();
-  const domain = headersList.get('host') ?? 'forceflow.com';
+  const domain = getThemeDomain();
+  const mantineTheme = mantineThemes[domain];
 
   return (
     <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full`}>
-      <body className="h-full bg-gradient-to-b from-[#111111] to-[#212121] ">
+      <body className={`h-full ${themes[domain].colors.background.main}`}>
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
-            <MantineProvider defaultColorScheme="dark" theme={theme}>
+            <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
               <Notifications position="top-right" />
               <Layout>
                 {children}

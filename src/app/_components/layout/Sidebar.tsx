@@ -5,9 +5,11 @@ import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
 import { IconMenu2, IconX } from "@tabler/icons-react";
 import { useState } from 'react';
+import { themes } from "~/config/themes";
 
-export default function Sidebar({ session }: { session: any }) {
+export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: string }) {
   const [isMenuOpen, setIsMenuOpen] = useState(true); // Default to open on desktop
+  const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
 
   if (!session?.user) {
     return null;
@@ -49,8 +51,8 @@ export default function Sidebar({ session }: { session: any }) {
           <div className="sticky top-0 bg-[#262626] -mt-4 -mx-4 px-4 py-4 mb-4 flex items-center justify-between">
             <Link href="/" 
               onClick={() => setIsMenuOpen(false)}
-              className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
-              🧘‍♂️ Force Flow
+              className={`text-2xl font-bold bg-gradient-to-r ${theme.colors.primary} bg-clip-text text-transparent`}>
+              {theme.logo} {theme.name}
             </Link>
             
             {/* Close button */}

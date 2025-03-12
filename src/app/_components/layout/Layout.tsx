@@ -3,9 +3,11 @@ import Sidebar from "./Sidebar";
 import Header from "./Header";
 import { auth } from "~/server/auth";
 import { ThemeWrapper } from "./ThemeWrapper";
+import { headers } from 'next/headers';
 
 export default async function Layout({ children }: PropsWithChildren) {
   const session = await auth();
+  const domain = (await headers()).get('host')?.replace('www.', '') ?? 'forceflow.com';
 
   if (!session?.user) {
     return (
@@ -20,7 +22,7 @@ export default async function Layout({ children }: PropsWithChildren) {
 
   return (
     <ThemeWrapper>
-      <Sidebar session={session} />
+      <Sidebar session={session} domain={domain} />
       <main className="flex-1 p-4 lg:p-8 w-full transition-all duration-200">
         {children}
       </main>

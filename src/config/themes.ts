@@ -1,3 +1,7 @@
+import { type MantineTheme } from '@mantine/core';
+import { createTheme } from '@mantine/core';
+export type ValidDomain = 'forceflow.com' | 'exponential.im';
+
 export type ThemeConfig = {
   name: string;
   logo: string;
@@ -21,7 +25,7 @@ export type ThemeConfig = {
   };
 }
 
-export const themes: Record<string, ThemeConfig> = {
+export const themes: Record<ValidDomain, ThemeConfig> = {
   'forceflow.com': {
     name: 'Force Flow',
     logo: '🧘‍♂️',
@@ -44,26 +48,45 @@ export const themes: Record<string, ThemeConfig> = {
       heroSubtitle: 'AI-powered productivity system that actually works.'
     }
   },
-  'yoursecondapp.com': {
-    name: 'Second App',
-    logo: '🚀',
+  'exponential.im': {
+    name: 'Exponential',
+    logo: '📈',
     colors: {
-      primary: 'from-green-400 to-blue-600',
-      secondary: 'from-green-500 to-blue-600',
-      background: {
-        main: 'bg-[#0F172A]',
-        secondary: 'bg-[#1E293B]'
+        primary: 'from-blue-400 to-purple-600',
+        secondary: 'from-blue-500 to-purple-600',
+        background: {
+          main: 'bg-[#1E1E1E]',
+          secondary: 'bg-[#262626]'
+        },
+        text: {
+          primary: 'text-white',
+          secondary: 'text-gray-400'
+        }
       },
-      text: {
-        primary: 'text-white',
-        secondary: 'text-gray-300'
-      }
-    },
     branding: {
-      title: 'Second App',
-      description: 'Your Alternative Tagline',
-      heroTitle: 'Your Alternative Hero Title',
-      heroSubtitle: 'Your Alternative Hero Subtitle'
+      title: 'Exponential',
+      description: 'Scale Your Impact, Multiply Your Results.',
+      heroTitle: 'Turn Linear Progress into Exponential Growth',
+      heroSubtitle: 'AI-powered system for exponential personal and professional growth.'
     }
   }
-}; 
+};
+
+export const mantineThemes = {
+    'forceflow.com': createTheme({
+      colors: {
+        blue: ['#e6f2ff', '#cce5ff', '#99caff', '#66b0ff', '#3395ff', '#007fff', '#0066cc', '#004d99', '#003366', '#001a33'],
+        dark: ['#C1C2C5', '#A6A7AB', '#909296', '#5C5F66', '#373A40', '#2C2E33', '#25262B', '#262626', '#141517', '#101113'],
+      },
+      primaryColor: 'blue',
+      primaryShade: 6,
+    }),
+    'exponential.im': createTheme({
+        colors: {
+            blue: ['#e6f2ff', '#cce5ff', '#99caff', '#66b0ff', '#3395ff', '#007fff', '#0066cc', '#004d99', '#003366', '#001a33'],
+            dark: ['#C1C2C5', '#A6A7AB', '#909296', '#5C5F66', '#373A40', '#2C2E33', '#25262B', '#262626', '#141517', '#101113'],
+          },
+      primaryColor: 'blue',
+      primaryShade: 6,
+    }),
+  } satisfies Record<ValidDomain, ReturnType<typeof createTheme>>;
