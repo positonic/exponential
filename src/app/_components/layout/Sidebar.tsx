@@ -37,15 +37,16 @@ export default function Sidebar({ session }: { session: any }) {
 
       <aside className={`
         w-screen sm:w-64 border-r border-gray-800 p-4 flex flex-col 
-        h-screen bg-[#262626]
+        max-h-screen sm:h-screen overflow-y-auto sm:overflow-y-visible
+        bg-[#262626]
         fixed sm:static inset-y-0 left-0 z-[95]
         transform transition-transform duration-200 ease-in-out
         ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%]'}
         `}>
         
         <nav className="flex-grow space-y-6 mt-12 lg:mt-0">
-          {/* Header with logo and close button */}
-          <div className="flex items-center justify-between">
+          {/* Header with logo and close button - make it sticky */}
+          <div className="sticky top-0 bg-[#262626] -mt-4 -mx-4 px-4 py-4 mb-4 flex items-center justify-between">
             <Link href="/" 
               onClick={() => setIsMenuOpen(false)}
               className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
