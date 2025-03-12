@@ -26,27 +26,26 @@ export default function Sidebar({ session }: { session: any }) {
       {/* Backdrop for mobile */}
       {isMenuOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 sm:hidden z-40" 
+          className="fixed inset-0 bg-black/50 sm:hidden z-[90]" 
           onClick={() => setIsMenuOpen(false)}
         />
       )}
 
       <aside className={`
         w-screen sm:w-64 border-r border-gray-800 p-4 flex flex-col 
-        h-[85vh] sm:h-screen bg-[#262626]
-        fixed sm:static inset-y-0 left-0 right-0 z-[95]
-        rounded-t-xl sm:rounded-none shadow-lg sm:shadow-none
+        h-screen bg-[#262626]
+        fixed sm:static inset-y-0 left-0 z-[95]
         transform transition-transform duration-200 ease-in-out
         ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%] sm:translate-x-0'}
         sm:transform-none`}>
-        <nav className="flex-grow space-y-6 mt-12 lg:mt-0 overflow-y-auto">
+        <nav className="flex-grow space-y-6 mt-12 lg:mt-0">
           <Link href="/" 
             onClick={() => setIsMenuOpen(false)}
             className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
             🧘‍♂️ Force Flow
           </Link>
           
-          <div className="space-y-2 overflow-y-auto">
+          <div className="space-y-2">
             <NavLinks />
           </div>
 
@@ -86,9 +85,6 @@ export default function Sidebar({ session }: { session: any }) {
             {session ? "Sign out" : "Sign in"}
           </Link>
         </div>
-
-        {/* Safe area indicator for mobile */}
-        <div className="h-[env(safe-area-inset-bottom)] sm:hidden" />
       </aside>
     </>
   );

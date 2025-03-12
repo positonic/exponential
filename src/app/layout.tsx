@@ -8,6 +8,8 @@ import { TRPCReactProvider } from "~/trpc/react";
 import { MantineProvider, createTheme } from '@mantine/core';
 import '@mantine/core/styles.css';
 import { Notifications } from '@mantine/notifications';
+import { headers } from 'next/headers';
+import { ThemeProvider } from '~/providers/ThemeProvider';
 
 const theme = createTheme({
   primaryColor: 'blue',
@@ -39,17 +41,22 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const headersList = headers();
+  const domain = headersList.get('host') ?? 'forceflow.com';
+
   return (
     <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full`}>
       <body className="h-full bg-gradient-to-b from-[#111111] to-[#212121] ">
-        <TRPCReactProvider>
-          <MantineProvider defaultColorScheme="dark" theme={theme}>
-            <Notifications position="top-right" />
-            <Layout>
-              {children}
-            </Layout>
-          </MantineProvider>
-        </TRPCReactProvider>
+        <ThemeProvider domain={domain}>
+          <TRPCReactProvider>
+            <MantineProvider defaultColorScheme="dark" theme={theme}>
+              <Notifications position="top-right" />
+              <Layout>
+                {children}
+              </Layout>
+            </MantineProvider>
+          </TRPCReactProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -2,6 +2,7 @@ import { type PropsWithChildren } from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import { auth } from "~/server/auth";
+import { ThemeWrapper } from "./ThemeWrapper";
 
 export default async function Layout({ children }: PropsWithChildren) {
   const session = await auth();
@@ -18,16 +19,11 @@ export default async function Layout({ children }: PropsWithChildren) {
   }
 
   return (
-    <div className="min-h-screen bg-[#1E1E1E] text-white">
-      <div className="flex">
-        {/* Single responsive Sidebar */}
-        <Sidebar session={session} />
-
-        {/* Main content */}
-        <main className="flex-1 p-4 lg:p-8 w-full sm:ml-64">
-          {children}
-        </main>
-      </div>
-    </div>
+    <ThemeWrapper>
+      <Sidebar session={session} />
+      
+        {children}
+      
+    </ThemeWrapper>
   );
 } 
