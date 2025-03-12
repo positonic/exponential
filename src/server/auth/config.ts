@@ -2,6 +2,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { type DefaultSession, type NextAuthConfig } from "next-auth";
 import DiscordProvider from "next-auth/providers/discord";
 import GoogleProvider from "next-auth/providers/google";
+import NotionProvider from "next-auth/providers/notion";
 
 import { db } from "~/server/db";
 
@@ -48,6 +49,18 @@ export const authConfig = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       allowDangerousEmailAccountLinking: true,
     }),
+    NotionProvider({
+      clientId: process.env.NOTION_CLIENT_ID!,
+      clientSecret: process.env.NOTION_CLIENT_SECRET!,
+      redirectUri: process.env.NOTION_REDIRECT_URI!,
+      allowDangerousEmailAccountLinking: true,
+      authorization: {
+        params: {
+          scope: 'basic read_databases write_databases'  // Add more scopes as needed
+        },
+        redirectUri: process.env.NOTION_REDIRECT_URI!,
+      }
+    }),
   ],
   adapter: PrismaAdapter(db),
   session: {
@@ -77,7 +90,13 @@ export const authConfig = {
       }
       return token;
     },
-    signIn: async ({ user, account }) => {
+    signIn: async ({ user, account, profile }) => {
+      console.log('SignIn Attempt:', {
+        user,
+        account,
+        profile,
+        provider: account?.provider
+      });
       // Allow sign in if the user doesn't exist yet
       if (!user.email) {
         return true;

@@ -84,6 +84,21 @@ export function SignInButtons() {
         >
           Continue with Discord
         </Button>
+
+        <Button
+          onClick={() => signIn("notion", { callbackUrl: "/" })}
+          size="lg"
+          variant="outline"
+          leftSection={<IconBrandDiscord size={20} />}
+          className="border-gray-700/50 hover:border-gray-600 hover:bg-gray-800/50 transition-all"
+          styles={{
+            root: {
+              color: '#E5E7EB',
+            },
+          }}
+        >
+          Continue with Notion
+        </Button>
       </Stack>
     </Stack>
   );
