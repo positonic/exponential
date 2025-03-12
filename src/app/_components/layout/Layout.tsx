@@ -4,10 +4,11 @@ import Header from "./Header";
 import { auth } from "~/server/auth";
 import { ThemeWrapper } from "./ThemeWrapper";
 import { headers } from 'next/headers';
+import { type ValidDomain } from "~/config/themes";
 
 export default async function Layout({ children }: PropsWithChildren) {
   const session = await auth();
-  const domain = (await headers()).get('host')?.replace('www.', '') ?? 'forceflow.com';
+  const domain = ((await headers()).get('host')?.replace('www.', '') ?? 'forceflow.com') as ValidDomain;
 
   if (!session?.user) {
     return (

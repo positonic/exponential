@@ -5,9 +5,9 @@ import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
 import { IconMenu2, IconX } from "@tabler/icons-react";
 import { useState } from 'react';
-import { themes } from "~/config/themes";
+import { themes, type ValidDomain } from "~/config/themes";
 
-export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: string }) {
+export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
   const [isMenuOpen, setIsMenuOpen] = useState(true); // Default to open on desktop
   const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
 

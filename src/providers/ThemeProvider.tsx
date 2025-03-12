@@ -1,17 +1,20 @@
 'use client';
 
-import { createContext, useContext, ReactNode } from 'react';
-import { type ThemeConfig, themes } from '~/config/themes';
+import { createContext, useContext, type PropsWithChildren } from 'react';
+import { themes, type ValidDomain, type ThemeConfig } from '~/config/themes';
 
-const ThemeContext = createContext<ThemeConfig | null>(null);
+const ThemeContext = createContext<ThemeConfig>(themes['forceflow.com']);
 
-export function ThemeProvider({ 
+export function useTheme() {
+  return useContext(ThemeContext);
+}
+
+export function ThemeProvider({
   children,
-  domain 
-}: { 
-  children: ReactNode;
-  domain: string;
-}) {
+  domain,
+}: PropsWithChildren<{
+  domain: ValidDomain;
+}>) {
   const theme = themes[domain] ?? themes['forceflow.com']; // fallback to default theme
 
   return (
@@ -19,10 +22,4 @@ export function ThemeProvider({
       {children}
     </ThemeContext.Provider>
   );
-}
-
-export function useTheme() {
-  const theme = useContext(ThemeContext);
-  if (!theme) throw new Error('useTheme must be used within ThemeProvider');
-  return theme;
 } 

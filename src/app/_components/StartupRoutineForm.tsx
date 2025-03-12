@@ -13,7 +13,7 @@ import {
   Accordion,
   List,
 } from "@mantine/core";
-import { IconBulb, IconWriting, IconStars, IconList, IconPlus, IconSettings } from "@tabler/icons-react";
+import { IconBulb, IconWriting, IconStars, IconList, IconSettings } from "@tabler/icons-react";
 import { useLocalStorage } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useState, useEffect } from 'react';
@@ -93,11 +93,11 @@ export function StartupRoutineForm() {
   const todayEntry = dailyEntries[todayString] ?? createEmptyEntry(todayString);
 
   // Form state
-  const [intention, setIntention] = useState(todayEntry.intention);
+  const [intention] = useState(todayEntry.intention);
   const [gratitude, setGratitude] = useState(todayEntry.gratitude);
   const [exercise, setExercise] = useState(todayEntry.exercise);
-  const [journalName, setJournalName] = useState(todayEntry.journalName);
-  const [journalDate, setJournalDate] = useState(todayEntry.journalDate);
+  const [journalName, setJournalName] = useState(todayEntry.journalName); // eslint-disable-line @typescript-eslint/no-unused-vars
+  const [journalDate, setJournalDate] = useState(todayEntry.journalDate); // eslint-disable-line @typescript-eslint/no-unused-vars
   const [journalContent, setJournalContent] = useState(todayEntry.journalContent);
   const [notToDo, setNotToDo] = useState(todayEntry.notToDo);
   const [completedItems, setCompletedItems] = useState<string[]>(todayEntry.completedItems);
@@ -366,7 +366,7 @@ export function StartupRoutineForm() {
                       </Group>
                     </Group>
                     <Text c="dimmed" size="sm">
-                      What's one thing you must achieve today?
+                      What&apos;s one thing you must achieve today?
                     </Text>
                     <Group>
                       <TextInput
