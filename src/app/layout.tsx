@@ -11,11 +11,12 @@ import { themes, type ValidDomain } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { mantineThemes } from '~/config/themes';
 
+const domain = getThemeDomain();
 
 export const metadata: Metadata = {
-  title: 'Force Flow | Maybe the flow be with you',
-  description: 'Transform your productivity with Force Flow - an AI-powered personal management system that helps you organize tasks, track projects, and make better decisions. Features smart project management, semantic search, and intelligent insights.',
-  icons: [{ rel: "icon", url: "/favicon.ico" }],
+  title: themes[domain].branding.title,
+  description: themes[domain].branding.description,
+  icons: themes[domain].branding.icons,
 };
 
 export default async function RootLayout({

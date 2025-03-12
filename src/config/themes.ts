@@ -20,8 +20,10 @@ export type ThemeConfig = {
   branding: {
     title: string;
     description: string;
+    descriptionLonger?: string;
     heroTitle: string;
     heroSubtitle: string;
+    icons?: Array<{ rel: string; url: string }>;
   };
 }
 
@@ -42,8 +44,9 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
       }
     },
     branding: {
-      title: 'Force Flow',
+      title: 'Force Flow | Maybe the flow be with you',
       description: 'Harness Your Inner Force, Unleash Your Flow.',
+      descriptionLonger: 'Transform your productivity with Force Flow - an AI-powered personal management system that helps you organize tasks, track projects, and make better decisions. Features smart project management, semantic search, and intelligent insights.',
       heroTitle: 'Transform the way you manage your life and projects',
       heroSubtitle: 'AI-powered productivity system that actually works.'
     }
@@ -66,6 +69,7 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
     branding: {
       title: 'Exponential',
       description: 'Scale Your Impact, Multiply Your Results.',
+      descriptionLonger: 'Transform your productivity with Exponential - an AI-powered personal management system that helps you organize tasks, track projects, and make better decisions. Features smart project management, semantic search, and intelligent insights.',
       heroTitle: 'Turn Linear Progress into Exponential Growth',
       heroSubtitle: 'AI-powered system for exponential personal and professional growth.'
     }
