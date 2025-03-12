@@ -22,13 +22,13 @@ export default async function Layout({ children }: PropsWithChildren) {
     <div className="min-h-screen bg-[#1E1E1E] text-white">
       {/* MobileNav is a client component */}
       <MobileNav>
-        <Sidebar />
+        <Sidebar session={session} />
       </MobileNav>
 
       <div className="flex">
         {/* Desktop Sidebar - server rendered */}
         <div className="hidden lg:block flex-shrink-0">
-          <Sidebar />
+          <Sidebar session={session} />
         </div>
 
         {/* Main content */}

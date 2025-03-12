@@ -1,61 +1,88 @@
+"use client";
+
 import Link from "next/link";
-import { auth } from "~/server/auth";
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
+import { useViewportSize } from '@mantine/hooks';
+import { useState } from 'react';
 
-export default async function Sidebar() {
-  const session = await auth();
+export default function Sidebar({ session }: { session: any }) {
+  const [isMenuOpen, setIsMenuOpen] = useState(true);
 
   if (!session?.user) {
     return null;
   }
 
   return (
-    <aside className="w-full sm:w-64 border-r border-gray-800 p-4 flex flex-col h-screen bg-[#262626]">
-      <nav className="flex-grow space-y-6 mt-12 lg:mt-0">
-        <Link href="/" className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
-          🧘‍♂️ Force Flow
-        </Link>
-        
-        <div className="space-y-2">
-          <NavLinks />
+    <>
+      {/* Backdrop for mobile */}
+      {isMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 sm:hidden z-40" 
+          onClick={() => setIsMenuOpen(false)}
+        />
+      )}
+
+      <aside className={`
+        w-screen sm:w-64 border-r border-gray-800 p-4 flex flex-col 
+        h-[85vh] sm:h-screen bg-[#262626]
+        fixed sm:static bottom-0 left-0 right-0 z-50
+        rounded-t-xl sm:rounded-none shadow-lg sm:shadow-none
+        transform transition-transform duration-200 ease-in-out
+        ${isMenuOpen ? 'translate-y-0' : 'translate-y-full sm:translate-y-0'}
+        sm:transform-none`}>
+        <nav className="flex-grow space-y-6 mt-12 lg:mt-0 overflow-y-auto">
+          <Link href="/" className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
+            🧘‍♂️ Force Flow
+          </Link>
+          
+          <div className="space-y-2 overflow-y-auto" onClick={() => {
+            if (window.innerWidth < 640) {
+              setIsMenuOpen(false);
+            }
+          }}>
+            <NavLinks />
+          </div>
+
+          <SidebarContent />
+        </nav>
+
+        <div className="flex flex-col gap-2 border-t border-gray-800 pt-4">
+          <Link
+            href="https://github.com/positonic/ai-todo"
+            className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-800 active:bg-gray-700 sm:active:bg-transparent"
+          >
+            <GithubIcon className="h-6 w-6" />
+          </Link>
+          <Link
+            href={session ? "/api/auth/signout" : "/use-the-force"}
+            className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-800 active:bg-gray-700 sm:active:bg-transparent"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="mr-2 h-5 w-5"
+            >
+              <path
+                fillRule="evenodd"
+                d="M3 4.25A2.25 2.25 0 015.25 2h5.5A2.25 2.25 0 0113 4.25v2a.75.75 0 01-1.5 0v-2a.75.75 0 00-.75-.75h-5.5a.75.75 0 00-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 00.75-.75v-2a.75.75 0 011.5 0v2A2.25 2.25 0 0110.75 18h-5.5A2.25 2.25 0 013 15.75V4.25z"
+                clipRule="evenodd"
+              />
+              <path
+                fillRule="evenodd"
+                d="M19 10a.75.75 0 00-.75-.75H8.704l1.048-.943a.75.75 0 10-1.004-1.114l-2.5 2.25a.75.75 0 000 1.114l2.5 2.25a.75.75 0 101.004-1.114l-1.048-.943h9.546A.75.75 0 0019 10z"
+                clipRule="evenodd"
+              />
+            </svg>
+            {session ? "Sign out" : "Sign in"}
+          </Link>
         </div>
 
-        <SidebarContent />
-      </nav>
-
-      <div className="flex flex-col gap-2 border-t border-gray-800 pt-4">
-        <Link
-          href="https://github.com/positonic/ai-todo"
-          className="flex w-full items-center rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800"
-        >
-          <GithubIcon className="h-6 w-6" />
-        </Link>
-        <Link
-          href={session ? "/api/auth/signout" : "/use-the-force"}
-          className="flex w-full items-center rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className="mr-2 h-5 w-5"
-          >
-            <path
-              fillRule="evenodd"
-              d="M3 4.25A2.25 2.25 0 015.25 2h5.5A2.25 2.25 0 0113 4.25v2a.75.75 0 01-1.5 0v-2a.75.75 0 00-.75-.75h-5.5a.75.75 0 00-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 00.75-.75v-2a.75.75 0 011.5 0v2A2.25 2.25 0 0110.75 18h-5.5A2.25 2.25 0 013 15.75V4.25z"
-              clipRule="evenodd"
-            />
-            <path
-              fillRule="evenodd"
-              d="M19 10a.75.75 0 00-.75-.75H8.704l1.048-.943a.75.75 0 10-1.004-1.114l-2.5 2.25a.75.75 0 000 1.114l2.5 2.25a.75.75 0 101.004-1.114l-1.048-.943h9.546A.75.75 0 0019 10z"
-              clipRule="evenodd"
-            />
-          </svg>
-          {session ? "Sign out" : "Sign in"}
-        </Link>
-      </div>
-    </aside>
+        {/* Safe area indicator for mobile */}
+        <div className="h-[env(safe-area-inset-bottom)] sm:hidden" />
+      </aside>
+    </>
   );
 }
 
