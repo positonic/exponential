@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
-import { IconMenu2 } from "@tabler/icons-react";
+import { IconMenu2, IconX } from "@tabler/icons-react";
 import { useState } from 'react';
 
 export default function Sidebar({ session }: { session: any }) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(true); // Default to open on desktop
 
   if (!session?.user) {
     return null;
@@ -15,10 +15,14 @@ export default function Sidebar({ session }: { session: any }) {
 
   return (
     <>
-      {/* Mobile Menu Button */}
+      {/* Menu Button - visible when sidebar is closed (both mobile and desktop) */}
       <button
         onClick={() => setIsMenuOpen(!isMenuOpen)}
-        className="fixed top-4 right-4 z-[100] p-2 rounded-lg bg-[#262626] sm:hidden"
+        className={`
+          fixed top-4 left-4 z-[100] p-2 rounded-lg bg-[#262626]
+          transition-transform duration-200
+          ${isMenuOpen ? 'translate-x-[-100%]' : 'translate-x-0'}
+        `}
       >
         <IconMenu2 size={24} className="text-gray-400" />
       </button>
@@ -36,14 +40,26 @@ export default function Sidebar({ session }: { session: any }) {
         h-screen bg-[#262626]
         fixed sm:static inset-y-0 left-0 z-[95]
         transform transition-transform duration-200 ease-in-out
-        ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%] sm:translate-x-0'}
-        sm:transform-none`}>
+        ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%]'}
+        `}>
+        
         <nav className="flex-grow space-y-6 mt-12 lg:mt-0">
-          <Link href="/" 
-            onClick={() => setIsMenuOpen(false)}
-            className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
-            🧘‍♂️ Force Flow
-          </Link>
+          {/* Header with logo and close button */}
+          <div className="flex items-center justify-between">
+            <Link href="/" 
+              onClick={() => setIsMenuOpen(false)}
+              className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
+              🧘‍♂️ Force Flow
+            </Link>
+            
+            {/* Close button */}
+            <button
+              onClick={() => setIsMenuOpen(false)}
+              className="p-2 rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              <IconX size={20} className="text-gray-400 hover:text-gray-200" />
+            </button>
+          </div>
           
           <div className="space-y-2">
             <NavLinks />

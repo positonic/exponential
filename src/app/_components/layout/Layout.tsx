@@ -21,9 +21,9 @@ export default async function Layout({ children }: PropsWithChildren) {
   return (
     <ThemeWrapper>
       <Sidebar session={session} />
-      
+      <main className="flex-1 p-4 lg:p-8 w-full sm:ml-64">
         {children}
-      
+      </main>
     </ThemeWrapper>
   );
 } 
