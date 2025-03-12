@@ -53,12 +53,10 @@ export const authConfig = {
       clientId: process.env.NOTION_CLIENT_ID!,
       clientSecret: process.env.NOTION_CLIENT_SECRET!,
       redirectUri: process.env.NOTION_REDIRECT_URI!,
-      allowDangerousEmailAccountLinking: true,
       authorization: {
         params: {
           scope: 'basic read_databases write_databases'  // Add more scopes as needed
-        },
-        redirectUri: process.env.NOTION_REDIRECT_URI!,
+        }
       }
     }),
   ],
