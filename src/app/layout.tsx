@@ -24,6 +24,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   const domain = getThemeDomain();
+  console.log('domain is ', domain);
   const mantineTheme = mantineThemes[domain];
 
   return (
@@ -33,7 +34,7 @@ export default async function RootLayout({
           <TRPCReactProvider>
             <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
               <Notifications position="top-right" />
-              <Layout>
+              <Layout domain={domain}>
                 {children}
               </Layout>
             </MantineProvider>

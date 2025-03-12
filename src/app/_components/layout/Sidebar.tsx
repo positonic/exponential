@@ -10,7 +10,7 @@ import { themes, type ValidDomain } from "~/config/themes";
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
   const [isMenuOpen, setIsMenuOpen] = useState(true); // Default to open on desktop
   const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
-
+  console.log('domain', domain);
   if (!session?.user) {
     return null;
   }

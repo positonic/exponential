@@ -6,10 +6,9 @@ import { ThemeWrapper } from "./ThemeWrapper";
 import { headers } from 'next/headers';
 import { type ValidDomain } from "~/config/themes";
 
-export default async function Layout({ children }: PropsWithChildren) {
+export default async function Layout({ children, domain }: PropsWithChildren<{ domain: ValidDomain }>) {
   const session = await auth();
-  const domain = ((await headers()).get('host')?.replace('www.', '') ?? 'forceflow.com') as ValidDomain;
-
+  console.log('domain h is ', domain);
   if (!session?.user) {
     return (
       <div className="min-h-screen bg-[#262626] text-white">
