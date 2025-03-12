@@ -7,7 +7,7 @@ import { type ValidDomain, themes } from "~/config/themes";
 
 export default async function Layout({ children, domain }: PropsWithChildren<{ domain: ValidDomain }>) {
   const session = await auth();
-  console.log('domain h is ', domain);
+
   if (!session?.user) {
     return (
       <div className="min-h-screen bg-[#262626] text-white">

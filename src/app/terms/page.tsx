@@ -48,7 +48,7 @@ export default function TermsOfUse() {
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Disclaimers and Limitations</h2>
         <p className="text-gray-300 mb-4">
-          The service is provided "as is" without any warranties. We are not liable for any indirect 
+          The service is provided &quot;as is&quot; without any warranties. We are not liable for any indirect 
           or consequential damages arising from its use.
         </p>
       </section>

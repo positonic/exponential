@@ -25,7 +25,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   const domain = getThemeDomain();
-  console.log('domain is ', domain);
+
   const mantineTheme = mantineThemes[domain];
 
   return (
