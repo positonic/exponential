@@ -1,7 +1,7 @@
 'use client';
 
 import { Accordion, Paper, Title, Text } from '@mantine/core';
-import ReactMarkdown, { Components } from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import { type ReactNode } from 'react';
 
 interface ContentAccordionProps {
@@ -9,10 +9,6 @@ interface ContentAccordionProps {
   content: string;
   subtitle?: ReactNode;
   useMarkdown?: boolean;
-}
-
-interface MarkdownProps {
-  children: ReactNode;
 }
 
 const markdownComponents: Partial<Components> = {

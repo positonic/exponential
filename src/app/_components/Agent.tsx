@@ -1,8 +1,7 @@
 "use client";
-import React, { use, useEffect, useState } from "react";
+import React, { useState } from "react";
 import SimliOpenAI from "./SimliOpenAI";
 import DottedFace from "./DottedFace";
-import Image from "next/image";
 
 
 interface avatarSettings {

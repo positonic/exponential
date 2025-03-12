@@ -3,8 +3,7 @@ import Sidebar from "./Sidebar";
 import Header from "./Header";
 import { auth } from "~/server/auth";
 import { ThemeWrapper } from "./ThemeWrapper";
-import { headers } from 'next/headers';
-import { type ValidDomain } from "~/config/themes";
+import { type ValidDomain, themes } from "~/config/themes";
 
 export default async function Layout({ children, domain }: PropsWithChildren<{ domain: ValidDomain }>) {
   const session = await auth();
@@ -12,7 +11,7 @@ export default async function Layout({ children, domain }: PropsWithChildren<{ d
   if (!session?.user) {
     return (
       <div className="min-h-screen bg-[#262626] text-white">
-        <Header />
+        <Header title={themes[domain].logo + ' ' + themes[domain].name} />
         <main className="pt-16">
           {children}
         </main>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { SegmentedControl, Table, Paper, Group, Text } from '@mantine/core';
+import { SegmentedControl, Table, Paper, Group } from '@mantine/core';
 import Link from 'next/link';
 
 type TimeFilter = 'all' | 'week' | 'month';

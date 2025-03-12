@@ -1,4 +1,4 @@
-import { TextInput, Textarea, Button, Group, Select } from '@mantine/core';
+import { Textarea, Button, Group, Select } from '@mantine/core';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import { api } from "~/trpc/react";
 import DateWidget from './DateWidget';

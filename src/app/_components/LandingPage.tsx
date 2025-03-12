@@ -11,18 +11,21 @@ import {
 } from "@mantine/core";
 import "@mantine/core/styles.css";
 import Link from "next/link";
+import { type ValidDomain, themes } from "~/config/themes";
+import { getThemeDomain } from '~/config/site';
 
 export function LandingPage() {
+  const domain = getThemeDomain();
+  const theme = themes[domain];
   return (
     <Container size="xl" className="py-16" >
       {/* Hero Section */}
       <Stack align="center" className="mb-16 text-center">
         <Title order={1} className="mb-6 text-5xl font-bold leading-tight">
-          Harness Your Inner Force, Unleash Your Flow.
+          {theme.branding.description}
         </Title>
         <Text size="xl" c="dimmed" className="mb-8">
-          Transform the way you manage your life and projects with an AI-powered
-          productivity system that actually works.
+          {theme.branding.heroSubtitle}
         </Text>
         <Group gap="md" justify="center" wrap="wrap">
           <Link href="/use-the-force">
@@ -98,7 +101,7 @@ export function LandingPage() {
           className="mx-auto max-w-2xl"
         >
           <Text size="xl" fs="italic" className="mb-4">
-            &ldquo;Force Flow is a dream come true.
+            &ldquo;{theme.name} is a dream come true.
             Nothing can stop me now, not even me!
           </Text>
           <Group>

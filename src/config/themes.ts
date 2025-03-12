@@ -48,7 +48,7 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
       description: 'Harness Your Inner Force, Unleash Your Flow.',
       descriptionLonger: 'Transform your productivity with Force Flow - an AI-powered personal management system that helps you organize tasks, track projects, and make better decisions. Features smart project management, semantic search, and intelligent insights.',
       heroTitle: 'Transform the way you manage your life and projects',
-      heroSubtitle: 'AI-powered productivity system that actually works.'
+      heroSubtitle: 'AI-powered productivity system that actually works. Transform the way you manage your life and projects with an AI-powered productivity system that actually works.'
     }
   },
   'exponential.im': {
