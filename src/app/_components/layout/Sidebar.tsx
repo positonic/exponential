@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
-import { useViewportSize } from '@mantine/hooks';
+import { IconMenu2 } from "@tabler/icons-react";
 import { useState } from 'react';
 
 export default function Sidebar({ session }: { session: any }) {
-  const [isMenuOpen, setIsMenuOpen] = useState(true);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   if (!session?.user) {
     return null;
@@ -15,6 +15,14 @@ export default function Sidebar({ session }: { session: any }) {
 
   return (
     <>
+      {/* Mobile Menu Button */}
+      <button
+        onClick={() => setIsMenuOpen(!isMenuOpen)}
+        className="fixed top-4 right-4 z-[100] p-2 rounded-lg bg-[#262626] sm:hidden"
+      >
+        <IconMenu2 size={24} className="text-gray-400" />
+      </button>
+
       {/* Backdrop for mobile */}
       {isMenuOpen && (
         <div 
@@ -26,21 +34,19 @@ export default function Sidebar({ session }: { session: any }) {
       <aside className={`
         w-screen sm:w-64 border-r border-gray-800 p-4 flex flex-col 
         h-[85vh] sm:h-screen bg-[#262626]
-        fixed sm:static bottom-0 left-0 right-0 z-50
+        fixed sm:static inset-y-0 left-0 right-0 z-[95]
         rounded-t-xl sm:rounded-none shadow-lg sm:shadow-none
         transform transition-transform duration-200 ease-in-out
-        ${isMenuOpen ? 'translate-y-0' : 'translate-y-full sm:translate-y-0'}
+        ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%] sm:translate-x-0'}
         sm:transform-none`}>
         <nav className="flex-grow space-y-6 mt-12 lg:mt-0 overflow-y-auto">
-          <Link href="/" className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
+          <Link href="/" 
+            onClick={() => setIsMenuOpen(false)}
+            className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
             🧘‍♂️ Force Flow
           </Link>
           
-          <div className="space-y-2 overflow-y-auto" onClick={() => {
-            if (window.innerWidth < 640) {
-              setIsMenuOpen(false);
-            }
-          }}>
+          <div className="space-y-2 overflow-y-auto">
             <NavLinks />
           </div>
 
@@ -50,12 +56,14 @@ export default function Sidebar({ session }: { session: any }) {
         <div className="flex flex-col gap-2 border-t border-gray-800 pt-4">
           <Link
             href="https://github.com/positonic/ai-todo"
+            onClick={() => setIsMenuOpen(false)}
             className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-800 active:bg-gray-700 sm:active:bg-transparent"
           >
             <GithubIcon className="h-6 w-6" />
           </Link>
           <Link
             href={session ? "/api/auth/signout" : "/use-the-force"}
+            onClick={() => setIsMenuOpen(false)}
             className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-800 active:bg-gray-700 sm:active:bg-transparent"
           >
             <svg
