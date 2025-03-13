@@ -55,8 +55,11 @@ export const authConfig = {
       redirectUri: process.env.NOTION_REDIRECT_URI!,
       authorization: {
         params: {
-          scope: 'basic read_databases write_databases'  // Add more scopes as needed
-        }
+          scope: 'basic read_databases write_databases',
+          owner: 'user',
+          response_type: 'code'
+        },
+        redirectUri: process.env.NOTION_REDIRECT_URI!,
       }
     }),
   ],

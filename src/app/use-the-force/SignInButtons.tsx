@@ -85,7 +85,7 @@ export function SignInButtons() {
           Continue with Discord
         </Button>
 
-        <Button
+        {/* <Button
           onClick={() => signIn("notion", { callbackUrl: "/" })}
           size="lg"
           variant="outline"
@@ -98,7 +98,7 @@ export function SignInButtons() {
           }}
         >
           Continue with Notion
-        </Button>
+        </Button> */}
       </Stack>
     </Stack>
   );
