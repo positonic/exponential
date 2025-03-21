@@ -103,11 +103,11 @@ model Action {
 model Outcome {
     id          String   @id @default(cuid())
     description String
-    dueDate      DateTime?
+    dueDate     DateTime?
     projects    Project[]  @relation("ProjectOutcomes")
     goals       Goal[]     @relation("GoalOutcomes")
-    user         User        @relation(fields: [userId], references: [id])
-    userId       String
+    user        User       @relation(fields: [userId], references: [id])
+    userId      String
     @@index([userId])
 }
 
