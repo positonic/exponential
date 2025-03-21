@@ -46,6 +46,21 @@ const roadmapData: RoadmapSection[] = [
           </div>
         ),
       },
+      {
+        title: "Alignment view on 'today' page",
+        description:
+          "Stay aligned with your goals and outcomes.",
+        embed: (
+          <div style={{ position: 'relative', paddingBottom: '62.43%', height: 0 }}>
+            <iframe 
+              src="https://www.loom.com/embed/957b2ac242dd40019002a7fafe14a63a?sid=dcb50737-021e-4d6d-8df6-6e6008ff4ab9"
+              frameBorder="0"
+              allowFullScreen
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+            />
+          </div>
+        ),
+      },
     ],
   },
   {

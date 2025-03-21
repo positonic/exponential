@@ -5,7 +5,11 @@ export async function getMyOutcomes({ ctx }: { ctx: Context }) {
     where: {
       userId: ctx.session?.user?.id
     },
-    include: {
+    select: {
+      id: true,
+      description: true,
+      dueDate: true,
+      type: true,
       projects: true,
       goals: true
     }
@@ -17,6 +21,7 @@ export async function createOutcome({ ctx, input }: {
   input: { 
     description: string;
     dueDate?: Date;
+    type?: string;
   }
 }) {
   if (!ctx.session?.user?.id) throw new Error("Unauthorized");
@@ -26,7 +31,11 @@ export async function createOutcome({ ctx, input }: {
       ...input,
       userId: ctx.session.user.id,
     },
-    include: {
+    select: {
+      id: true,
+      description: true,
+      dueDate: true,
+      type: true,
       projects: true,
       goals: true
     }
