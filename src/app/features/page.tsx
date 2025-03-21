@@ -1,7 +1,8 @@
 "use client";
-import { Container, Title, Text, SimpleGrid, Card, ThemeIcon, Collapse, Stack } from "@mantine/core";
-import { IconGitBranch, IconUsers, IconCode, IconBriefcase, IconChartBar, IconWorld, IconChevronDown } from "@tabler/icons-react";
+import { Container, Title, Text, SimpleGrid, Card, ThemeIcon, Collapse, Stack, Button } from "@mantine/core";
+import { IconGitBranch, IconUsers, IconCode, IconBriefcase, IconChartBar, IconWorld, IconChevronDown, IconArrowRight } from "@tabler/icons-react";
 import { useState } from "react";
+import { motion } from "framer-motion";
 
 interface Feature {
   icon: React.ElementType;
@@ -132,7 +133,7 @@ const features: Feature[] = [
   }
 ];
 
-function FeatureCard({ feature }: { feature: Feature }) {
+function FeatureCard({ feature, index }: { feature: Feature; index: number }) {
   const [showDetails, setShowDetails] = useState(false);
   
   const handleClick = () => {
@@ -141,68 +142,104 @@ function FeatureCard({ feature }: { feature: Feature }) {
   };
   
   return (
-    <Card 
-      className={`bg-[#1a1b1e] border border-gray-800 cursor-pointer transition-all duration-200 hover:border-violet-400/50 ${showDetails ? 'ring-1 ring-violet-400' : ''}`}
-      padding="xl"
-      onClick={handleClick}
-      withBorder={false}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: index * 0.1 }}
     >
-      <div className="flex justify-between items-start">
-        <ThemeIcon
-          size={48}
-          radius="md"
-          variant="light"
-          color={feature.color}
-          className="mb-4"
-        >
-          <feature.icon size={24} stroke={1.5} />
-        </ThemeIcon>
-        <IconChevronDown 
-          className={`transition-transform duration-200 text-violet-400/50 ${showDetails ? 'rotate-180' : ''}`}
-          size={20}
-        />
-      </div>
-      <Text size="xl" fw={500} className="mb-3">
-        {feature.title}
-      </Text>
-      <Text size="sm" c="dimmed" className="mb-4">
-        {feature.description}
-      </Text>
-      
-      <Collapse in={showDetails}>
-        <div className="mt-4 pt-4 border-t border-gray-700">
-          <Stack gap="md">
-            <div>
-              <Text fw={500} size="sm" className="mb-2 text-violet-400">
-                Current Features
-              </Text>
-              {feature.details.current.map((detail, index) => (
-                <Text key={index} size="sm" c="dimmed" className="ml-4 mb-1">
-                  • {detail}
-                </Text>
-              ))}
-            </div>
-            <div>
-              <Text fw={500} size="sm" className="mb-2 text-violet-400">
-                Coming Soon
-              </Text>
-              {feature.details.upcoming.map((detail, index) => (
-                <Text key={index} size="sm" c="dimmed" className="ml-4 mb-1">
-                  • {detail}
-                </Text>
-              ))}
-            </div>
-          </Stack>
+      <Card 
+        className={`group bg-[#1a1b1e] border border-gray-800 cursor-pointer transition-all duration-300 
+          hover:border-violet-400/50 hover:shadow-lg hover:shadow-violet-500/10 
+          ${showDetails ? 'ring-1 ring-violet-400 shadow-lg shadow-violet-500/10' : ''}`}
+        padding="xl"
+        onClick={handleClick}
+        withBorder={false}
+      >
+        <div className="flex justify-between items-start">
+          <ThemeIcon
+            size={48}
+            radius="md"
+            variant="light"
+            color={feature.color}
+            className="mb-4 transition-transform duration-300 group-hover:scale-110"
+          >
+            <feature.icon size={24} stroke={1.5} />
+          </ThemeIcon>
+          <IconChevronDown 
+            className={`transition-all duration-300 text-violet-400/50 group-hover:text-violet-400 
+              ${showDetails ? 'rotate-180' : ''}`}
+            size={20}
+          />
         </div>
-      </Collapse>
-    </Card>
+        <Text size="xl" fw={500} className="mb-3 group-hover:text-violet-400 transition-colors duration-300">
+          {feature.title}
+        </Text>
+        <Text size="sm" c="dimmed" className="mb-4 line-clamp-2">
+          {feature.description}
+        </Text>
+        
+        <Collapse in={showDetails} transitionDuration={400}>
+          <div className="mt-4 pt-4 border-t border-gray-700">
+            <Stack gap="md">
+              <div>
+                <Text fw={500} size="sm" className="mb-2 text-violet-400 flex items-center gap-2">
+                  Current Features
+                  <div className="px-2 py-1 rounded-full bg-violet-400/10 text-xs">
+                    Live
+                  </div>
+                </Text>
+                {feature.details.current.map((detail, index) => (
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3, delay: index * 0.1 }}
+                    key={index}
+                  >
+                    <Text size="sm" c="dimmed" className="ml-4 mb-2 flex items-start gap-2">
+                      <span className="text-violet-400/50 mt-1">•</span>
+                      {detail}
+                    </Text>
+                  </motion.div>
+                ))}
+              </div>
+              <div>
+                <Text fw={500} size="sm" className="mb-2 text-violet-400 flex items-center gap-2">
+                  Coming Soon
+                  <div className="px-2 py-1 rounded-full bg-violet-400/10 text-xs">
+                    Roadmap
+                  </div>
+                </Text>
+                {feature.details.upcoming.map((detail, index) => (
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3, delay: (index + feature.details.current.length) * 0.1 }}
+                    key={index}
+                  >
+                    <Text size="sm" c="dimmed" className="ml-4 mb-2 flex items-start gap-2">
+                      <span className="text-violet-400/50 mt-1">•</span>
+                      {detail}
+                    </Text>
+                  </motion.div>
+                ))}
+              </div>
+            </Stack>
+          </div>
+        </Collapse>
+      </Card>
+    </motion.div>
   );
 }
 
 export default function Features() {
   return (
     <Container size="xl" py="xl">
-      <div className="text-center mb-12">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="text-center mb-12"
+      >
         <Title
           className="text-4xl font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent mb-4"
         >
@@ -219,13 +256,31 @@ export default function Features() {
             governance model that rewards contributions fairly.
           </Text>
         </div>
-      </div>
+      </motion.div>
 
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xl">
-        {features.map((feature) => (
-          <FeatureCard key={feature.title} feature={feature} />
+        {features.map((feature, index) => (
+          <FeatureCard key={feature.title} feature={feature} index={index} />
         ))}
       </SimpleGrid>
+
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.8 }}
+        className="mt-16 text-center"
+      >
+        <Button
+          variant="light"
+          color="violet"
+          size="lg"
+          rightSection={<IconArrowRight size={18} />}
+          component="a"
+          href="/roadmap"
+        >
+          View Full Roadmap
+        </Button>
+      </motion.div>
     </Container>
   );
 }
