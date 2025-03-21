@@ -25,6 +25,7 @@ export function OutcomesTable() {
         <Table.Thead>
           <Table.Tr>
             <Table.Th>Description</Table.Th>
+            <Table.Th>Type</Table.Th>
             <Table.Th>Due Date</Table.Th>
             <Table.Th>Projects</Table.Th>
             <Table.Th>Goals</Table.Th>
@@ -34,6 +35,7 @@ export function OutcomesTable() {
           {outcomes.map((outcome) => (
             <Table.Tr key={outcome.id}>
               <Table.Td>{outcome.description}</Table.Td>
+              <Table.Td style={{ textTransform: 'capitalize' }}>{outcome.type}</Table.Td>
               <Table.Td>
                 {outcome.dueDate ? format(outcome.dueDate, 'PPP') : '-'}
               </Table.Td>

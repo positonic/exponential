@@ -104,6 +104,7 @@ model Outcome {
     id          String   @id @default(cuid())
     description String
     dueDate     DateTime?
+    type        String?   @default("daily") // Can be: daily, weekly, monthly, quarterly, annual, life, problem
     projects    Project[]  @relation("ProjectOutcomes")
     goals       Goal[]     @relation("GoalOutcomes")
     user        User       @relation(fields: [userId], references: [id])
