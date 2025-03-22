@@ -409,6 +409,7 @@ model Differentiator {
   id          String   @id @default(cuid())
   value       String   @unique
   label       String
+  description String   @default("")
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -418,6 +419,7 @@ model Audience {
   id          String   @id @default(cuid())
   value       String   @unique
   label       String
+  description String   @default("")
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

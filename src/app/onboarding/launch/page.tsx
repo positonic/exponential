@@ -34,6 +34,7 @@ const defaultDifferentiators: Differentiator[] = [
 interface Audience {
   value: string;
   label: string;
+  description?: string;
 }
 
 const audiences: Audience[] = [
@@ -78,6 +79,7 @@ export default function LaunchSprintPage() {
   });
   const [taglines, setTaglines] = useState<string[]>([]);
   const [expandedDifferentiators, setExpandedDifferentiators] = useState<Differentiator[]>([]);
+  const [expandedAudiences, setExpandedAudiences] = useState<Audience[]>([]);
 
   const combobox = useCombobox({
     onDropdownClose: () => combobox.resetSelectedOption(),
@@ -113,15 +115,29 @@ export default function LaunchSprintPage() {
         return suggestion;
       });
 
+      // Find matching audiences from the database based on labels
+      const matchedAudiences = data.audiences.map(suggestion => {
+        const existingAud = audiences.find(a => a.label === suggestion.label);
+        if (existingAud) {
+          return {
+            ...existingAud,
+            description: suggestion.description
+          };
+        }
+        return {
+          value: `${suggestion.label.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+          label: suggestion.label,
+          description: suggestion.description
+        };
+      });
+
       setFormData(prev => ({
         ...prev,
         differentiators: matchedDifferentiators.map(d => d.value),
-        audience: data.audiences.map(a => {
-          const aud = audiences.find(item => item.label === a);
-          return aud?.value || "";
-        }).filter(Boolean)
+        audience: matchedAudiences.map(a => a.value)
       }));
       setExpandedDifferentiators(matchedDifferentiators);
+      setExpandedAudiences(matchedAudiences);
       setTaglines(data.taglines);
       setIsLoadingSuggestions(false);
       setShowDifferentiators(true);
@@ -226,7 +242,9 @@ export default function LaunchSprintPage() {
       if (!formData.audience.includes(newValue)) {
         const newAudience = {
           value: `${newValue.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
-          label: audienceSearch
+          label: audienceSearch,
+          description: "",
+          productDescription: formData.productDescription,
         };
         
         await createAudience.mutateAsync(newAudience);
@@ -235,13 +253,18 @@ export default function LaunchSprintPage() {
           ...prev,
           audience: [...prev.audience, newAudience.value]
         }));
+        setExpandedAudiences(prev => [...prev, newAudience]);
       }
     } else {
       if (!formData.audience.includes(val)) {
-        setFormData(prev => ({
-          ...prev,
-          audience: [...prev.audience, val]
-        }));
+        const selectedAud = audiences.find(a => a.value === val);
+        if (selectedAud) {
+          setFormData(prev => ({
+            ...prev,
+            audience: [...prev.audience, val]
+          }));
+          setExpandedAudiences(prev => [...prev, selectedAud]);
+        }
       }
     }
     setAudienceSearch("");
@@ -344,7 +367,9 @@ export default function LaunchSprintPage() {
                   label="Product Description"
                   description="What problem does your product solve? What makes it unique?"
                   placeholder="e.g., A privacy-first task management app that helps solo entrepreneurs stay focused and productive..."
+                  autosize
                   minRows={20}
+                  rows={20}
                   value={formData.productDescription}
                   onChange={(e) => {
                     setFormData({ ...formData, productDescription: e.currentTarget.value });
@@ -477,12 +502,13 @@ export default function LaunchSprintPage() {
                   <ThemeIcon size={32} radius="xl" color="violet">
                     <IconUsers size={18} />
                   </ThemeIcon>
-                  <Title order={3}>🧑‍🤝‍🧑 Target Audience (Initial Beachhead)</Title>
+                  <Title order={3}>🎯 Target Audience</Title>
                 </Group>
-                <pre>{JSON.stringify(formData, null, 2)}</pre>
                 <Text c="dimmed" size="sm">
-                  Who will be using your product? Type to search or create new audience types.
+                  Who will be using your product? We've suggested some audiences based on your description.
+                  Please add or remove any that don't align with your target market.
                 </Text>
+                
                 <Combobox
                   store={combobox}
                   onOptionSubmit={handleAudienceSubmit}
@@ -524,31 +550,37 @@ export default function LaunchSprintPage() {
                 </Combobox>
 
                 {formData.audience.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {formData.audience.map((audienceValue) => {
-                      const audience = audiences.find(a => a.value === audienceValue);
-                      return audience ? (
-                        <Button
-                          key={audience.value}
-                          variant="light"
-                          size="xs"
-                          rightSection={
-                            <IconX
-                              size={14}
-                              onClick={(e) => {
-                                e.stopPropagation();
+                  <div className="space-y-6 mt-4">
+                    {expandedAudiences.map((aud) => (
+                      <Card key={aud.value} withBorder>
+                        <Stack gap="xs">
+                          <Group justify="space-between">
+                            <Text fw={500}>{aud.label}</Text>
+                            <Button
+                              variant="subtle"
+                              color="red"
+                              size="xs"
+                              onClick={() => {
                                 setFormData(prev => ({
                                   ...prev,
-                                  audience: prev.audience.filter(a => a !== audienceValue)
+                                  audience: prev.audience.filter(a => a !== aud.value)
                                 }));
+                                setExpandedAudiences(prev => 
+                                  prev.filter(a => a.value !== aud.value)
+                                );
                               }}
-                            />
-                          }
-                        >
-                          {audience.label}
-                        </Button>
-                      ) : null;
-                    })}
+                            >
+                              Remove
+                            </Button>
+                          </Group>
+                          {aud.description && (
+                            <Text size="sm" c="dimmed">
+                              {aud.description}
+                            </Text>
+                          )}
+                        </Stack>
+                      </Card>
+                    ))}
                   </div>
                 )}
               </Stack>

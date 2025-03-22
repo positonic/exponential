@@ -68,11 +68,12 @@ export const workflowRouter = createTRPCRouter({
 1) Suggest 3-5 key differentiators from this list: ${differentiators.map(d => d.label).join(', ')}
 2) For each differentiator, provide an expanded description that highlights its value proposition
 3) Suggest 2-4 target audiences from this list: ${audiences.map(a => a.label).join(', ')}
-4) Create 3 compelling taglines that emphasize the product's unique value
+4) For each audience, provide an expanded description explaining why they are a good fit and their key needs
+5) Create 3 compelling taglines that emphasize the product's unique value
 
 Return your response as a JSON object with:
 - 'differentiators': array of objects with { label, value, description }
-- 'audiences': array of strings matching the provided list
+- 'audiences': array of objects with { label, description }
 - 'taglines': array of strings with compelling taglines`,
             },
             {
@@ -92,7 +93,10 @@ Return your response as a JSON object with:
             value: z.string(),
             description: z.string().optional(),
           })),
-          audiences: z.array(z.string()),
+          audiences: z.array(z.object({
+            label: z.string(),
+            description: z.string(),
+          })),
           taglines: z.array(z.string()),
         }).parse(JSON.parse(response));
 
@@ -286,20 +290,67 @@ Return your response as a JSON object with:
           value: input.value,
           label: input.label,
           description: input.description || "",
+          isDefault: false,
         }
       });
+    }),
+
+  generateAudienceDescription: protectedProcedure
+    .input(z.object({
+      audienceLabel: z.string(),
+      productDescription: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4-turbo-preview",
+        messages: [
+          {
+            role: "system",
+            content: "You are a product strategist helping to identify why a specific audience segment would benefit from a product. Generate a concise but detailed description (2-3 sentences) explaining why this audience is a good fit and what specific needs the product addresses for them.",
+          },
+          {
+            role: "user",
+            content: `Please generate a description for the audience "${input.audienceLabel}" based on this product description: "${input.productDescription}"`,
+          },
+        ],
+      });
+
+      const description = completion.choices[0]?.message.content;
+      if (!description) throw new Error("Failed to generate audience description");
+
+      return { description };
     }),
 
   createAudience: protectedProcedure
     .input(z.object({
       value: z.string(),
       label: z.string(),
+      description: z.string().optional(),
+      productDescription: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      let description = input.description || "";
+      
+      // If no description is provided but we have a product description, generate one
+      if (!description && input.productDescription) {
+        try {
+          const result = await workflowRouter.createCaller(ctx).generateAudienceDescription({
+            audienceLabel: input.label,
+            productDescription: input.productDescription,
+          });
+          description = result.description;
+        } catch (error) {
+          console.error('Failed to generate audience description:', error);
+          // Continue with empty description if generation fails
+        }
+      }
+
       return ctx.db.audience.create({
         data: {
           value: input.value,
           label: input.label,
+          description: description,
+          isDefault: false,
         }
       });
     }),
