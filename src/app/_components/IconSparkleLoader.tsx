@@ -7,7 +7,7 @@ interface Props {
   isBlack?: boolean;
 }
 
-const IconSparkleLoader = ({ className, isBlack = false }: Props) => {
+const IconSparkleLoader = ({ isBlack = false }: Props) => {
   return (
     <Image
       src={sparkle}

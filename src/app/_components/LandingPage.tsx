@@ -11,7 +11,7 @@ import {
 } from "@mantine/core";
 import "@mantine/core/styles.css";
 import Link from "next/link";
-import { type ValidDomain, themes } from "~/config/themes";
+import { themes } from "~/config/themes";
 import { getThemeDomain } from '~/config/site';
 
 export function LandingPage() {

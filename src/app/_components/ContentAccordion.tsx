@@ -38,27 +38,22 @@ const markdownComponents: Partial<Components> = {
   )
 };
 
-export function ContentAccordion({ 
-  title, 
-  content,
-  subtitle,
-  useMarkdown = true 
-}: ContentAccordionProps) {
+export function ContentAccordion(_props: ContentAccordionProps) {
   return (
     <Accordion>
-      <Accordion.Item value={title.toLowerCase()}>
+      <Accordion.Item value={_props.title.toLowerCase()}>
         <Accordion.Control>
-          <h2 className="text-xl font-semibold">{title}</h2>
-          {subtitle}
+          <h2 className="text-xl font-semibold">{_props.title}</h2>
+          {_props.subtitle}
         </Accordion.Control>
         <Accordion.Panel>
           <Paper shadow="sm" p="md" radius="md" withBorder>
-            {useMarkdown ? (
+            {_props.useMarkdown ? (
               <ReactMarkdown components={markdownComponents}>
-                {content}
+                {_props.content}
               </ReactMarkdown>
             ) : (
-              <div className="space-y-4">{content}</div>
+              <div className="space-y-4">{_props.content}</div>
             )}
           </Paper>
         </Accordion.Panel>
