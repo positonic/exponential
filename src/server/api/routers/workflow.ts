@@ -46,14 +46,24 @@ async function readPromptTemplate(templateName: string) {
 export const workflowRouter = createTRPCRouter({
   suggestDifferentiatorsAndAudience: protectedProcedure
     .input(z.object({ productDescription: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       try {
+        // Fetch all differentiators and audiences from the database
+        const [differentiators, audiences] = await Promise.all([
+          ctx.db.differentiator.findMany({
+            orderBy: [{ isDefault: 'desc' }, { label: 'asc' }]
+          }),
+          ctx.db.audience.findMany({
+            orderBy: [{ isDefault: 'desc' }, { label: 'asc' }]
+          })
+        ]);
+
         const completion = await openai.chat.completions.create({
           model: "gpt-4-turbo-preview",
           messages: [
             {
               role: "system",
-              content: "You are a product strategist helping identify key differentiators and target audiences. Based on the product description, suggest: 1) 3-5 key differentiators from this list: AI-Powered, Privacy-First, Open Source, Simple & Easy to Use, Fast & Performant, Highly Customizable, Well Integrated, Enterprise-Grade Security. 2) 2-4 target audiences from this list: Developers, Designers, Startup Founders, Marketers, Freelancers, Enterprise Teams, Content Creators, Educators. Return your response as a JSON object with a 'differentiators' array and an 'audiences' array containing only the exact values that match the respective lists.",
+              content: `You are a product strategist helping identify key differentiators and target audiences. Based on the product description, suggest: 1) 3-5 key differentiators from this list: ${differentiators.map(d => d.label).join(', ')}. 2) 2-4 target audiences from this list: ${audiences.map(a => a.label).join(', ')}. Return your response as a JSON object with a 'differentiators' array and an 'audiences' array containing only the exact values that match the respective lists.`,
             },
             {
               role: "user",
