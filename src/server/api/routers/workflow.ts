@@ -38,7 +38,7 @@ const launchPlanResponseSchema = z.object({
 });
 
 export const workflowRouter = createTRPCRouter({
-  suggestDifferentiators: protectedProcedure
+  suggestDifferentiatorsAndAudience: protectedProcedure
     .input(z.object({ productDescription: z.string() }))
     .mutation(async ({ input }) => {
       try {
@@ -47,29 +47,30 @@ export const workflowRouter = createTRPCRouter({
           messages: [
             {
               role: "system",
-              content: "You are a product strategist helping identify key differentiators. Based on the product description, suggest 3-5 key differentiators from this list: AI-Powered, Privacy-First, Open Source, Simple & Easy to Use, Fast & Performant, Highly Customizable, Well Integrated, Enterprise-Grade Security. Return your response as a JSON object with a 'differentiators' array containing only the exact differentiator values that match the list.",
+              content: "You are a product strategist helping identify key differentiators and target audiences. Based on the product description, suggest: 1) 3-5 key differentiators from this list: AI-Powered, Privacy-First, Open Source, Simple & Easy to Use, Fast & Performant, Highly Customizable, Well Integrated, Enterprise-Grade Security. 2) 2-4 target audiences from this list: Developers, Designers, Startup Founders, Marketers, Freelancers, Enterprise Teams, Content Creators, Educators. Return your response as a JSON object with a 'differentiators' array and an 'audiences' array containing only the exact values that match the respective lists.",
             },
             {
               role: "user",
-              content: `Please analyze this product description and return the differentiators as JSON: "${input.productDescription}"`,
+              content: `Please analyze this product description and return the differentiators and audiences as JSON: "${input.productDescription}"`,
             },
           ],
           response_format: { type: "json_object" },
         });
 
         const response = completion.choices[0]?.message.content;
-        if (!response) throw new Error("Failed to generate differentiators");
+        if (!response) throw new Error("Failed to generate suggestions");
 
         const result = z.object({
           differentiators: z.array(z.string()),
+          audiences: z.array(z.string()),
         }).parse(JSON.parse(response));
 
-        return result.differentiators;
+        return result;
       } catch (error) {
-        console.error('Error in suggestDifferentiators:', error);
+        console.error('Error in suggestDifferentiatorsAndAudience:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to suggest differentiators',
+          message: error instanceof Error ? error.message : 'Failed to suggest differentiators and audiences',
         });
       }
     }),

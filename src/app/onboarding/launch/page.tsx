@@ -14,7 +14,12 @@ const launchGoals = [
   { value: "monetize", label: "Start monetizing my product" },
 ];
 
-const differentiators = [
+interface Differentiator {
+  value: string;
+  label: string;
+}
+
+const defaultDifferentiators: Differentiator[] = [
   { value: "ai", label: "AI-Powered" },
   { value: "privacy", label: "Privacy-First" },
   { value: "opensource", label: "Open Source" },
@@ -45,7 +50,8 @@ export default function LaunchSprintPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [showDifferentiators, setShowDifferentiators] = useState(false);
-  const [isLoadingDifferentiators, setIsLoadingDifferentiators] = useState(false);
+  const [showAudience, setShowAudience] = useState(false);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [formData, setFormData] = useState({
     goals: [] as string[],
     productDescription: "",
@@ -55,9 +61,15 @@ export default function LaunchSprintPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [audienceSearch, setAudienceSearch] = useState("");
   const [availableAudiences, setAvailableAudiences] = useState(audiences);
+  const [differentiatorSearch, setDifferentiatorSearch] = useState("");
+  const [availableDifferentiators, setAvailableDifferentiators] = useState(defaultDifferentiators);
 
   const combobox = useCombobox({
     onDropdownClose: () => combobox.resetSelectedOption(),
+  });
+
+  const differentiatorCombobox = useCombobox({
+    onDropdownClose: () => differentiatorCombobox.resetSelectedOption(),
   });
 
   const generateLaunchPlan = api.workflow.generateLaunchPlan.useMutation({
@@ -71,12 +83,11 @@ export default function LaunchSprintPage() {
     },
   });
 
-  const suggestDifferentiators = api.workflow.suggestDifferentiators.useMutation({
+  const suggestDifferentiatorsAndAudience = api.workflow.suggestDifferentiatorsAndAudience.useMutation({
     onSuccess: (data) => {
-        console.log('suggestDifferentiators.data ', data);
       setFormData(prev => ({
         ...prev,
-        differentiators: data.map(d => {
+        differentiators: data.differentiators.map(d => {
           switch (d) {
             case "AI-Powered": return "ai";
             case "Privacy-First": return "privacy";
@@ -88,15 +99,30 @@ export default function LaunchSprintPage() {
             case "Enterprise-Grade Security": return "secure";
             default: return "";
           }
+        }).filter(Boolean),
+        audience: data.audiences.map(a => {
+          switch (a) {
+            case "Developers": return "developers";
+            case "Designers": return "designers";
+            case "Startup Founders": return "founders";
+            case "Marketers": return "marketers";
+            case "Freelancers": return "freelancers";
+            case "Enterprise Teams": return "enterprise";
+            case "Content Creators": return "creators";
+            case "Educators": return "educators";
+            default: return "";
+          }
         }).filter(Boolean)
       }));
-      setIsLoadingDifferentiators(false);
+      setIsLoadingSuggestions(false);
       setShowDifferentiators(true);
+      setShowAudience(true);
     },
     onError: (error) => {
-      console.error("Failed to suggest differentiators:", error);
-      setIsLoadingDifferentiators(false);
+      console.error("Failed to suggest differentiators and audiences:", error);
+      setIsLoadingSuggestions(false);
       setShowDifferentiators(true);
+      setShowAudience(true);
     },
   });
 
@@ -111,10 +137,9 @@ export default function LaunchSprintPage() {
   };
 
   const handleNext = async () => {
-    console.log('handleNext ', formData);
     if (step === 2 && !showDifferentiators && formData.productDescription) {
-      setIsLoadingDifferentiators(true);
-      await suggestDifferentiators.mutateAsync({
+      setIsLoadingSuggestions(true);
+      await suggestDifferentiatorsAndAudience.mutateAsync({
         productDescription: formData.productDescription,
       });
     } else {
@@ -130,7 +155,7 @@ export default function LaunchSprintPage() {
         return formData.productDescription.length > 0 && 
           (!showDifferentiators || formData.differentiators.length > 0);
       case 3:
-        return formData.audience.length > 0;
+        return (!showAudience || formData.audience.length > 0);
       default:
         return false;
     }
@@ -141,6 +166,15 @@ export default function LaunchSprintPage() {
     ? availableAudiences
     : availableAudiences.filter((item) => 
         item.label.toLowerCase().includes(audienceSearch.toLowerCase().trim())
+      );
+
+  const exactDifferentiatorMatch = availableDifferentiators.some(
+    (item) => item.label.toLowerCase() === differentiatorSearch.toLowerCase()
+  );
+  const filteredDifferentiators = exactDifferentiatorMatch
+    ? availableDifferentiators
+    : availableDifferentiators.filter((item) => 
+        item.label.toLowerCase().includes(differentiatorSearch.toLowerCase().trim())
       );
 
   return (
@@ -253,14 +287,107 @@ export default function LaunchSprintPage() {
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <MultiSelect
-                        label="Key Differentiators"
-                        description="What makes your product stand out? We've suggested some based on your description."
-                        data={differentiators}
-                        placeholder="Select differentiators"
-                        value={formData.differentiators}
-                        onChange={(value) => setFormData({ ...formData, differentiators: value })}
-                      />
+                      <Stack gap="xs">
+                        <Text fw={500}>Key Differentiators</Text>
+                        <Text size="sm" c="dimmed">
+                          What makes your product stand out? We've suggested some based on your description.
+                        </Text>
+                        
+                        <Combobox
+                          store={differentiatorCombobox}
+                          onOptionSubmit={(val) => {
+                            if (val === '$create') {
+                              const newValue = differentiatorSearch.trim();
+                              if (!formData.differentiators.includes(newValue)) {
+                                const newDifferentiator = {
+                                  value: `${newValue}-${Date.now()}`,
+                                  label: differentiatorSearch
+                                };
+                                setAvailableDifferentiators((current) => [...current, newDifferentiator]);
+                                setFormData(prev => ({
+                                  ...prev,
+                                  differentiators: [...prev.differentiators, newDifferentiator.value]
+                                }));
+                              }
+                            } else {
+                              if (!formData.differentiators.includes(val)) {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  differentiators: [...prev.differentiators, val]
+                                }));
+                              }
+                            }
+                            setDifferentiatorSearch("");
+                            differentiatorCombobox.closeDropdown();
+                          }}
+                        >
+                          <Combobox.Target>
+                            <InputBase
+                              rightSection={<Combobox.Chevron />}
+                              value={differentiatorSearch}
+                              onChange={(event) => {
+                                differentiatorCombobox.openDropdown();
+                                differentiatorCombobox.updateSelectedOptionIndex();
+                                setDifferentiatorSearch(event.currentTarget.value);
+                              }}
+                              onClick={() => differentiatorCombobox.openDropdown()}
+                              onFocus={() => differentiatorCombobox.openDropdown()}
+                              onBlur={() => {
+                                differentiatorCombobox.closeDropdown();
+                                setDifferentiatorSearch("");
+                              }}
+                              placeholder="Type to search or create differentiator"
+                              rightSectionPointerEvents="none"
+                            />
+                          </Combobox.Target>
+
+                          <Combobox.Dropdown>
+                            <Combobox.Options>
+                              {filteredDifferentiators
+                                .filter(item => !formData.differentiators.includes(item.value))
+                                .map((item) => (
+                                  <Combobox.Option value={item.value} key={item.value}>
+                                    {item.label}
+                                  </Combobox.Option>
+                                ))}
+                              {!exactDifferentiatorMatch && differentiatorSearch.trim().length > 0 && (
+                                <Combobox.Option value="$create" key="create">
+                                  + Create "{differentiatorSearch}"
+                                </Combobox.Option>
+                              )}
+                            </Combobox.Options>
+                          </Combobox.Dropdown>
+                        </Combobox>
+
+                        {formData.differentiators.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {formData.differentiators.map((diffValue) => {
+                              const diff = availableDifferentiators.find(d => d.value === diffValue);
+                              return diff ? (
+                                <Button
+                                  key={diff.value}
+                                  variant="light"
+                                  size="xs"
+                                  rightSection={
+                                    <IconX
+                                      size={14}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setFormData(prev => ({
+                                          ...prev,
+                                          differentiators: prev.differentiators.filter(d => d !== diffValue)
+                                        }));
+                                      }}
+                                    />
+                                  }
+                                >
+                                  {diff.label}
+                                </Button>
+                              ) : null;
+                            })}
+                          </div>
+                        )}
+                      </Stack>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -392,9 +519,10 @@ export default function LaunchSprintPage() {
                 setStep(step - 1);
                 if (step === 3) {
                   setShowDifferentiators(true);
+                  setShowAudience(true);
                 }
               }}
-              disabled={isSubmitting || isLoadingDifferentiators}
+              disabled={isSubmitting || isLoadingSuggestions}
             >
               Back
             </Button>
@@ -402,8 +530,8 @@ export default function LaunchSprintPage() {
           {step < 3 ? (
             <Button
               onClick={handleNext}
-              disabled={!canProceed() || isLoadingDifferentiators}
-              loading={isLoadingDifferentiators}
+              disabled={!canProceed() || isLoadingSuggestions}
+              loading={isLoadingSuggestions}
               rightSection={<IconArrowRight size={16} />}
             >
               {step === 2 && !showDifferentiators ? "Analyze Description" : "Next"}
