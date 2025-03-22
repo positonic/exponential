@@ -2,13 +2,9 @@
 
 import { Container, Title, Timeline, Text, Card, ThemeIcon, Badge, Stack } from "@mantine/core";
 import { 
-  IconRocket, 
-  IconBolt, 
-  IconHourglass, 
   IconCheck, 
   IconProgressCheck,
   IconLock,
-  IconVideo,
   IconBrain,
   IconCalendarStats,
   IconUsers,
@@ -151,7 +147,7 @@ export default function RoadmapPage() {
           Product Roadmap
         </Title>
         <Text c="dimmed" size="xl" className="max-w-3xl mx-auto">
-          Track our journey from idea to reality. See what we've built and what's coming next.
+          Track our journey from idea to reality. See what we&apos;ve built and what&apos;s coming next.
         </Text>
       </motion.div>
 

@@ -287,7 +287,7 @@ export default function LaunchSprintPage() {
           Launch Sprint
         </Title>
         <Text c="dimmed" size="lg">
-          Let's create a 3-week plan to launch your product successfully.
+          Let&apos;s create a 3-week plan to launch your product successfully.
         </Text>
       </motion.div>
 
@@ -387,7 +387,7 @@ export default function LaunchSprintPage() {
                         <Stack gap="xs">
                           <Title order={3}>Key Differentiators</Title>
                           <Text size="sm" c="dimmed">
-                            What makes your product stand out? We've suggested some based on your description.
+                            What makes your product stand out? We&apos;ve suggested some based on your description.
                             Please add or remove any differentiators that you think are not relevant to your product.
                           </Text>
                           
@@ -426,7 +426,7 @@ export default function LaunchSprintPage() {
                                   ))}
                                 {!exactDifferentiatorMatch && differentiatorSearch.trim().length > 0 && (
                                   <Combobox.Option value="$create" key="create">
-                                    + Create "{differentiatorSearch}"
+                                    + Create &quot;{differentiatorSearch}&quot;
                                   </Combobox.Option>
                                 )}
                               </Combobox.Options>
@@ -475,7 +475,7 @@ export default function LaunchSprintPage() {
                             <div className="space-y-2">
                               {taglines.map((tagline, index) => (
                                 <Text key={index} size="lg" fw={500} className="italic">
-                                  "{tagline}"
+                                  &quot;{tagline}&quot;
                                 </Text>
                               ))}
                             </div>
@@ -505,8 +505,8 @@ export default function LaunchSprintPage() {
                   <Title order={3}>🎯 Target Audience</Title>
                 </Group>
                 <Text c="dimmed" size="sm">
-                  Who will be using your product? We've suggested some audiences based on your description.
-                  Please add or remove any that don't align with your target market.
+                  Who will be using your product? We&apos;ve suggested some audiences based on your description.
+                  Please add or remove any that don&apos;t align with your target market.
                 </Text>
                 
                 <Combobox
@@ -543,7 +543,7 @@ export default function LaunchSprintPage() {
                           </Combobox.Option>
                         ))}
                       {!exactOptionMatch && audienceSearch.trim().length > 0 && (
-                        <Combobox.Option value="$create" key="create">+ Create "{audienceSearch}"</Combobox.Option>
+                        <Combobox.Option value="$create" key="create">+ Create &quot;{audienceSearch}&quot;</Combobox.Option>
                       )}
                     </Combobox.Options>
                   </Combobox.Dropdown>
