@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Container, Title, Text, Button, Card, Checkbox, TextInput, Textarea, MultiSelect, Group, Stack, ThemeIcon, Combobox, InputBase, useCombobox } from "@mantine/core";
 import { IconRocket, IconBulb, IconUsers, IconArrowRight, IconCheck, IconX } from "@tabler/icons-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -60,9 +60,21 @@ export default function LaunchSprintPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [audienceSearch, setAudienceSearch] = useState("");
-  const [availableAudiences, setAvailableAudiences] = useState(audiences);
+  const [availableAudiences, setAvailableAudiences] = useState<Audience[]>([]);
   const [differentiatorSearch, setDifferentiatorSearch] = useState("");
-  const [availableDifferentiators, setAvailableDifferentiators] = useState(defaultDifferentiators);
+  const { data: differentiators = [] } = api.workflow.getAllDifferentiators.useQuery();
+  const { data: audiences = [] } = api.workflow.getAllAudiences.useQuery();
+  const utils = api.useContext();
+  const createDifferentiator = api.workflow.createDifferentiator.useMutation({
+    onSuccess: () => {
+      void utils.workflow.getAllDifferentiators.invalidate();
+    },
+  });
+  const createAudience = api.workflow.createAudience.useMutation({
+    onSuccess: () => {
+      void utils.workflow.getAllAudiences.invalidate();
+    },
+  });
 
   const combobox = useCombobox({
     onDropdownClose: () => combobox.resetSelectedOption(),
@@ -85,33 +97,16 @@ export default function LaunchSprintPage() {
 
   const suggestDifferentiatorsAndAudience = api.workflow.suggestDifferentiatorsAndAudience.useMutation({
     onSuccess: (data) => {
+      console.log('suggestDifferentiatorsAndAudience data ', data);
       setFormData(prev => ({
         ...prev,
         differentiators: data.differentiators.map(d => {
-          switch (d) {
-            case "AI-Powered": return "ai";
-            case "Privacy-First": return "privacy";
-            case "Open Source": return "opensource";
-            case "Simple & Easy to Use": return "simple";
-            case "Fast & Performant": return "fast";
-            case "Highly Customizable": return "customizable";
-            case "Well Integrated": return "integrated";
-            case "Enterprise-Grade Security": return "secure";
-            default: return "";
-          }
+          const diff = differentiators.find(item => item.label === d);
+          return diff?.value || "";
         }).filter(Boolean),
         audience: data.audiences.map(a => {
-          switch (a) {
-            case "Developers": return "developers";
-            case "Designers": return "designers";
-            case "Startup Founders": return "founders";
-            case "Marketers": return "marketers";
-            case "Freelancers": return "freelancers";
-            case "Enterprise Teams": return "enterprise";
-            case "Content Creators": return "creators";
-            case "Educators": return "educators";
-            default: return "";
-          }
+          const aud = audiences.find(item => item.label === a);
+          return aud?.value || "";
         }).filter(Boolean)
       }));
       setIsLoadingSuggestions(false);
@@ -168,14 +163,74 @@ export default function LaunchSprintPage() {
         item.label.toLowerCase().includes(audienceSearch.toLowerCase().trim())
       );
 
-  const exactDifferentiatorMatch = availableDifferentiators.some(
+  const exactDifferentiatorMatch = differentiators.some(
     (item) => item.label.toLowerCase() === differentiatorSearch.toLowerCase()
   );
   const filteredDifferentiators = exactDifferentiatorMatch
-    ? availableDifferentiators
-    : availableDifferentiators.filter((item) => 
+    ? differentiators
+    : differentiators.filter((item) => 
         item.label.toLowerCase().includes(differentiatorSearch.toLowerCase().trim())
       );
+
+  const handleDifferentiatorSubmit = async (val: string) => {
+    if (val === '$create') {
+      const newValue = differentiatorSearch.trim();
+      if (!formData.differentiators.includes(newValue)) {
+        const newDifferentiator = {
+          value: `${newValue.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+          label: differentiatorSearch
+        };
+        
+        await createDifferentiator.mutateAsync(newDifferentiator);
+        
+        setFormData(prev => ({
+          ...prev,
+          differentiators: [...prev.differentiators, newDifferentiator.value]
+        }));
+      }
+    } else {
+      if (!formData.differentiators.includes(val)) {
+        setFormData(prev => ({
+          ...prev,
+          differentiators: [...prev.differentiators, val]
+        }));
+      }
+    }
+    setDifferentiatorSearch("");
+    differentiatorCombobox.closeDropdown();
+  };
+
+  const handleAudienceSubmit = async (val: string) => {
+    if (val === '$create') {
+      const newValue = audienceSearch.trim();
+      if (!formData.audience.includes(newValue)) {
+        const newAudience = {
+          value: `${newValue.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+          label: audienceSearch
+        };
+        
+        await createAudience.mutateAsync(newAudience);
+        
+        setFormData(prev => ({
+          ...prev,
+          audience: [...prev.audience, newAudience.value]
+        }));
+      }
+    } else {
+      if (!formData.audience.includes(val)) {
+        setFormData(prev => ({
+          ...prev,
+          audience: [...prev.audience, val]
+        }));
+      }
+    }
+    setAudienceSearch("");
+    combobox.closeDropdown();
+  };
+
+  useEffect(() => {
+    setAvailableAudiences(audiences);
+  }, [audiences]);
 
   return (
     <Container size="sm" py="xl">
@@ -295,31 +350,7 @@ export default function LaunchSprintPage() {
                         
                         <Combobox
                           store={differentiatorCombobox}
-                          onOptionSubmit={(val) => {
-                            if (val === '$create') {
-                              const newValue = differentiatorSearch.trim();
-                              if (!formData.differentiators.includes(newValue)) {
-                                const newDifferentiator = {
-                                  value: `${newValue}-${Date.now()}`,
-                                  label: differentiatorSearch
-                                };
-                                setAvailableDifferentiators((current) => [...current, newDifferentiator]);
-                                setFormData(prev => ({
-                                  ...prev,
-                                  differentiators: [...prev.differentiators, newDifferentiator.value]
-                                }));
-                              }
-                            } else {
-                              if (!formData.differentiators.includes(val)) {
-                                setFormData(prev => ({
-                                  ...prev,
-                                  differentiators: [...prev.differentiators, val]
-                                }));
-                              }
-                            }
-                            setDifferentiatorSearch("");
-                            differentiatorCombobox.closeDropdown();
-                          }}
+                          onOptionSubmit={handleDifferentiatorSubmit}
                         >
                           <Combobox.Target>
                             <InputBase
@@ -362,7 +393,7 @@ export default function LaunchSprintPage() {
                         {formData.differentiators.length > 0 && (
                           <div className="flex flex-wrap gap-2">
                             {formData.differentiators.map((diffValue) => {
-                              const diff = availableDifferentiators.find(d => d.value === diffValue);
+                              const diff = differentiators.find(d => d.value === diffValue);
                               return diff ? (
                                 <Button
                                   key={diff.value}
@@ -410,37 +441,14 @@ export default function LaunchSprintPage() {
                   </ThemeIcon>
                   <Title order={3}>Define Your Audience</Title>
                 </Group>
+                <pre>{JSON.stringify(formData, null, 2)}</pre>
                 <Text c="dimmed" size="sm">
                   Who will be using your product? Type to search or create new audience types.
-                  <pre>{JSON.stringify(formData, null, 2)}</pre>
+                  
                 </Text>
                 <Combobox
                   store={combobox}
-                  onOptionSubmit={(val) => {
-                    if (val === '$create') {
-                      const newValue = audienceSearch.toLowerCase();
-                      if (!formData.audience.includes(newValue)) {
-                        const newAudience = {
-                          value: `${newValue}-${Date.now()}`,
-                          label: audienceSearch
-                        };
-                        setAvailableAudiences((current) => [...current, newAudience]);
-                        setFormData(prev => ({
-                          ...prev,
-                          audience: [...prev.audience, newAudience.value]
-                        }));
-                      }
-                    } else {
-                      if (!formData.audience.includes(val)) {
-                        setFormData(prev => ({
-                          ...prev,
-                          audience: [...prev.audience, val]
-                        }));
-                      }
-                    }
-                    setAudienceSearch("");
-                    combobox.closeDropdown();
-                  }}
+                  onOptionSubmit={handleAudienceSubmit}
                 >
                   <Combobox.Target>
                     <InputBase
@@ -481,7 +489,7 @@ export default function LaunchSprintPage() {
                 {formData.audience.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {formData.audience.map((audienceValue) => {
-                      const audience = availableAudiences.find(a => a.value === audienceValue);
+                      const audience = audiences.find(a => a.value === audienceValue);
                       return audience ? (
                         <Button
                           key={audience.value}

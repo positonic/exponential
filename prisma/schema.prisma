@@ -404,4 +404,22 @@ model WorkflowStep {
   @@index([workflowId])
   @@index([actionId])
 }
+
+model Differentiator {
+  id          String   @id @default(cuid())
+  value       String   @unique
+  label       String
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Audience {
+  id          String   @id @default(cuid())
+  value       String   @unique
+  label       String
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
  

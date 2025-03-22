@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { promises as fs } from "fs";
 import path from "path";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
@@ -36,6 +35,13 @@ const launchPlanResponseSchema = z.object({
     week: z.number().min(1).max(3),
   })),
 });
+
+async function readPromptTemplate(templateName: string) {
+  // Dynamic import fs promises only when the function is called (server-side)
+  const fs = await import('node:fs/promises');
+  const promptPath = path.join(process.cwd(), "src/prompts", templateName);
+  return fs.readFile(promptPath, "utf-8");
+}
 
 export const workflowRouter = createTRPCRouter({
   suggestDifferentiatorsAndAudience: protectedProcedure
@@ -90,8 +96,7 @@ export const workflowRouter = createTRPCRouter({
         console.log('Starting launch plan generation with input:', input);
 
         // 1. Read the prompt template
-        const promptPath = path.join(process.cwd(), "src/prompts/launch-sprint.txt");
-        const promptTemplate = await fs.readFile(promptPath, "utf-8");
+        const promptTemplate = await readPromptTemplate("launch-sprint.txt");
 
         // 2. Fill in the template
         const filledPrompt = promptTemplate
@@ -222,5 +227,53 @@ export const workflowRouter = createTRPCRouter({
           message: error instanceof Error ? error.message : 'An unexpected error occurred',
         });
       }
+    }),
+
+  getAllDifferentiators: protectedProcedure
+    .query(async ({ ctx }) => {
+      return ctx.db.differentiator.findMany({
+        orderBy: [
+          { isDefault: 'desc' },
+          { label: 'asc' }
+        ]
+      });
+    }),
+
+  getAllAudiences: protectedProcedure
+    .query(async ({ ctx }) => {
+      return ctx.db.audience.findMany({
+        orderBy: [
+          { isDefault: 'desc' },
+          { label: 'asc' }
+        ]
+      });
+    }),
+
+  createDifferentiator: protectedProcedure
+    .input(z.object({
+      value: z.string(),
+      label: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.differentiator.create({
+        data: {
+          value: input.value,
+          label: input.label,
+        }
+      });
+    }),
+
+  createAudience: protectedProcedure
+    .input(z.object({
+      value: z.string(),
+      label: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.audience.create({
+        data: {
+          value: input.value,
+          label: input.label,
+        }
+      });
     }),
 }); 
