@@ -24,6 +24,7 @@
     "@auth/prisma-adapter": "^2.7.2",
     "@langchain/core": "^0.3.40",
     "@langchain/openai": "^0.4.4",
+    "@mantine/code-highlight": "^7.17.2",
     "@mantine/core": "^7.16.3",
     "@mantine/dates": "^7.17.0",
     "@mantine/form": "^7.17.0",
