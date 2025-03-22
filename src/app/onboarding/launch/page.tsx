@@ -17,6 +17,7 @@ const launchGoals = [
 interface Differentiator {
   value: string;
   label: string;
+  description?: string;
 }
 
 const defaultDifferentiators: Differentiator[] = [
@@ -75,6 +76,8 @@ export default function LaunchSprintPage() {
       void utils.workflow.getAllAudiences.invalidate();
     },
   });
+  const [taglines, setTaglines] = useState<string[]>([]);
+  const [expandedDifferentiators, setExpandedDifferentiators] = useState<Differentiator[]>([]);
 
   const combobox = useCombobox({
     onDropdownClose: () => combobox.resetSelectedOption(),
@@ -98,17 +101,28 @@ export default function LaunchSprintPage() {
   const suggestDifferentiatorsAndAudience = api.workflow.suggestDifferentiatorsAndAudience.useMutation({
     onSuccess: (data) => {
       console.log('suggestDifferentiatorsAndAudience data ', data);
+      // Find matching differentiators from the database based on labels
+      const matchedDifferentiators = data.differentiators.map(suggestion => {
+        const existingDiff = differentiators.find(d => d.label === suggestion.label);
+        if (existingDiff) {
+          return {
+            ...existingDiff,
+            description: suggestion.description
+          };
+        }
+        return suggestion;
+      });
+
       setFormData(prev => ({
         ...prev,
-        differentiators: data.differentiators.map(d => {
-          const diff = differentiators.find(item => item.label === d);
-          return diff?.value || "";
-        }).filter(Boolean),
+        differentiators: matchedDifferentiators.map(d => d.value),
         audience: data.audiences.map(a => {
           const aud = audiences.find(item => item.label === a);
           return aud?.value || "";
         }).filter(Boolean)
       }));
+      setExpandedDifferentiators(matchedDifferentiators);
+      setTaglines(data.taglines);
       setIsLoadingSuggestions(false);
       setShowDifferentiators(true);
       setShowAudience(true);
@@ -178,7 +192,8 @@ export default function LaunchSprintPage() {
       if (!formData.differentiators.includes(newValue)) {
         const newDifferentiator = {
           value: `${newValue.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
-          label: differentiatorSearch
+          label: differentiatorSearch,
+          description: ""
         };
         
         await createDifferentiator.mutateAsync(newDifferentiator);
@@ -187,13 +202,18 @@ export default function LaunchSprintPage() {
           ...prev,
           differentiators: [...prev.differentiators, newDifferentiator.value]
         }));
+        setExpandedDifferentiators(prev => [...prev, newDifferentiator]);
       }
     } else {
       if (!formData.differentiators.includes(val)) {
-        setFormData(prev => ({
-          ...prev,
-          differentiators: [...prev.differentiators, val]
-        }));
+        const selectedDiff = differentiators.find(d => d.value === val);
+        if (selectedDiff) {
+          setFormData(prev => ({
+            ...prev,
+            differentiators: [...prev.differentiators, val]
+          }));
+          setExpandedDifferentiators(prev => [...prev, selectedDiff]);
+        }
       }
     }
     setDifferentiatorSearch("");
@@ -318,9 +338,8 @@ export default function LaunchSprintPage() {
                   <ThemeIcon size={32} radius="xl" color="violet">
                     <IconBulb size={18} />
                   </ThemeIcon>
-                  <Title order={3}>Describe Your Product</Title>
+                  <Title order={3}>✨ Positioning & Messaging</Title>
                 </Group>
-                <pre>{JSON.stringify(formData, null, 2)}</pre>
                 <Textarea
                   label="Product Description"
                   description="What problem does your product solve? What makes it unique?"
@@ -328,11 +347,8 @@ export default function LaunchSprintPage() {
                   minRows={20}
                   value={formData.productDescription}
                   onChange={(e) => {
-                    setFormData({ ...formData, productDescription: e.currentTarget.value })
-                  console.log('formData 3 ', formData);
-                }
-                  
-                }
+                    setFormData({ ...formData, productDescription: e.currentTarget.value });
+                  }}
                 />
                 <AnimatePresence>
                   {showDifferentiators && (
@@ -342,81 +358,103 @@ export default function LaunchSprintPage() {
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <Stack gap="xs">
-                        <Text fw={500}>Key Differentiators</Text>
-                        <Text size="sm" c="dimmed">
-                          What makes your product stand out? We've suggested some based on your description.
-                        </Text>
-                        
-                        <Combobox
-                          store={differentiatorCombobox}
-                          onOptionSubmit={handleDifferentiatorSubmit}
-                        >
-                          <Combobox.Target>
-                            <InputBase
-                              rightSection={<Combobox.Chevron />}
-                              value={differentiatorSearch}
-                              onChange={(event) => {
-                                differentiatorCombobox.openDropdown();
-                                differentiatorCombobox.updateSelectedOptionIndex();
-                                setDifferentiatorSearch(event.currentTarget.value);
-                              }}
-                              onClick={() => differentiatorCombobox.openDropdown()}
-                              onFocus={() => differentiatorCombobox.openDropdown()}
-                              onBlur={() => {
-                                differentiatorCombobox.closeDropdown();
-                                setDifferentiatorSearch("");
-                              }}
-                              placeholder="Type to search or create differentiator"
-                              rightSectionPointerEvents="none"
-                            />
-                          </Combobox.Target>
+                      <Stack gap="xl">
+                        <Stack gap="xs">
+                          <Title order={3}>Key Differentiators</Title>
+                          <Text size="sm" c="dimmed">
+                            What makes your product stand out? We've suggested some based on your description.
+                            Please add or remove any differentiators that you think are not relevant to your product.
+                          </Text>
+                          
+                          <Combobox
+                            store={differentiatorCombobox}
+                            onOptionSubmit={handleDifferentiatorSubmit}
+                          >
+                            <Combobox.Target>
+                              <InputBase
+                                rightSection={<Combobox.Chevron />}
+                                value={differentiatorSearch}
+                                onChange={(event) => {
+                                  differentiatorCombobox.openDropdown();
+                                  differentiatorCombobox.updateSelectedOptionIndex();
+                                  setDifferentiatorSearch(event.currentTarget.value);
+                                }}
+                                onClick={() => differentiatorCombobox.openDropdown()}
+                                onFocus={() => differentiatorCombobox.openDropdown()}
+                                onBlur={() => {
+                                  differentiatorCombobox.closeDropdown();
+                                  setDifferentiatorSearch("");
+                                }}
+                                placeholder="Type to search or create differentiator"
+                                rightSectionPointerEvents="none"
+                              />
+                            </Combobox.Target>
 
-                          <Combobox.Dropdown>
-                            <Combobox.Options>
-                              {filteredDifferentiators
-                                .filter(item => !formData.differentiators.includes(item.value))
-                                .map((item) => (
-                                  <Combobox.Option value={item.value} key={item.value}>
-                                    {item.label}
+                            <Combobox.Dropdown>
+                              <Combobox.Options>
+                                {filteredDifferentiators
+                                  .filter(item => !formData.differentiators.includes(item.value))
+                                  .map((item) => (
+                                    <Combobox.Option value={item.value} key={item.value}>
+                                      {item.label}
+                                    </Combobox.Option>
+                                  ))}
+                                {!exactDifferentiatorMatch && differentiatorSearch.trim().length > 0 && (
+                                  <Combobox.Option value="$create" key="create">
+                                    + Create "{differentiatorSearch}"
                                   </Combobox.Option>
-                                ))}
-                              {!exactDifferentiatorMatch && differentiatorSearch.trim().length > 0 && (
-                                <Combobox.Option value="$create" key="create">
-                                  + Create "{differentiatorSearch}"
-                                </Combobox.Option>
-                              )}
-                            </Combobox.Options>
-                          </Combobox.Dropdown>
-                        </Combobox>
+                                )}
+                              </Combobox.Options>
+                            </Combobox.Dropdown>
+                          </Combobox>
 
-                        {formData.differentiators.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {formData.differentiators.map((diffValue) => {
-                              const diff = differentiators.find(d => d.value === diffValue);
-                              return diff ? (
-                                <Button
-                                  key={diff.value}
-                                  variant="light"
-                                  size="xs"
-                                  rightSection={
-                                    <IconX
-                                      size={14}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setFormData(prev => ({
-                                          ...prev,
-                                          differentiators: prev.differentiators.filter(d => d !== diffValue)
-                                        }));
-                                      }}
-                                    />
-                                  }
-                                >
-                                  {diff.label}
-                                </Button>
-                              ) : null;
-                            })}
-                          </div>
+                          {formData.differentiators.length > 0 && (
+                            <div className="space-y-6 mt-4">
+                              {expandedDifferentiators.map((diff) => (
+                                <Card key={diff.value} withBorder>
+                                  <Stack gap="xs">
+                                    <Group justify="space-between">
+                                      <Text fw={500}>{diff.label}</Text>
+                                      <Button
+                                        variant="subtle"
+                                        color="red"
+                                        size="xs"
+                                        onClick={() => {
+                                          setFormData(prev => ({
+                                            ...prev,
+                                            differentiators: prev.differentiators.filter(d => d !== diff.value)
+                                          }));
+                                          setExpandedDifferentiators(prev => 
+                                            prev.filter(d => d.value !== diff.value)
+                                          );
+                                        }}
+                                      >
+                                        Remove
+                                      </Button>
+                                    </Group>
+                                    {diff.description && (
+                                      <Text size="sm" c="dimmed">
+                                        {diff.description}
+                                      </Text>
+                                    )}
+                                  </Stack>
+                                </Card>
+                              ))}
+                            </div>
+                          )}
+                        </Stack>
+
+                        {taglines.length > 0 && (
+                          <Stack gap="xs">
+                            <Title order={3}>Suggested Taglines</Title>
+                            <div className="space-y-2">
+                              {taglines.map((tagline, index) => (
+                                <Text key={index} size="lg" fw={500} className="italic">
+                                  "{tagline}"
+                                </Text>
+                              ))}
+                            </div>
+                          </Stack>
                         )}
                       </Stack>
                     </motion.div>
@@ -439,12 +477,11 @@ export default function LaunchSprintPage() {
                   <ThemeIcon size={32} radius="xl" color="violet">
                     <IconUsers size={18} />
                   </ThemeIcon>
-                  <Title order={3}>Define Your Audience</Title>
+                  <Title order={3}>🧑‍🤝‍🧑 Target Audience (Initial Beachhead)</Title>
                 </Group>
                 <pre>{JSON.stringify(formData, null, 2)}</pre>
                 <Text c="dimmed" size="sm">
                   Who will be using your product? Type to search or create new audience types.
-                  
                 </Text>
                 <Combobox
                   store={combobox}

@@ -63,11 +63,21 @@ export const workflowRouter = createTRPCRouter({
           messages: [
             {
               role: "system",
-              content: `You are a product strategist helping identify key differentiators and target audiences. Based on the product description, suggest: 1) 3-5 key differentiators from this list: ${differentiators.map(d => d.label).join(', ')}. 2) 2-4 target audiences from this list: ${audiences.map(a => a.label).join(', ')}. Return your response as a JSON object with a 'differentiators' array and an 'audiences' array containing only the exact values that match the respective lists.`,
+              content: `You are a product strategist helping identify key differentiators, target audiences, and compelling taglines. Based on the product description:
+              
+1) Suggest 3-5 key differentiators from this list: ${differentiators.map(d => d.label).join(', ')}
+2) For each differentiator, provide an expanded description that highlights its value proposition
+3) Suggest 2-4 target audiences from this list: ${audiences.map(a => a.label).join(', ')}
+4) Create 3 compelling taglines that emphasize the product's unique value
+
+Return your response as a JSON object with:
+- 'differentiators': array of objects with { label, value, description }
+- 'audiences': array of strings matching the provided list
+- 'taglines': array of strings with compelling taglines`,
             },
             {
               role: "user",
-              content: `Please analyze this product description and return the differentiators and audiences as JSON: "${input.productDescription}"`,
+              content: `Please analyze this product description and return the expanded suggestions as JSON: "${input.productDescription}"`,
             },
           ],
           response_format: { type: "json_object" },
@@ -77,8 +87,13 @@ export const workflowRouter = createTRPCRouter({
         if (!response) throw new Error("Failed to generate suggestions");
 
         const result = z.object({
-          differentiators: z.array(z.string()),
+          differentiators: z.array(z.object({
+            label: z.string(),
+            value: z.string(),
+            description: z.string().optional(),
+          })),
           audiences: z.array(z.string()),
+          taglines: z.array(z.string()),
         }).parse(JSON.parse(response));
 
         return result;
@@ -263,12 +278,14 @@ export const workflowRouter = createTRPCRouter({
     .input(z.object({
       value: z.string(),
       label: z.string(),
+      description: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.db.differentiator.create({
         data: {
           value: input.value,
           label: input.label,
+          description: input.description || "",
         }
       });
     }),
