@@ -73,7 +73,7 @@ model User {
     teamMemberships TeamMember[]
     userPairs     UserPair[]
     exchangeUsers ExchangeUser[]
-
+    workflows     Workflow[]
 }
 
 model VerificationToken {
@@ -95,6 +95,7 @@ model Action {
     projectId       String?
     createdBy       User     @relation(fields: [createdById], references: [id])
     createdById     String
+    workflowSteps   WorkflowStep[]
 
     @@index([projectId])
     @@index([createdById])
@@ -130,11 +131,12 @@ model Project {
     actions         Action[]
     outcomes        Outcome[]   @relation("ProjectOutcomes")
     
-    // User relation (same as your existing Post model)
+    // User relation
     createdBy       User        @relation(fields: [createdById], references: [id])
     createdById     String
     goals           Goal[]      @relation("GoalProjects")
     teamMembers     TeamMember[]
+    workflows       Workflow[]
 
     @@index([name])
     @@index([status])
@@ -370,5 +372,36 @@ model ExchangeUser {
   lastTradesSyncTime DateTime?
   user       User     @relation(fields: [userId], references: [id])
   exchange   Exchange @relation(fields: [exchangeId], references: [id])
+}
+
+model Workflow {
+  id          String         @id @default(cuid())
+  title       String
+  description String?        @db.Text
+  type        String         // e.g., "launch_sprint"
+  createdBy   User          @relation(fields: [createdById], references: [id])
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  steps       WorkflowStep[]
+  projects    Project[]
+
+  @@index([createdById])
+  @@index([type])
+}
+
+model WorkflowStep {
+  id          String     @id @default(cuid())
+  workflow    Workflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workflowId  String
+  order       Int
+  title       String
+  actionId    String?    // optional—link to generated action
+  action      Action?    @relation(fields: [actionId], references: [id])
+  status      String     @default("PENDING") // PENDING | DONE | SKIPPED
+
+  @@index([workflowId])
+  @@index([actionId])
 }
  
