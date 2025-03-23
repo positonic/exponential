@@ -183,86 +183,58 @@ Return your response as a JSON object with:
       plan: launchPlanResponseSchema
     }))
     .mutation(async ({ ctx, input }) => {
-      // Create a unique slug by combining project name with timestamp
-      //const timestamp = Date.now();
-      //const uniqueSlug = `${baseSlug}-${timestamp}`;
       const baseSlug = input.plan.project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       const uniqueSlug = `${baseSlug}`;
-      // Create the main workflow
-      const workflow = await ctx.db.workflow.create({
+
+      // Create the project with all related data
+      const project = await ctx.db.project.create({
         data: {
-          title: "Launch Sprint",
-          description: `Launch plan for ${input.plan.project.name}`,
-          type: "launch_sprint",
+          name: input.plan.project.name,
+          description: input.plan.project.description,
+          slug: uniqueSlug,
           createdById: ctx.session.user.id,
-          projects: {
+          status: "ACTIVE",
+          // Create the main outcome
+          outcomes: {
             create: {
-              name: input.plan.project.name,
-              description: input.plan.project.description,
-              slug: uniqueSlug,
-              createdById: ctx.session.user.id,
-              // Create the main outcome
-              outcomes: {
-                create: {
-                  description: input.plan.outcome.description,
-                  type: input.plan.outcome.type,
-                  dueDate: new Date(input.plan.outcome.dueDate),
-                  userId: ctx.session.user.id,
-                },
-              },
-              // Create weekly goals dynamically
-              goals: {
-                create: input.plan.weeklyGoals.map(goal => ({
-                  title: `Week ${goal.week}: ${goal.title}`,
-                  description: goal.description,
-                  lifeDomainId: 1,
-                  userId: ctx.session.user.id,
-                  dueDate: new Date(input.plan.actions.find(a => a.week === goal.week)?.dueDate ?? new Date()),
-                }))
-              }
+              description: input.plan.outcome.description,
+              type: input.plan.outcome.type,
+              dueDate: new Date(input.plan.outcome.dueDate),
+              userId: ctx.session.user.id,
             },
           },
-        },
-        include: {
-          projects: {
-            include: {
-              outcomes: true,
-              goals: true,
-            },
+          // Create weekly goals
+          goals: {
+            create: input.plan.weeklyGoals.map(goal => ({
+              title: `Week ${goal.week}: ${goal.title}`,
+              description: goal.description,
+              lifeDomainId: 1, // Launch domain
+              userId: ctx.session.user.id,
+              dueDate: new Date(input.plan.actions.find(a => a.week === goal.week)?.dueDate ?? new Date()),
+            }))
           },
-        },
-      });
-
-      const project = workflow.projects[0];
-      if (!project) throw new Error("Failed to create project");
-
-      // Create actions and workflow steps
-      await Promise.all(
-        input.plan.actions.map(async (action, index) => {
-          const createdAction = await ctx.db.action.create({
-            data: {
+          // Create actions
+          actions: {
+            create: input.plan.actions.map((action, index) => ({
               name: action.name,
               description: action.description,
               dueDate: new Date(action.dueDate),
               priority: action.priority.toUpperCase() as "HIGH" | "MEDIUM" | "LOW",
-              projectId: project.id,
               createdById: ctx.session.user.id,
-            },
-          });
+              status: "ACTIVE",
+            }))
+          }
+        },
+        include: {
+          outcomes: true,
+          goals: true,
+          actions: true,
+        },
+      });
 
-          // Create workflow step linking action to workflow
-          await ctx.db.workflowStep.create({
-            data: {
-              workflowId: workflow.id,
-              order: action.week * 100 + index,
-              title: action.name,
-              actionId: createdAction.id,
-            },
-          });
-        }),
-      );
+      if (!project) throw new Error("Failed to create project");
 
-      return workflow;
+      return { projects: [project] };
     }),
 
   getAllDifferentiators: protectedProcedure

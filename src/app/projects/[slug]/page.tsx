@@ -17,8 +17,8 @@ export default async function Home({ params }: PageProps) {
   
   return (
     <HydrateClient>
-      <main className="flex h-full flex-col items-center justify-center text-white">       
-        <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16">
+      <main className="flex h-full flex-col items-center justify-start text-white">       
+        <div className="container flex flex-col items-stretch justify-start gap-4 px-4 py-8">
           <Suspense fallback={<div>Loading...</div>}>
             <ProjectWrapper slug={slug} />
           </Suspense>

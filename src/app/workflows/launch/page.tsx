@@ -811,7 +811,7 @@ export default function LaunchSprintPage() {
                             </div>
                           ))}
                           {weekActions.length === 0 && (
-                            <Text size="sm" c="dimmed" italic>No tasks planned for this week yet</Text>
+                            <Text size="sm" c="dimmed">No tasks planned for this week yet</Text>
                           )}
                         </div>
                       </Stack>

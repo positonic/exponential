@@ -5,12 +5,21 @@ import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
 import { IconLayoutKanban, IconList } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-export function Actions({ viewName }: { viewName: string }) {
-  const [isAlignmentMode, setIsAlignmentMode] = useState(false);
+interface ActionsProps {
+  viewName: string;
+  defaultView?: 'list' | 'alignment';
+}
+
+export function Actions({ viewName, defaultView = 'list' }: ActionsProps) {
+  const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
   const actions = api.action.getAll.useQuery();
   const outcomes = api.outcome.getMyOutcomes.useQuery();
+
+  useEffect(() => {
+    setIsAlignmentMode(defaultView === 'alignment');
+  }, [defaultView]);
 
   // Filter outcomes for today
   const todayOutcomes = outcomes.data?.filter(outcome => {
@@ -73,7 +82,7 @@ export function Actions({ viewName }: { viewName: string }) {
                 </Paper>
               ))}
               {(!todayOutcomes || todayOutcomes.length === 0) && (
-                <Text c="dimmed" size="sm" className="italic">
+                <Text c="dimmed" size="sm" style={{ fontStyle: 'italic' }}>
                   No outcomes set for today. Add some in your morning routine.
                 </Text>
               )}
@@ -100,7 +109,7 @@ export function Actions({ viewName }: { viewName: string }) {
                 </Paper>
               ))}
               {(!weeklyOutcomes || weeklyOutcomes.length === 0) && (
-                <Text c="dimmed" size="sm" className="italic">
+                <Text c="dimmed" size="sm" style={{ fontStyle: 'italic' }}>
                   No outcomes set for this week. Plan your week in your morning routine.
                 </Text>
               )}
