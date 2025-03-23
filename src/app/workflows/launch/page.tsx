@@ -24,7 +24,6 @@ import {
   IconUsers,
   IconArrowRight,
   IconCheck,
-  IconCalendar,
   IconDownload,
 } from "@tabler/icons-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -50,7 +49,7 @@ interface Audience {
   description?: string;
 }
 
-const useStyles = createStyles((theme) => ({
+const useStyles = createStyles((_theme) => ({
   printContainer: {
     '@media print': {
       padding: '20px',
@@ -373,31 +372,9 @@ export default function LaunchSprintPage() {
     combobox.closeDropdown();
   };
 
-  function getWeekTitle(week: number): string {
-    switch (week) {
-      case 1:
-        return "Launch Prep & Core Assets";
-      case 2:
-        return "Soft Launch to Warm Network";
-      case 3:
-        return "Broader Discovery & Community Seeding";
-      default:
-        return "";
-    }
-  }
-
-  function getWeekDescription(week: number): string {
-    switch (week) {
-      case 1:
-        return "Set the stage with a solid MVP, landing page, and founder story.";
-      case 2:
-        return "Get your first real users, fast feedback, and early conversations.";
-      case 3:
-        return "Expand reach and start building community momentum.";
-      default:
-        return "";
-    }
-  }
+  const handleSavePlanClick = () => {
+    void handleSavePlan();
+  };
 
   const { classes } = useStyles();
 
@@ -411,7 +388,7 @@ export default function LaunchSprintPage() {
         </Text>
       ),
       labels: { confirm: 'Save Plan', cancel: 'Cancel' },
-      onConfirm: handleSavePlan,
+      onConfirm: handleSavePlanClick,
     });
   };
 
@@ -626,7 +603,7 @@ export default function LaunchSprintPage() {
                                         }}
                                       >
                                         Remove
-                                      </Button>
+                                    </Button>
                                     </Group>
                                     {diff.description && (
                                       <Text size="sm" c="dimmed">

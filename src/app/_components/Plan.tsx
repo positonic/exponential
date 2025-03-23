@@ -120,7 +120,7 @@ export function Plan({ projectId }: PlanProps) {
       <Title order={3}>📋 PART 3: Execution Plan (Lean Launch)</Title>
 
       <Text>
-        This is your 3-week tactical roadmap to get {project.name} from "ready" to in the hands of early users with momentum, feedback, and visibility.
+        This is your 3-week tactical roadmap to get {project.name} from &quot;ready&quot; to in the hands of early users with momentum, feedback, and visibility.
       </Text>
 
       <Stack gap="xl">
@@ -169,7 +169,10 @@ export function Plan({ projectId }: PlanProps) {
       <Group justify="flex-end" mt="xl" className={classes.actionButtons}>
         <Button
           variant="outline"
-          onClick={() => window.print()}
+          onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+            e.preventDefault();
+            window.print();
+          }}
           leftSection={<IconDownload size={16} />}
         >
           Download PDF
