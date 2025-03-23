@@ -1,8 +1,32 @@
 "use client";
-
-import { useState, useEffect } from "react";
-import { Container, Title, Text, Button, Card, Checkbox, Textarea, Group, Stack, ThemeIcon, Combobox, InputBase, useCombobox } from "@mantine/core";
-import { IconRocket, IconBulb, IconUsers, IconArrowRight, IconCheck, IconCalendar } from "@tabler/icons-react";
+import { notifications } from '@mantine/notifications';
+import { modals } from '@mantine/modals';
+import { useState } from "react";
+import {
+  Container,
+  Title,
+  Text,
+  Button,
+  Card,
+  Checkbox,
+  Textarea,
+  Group,
+  Stack,
+  ThemeIcon,
+  Combobox,
+  InputBase,
+  useCombobox,
+} from "@mantine/core";
+import { createStyles } from '@mantine/styles';
+import {
+  IconRocket,
+  IconBulb,
+  IconUsers,
+  IconArrowRight,
+  IconCheck,
+  IconCalendar,
+  IconDownload,
+} from "@tabler/icons-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { api } from "~/trpc/react";
 import { useRouter } from "next/navigation";
@@ -20,14 +44,31 @@ interface Differentiator {
   description?: string;
 }
 
-
-
 interface Audience {
   value: string;
   label: string;
   description?: string;
 }
 
+const useStyles = createStyles((theme) => ({
+  printContainer: {
+    '@media print': {
+      padding: '20px',
+      '& button': {
+        display: 'none',
+      },
+      '& .mantine-Card-root': {
+        boxShadow: 'none',
+        border: 'none',
+      }
+    }
+  },
+  actionButtons: {
+    '@media print': {
+      display: 'none'
+    }
+  }
+}));
 
 export default function LaunchSprintPage() {
   const router = useRouter();
@@ -44,7 +85,8 @@ export default function LaunchSprintPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [audienceSearch, setAudienceSearch] = useState("");
   const [differentiatorSearch, setDifferentiatorSearch] = useState("");
-  const { data: differentiators = [] } = api.workflow.getAllDifferentiators.useQuery();
+  const { data: differentiators = [] } =
+    api.workflow.getAllDifferentiators.useQuery();
   const { data: audiences = [] } = api.workflow.getAllAudiences.useQuery();
   const utils = api.useContext();
   const createDifferentiator = api.workflow.createDifferentiator.useMutation({
@@ -58,16 +100,23 @@ export default function LaunchSprintPage() {
     },
   });
   const [taglines, setTaglines] = useState<string[]>([]);
-  const [expandedDifferentiators, setExpandedDifferentiators] = useState<Differentiator[]>([]);
+  const [expandedDifferentiators, setExpandedDifferentiators] = useState<
+    Differentiator[]
+  >([]);
   const [expandedAudiences, setExpandedAudiences] = useState<Audience[]>([]);
   const [generatedPlan, setGeneratedPlan] = useState<{
     project: { name: string; description: string };
     outcome: { description: string; type: string; dueDate: string };
+    weeklyGoals: Array<{
+      week: number;
+      title: string;
+      description: string;
+    }>;
     actions: Array<{
       name: string;
       description: string;
       dueDate: string;
-      priority: string;
+      priority: "High" | "Medium" | "Low";
       week: number;
     }>;
   } | null>(null);
@@ -82,7 +131,7 @@ export default function LaunchSprintPage() {
 
   const generateLaunchPlan = api.workflow.generateLaunchPlan.useMutation({
     onSuccess: (data) => {
-        console.log('generateLaunchPlan data ', data);
+      console.log("generateLaunchPlan data ", data);
       setGeneratedPlan(data.plan);
       setStep(4);
       setIsSubmitting(false);
@@ -96,10 +145,10 @@ export default function LaunchSprintPage() {
   const saveLaunchPlan = api.workflow.saveLaunchPlan.useMutation({
     onSuccess: (data) => {
       if (!data || !data.projects?.[0]?.slug) {
-        console.error('Invalid response from saveLaunchPlan:', data);
+        console.error("Invalid response from saveLaunchPlan:", data);
         return;
       }
-      router.push(`/projects/${data.projects[0].slug}`);
+      router.push(`/projects/${data.projects[0].slug}-${data.projects[0].id}`);
     },
     onError: (error) => {
       setIsSubmitting(false);
@@ -107,56 +156,66 @@ export default function LaunchSprintPage() {
     },
   });
 
-  const suggestDifferentiatorsAndAudience = api.workflow.suggestDifferentiatorsAndAudience.useMutation({
-    onSuccess: (data) => {
-      console.log('suggestDifferentiatorsAndAudience data ', data);
-      // Find matching differentiators from the database based on labels
-      const matchedDifferentiators = data.differentiators.map(suggestion => {
-        const existingDiff = differentiators.find(d => d.label === suggestion.label);
-        if (existingDiff) {
-          return {
-            ...existingDiff,
-            description: suggestion.description
-          };
-        }
-        return suggestion;
-      });
+  const suggestDifferentiatorsAndAudience =
+    api.workflow.suggestDifferentiatorsAndAudience.useMutation({
+      onSuccess: (data) => {
+        console.log("suggestDifferentiatorsAndAudience data ", data);
+        // Find matching differentiators from the database based on labels
+        const matchedDifferentiators = data.differentiators.map(
+          (suggestion) => {
+            const existingDiff = differentiators.find(
+              (d) => d.label === suggestion.label,
+            );
+            if (existingDiff) {
+              return {
+                ...existingDiff,
+                description: suggestion.description,
+              };
+            }
+            return suggestion;
+          },
+        );
 
-      // Find matching audiences from the database based on labels
-      const matchedAudiences = data.audiences.map(suggestion => {
-        const existingAud = audiences.find(a => a.label === suggestion.label);
-        if (existingAud) {
+        // Find matching audiences from the database based on labels
+        const matchedAudiences = data.audiences.map((suggestion) => {
+          const existingAud = audiences.find(
+            (a) => a.label === suggestion.label,
+          );
+          if (existingAud) {
+            return {
+              ...existingAud,
+              description: suggestion.description,
+            };
+          }
           return {
-            ...existingAud,
-            description: suggestion.description
+            value: `${suggestion.label.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`,
+            label: suggestion.label,
+            description: suggestion.description,
           };
-        }
-        return {
-          value: `${suggestion.label.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
-          label: suggestion.label,
-          description: suggestion.description
-        };
-      });
+        });
 
-      setFormData(prev => ({
-        ...prev,
-        differentiators: matchedDifferentiators.map(d => d.value),
-        audience: matchedAudiences.map(a => a.value)
-      }));
-      setExpandedDifferentiators(matchedDifferentiators);
-      setExpandedAudiences(matchedAudiences);
-      setTaglines(data.taglines);
-      setIsLoadingSuggestions(false);
-      setShowDifferentiators(true);
-      setShowAudience(true);
-    },
-    onError: (error) => {
-      console.error("Failed to suggest differentiators and audiences:", error);
-      setIsLoadingSuggestions(false);
-      setShowDifferentiators(true);
-      setShowAudience(true);
-    },
-  });
+        setFormData((prev) => ({
+          ...prev,
+          differentiators: matchedDifferentiators.map((d) => d.value),
+          audience: matchedAudiences.map((a) => a.value),
+        }));
+        setExpandedDifferentiators(matchedDifferentiators);
+        setExpandedAudiences(matchedAudiences);
+        setTaglines(data.taglines);
+        setIsLoadingSuggestions(false);
+        setShowDifferentiators(true);
+        setShowAudience(true);
+      },
+      onError: (error) => {
+        console.error(
+          "Failed to suggest differentiators and audiences:",
+          error,
+        );
+        setIsLoadingSuggestions(false);
+        setShowDifferentiators(true);
+        setShowAudience(true);
+      },
+    });
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
@@ -170,16 +229,30 @@ export default function LaunchSprintPage() {
 
   const handleSavePlan = async () => {
     if (!generatedPlan) {
-      console.error('No plan to save');
+      notifications.show({
+        title: 'Error',
+        message: 'No plan to save',
+        color: 'red'
+      });
       return;
     }
     setIsSubmitting(true);
     try {
       await saveLaunchPlan.mutateAsync({
-        plan: generatedPlan
+        plan: generatedPlan,
+      });
+      notifications.show({
+        title: 'Success',
+        message: 'Launch plan saved successfully!',
+        color: 'green'
       });
     } catch (error) {
       console.error("Failed to save launch plan:", error);
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to save launch plan',
+        color: 'red'
+      });
       setIsSubmitting(false);
     }
   };
@@ -200,58 +273,64 @@ export default function LaunchSprintPage() {
       case 1:
         return formData.goals.length > 0;
       case 2:
-        return formData.productDescription.length > 0 && 
-          (!showDifferentiators || formData.differentiators.length > 0);
+        return (
+          formData.productDescription.length > 0 &&
+          (!showDifferentiators || formData.differentiators.length > 0)
+        );
       case 3:
-        return (!showAudience || formData.audience.length > 0);
+        return !showAudience || formData.audience.length > 0;
       default:
         return false;
     }
   };
 
-  const exactOptionMatch = audiences.some((item) => item.label.toLowerCase() === audienceSearch.toLowerCase());
+  const exactOptionMatch = audiences.some(
+    (item) => item.label.toLowerCase() === audienceSearch.toLowerCase(),
+  );
   const filteredOptions = exactOptionMatch
     ? audiences
-    : audiences.filter((item) => 
-        item.label.toLowerCase().includes(audienceSearch.toLowerCase().trim())
+    : audiences.filter((item) =>
+        item.label.toLowerCase().includes(audienceSearch.toLowerCase().trim()),
       );
 
   const exactDifferentiatorMatch = differentiators.some(
-    (item) => item.label.toLowerCase() === differentiatorSearch.toLowerCase()
+    (item) => item.label.toLowerCase() === differentiatorSearch.toLowerCase(),
   );
   const filteredDifferentiators = exactDifferentiatorMatch
     ? differentiators
-    : differentiators.filter((item) => 
-        item.label.toLowerCase().includes(differentiatorSearch.toLowerCase().trim())
+    : differentiators.filter((item) =>
+        item.label
+          .toLowerCase()
+          .includes(differentiatorSearch.toLowerCase().trim()),
       );
 
   const handleDifferentiatorSubmit = async (val: string) => {
-    if (val === '$create') {
+    if (val === "$create") {
       const newValue = differentiatorSearch.trim();
       if (!formData.differentiators.includes(newValue)) {
         const newDifferentiator = {
-          value: `${newValue.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+          value: `${newValue.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`,
           label: differentiatorSearch,
-          description: ""
+          description: "",
         };
-        
+
         await createDifferentiator.mutateAsync(newDifferentiator);
-        
-        setFormData(prev => ({
+
+        setFormData((prev) => ({
           ...prev,
-          differentiators: [...prev.differentiators, newDifferentiator.value]
+          differentiators: [...prev.differentiators, newDifferentiator.value],
         }));
-        setExpandedDifferentiators(prev => [...prev, newDifferentiator]);
+        setExpandedDifferentiators((prev) => [...prev, newDifferentiator]);
       }
     } else {
       if (!formData.differentiators.includes(val)) {
-        const selectedDiff = differentiators.find(d => d.value === val);
+        const selectedDiff = differentiators.find((d) => d.value === val);
         if (selectedDiff) {
-          setFormData(prev => ({
+          setFormData((prev) => ({
             ...prev,
-            differentiators: [...prev.differentiators, val]
+            differentiators: [...prev.differentiators, val],
           }));
-          setExpandedDifferentiators(prev => [...prev, selectedDiff]);
+          setExpandedDifferentiators((prev) => [...prev, selectedDiff]);
         }
       }
     }
@@ -260,33 +339,33 @@ export default function LaunchSprintPage() {
   };
 
   const handleAudienceSubmit = async (val: string) => {
-    if (val === '$create') {
+    if (val === "$create") {
       const newValue = audienceSearch.trim();
       if (!formData.audience.includes(newValue)) {
         const newAudience = {
-          value: `${newValue.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+          value: `${newValue.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`,
           label: audienceSearch,
           description: "",
           productDescription: formData.productDescription,
         };
-        
+
         await createAudience.mutateAsync(newAudience);
-        
-        setFormData(prev => ({
+
+        setFormData((prev) => ({
           ...prev,
-          audience: [...prev.audience, newAudience.value]
+          audience: [...prev.audience, newAudience.value],
         }));
-        setExpandedAudiences(prev => [...prev, newAudience]);
+        setExpandedAudiences((prev) => [...prev, newAudience]);
       }
     } else {
       if (!formData.audience.includes(val)) {
-        const selectedAud = audiences.find(a => a.value === val);
+        const selectedAud = audiences.find((a) => a.value === val);
         if (selectedAud) {
-          setFormData(prev => ({
+          setFormData((prev) => ({
             ...prev,
-            audience: [...prev.audience, val]
+            audience: [...prev.audience, val],
           }));
-          setExpandedAudiences(prev => [...prev, selectedAud]);
+          setExpandedAudiences((prev) => [...prev, selectedAud]);
         }
       }
     }
@@ -320,15 +399,31 @@ export default function LaunchSprintPage() {
     }
   }
 
+  const { classes } = useStyles();
+
+  const confirmAndSave = () => {
+    modals.openConfirmModal({
+      title: 'Save Launch Plan',
+      children: (
+        <Text size="sm">
+          This will create a new project with all the tasks and milestones from your launch plan. 
+          You&apos;ll be able to track progress and update tasks from the project dashboard.
+        </Text>
+      ),
+      labels: { confirm: 'Save Plan', cancel: 'Cancel' },
+      onConfirm: handleSavePlan,
+    });
+  };
+
   return (
-    <Container size="sm" py="xl">
+    <Container size="sm" py="xl" className={classes.printContainer}>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="text-center mb-8"
+        className="mb-8 text-center"
       >
-        <Title className="text-4xl font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent mb-4">
+        <Title className="mb-4 bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-4xl font-bold text-transparent">
           Launch Sprint
         </Title>
         <Text c="dimmed" size="lg">
@@ -337,7 +432,7 @@ export default function LaunchSprintPage() {
       </motion.div>
 
       <Card withBorder className="relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gray-200">
+        <div className="absolute left-0 top-0 h-1 w-full bg-gray-200">
           <motion.div
             className="h-full bg-gradient-to-r from-violet-400 to-indigo-400"
             initial={{ width: "0%" }}
@@ -377,13 +472,15 @@ export default function LaunchSprintPage() {
                             ...formData,
                             goals: [...formData.goals, goal.value],
                           });
-                          console.log('formData 1 ', formData);
+                          console.log("formData 1 ", formData);
                         } else {
                           setFormData({
                             ...formData,
-                            goals: formData.goals.filter((g) => g !== goal.value),
+                            goals: formData.goals.filter(
+                              (g) => g !== goal.value,
+                            ),
                           });
-                          console.log('formData 2 ', formData);
+                          console.log("formData 2 ", formData);
                         }
                       }}
                     />
@@ -417,7 +514,10 @@ export default function LaunchSprintPage() {
                   rows={20}
                   value={formData.productDescription}
                   onChange={(e) => {
-                    setFormData({ ...formData, productDescription: e.currentTarget.value });
+                    setFormData({
+                      ...formData,
+                      productDescription: e.currentTarget.value,
+                    });
                   }}
                 />
                 <AnimatePresence>
@@ -432,10 +532,12 @@ export default function LaunchSprintPage() {
                         <Stack gap="xs">
                           <Title order={3}>Key Differentiators</Title>
                           <Text size="sm" c="dimmed">
-                            What makes your product stand out? We&apos;ve suggested some based on your description.
-                            Please add or remove any differentiators that you think are not relevant to your product.
+                            What makes your product stand out? We&apos;ve
+                            suggested some based on your description. Please add
+                            or remove any differentiators that you think are not
+                            relevant to your product.
                           </Text>
-                          
+
                           <Combobox
                             store={differentiatorCombobox}
                             onOptionSubmit={handleDifferentiatorSubmit}
@@ -447,10 +549,16 @@ export default function LaunchSprintPage() {
                                 onChange={(event) => {
                                   differentiatorCombobox.openDropdown();
                                   differentiatorCombobox.updateSelectedOptionIndex();
-                                  setDifferentiatorSearch(event.currentTarget.value);
+                                  setDifferentiatorSearch(
+                                    event.currentTarget.value,
+                                  );
                                 }}
-                                onClick={() => differentiatorCombobox.openDropdown()}
-                                onFocus={() => differentiatorCombobox.openDropdown()}
+                                onClick={() =>
+                                  differentiatorCombobox.openDropdown()
+                                }
+                                onFocus={() =>
+                                  differentiatorCombobox.openDropdown()
+                                }
                                 onBlur={() => {
                                   differentiatorCombobox.closeDropdown();
                                   setDifferentiatorSearch("");
@@ -463,23 +571,36 @@ export default function LaunchSprintPage() {
                             <Combobox.Dropdown>
                               <Combobox.Options>
                                 {filteredDifferentiators
-                                  .filter(item => !formData.differentiators.includes(item.value))
+                                  .filter(
+                                    (item) =>
+                                      !formData.differentiators.includes(
+                                        item.value,
+                                      ),
+                                  )
                                   .map((item) => (
-                                    <Combobox.Option value={item.value} key={item.value}>
+                                    <Combobox.Option
+                                      value={item.value}
+                                      key={item.value}
+                                    >
                                       {item.label}
                                     </Combobox.Option>
                                   ))}
-                                {!exactDifferentiatorMatch && differentiatorSearch.trim().length > 0 && (
-                                  <Combobox.Option value="$create" key="create">
-                                    + Create &quot;{differentiatorSearch}&quot;
-                                  </Combobox.Option>
-                                )}
+                                {!exactDifferentiatorMatch &&
+                                  differentiatorSearch.trim().length > 0 && (
+                                    <Combobox.Option
+                                      value="$create"
+                                      key="create"
+                                    >
+                                      + Create &quot;{differentiatorSearch}
+                                      &quot;
+                                    </Combobox.Option>
+                                  )}
                               </Combobox.Options>
                             </Combobox.Dropdown>
                           </Combobox>
 
                           {formData.differentiators.length > 0 && (
-                            <div className="space-y-6 mt-4">
+                            <div className="mt-4 space-y-6">
                               {expandedDifferentiators.map((diff) => (
                                 <Card key={diff.value} withBorder>
                                   <Stack gap="xs">
@@ -490,12 +611,17 @@ export default function LaunchSprintPage() {
                                         color="red"
                                         size="xs"
                                         onClick={() => {
-                                          setFormData(prev => ({
+                                          setFormData((prev) => ({
                                             ...prev,
-                                            differentiators: prev.differentiators.filter(d => d !== diff.value)
+                                            differentiators:
+                                              prev.differentiators.filter(
+                                                (d) => d !== diff.value,
+                                              ),
                                           }));
-                                          setExpandedDifferentiators(prev => 
-                                            prev.filter(d => d.value !== diff.value)
+                                          setExpandedDifferentiators((prev) =>
+                                            prev.filter(
+                                              (d) => d.value !== diff.value,
+                                            ),
                                           );
                                         }}
                                       >
@@ -519,7 +645,12 @@ export default function LaunchSprintPage() {
                             <Title order={3}>Suggested Taglines</Title>
                             <div className="space-y-2">
                               {taglines.map((tagline, index) => (
-                                <Text key={index} size="lg" fw={500} className="italic">
+                                <Text
+                                  key={index}
+                                  size="lg"
+                                  fw={500}
+                                  className="italic"
+                                >
                                   &quot;{tagline}&quot;
                                 </Text>
                               ))}
@@ -550,10 +681,11 @@ export default function LaunchSprintPage() {
                   <Title order={3}>🎯 Target Audience</Title>
                 </Group>
                 <Text c="dimmed" size="sm">
-                  Who will be using your product? We&apos;ve suggested some audiences based on your description.
-                  Please add or remove any that don&apos;t align with your target market.
+                  Who will be using your product? We&apos;ve suggested some
+                  audiences based on your description. Please add or remove any
+                  that don&apos;t align with your target market.
                 </Text>
-                
+
                 <Combobox
                   store={combobox}
                   onOptionSubmit={handleAudienceSubmit}
@@ -581,21 +713,26 @@ export default function LaunchSprintPage() {
                   <Combobox.Dropdown>
                     <Combobox.Options>
                       {filteredOptions
-                        .filter(item => !formData.audience.includes(item.value))
+                        .filter(
+                          (item) => !formData.audience.includes(item.value),
+                        )
                         .map((item) => (
                           <Combobox.Option value={item.value} key={item.value}>
                             {item.label}
                           </Combobox.Option>
                         ))}
-                      {!exactOptionMatch && audienceSearch.trim().length > 0 && (
-                        <Combobox.Option value="$create" key="create">+ Create &quot;{audienceSearch}&quot;</Combobox.Option>
-                      )}
+                      {!exactOptionMatch &&
+                        audienceSearch.trim().length > 0 && (
+                          <Combobox.Option value="$create" key="create">
+                            + Create &quot;{audienceSearch}&quot;
+                          </Combobox.Option>
+                        )}
                     </Combobox.Options>
                   </Combobox.Dropdown>
                 </Combobox>
 
                 {formData.audience.length > 0 && (
-                  <div className="space-y-6 mt-4">
+                  <div className="mt-4 space-y-6">
                     {expandedAudiences.map((aud) => (
                       <Card key={aud.value} withBorder>
                         <Stack gap="xs">
@@ -606,12 +743,14 @@ export default function LaunchSprintPage() {
                               color="red"
                               size="xs"
                               onClick={() => {
-                                setFormData(prev => ({
+                                setFormData((prev) => ({
                                   ...prev,
-                                  audience: prev.audience.filter(a => a !== aud.value)
+                                  audience: prev.audience.filter(
+                                    (a) => a !== aud.value,
+                                  ),
                                 }));
-                                setExpandedAudiences(prev => 
-                                  prev.filter(a => a.value !== aud.value)
+                                setExpandedAudiences((prev) =>
+                                  prev.filter((a) => a.value !== aud.value),
                                 );
                               }}
                             >
@@ -642,35 +781,45 @@ export default function LaunchSprintPage() {
             >
               <Stack gap="xl">
                 <Title order={3}>📋 PART 3: Execution Plan (Lean Launch)</Title>
-                
+
                 <Text>
-                  This is your 3-week tactical roadmap to get {generatedPlan.project.name} from &quot;ready&quot; to in the hands of early users with momentum, feedback, and visibility.
+                  This is your 3-week tactical roadmap to get{" "}
+                  {generatedPlan.project.name} from &quot;ready&quot; to in the
+                  hands of early users with momentum, feedback, and visibility.
                 </Text>
 
                 <Stack gap="xl">
                   <Title order={4}>📅 Week-by-Week Plan</Title>
-                  
+
                   {[1, 2, 3].map((week) => {
-                    const weekActions = generatedPlan.actions.filter(a => a.week === week);
+                    const weekGoal = generatedPlan.weeklyGoals?.find(g => g.week === week);
+                    const weekActions = generatedPlan.actions?.filter(
+                      (a) => a.week === week,
+                    ) ?? [];
                     return (
                       <Stack key={week} gap="md">
-                        <Title order={5}>📝 Week {week}: {getWeekTitle(week)}</Title>
-                        <Text fw={500}>Goal: {getWeekDescription(week)}</Text>
+                        <Title order={5}>
+                          📝 Week {week}: {weekGoal?.title ?? 'Planning Week'}
+                        </Title>
+                        <Text fw={500}>Goal: {weekGoal?.description ?? 'Set goals and plan tasks for this week'}</Text>
                         <Text fw={500}>Tasks:</Text>
-                        <div className="space-y-2 ml-4">
+                        <div className="ml-4 space-y-2">
                           {weekActions.map((action, idx) => (
-                            <div key={idx} className="flex gap-2 items-start">
+                            <div key={idx} className="flex items-start gap-2">
                               <Checkbox readOnly className="mt-1" />
                               <Text size="sm">{action.name}</Text>
                             </div>
                           ))}
+                          {weekActions.length === 0 && (
+                            <Text size="sm" c="dimmed" style={{ fontStyle: 'italic' }}>No tasks planned for this week yet</Text>
+                          )}
                         </div>
                       </Stack>
                     );
                   })}
                 </Stack>
 
-                <Group justify="flex-end" mt="xl">
+                <Group justify="flex-end" mt="xl" className={classes.actionButtons}>
                   <Button
                     variant="light"
                     onClick={() => setStep(3)}
@@ -679,12 +828,21 @@ export default function LaunchSprintPage() {
                     Back
                   </Button>
                   <Button
-                    onClick={handleSavePlan}
+                    variant="outline"
+                    onClick={() => window.print()}
+                    leftSection={<IconDownload size={16} />}
+                    disabled={isSubmitting}
+                  >
+                    Download PDF
+                  </Button>
+                  <Button
+                    onClick={confirmAndSave}
                     loading={isSubmitting}
                     size="lg"
-                    rightSection={<IconCheck size={16} />}
+                    rightSection={isSubmitting ? null : <IconCheck size={16} />}
+                    disabled={isSubmitting}
                   >
-                    Save Launch Plan
+                    {isSubmitting ? "Saving Launch Plan..." : "Save Launch Plan"}
                   </Button>
                 </Group>
               </Stack>
@@ -715,7 +873,9 @@ export default function LaunchSprintPage() {
               loading={isLoadingSuggestions}
               rightSection={<IconArrowRight size={16} />}
             >
-              {step === 2 && !showDifferentiators ? "Analyze Description" : "Next"}
+              {step === 2 && !showDifferentiators
+                ? "Analyze Description"
+                : "Next"}
             </Button>
           ) : step === 3 ? (
             <Button
@@ -731,4 +891,4 @@ export default function LaunchSprintPage() {
       </Card>
     </Container>
   );
-} 
+}

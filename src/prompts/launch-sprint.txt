@@ -11,6 +11,7 @@ Generate a 3-week lean launch plan with:
 - A suggested project name
 - One measurable outcome
 - Clear task names and short descriptions
+- Weekly goals and descriptions
 
 Output as JSON in this format:
 {
@@ -23,6 +24,23 @@ Output as JSON in this format:
     "type": "monthly",
     "dueDate": "ISO date string (3 weeks from now)"
   },
+  "weeklyGoals": [
+    {
+      "week": 1,
+      "title": "Launch Prep & Core Assets",
+      "description": "Set the stage with a solid MVP, landing page, and founder story"
+    },
+    {
+      "week": 2,
+      "title": "string",
+      "description": "string"
+    },
+    {
+      "week": 3,
+      "title": "string",
+      "description": "string"
+    }
+  ],
   "actions": [
     {
       "name": "string",

@@ -10,6 +10,7 @@ import { ThemeProvider } from '~/providers/ThemeProvider';
 import { themes, type ValidDomain } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { mantineThemes } from '~/config/themes';
+import { ModalsProvider } from '@mantine/modals';
 
 const domain = getThemeDomain();
 
@@ -34,10 +35,12 @@ export default async function RootLayout({
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
             <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
-              <Notifications position="top-right" />
-              <Layout domain={domain}>
-                {children}
-              </Layout>
+              <ModalsProvider>
+                <Notifications position="top-right" />
+                <Layout domain={domain}>
+                  {children}
+                </Layout>
+              </ModalsProvider>
             </MantineProvider>
           </TRPCReactProvider>
         </ThemeProvider>

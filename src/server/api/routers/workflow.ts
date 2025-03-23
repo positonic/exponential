@@ -27,6 +27,11 @@ const launchPlanResponseSchema = z.object({
     type: z.string(),
     dueDate: z.string(),
   }),
+  weeklyGoals: z.array(z.object({
+    week: z.number().min(1).max(3),
+    title: z.string(),
+    description: z.string(),
+  })),
   actions: z.array(z.object({
     name: z.string(),
     description: z.string(),
@@ -178,7 +183,12 @@ Return your response as a JSON object with:
       plan: launchPlanResponseSchema
     }))
     .mutation(async ({ ctx, input }) => {
-      // Move the database saving logic here
+      // Create a unique slug by combining project name with timestamp
+      //const timestamp = Date.now();
+      //const uniqueSlug = `${baseSlug}-${timestamp}`;
+      const baseSlug = input.plan.project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const uniqueSlug = `${baseSlug}`;
+      // Create the main workflow
       const workflow = await ctx.db.workflow.create({
         data: {
           title: "Launch Sprint",
@@ -189,8 +199,9 @@ Return your response as a JSON object with:
             create: {
               name: input.plan.project.name,
               description: input.plan.project.description,
-              slug: input.plan.project.name.toLowerCase().replace(/\s+/g, "-"),
+              slug: uniqueSlug,
               createdById: ctx.session.user.id,
+              // Create the main outcome
               outcomes: {
                 create: {
                   description: input.plan.outcome.description,
@@ -199,6 +210,16 @@ Return your response as a JSON object with:
                   userId: ctx.session.user.id,
                 },
               },
+              // Create weekly goals dynamically
+              goals: {
+                create: input.plan.weeklyGoals.map(goal => ({
+                  title: `Week ${goal.week}: ${goal.title}`,
+                  description: goal.description,
+                  lifeDomainId: 1,
+                  userId: ctx.session.user.id,
+                  dueDate: new Date(input.plan.actions.find(a => a.week === goal.week)?.dueDate ?? new Date()),
+                }))
+              }
             },
           },
         },
@@ -206,49 +227,40 @@ Return your response as a JSON object with:
           projects: {
             include: {
               outcomes: true,
+              goals: true,
             },
           },
         },
       });
 
-      console.log('Workflow created:', workflow.id);
-
-      // 6. Create actions and workflow steps
       const project = workflow.projects[0];
-      if (!project) {
-        throw new Error("Failed to create project");
-      }
+      if (!project) throw new Error("Failed to create project");
 
-      console.log('Creating actions and workflow steps...');
-
-      const createdActions = await Promise.all(
-        input.plan.actions.map(async (action) => {
+      // Create actions and workflow steps
+      await Promise.all(
+        input.plan.actions.map(async (action, index) => {
           const createdAction = await ctx.db.action.create({
             data: {
               name: action.name,
               description: action.description,
               dueDate: new Date(action.dueDate),
-              priority: action.priority.toUpperCase(),
+              priority: action.priority.toUpperCase() as "HIGH" | "MEDIUM" | "LOW",
               projectId: project.id,
               createdById: ctx.session.user.id,
             },
           });
 
-          // Create workflow step for each action
+          // Create workflow step linking action to workflow
           await ctx.db.workflowStep.create({
             data: {
               workflowId: workflow.id,
-              order: action.week * 100 + input.plan.actions.indexOf(action),
+              order: action.week * 100 + index,
               title: action.name,
               actionId: createdAction.id,
             },
           });
-
-          return createdAction;
         }),
       );
-
-      console.log('Successfully created workflow with', createdActions.length, 'actions');
 
       return workflow;
     }),
