@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Container, Title, Text, Button, Card, Checkbox, TextInput, Textarea, MultiSelect, Group, Stack, ThemeIcon, Combobox, InputBase, useCombobox } from "@mantine/core";
-import { IconRocket, IconBulb, IconUsers, IconArrowRight, IconCheck, IconX } from "@tabler/icons-react";
+import { Container, Title, Text, Button, Card, Checkbox, Textarea, Group, Stack, ThemeIcon, Combobox, InputBase, useCombobox } from "@mantine/core";
+import { IconRocket, IconBulb, IconUsers, IconArrowRight, IconCheck, IconCalendar } from "@tabler/icons-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { api } from "~/trpc/react";
 import { useRouter } from "next/navigation";
@@ -20,16 +20,7 @@ interface Differentiator {
   description?: string;
 }
 
-const defaultDifferentiators: Differentiator[] = [
-  { value: "ai", label: "AI-Powered" },
-  { value: "privacy", label: "Privacy-First" },
-  { value: "opensource", label: "Open Source" },
-  { value: "simple", label: "Simple & Easy to Use" },
-  { value: "fast", label: "Fast & Performant" },
-  { value: "customizable", label: "Highly Customizable" },
-  { value: "integrated", label: "Well Integrated" },
-  { value: "secure", label: "Enterprise-Grade Security" },
-];
+
 
 interface Audience {
   value: string;
@@ -37,16 +28,6 @@ interface Audience {
   description?: string;
 }
 
-const audiences: Audience[] = [
-  { value: "developers", label: "Developers" },
-  { value: "designers", label: "Designers" },
-  { value: "founders", label: "Startup Founders" },
-  { value: "marketers", label: "Marketers" },
-  { value: "freelancers", label: "Freelancers" },
-  { value: "enterprise", label: "Enterprise Teams" },
-  { value: "creators", label: "Content Creators" },
-  { value: "educators", label: "Educators" },
-];
 
 export default function LaunchSprintPage() {
   const router = useRouter();
@@ -62,7 +43,6 @@ export default function LaunchSprintPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [audienceSearch, setAudienceSearch] = useState("");
-  const [availableAudiences, setAvailableAudiences] = useState<Audience[]>([]);
   const [differentiatorSearch, setDifferentiatorSearch] = useState("");
   const { data: differentiators = [] } = api.workflow.getAllDifferentiators.useQuery();
   const { data: audiences = [] } = api.workflow.getAllAudiences.useQuery();
@@ -80,6 +60,17 @@ export default function LaunchSprintPage() {
   const [taglines, setTaglines] = useState<string[]>([]);
   const [expandedDifferentiators, setExpandedDifferentiators] = useState<Differentiator[]>([]);
   const [expandedAudiences, setExpandedAudiences] = useState<Audience[]>([]);
+  const [generatedPlan, setGeneratedPlan] = useState<{
+    project: { name: string; description: string };
+    outcome: { description: string; type: string; dueDate: string };
+    actions: Array<{
+      name: string;
+      description: string;
+      dueDate: string;
+      priority: string;
+      week: number;
+    }>;
+  } | null>(null);
 
   const combobox = useCombobox({
     onDropdownClose: () => combobox.resetSelectedOption(),
@@ -91,12 +82,28 @@ export default function LaunchSprintPage() {
 
   const generateLaunchPlan = api.workflow.generateLaunchPlan.useMutation({
     onSuccess: (data) => {
+        console.log('generateLaunchPlan data ', data);
+      setGeneratedPlan(data.plan);
+      setStep(4);
       setIsSubmitting(false);
-      router.push(`/projects/${data.project.slug}`);
     },
     onError: (error) => {
       setIsSubmitting(false);
       console.error("Failed to generate launch plan:", error);
+    },
+  });
+
+  const saveLaunchPlan = api.workflow.saveLaunchPlan.useMutation({
+    onSuccess: (data) => {
+      if (!data || !data.projects?.[0]?.slug) {
+        console.error('Invalid response from saveLaunchPlan:', data);
+        return;
+      }
+      router.push(`/projects/${data.projects[0].slug}`);
+    },
+    onError: (error) => {
+      setIsSubmitting(false);
+      console.error("Failed to save launch plan:", error);
     },
   });
 
@@ -161,6 +168,22 @@ export default function LaunchSprintPage() {
     });
   };
 
+  const handleSavePlan = async () => {
+    if (!generatedPlan) {
+      console.error('No plan to save');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await saveLaunchPlan.mutateAsync({
+        plan: generatedPlan
+      });
+    } catch (error) {
+      console.error("Failed to save launch plan:", error);
+      setIsSubmitting(false);
+    }
+  };
+
   const handleNext = async () => {
     if (step === 2 && !showDifferentiators && formData.productDescription) {
       setIsLoadingSuggestions(true);
@@ -186,10 +209,10 @@ export default function LaunchSprintPage() {
     }
   };
 
-  const exactOptionMatch = availableAudiences.some((item) => item.label.toLowerCase() === audienceSearch.toLowerCase());
+  const exactOptionMatch = audiences.some((item) => item.label.toLowerCase() === audienceSearch.toLowerCase());
   const filteredOptions = exactOptionMatch
-    ? availableAudiences
-    : availableAudiences.filter((item) => 
+    ? audiences
+    : audiences.filter((item) => 
         item.label.toLowerCase().includes(audienceSearch.toLowerCase().trim())
       );
 
@@ -271,9 +294,31 @@ export default function LaunchSprintPage() {
     combobox.closeDropdown();
   };
 
-  useEffect(() => {
-    setAvailableAudiences(audiences);
-  }, [audiences]);
+  function getWeekTitle(week: number): string {
+    switch (week) {
+      case 1:
+        return "Launch Prep & Core Assets";
+      case 2:
+        return "Soft Launch to Warm Network";
+      case 3:
+        return "Broader Discovery & Community Seeding";
+      default:
+        return "";
+    }
+  }
+
+  function getWeekDescription(week: number): string {
+    switch (week) {
+      case 1:
+        return "Set the stage with a solid MVP, landing page, and founder story.";
+      case 2:
+        return "Get your first real users, fast feedback, and early conversations.";
+      case 3:
+        return "Expand reach and start building community momentum.";
+      default:
+        return "";
+    }
+  }
 
   return (
     <Container size="sm" py="xl">
@@ -586,10 +631,69 @@ export default function LaunchSprintPage() {
               </Stack>
             </motion.div>
           )}
+
+          {step === 4 && generatedPlan && (
+            <motion.div
+              key="step4"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <Stack gap="xl">
+                <Title order={3}>📋 PART 3: Execution Plan (Lean Launch)</Title>
+                
+                <Text>
+                  This is your 3-week tactical roadmap to get {generatedPlan.project.name} from &quot;ready&quot; to in the hands of early users with momentum, feedback, and visibility.
+                </Text>
+
+                <Stack gap="xl">
+                  <Title order={4}>📅 Week-by-Week Plan</Title>
+                  
+                  {[1, 2, 3].map((week) => {
+                    const weekActions = generatedPlan.actions.filter(a => a.week === week);
+                    return (
+                      <Stack key={week} gap="md">
+                        <Title order={5}>📝 Week {week}: {getWeekTitle(week)}</Title>
+                        <Text fw={500}>Goal: {getWeekDescription(week)}</Text>
+                        <Text fw={500}>Tasks:</Text>
+                        <div className="space-y-2 ml-4">
+                          {weekActions.map((action, idx) => (
+                            <div key={idx} className="flex gap-2 items-start">
+                              <Checkbox readOnly className="mt-1" />
+                              <Text size="sm">{action.name}</Text>
+                            </div>
+                          ))}
+                        </div>
+                      </Stack>
+                    );
+                  })}
+                </Stack>
+
+                <Group justify="flex-end" mt="xl">
+                  <Button
+                    variant="light"
+                    onClick={() => setStep(3)}
+                    disabled={isSubmitting}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    onClick={handleSavePlan}
+                    loading={isSubmitting}
+                    size="lg"
+                    rightSection={<IconCheck size={16} />}
+                  >
+                    Save Launch Plan
+                  </Button>
+                </Group>
+              </Stack>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         <Group justify="flex-end" mt="xl">
-          {step > 1 && (
+          {step > 1 && step < 4 && (
             <Button
               variant="light"
               onClick={() => {
@@ -613,16 +717,16 @@ export default function LaunchSprintPage() {
             >
               {step === 2 && !showDifferentiators ? "Analyze Description" : "Next"}
             </Button>
-          ) : (
+          ) : step === 3 ? (
             <Button
               onClick={handleSubmit}
               loading={isSubmitting}
               disabled={!canProceed()}
-              rightSection={<IconCheck size={16} />}
+              rightSection={<IconArrowRight size={16} />}
             >
               Generate Launch Plan
             </Button>
-          )}
+          ) : null}
         </Group>
       </Card>
     </Container>
