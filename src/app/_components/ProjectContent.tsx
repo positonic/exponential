@@ -5,6 +5,7 @@ import { Actions } from './Actions';
 import ProjectDetails from './ProjectDetails';
 import Chat from './Chat';
 import { Team } from './Team';
+import { Plan } from './Plan';
 import { Group, Tabs, SegmentedControl, Title, Paper, Stack, Text, Box } from '@mantine/core';
 import { api } from "~/trpc/react";
 import { 
@@ -13,11 +14,12 @@ import {
   IconAlignCenter,
   IconListCheck,
   IconUsers,
-  IconMessageCircle
+  IconMessageCircle,
+  IconClipboardList
 } from '@tabler/icons-react';
 
 type TaskView = 'list' | 'alignment';
-type TabValue = 'tasks' | 'team' | 'chat' | 'settings';
+type TabValue = 'tasks' | 'team' | 'chat' | 'settings' | 'plan';
 
 export function ProjectContent({ viewName, projectId }: { viewName: string, projectId: string }) {
   const [activeTab, setActiveTab] = useState<TabValue>('tasks');
@@ -86,6 +88,12 @@ export function ProjectContent({ viewName, projectId }: { viewName: string, proj
                     Tasks
                   </Tabs.Tab>
                   <Tabs.Tab 
+                    value="plan" 
+                    leftSection={<IconClipboardList size={16} />}
+                  >
+                    Plan
+                  </Tabs.Tab>
+                  <Tabs.Tab 
                     value="team" 
                     leftSection={<IconUsers size={16} />}
                   >
@@ -114,6 +122,10 @@ export function ProjectContent({ viewName, projectId }: { viewName: string, proj
           <Box p="md">
             <Tabs.Panel value="tasks">
               <Actions viewName={viewName} defaultView={taskView} />
+            </Tabs.Panel>
+
+            <Tabs.Panel value="plan">
+              <Plan projectId={projectId} />
             </Tabs.Panel>
 
             <Tabs.Panel value="team">

@@ -119,6 +119,7 @@ export const projectRouter = createTRPCRouter({
         include: {
           goals: true,
           outcomes: true,
+          actions: true,
         },
       });
     }),
