@@ -162,92 +162,7 @@ Return your response as a JSON object with:
         console.log('Parsed launch plan:', plan);
         console.log('Creating workflow in database...');
 
-        // 5. Store in database
-        try {
-          const workflow = await ctx.db.workflow.create({
-            data: {
-              title: "Launch Sprint",
-              description: `Launch plan for ${plan.project.name}`,
-              type: "launch_sprint",
-              createdById: ctx.session.user.id,
-              projects: {
-                create: {
-                  name: plan.project.name,
-                  description: plan.project.description,
-                  slug: plan.project.name.toLowerCase().replace(/\s+/g, "-"),
-                  createdById: ctx.session.user.id,
-                  outcomes: {
-                    create: {
-                      description: plan.outcome.description,
-                      type: plan.outcome.type,
-                      dueDate: new Date(plan.outcome.dueDate),
-                      userId: ctx.session.user.id,
-                    },
-                  },
-                },
-              },
-            },
-            include: {
-              projects: {
-                include: {
-                  outcomes: true,
-                },
-              },
-            },
-          });
-
-          console.log('Workflow created:', workflow.id);
-
-          // 6. Create actions and workflow steps
-          const project = workflow.projects[0];
-          if (!project) {
-            throw new Error("Failed to create project");
-          }
-
-          console.log('Creating actions and workflow steps...');
-
-          const createdActions = await Promise.all(
-            plan.actions.map(async (action) => {
-              const createdAction = await ctx.db.action.create({
-                data: {
-                  name: action.name,
-                  description: action.description,
-                  dueDate: new Date(action.dueDate),
-                  priority: action.priority.toUpperCase(),
-                  projectId: project.id,
-                  createdById: ctx.session.user.id,
-                },
-              });
-
-              // Create workflow step for each action
-              await ctx.db.workflowStep.create({
-                data: {
-                  workflowId: workflow.id,
-                  order: action.week * 100 + plan.actions.indexOf(action),
-                  title: action.name,
-                  actionId: createdAction.id,
-                },
-              });
-
-              return createdAction;
-            }),
-          );
-
-          console.log('Successfully created workflow with', createdActions.length, 'actions');
-
-          return {
-            workflow,
-            project,
-            actions: createdActions,
-          };
-        } catch (dbError) {
-          console.error('Database error:', dbError);
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'Failed to save launch plan to database',
-            cause: dbError,
-          });
-        }
+        return { plan };
       } catch (error) {
         console.error('Error in generateLaunchPlan:', error);
         if (error instanceof TRPCError) throw error;
@@ -256,6 +171,86 @@ Return your response as a JSON object with:
           message: error instanceof Error ? error.message : 'An unexpected error occurred',
         });
       }
+    }),
+
+  saveLaunchPlan: protectedProcedure
+    .input(z.object({
+      plan: launchPlanResponseSchema
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Move the database saving logic here
+      const workflow = await ctx.db.workflow.create({
+        data: {
+          title: "Launch Sprint",
+          description: `Launch plan for ${input.plan.project.name}`,
+          type: "launch_sprint",
+          createdById: ctx.session.user.id,
+          projects: {
+            create: {
+              name: input.plan.project.name,
+              description: input.plan.project.description,
+              slug: input.plan.project.name.toLowerCase().replace(/\s+/g, "-"),
+              createdById: ctx.session.user.id,
+              outcomes: {
+                create: {
+                  description: input.plan.outcome.description,
+                  type: input.plan.outcome.type,
+                  dueDate: new Date(input.plan.outcome.dueDate),
+                  userId: ctx.session.user.id,
+                },
+              },
+            },
+          },
+        },
+        include: {
+          projects: {
+            include: {
+              outcomes: true,
+            },
+          },
+        },
+      });
+
+      console.log('Workflow created:', workflow.id);
+
+      // 6. Create actions and workflow steps
+      const project = workflow.projects[0];
+      if (!project) {
+        throw new Error("Failed to create project");
+      }
+
+      console.log('Creating actions and workflow steps...');
+
+      const createdActions = await Promise.all(
+        input.plan.actions.map(async (action) => {
+          const createdAction = await ctx.db.action.create({
+            data: {
+              name: action.name,
+              description: action.description,
+              dueDate: new Date(action.dueDate),
+              priority: action.priority.toUpperCase(),
+              projectId: project.id,
+              createdById: ctx.session.user.id,
+            },
+          });
+
+          // Create workflow step for each action
+          await ctx.db.workflowStep.create({
+            data: {
+              workflowId: workflow.id,
+              order: action.week * 100 + input.plan.actions.indexOf(action),
+              title: action.name,
+              actionId: createdAction.id,
+            },
+          });
+
+          return createdAction;
+        }),
+      );
+
+      console.log('Successfully created workflow with', createdActions.length, 'actions');
+
+      return workflow;
     }),
 
   getAllDifferentiators: protectedProcedure
