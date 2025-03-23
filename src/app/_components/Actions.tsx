@@ -8,7 +8,7 @@ import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
 import { useState } from "react";
 
 export function Actions({ viewName }: { viewName: string }) {
-  const [isPlanningMode, setIsPlanningMode] = useState(false);
+  const [isAlignmentMode, setIsAlignmentMode] = useState(false);
   const actions = api.action.getAll.useQuery();
   const outcomes = api.outcome.getMyOutcomes.useQuery();
 
@@ -50,17 +50,17 @@ export function Actions({ viewName }: { viewName: string }) {
           <Button
             variant="subtle"
             size="sm"
-            onClick={() => setIsPlanningMode(!isPlanningMode)}
+            onClick={() => setIsAlignmentMode(!isAlignmentMode)}
           >
             <Group gap="xs">
-              {isPlanningMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
-              {isPlanningMode ? 'Task View' : 'Planning View'}
+              {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
+              {isAlignmentMode ? 'Task View' : 'Alignment View'}
             </Group>
           </Button>
         </Group>
       </div>
 
-      {isPlanningMode && (
+      {isAlignmentMode && (
         <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-[#262626] border border-blue-900/30">
           <Stack gap="md">
             <Title order={2} className="text-xl bg-gradient-to-r from-blue-500 to-cyan-500 bg-clip-text text-transparent">
@@ -82,7 +82,7 @@ export function Actions({ viewName }: { viewName: string }) {
         </Paper>
       )}
 
-      {isPlanningMode && (
+      {isAlignmentMode && (
         <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-[#262626] border border-indigo-900/30">
           <Stack gap="md">
             <Title order={2} className="text-xl bg-gradient-to-r from-indigo-500 to-violet-500 bg-clip-text text-transparent">
