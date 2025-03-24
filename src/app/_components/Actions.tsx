@@ -108,9 +108,16 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
             </Title>
             <Stack gap="xs">
               {todayOutcomes?.map((outcome) => (
-                <Paper key={outcome.id} p="sm" className="bg-[#1E1E1E]">
-                  <Text>{outcome.description}</Text>
-                </Paper>
+                <CreateOutcomeModal
+                  key={outcome.id}
+                  outcome={outcome}
+                  projectId={projectId}
+                  trigger={
+                    <Paper p="sm" className="bg-[#1E1E1E] cursor-pointer hover:bg-[#2C2C2C] transition-colors">
+                      <Text>{outcome.description}</Text>
+                    </Paper>
+                  }
+                />
               ))}
               {(!todayOutcomes || todayOutcomes.length === 0) && (
                 <Text c="dimmed" size="sm" style={{ fontStyle: 'italic' }}>
@@ -131,14 +138,21 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
             </Title>
             <Stack gap="xs">
               {weeklyOutcomes?.map((outcome) => (
-                <Paper key={outcome.id} p="sm" className="bg-[#1E1E1E]">
-                  <Group justify="space-between">
-                    <Text>{outcome.description}</Text>
-                    <Text size="sm" c="dimmed">
-                      {new Date(outcome.dueDate!).toLocaleDateString(undefined, { weekday: 'short' })}
-                    </Text>
-                  </Group>
-                </Paper>
+                <CreateOutcomeModal
+                  key={outcome.id}
+                  outcome={outcome}
+                  projectId={projectId}
+                  trigger={
+                    <Paper p="sm" className="bg-[#1E1E1E] cursor-pointer hover:bg-[#2C2C2C] transition-colors">
+                      <Group justify="space-between">
+                        <Text>{outcome.description}</Text>
+                        <Text size="sm" c="dimmed">
+                          {new Date(outcome.dueDate!).toLocaleDateString(undefined, { weekday: 'short' })}
+                        </Text>
+                      </Group>
+                    </Paper>
+                  }
+                />
               ))}
               {(!weeklyOutcomes || weeklyOutcomes.length === 0) && (
                 <Text c="dimmed" size="sm" style={{ fontStyle: 'italic' }}>

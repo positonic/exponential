@@ -1,11 +1,16 @@
 "use client";
 
-import { Table, Text, Paper } from "@mantine/core";
+import { Table, Text, Paper, ActionIcon } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { format } from "date-fns";
+import { CreateOutcomeModal } from "./CreateOutcomeModal";
+import { IconEdit } from '@tabler/icons-react';
 
 export function OutcomesTable() {
-  const { data: outcomes, isLoading } = api.outcome.getMyOutcomes.useQuery();
+  const { data: outcomes, isLoading } = api.outcome.getMyOutcomes.useQuery(undefined, {
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
 
   if (isLoading) {
     return <Text>Loading...</Text>;
@@ -29,6 +34,7 @@ export function OutcomesTable() {
             <Table.Th>Due Date</Table.Th>
             <Table.Th>Projects</Table.Th>
             <Table.Th>Goals</Table.Th>
+            <Table.Th>Actions</Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
@@ -44,6 +50,26 @@ export function OutcomesTable() {
               </Table.Td>
               <Table.Td>
                 {outcome.goals?.length || 0}
+              </Table.Td>
+              <Table.Td>
+                <CreateOutcomeModal
+                  outcome={{
+                    id: outcome.id,
+                    description: outcome.description,
+                    dueDate: outcome.dueDate,
+                    type: outcome.type,
+                    projectId: outcome.projects[0]?.id,
+                  }}
+                  trigger={
+                    <ActionIcon 
+                      variant="subtle" 
+                      color="gray"
+                      aria-label="Edit outcome"
+                    >
+                      <IconEdit size={16} />
+                    </ActionIcon>
+                  }
+                />
               </Table.Td>
             </Table.Tr>
           ))}

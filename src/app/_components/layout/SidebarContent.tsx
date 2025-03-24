@@ -38,7 +38,6 @@ export function SidebarContent() {
           </Accordion.Control>
           <Accordion.Panel>
             <GoalList />
-            <AddProjectButton />
           </Accordion.Panel>
         </Accordion.Item>
 

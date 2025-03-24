@@ -2,24 +2,32 @@
 
 import { Modal, Button, Group, TextInput, Select } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { DateInput } from '@mantine/dates';
 import '@mantine/dates/styles.css';
 
 interface CreateOutcomeModalProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   projectId?: string;
+  outcome?: {
+    id: string;
+    description: string;
+    dueDate: Date | null;
+    type: OutcomeType;
+    projectId?: string;
+  };
+  trigger?: React.ReactNode; // For clicking on existing outcomes
 }
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
-export function CreateOutcomeModal({ children, projectId }: CreateOutcomeModalProps) {
+export function CreateOutcomeModal({ children, projectId, outcome, trigger }: CreateOutcomeModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
-  const [description, setDescription] = useState("");
-  const [dueDate, setDueDate] = useState<Date | null>(null);
-  const [type, setType] = useState<OutcomeType>("daily");
-  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(projectId);
+  const [description, setDescription] = useState(outcome?.description ?? "");
+  const [dueDate, setDueDate] = useState<Date | null>(outcome?.dueDate ?? null);
+  const [type, setType] = useState<OutcomeType>(outcome?.type ?? "daily");
+  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(outcome?.projectId ?? projectId);
 
   const utils = api.useUtils();
   const { data: projects } = api.project.getAll.useQuery();
@@ -106,6 +114,47 @@ export function CreateOutcomeModal({ children, projectId }: CreateOutcomeModalPr
     }
   });
 
+  const updateOutcome = api.outcome.updateOutcome.useMutation({
+    onMutate: async (updatedOutcome) => {
+      console.log('🟡 Update onMutate started', { updatedOutcome, selectedProjectId });
+
+      // Cancel any outgoing refetches
+      await utils.outcome.getMyOutcomes.cancel();
+      if (selectedProjectId) {
+        await utils.outcome.getProjectOutcomes.cancel();
+      }
+
+      const previousData = {
+        myOutcomes: utils.outcome.getMyOutcomes.getData(),
+        projectOutcomes: selectedProjectId
+          ? utils.outcome.getProjectOutcomes.getData({ projectId: selectedProjectId })
+          : null
+      };
+
+      return previousData;
+    },
+
+    onSuccess: async (updatedOutcome) => {
+      // Invalidate and refetch immediately
+      await Promise.all([
+        utils.outcome.getMyOutcomes.invalidate(),
+        selectedProjectId ? utils.outcome.getProjectOutcomes.invalidate({ projectId: selectedProjectId }) : Promise.resolve()
+      ]);
+
+      // Reset form and close modal
+      resetForm();
+      close();
+    },
+
+    onSettled: async () => {
+      // Force a refetch after the mutation is settled
+      await utils.outcome.getMyOutcomes.refetch();
+      if (selectedProjectId) {
+        await utils.outcome.getProjectOutcomes.refetch({ projectId: selectedProjectId });
+      }
+    }
+  });
+
   const outcomeTypes = [
     { value: 'daily', label: 'Daily' },
     { value: 'weekly', label: 'Weekly' },
@@ -116,11 +165,53 @@ export function CreateOutcomeModal({ children, projectId }: CreateOutcomeModalPr
     { value: 'problem', label: 'Problem' }
   ] as const;
 
+  const resetForm = () => {
+    setDescription("");
+    setDueDate(null);
+    setType("daily");
+    setSelectedProjectId(undefined);
+  };
+
+  // Update the form when the outcome prop changes
+  useEffect(() => {
+    if (outcome) {
+      setDescription(outcome.description);
+      setDueDate(outcome.dueDate);
+      setType(outcome.type);
+      setSelectedProjectId(outcome.projectId);
+    }
+  }, [outcome]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!description) return;
+
+    const outcomeData = {
+      description,
+      dueDate: dueDate ?? undefined,
+      type,
+      projectId: selectedProjectId,
+    };
+
+    if (outcome?.id) {
+      // Update existing outcome
+      updateOutcome.mutate({
+        id: outcome.id,
+        ...outcomeData,
+      });
+    } else {
+      // Create new outcome
+      createOutcome.mutate(outcomeData);
+    }
+  };
+
   return (
     <>
-      <div onClick={open}>
-        {children}
-      </div>
+      {trigger ? (
+        <div onClick={open}>{trigger}</div>
+      ) : children ? (
+        <div onClick={open}>{children}</div>
+      ) : null}
 
       <Modal 
         opened={opened} 
@@ -138,18 +229,7 @@ export function CreateOutcomeModal({ children, projectId }: CreateOutcomeModalPr
         }}
       >
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!description) return;
-            
-            console.log('Submitting with projectId:', selectedProjectId);
-            createOutcome.mutate({
-              description,
-              dueDate: dueDate ?? undefined,
-              type,
-              projectId: selectedProjectId,
-            });
-          }}
+          onSubmit={handleSubmit}
           className="p-4"
         >
           <TextInput
@@ -224,6 +304,7 @@ export function CreateOutcomeModal({ children, projectId }: CreateOutcomeModalPr
             label="Due date (optional)"
             placeholder="Pick a date"
             mt="md"
+            highlightToday={true}
             styles={{
               input: {
                 backgroundColor: '#262626',
@@ -268,10 +349,10 @@ export function CreateOutcomeModal({ children, projectId }: CreateOutcomeModalPr
             </Button>
             <Button 
               type="submit"
-              loading={createOutcome.isPending}
+              loading={createOutcome.isPending || updateOutcome.isPending}
               disabled={!description}
             >
-              Create Outcome
+              {outcome ? 'Update Outcome' : 'Create Outcome'}
             </Button>
           </Group>
         </form>

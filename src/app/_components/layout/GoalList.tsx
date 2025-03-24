@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { api } from "~/trpc/react";
 import { NavLink } from "./NavLinks";
+import { IconTarget, IconNumber } from "@tabler/icons-react";
 export function GoalList() {
   const pathname = usePathname();
   const { data: goals } = api.goal.getAllMyGoals.useQuery();
@@ -12,8 +13,8 @@ export function GoalList() {
   
   return (
     <div className="mt-1 space-y-1">
-      <NavLink href="/goals" >Goals</NavLink>
-      <NavLink href="/outcomes">Outcomes</NavLink>
+      <NavLink href="/goals" icon={IconTarget}>Goals</NavLink>
+      <NavLink href="/outcomes" icon={IconNumber}>Outcomes</NavLink>
           
       {/* {goals.map((goal) => {
         const goalPath = `/goals/${slugify(goal.title)}-${goal.id}`;
