@@ -1,8 +1,6 @@
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { MoonIcon } from "lucide-react"
-import FeatureCard from "@/components/feature-card"
-import { CodeIcon, UsersIcon, GlobeIcon } from "lucide-react"
+import { Button, Card } from "@mantine/core";
+import { IconMoon, IconCode, IconUsers, IconGlobe } from  "@tabler/icons-react";
 
 export default function Home() {
   return (
@@ -34,7 +32,7 @@ export default function Home() {
         <div className="flex items-center gap-4">
           <Button className="bg-purple-600 hover:bg-purple-700 text-white">Get Started</Button>
           <Button variant="ghost" size="icon" className="text-white">
-            <MoonIcon className="h-5 w-5" />
+            <IconMoon className="h-5 w-5" />
           </Button>
         </div>
       </header>
@@ -66,22 +64,22 @@ export default function Home() {
 
       {/* Feature Cards */}
       <section className="container mx-auto px-4 py-16 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <FeatureCard
-          icon={<CodeIcon className="h-6 w-6" />}
+        <Card
+          icon={<IconCode className="h-6 w-6" />}
           title="Open-Source Sustainability"
           description="Fair compensation for all contributors"
           iconBgColor="bg-purple-900"
         />
 
-        <FeatureCard
-          icon={<UsersIcon className="h-6 w-6" />}
+        <Card
+          icon={<IconUsers className="h-6 w-6" />}
           title="Human-AI Collaboration"
           description="Teams of humans and AIs working together"
           iconBgColor="bg-blue-900"
         />
 
-        <FeatureCard
-          icon={<GlobeIcon className="h-6 w-6" />}
+        <Card
+          icon={<IconGlobe className="h-6 w-6" />}
           title="Decentralized Funding"
           description="Enabling innovation through fair distribution"
           iconBgColor="bg-indigo-900"
