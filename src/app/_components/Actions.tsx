@@ -23,21 +23,13 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
     ? api.outcome.getProjectOutcomes.useQuery(
         { projectId },
         {
-          onSuccess: (data) => {
-            console.log('📥 Project outcomes fetched:', data);
-          },
-          onError: (error) => {
-            console.log('❌ Error fetching project outcomes:', error);
-          }
+          refetchOnWindowFocus: true,
+          staleTime: 0
         }
       )
-    : api.outcome.getMyOutcomes.useQuery({
-        onSuccess: (data) => {
-          console.log('📥 All outcomes fetched:', data);
-        },
-        onError: (error) => {
-          console.log('❌ Error fetching all outcomes:', error);
-        }
+    : api.outcome.getMyOutcomes.useQuery(undefined, {
+        refetchOnWindowFocus: true,
+        staleTime: 0
       });
 
   console.log("outcomes are ", outcomes.data);

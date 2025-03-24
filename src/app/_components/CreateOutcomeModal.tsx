@@ -56,7 +56,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
         id: `temp-${Date.now()}`,
         description: newOutcome.description,
         dueDate: newOutcome.dueDate ?? null,
-        type: newOutcome.type as OutcomeType,
+        type: newOutcome.type!,
         userId: "",
         projects: selectedProjectId ? [projects?.find(p => p.id === selectedProjectId)].filter(Boolean) : [],
         goals: []
