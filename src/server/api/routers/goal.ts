@@ -5,7 +5,11 @@ import {
   publicProcedure,
 } from "~/server/api/trpc";
 
-import { getMyPublicGoals, getAllMyGoals } from "~/server/services/goalService";
+import { 
+  getMyPublicGoals, 
+  getAllMyGoals,
+  updateGoal
+} from "~/server/services/goalService";
 
 export const goalRouter = createTRPCRouter({
   myPublicGoals: publicProcedure
@@ -19,6 +23,7 @@ export const goalRouter = createTRPCRouter({
       description: z.string().optional(),
       dueDate: z.date().optional(),
       lifeDomainId: z.number(),
+      projectId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       return await ctx.db.goal.create({
@@ -29,4 +34,14 @@ export const goalRouter = createTRPCRouter({
       });
     }),
 
+  updateGoal: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      title: z.string(),
+      description: z.string().optional(),
+      dueDate: z.date().optional(),
+      lifeDomainId: z.number(),
+      projectId: z.string().optional(),
+    }))
+    .mutation(updateGoal),
 });

@@ -1,11 +1,16 @@
 "use client";
 
-import { Table, Text, Paper } from "@mantine/core";
+import { Table, Text, Paper, ActionIcon } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { format } from "date-fns";
+import { CreateGoalModal } from "./CreateGoalModal";
+import { IconEdit } from '@tabler/icons-react';
 
 export function GoalsTable() {
-  const { data: goals, isLoading } = api.goal.getAllMyGoals.useQuery();
+  const { data: goals, isLoading } = api.goal.getAllMyGoals.useQuery(undefined, {
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
 
   if (isLoading) {
     return <Text>Loading...</Text>;
@@ -30,6 +35,7 @@ export function GoalsTable() {
             <Table.Th>Life Domain</Table.Th>
             <Table.Th>Projects</Table.Th>
             <Table.Th>Outcomes</Table.Th>
+            <Table.Th>Actions</Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
@@ -43,6 +49,26 @@ export function GoalsTable() {
               <Table.Td>{goal.lifeDomain?.title || '-'}</Table.Td>
               <Table.Td>{goal.projects?.length || 0}</Table.Td>
               <Table.Td>{goal.outcomes?.length || 0}</Table.Td>
+              <Table.Td>
+                <CreateGoalModal
+                  goal={{
+                    id: goal.id,
+                    title: goal.title,
+                    description: goal.description,
+                    dueDate: goal.dueDate,
+                    lifeDomainId: goal.lifeDomainId,
+                  }}
+                  trigger={
+                    <ActionIcon 
+                      variant="subtle" 
+                      color="gray"
+                      aria-label="Edit goal"
+                    >
+                      <IconEdit size={16} />
+                    </ActionIcon>
+                  }
+                />
+              </Table.Td>
             </Table.Tr>
           ))}
         </Table.Tbody>

@@ -3,6 +3,8 @@ import { HydrateClient } from "~/trpc/server";
 import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
 import { ProjectContent } from "~/app/_components/ProjectContent";
+import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import { Button } from "@mantine/core";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -15,6 +17,8 @@ export default async function Home({ params }: PageProps) {
   // const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const { slug } = resolvedParams;
   
+  const projectId = slug.split('-').pop();
+
   return (
     <HydrateClient>
       <main className="flex h-full flex-col items-center justify-start text-white">       
@@ -22,6 +26,15 @@ export default async function Home({ params }: PageProps) {
           <Suspense fallback={<div>Loading...</div>}>
             <ProjectWrapper slug={slug} />
           </Suspense>
+          <CreateGoalModal projectId={projectId}>
+            <Button 
+              variant="filled" 
+              color="dark"
+              leftSection="+"
+            >
+              Add Goal
+            </Button>
+          </CreateGoalModal>
         </div>
       </main>
     </HydrateClient>
