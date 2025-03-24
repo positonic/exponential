@@ -16,28 +16,22 @@ export async function getMyOutcomes({ ctx }: { ctx: Context }) {
   });
 }
 
-export async function createOutcome({ ctx, input }: { 
-  ctx: Context, 
-  input: { 
-    description: string;
-    dueDate?: Date;
-    type?: string;
-  }
-}) {
-  if (!ctx.session?.user?.id) throw new Error("Unauthorized");
-  
+export const createOutcome = async ({ ctx, input }) => {
   return await ctx.db.outcome.create({
     data: {
-      ...input,
+      description: input.description,
+      dueDate: input.dueDate,
+      type: input.type,
       userId: ctx.session.user.id,
+      projects: input.projectId ? {
+        connect: {
+          id: input.projectId
+        }
+      } : undefined,
     },
-    select: {
-      id: true,
-      description: true,
-      dueDate: true,
-      type: true,
+    include: {
       projects: true,
-      goals: true
-    }
+      goals: true,
+    },
   });
-} 
+}; 

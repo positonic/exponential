@@ -11,15 +11,13 @@ import { api } from "~/trpc/react";
 import { 
   IconLayoutKanban, 
   IconSettings, 
-  IconAlignCenter,
-  IconListCheck,
   IconUsers,
   IconMessageCircle,
   IconClipboardList
 } from '@tabler/icons-react';
 
 type TaskView = 'list' | 'alignment';
-type TabValue = 'tasks' | 'team' | 'chat' | 'settings' | 'plan';
+type TabValue = 'tasks' | 'team' | 'chat' | 'settings' | 'plan' | 'workflows';
 
 export function ProjectContent({ viewName, projectId }: { viewName: string, projectId: string }) {
   const [activeTab, setActiveTab] = useState<TabValue>('tasks');
@@ -121,7 +119,7 @@ export function ProjectContent({ viewName, projectId }: { viewName: string, proj
           {/* Content Area */}
           <Box p="md">
             <Tabs.Panel value="tasks">
-              <Actions viewName={viewName} defaultView={taskView} />
+              <Actions viewName={viewName} defaultView={taskView} projectId={projectId} />
             </Tabs.Panel>
 
             <Tabs.Panel value="plan">

@@ -1,7 +1,7 @@
 "use client";
 import { Container, Title, Button } from "@mantine/core";
 import { OutcomesTable } from "~/app/_components/OutcomesTable";
-//import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
+import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 
 export default function Outcomes() {
   return (
@@ -14,7 +14,7 @@ export default function Outcomes() {
         >
           🎯 Outcomes
         </Title>
-        {/* <CreateOutcomeModal>
+        <CreateOutcomeModal>
           <Button 
             variant="filled" 
             color="dark"
@@ -22,7 +22,7 @@ export default function Outcomes() {
           >
             Add Outcome
           </Button>
-        </CreateOutcomeModal> */}
+        </CreateOutcomeModal>
       </div>
 
       {/* Content */}

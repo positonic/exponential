@@ -16,6 +16,31 @@ export const outcomeRouter = createTRPCRouter({
       description: z.string(),
       dueDate: z.date().optional(),
       type: outcomeTypeEnum.default('daily'),
+      projectId: z.string().optional(),
     }))
     .mutation(createOutcome),
+
+  getProjectOutcomes: protectedProcedure
+    .input(z.object({
+      projectId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      return await ctx.db.outcome.findMany({
+        where: {
+          projects: {
+            some: {
+              id: input.projectId
+            }
+          },
+          userId: ctx.session.user.id,
+        },
+        include: {
+          projects: true,
+          goals: true,
+        },
+        orderBy: {
+          dueDate: 'asc',
+        },
+      });
+    }),
 }); 

@@ -74,6 +74,7 @@ model User {
     userPairs     UserPair[]
     exchangeUsers ExchangeUser[]
     workflows     Workflow[]
+    setups        Setup[]
 }
 
 model VerificationToken {
@@ -107,10 +108,12 @@ model Outcome {
     dueDate     DateTime?
     type        String?   @default("daily") // Can be: daily, weekly, monthly, quarterly, annual, life, problem
     projects    Project[]  @relation("ProjectOutcomes")
+    projectId   String?
     goals       Goal[]     @relation("GoalOutcomes")
     user        User       @relation(fields: [userId], references: [id])
     userId      String
     @@index([userId])
+    @@index([projectId])
 }
 
 model Project {
@@ -301,6 +304,7 @@ model Setup {
   confidence      Int?     // 1-5 scale
   direction       String
   status          String   @default("active") // active, expired, completed
+  privacy         String   @default("private") // public, private
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   videoId         String?
@@ -309,7 +313,10 @@ model Setup {
   pair            Pair     @relation(fields: [pairId], references: [id])
   coinId          Int?
   coin            Coin?    @relation(fields: [coinId], references: [id])
-
+  userId    String   // Add this field
+  user      User     @relation(fields: [userId], references: [id])
+  
+  @@index([userId])
   @@index([videoId])
   @@index([pairId])
   @@index([coinId])

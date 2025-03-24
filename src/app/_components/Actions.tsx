@@ -6,21 +6,30 @@ import { CreateActionModal } from './CreateActionModal';
 import { IconLayoutKanban, IconList } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
 import { useState, useEffect } from "react";
+import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 
 interface ActionsProps {
   viewName: string;
   defaultView?: 'list' | 'alignment';
+  projectId?: string;
 }
 
-export function Actions({ viewName, defaultView = 'list' }: ActionsProps) {
+export function Actions({ viewName, defaultView = 'list', projectId }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
   const actions = api.action.getAll.useQuery();
-  const outcomes = api.outcome.getMyOutcomes.useQuery();
+  
+  // Use the appropriate query based on whether we have a projectId
+  const outcomes = projectId 
+    ? api.outcome.getProjectOutcomes.useQuery({ projectId })
+    : api.outcome.getMyOutcomes.useQuery();
 
+    console.log("outcomes are ", outcomes.data);
   useEffect(() => {
     setIsAlignmentMode(defaultView === 'alignment');
   }, [defaultView]);
 
+  console.log("projectId is ", projectId);
+  console.log("outcomes are ", outcomes.data);
   // Filter outcomes for today
   const todayOutcomes = outcomes.data?.filter(outcome => {
     if (!outcome.dueDate) return false;
@@ -41,7 +50,6 @@ export function Actions({ viewName, defaultView = 'list' }: ActionsProps) {
     const endOfWeek = new Date();
     endOfWeek.setDate(today.getDate() + (7 - today.getDay()));
     
-    // Check if date is this week but not today
     return (
       dueDate > today &&
       dueDate <= endOfWeek &&
@@ -88,6 +96,7 @@ export function Actions({ viewName, defaultView = 'list' }: ActionsProps) {
               )}
             </Stack>
           </Stack>
+          
         </Paper>
       )}
 
@@ -115,9 +124,22 @@ export function Actions({ viewName, defaultView = 'list' }: ActionsProps) {
               )}
             </Stack>
           </Stack>
+         
         </Paper>
       )}
-
+      {isAlignmentMode && (
+        <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-[#262626] border border-indigo-900/30">
+           <CreateOutcomeModal>
+          <Button 
+            variant="filled" 
+            color="dark"
+            leftSection="+"
+          >
+            Add Outcome
+          </Button>
+        </CreateOutcomeModal>
+        </Paper>
+       )}
       <ActionList viewName={viewName} actions={actions.data ?? []} />
       <div className="mt-6">
         <CreateActionModal viewName={viewName}/>
