@@ -5,7 +5,7 @@ import { auth } from "~/server/auth";
 import { ThemeWrapper } from "./ThemeWrapper";
 import { type ValidDomain, themes } from "~/config/themes";
 
-export default async function Layout({ children, domain }: PropsWithChildren<{ domain: ValidDomain }>) {
+export default async function Layout({ children, domain, showSidebar = true }: PropsWithChildren<{ domain: ValidDomain, showSidebar?: boolean }>) {
   const session = await auth();
 
   if (!session?.user) {
@@ -21,7 +21,7 @@ export default async function Layout({ children, domain }: PropsWithChildren<{ d
 
   return (
     <ThemeWrapper>
-      <Sidebar session={session} domain={domain} />
+      {showSidebar && <Sidebar session={session} domain={domain} />}
       <main className="flex-1 p-4 lg:p-8 w-full transition-all duration-200">
         {children}
       </main>
