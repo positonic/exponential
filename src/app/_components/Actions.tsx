@@ -166,17 +166,17 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
       )}
       {isAlignmentMode && (
         <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-[#262626] border border-indigo-900/30">
-           <CreateOutcomeModal>
-          <Button 
-            variant="filled" 
-            color="dark"
-            leftSection="+"
-          >
-            Add Outcome
-          </Button>
-        </CreateOutcomeModal>
+           <CreateOutcomeModal projectId={projectId}>
+            <Button 
+              variant="filled" 
+              color="dark"
+              leftSection="+"
+            >
+              Add Outcome
+            </Button>
+          </CreateOutcomeModal>
         </Paper>
-       )}
+      )}
       <ActionList viewName={viewName} actions={actions.data ?? []} />
       <div className="mt-6">
         <CreateActionModal viewName={viewName}/>

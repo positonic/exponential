@@ -27,7 +27,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
   const [description, setDescription] = useState(outcome?.description ?? "");
   const [dueDate, setDueDate] = useState<Date | null>(outcome?.dueDate ?? null);
   const [type, setType] = useState<OutcomeType>(outcome?.type ?? "daily");
-  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(outcome?.projectId ?? projectId);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(projectId ?? outcome?.projectId);
 
   const utils = api.useUtils();
   const { data: projects } = api.project.getAll.useQuery();
@@ -181,6 +181,13 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       setSelectedProjectId(outcome.projectId);
     }
   }, [outcome]);
+
+  // Add this useEffect to update selectedProjectId when projectId prop changes
+  useEffect(() => {
+    if (projectId) {
+      setSelectedProjectId(projectId);
+    }
+  }, [projectId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
