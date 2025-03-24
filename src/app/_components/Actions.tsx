@@ -20,10 +20,27 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
   
   // Use the appropriate query based on whether we have a projectId
   const outcomes = projectId 
-    ? api.outcome.getProjectOutcomes.useQuery({ projectId })
-    : api.outcome.getMyOutcomes.useQuery();
+    ? api.outcome.getProjectOutcomes.useQuery(
+        { projectId },
+        {
+          onSuccess: (data) => {
+            console.log('📥 Project outcomes fetched:', data);
+          },
+          onError: (error) => {
+            console.log('❌ Error fetching project outcomes:', error);
+          }
+        }
+      )
+    : api.outcome.getMyOutcomes.useQuery({
+        onSuccess: (data) => {
+          console.log('📥 All outcomes fetched:', data);
+        },
+        onError: (error) => {
+          console.log('❌ Error fetching all outcomes:', error);
+        }
+      });
 
-    console.log("outcomes are ", outcomes.data);
+  console.log("outcomes are ", outcomes.data);
   useEffect(() => {
     setIsAlignmentMode(defaultView === 'alignment');
   }, [defaultView]);
@@ -58,6 +75,12 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
         dueDate.getFullYear() === today.getFullYear())
     );
   });
+
+  // Add debugging for filtered outcomes
+  useEffect(() => {
+    console.log('📊 Today outcomes:', todayOutcomes);
+    console.log('📊 Weekly outcomes:', weeklyOutcomes);
+  }, [todayOutcomes, weeklyOutcomes]);
 
   return (
     <div className="w-full max-w-3xl mx-auto">

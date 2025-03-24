@@ -26,61 +26,84 @@ export function CreateOutcomeModal({ children, projectId }: CreateOutcomeModalPr
 
   const createOutcome = api.outcome.createOutcome.useMutation({
     onMutate: async (newOutcome) => {
-      await Promise.all([
-        utils.outcome.getMyOutcomes.cancel(),
-        projectId ? utils.outcome.getProjectOutcomes.cancel() : Promise.resolve(),
-      ]);
-      const previousOutcomes = utils.outcome.getMyOutcomes.getData();
-      const previousProjectOutcomes = projectId 
-        ? utils.outcome.getProjectOutcomes.getData({ projectId })
-        : null;
+      console.log('🟡 onMutate started', { newOutcome, projectId, selectedProjectId });
 
-      utils.outcome.getMyOutcomes.setData(undefined, (old) => {
-        const optimisticOutcome = {
-          id: "temp-id",
-          description: newOutcome.description,
-          dueDate: newOutcome.dueDate ?? null,
-          type: newOutcome.type as OutcomeType,
-          userId: "",
-          projects: selectedProjectId ? [projects?.find(p => p.id === selectedProjectId)].filter(Boolean) : [],
-          goals: []
-        };
-        return old ? [...old, optimisticOutcome] : [optimisticOutcome];
+      // Cancel any outgoing refetches
+      await utils.outcome.getMyOutcomes.cancel();
+      if (selectedProjectId) {
+        await utils.outcome.getProjectOutcomes.cancel();
+      }
+      console.log('🟡 Cancelled existing queries');
+
+      // Snapshot the previous value
+      const previousData = {
+        myOutcomes: utils.outcome.getMyOutcomes.getData(),
+        projectOutcomes: selectedProjectId
+          ? utils.outcome.getProjectOutcomes.getData({ projectId: selectedProjectId })
+          : null
+      };
+      console.log('🟡 Previous data:', previousData);
+
+      const optimisticOutcome = {
+        id: `temp-${Date.now()}`,
+        description: newOutcome.description,
+        dueDate: newOutcome.dueDate ?? null,
+        type: newOutcome.type as OutcomeType,
+        userId: "",
+        projects: selectedProjectId ? [projects?.find(p => p.id === selectedProjectId)].filter(Boolean) : [],
+        goals: []
+      };
+      console.log('🟡 Created optimistic outcome:', optimisticOutcome);
+
+      // Update all the queries atomically
+      utils.outcome.getMyOutcomes.setData(undefined, old => {
+        const newData = [...(old ?? []), optimisticOutcome];
+        console.log('🟡 Updated myOutcomes:', newData);
+        return newData;
       });
 
-      if (projectId) {
+      if (selectedProjectId) {
         utils.outcome.getProjectOutcomes.setData(
-          { projectId },
-          old => old ? [...old, optimisticOutcome] : [optimisticOutcome]
+          { projectId: selectedProjectId },
+          old => {
+            const newData = [...(old ?? []), optimisticOutcome];
+            console.log('🟡 Updated projectOutcomes:', newData);
+            return newData;
+          }
         );
       }
 
-      return { previousOutcomes, previousProjectOutcomes };
+      return previousData;
     },
-    onError: (err, newOutcome, context) => {
-      if (context?.previousOutcomes) {
-        utils.outcome.getMyOutcomes.setData(undefined, context.previousOutcomes);
-      }
-      if (projectId && context?.previousProjectOutcomes) {
-        utils.outcome.getProjectOutcomes.setData(
-          { projectId },
-          context.previousProjectOutcomes
-        );
-      }
+
+    onError: (error, variables, context) => {
+      console.log('🔴 Error occurred:', error);
+      console.log('🔴 Rolling back to:', context);
+      // Add rollback logic if needed
     },
-    onSettled: () => {
-      void utils.outcome.getMyOutcomes.invalidate();
-      if (projectId) {
-        void utils.outcome.getProjectOutcomes.invalidate({ projectId });
+
+    onSuccess: async (newOutcome) => {
+      console.log('🟢 Mutation succeeded:', newOutcome);
+      
+      // Immediately update the cache with the new data
+      if (selectedProjectId) {
+        console.log('🟢 Invalidating project outcomes for:', selectedProjectId);
+        await utils.outcome.getProjectOutcomes.invalidate({ projectId: selectedProjectId });
       }
-    },
-    onSuccess: () => {
+      console.log('🟢 Invalidating all outcomes');
+      await utils.outcome.getMyOutcomes.invalidate();
+      
+      // Reset form and close modal
       setDescription("");
       setDueDate(null);
       setType("daily");
       setSelectedProjectId(undefined);
       close();
     },
+
+    onSettled: () => {
+      console.log('🔵 Mutation settled');
+    }
   });
 
   const outcomeTypes = [
@@ -210,9 +233,7 @@ export function CreateOutcomeModal({ children, projectId }: CreateOutcomeModalPr
               label: {
                 color: '#C1C2C5',
               },
-              calendar: {
-                backgroundColor: '#262626',
-              },
+              
               calendarHeader: {
                 backgroundColor: '#262626',
                 color: '#C1C2C5',
