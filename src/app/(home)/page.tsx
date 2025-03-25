@@ -4,6 +4,8 @@ import { IconMoon, IconCode, IconUsers, IconWorld } from  "@tabler/icons-react";
 import { GetStartedButton } from '~/app/_components/GetStartedButton';
 import { ThemeToggle } from '~/app/_components/ThemeToggle';
 import { NavLink } from '~/app/_components/NavLink';
+import { FeaturesSection } from '~/app/_components/FeaturesSection';
+import { ValuePropositionSection } from '~/app/_components/ValuePropositionSection';
 
 export default function Home() {
   return (
@@ -128,6 +130,12 @@ export default function Home() {
             </div>
           </div>
         </div>
+        
+        {/* Features Section */}
+        <FeaturesSection />
+        
+        {/* Value Proposition Section - added after Features */}
+        <ValuePropositionSection />
       </main>
     </div>
   )
