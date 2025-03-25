@@ -115,6 +115,7 @@ export function ActionModalForm({
             placeholder="Select a project (optional)"
             variant="unstyled"
             value={projectId}
+            searchable
             onChange={(value) => setProjectId(value ?? undefined)}
             data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
             styles={{
