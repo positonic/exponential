@@ -9,23 +9,26 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#0e1525] text-white">
       {/* Navigation */}
-      <header className="relative z-10 flex justify-between items-center py-6 px-8">
+      <header 
+        className="relative z-10 flex justify-between items-center py-6 px-8 border-b"
+        style={{ borderBottomColor: '#242b3d' }}
+      >
         <div className="flex items-center">
           <div className="bg-purple-600 w-10 h-10 rounded-md flex items-center justify-center text-white font-bold text-xl">
             E
           </div>
-          <span className="text-xl font-bold text-white">Exponential.im</span>
+          <span className="text-xl ml-2 font-bold text-white">Exponential.im</span>
         </div>
 
         <nav className="hidden md:flex items-center space-x-8">
-          <NavLink href="#">Home</NavLink>
-          <NavLink href="#">Features</NavLink>
-          <NavLink href="#">Roadmap</NavLink>
-          <NavLink href="#">Dashboard</NavLink>
+          <a href="#" className="text-purple-400 hover:text-white transition-colors">Home</a>
+          <a href="#" className="text-purple-400 hover:text-white transition-colors">Features</a>
+          <a href="#" className="text-purple-400 hover:text-white transition-colors">Roadmap</a>
+          <a href="#" className="text-purple-400 hover:text-white transition-colors">Dashboard</a>
         </nav>
 
         <div className="flex items-center gap-2">
-          <GetStartedButton />
+          <GetStartedButton size="small" />
           <ThemeToggle />
         </div>
       </header>
@@ -34,10 +37,21 @@ export default function Home() {
       <main className="min-h-screen relative">
         <div className="absolute inset-0 bg-gradient-custom" />
         
-        <div className="container mx-auto px-4 py-20 flex flex-col items-center text-center">
+        <div 
+          className="container mx-auto px-4 py-20 flex flex-col items-center text-center"
+          style={{
+            background: `radial-gradient(circle at center, 
+              rgba(59, 130, 246, 0.2) 0%, 
+              rgba(55, 48, 163, 0.1) 45%, 
+              rgba(30, 27, 75, 0.05) 70%,
+              rgba(15, 23, 42, 0) 100%)`,
+            position: 'relative',
+            zIndex: 10
+          }}
+        >
           <div className="max-w-3xl mx-auto">
             <div className="mb-12">
-              <span className="inline-block px-4 py-2 rounded-full bg-purple-900/30 text-purple-300 text-sm font-medium mb-6">
+              <span className="inline-block px-4 py-2 rounded-full bg-purple-900/30 text-purple-300 text-sm font-medium mb-6 border border-[rgb(107,33,168)]">
                 The Operating System for Self-Sovereign Software
               </span>
               

@@ -1,4 +1,3 @@
-import Layout from "~/app/_components/layout/Layout";
 import "~/styles/globals.css";
 import { GeistSans } from "geist/font/sans";
 import { type Metadata } from "next";
@@ -20,26 +19,23 @@ export const metadata: Metadata = {
   icons: themes[domain].branding.icons,
 };
 
-export default async function RootLayout({
+export default async function HomeLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const domain = getThemeDomain();
-
   const mantineTheme = mantineThemes[domain];
 
   return (
     <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full`}>
-      <body className={`h-full ${themes[domain].colors.background.main}`}>
+      <body className="h-full w-full overflow-x-hidden">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
             <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
               <ModalsProvider>
                 <Notifications position="top-right" />
-                <Layout domain={domain} showSidebar={false}>
-                  {children}
-                </Layout>
+                {children}
               </ModalsProvider>
             </MantineProvider>
           </TRPCReactProvider>
