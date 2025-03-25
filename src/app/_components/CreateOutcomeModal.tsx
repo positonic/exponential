@@ -58,25 +58,25 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
         dueDate: newOutcome.dueDate ?? null,
         type: newOutcome.type!,
         userId: "",
-        projects: selectedProjectId ? [projects?.find(p => p.id === selectedProjectId)].filter(Boolean) : [],
+        projects: selectedProjectId && projects 
+          ? [projects.find(p => p.id === selectedProjectId)].filter(Boolean)
+          : [],
         goals: []
       };
       console.log('🟡 Created optimistic outcome:', optimisticOutcome);
 
       // Update all the queries atomically
-      utils.outcome.getMyOutcomes.setData(undefined, old => {
-        const newData = [...(old ?? []), optimisticOutcome];
-        console.log('🟡 Updated myOutcomes:', newData);
-        return newData;
+      utils.outcome.getMyOutcomes.setData(undefined, (old) => {
+        if (!old) return [optimisticOutcome as any];
+        return [...old, optimisticOutcome as any];
       });
 
       if (selectedProjectId) {
         utils.outcome.getProjectOutcomes.setData(
           { projectId: selectedProjectId },
-          old => {
-            const newData = [...(old ?? []), optimisticOutcome];
-            console.log('🟡 Updated projectOutcomes:', newData);
-            return newData;
+          (old) => {
+            if (!old) return [optimisticOutcome as any];
+            return [...old, optimisticOutcome as any];
           }
         );
       }

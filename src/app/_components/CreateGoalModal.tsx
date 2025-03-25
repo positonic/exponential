@@ -246,9 +246,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
               label: {
                 color: '#C1C2C5',
               },
-              calendar: {
-                backgroundColor: '#262626',
-              },
               calendarHeader: {
                 backgroundColor: '#262626',
                 color: '#C1C2C5',

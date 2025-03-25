@@ -16,7 +16,18 @@ export async function getMyOutcomes({ ctx }: { ctx: Context }) {
   });
 }
 
-export const createOutcome = async ({ ctx, input }) => {
+interface OutcomeInput {
+  description: string;
+  dueDate?: Date;
+  type: string;
+  projectId?: string;
+}
+
+export const createOutcome = async ({ ctx, input }: { ctx: Context, input: OutcomeInput }) => {
+  if (!ctx.session?.user?.id) {
+    throw new Error("User not authenticated");
+  }
+
   return await ctx.db.outcome.create({
     data: {
       description: input.description,
@@ -24,9 +35,7 @@ export const createOutcome = async ({ ctx, input }) => {
       type: input.type,
       userId: ctx.session.user.id,
       projects: input.projectId ? {
-        connect: {
-          id: input.projectId
-        }
+        connect: [{ id: input.projectId }]
       } : undefined,
     },
     include: {
@@ -36,7 +45,15 @@ export const createOutcome = async ({ ctx, input }) => {
   });
 };
 
-export const updateOutcome = async ({ ctx, input }) => {
+interface UpdateOutcomeInput extends OutcomeInput {
+  id: string;
+}
+
+export const updateOutcome = async ({ ctx, input }: { ctx: Context, input: UpdateOutcomeInput }) => {
+  if (!ctx.session?.user?.id) {
+    throw new Error("User not authenticated");
+  }
+
   // First verify the outcome belongs to the user
   const existingOutcome = await ctx.db.outcome.findFirst({
     where: {
@@ -59,9 +76,7 @@ export const updateOutcome = async ({ ctx, input }) => {
       type: input.type,
       projects: input.projectId ? {
         set: [], // Clear existing connections
-        connect: {
-          id: input.projectId
-        }
+        connect: [{ id: input.projectId }]
       } : {
         set: [] // Clear project connection if no projectId provided
       },

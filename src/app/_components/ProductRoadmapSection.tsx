@@ -89,7 +89,7 @@ const RoadmapPhase: React.FC<RoadmapPhaseProps> = ({
 
       <div className="space-y-6">
         {items.map((item, index) => (
-          <RoadmapItem key={index} title={item} />
+          <RoadmapItem key={index} title={item}>{item}</RoadmapItem>
         ))}
       </div>
     </div>

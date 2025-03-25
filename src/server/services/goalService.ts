@@ -28,7 +28,19 @@ export async function getAllMyGoals({ ctx }: { ctx: Context }) {
   });
 }
 
-export async function createGoal({ ctx, input }) {
+interface GoalInput {
+  title: string;
+  description?: string;
+  dueDate?: Date;
+  lifeDomainId: number;
+  projectId?: string;
+}
+
+export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInput }) {
+  if (!ctx.session?.user?.id) {
+    throw new Error("User not authenticated");
+  }
+  
   return await ctx.db.goal.create({
     data: {
       title: input.title,
@@ -37,9 +49,7 @@ export async function createGoal({ ctx, input }) {
       lifeDomainId: input.lifeDomainId,
       userId: ctx.session.user.id,
       projects: input.projectId ? {
-        connect: {
-          id: input.projectId
-        }
+        connect: [{ id: input.projectId }]
       } : undefined,
     },
     include: {
@@ -50,7 +60,15 @@ export async function createGoal({ ctx, input }) {
   });
 }
 
-export async function updateGoal({ ctx, input }) {
+interface UpdateGoalInput extends GoalInput {
+  id: number;
+}
+
+export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGoalInput }) {
+  if (!ctx.session?.user?.id) {
+    throw new Error("User not authenticated");
+  }
+  
   // First verify the goal belongs to the user
   const existingGoal = await ctx.db.goal.findFirst({
     where: {
@@ -74,9 +92,7 @@ export async function updateGoal({ ctx, input }) {
       lifeDomainId: input.lifeDomainId,
       projects: input.projectId ? {
         set: [], // Clear existing connections
-        connect: {
-          id: input.projectId
-        }
+        connect: [{ id: input.projectId }]
       } : {
         set: [] // Clear project connection if no projectId provided
       },

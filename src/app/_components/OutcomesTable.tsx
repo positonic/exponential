@@ -6,6 +6,9 @@ import { format } from "date-fns";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { IconEdit } from '@tabler/icons-react';
 
+// Define OutcomeType to match the one in CreateOutcomeModal.tsx
+type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
+
 export function OutcomesTable() {
   const { data: outcomes, isLoading } = api.outcome.getMyOutcomes.useQuery(undefined, {
     refetchOnWindowFocus: true,
@@ -57,7 +60,7 @@ export function OutcomesTable() {
                     id: outcome.id,
                     description: outcome.description,
                     dueDate: outcome.dueDate,
-                    type: outcome.type,
+                    type: outcome.type as OutcomeType,
                     projectId: outcome.projects[0]?.id,
                   }}
                   trigger={

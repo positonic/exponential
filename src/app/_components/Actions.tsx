@@ -8,6 +8,8 @@ import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 
+type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
+
 interface ActionsProps {
   viewName: string;
   defaultView?: 'list' | 'alignment';
@@ -102,7 +104,13 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
               {todayOutcomes?.map((outcome) => (
                 <CreateOutcomeModal
                   key={outcome.id}
-                  outcome={outcome}
+                  outcome={{
+                    id: outcome.id,
+                    description: outcome.description,
+                    dueDate: outcome.dueDate,
+                    type: (outcome.type || 'daily') as OutcomeType,
+                    projectId: outcome.projects[0]?.id
+                  }}
                   projectId={projectId}
                   trigger={
                     <Paper p="sm" className="bg-[#1E1E1E] cursor-pointer hover:bg-[#2C2C2C] transition-colors">
@@ -132,7 +140,13 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
               {weeklyOutcomes?.map((outcome) => (
                 <CreateOutcomeModal
                   key={outcome.id}
-                  outcome={outcome}
+                  outcome={{
+                    id: outcome.id,
+                    description: outcome.description,
+                    dueDate: outcome.dueDate,
+                    type: (outcome.type || 'daily') as OutcomeType,
+                    projectId: outcome.projects[0]?.id
+                  }}
                   projectId={projectId}
                   trigger={
                     <Paper p="sm" className="bg-[#1E1E1E] cursor-pointer hover:bg-[#2C2C2C] transition-colors">
