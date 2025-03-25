@@ -82,13 +82,10 @@ export const FeaturesSection: React.FC = () => {
           >
             Key Features & Differentiators
           </Title>
-          <Text 
-            className="max-w-3xl mx-auto text-lg leading-relaxed"
-            style={{ color: "#cbd5e1" }} // Specific text color from design
-          >
+          <p className="text-gray-300 text-lg mb-8 max-w-[60%] mx-auto">
             Exponential combines AI-driven project coordination, decentralized funding, and a 
             governance model that rewards contributions fairly.
-          </Text>
+          </p>
         </div>
 
         <SimpleGrid

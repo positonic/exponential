@@ -41,6 +41,15 @@ const BenefitItem: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 export const ValuePropositionSection: React.FC = () => {
+  const benefits = [
+    "Open-source sustainability",
+    "Fair compensation for contributions",
+    "Human-AI collaboration",
+    "Decentralized funding for innovation",
+    "Rewarding early contributors",
+    "Enabling self-sovereign software development"
+  ];
+
   const features = [
     {
       icon: <IconBolt size={32} stroke={1.5} />,
@@ -72,27 +81,19 @@ export const ValuePropositionSection: React.FC = () => {
     }
   ];
 
-  const benefits = [
-    "Open-source sustainability",
-    "Fair compensation for contributions",
-    "Human-AI collaboration",
-    "Decentralized funding for innovation",
-    "Rewarding early contributors",
-    "Enabling self-sovereign software development"
-  ];
-
   return (
     <section className="w-full py-24 bg-[#1E293B]">
-      <Container size="lg">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
-          {/* Left column */}
-          <div>
-            <div className="inline-block px-5 py-2 rounded-full bg-[#1a2748] text-[#8896c5] text-sm font-medium mb-6">
-              Value Proposition
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
+          <div className="flex flex-col justify-center">
+            <div className="mb-6">
+              <span className="px-4 py-2 bg-[#1e293b] rounded-full text-[#a78bfa] text-sm font-medium">
+                Value Proposition
+              </span>
             </div>
             
             <Title
-              className="text-4xl md:text-5xl font-bold mb-6 text-white"
+              className="text-4xl md:text-5xl font-bold mb-6 text-white pb-4"
             >
               The Platform Where Self-Sovereign Software Development Thrives
             </Title>
@@ -103,9 +104,17 @@ export const ValuePropositionSection: React.FC = () => {
               Exponential enables projects to find early funding, attract non-financial contributors, and fairly compensate open-source developers based on their relative contributions.
             </Text>
 
-            <div className="space-y-1">
+            <div className="space-y-3 mt-4">
               {benefits.map((benefit, index) => (
-                <BenefitItem key={index}>{benefit}</BenefitItem>
+                <div key={index} className="flex items-start mb-3">
+                  <div className="text-[#10b981] mr-3 mt-1 flex-shrink-0">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M7.5 12L10.5 15L16.5 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" strokeWidth="2"/>
+                    </svg>
+                  </div>
+                  <span className="text-[#cbd5e1]">{benefit}</span>
+                </div>
               ))}
             </div>
           </div>
@@ -124,7 +133,9 @@ export const ValuePropositionSection: React.FC = () => {
             ))}
           </div>
         </div>
-      </Container>
+      </div>
     </section>
   );
-}; 
+};
+
+export default ValuePropositionSection; 

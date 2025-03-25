@@ -6,6 +6,7 @@ import { ThemeToggle } from '~/app/_components/ThemeToggle';
 import { NavLink } from '~/app/_components/NavLink';
 import { FeaturesSection } from '~/app/_components/FeaturesSection';
 import { ValuePropositionSection } from '~/app/_components/ValuePropositionSection';
+import { ProductRoadmapSection } from '~/app/_components/ProductRoadmapSection';
 
 export default function Home() {
   return (
@@ -134,8 +135,11 @@ export default function Home() {
         {/* Features Section */}
         <FeaturesSection />
         
-        {/* Value Proposition Section - added after Features */}
+        {/* Value Proposition Section */}
         <ValuePropositionSection />
+        
+        {/* Product Roadmap Section - added after Value Proposition */}
+        <ProductRoadmapSection />
       </main>
     </div>
   )
