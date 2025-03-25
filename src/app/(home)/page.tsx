@@ -3,6 +3,7 @@ import { Button, Card } from "@mantine/core";
 import { IconMoon, IconCode, IconUsers, IconWorld } from  "@tabler/icons-react";
 import { GetStartedButton } from '~/app/_components/GetStartedButton';
 import { ThemeToggle } from '~/app/_components/ThemeToggle';
+import { NavLink } from '~/app/_components/NavLink';
 
 export default function Home() {
   return (
@@ -17,14 +18,14 @@ export default function Home() {
         </div>
 
         <nav className="hidden md:flex items-center space-x-8">
-          <a href="#" className="text-gray-300 hover:text-white">Home</a>
-          <a href="#" className="text-gray-300 hover:text-white">Features</a>
-          <a href="#" className="text-gray-300 hover:text-white">Roadmap</a>
-          <a href="#" className="text-gray-300 hover:text-white">Dashboard</a>
+          <NavLink href="#">Home</NavLink>
+          <NavLink href="#">Features</NavLink>
+          <NavLink href="#">Roadmap</NavLink>
+          <NavLink href="#">Dashboard</NavLink>
         </nav>
 
         <div className="flex items-center gap-2">
-          <GetStartedButton size="small" />
+          <GetStartedButton />
           <ThemeToggle />
         </div>
       </header>
