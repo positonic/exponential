@@ -1,39 +1,31 @@
 import Link from "next/link"
 import { Button, Card } from "@mantine/core";
 import { IconMoon, IconCode, IconUsers, IconWorld } from  "@tabler/icons-react";
+import { GetStartedButton } from '~/app/_components/GetStartedButton';
+import { ThemeToggle } from '~/app/_components/ThemeToggle';
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-[#0e1525] text-white">
       {/* Navigation */}
-      <header className="container mx-auto px-4 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <header className="relative z-10 flex justify-between items-center py-6 px-8">
+        <div className="flex items-center">
           <div className="bg-purple-600 w-10 h-10 rounded-md flex items-center justify-center text-white font-bold text-xl">
             E
           </div>
-          <span className="font-bold text-xl">Exponential.im</span>
+          <span className="text-xl font-bold text-white">Exponential.im</span>
         </div>
 
-        <nav className="hidden md:flex items-center gap-8">
-          <Link href="/" className="text-purple-300 hover:text-white transition-colors">
-            Home
-          </Link>
-          <Link href="/features" className="text-purple-300 hover:text-white transition-colors">
-            Features
-          </Link>
-          <Link href="/roadmap" className="text-purple-300 hover:text-white transition-colors">
-            Roadmap
-          </Link>
-          <Link href="/dashboard" className="text-purple-300 hover:text-white transition-colors">
-            Dashboard
-          </Link>
+        <nav className="hidden md:flex items-center space-x-8">
+          <a href="#" className="text-gray-300 hover:text-white">Home</a>
+          <a href="#" className="text-gray-300 hover:text-white">Features</a>
+          <a href="#" className="text-gray-300 hover:text-white">Roadmap</a>
+          <a href="#" className="text-gray-300 hover:text-white">Dashboard</a>
         </nav>
 
-        <div className="flex items-center gap-4">
-          <Button className="bg-purple-600 hover:bg-purple-700 text-white">Get Started</Button>
-          <Button variant="ghost" size="icon" className="text-white">
-            <IconMoon className="h-5 w-5" />
-          </Button>
+        <div className="flex items-center gap-2">
+          <GetStartedButton size="small" />
+          <ThemeToggle />
         </div>
       </header>
 
@@ -58,16 +50,7 @@ export default function Home() {
               </p>
               
               <div className="flex flex-wrap justify-center gap-4">
-                <a 
-                  href="#" 
-                  className="px-6 py-3 font-medium rounded-md flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-purple-500/20 text-white"
-                  style={{ 
-                    background: 'linear-gradient(90deg, #8B5CF6 0%, #3B82F6 100%)',
-                    fontWeight: 600
-                  }}
-                >
-                  Get Started <span className="ml-1">→</span>
-                </a>
+                <GetStartedButton />
                 <a href="#" className="px-6 py-3 bg-transparent border border-gray-700 text-gray-300 font-medium rounded-md hover:bg-gray-800 transition-colors">
                   Learn More
                 </a>
