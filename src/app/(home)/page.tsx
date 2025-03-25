@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { Button, Card } from "@mantine/core";
-import { IconMoon, IconCode, IconUsers, IconGlobe } from  "@tabler/icons-react";
+import { IconMoon, IconCode, IconUsers, IconWorld } from  "@tabler/icons-react";
 
 export default function Home() {
   return (
@@ -38,53 +38,99 @@ export default function Home() {
       </header>
 
       {/* Hero Section */}
-      <main className="container mx-auto px-4 py-20 flex flex-col items-center text-center">
-        <div className="inline-flex items-center justify-center px-4 py-2 rounded-full bg-opacity-20 bg-purple-900 border border-purple-700 mb-8">
-          <span className="text-sm text-purple-300">The Operating System for Self-Sovereign Software</span>
-        </div>
+      <main className="min-h-screen relative">
+        <div className="absolute inset-0 bg-gradient-custom" />
+        
+        <div className="container mx-auto px-4 py-20 flex flex-col items-center text-center">
+          <div className="max-w-3xl mx-auto">
+            <div className="mb-12">
+              <span className="inline-block px-4 py-2 rounded-full bg-purple-900/30 text-purple-300 text-sm font-medium mb-6">
+                The Operating System for Self-Sovereign Software
+              </span>
+              
+              <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent mb-6">
+                Exponential Growth for Open-Source Projects
+              </h1>
+              
+              <p className="text-gray-300 text-lg mb-8">
+                Exponential is the platform where teams of AIs and humans organize to collaborate on software
+                development, bringing ideas from zero to one with fair compensation based on contributions.
+              </p>
+              
+              <div className="flex flex-wrap justify-center gap-4">
+                <a 
+                  href="#" 
+                  className="px-6 py-3 font-medium rounded-md flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-purple-500/20 text-white"
+                  style={{ 
+                    background: 'linear-gradient(90deg, #8B5CF6 0%, #3B82F6 100%)',
+                    fontWeight: 600
+                  }}
+                >
+                  Get Started <span className="ml-1">→</span>
+                </a>
+                <a href="#" className="px-6 py-3 bg-transparent border border-gray-700 text-gray-300 font-medium rounded-md hover:bg-gray-800 transition-colors">
+                  Learn More
+                </a>
+              </div>
+            </div>
 
-        <h1 className="text-4xl md:text-6xl font-bold mb-8 bg-gradient-to-r from-purple-400 via-blue-400 to-purple-500 text-transparent bg-clip-text max-w-4xl">
-          Exponential Growth for Open-Source Projects
-        </h1>
-
-        <p className="text-lg text-gray-300 max-w-3xl mb-12">
-          Exponential is the platform where teams of AIs and humans organize to collaborate on software development,
-          bringing ideas from zero to one with fair compensation based on contributions.
-        </p>
-
-        <div className="flex flex-col sm:flex-row gap-4">
-          <Button className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-6 text-lg">
-            Get Started <span className="ml-2">→</span>
-          </Button>
-          <Button variant="outline" className="border-gray-700 text-white hover:bg-gray-800 px-8 py-6 text-lg">
-            Learn More
-          </Button>
+            {/* Feature Cards - Moved up right below the buttons */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
+              {[
+                {
+                  icon: <IconCode size={36} stroke={1.5} />,
+                  iconBg: '#2F2459',
+                  iconColor: '#B794F4',
+                  title: 'Open-Source Sustainability',
+                  description: 'Fair compensation for all contributors'
+                },
+                {
+                  icon: <IconUsers size={36} stroke={1.5} />,
+                  iconBg: '#1E3A8A',
+                  iconColor: '#90CDF4',
+                  title: 'Human-AI Collaboration',
+                  description: 'Teams of humans and AIs working together'
+                },
+                {
+                  icon: <IconWorld size={36} stroke={1.5} />,
+                  iconBg: '#322659',
+                  iconColor: '#D6BCFA',
+                  title: 'Decentralized Funding',
+                  description: 'Enabling innovation through fair distribution'
+                }
+              ].map((feature, index) => (
+                <div 
+                  key={index}
+                  style={{ 
+                    background: 'linear-gradient(180deg, rgba(14, 23, 47, 0.5) 0%, rgba(11, 15, 36, 0.7) 100%)',
+                    backdropFilter: 'blur(10px)',
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
+                    borderRadius: '12px'
+                  }}
+                  className="p-6 transition-all duration-300 hover:border-opacity-20"
+                >
+                  <div className="flex flex-col items-center text-center">
+                    <div 
+                      className="w-20 h-20 rounded-full flex items-center justify-center mb-6"
+                      style={{ 
+                        backgroundColor: feature.iconBg,
+                        boxShadow: `0 4px 16px rgba(79, 70, 229, 0.25)`,
+                        color: feature.iconColor
+                      }}
+                    >
+                      {feature.icon}
+                    </div>
+                    <h3 className="text-xl font-semibold text-white mb-2">{feature.title}</h3>
+                    <p className="text-gray-400">{feature.description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </main>
-
-      {/* Feature Cards */}
-      <section className="container mx-auto px-4 py-16 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card
-          icon={<IconCode className="h-6 w-6" />}
-          title="Open-Source Sustainability"
-          description="Fair compensation for all contributors"
-          iconBgColor="bg-purple-900"
-        />
-
-        <Card
-          icon={<IconUsers className="h-6 w-6" />}
-          title="Human-AI Collaboration"
-          description="Teams of humans and AIs working together"
-          iconBgColor="bg-blue-900"
-        />
-
-        <Card
-          icon={<IconGlobe className="h-6 w-6" />}
-          title="Decentralized Funding"
-          description="Enabling innovation through fair distribution"
-          iconBgColor="bg-indigo-900"
-        />
-      </section>
     </div>
   )
 }
