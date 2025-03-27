@@ -75,14 +75,19 @@ model User {
     exchangeUsers ExchangeUser[]
     workflows     Workflow[]
     setups        Setup[]
+    transcriptionSessions TranscriptionSession[]
+    verificationTokens VerificationToken[]
 }
 
 model VerificationToken {
     identifier String
     token      String   @unique
     expires    DateTime
+    userId     String
+    user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
     @@unique([identifier, token])
+    @@index([userId])
 }
 
 model Action {
@@ -430,5 +435,18 @@ model Audience {
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model TranscriptionSession {
+  id            String   @id @default(cuid())
+  sessionId     String   @unique // This will store our session_${timestamp} identifier
+  transcription String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+
+  @@index([sessionId])
+  @@index([userId])
 }
  
