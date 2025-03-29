@@ -10,6 +10,7 @@ import { outcomeRouter } from "./routers/outcome";
 import { lifeDomainRouter } from "./routers/lifeDomain";
 import { workflowRouter } from "./routers/workflow";
 import { transcriptionRouter } from "./routers/transcription";
+import { githubRouter } from "./routers/github";
 /**
  * This is the primary router for your server.
  *
@@ -27,6 +28,7 @@ export const appRouter = createTRPCRouter({
   lifeDomain: lifeDomainRouter,
   workflow: workflowRouter,
   transcription: transcriptionRouter,
+  github: githubRouter,
 });
 
 // export type definition of API

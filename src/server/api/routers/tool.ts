@@ -8,6 +8,7 @@ import { createAddVideoTool } from "~/server/tools/addVideoTool";
 import { gmTool } from "~/server/tools/gmTool";
 import { createVideoSearchTool } from "~/server/tools/videoSearchTool";
 import { createActionTools } from "~/server/tools/actionTools";
+import { createGithubTools } from "~/server/tools/githubTools";
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
@@ -148,6 +149,7 @@ export const toolRouter = createTRPCRouter({
                 });
                 
                 const actionTools = createActionTools(ctx);
+                const githubTools = createGithubTools(ctx);
                 let toolResult;
                 
                 try {
@@ -176,6 +178,21 @@ export const toolRouter = createTRPCRouter({
                             break;
                         case "retrieve_actions":
                             toolResult = await actionTools.retrieveActionsTool.invoke(toolCall.args as any);
+                            break;
+                        case "create_issue":
+                            toolResult = await githubTools.createIssueTool.invoke(toolCall.args as any);
+                            break;
+                        case "create_epic":
+                            toolResult = await githubTools.createEpicTool.invoke(toolCall.args as any);
+                            break;
+                        case "create_milestone":
+                            toolResult = await githubTools.createMilestoneTool.invoke(toolCall.args as any);
+                            break;
+                        case "add_to_github_project":
+                            toolResult = await githubTools.addToProjectTool.invoke(toolCall.args as any);
+                            break;
+                        case "update_github_project_status":
+                            toolResult = await githubTools.updateProjectItemStatusTool.invoke(toolCall.args as any);
                             break;
                         case "gm":
                             toolResult = await gmTool().invoke(toolCall.args as any);
