@@ -17,7 +17,6 @@ import {
 
 import { use } from 'react';
 import RecordingChat from "~/app/_components/RecordingChat";
-import { Message } from '~/types/Mesage';
 import { TranscriptionContentEditor } from "~/app/_components/TranscriptionContentEditor";
 import SaveActionsButton from "~/app/_components/SaveActionsButton";
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {

@@ -13,7 +13,6 @@ interface CreateDayModalProps {
 export function CreateDayModal({ children }: CreateDayModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [date, setDate] = useState<Date | null>(new Date());
-  const [weekId, setWeekId] = useState<number | null>(null);
 
   const utils = api.useUtils();
 
@@ -24,9 +23,9 @@ export function CreateDayModal({ children }: CreateDayModalProps) {
 
       utils.day.getUserDays.setData(undefined, (old) => {
         const optimisticDay = {
-          id: -1, // Temporary negative ID to indicate optimistic update
+          id: -1,
           date: newDay.date,
-          weekId: newDay.weekId,
+          weekId: -1,
         };
         return old ? [...old, optimisticDay] : [optimisticDay];
       });
@@ -43,7 +42,6 @@ export function CreateDayModal({ children }: CreateDayModalProps) {
     },
     onSuccess: () => {
       setDate(new Date());
-      setWeekId(null);
       close();
     },
   });
@@ -79,12 +77,9 @@ export function CreateDayModal({ children }: CreateDayModalProps) {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!date || !weekId) return;
+            if (!date) return;
             
-            createDay.mutate({
-              date,
-              weekId,
-            });
+            createDay.mutate({ date });
           }}
           className="p-4"
         >
@@ -110,8 +105,8 @@ export function CreateDayModal({ children }: CreateDayModalProps) {
           <Select
             label="Select week"
             data={weekOptions}
-            value={weekId?.toString()}
-            onChange={(value) => setWeekId(value ? parseInt(value) : null)}
+            value={weekOptions[0]?.value || ''}
+            onChange={(value) => setDate(value ? new Date(value) : null)}
             required
             mt="md"
             styles={{
@@ -138,7 +133,7 @@ export function CreateDayModal({ children }: CreateDayModalProps) {
             <Button 
               type="submit"
               loading={createDay.isPending}
-              disabled={!date || !weekId}
+              disabled={!date}
             >
               Create Day
             </Button>

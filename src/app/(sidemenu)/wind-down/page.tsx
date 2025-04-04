@@ -1,7 +1,18 @@
 import { Container, Title, Text } from "@mantine/core";
 import { WindDownRoutineForm } from "~/app/_components/WindDownRoutineForm";
+import { api } from "~/trpc/server";
+import { startOfDay } from "date-fns";
 
-export default function WindDown() {
+export default async function WindDown() {
+  // Get today's date
+  const today = new Date();
+  
+  // Get or create today's day record
+  const dayData = await api.day.getByDate({ date: today });
+  
+  // Pass the dayId and today's date to the form
+  const dayId = dayData?.id?.toString();
+  
   return (
     <Container size="md" className="py-8">
       {/* Header */}
@@ -18,7 +29,7 @@ export default function WindDown() {
       </div>
 
       {/* Form */}
-      <WindDownRoutineForm />
+      <WindDownRoutineForm dayId={dayId} date={today} />
     </Container>
   );
 } 

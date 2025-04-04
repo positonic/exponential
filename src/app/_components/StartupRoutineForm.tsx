@@ -37,6 +37,11 @@ import { OutcomeSection } from './sections/OutcomeSection';
 import { ExerciseSection } from './sections/ExerciseSection';
 import { NotToDoSection } from './sections/NotToDoSection';
 import { ConfigurationSection } from './sections/ConfigurationSection';
+import { WhatWentWellSection } from './sections/WhatWentWellSection';
+import { EnergyReflectionSection } from './sections/EnergyReflectionSection';
+import { GratitudeOnlySection } from './sections/GratitudeOnlySection';
+import { LearningGrowthSection } from './sections/LearningGrowthSection';
+import { ChallengesSection } from './sections/ChallengesSection';
 
 interface StartupRoutineState {
   intention: string;
@@ -500,8 +505,9 @@ export function StartupRoutineForm() {
                   Expand your thinking—generate ideas freely without judgment. Let your mind explore possibilities and capture all thoughts, whether they seem practical or not.
                 </Text>
 
+                
                 {/* Gratitude Section */}
-                <GratitudeSection 
+                <GratitudeOnlySection 
                   dayId={dayData?.id?.toString()}
                   date={today}
                 />
@@ -660,7 +666,7 @@ export function StartupRoutineForm() {
                 <Text c="dimmed" size="sm" className="italic">
                   End your day mindfully—reflect, plan, and prepare for restful sleep.
                 </Text>
-                <WindDownRoutineForm />
+                <WindDownRoutineForm dayId={dayData?.id?.toString()} date={today}/>
               </Stack>
             </Paper>
           </Accordion.Panel>

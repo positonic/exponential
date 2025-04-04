@@ -58,7 +58,7 @@ export function DaysTable() {
   if (!filteredDays.length) {
     return (
       <Paper className="bg-[#262626] p-4">
-        <Text c="dimmed">No days found. Create your first day by clicking the "Today" button.</Text>
+        <Text c="dimmed">No days found. Create your first day by clicking the &quot;Today&quot; button.</Text>
       </Paper>
     );
   }

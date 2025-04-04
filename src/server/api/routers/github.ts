@@ -2,10 +2,6 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import * as githubService from "~/server/services/githubService";
 
-// Default settings for a public repo you can access
-const DEFAULT_OWNER = "Akashic-fund";
-const DEFAULT_REPO = "akashic";  // Just the repo name, not owner/repo
-
 export const githubRouter = createTRPCRouter({
   createIssue: protectedProcedure
     .input(
@@ -14,12 +10,12 @@ export const githubRouter = createTRPCRouter({
         body: z.string(),
         labels: z.array(z.string()).optional(),
         assignees: z.array(z.string()).optional(),
-        repo: z.string().default(githubService.DEFAULT_REPO),
-        owner: z.string().default(githubService.DEFAULT_OWNER),
+        repo: z.string().default(githubService.DEFAULT_SETTINGS.repo),
+        owner: z.string().default(githubService.DEFAULT_SETTINGS.owner),
         type: z.enum(["user-story", "task", "epic"]).optional(),
       })
     )
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       // Initialize GitHub client
       console.log("GITHUB_TOKEN", process.env.GITHUB_TOKEN);
       const octokit = githubService.initGithubClient(process.env.GITHUB_TOKEN || "");
@@ -39,8 +35,8 @@ export const githubRouter = createTRPCRouter({
         title: z.string(),
         description: z.string().optional(),
         due_on: z.string().optional(),
-        repo: z.string().default(githubService.DEFAULT_REPO),
-        owner: z.string().default(githubService.DEFAULT_OWNER),
+        repo: z.string().default(githubService.DEFAULT_SETTINGS.repo),
+        owner: z.string().default(githubService.DEFAULT_SETTINGS.owner),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -62,8 +58,8 @@ export const githubRouter = createTRPCRouter({
         title: z.string(),
         description: z.string(),
         user_stories: z.array(z.string()).optional(),
-        repo: z.string().default(githubService.DEFAULT_REPO),
-        owner: z.string().default(githubService.DEFAULT_OWNER),
+        repo: z.string().default(githubService.DEFAULT_SETTINGS.repo),
+        owner: z.string().default(githubService.DEFAULT_SETTINGS.owner),
       })
     )
     .mutation(async ({ ctx, input }) => {

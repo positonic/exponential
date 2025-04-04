@@ -1,5 +1,4 @@
 import { type PrismaClient } from "@prisma/client";
-import type { Caption } from "~/utils/vttParser";
 import type { TranscriptionSummary, TranscriptionSetups } from "~/types/transcription";
 import { VideoRepository } from "~/server/repositories/videoRepository";
 import { db } from "~/server/db";
