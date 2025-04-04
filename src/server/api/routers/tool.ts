@@ -106,11 +106,11 @@ export const toolRouter = createTRPCRouter({
             );
             console.log('=== System message:', systemMessage.content);
             const tools = getTools(ctx);
-            console.log('=== Available tools:', tools.map(t => ({
-                name: t.name,
-                description: t.description,
-                schema: t.schema
-            })));
+            // console.log('=== Available tools:', tools.map(t => ({
+            //     name: t.name,
+            //     description: t.description,
+            //     schema: t.schema
+            // })));
             
             const llmWithTools = model.bindTools(tools);
 
@@ -179,14 +179,14 @@ export const toolRouter = createTRPCRouter({
                         case "retrieve_actions":
                             toolResult = await actionTools.retrieveActionsTool.invoke(toolCall.args as any);
                             break;
-                        case "create_issue":
+                        case "create_github_issue":
                             toolResult = await githubTools.createIssueTool.invoke(toolCall.args as any);
                             break;
-                        case "create_epic":
-                            toolResult = await githubTools.createEpicTool.invoke(toolCall.args as any);
-                            break;
-                        case "create_milestone":
+                        case "create_github_milestone":
                             toolResult = await githubTools.createMilestoneTool.invoke(toolCall.args as any);
+                            break;
+                        case "create_github_epic":
+                            toolResult = await githubTools.createEpicTool.invoke(toolCall.args as any);
                             break;
                         case "add_to_github_project":
                             toolResult = await githubTools.addToProjectTool.invoke(toolCall.args as any);

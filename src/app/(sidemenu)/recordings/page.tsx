@@ -52,6 +52,7 @@ The goal is to make this usable for project tracking (e.g. in GitHub or Notion).
 
 function SessionsList() {
   const { data: sessions, isLoading } = api.transcription.getSessions.useQuery();
+  console.log("sessions", sessions);
   // const createSetupsMutation = api.setups.createFromTranscription.useMutation({
   //   onSuccess: () => {
   //     notifications.show({
@@ -114,7 +115,7 @@ function SessionsList() {
                   <Button 
                     size="xs"
                     variant="light"
-                    onClick={() => router.push(`/session/${session.id}`)}
+                    onClick={() => router.push(`/recording/${session.id}`)}
                   >
                     View
                   </Button>

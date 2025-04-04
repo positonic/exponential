@@ -54,7 +54,7 @@ export const createActionTools = (ctx: any) => {
             status: input.status,
             priority: input.priority,
             createdById: ctx.session.user.id,
-            projectId: input.projectId,
+            projectId: input.projectId && input.projectId !== '' ? input.projectId : null,
           },
         });
         

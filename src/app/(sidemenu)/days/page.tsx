@@ -1,5 +1,5 @@
 "use client";
-import { Container, Title, SegmentedControl, Table, Paper, Button } from "@mantine/core";
+import { Container, Title, Button } from "@mantine/core";
 import { DaysTable } from "~/app/_components/DaysTable";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";

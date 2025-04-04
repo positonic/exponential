@@ -1,5 +1,5 @@
 import { IconCode, IconUsers, IconWorld } from  "@tabler/icons-react";
-import { GetStartedButton } from '~/app/_components/GetStartedButton';
+import { HumanButton } from '~/app/_components/HumanButton';
 import { ThemeToggle } from '~/app/_components/ThemeToggle';
 import { FeaturesSection } from '~/app/_components/FeaturesSection';
 import { ValuePropositionSection } from '~/app/_components/ValuePropositionSection';
@@ -17,7 +17,7 @@ export default function Home() {
           <div className="bg-purple-600 w-10 h-10 rounded-md flex items-center justify-center text-white font-bold text-xl">
             E
           </div>
-          <span className="text-xl ml-2 font-bold text-white">Exponential.im</span>
+          <span className="text-xl ml-2 font-bold text-white">Exponential.im (Human)</span>
         </div>
 
         <nav className="hidden md:flex items-center space-x-8">
@@ -28,7 +28,7 @@ export default function Home() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <GetStartedButton size="small" />
+          <HumanButton size="small" />
           <ThemeToggle />
         </div>
       </header>
@@ -65,7 +65,7 @@ export default function Home() {
               </p>
               
               <div className="flex flex-wrap justify-center gap-4">
-                <GetStartedButton />
+                <HumanButton />
                 <a href="#" className="px-6 py-3 bg-transparent border border-gray-700 text-gray-300 font-medium rounded-md hover:bg-gray-800 transition-colors">
                   Learn More
                 </a>

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { Octokit } from "@octokit/rest";
+import * as githubService from "~/server/services/githubService";
 
 // Default settings for a public repo you can access
 const DEFAULT_OWNER = "Akashic-fund";
@@ -14,84 +14,23 @@ export const githubRouter = createTRPCRouter({
         body: z.string(),
         labels: z.array(z.string()).optional(),
         assignees: z.array(z.string()).optional(),
-        repo: z.string().default(DEFAULT_REPO),
-        owner: z.string().default(DEFAULT_OWNER),
+        repo: z.string().default(githubService.DEFAULT_REPO),
+        owner: z.string().default(githubService.DEFAULT_OWNER),
         type: z.enum(["user-story", "task", "epic"]).optional(),
-      }).transform(data => ({
-        ...data,
-        // Ensure these values are never undefined due to defaults
-        repo: data.repo ?? DEFAULT_REPO,
-        owner: data.owner ?? DEFAULT_OWNER,
-      }))
+      })
     )
     .mutation(async ({ ctx, input }) => {
-      // Ensure there's a GitHub token available
-      const token = process.env.GITHUB_TOKEN;
-      if (!token) {
-        throw new Error("GitHub token not configured. Please add GITHUB_TOKEN to your .env file.");
-      }
-
-      const octokit = new Octokit({
-        auth: token,
-      });
-
-      // Add type-based label if provided
-      const labels = input.labels || [];
-      if (input.type && !labels.includes(input.type)) {
-        labels.push(input.type);
-      }
-
-      try {
-        // Extract repository name if it contains owner prefix
-        let repoName = input.repo as string;
-        let repoOwner = input.owner as string;
-        
-        // Handle case where repo might be "owner/repo" format
-        if (repoName.includes('/')) {
-          const parts = repoName.split('/');
-          repoOwner = parts[0];
-          repoName = parts[1];
-        }
-
-        console.log(`Creating issue in ${repoOwner}/${repoName}`);
-        
-        // First check if the repo exists and is accessible
-        try {
-          await octokit.repos.get({
-            owner: repoOwner,
-            repo: repoName,
-          });
-        } catch (repoError) {
-          console.error("Repository access error:", repoError);
-          throw new Error(`Cannot access repository ${repoOwner}/${repoName}. Please check that it exists and your token has access to it.`);
-        }
-
-        const { data: issue } = await octokit.issues.create({
-          owner: repoOwner,
-          repo: repoName,
-          title: input.title,
-          body: input.body,
-          labels,
-          assignees: input.assignees,
-        });
-
-        return {
-          success: true,
-          issue: {
-            id: issue.id,
-            number: issue.number,
-            title: issue.title,
-            url: issue.html_url,
-          },
-        };
-      } catch (error) {
-        console.error('Error creating GitHub issue:', error);
-        const errorMessage = error instanceof Error ? 
-          error.message : 
-          'Unknown error creating GitHub issue';
-          
-        throw new Error(`Failed to create GitHub issue: ${errorMessage}`);
-      }
+      // Initialize GitHub client
+      console.log("GITHUB_TOKEN", process.env.GITHUB_TOKEN);
+      const octokit = githubService.initGithubClient(process.env.GITHUB_TOKEN || "");
+      
+      // Create the issue using the shared service
+      const issue = await githubService.createIssue(octokit, input);
+      
+      return {
+        success: true,
+        issue,
+      };
     }),
 
   createMilestone: protectedProcedure
@@ -100,39 +39,21 @@ export const githubRouter = createTRPCRouter({
         title: z.string(),
         description: z.string().optional(),
         due_on: z.string().optional(),
-        repo: z.string().default("qf-contracts"),
+        repo: z.string().default(githubService.DEFAULT_REPO),
+        owner: z.string().default(githubService.DEFAULT_OWNER),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!process.env.GITHUB_TOKEN) {
-        throw new Error("GitHub token not configured");
-      }
-
-      const octokit = new Octokit({
-        auth: process.env.GITHUB_TOKEN,
-      });
-
-      try {
-        const { data: milestone } = await octokit.issues.createMilestone({
-          owner: DEFAULT_OWNER,
-          repo: input.repo,
-          title: input.title,
-          description: input.description,
-          due_on: input.due_on,
-        });
-
-        return {
-          success: true,
-          milestone: {
-            number: milestone.number,
-            title: milestone.title,
-            url: milestone.html_url,
-          },
-        };
-      } catch (error) {
-        console.error("Error creating GitHub milestone:", error);
-        throw new Error(`Failed to create GitHub milestone: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      // Initialize GitHub client
+      const octokit = githubService.initGithubClient(process.env.GITHUB_TOKEN || "");
+      
+      // Create the milestone using the shared service
+      const milestone = await githubService.createMilestone(octokit, input);
+      
+      return {
+        success: true,
+        milestone,
+      };
     }),
 
   createEpic: protectedProcedure
@@ -141,23 +62,25 @@ export const githubRouter = createTRPCRouter({
         title: z.string(),
         description: z.string(),
         user_stories: z.array(z.string()).optional(),
-        repo: z.string().default("qf-contracts"),
+        repo: z.string().default(githubService.DEFAULT_REPO),
+        owner: z.string().default(githubService.DEFAULT_OWNER),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!process.env.GITHUB_TOKEN) {
-        throw new Error("GitHub token not configured");
-      }
-
-      const octokit = new Octokit({
-        auth: process.env.GITHUB_TOKEN,
-      });
+      // Initialize GitHub client
+      const octokit = githubService.initGithubClient(process.env.GITHUB_TOKEN || "");
+      
+      // Process input 
+      const { repoOwner, repoName } = githubService.parseRepoInfo(input.owner, input.repo);
+      
+      // Validate repository
+      await githubService.validateRepository(octokit, repoOwner, repoName);
 
       try {
         // Create main epic issue
         const { data: epicIssue } = await octokit.issues.create({
-          owner: DEFAULT_OWNER,
-          repo: input.repo,
+          owner: repoOwner,
+          repo: repoName,
           title: `Epic: ${input.title}`,
           body: input.description,
           labels: ["epic"],
@@ -169,26 +92,22 @@ export const githubRouter = createTRPCRouter({
           let epicChecklist = `## User Stories\n\n`;
           
           for (const storyTitle of input.user_stories) {
-            const { data: storyIssue } = await octokit.issues.create({
-              owner: DEFAULT_OWNER,
-              repo: input.repo,
+            const storyIssue = await githubService.createIssue(octokit, {
+              owner: repoOwner,
+              repo: repoName,
               title: storyTitle,
               body: `Part of Epic: #${epicIssue.number}`,
               labels: ["user-story"],
             });
             
-            userStoryIssues.push({
-              number: storyIssue.number,
-              title: storyIssue.title,
-              url: storyIssue.html_url,
-            });
+            userStoryIssues.push(storyIssue);
             epicChecklist += `- [ ] #${storyIssue.number} - ${storyIssue.title}\n`;
           }
           
           // Update epic with checklist
           await octokit.issues.update({
-            owner: DEFAULT_OWNER,
-            repo: input.repo,
+            owner: repoOwner,
+            repo: repoName,
             issue_number: epicIssue.number,
             body: `${input.description}\n\n${epicChecklist}`,
           });
@@ -205,7 +124,11 @@ export const githubRouter = createTRPCRouter({
         };
       } catch (error) {
         console.error("Error creating GitHub epic:", error);
-        throw new Error(`Failed to create GitHub epic: ${error instanceof Error ? error.message : String(error)}`);
+        const errorMessage = error instanceof Error ? 
+          error.message : 
+          'Unknown error creating GitHub epic';
+          
+        throw new Error(`Failed to create GitHub epic: ${errorMessage}`);
       }
     }),
 

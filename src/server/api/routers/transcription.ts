@@ -129,6 +129,7 @@ export const transcriptionRouter = createTRPCRouter({
     }),
 
   getSessions: protectedProcedure.query(async ({ ctx }) => {
+    console.log("getSessions", ctx.session.user.id);
     return ctx.db.transcriptionSession.findMany({
       where: {
         userId: ctx.session.user.id,

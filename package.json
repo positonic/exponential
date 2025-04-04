@@ -35,6 +35,7 @@
     "@octokit/rest": "^21.1.1",
     "@openai/realtime-api-beta": "github:simliai/openai-realtime-api-beta",
     "@prisma/client": "^5.14.0",
+    "@silk-wallet/silk-wallet-sdk": "^0.2.1",
     "@t3-oss/env-nextjs": "^0.10.1",
     "@tabler/icons-react": "^3.30.0",
     "@tanstack/react-query": "^5.50.0",

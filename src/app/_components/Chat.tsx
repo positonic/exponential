@@ -23,20 +23,33 @@ interface Message {
     name?: string;
 }
 
-export default function Chat() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      type: 'system',
-      content: `You are a personal assistant who helps manage tasks in our Task Management System. 
-                You never give IDs to the user since those are just for you to keep track of. 
-                When a user asks to create a task and you don't know the project to add it to for sure, clarify with the user.
-                The current date is: ${new Date().toISOString().split('T')[0]}`
-    },
-    {
-      type: 'ai',
-      content: 'Hello! I\'m your AI assistant. How can I help you manage your tasks today?'
-    }
-  ]);
+interface ChatProps {
+  initialMessages?: Message[];
+  githubSettings?: {
+    owner: string;
+    repo: string;
+    validAssignees: string[];
+  };
+  buttons?: React.ReactNode[];
+}
+
+export default function Chat({ initialMessages, githubSettings, buttons }: ChatProps) {
+  const [messages, setMessages] = useState<Message[]>(
+    initialMessages ?? [
+      {
+        type: 'system',
+        content: `You are a personal assistant who helps manage tasks in our Task Management System. 
+                  You never give IDs to the user since those are just for you to keep track of. 
+                  When a user asks to create a task and you don't know the project to add it to for sure, clarify with the user.
+                  ${githubSettings ? `When creating GitHub issues, use repo: "${githubSettings.repo}" and owner: "${githubSettings.owner}". Valid assignees are: ${githubSettings.validAssignees.join(", ")}` : ''}
+                  The current date is: ${new Date().toISOString().split('T')[0]}`
+      },
+      {
+        type: 'ai',
+        content: 'Hello! I\'m your AI assistant. How can I help you manage your tasks today?'
+      }
+    ]
+  );
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -186,13 +199,13 @@ export default function Chat() {
       <Paper 
         shadow="md" 
         radius="sm"
-        p="md" 
-        w="100%"
-        style={{ 
-          height: '600px',
-          backgroundColor: '#262626'
-        }}
+        className="flex flex-col h-full"
       >
+        {buttons && buttons.length > 0 && (
+          <Group justify="flex-end" p="md">
+            {buttons}
+          </Group>
+        )}
         <Stack h="100%">
           <ScrollArea h="500px" viewportRef={viewport}>
             {messages.filter(message => message.type !== 'system').map((message, index) => (

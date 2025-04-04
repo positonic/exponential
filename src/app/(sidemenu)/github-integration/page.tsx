@@ -20,12 +20,7 @@ import {
 import { IconBrandGithub, IconAlertCircle, IconCheck } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { TRPCClientError } from '@trpc/client';
-
-// Default repository settings
-const DEFAULT_OWNER = "Akashic-fund";
-const DEFAULT_REPO = "Akashic-fund/akashic";
-const DEFAULT_PROJECT = 'akashic';
-
+import { DEFAULT_SETTINGS } from '~/server/services/githubService';
 
 interface CreatedIssue {
   number: number;
@@ -36,8 +31,8 @@ interface CreatedIssue {
 export default function GitHubIntegrationPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [repo, setRepo] = useState(DEFAULT_REPO);
-  const [owner, setOwner] = useState(DEFAULT_OWNER);
+  const [repo, setRepo] = useState(DEFAULT_SETTINGS.repo);
+  const [owner, setOwner] = useState(DEFAULT_SETTINGS.owner);
   const [issueType, setIssueType] = useState<'user-story' | 'task' | 'epic'>('task');
   const [createdIssue, setCreatedIssue] = useState<CreatedIssue | null>(null);
   

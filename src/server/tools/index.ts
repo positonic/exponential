@@ -17,6 +17,11 @@ export const getTools = (ctx: any) => {
     actionTools.readActionTool,
     actionTools.updateActionTool,
     actionTools.deleteActionTool,
-    actionTools.retrieveActionsTool
+    actionTools.retrieveActionsTool,
+    githubTools.createIssueTool,
+    githubTools.createMilestoneTool,
+    githubTools.createEpicTool,
+    githubTools.addToProjectTool,
+    githubTools.updateProjectItemStatusTool
   ]
 }
