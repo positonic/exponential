@@ -20,6 +20,24 @@ export const actionRouter = createTRPCRouter({
     });
   }),
 
+  getProjectActions: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.action.findMany({
+        where: {
+          createdById: ctx.session.user.id,
+          projectId: input.projectId,
+        },
+        include: {
+          project: true,
+        },
+        orderBy: [
+          { priority: "asc" },
+          { dueDate: "asc" }
+        ],
+      });
+    }),
+
   create: protectedProcedure
     .input(
       z.object({

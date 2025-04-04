@@ -43,103 +43,77 @@ export function ProjectContent({ viewName, projectId }: { viewName: string, proj
   }
 
   return (
-    <Stack gap={0} align="stretch" justify="flex-start">
-      <Box 
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-          backdropFilter: 'blur(10px)',
-          backgroundColor: 'rgba(28, 28, 28, 0.95)',
-          borderBottom: '1px solid rgba(82, 82, 82, 0.2)',
-          marginBottom: '2rem'
-        }}
-      >
-        <Tabs value={activeTab} onChange={handleTabChange}>
-          <Paper p="md" bg="transparent" style={{ border: 'none' }}>
-            <Stack gap="md">
-              <Group justify="space-between" align="center">
-                <div>
-                  <Title 
-                    order={2} 
-                    mb={4}
-                    className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent"
-                  >
-                    {project.name}
-                  </Title>
-                  <Text size="sm" c="dimmed" lineClamp={2} maw={600}>
-                    {project.description}
-                  </Text>
-                </div>
-                <Tabs.List 
-                  style={{
-                    border: '1px solid rgba(82, 82, 82, 0.3)',
-                    borderRadius: '8px',
-                    padding: '4px',
-                    backgroundColor: 'rgba(45, 45, 45, 0.5)'
-                  }}
-                >
-                  <Tabs.Tab 
-                    value="tasks" 
-                    leftSection={<IconLayoutKanban size={16} />}
-                  >
-                    Tasks
-                  </Tabs.Tab>
-                  <Tabs.Tab 
-                    value="plan" 
-                    leftSection={<IconClipboardList size={16} />}
-                  >
-                    Plan
-                  </Tabs.Tab>
-                  <Tabs.Tab 
-                    value="team" 
-                    leftSection={<IconUsers size={16} />}
-                  >
-                    Team
-                  </Tabs.Tab>
-                  <Tabs.Tab 
-                    value="chat" 
-                    leftSection={<IconMessageCircle size={16} />}
-                  >
-                    Chat
-                  </Tabs.Tab>
-                  <Tabs.Tab 
-                    value="settings" 
-                    leftSection={<IconSettings size={16} />}
-                  >
-                    Settings
-                  </Tabs.Tab>
-                </Tabs.List>
-              </Group>
+    <Tabs value={activeTab} onChange={handleTabChange}>
+      <Stack gap="xl" align="stretch" justify="flex-start">
+        {/* Project Title and Description */}
+        <Paper p="md" bg="transparent" style={{ border: 'none' }}>
+          <Title 
+            order={2} 
+            mb={4}
+            className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent"
+          >
+            {project.name}
+          </Title>
+          <Text size="sm" c="dimmed" lineClamp={2} maw={800}>
+            {project.description}
+          </Text>
+        </Paper>
 
-              
-            </Stack>
-          </Paper>
+        {/* Tabs Navigation - Moved Here */}
+        <Tabs.List>
+          <Tabs.Tab 
+            value="tasks" 
+            leftSection={<IconLayoutKanban size={16} />}
+          >
+            Tasks
+          </Tabs.Tab>
+          <Tabs.Tab 
+            value="plan" 
+            leftSection={<IconClipboardList size={16} />}
+          >
+            Plan
+          </Tabs.Tab>
+          <Tabs.Tab 
+            value="team" 
+            leftSection={<IconUsers size={16} />}
+          >
+            Team
+          </Tabs.Tab>
+          <Tabs.Tab 
+            value="chat" 
+            leftSection={<IconMessageCircle size={16} />}
+          >
+            Chat
+          </Tabs.Tab>
+          <Tabs.Tab 
+            value="settings" 
+            leftSection={<IconSettings size={16} />}
+          >
+            Settings
+          </Tabs.Tab>
+        </Tabs.List>
 
-          {/* Content Area */}
-          <Box p="md">
-            <Tabs.Panel value="tasks">
-              <Actions viewName={viewName} defaultView={taskView} projectId={projectId} />
-            </Tabs.Panel>
+        {/* Content Area - No longer needs extra padding if Tabs.List is outside */}
+        <Tabs.Panel value="tasks">
+          <Actions viewName={viewName} defaultView={taskView} projectId={projectId} />
+        </Tabs.Panel>
 
-            <Tabs.Panel value="plan">
-              <Plan projectId={projectId} />
-            </Tabs.Panel>
+        <Tabs.Panel value="plan">
+          <Plan projectId={projectId} />
+        </Tabs.Panel>
 
-            <Tabs.Panel value="team">
-              <Team projectId={projectId} />
-            </Tabs.Panel>
+        <Tabs.Panel value="team">
+          <Team projectId={projectId} />
+        </Tabs.Panel>
 
-            <Tabs.Panel value="chat">
-              <Chat />
-            </Tabs.Panel>
+        <Tabs.Panel value="chat">
+          <Chat />
+        </Tabs.Panel>
 
-            <Tabs.Panel value="settings">
-              <ProjectDetails project={project} />
-            </Tabs.Panel>
-          </Box>
-        </Tabs>
-      </Box>
-    </Stack>
+        <Tabs.Panel value="settings">
+          <ProjectDetails project={project} />
+        </Tabs.Panel>
+      </Stack>
+    </Tabs>
   );
 } 

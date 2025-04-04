@@ -19,7 +19,14 @@ interface ActionsProps {
 
 export function Actions({ viewName, defaultView = 'list', projectId }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
-  const actions = api.action.getAll.useQuery();
+
+  // Conditionally fetch actions based on projectId
+  const actionsQuery = projectId
+    ? api.action.getProjectActions.useQuery({ projectId })
+    : api.action.getAll.useQuery(); // Consider using getToday for specific views if needed
+
+  const actions = actionsQuery.data; // Extract data from the chosen query
+
   
   // Use the appropriate query based on whether we have a projectId
   const outcomes = projectId 
@@ -194,7 +201,8 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
           </CreateOutcomeModal>
         </Paper>
       )}
-      <ActionList viewName={viewName} actions={actions.data ?? []} />
+      {/* Pass the fetched actions data to ActionList */}
+      <ActionList viewName={viewName} actions={actions ?? []} />
       <div className="mt-6">
         <CreateActionModal viewName={viewName}/>
       </div>
