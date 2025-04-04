@@ -116,7 +116,7 @@ export function Plan({ projectId }: PlanProps) {
   ])].map(Number).sort((a, b) => a - b);
 
   return (
-    <Stack gap="xl" className={classes.printContainer}>
+    <Stack gap="xl" className="w-full max-w-3xl mx-auto">
       <Title order={3}>📋 PART 3: Execution Plan (Lean Launch)</Title>
 
       <Text>

@@ -44,9 +44,9 @@ export function ProjectContent({ viewName, projectId }: { viewName: string, proj
 
   return (
     <Tabs value={activeTab} onChange={handleTabChange}>
-      <Stack gap="xl" align="stretch" justify="flex-start">
+      <Stack gap="xl" align="stretch" justify="flex-start" >
         {/* Project Title and Description */}
-        <Paper p="md" bg="transparent" style={{ border: 'none' }}>
+        <Paper className="w-full max-w-3xl mx-auto" px={0} bg="transparent" >
           <Title 
             order={2} 
             mb={4}
@@ -58,9 +58,9 @@ export function ProjectContent({ viewName, projectId }: { viewName: string, proj
             {project.description}
           </Text>
         </Paper>
-
         {/* Tabs Navigation - Moved Here */}
-        <Tabs.List>
+        <Tabs.List className="w-full max-w-3xl mx-auto" >
+          
           <Tabs.Tab 
             value="tasks" 
             leftSection={<IconLayoutKanban size={16} />}
@@ -107,11 +107,15 @@ export function ProjectContent({ viewName, projectId }: { viewName: string, proj
         </Tabs.Panel>
 
         <Tabs.Panel value="chat">
-          <Chat />
+          <div className="w-full max-w-3xl mx-auto">
+            <Chat />
+          </div>
         </Tabs.Panel>
 
         <Tabs.Panel value="settings">
-          <ProjectDetails project={project} />
+          <div className="w-full max-w-3xl mx-auto">
+            <ProjectDetails project={project} />
+          </div>
         </Tabs.Panel>
       </Stack>
     </Tabs>

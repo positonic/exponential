@@ -20,7 +20,7 @@ export function Team({ projectId }: { projectId: string }) {
   }
 
   return (
-    <Paper p="md" radius="sm" className="bg-[#262626]">
+    <Paper p="md" radius="sm" className="bg-[#262626] w-full max-w-3xl mx-auto">
       <Group justify="space-between" mb="md">
         <Text size="xl" fw={700}>Team</Text>
         <Button variant="subtle" size="sm">
