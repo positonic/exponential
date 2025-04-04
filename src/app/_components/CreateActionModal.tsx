@@ -96,14 +96,17 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
       utils.action.getToday.setData(undefined, todayActions);
     },
 
-    onSettled: async () => {
-      // Invalidate all related queries
-      const queriesToInvalidate = [
-        utils.project.getAll,
-        utils.action.getAll,
-        utils.action.getToday,
-      ];
-      await Promise.all(queriesToInvalidate.map(query => query.invalidate()));
+    onSettled: async (data, error, newAction) => {
+      // Invalidate relevant queries sequentially
+      await utils.project.getAll.invalidate();
+      await utils.action.getAll.invalidate();
+      await utils.action.getProjectActions.invalidate();
+      await utils.action.getToday.invalidate();
+
+      // Invalidate the specific project query if applicable
+      if (newAction?.projectId) {
+        await utils.project.getById.invalidate({ id: newAction.projectId });
+      }
     },
 
     onSuccess: () => {
