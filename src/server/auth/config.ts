@@ -129,5 +129,24 @@ export const authConfig = {
       // Allow linking accounts with same email
       return true;
     },
+    /**
+     * Controls the redirection behavior after sign-in, sign-out, or errors.
+     * @param url - The URL the user is being redirected to.
+     * @param baseUrl - The base URL of the application.
+     * @returns The URL to redirect to.
+     */
+    redirect: async ({ url, baseUrl }) => {
+      // Always redirect to the specified workflow URL after successful sign-in
+      // You might want to add conditions here, e.g., only redirect
+      // if the original 'url' points to the base path after login.
+      return "/workflows"; // Use relative path
+
+      // Default behavior (useful if you don't always want to force the redirect):
+      // Allows relative callback URLs
+      // if (url.startsWith("/")) return `${baseUrl}${url}`
+      // Allows callback URLs on the same origin
+      // else if (new URL(url).origin === baseUrl) return url
+      // return baseUrl // Default redirect to home page
+    },
   },
 } satisfies NextAuthConfig;
