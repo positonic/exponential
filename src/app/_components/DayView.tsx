@@ -4,7 +4,7 @@ import { Container, Title, Paper, Stack, Group, Button } from '@mantine/core';
 import { useRouter } from 'next/navigation';
 import { IconArrowLeft } from '@tabler/icons-react';
 import { type Day } from "@prisma/client";
-
+import { StartupRoutineForm } from './StartupRoutineForm';
 interface DayViewProps {
   day: Day & {
     exercises: any[];
@@ -34,20 +34,7 @@ export function DayView({ day }: DayViewProps) {
           {day.date.toLocaleDateString()}
         </Title>
 
-        <Paper p="md" className="bg-[#262626]">
-          <Stack gap="md">
-            <p className="text-gray-400">
-              This is where you can add specific content for {day.date.toLocaleDateString()}. 
-              You might want to include:
-            </p>
-            <ul className="list-disc list-inside text-gray-400">
-              <li>Tasks completed</li>
-              <li>Notes or journal entries</li>
-              <li>Metrics or tracking data</li>
-              <li>Links to related items</li>
-            </ul>
-          </Stack>
-        </Paper>
+        <StartupRoutineForm />
       </Stack>
     </Container>
   );

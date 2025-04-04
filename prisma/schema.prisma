@@ -77,6 +77,7 @@ model User {
     setups        Setup[]
     transcriptionSessions TranscriptionSession[]
     verificationTokens VerificationToken[]
+    notes         Note[]
 }
 
 model VerificationToken {
@@ -208,7 +209,7 @@ model Day {
   week        Week      @relation(fields: [weekId], references: [id])
   weekId      Int
   exercises   UserExercise[]
-  journals    Journal[]
+  notes       Note[]    // Changed from journals to notes
   users       UserDay[]
   
   @@index([weekId])
@@ -258,15 +259,22 @@ model LifeDomain {
   goals       Goal[]
 }
 
-model Journal {
+// New model to replace Journal
+model Note {
   id          Int      @id @default(autoincrement())
   content     String   @db.Text
+  type        String   // "gratitude", "journal", etc.
+  title       String?  // Optional title field
   day         Day      @relation(fields: [dayId], references: [id])
   dayId       Int
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([dayId])
+  @@index([userId])
+  @@index([type])
 }
 
 model UserDay {

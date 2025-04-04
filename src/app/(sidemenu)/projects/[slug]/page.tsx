@@ -3,9 +3,6 @@ import { HydrateClient } from "~/trpc/server";
 import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
 import { ProjectContent } from "~/app/_components/ProjectContent";
-import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
-import { Button } from "@mantine/core";
-import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -27,24 +24,7 @@ export default async function Home({ params }: PageProps) {
           <Suspense fallback={<div>Loading...</div>}>
             <ProjectWrapper slug={slug} />
           </Suspense>
-          <CreateGoalModal projectId={projectId}>
-            <Button 
-              variant="filled" 
-              color="dark"
-              leftSection="+"
-            >
-              Add Goal
-            </Button>
-          </CreateGoalModal>
-          <CreateOutcomeModal projectId={projectId}>
-            <Button 
-              variant="filled" 
-              color="dark"
-              leftSection="+"
-            >
-              Add Outcome
-            </Button>
-          </CreateOutcomeModal>
+          
         </div>
       </main>
     </HydrateClient>

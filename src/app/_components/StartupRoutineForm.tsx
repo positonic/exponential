@@ -12,11 +12,11 @@ import {
   Button,
   Accordion,
   List,
+  Loader,
 } from "@mantine/core";
 import { IconBulb, IconWriting, IconStars, IconList, IconSettings } from "@tabler/icons-react";
-import { useLocalStorage } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { RichTextEditor, Link } from '@mantine/tiptap';
 import { useEditor } from '@tiptap/react';
 import Highlight from '@tiptap/extension-highlight';
@@ -27,49 +27,184 @@ import Superscript from '@tiptap/extension-superscript';
 import SubScript from '@tiptap/extension-subscript';
 import '@mantine/tiptap/styles.css';
 import { api } from "~/trpc/react";
-import {WindDownRoutineForm} from './WindDownRoutineForm';
-interface DailyEntry {
-  date: string;
+import { WindDownRoutineForm } from './WindDownRoutineForm';
+import { startOfDay } from 'date-fns';
+
+// Import section components
+import { GratitudeSection } from './sections/GratitudeSection';
+import { JournalSection } from './sections/JournalSection';
+import { OutcomeSection } from './sections/OutcomeSection';
+import { ExerciseSection } from './sections/ExerciseSection';
+import { NotToDoSection } from './sections/NotToDoSection';
+import { ConfigurationSection } from './sections/ConfigurationSection';
+
+interface StartupRoutineState {
   intention: string;
   gratitude: string;
   exercise: string;
   journalName: string;
-  journalDate: string;
   journalContent: string;
   notToDo: string[];
   completedItems: string[];
 }
-
-type DailyEntries = Record<string, DailyEntry>;
 
 const getTodayString = (): string => {
   const now = new Date();
   return now.toISOString().split('T')[0]!;
 };
 
-const createEmptyEntry = (date: string): DailyEntry => ({
-  date,
-  intention: '',
-  gratitude: '',
-  exercise: '',
-  journalName: '',
-  journalDate: date,
-  journalContent: '',
-  notToDo: [],
-  completedItems: [],
-});
+const todayString = getTodayString();
+
+// Create optimized button components
+const SaveButton = memo(({ 
+  onClick, 
+  loading, 
+  disabled, 
+  size,
+  children = "Save All Progress"
+}: { 
+  onClick: () => void; 
+  loading: boolean; 
+  disabled: boolean;
+  size?: string;
+  children?: React.ReactNode;
+}) => (
+  <Button 
+    onClick={onClick} 
+    loading={loading} 
+    disabled={disabled}
+    size={size}
+  >
+    {children}
+  </Button>
+));
+
+SaveButton.displayName = 'SaveButton';
 
 export function StartupRoutineForm() {
   const todayString = getTodayString();
   
+  // Memoize the date object to prevent recreating it on each render
+  const today = useMemo(() => new Date(todayString), [todayString]);
+  
   // Configuration state
   const [doMindset, setDoMindset] = useState(false);
   const [doConsider, setDoConsider] = useState(false);
-  const [doNotToDo, setDoNotToDo] = useState(true);
+  const [doNotToDo, setDoNotToDo] = useState(false);
   const [doQuestions, setDoQuestions] = useState(false);
   
   // New state for outcome input
   const [newOutcome, setNewOutcome] = useState("");
+  
+  // Get TRPC utils for invalidating queries
+  const utils = api.useUtils();
+  
+  // Get today's day entry
+  const { data: dayData, isLoading: isDayLoading } = api.day.getByDate.useQuery({ 
+    date: today
+  }, {
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false,
+  });
+
+  // Create a day if it doesn't exist - memoize the mutation to stabilize it
+  const createUserDay = api.day.createUserDay.useMutation({
+    onSuccess: (data) => {
+      // Refetch the day data to get the new day ID
+      void utils.day.getByDate.invalidate({ date: today });
+    },
+    onError: (error) => {
+      console.error("Failed to create day:", error);
+    }
+  });
+
+  // Create day if needed using a stable callback
+  const createDayIfNeeded = useCallback(() => {
+    if (!dayData && !isDayLoading && !createUserDay.isPending) {
+      createUserDay.mutate({ date: today });
+    }
+  }, [dayData, isDayLoading, createUserDay.isPending, createUserDay.mutate, today]);
+
+  // Use a more controlled effect that only runs once on mount and when day data changes
+  useEffect(() => {
+    createDayIfNeeded();
+  }, [createDayIfNeeded]);
+  
+  // Only fetch notes once we have a day ID
+  const dayId = dayData?.id;
+  
+  // Get notes for today - with proper dependency tracking and caching
+  const { data: gratitudeNotes } = api.note.getByDate.useQuery({
+    date: today,
+    type: 'gratitude'
+  }, {
+    enabled: !!dayId,
+    staleTime: 60 * 60 * 1000, // 1 hour - increase cache time
+    refetchOnWindowFocus: false,
+    refetchOnMount: false, // Don't refetch on component mount
+    refetchOnReconnect: false, // Don't refetch on reconnect
+  });
+
+  const { data: journalNotes } = api.note.getByDate.useQuery({
+    date: today,
+    type: 'journal'
+  }, {
+    enabled: !!dayId,
+    staleTime: 60 * 60 * 1000, // 1 hour - increase cache time
+    refetchOnWindowFocus: false,
+    refetchOnMount: false, // Don't refetch on component mount
+    refetchOnReconnect: false, // Don't refetch on reconnect
+  });
+  
+  // Fetch not-to-do items and completed items
+  const { data: notToDoNotes } = api.note.getByDate.useQuery({
+    date: today,
+    type: 'not-to-do'
+  }, {
+    enabled: !!dayId,
+    staleTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+  
+  const { data: completedItemsNotes } = api.note.getByDate.useQuery({
+    date: today,
+    type: 'completed-items'
+  }, {
+    enabled: !!dayId,
+    staleTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+  
+  const { data: exerciseNotes } = api.note.getByDate.useQuery({
+    date: today,
+    type: 'exercise'
+  }, {
+    enabled: !!dayId,
+    staleTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+
+  // Create note mutation
+  const createNote = api.note.create.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Saved',
+        message: 'Your entry has been saved to the database',
+        color: 'green',
+      });
+      // Only invalidate if we have a day ID
+      if (dayId) {
+        void utils.note.getByDate.invalidate({ date: today, type: 'gratitude' });
+        void utils.note.getByDate.invalidate({ date: today, type: 'journal' });
+      }
+    },
+  });
   
   // Outcome creation mutation
   const createOutcome = api.outcome.createOutcome.useMutation({
@@ -83,25 +218,60 @@ export function StartupRoutineForm() {
     },
   });
 
-  // Local storage for daily entries
-  const [dailyEntries, setDailyEntries] = useLocalStorage<DailyEntries>({
-    key: 'startup-routine-entries',
-    defaultValue: { [todayString]: createEmptyEntry(todayString) },
-  });
-
-  // Get today's entry or create a new one
-  const todayEntry = dailyEntries[todayString] ?? createEmptyEntry(todayString);
-
-  // Form state
-  const [intention] = useState(todayEntry.intention);
-  const [gratitude, setGratitude] = useState(todayEntry.gratitude);
-  const [exercise, setExercise] = useState(todayEntry.exercise);
-  const [journalName, setJournalName] = useState(todayEntry.journalName); // eslint-disable-line @typescript-eslint/no-unused-vars
-  const [journalDate, setJournalDate] = useState(todayEntry.journalDate); // eslint-disable-line @typescript-eslint/no-unused-vars
-  const [journalContent, setJournalContent] = useState(todayEntry.journalContent);
-  const [notToDo, setNotToDo] = useState(todayEntry.notToDo);
-  const [completedItems, setCompletedItems] = useState<string[]>(todayEntry.completedItems);
+  // Initialize form state from database
+  const [intention, setIntention] = useState('');
+  const [gratitude, setGratitude] = useState('');
+  const [exercise, setExercise] = useState('');
+  const [journalName, setJournalName] = useState('');
+  const [journalContent, setJournalContent] = useState('');
+  const [notToDo, setNotToDo] = useState<string[]>([]);
+  const [completedItems, setCompletedItems] = useState<string[]>([]);
   const [newNotToDo, setNewNotToDo] = useState('');
+  
+  // Update form state when data from API changes
+  useEffect(() => {
+    if (gratitudeNotes?.[0]?.content) {
+      setGratitude(gratitudeNotes[0].content);
+    }
+  }, [gratitudeNotes]);
+
+  useEffect(() => {
+    if (journalNotes?.[0]?.content) {
+      setJournalContent(journalNotes[0].content);
+    }
+  }, [journalNotes]);
+  
+  useEffect(() => {
+    if (exerciseNotes?.[0]?.content) {
+      setExercise(exerciseNotes[0].content);
+    }
+  }, [exerciseNotes]);
+  
+  useEffect(() => {
+    if (notToDoNotes?.[0]?.content) {
+      try {
+        const parsedItems = JSON.parse(notToDoNotes[0].content);
+        if (Array.isArray(parsedItems)) {
+          setNotToDo(parsedItems);
+        }
+      } catch (e) {
+        console.error("Failed to parse not-to-do items:", e);
+      }
+    }
+  }, [notToDoNotes]);
+  
+  useEffect(() => {
+    if (completedItemsNotes?.[0]?.content) {
+      try {
+        const parsedItems = JSON.parse(completedItemsNotes[0].content);
+        if (Array.isArray(parsedItems)) {
+          setCompletedItems(parsedItems);
+        }
+      } catch (e) {
+        console.error("Failed to parse completed items:", e);
+      }
+    }
+  }, [completedItemsNotes]);
 
   const editor = useEditor({
     extensions: [
@@ -122,77 +292,174 @@ export function StartupRoutineForm() {
         class: 'min-h-[300px] prose prose-invert max-w-none',
       },
     },
-  });
+    immediatelyRender: false,
+  }, []);
 
-  // Update editor content when journalContent changes
   useEffect(() => {
-    if (editor && editor.getHTML() !== journalContent) {
+    if (editor && editor.getHTML() !== journalContent && journalContent) {
       editor.commands.setContent(journalContent);
     }
   }, [journalContent, editor]);
 
-  // Save entry
-  const saveEntry = () => {
-    const updatedEntry: DailyEntry = {
-      date: todayString,
-      intention,
-      gratitude,
-      exercise,
-      journalName,
-      journalDate,
-      journalContent,
-      notToDo,
-      completedItems,
-    };
+  // Add a mutation for saving not-to-do items and completed items
+  const saveNotToDoMutation = api.note.create.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Saved',
+        message: 'Your not-to-do items have been saved',
+        color: 'green',
+      });
+      if (dayId) {
+        void utils.note.getByDate.invalidate({ date: today, type: 'not-to-do' });
+      }
+    }
+  });
 
-    setDailyEntries((prev: DailyEntries) => ({
-      ...prev,
-      [todayString]: updatedEntry,
-    }));
+  const saveCompletedItemsMutation = api.note.create.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Saved',
+        message: 'Your completed items have been saved',
+        color: 'green',
+      });
+      if (dayId) {
+        void utils.note.getByDate.invalidate({ date: today, type: 'completed-items' });
+      }
+    }
+  });
 
-    notifications.show({
-      title: 'Progress Saved',
-      message: 'Your morning routine has been saved',
-      color: 'green',
-    });
-  };
+  // Update the saveEntry function to save everything to the database
+  const saveEntry = useCallback(() => {
+    // Only save to database if we have a day ID
+    if (dayData && 'id' in dayData) {
+      // Save gratitude
+      if (gratitude.trim()) {
+        createNote.mutate({
+          content: gratitude,
+          type: 'gratitude',
+          dayId: dayData.id,
+        });
+      }
 
-  // Toggle completion of an item
+      // Save journal
+      if (journalContent.trim()) {
+        createNote.mutate({
+          content: journalContent,
+          type: 'journal',
+          title: journalName || 'Daily Journal',
+          dayId: dayData.id,
+        });
+      }
+      
+      // Save not-to-do items
+      if (notToDo.length > 0) {
+        saveNotToDoMutation.mutate({
+          content: JSON.stringify(notToDo),
+          type: 'not-to-do',
+          dayId: dayData.id,
+        });
+      }
+      
+      // Save completed items
+      if (completedItems.length > 0) {
+        saveCompletedItemsMutation.mutate({
+          content: JSON.stringify(completedItems),
+          type: 'completed-items',
+          dayId: dayData.id,
+        });
+      }
+      
+      // Save exercise
+      if (exercise.trim()) {
+        createNote.mutate({
+          content: exercise,
+          type: 'exercise',
+          dayId: dayData.id,
+        });
+      }
+    } else {
+      notifications.show({
+        title: 'Error',
+        message: 'Unable to save entries. Please try again later.',
+        color: 'red',
+      });
+    }
+  }, [
+    gratitude, journalContent, journalName, notToDo, 
+    completedItems, exercise, dayData, createNote,
+    saveNotToDoMutation, saveCompletedItemsMutation
+  ]);
+
+  // Update the toggle completion function to save to the database
   const toggleCompletion = (item: string) => {
     setCompletedItems(prev => {
       const newItems = prev.includes(item)
         ? prev.filter(i => i !== item)
         : [...prev, item];
       
-      // Save immediately when toggling completion
-      const updatedEntry: DailyEntry = {
-        date: todayString,
-        intention,
-        gratitude,
-        exercise,
-        journalName,
-        journalDate,
-        journalContent,
-        notToDo,
-        completedItems: newItems,
-      };
-
-      setDailyEntries((prev: DailyEntries) => ({
-        ...prev,
-        [todayString]: updatedEntry,
-      }));
+      // Save to database if we have a day ID
+      if (dayData && 'id' in dayData) {
+        saveCompletedItemsMutation.mutate({
+          content: JSON.stringify(newItems),
+          type: 'completed-items',
+          dayId: dayData.id,
+        });
+      }
       
       return newItems;
     });
   };
 
-  // Add new not-to-do item
+  // Update the add not-to-do function to save to the database
   const addNotToDo = () => {
     if (newNotToDo.trim()) {
-      setNotToDo((prev: string[]) => [...prev, newNotToDo.trim()]);
+      const updatedItems = [...notToDo, newNotToDo.trim()];
+      setNotToDo(updatedItems);
       setNewNotToDo('');
+      
+      // Save to database if we have a day ID
+      if (dayData && 'id' in dayData) {
+        saveNotToDoMutation.mutate({
+          content: JSON.stringify(updatedItems),
+          type: 'not-to-do',
+          dayId: dayData.id,
+        });
+      }
     }
   };
+
+  // Handler for adding outcomes
+  const handleAddOutcome = useCallback(() => {
+    if (!newOutcome.trim()) return;
+    createOutcome.mutate({
+      description: newOutcome,
+      dueDate: new Date(),
+    });
+  }, [newOutcome, createOutcome]);
+
+  // Add the exercise creation mutation
+  const createUserExercise = api.exercise.createUserExercise.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Exercise Added',
+        message: 'Your exercise has been saved successfully',
+        color: 'green',
+      });
+      if (dayId) {
+        void utils.exercise.getUserExercises.invalidate({ dayId });
+      }
+    }
+  });
+
+  // Handler for adding a user exercise
+  const handleAddExercise = useCallback(() => {
+    if (!exercise.trim() || !dayData?.id) return;
+    
+    createUserExercise.mutate({
+      title: exercise,
+      dayId: dayData.id
+    });
+  }, [exercise, dayData, createUserExercise]);
 
   return (
     <Stack gap="xl">
@@ -234,108 +501,19 @@ export function StartupRoutineForm() {
                 </Text>
 
                 {/* Gratitude Section */}
-                <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
-                  <Stack gap="md">
-                    <Group>
-                      <IconStars className="text-purple-500" size={24} />
-                      <Title order={2} className="text-2xl">
-                        Gratitude
-                      </Title>
-                    </Group>
-                    <Textarea
-                      placeholder="I'm grateful for..."
-                      value={gratitude}
-                      onChange={(e) => setGratitude(e.target.value)}
-                      minRows={3}
-                      size="md"
-                      className="bg-[#262626]"
-                    />
-                  </Stack>
-                </Paper>
+                <GratitudeSection 
+                  dayId={dayData?.id?.toString()}
+                  date={today}
+                />
 
                 {/* Journal Section */}
-                <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
-                  <Stack gap="md">
-                    <Group>
-                      <IconWriting className="text-green-500" size={24} />
-                      <Title order={2} className="text-2xl">
-                        Journal
-                      </Title>
-                    </Group>
-                    <Text c="dimmed">
-                      Paper is more patient than people. Put your thoughts to the test.
-                    </Text>
-                    <RichTextEditor 
-                      editor={editor}
-                      styles={{
-                        root: {
-                          border: '1px solid #373A40',
-                          backgroundColor: '#1E1E1E',
-                        },
-                        toolbar: {
-                          backgroundColor: '#262626',
-                          border: 'none',
-                          borderBottom: '1px solid #373A40',
-                        },
-                        content: {
-                          backgroundColor: '#1E1E1E',
-                          color: '#C1C2C5',
-                          '& .ProseMirror': {
-                            padding: '16px',
-                            minHeight: '300px',
-                          },
-                        },
-                      }}
-                    >
-                      <RichTextEditor.Toolbar sticky stickyOffset={60}>
-                        <RichTextEditor.ControlsGroup>
-                          <RichTextEditor.Bold />
-                          <RichTextEditor.Italic />
-                          <RichTextEditor.Underline />
-                          <RichTextEditor.Strikethrough />
-                          <RichTextEditor.ClearFormatting />
-                          <RichTextEditor.Highlight />
-                          <RichTextEditor.Code />
-                        </RichTextEditor.ControlsGroup>
-
-                        <RichTextEditor.ControlsGroup>
-                          <RichTextEditor.H1 />
-                          <RichTextEditor.H2 />
-                          <RichTextEditor.H3 />
-                          <RichTextEditor.H4 />
-                        </RichTextEditor.ControlsGroup>
-
-                        <RichTextEditor.ControlsGroup>
-                          <RichTextEditor.Blockquote />
-                          <RichTextEditor.Hr />
-                          <RichTextEditor.BulletList />
-                          <RichTextEditor.OrderedList />
-                          <RichTextEditor.Subscript />
-                          <RichTextEditor.Superscript />
-                        </RichTextEditor.ControlsGroup>
-
-                        <RichTextEditor.ControlsGroup>
-                          <RichTextEditor.Link />
-                          <RichTextEditor.Unlink />
-                        </RichTextEditor.ControlsGroup>
-
-                        <RichTextEditor.ControlsGroup>
-                          <RichTextEditor.AlignLeft />
-                          <RichTextEditor.AlignCenter />
-                          <RichTextEditor.AlignJustify />
-                          <RichTextEditor.AlignRight />
-                        </RichTextEditor.ControlsGroup>
-
-                        <RichTextEditor.ControlsGroup>
-                          <RichTextEditor.Undo />
-                          <RichTextEditor.Redo />
-                        </RichTextEditor.ControlsGroup>
-                      </RichTextEditor.Toolbar>
-
-                      <RichTextEditor.Content />
-                    </RichTextEditor>
-                  </Stack>
-                </Paper>
+                <JournalSection 
+                  journalContent={journalContent}
+                  setJournalContent={setJournalContent}
+                  saveJournal={saveEntry}
+                  isSaving={createNote.isPending}
+                  isDisabled={createUserDay.isPending}
+                />
               </Stack>
             </Paper>
           </Accordion.Panel>
@@ -355,94 +533,33 @@ export function StartupRoutineForm() {
                 </Text>
 
                 {/* What would make today great */}
-                <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
-                  <Stack gap="md">
-                    <Group justify="space-between">
-                      <Group>
-                        <IconBulb className="text-yellow-500" size={24} />
-                        <Title order={2} className="text-2xl">
-                          What would make today great?
-                        </Title>
-                      </Group>
-                    </Group>
-                    <Text c="dimmed" size="sm">
-                      What&apos;s one thing you must achieve today?
-                    </Text>
-                    <Group>
-                      <TextInput
-                        placeholder="Enter what you want to achieve today..."
-                        value={newOutcome}
-                        onChange={(e) => setNewOutcome(e.target.value)}
-                        size="md"
-                        className="flex-grow bg-[#262626]"
-                      />
-                      <Button 
-                        onClick={() => {
-                          if (!newOutcome.trim()) return;
-                          createOutcome.mutate({
-                            description: newOutcome,
-                            dueDate: new Date(),
-                          });
-                        }}
-                        loading={createOutcome.isPending}
-                        disabled={!newOutcome.trim()}
-                      >
-                        Add Outcome
-                      </Button>
-                    </Group>
-                  </Stack>
-                </Paper>
+                <OutcomeSection 
+                  newOutcome={newOutcome}
+                  setNewOutcome={setNewOutcome}
+                  addOutcome={handleAddOutcome}
+                  isLoading={createOutcome.isPending}
+                />
 
                 {/* Exercise Section */}
-                <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
-                  <Stack gap="md">
-                    <Group>
-                      <IconList className="text-blue-500" size={24} />
-                      <Title order={2} className="text-2xl">
-                        Exercise
-                      </Title>
-                    </Group>
-                    <TextInput
-                      placeholder="What will you do to nourish your body today?"
-                      value={exercise}
-                      onChange={(e) => setExercise(e.target.value)}
-                      size="md"
-                      className="bg-[#262626]"
-                      rightSectionWidth={42}
-                      rightSection="🏃‍♂️"
-                    />
-                  </Stack>
-                </Paper>
+                <ExerciseSection
+                  exercise={exercise}
+                  setExercise={setExercise}
+                  saveExercise={handleAddExercise}
+                  isSaving={createUserExercise.isPending}
+                  isDisabled={createUserDay.isPending}
+                />
 
                 {/* Not-to-Do List */}
-                {doNotToDo && <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
-                  <Stack gap="md">
-                    <Title order={2} className="text-2xl">Not-to-Do List</Title>
-                    <Text c="dimmed">Things to avoid for a better day</Text>
-                    <Group>
-                      <TextInput
-                        placeholder="Add something to avoid..."
-                        value={newNotToDo}
-                        onChange={(e) => setNewNotToDo(e.target.value)}
-                        size="md"
-                        className="flex-grow bg-[#262626]"
-                      />
-                      <Button onClick={addNotToDo}>Add</Button>
-                    </Group>
-                    <List spacing="sm">
-                      {notToDo.map((item: string, index: number) => (
-                        <List.Item key={index}>
-                          <Checkbox
-                            label={item}
-                            checked={completedItems.includes(`not-to-do-${index}`)}
-                            onChange={() => toggleCompletion(`not-to-do-${index}`)}
-                            className="my-1"
-                          />
-                        </List.Item>
-                      ))}
-                    </List>
-                  </Stack>
-                </Paper>}
+                {doNotToDo && (
+                  <NotToDoSection 
+                    notToDo={notToDo}
+                    newNotToDo={newNotToDo}
+                    setNewNotToDo={setNewNotToDo}
+                    addNotToDo={addNotToDo}
+                    completedItems={completedItems}
+                    toggleCompletion={toggleCompletion}
+                  />
+                )}
 
                 {/* Consider Section - Axioms */}
                 {doConsider && <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
@@ -556,49 +673,37 @@ export function StartupRoutineForm() {
           </Accordion.Control>
           <Accordion.Panel>
             <Paper shadow="sm" p="lg" radius="md" className="bg-[#262626] border border-purple-900/30">
-              <Stack gap="md">
-                <Text c="dimmed" size="sm" className="italic">
-                  Customize your startup routine by enabling or disabling sections to match your needs.
-                </Text>
-                <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
-                  <Stack gap="md">
-                    <Group>
-                      <Checkbox
-                        label="Show Mindset Section"
-                        checked={doMindset}
-                        onChange={(event) => setDoMindset(event.currentTarget.checked)}
-                      />
-                      <Checkbox
-                        label="Show Consider Section"
-                        checked={doConsider}
-                        onChange={(event) => setDoConsider(event.currentTarget.checked)}
-                      />
-                      <Checkbox
-                        label="Show Not-to-Do List"
-                        checked={doNotToDo}
-                        onChange={(event) => setDoNotToDo(event.currentTarget.checked)}
-                      />
-                      <Checkbox
-                        label="Show Important Questions"
-                        checked={doQuestions}
-                        onChange={(event) => setDoQuestions(event.currentTarget.checked)}
-                      />
-                    </Group>
-                  </Stack>
-                </Paper>
-              </Stack>
+              <ConfigurationSection
+                doMindset={doMindset}
+                setDoMindset={setDoMindset}
+                doConsider={doConsider}
+                setDoConsider={setDoConsider}
+                doNotToDo={doNotToDo}
+                setDoNotToDo={setDoNotToDo}
+                doQuestions={doQuestions}
+                setDoQuestions={setDoQuestions}
+              />
             </Paper>
           </Accordion.Panel>
         </Accordion.Item>
       </Accordion>
 
       <Group justify="space-between" className="sticky bottom-0 bg-[#1E1E1E] p-4 rounded-t-lg shadow-lg">
-        <Text size="sm" c="dimmed">
-          Last saved: {new Date().toLocaleTimeString()}
+        <Text size="sm" c="dimmed" component="div">
+          {isDayLoading || !dayData ? (
+            <Group gap="xs"><Loader size="xs" />Creating day record...</Group>
+          ) : (
+            `Last saved: ${new Date().toLocaleTimeString()}`
+          )}
         </Text>
-        <Button onClick={saveEntry} size="lg">
-          Save Progress
-        </Button>
+        <SaveButton 
+          onClick={saveEntry} 
+          loading={createNote.isPending}
+          disabled={createUserDay.isPending}
+          size="lg"
+        >
+          Save All Progress
+        </SaveButton>
       </Group>
     </Stack>
   );

@@ -5,6 +5,8 @@ import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
 import { TodayButton } from "../../_components/TodayButton";
 import { DaysTable } from "../../_components/DaysTable";
+import { api } from "~/trpc/server";
+import { startOfDay } from "date-fns";
 
 export default async function Home() {
   return (
@@ -22,15 +24,25 @@ export default async function Home() {
 
 async function ActionsWrapper() {
   const session = await auth();
+  
+  // Only check for today's record if user is authenticated
+  let todayExists = false;
+  if (session?.user) {
+    // Check if a day record exists for today
+    const today = startOfDay(new Date());
+    const todayRecord = await api.day.getByDate({ date: today });
+    todayExists = !!todayRecord;
+  }
+  
   return session?.user ? (
     <>
       <Actions viewName="today" />
       <div className="flex flex-col gap-6">
-        <TodayButton />
-        <div className="mt-4">
+        {!todayExists && <TodayButton />}
+        {/* <div className="mt-4">
           <h2 className="text-2xl font-semibold mb-4 text-gray-100">Recent Days</h2>
           <DaysTable />
-        </div>
+        </div> */}
       </div>
     </>
   ) : (

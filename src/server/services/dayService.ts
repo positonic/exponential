@@ -101,7 +101,7 @@ export async function getDayByDate({ ctx, input }: { ctx: Context, input: { date
     },
     include: {
       exercises: true,
-      journals: true,
+      notes: true,
       users: true
     }
   });

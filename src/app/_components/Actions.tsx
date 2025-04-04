@@ -7,6 +7,7 @@ import { IconLayoutKanban, IconList } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
+import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
@@ -172,7 +173,17 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
       )}
       {isAlignmentMode && (
         <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-[#262626] border border-indigo-900/30">
-           <CreateOutcomeModal projectId={projectId}>
+           <CreateGoalModal projectId={projectId}>
+              <Button 
+                variant="filled" 
+                color="dark"
+                leftSection="+"
+              >
+                Add Goal
+              </Button>
+            </CreateGoalModal>
+            <br/>
+            <CreateOutcomeModal projectId={projectId}>
             <Button 
               variant="filled" 
               color="dark"
