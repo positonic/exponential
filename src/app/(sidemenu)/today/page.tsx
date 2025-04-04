@@ -4,6 +4,7 @@ import { Actions } from "~/app/_components/Actions";
 import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
 import { TodayButton } from "../../_components/TodayButton";
+import { DaysTable } from "../../_components/DaysTable";
 
 export default async function Home() {
   return (
@@ -24,7 +25,13 @@ async function ActionsWrapper() {
   return session?.user ? (
     <>
       <Actions viewName="today" />
-      <TodayButton />
+      <div className="flex flex-col gap-6">
+        <TodayButton />
+        <div className="mt-4">
+          <h2 className="text-2xl font-semibold mb-4 text-gray-100">Recent Days</h2>
+          <DaysTable />
+        </div>
+      </div>
     </>
   ) : (
     <Welcome />

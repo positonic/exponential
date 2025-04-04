@@ -21,10 +21,9 @@ export function TodayButton() {
     // Navigate immediately
     router.push(`/days/${formattedDate}`);
 
-    // Create record in background
+    // Create record in background - the server will handle week creation/linking
     mutate({
       date: today,
-      weekId: 1, // TODO: Consider how to get the correct weekId dynamically
     });
   };
 

@@ -17,7 +17,6 @@ export const dayRouter = createTRPCRouter({
   createUserDay: protectedProcedure
     .input(z.object({
       date: z.date(),
-      weekId: z.number(),
     }))
     .mutation(createUserDay),
 });

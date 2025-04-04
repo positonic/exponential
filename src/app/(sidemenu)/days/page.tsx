@@ -21,10 +21,9 @@ export default function Days() {
     // Navigate immediately
     router.push(`/days/${formattedDate}`);
     
-    // Create record in background
+    // Create record in background - the server will handle week creation/linking
     mutate({
       date: today,
-      weekId: 1,
     });
   };
 

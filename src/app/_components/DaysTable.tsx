@@ -1,13 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { SegmentedControl, Table, Paper, Group } from '@mantine/core';
+import { SegmentedControl, Table, Paper, Group, Text, Loader } from '@mantine/core';
 import Link from 'next/link';
+import { format, isThisWeek, isThisMonth } from 'date-fns';
+import { api } from '~/trpc/react';
 
 type TimeFilter = 'all' | 'week' | 'month';
 
 export function DaysTable() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
+  
+  // Fetch days from the database
+  const { data: days, isLoading, isError } = api.day.getUserDays.useQuery(undefined, {
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
 
   // Helper function to get the week range string
   const getWeekRange = (date: Date): string => {
@@ -18,24 +26,42 @@ export function DaysTable() {
     return `${start.getDate()} - ${end.getDate()}th of ${end.toLocaleString('default', { month: 'long' })} ${end.getFullYear()}`;
   };
 
-  // Sample data - in a real app, this would come from your database
-  const days = [
-    {
-      id: '1',
-      date: new Date(),
-      name: `${new Date().getDate()}th ${new Date().toLocaleString('default', { month: 'long' })} ${new Date().getFullYear()}`,
-      formattedDate: new Date().toLocaleDateString(),
-      weekRange: getWeekRange(new Date()),
-    },
-    {
-      id: '2',
-      date: new Date(Date.now() - 86400000),
-      name: `${new Date(Date.now() - 86400000).getDate()}th ${new Date(Date.now() - 86400000).toLocaleString('default', { month: 'long' })} ${new Date(Date.now() - 86400000).getFullYear()}`,
-      formattedDate: new Date(Date.now() - 86400000).toLocaleDateString(),
-      weekRange: getWeekRange(new Date(Date.now() - 86400000)),
-    },
-    // Add more days as needed
-  ];
+  // Filter days based on selected time filter
+  const filteredDays = days
+    ? days
+        .filter(day => {
+          const date = new Date(day.date);
+          if (timeFilter === 'week') return isThisWeek(date);
+          if (timeFilter === 'month') return isThisMonth(date);
+          return true; // 'all' filter
+        })
+        // Sort by most recent first
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    : [];
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center py-12">
+        <Loader color="orange" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Paper className="bg-[#262626] p-4">
+        <Text c="dimmed">Error loading days. Please try again later.</Text>
+      </Paper>
+    );
+  }
+
+  if (!filteredDays.length) {
+    return (
+      <Paper className="bg-[#262626] p-4">
+        <Text c="dimmed">No days found. Create your first day by clicking the "Today" button.</Text>
+      </Paper>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -62,21 +88,40 @@ export function DaysTable() {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {days.map((entry) => (
-              <Table.Tr key={entry.id} className="hover:bg-[#2C2E33] cursor-pointer">
-                <Table.Td>
-                  <Link href={`/days/${entry.id}`} className="flex items-center no-underline text-gray-300">
-                    <span className="mr-2">🌻</span>
-                    {entry.name}
-                  </Link>
-                </Table.Td>
-                <Table.Td>{entry.formattedDate}</Table.Td>
-                <Table.Td>{entry.weekRange}</Table.Td>
-              </Table.Tr>
-            ))}
+            {filteredDays.map((day) => {
+              const date = new Date(day.date);
+              const formattedDate = format(date, 'PPP');
+              const dayName = `${date.getDate()}${getDaySuffix(date.getDate())} ${date.toLocaleString('default', { month: 'long' })} ${date.getFullYear()}`;
+              const weekRange = getWeekRange(date);
+              const formattedUrlDate = format(date, 'yyyy-MM-dd');
+              
+              return (
+                <Table.Tr key={day.id} className="hover:bg-[#2C2E33] cursor-pointer">
+                  <Table.Td>
+                    <Link href={`/days/${formattedUrlDate}`} className="flex items-center no-underline text-gray-300">
+                      <span className="mr-2">🌻</span>
+                      {dayName}
+                    </Link>
+                  </Table.Td>
+                  <Table.Td>{formattedDate}</Table.Td>
+                  <Table.Td>{weekRange}</Table.Td>
+                </Table.Tr>
+              );
+            })}
           </Table.Tbody>
         </Table>
       </Paper>
     </div>
   );
+}
+
+// Helper function to get the day suffix (st, nd, rd, th)
+function getDaySuffix(day: number): string {
+  if (day > 3 && day < 21) return 'th';
+  switch (day % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
 } 
