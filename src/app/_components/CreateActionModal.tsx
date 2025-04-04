@@ -67,6 +67,7 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
 
       // Update project if action belongs to one
       if (newAction.projectId) {
+        // Optimistically update the project.getAll list
         utils.project.getAll.setData(undefined, (old) => {
           if (!old) return previousState.projects;
           
@@ -80,6 +81,17 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
                 }
               : project
           );
+        });
+
+        // ---> ADDED: Optimistically update the specific project.getById data <--- 
+        utils.project.getById.setData({ id: newAction.projectId }, (oldProject) => {
+          if (!oldProject) return undefined; // Or handle appropriately if cache might not exist
+          return {
+            ...oldProject,
+            actions: Array.isArray(oldProject.actions)
+              ? [...oldProject.actions, optimisticAction]
+              : [optimisticAction],
+          };
         });
       }
 
@@ -97,16 +109,36 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
     },
 
     onSettled: async (data, error, newAction) => {
-      // Invalidate relevant queries sequentially
-      await utils.project.getAll.invalidate();
-      await utils.action.getAll.invalidate();
-      await utils.action.getProjectActions.invalidate();
-      await utils.action.getToday.invalidate();
+      // Invalidate queries smartly based on the new action and view context
+      const projectId = newAction.projectId;
+      const isTodayAction = newAction.dueDate && 
+                            new Date(newAction.dueDate).toDateString() === new Date().toDateString();
 
-      // Invalidate the specific project query if applicable
-      if (newAction?.projectId) {
-        await utils.project.getById.invalidate({ id: newAction.projectId });
+      console.log(`[CreateActionModal onSettled] Invalidating for view: ${viewName}, newActionId: ${data?.id ?? 'optimistic'}, projectId: ${projectId}, isToday: ${isTodayAction}`);
+
+      const invalidatePromises: Promise<unknown>[] = [];
+
+      // If action belongs to a project, invalidate the actions for that project
+      if (projectId) {
+        invalidatePromises.push(utils.action.getProjectActions.invalidate({ projectId }));
       }
+
+      // Invalidate Today view if relevant
+      if (isTodayAction || viewName.toLowerCase() === 'today') {
+        invalidatePromises.push(utils.action.getToday.invalidate());
+      }
+
+      // Invalidate Inbox/All view if it has no project (or if it's the default view)
+      if (!projectId || viewName.toLowerCase() === 'inbox') {
+          // Assuming 'inbox' relies on action.getAll or a specific inbox query
+         invalidatePromises.push(utils.action.getAll.invalidate());
+      }
+
+      // Avoid invalidating project.getAll unless absolutely necessary
+      // invalidatePromises.push(utils.project.getAll.invalidate()); 
+
+      await Promise.all(invalidatePromises);
+      console.log(`[CreateActionModal onSettled] Invalidations complete for newActionId: ${data?.id ?? 'optimistic'}`);
     },
 
     onSuccess: () => {

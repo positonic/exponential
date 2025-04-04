@@ -70,16 +70,15 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
     
     onSettled: async (data, error, variables) => {
       // Invalidate queries after mutation finishes
-      await utils.action.getAll.invalidate();
-      await utils.action.getToday.invalidate();
-      await utils.action.getProjectActions.invalidate(); // Assuming this exists based on previous context
-
-      // Also invalidate the project query if the action had a projectId
-      // We need to get the action details potentially from the mutation variables or the result
-      const action = data ?? actions.find(a => a.id === variables.id); // Try getting data or find in original list
-      if (action?.projectId) {
-        await utils.project.getById.invalidate({ id: action.projectId });
+      const projectId = data?.projectId;
+      if(viewName.toLowerCase() === 'today') {
+        await utils.action.getToday.invalidate();
+      } else if(projectId) {
+        await utils.action.getProjectActions.invalidate(); // Assuming this exists based on previous context
+      } else {
+        await utils.action.getAll.invalidate();
       }
+
     },
   });
 
