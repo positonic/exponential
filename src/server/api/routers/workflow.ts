@@ -219,7 +219,9 @@ Return your response as a JSON object with:
               name: action.name,
               description: action.description,
               dueDate: new Date(action.dueDate),
-              priority: action.priority.toUpperCase() as "HIGH" | "MEDIUM" | "LOW",
+              priority: action.priority === "High" ? "1st Priority" : 
+                       action.priority === "Medium" ? "2nd Priority" : 
+                       "3rd Priority",
               createdById: ctx.session.user.id,
               status: "ACTIVE",
             }))
