@@ -1,20 +1,23 @@
+// ProductRoadmapSection.tsx
 import React from "react";
-import { Container, Title, Text, SimpleGrid } from "@mantine/core";
+import { Container, Title, Text } from "@mantine/core";
 import { IconClock } from "@tabler/icons-react";
 
 interface RoadmapItemProps {
   title: string;
 }
 
-const RoadmapItem: React.FC<RoadmapItemProps & { children: React.ReactNode }> = ({ 
-  title, 
-  children 
+const RoadmapItem: React.FC<RoadmapItemProps & { children: React.ReactNode }> = ({
+  title,
+  children
 }) => (
   <div className="flex items-start gap-3 mb-6">
     <IconClock size={20} className="text-[#8896c5] mt-0.5 flex-shrink-0" />
     <div>
-      <Text className="text-[rgb(203 213 225 / var(--tw-text-opacity))] text-base font-medium">{title}</Text>
-      {children}
+      <Text className="text-[rgb(203 213 225 / var(--tw-text-opacity))] text-base font-medium">
+        {title}
+      </Text>
+      
     </div>
   </div>
 );
@@ -35,29 +38,13 @@ const RoadmapPhase: React.FC<RoadmapPhaseProps> = ({
   const getStatusStyles = () => {
     switch (status) {
       case 'in-progress':
-        return {
-          bgColor: '#10172A',
-          textColor: '#93C5FD',
-          label: 'In Progress'
-        };
+        return { bgColor: '#10172A', textColor: '#93C5FD', label: 'In Progress' };
       case 'upcoming':
-        return {
-          bgColor: '#10172A',
-          textColor: '#C4B5FD',
-          label: 'Upcoming'
-        };
+        return { bgColor: '#10172A', textColor: '#C4B5FD', label: 'Upcoming' };
       case 'planned':
-        return {
-          bgColor: '#10172A',
-          textColor: '#CBD5E1',
-          label: 'Planned'
-        };
+        return { bgColor: '#10172A', textColor: '#CBD5E1', label: 'Planned' };
       default:
-        return {
-          bgColor: '#1F2937',
-          textColor: '#CBD5E1',
-          label: 'Planned'
-        };
+        return { bgColor: '#1F2937', textColor: '#CBD5E1', label: 'Planned' };
     }
   };
 
@@ -66,8 +53,8 @@ const RoadmapPhase: React.FC<RoadmapPhaseProps> = ({
   return (
     <div className="rounded-xl border border-[rgba(255,255,255,0.1)] bg-[#0f172a] p-8 transition-all duration-300 hover:border-[rgba(255,255,255,0.15)] hover:shadow-lg">
       <div className="flex justify-between items-center mb-6">
-        <div 
-          className="px-3 py-1 rounded-md text-sm font-medium" 
+        <div
+          className="px-3 py-1 rounded-md text-sm font-medium"
           style={{ backgroundColor: bgColor, color: textColor }}
         >
           {label}
@@ -131,21 +118,17 @@ export const ProductRoadmapSection: React.FC = () => {
         'Integrate with founder-focused accelerators and tools'
       ]
     }
-
   ];
 
   return (
     <section className="w-full py-24 bg-[#0e1525]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-16 text-center">
-          <Title 
-            className="text-4xl md:text-5xl font-bold mb-6"
-            style={{ color: "#a78bfa" }}
-          >
+          <Title className="text-4xl md:text-5xl font-bold mb-6" style={{ color: "#a78bfa" }}>
             Product Roadmap
           </Title>
           <p className="text-gray-300 text-lg mb-8 max-w-[60%] mx-auto">
-            Our strategic plan for developing Exponential and bringing self-sovereign software to life.
+            What we&apos;re building to help founders execute better and faster.
           </p>
         </div>
 
@@ -163,4 +146,4 @@ export const ProductRoadmapSection: React.FC = () => {
       </div>
     </section>
   );
-}; 
+};

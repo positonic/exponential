@@ -68,7 +68,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
       utils.action.getToday.setData(undefined, context.todayActions);
     },
     
-    onSettled: async (data, error, variables) => {
+    onSettled: async (data) => {
       // Invalidate queries after mutation finishes
       const projectId = data?.projectId;
       if(viewName.toLowerCase() === 'today') {

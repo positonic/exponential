@@ -1,12 +1,7 @@
+// ValuePropositionSection.tsx
 import React from "react";
-import { Container, Group, Title, Text } from "@mantine/core";
-import { 
-  IconBolt, 
-  IconMedal, 
-  IconUsers, 
-  IconCode 
-} from "@tabler/icons-react";
-import { IconCheck } from "@tabler/icons-react";
+import { Container, Title, Text } from "@mantine/core";
+import { IconRocket, IconUsers, IconCode } from "@tabler/icons-react";
 
 interface FeatureDetailCardProps {
   icon: React.ReactNode;
@@ -23,8 +18,10 @@ const FeatureDetailCard: React.FC<FeatureDetailCardProps> = ({
   title,
   description
 }) => (
-  <div className="rounded-xl border border-[rgba(255,255,255,0.1)] p-8 transition-all duration-300 hover:border-[rgba(255,255,255,0.15)] hover:shadow-lg" 
-    style={{ backgroundColor: iconBgColor }}>
+  <div
+    className="rounded-xl border border-[rgba(255,255,255,0.1)] p-8 transition-all duration-300 hover:border-[rgba(255,255,255,0.15)] hover:shadow-lg"
+    style={{ backgroundColor: iconBgColor }}
+  >
     <div className="mb-6" style={{ color: iconColor }}>
       {icon}
     </div>
@@ -33,51 +30,35 @@ const FeatureDetailCard: React.FC<FeatureDetailCardProps> = ({
   </div>
 );
 
-const BenefitItem: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="flex items-start gap-3 mb-4">
-    <IconCheck size={20} className="text-emerald-500 mt-0.5 flex-shrink-0" />
-    <Text className="text-[#cbd5e1] text-lg">{children}</Text>
-  </div>
-);
-
 export const ValuePropositionSection: React.FC = () => {
   const benefits = [
-    "Open-source sustainability",
-    "Fair compensation for contributions",
+    "Solo-founder focused",
+    "Product execution mastery",
     "Human-AI collaboration",
-    "Decentralized funding for innovation",
-    "Rewarding early contributors",
-    "Enabling self-sovereign software development"
+    "Idea to launch acceleration"
   ];
 
   const features = [
     {
-      icon: <IconBolt size={32} stroke={1.5} />,
-      iconColor: "#c4b5fd", // Light purple
-      iconBgColor: "#170F24", // Dark purple background
-      title: "HyperFund Mechanism",
-      description: "Stake HyperCerts to earn governance tokens and participate in project funding decisions."
-    },
-    {
-      icon: <IconMedal size={32} stroke={1.5} />,
-      iconColor: "#93c5fd", // Light blue
-      iconBgColor: "#0F1224", // Dark blue background
-      title: "Impact Evaluation",
-      description: "Proof of ship with SolEng integration to evaluate and reward contributions fairly."
+      icon: <IconRocket size={32} stroke={1.5} />,
+      iconColor: "#fcd34d",
+      iconBgColor: "#170F24",
+      title: "Execution Acceleration",
+      description: "Focus on shipping — AI guides your planning, task breakdown, and iteration."
     },
     {
       icon: <IconUsers size={32} stroke={1.5} />,
-      iconColor: "#c4b5fd", // Light purple
-      iconBgColor: "#151E31", // Dark purple background
-      title: "AI Project Manager",
-      description: "Intelligent coordination of tasks and resources to optimize project workflows."
+      iconColor: "#93c5fd",
+      iconBgColor: "#0F1224",
+      title: "AI Partner for Founders",
+      description: "Work hand-in-hand with an intelligent assistant that helps organize your ideas and actions."
     },
     {
       icon: <IconCode size={32} stroke={1.5} />,
-      iconColor: "#6ee7b7", // Light green
-      iconBgColor: "#172033", // Dark green background
-      title: "GitHub Integration",
-      description: "Seamless connection with existing repositories for issue tracking and milestone setting."
+      iconColor: "#6ee7b7",
+      iconBgColor: "#172033",
+      title: "Seamless GitHub Integration",
+      description: "Automatically syncs with your issues, milestones, and repositories."
     }
   ];
 
@@ -88,29 +69,41 @@ export const ValuePropositionSection: React.FC = () => {
           <div className="flex flex-col justify-center">
             <div className="mb-6">
               <span className="px-4 py-2 bg-[#1e293b] rounded-full text-[#a78bfa] text-sm font-medium">
-                Value Proposition
+                Why Use Exponential?
               </span>
             </div>
-            
-            <Title
-              className="text-4xl md:text-5xl font-bold mb-6 text-white pb-4"
-            >
-              The Platform Where Self-Sovereign Software Development Thrives
+
+            <Title className="text-4xl md:text-5xl font-bold mb-6 text-white pb-4">
+              Your AI-Powered Product Execution Engine
             </Title>
-            
-            <Text 
-              className="text-[#cbd5e1] text-xl mb-12 leading-relaxed"
-            >
-              Exponential enables projects to find early funding, attract non-financial contributors, and fairly compensate open-source developers based on their relative contributions.
+
+            <Text className="text-[#cbd5e1] text-xl mb-12 leading-relaxed">
+              Whether you&apos;re prototyping a side project or launching a startup solo, Exponential helps you stay focused, move faster, and build smarter — with the power of AI.
             </Text>
 
             <div className="space-y-3 mt-4">
               {benefits.map((benefit, index) => (
                 <div key={index} className="flex items-start mb-3">
                   <div className="text-[#10b981] mr-3 mt-1 flex-shrink-0">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M7.5 12L10.5 15L16.5 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" strokeWidth="2"/>
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M7.5 12L10.5 15L16.5 9"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      />
                     </svg>
                   </div>
                   <span className="text-[#cbd5e1]">{benefit}</span>
@@ -119,7 +112,6 @@ export const ValuePropositionSection: React.FC = () => {
             </div>
           </div>
 
-          {/* Right column - Feature cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {features.map((feature, index) => (
               <FeatureDetailCard
@@ -138,4 +130,4 @@ export const ValuePropositionSection: React.FC = () => {
   );
 };
 
-export default ValuePropositionSection; 
+export default ValuePropositionSection;
