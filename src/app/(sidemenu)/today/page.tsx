@@ -4,10 +4,9 @@ import { Actions } from "~/app/_components/Actions";
 import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
 import { TodayButton } from "../../_components/TodayButton";
-import { DaysTable } from "../../_components/DaysTable";
 import { api } from "~/trpc/server";
-import { startOfDay } from "date-fns";
-
+import { startOfDay, format } from "date-fns";
+import Link from "next/link";
 export default async function Home() {
   return (
     <HydrateClient>
@@ -25,20 +24,32 @@ export default async function Home() {
 async function ActionsWrapper() {
   const session = await auth();
   
-  // Only check for today's record if user is authenticated
+  // Declare todayRecord in the outer scope
+  let todayRecord = null; // Or provide a more specific type if known, e.g., Awaited<ReturnType<typeof api.day.getByDate>> | null
   let todayExists = false;
+
+  // Only check for today's record if user is authenticated
   if (session?.user) {
     // Check if a day record exists for today
     const today = startOfDay(new Date());
-    const todayRecord = await api.day.getByDate({ date: today });
+    console.log("today", today);
+    // Assign the value inside the block
+    todayRecord = await api.day.getByDate({ date: today });
+    console.log("todayRecord", todayRecord);
     todayExists = !!todayRecord;
   }
   
   return session?.user ? (
     <>
       <Actions viewName="today" />
-      <div className="flex flex-col gap-6">
+      <div className="w-full max-w-3xl mx-auto">
         {!todayExists && <TodayButton />}
+        {/* Now todayRecord is accessible here and we use the formatted date for the link */}
+        {todayExists && todayRecord && todayRecord.date && (
+          <Link href={`/days/${format(todayRecord.date, 'yyyy-MM-dd')}`} className="text-blue-500">
+            Diverge, Converge, Synthesize
+          </Link>
+        )}
         {/* <div className="mt-4">
           <h2 className="text-2xl font-semibold mb-4 text-gray-100">Recent Days</h2>
           <DaysTable />

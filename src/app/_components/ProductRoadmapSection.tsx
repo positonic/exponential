@@ -101,39 +101,37 @@ export const ProductRoadmapSection: React.FC = () => {
     {
       status: 'in-progress',
       timeline: '3 months',
-      title: 'Phase 1: MVP Development',
+      title: 'Phase 1: MVP for Solo Founders',
       items: [
         'GitHub integration for issue tracking and milestone setting',
-        'AI-driven project estimation and roadmap tracking',
-        'HyperCert staking and governance token integration',
-        'Integrated with Github',
-        'AI project manager'
+        'AI-driven task breakdown and prioritization',
+        'Launch AI project manager with Slack-style chat interface',
+        'Core planner + execution layer working end-to-end'
       ]
     },
     {
       status: 'upcoming',
       timeline: '6 months',
-      title: 'Phase 2: Advanced Features',
+      title: 'Phase 2: Deep Execution & Feedback',
       items: [
-        'AI-powered contribution evaluation',
-        'Payment distribution mechanism for open-source developers',
-        'Expansion of human/AI team functionalities',
-        'Impact Evaluation & Feedback Loop',
-        'Return Software revenue to Open Source developers'
+        'Progress visualization and burn-down charts',
+        'Feedback-driven AI iteration engine',
+        'Automated weekly planning and retrospectives',
+        'Launch guided project templates for founders'
       ]
     },
     {
       status: 'planned',
-      timeline: '2+ years',
-      title: 'Phase 3: Ecosystem Expansion',
+      timeline: '1 year+',
+      title: 'Phase 3: Platform Scale',
       items: [
-        'Scaling integrations to broader open-source communities',
-        'Partnering with funding platforms and grant programs',
-        'Position as the "Virtual, scalable next-gen VC" for open-source',
-        'Fully integrate payment rails and contribution-based compensation',
-        'Expand adoption to major open-source communities'
+        'Multi-project workspace view',
+        'Built-in mentor/peer feedback loops',
+        'Marketplace for AI playbooks and workflows',
+        'Integrate with founder-focused accelerators and tools'
       ]
     }
+
   ];
 
   return (
