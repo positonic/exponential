@@ -10,6 +10,7 @@ import { themes, type ValidDomain } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { mantineThemes } from '~/config/themes';
 import { ModalsProvider } from '@mantine/modals';
+import { Analytics } from '@vercel/analytics/next';
 
 const domain = getThemeDomain();
 
@@ -41,6 +42,7 @@ export default async function HomeLayout({
               <ModalsProvider>
                 <Notifications position="top-right" />
                 {children}
+                <Analytics />
               </ModalsProvider>
             </MantineProvider>
           </TRPCReactProvider>
