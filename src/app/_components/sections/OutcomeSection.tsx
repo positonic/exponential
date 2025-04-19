@@ -20,6 +20,14 @@ export const OutcomeSection = memo(({
   return (
     <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
       <Stack gap="md">
+      <Group justify="space-between">
+          {/* <Group>
+            <IconBulb className="text-yellow-500" size={24} />
+            <Title order={2} className="text-2xl">
+              What's the theme of today?
+            </Title>
+          </Group> */}
+        </Group>
         <Group justify="space-between">
           <Group>
             <IconBulb className="text-yellow-500" size={24} />

@@ -16,6 +16,10 @@ interface FeatureCardProps {
   description: string;
 }
 
+interface FeaturesSectionProps {
+  id?: string; 
+}
+
 const FeatureCard: React.FC<FeatureCardProps> = ({
   icon,
   iconColor,
@@ -31,7 +35,7 @@ const FeatureCard: React.FC<FeatureCardProps> = ({
   </div>
 );
 
-export const FeaturesSection: React.FC = () => {
+export const FeaturesSection: React.FC<FeaturesSectionProps> = ({ id }) => {
   // Feature data
   const features: FeatureCardProps[] = [
     {
@@ -73,7 +77,7 @@ export const FeaturesSection: React.FC = () => {
   ];
 
   return (
-    <section className="py-24 w-full bg-[#0e1525]">
+    <section id={id} className="py-24 w-full bg-[#0e1525]">
       <Container size="lg">
         <div className="mb-16 text-center">
           <Title 

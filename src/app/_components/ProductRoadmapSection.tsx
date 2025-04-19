@@ -29,6 +29,10 @@ interface RoadmapPhaseProps {
   items: string[];
 }
 
+interface ProductRoadmapSectionProps {
+  id?: string;
+}
+
 const RoadmapPhase: React.FC<RoadmapPhaseProps> = ({
   status,
   timeline,
@@ -83,7 +87,7 @@ const RoadmapPhase: React.FC<RoadmapPhaseProps> = ({
   );
 };
 
-export const ProductRoadmapSection: React.FC = () => {
+export const ProductRoadmapSection: React.FC<ProductRoadmapSectionProps> = ({ id }) => {
   const phases: RoadmapPhaseProps[] = [
     {
       status: 'in-progress',
@@ -121,7 +125,7 @@ export const ProductRoadmapSection: React.FC = () => {
   ];
 
   return (
-    <section className="w-full py-24 bg-[#0e1525]">
+    <section id={id} className="w-full py-24 bg-[#0e1525]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-16 text-center">
           <Title className="text-4xl md:text-5xl font-bold mb-6" style={{ color: "#a78bfa" }}>

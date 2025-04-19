@@ -30,7 +30,13 @@ const FeatureDetailCard: React.FC<FeatureDetailCardProps> = ({
   </div>
 );
 
-export const ValuePropositionSection: React.FC = () => {
+// Add id prop to the component props interface
+interface ValuePropositionSectionProps {
+  id?: string;
+}
+
+// Update component definition to use the new props interface and accept the id prop
+export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = ({ id }) => {
   const benefits = [
     "Solo-founder focused",
     "Product execution mastery",
@@ -62,8 +68,9 @@ export const ValuePropositionSection: React.FC = () => {
     }
   ];
 
+  // Pass the id prop to the root section element
   return (
-    <section className="w-full py-24 bg-[#1E293B]">
+    <section id={id} className="w-full py-24 bg-[#1E293B]">
       <div className="max-w-[1400px] mx-auto px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
           <div className="flex flex-col justify-center">

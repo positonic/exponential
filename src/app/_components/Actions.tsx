@@ -105,8 +105,13 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
       {isAlignmentMode && (
         <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-[#262626] border border-blue-900/30">
           <Stack gap="md">
+          <Group>
+            <Title order={2} className="text-2xl">
+              Today's theme is ...
+            </Title>
+          </Group>
             <Title order={2} className="text-xl bg-gradient-to-r from-blue-500 to-cyan-500 bg-clip-text text-transparent">
-              What would make today great?
+              What will make today great?
             </Title>
             <Stack gap="xs">
               {todayOutcomes?.map((outcome) => (

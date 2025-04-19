@@ -14,7 +14,7 @@ import {
   List,
   Loader,
 } from "@mantine/core";
-import { IconBulb, IconWriting, IconStars, IconList, IconSettings } from "@tabler/icons-react";
+import { IconBulb, IconWriting, IconStars, IconList, IconSettings, IconArrowRight } from "@tabler/icons-react";
 import { notifications } from '@mantine/notifications';
 import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { RichTextEditor, Link } from '@mantine/tiptap';
@@ -469,7 +469,7 @@ export function StartupRoutineForm() {
   return (
     <Stack gap="xl">
       <Accordion 
-        defaultValue={["diverge", "converge", "winddown", "configure"]} 
+        defaultValue={["converge", "winddown", "configure"]}
         multiple 
         variant="filled"
         styles={{
@@ -492,38 +492,7 @@ export function StartupRoutineForm() {
           },
         }}
       >
-        <Accordion.Item value="diverge">
-          <Accordion.Control>
-            <Title order={2} className="text-2xl bg-gradient-to-r from-yellow-500 to-amber-500 bg-clip-text text-transparent">
-              Diverge
-            </Title>
-          </Accordion.Control>
-          <Accordion.Panel>
-            <Paper shadow="sm" p="lg" radius="md" className="bg-[#262626] border border-yellow-900/30">
-              <Stack gap="md">
-                <Text c="dimmed" size="sm" className="italic">
-                  Expand your thinking—generate ideas freely without judgment. Let your mind explore possibilities and capture all thoughts, whether they seem practical or not.
-                </Text>
-
-                
-                {/* Gratitude Section */}
-                <GratitudeOnlySection 
-                  dayId={dayData?.id?.toString()}
-                  date={today}
-                />
-
-                {/* Journal Section */}
-                <JournalSection 
-                  journalContent={journalContent}
-                  setJournalContent={setJournalContent}
-                  saveJournal={saveEntry}
-                  isSaving={createNote.isPending}
-                  isDisabled={createUserDay.isPending}
-                />
-              </Stack>
-            </Paper>
-          </Accordion.Panel>
-        </Accordion.Item>
+        
 
         <Accordion.Item value="converge">
           <Accordion.Control>
@@ -534,10 +503,6 @@ export function StartupRoutineForm() {
           <Accordion.Panel>
             <Paper shadow="sm" p="lg" radius="md" className="bg-[#262626] border border-blue-900/30">
               <Stack gap="md">
-                <Text c="dimmed" size="sm" className="italic">
-                  Focus and prioritize—transform your ideas into actionable steps. Define what matters most and create clear intentions for your day.
-                </Text>
-
                 {/* What would make today great */}
                 <OutcomeSection 
                   newOutcome={newOutcome}
@@ -652,7 +617,38 @@ export function StartupRoutineForm() {
             </Paper>
           </Accordion.Panel>
         </Accordion.Item>
+        <Accordion.Item value="diverge">
+          <Accordion.Control>
+            <Title order={2} className="text-2xl bg-gradient-to-r from-yellow-500 to-amber-500 bg-clip-text text-transparent">
+              Diverge
+            </Title>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Paper shadow="sm" p="lg" radius="md" className="bg-[#262626] border border-yellow-900/30">
+              <Stack gap="md">
+                <Text c="dimmed" size="sm" className="italic">
+                  Expand your thinking—generate ideas freely without judgment. Let your mind explore possibilities and capture all thoughts, whether they seem practical or not.
+                </Text>
 
+                
+                {/* Gratitude Section */}
+                <GratitudeOnlySection 
+                  dayId={dayData?.id?.toString()}
+                  date={today}
+                />
+
+                {/* Journal Section */}
+                <JournalSection 
+                  journalContent={journalContent}
+                  setJournalContent={setJournalContent}
+                  saveJournal={saveEntry}
+                  isSaving={createNote.isPending}
+                  isDisabled={createUserDay.isPending}
+                />
+              </Stack>
+            </Paper>
+          </Accordion.Panel>
+        </Accordion.Item>
         {/* Wind Down Section */}
         <Accordion.Item value="winddown">
           <Accordion.Control>

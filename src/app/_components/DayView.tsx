@@ -2,7 +2,7 @@
 
 import { Container, Title, Paper, Stack, Group, Button } from '@mantine/core';
 import { useRouter } from 'next/navigation';
-import { IconArrowLeft } from '@tabler/icons-react';
+import { IconArrowLeft, IconArrowRight } from '@tabler/icons-react';
 import { type Day } from "@prisma/client";
 import { StartupRoutineForm } from './StartupRoutineForm';
 interface DayViewProps {
@@ -19,13 +19,20 @@ export function DayView({ day }: DayViewProps) {
   return (
     <Container size="md" className="py-8">
       <Stack gap="lg">
-        <Group>
+        <Group justify="space-between">
           <Button 
             variant="subtle" 
             leftSection={<IconArrowLeft size={16} />}
             onClick={() => router.back()}
           >
             Back to Days
+          </Button>
+          <Button 
+            variant="subtle" 
+            rightSection={<IconArrowRight size={16} />} 
+            onClick={() => router.push('/today')}
+          >
+            Today's Actions
           </Button>
         </Group>
 

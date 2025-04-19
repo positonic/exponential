@@ -5,8 +5,12 @@ import { ThemeToggle } from '~/app/_components/ThemeToggle';
 import { FeaturesSection } from '~/app/_components/FeaturesSection';
 import { ValuePropositionSection } from '~/app/_components/ValuePropositionSection';
 import { ProductRoadmapSection } from '~/app/_components/ProductRoadmapSection';
+import { auth } from "~/server/auth";
+import { HeaderAuthButtons } from "~/app/_components/HeaderAuthButtons";
 
-export default function Home() {
+export default async function Home() {
+  const session = await auth();
+
   return (
     <div className="min-h-screen bg-[#0e1525] text-white">
       {/* Navigation */}
@@ -20,13 +24,13 @@ export default function Home() {
 
         <nav className="hidden md:flex items-center space-x-8">
           <a href="#" className="text-purple-400 hover:text-white transition-colors">Home</a>
-          <a href="#" className="text-purple-400 hover:text-white transition-colors">Features</a>
-          <a href="#" className="text-purple-400 hover:text-white transition-colors">Roadmap</a>
-          <a href="#" className="text-purple-400 hover:text-white transition-colors">Dashboard</a>
+          <a href="#features" className="text-purple-400 hover:text-white transition-colors">What</a>
+          <a href="#why" className="text-purple-400 hover:text-white transition-colors">Why</a>
+          <a href="#roadmap" className="text-purple-400 hover:text-white transition-colors">How</a>
         </nav>
 
         <div className="flex items-center gap-2">
-          <GetStartedButton size="small" />
+          <HeaderAuthButtons session={session} />
           <ThemeToggle />
         </div>
       </header>
@@ -69,7 +73,7 @@ export default function Home() {
                   icon: <IconUsers size={36} stroke={1.5} />,
                   iconBg: '#1E3A8A',
                   iconColor: '#90CDF4',
-                  title: 'Solo Doesn’t Mean Alone',
+                  title: "Solo Doesn't Mean Alone",
                   description: 'Work with your AI partner to build, track, and execute faster.'
                 },
                 {
@@ -95,13 +99,13 @@ export default function Home() {
         </div>
 
         {/* Features Section */}
-        <FeaturesSection />
+        <FeaturesSection id="features" />
 
         {/* Value Proposition Section */}
-        <ValuePropositionSection />
+        <ValuePropositionSection id="why"/>
 
         {/* Product Roadmap Section */}
-        <ProductRoadmapSection />
+        <ProductRoadmapSection id="roadmap" />
       </main>
     </div>
   );
