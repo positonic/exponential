@@ -107,7 +107,7 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
           <Stack gap="md">
           <Group>
             <Title order={2} className="text-2xl">
-              Today's theme is ...
+              Today&apos;s theme is ...
             </Title>
           </Group>
             <Title order={2} className="text-xl bg-gradient-to-r from-blue-500 to-cyan-500 bg-clip-text text-transparent">

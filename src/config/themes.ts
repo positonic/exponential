@@ -55,7 +55,7 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
   },
   'exponential.im': {
     name: 'Exponential.im',
-    logo: '📈',
+    logo: '/exponential-logo-image.jpg',
     fontFamily: 'Orbitron, sans-serif',
     colors: {
         primary: 'from-blue-400 to-purple-600',

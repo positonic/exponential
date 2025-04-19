@@ -11,7 +11,7 @@ export default async function Layout({ children, domain, showSidebar = true }: P
   if (!session?.user) {
     return (
       <div className="min-h-screen bg-[#262626] text-white">
-        <Header title={themes[domain].logo + ' ' + themes[domain].name} />
+        <Header />
         <main className="pt-16">
           {children}
         </main>

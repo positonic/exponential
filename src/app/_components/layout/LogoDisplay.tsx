@@ -1,6 +1,7 @@
 'use client'; // May be needed if onClick is used, keep it for safety
 
 import Link from 'next/link';
+import Image from 'next/image'; // Import Next.js Image component
 import { type ThemeConfig } from '~/config/themes';
 
 interface LogoDisplayProps {
@@ -14,10 +15,24 @@ export function LogoDisplay({ theme, href, onClick, className }: LogoDisplayProp
   // Base classes for the container (now without text color/gradient)
   const containerClasses = `flex items-center`; 
   
+  // Determine if the logo is an image path or an emoji
+  const isImagePath = theme.logo.includes('/');
+
+  const logoElement = isImagePath ? (
+    <Image 
+      src={theme.logo} 
+      alt={`${theme.name} logo`} 
+      width={32} // Constrained size
+      height={32} // Constrained size
+      className="mr-2 object-contain" // Margin and contain object fit
+    />
+  ) : (
+    <span className="text-xl text-white mr-2">{theme.logo}</span> 
+  );
+
   const content = (
     <>
-      {/* Logo with fixed size and white color */}
-      <span className="text-2xl text-white mr-2">{theme.logo}</span> 
+      {logoElement} {/* Render the conditional logo element */}
       {/* Text with Orbitron font, white color, and size controlled by className */}
       <span 
         className={`font-bold text-white ${className || 'text-xl'}`.trim()} 

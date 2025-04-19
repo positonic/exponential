@@ -54,7 +54,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
               theme={theme} 
               href="/" 
               onClick={() => setIsMenuOpen(false)}
-              className="text-2xl"
+              className="text"
             />
             
             {/* Close button */}
