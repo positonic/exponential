@@ -6,6 +6,7 @@ import { SidebarContent } from "./SidebarContent";
 import { IconMenu2, IconX } from "@tabler/icons-react";
 import { useState } from 'react';
 import { themes, type ValidDomain } from "~/config/themes";
+import { LogoDisplay } from "./LogoDisplay";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
   const [isMenuOpen, setIsMenuOpen] = useState(true); // Default to open on desktop
@@ -49,11 +50,12 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         <nav className="flex-grow space-y-6 mt-12 lg:mt-0">
           {/* Header with logo and close button - make it sticky */}
           <div className="sticky top-0 bg-[#262626] -mt-4 -mx-4 px-4 py-4 mb-4 flex items-center justify-between">
-            <Link href="/" 
+            <LogoDisplay 
+              theme={theme} 
+              href="/" 
               onClick={() => setIsMenuOpen(false)}
-              className={`text-2xl font-bold bg-gradient-to-r ${theme.colors.primary} bg-clip-text text-transparent`}>
-              {theme.logo} {theme.name}
-            </Link>
+              className="text-2xl"
+            />
             
             {/* Close button */}
             <button

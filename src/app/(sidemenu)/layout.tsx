@@ -31,6 +31,11 @@ export default async function RootLayout({
 
   return (
     <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full`}>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400..900&display=swap" rel="stylesheet" />
+      </head>
       <body className={`h-full ${themes[domain].colors.background.main}`}>
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>

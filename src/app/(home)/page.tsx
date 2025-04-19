@@ -7,19 +7,21 @@ import { ValuePropositionSection } from '~/app/_components/ValuePropositionSecti
 import { ProductRoadmapSection } from '~/app/_components/ProductRoadmapSection';
 import { auth } from "~/server/auth";
 import { HeaderAuthButtons } from "~/app/_components/HeaderAuthButtons";
+import { LogoDisplay } from "~/app/_components/layout/LogoDisplay";
+import { themes } from "~/config/themes";
+import { getThemeDomain } from '~/config/site';
 
 export default async function Home() {
   const session = await auth();
+  const domain = getThemeDomain();
+  const theme = themes[domain];
 
   return (
     <div className="min-h-screen bg-[#0e1525] text-white">
       {/* Navigation */}
       <header className="relative z-10 flex justify-between items-center py-6 px-8 border-b" style={{ borderBottomColor: '#242b3d' }}>
         <div className="flex items-center">
-          <div className="bg-purple-600 w-10 h-10 rounded-md flex items-center justify-center text-white font-bold text-xl">
-            E
-          </div>
-          <span className="text-xl ml-2 font-bold text-white">Exponential.im</span>
+          <LogoDisplay theme={theme} href="/" className="text-xl" />
         </div>
 
         <nav className="hidden md:flex items-center space-x-8">

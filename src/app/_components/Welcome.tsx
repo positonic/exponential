@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Button, Title, Text, Container, Stack } from '@mantine/core';
 import { useTheme } from '~/providers/ThemeProvider';
+import { LogoDisplay } from './layout/LogoDisplay';
 
 export function Welcome() {
   const theme = useTheme();
@@ -10,12 +11,7 @@ export function Welcome() {
   return (
     <Container size="md" className="h-screen flex items-center justify-center">
       <Stack align="center" gap="xl">
-        <Title 
-          order={1} 
-          className={`text-5xl font-bold bg-gradient-to-r ${theme.colors.primary} bg-clip-text text-transparent`}
-        >
-          {theme.logo} {theme.branding.title}
-        </Title>
+        <LogoDisplay theme={theme} className="text-5xl" />
         <Text c="dimmed" size="xl" ta="center" className="max-w-lg">
           {theme.branding.description}
         </Text>

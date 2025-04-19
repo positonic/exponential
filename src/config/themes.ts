@@ -5,6 +5,7 @@ export type ValidDomain = 'forceflow.com' | 'exponential.im';
 export type ThemeConfig = {
   name: string;
   logo: string;
+  fontFamily?: string;
   colors: {
     primary: string;
     secondary: string;
@@ -31,6 +32,7 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
   'forceflow.com': {
     name: 'Force Flow',
     logo: '🧘‍♂️',
+    fontFamily: 'Orbitron, sans-serif',
     colors: {
       primary: 'from-blue-400 to-purple-600',
       secondary: 'from-blue-500 to-purple-600',
@@ -52,8 +54,9 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
     }
   },
   'exponential.im': {
-    name: 'Exponential',
+    name: 'Exponential.im',
     logo: '📈',
+    fontFamily: 'Orbitron, sans-serif',
     colors: {
         primary: 'from-blue-400 to-purple-600',
         secondary: 'from-blue-500 to-purple-600',
