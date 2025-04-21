@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { Actions } from "./Actions";
 import ProjectDetails from "./ProjectDetails";
-import Chat from "./Chat";
+//import Chat from "./Chat";
+import ManyChat from "./ManyChat";
 import { Team } from "./Team";
 import { Plan } from "./Plan";
 import { GoalsTable } from "./GoalsTable";
@@ -39,7 +40,6 @@ type TabValue =
   | "outcomes"
   | "timeline"
   | "team"
-  | "chat"
   | "settings"
   | "workflows";
 
@@ -106,13 +106,9 @@ export function ProjectContent({
           </Tabs.Tab>
           <Tabs.Tab value="plan" leftSection={<IconClipboardList size={16} />}>
             Plan
-          </Tabs.Tab>
-          
+          </Tabs.Tab>          
           <Tabs.Tab value="team" leftSection={<IconUsers size={16} />}>
             Team
-          </Tabs.Tab>
-          <Tabs.Tab value="chat" leftSection={<IconMessageCircle size={16} />}>
-            Chat
           </Tabs.Tab>
           <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
             Settings
@@ -164,11 +160,10 @@ export function ProjectContent({
 
         <Tabs.Panel value="team">
           <Team projectId={projectId} />
-        </Tabs.Panel>
-
-        <Tabs.Panel value="chat">
-          <div className="mx-auto w-full max-w-3xl">
-            <Chat />
+          <div className="mx-auto mt-8 w-full max-w-3xl">
+            <Title order={4} mb="md">Project Chat</Title>
+            {/* <Chat /> */}
+            <ManyChat />
           </div>
         </Tabs.Panel>
 
