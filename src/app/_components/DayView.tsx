@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { IconArrowLeft, IconArrowRight } from '@tabler/icons-react';
 import { type Day } from "@prisma/client";
 import { StartupRoutineForm } from './StartupRoutineForm';
+
 interface DayViewProps {
   day: Day & {
     exercises: any[];

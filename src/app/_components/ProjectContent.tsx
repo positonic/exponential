@@ -1,28 +1,60 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { Actions } from './Actions';
-import ProjectDetails from './ProjectDetails';
-import Chat from './Chat';
-import { Team } from './Team';
-import { Plan } from './Plan';
-import { Group, Tabs, SegmentedControl, Title, Paper, Stack, Text, Box } from '@mantine/core';
+import { useState } from "react";
+import { Actions } from "./Actions";
+import ProjectDetails from "./ProjectDetails";
+import Chat from "./Chat";
+import { Team } from "./Team";
+import { Plan } from "./Plan";
+import { GoalsTable } from "./GoalsTable";
+import { OutcomesTable } from "./OutcomesTable";
+import { OutcomeTimeline } from "./OutcomeTimeline";
+import {
+  Group,
+  Tabs,
+  SegmentedControl,
+  Title,
+  Paper,
+  Stack,
+  Text,
+  Box,
+} from "@mantine/core";
 import { api } from "~/trpc/react";
-import { 
-  IconLayoutKanban, 
-  IconSettings, 
+import {
+  IconLayoutKanban,
+  IconSettings,
   IconUsers,
   IconMessageCircle,
-  IconClipboardList
-} from '@tabler/icons-react';
+  IconClipboardList,
+  IconTargetArrow,
+  IconActivity,
+  IconClock,
+} from "@tabler/icons-react";
 
-type TaskView = 'list' | 'alignment';
-type TabValue = 'tasks' | 'team' | 'chat' | 'settings' | 'plan' | 'workflows';
+type TaskView = "list" | "alignment";
+type TabValue =
+  | "tasks"
+  | "plan"
+  | "goals"
+  | "outcomes"
+  | "timeline"
+  | "team"
+  | "chat"
+  | "settings"
+  | "workflows";
 
-export function ProjectContent({ viewName, projectId }: { viewName: string, projectId: string }) {
-  const [activeTab, setActiveTab] = useState<TabValue>('tasks');
-  const [taskView, setTaskView] = useState<TaskView>('list');
-  const { data: project, isLoading } = api.project.getById.useQuery({ id: projectId });
+export function ProjectContent({
+  viewName,
+  projectId,
+}: {
+  viewName: string;
+  projectId: string;
+}) {
+  const [activeTab, setActiveTab] = useState<TabValue>("tasks");
+  const [taskView, setTaskView] = useState<TaskView>("list");
+  const { data: project, isLoading } = api.project.getById.useQuery({
+    id: projectId,
+  });
 
   const handleTabChange = (value: string | null) => {
     if (value) {
@@ -44,11 +76,11 @@ export function ProjectContent({ viewName, projectId }: { viewName: string, proj
 
   return (
     <Tabs value={activeTab} onChange={handleTabChange}>
-      <Stack gap="xl" align="stretch" justify="flex-start" >
+      <Stack gap="xl" align="stretch" justify="flex-start">
         {/* Project Title and Description */}
-        <Paper className="w-full max-w-3xl mx-auto" px={0} bg="transparent" >
-          <Title 
-            order={2} 
+        <Paper className="mx-auto w-full max-w-3xl" px={0} bg="transparent">
+          <Title
+            order={2}
             mb={4}
             className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent"
           >
@@ -59,47 +91,75 @@ export function ProjectContent({ viewName, projectId }: { viewName: string, proj
           </Text>
         </Paper>
         {/* Tabs Navigation - Moved Here */}
-        <Tabs.List className="w-full max-w-3xl mx-auto" >
-          
-          <Tabs.Tab 
-            value="tasks" 
-            leftSection={<IconLayoutKanban size={16} />}
-          >
+        <Tabs.List className="mx-auto w-full max-w-3xl">
+          <Tabs.Tab value="goals" leftSection={<IconTargetArrow size={16} />}>
+            Goals
+          </Tabs.Tab>
+          <Tabs.Tab value="outcomes" leftSection={<IconActivity size={16} />}>
+            Outcomes
+          </Tabs.Tab>
+          <Tabs.Tab value="timeline" leftSection={<IconClock size={16} />}>
+            Timeline
+          </Tabs.Tab>
+          <Tabs.Tab value="tasks" leftSection={<IconLayoutKanban size={16} />}>
             Tasks
           </Tabs.Tab>
-          <Tabs.Tab 
-            value="plan" 
-            leftSection={<IconClipboardList size={16} />}
-          >
+          <Tabs.Tab value="plan" leftSection={<IconClipboardList size={16} />}>
             Plan
           </Tabs.Tab>
-          <Tabs.Tab 
-            value="team" 
-            leftSection={<IconUsers size={16} />}
-          >
+          
+          <Tabs.Tab value="team" leftSection={<IconUsers size={16} />}>
             Team
           </Tabs.Tab>
-          <Tabs.Tab 
-            value="chat" 
-            leftSection={<IconMessageCircle size={16} />}
-          >
+          <Tabs.Tab value="chat" leftSection={<IconMessageCircle size={16} />}>
             Chat
           </Tabs.Tab>
-          <Tabs.Tab 
-            value="settings" 
-            leftSection={<IconSettings size={16} />}
-          >
+          <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
             Settings
           </Tabs.Tab>
         </Tabs.List>
 
         {/* Content Area - No longer needs extra padding if Tabs.List is outside */}
         <Tabs.Panel value="tasks">
-          <Actions viewName={viewName} defaultView={taskView} projectId={projectId} />
+          <Actions
+            viewName={viewName}
+            defaultView={taskView}
+            projectId={projectId}
+          />
         </Tabs.Panel>
 
         <Tabs.Panel value="plan">
           <Plan projectId={projectId} />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="goals">
+          <Paper
+            p="md"
+            radius="sm"
+            className="mx-auto w-full max-w-3xl bg-[#262626]"
+          >
+            <GoalsTable />
+          </Paper>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="outcomes">
+          <Paper
+            p="md"
+            radius="sm"
+            className="mx-auto w-full max-w-3xl bg-[#262626]"
+          >
+            <OutcomesTable />
+          </Paper>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="timeline">
+          <Paper
+            p="md"
+            radius="sm"
+            className="mx-auto w-full max-w-3xl bg-[#262626]"
+          >
+            <OutcomeTimeline projectId={projectId} />
+          </Paper>
         </Tabs.Panel>
 
         <Tabs.Panel value="team">
@@ -107,17 +167,17 @@ export function ProjectContent({ viewName, projectId }: { viewName: string, proj
         </Tabs.Panel>
 
         <Tabs.Panel value="chat">
-          <div className="w-full max-w-3xl mx-auto">
+          <div className="mx-auto w-full max-w-3xl">
             <Chat />
           </div>
         </Tabs.Panel>
 
         <Tabs.Panel value="settings">
-          <div className="w-full max-w-3xl mx-auto">
+          <div className="mx-auto w-full max-w-3xl">
             <ProjectDetails project={project} />
           </div>
         </Tabs.Panel>
       </Stack>
     </Tabs>
   );
-} 
+}

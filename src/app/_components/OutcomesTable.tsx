@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from 'react';
-import { Table, Text, Paper, ActionIcon, Tabs } from "@mantine/core";
+import { Table, Text, Paper, ActionIcon, Tabs, Checkbox } from "@mantine/core";
 import { api } from "~/trpc/react";
-import { format } from "date-fns";
+import { format, isBefore, startOfDay } from "date-fns";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { IconEdit } from '@tabler/icons-react';
 
@@ -15,6 +15,7 @@ const filterableTypes: OutcomeType[] = ['daily', 'weekly', 'monthly', 'quarterly
 
 export function OutcomesTable() {
   const [activeTab, setActiveTab] = useState<string | null>('all');
+  const [hidePastDue, setHidePastDue] = useState<boolean>(true);
   const { data: outcomes, isLoading } = api.outcome.getMyOutcomes.useQuery(undefined, {
     refetchOnWindowFocus: true,
     staleTime: 0,
@@ -24,29 +25,40 @@ export function OutcomesTable() {
     return <Text>Loading...</Text>;
   }
 
-  const filteredOutcomes = outcomes?.filter(outcome =>
-    activeTab === 'all' || outcome.type === activeTab
-  ) ?? [];
+  const today = startOfDay(new Date());
+
+  const filteredOutcomes = outcomes?.filter(outcome => {
+    const typeMatch = activeTab === 'all' || outcome.type === activeTab;
+    const dateMatch = !hidePastDue || !outcome.dueDate || !isBefore(outcome.dueDate, today);
+    return typeMatch && dateMatch;
+  }) ?? [];
 
   return (
     <div>
-      <Tabs value={activeTab} onChange={setActiveTab} mb="md">
-        <Tabs.List>
-          <Tabs.Tab value="all">All</Tabs.Tab>
-          {filterableTypes.map((type) => (
-            <Tabs.Tab key={type} value={type} style={{ textTransform: 'capitalize' }}>
-              {type}
-            </Tabs.Tab>
-          ))}
-        </Tabs.List>
-      </Tabs>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--mantine-spacing-md)' }}>
+        <Tabs value={activeTab} onChange={setActiveTab}>
+          <Tabs.List>
+            <Tabs.Tab value="all">All</Tabs.Tab>
+            {filterableTypes.map((type) => (
+              <Tabs.Tab key={type} value={type} style={{ textTransform: 'capitalize' }}>
+                {type}
+              </Tabs.Tab>
+            ))}
+          </Tabs.List>
+        </Tabs>
+        <Checkbox
+          label="Hide past due"
+          checked={hidePastDue}
+          onChange={(event) => setHidePastDue(event.currentTarget.checked)}
+        />
+      </div>
 
       {filteredOutcomes.length === 0 && (
         <Paper p="md" withBorder>
           <Text c="dimmed">
-            {activeTab === 'all'
+            {activeTab === 'all' && !hidePastDue
               ? "No outcomes yet. Create your first one!"
-              : `No ${activeTab} outcomes found.`}
+              : "No outcomes match the current filters."}
           </Text>
         </Paper>
       )}
@@ -60,7 +72,6 @@ export function OutcomesTable() {
                 <Table.Th>Type</Table.Th>
                 <Table.Th>Due Date</Table.Th>
                 <Table.Th>Projects</Table.Th>
-                <Table.Th>Goals</Table.Th>
                 <Table.Th>Actions</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -74,9 +85,6 @@ export function OutcomesTable() {
                   </Table.Td>
                   <Table.Td>
                     {outcome.projects.map((project) => project.name).join(', ')}
-                  </Table.Td>
-                  <Table.Td>
-                    {outcome.goals?.length || 0}
                   </Table.Td>
                   <Table.Td>
                     <CreateOutcomeModal

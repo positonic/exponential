@@ -32,7 +32,7 @@ export function SidebarContent() {
         <Accordion.Item value="goals">
           <Accordion.Control>
             <div className="flex items-center justify-between text-gray-400 hover:text-gray-300">
-              <span className="text-sm font-medium">My Goals</span>
+              <span className="text-sm font-medium">Alignment</span>
               <div className="flex items-center gap-2"></div>
             </div>
           </Accordion.Control>
