@@ -12,7 +12,9 @@ import {
   Group, 
   Text,
   Box,
-  ActionIcon
+  ActionIcon,
+  Tooltip,
+  Skeleton
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
 
@@ -39,7 +41,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
     initialMessages ?? [
       {
         type: 'system',
-        content: `You are a coordinator managing a multi-agent conversation. 
+        content: `Your name is Peter the project manager.You are a coordinator managing a multi-agent conversation. 
                   Route user requests to the appropriate specialized agent if necessary.
                   Keep track of the conversation flow between the user and multiple AI agents.
                   ${githubSettings ? `When creating GitHub issues, use repo: "${githubSettings.repo}" and owner: "${githubSettings.owner}". Valid assignees are: ${githubSettings.validAssignees.join(", ")}` : ''}
@@ -57,6 +59,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const viewport = useRef<HTMLDivElement>(null);
+  const [agentFilter, setAgentFilter] = useState<string>('');
 
   const utils = api.useUtils();
   const chat = api.tools.chat.useMutation({
@@ -68,6 +71,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
     }
   });
   const transcribeAudio = api.tools.transcribe.useMutation();
+
+  // Fetch Mastra agents
+  const { data: mastraAgents, isLoading: isLoadingAgents, error: agentsError } = 
+    api.mastra.getMastraAgents.useQuery(
+      undefined, // No input needed for this query
+      {
+        staleTime: 10 * 60 * 1000, // Cache for 10 minutes
+        refetchOnWindowFocus: false, // Don't refetch just on focus
+      }
+    );
 
   useEffect(() => {
     if (viewport.current) {
@@ -196,19 +209,78 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
 
   const getInitials = (name = '') => name.split(' ').map(n => n[0]).join('').toUpperCase();
 
+  const renderAgentAvatars = () => {
+    if (isLoadingAgents) {
+      return (
+        <Group wrap="nowrap">
+          <Skeleton height={36} circle />
+          <Skeleton height={36} circle />
+          <Skeleton height={36} circle />
+        </Group>
+      );
+    }
+    if (agentsError) {
+      return <Text size="xs" c="red">Error loading agents</Text>;
+    }
+    if (!mastraAgents || mastraAgents.length === 0) {
+      return <Text size="xs" c="dimmed">No agents available</Text>;
+    }
+
+    // Filter agents by name or instructions
+    const filteredAgents = mastraAgents.filter(agent => {
+      const term = agentFilter.trim().toLowerCase();
+      if (!term) return true;
+      const nameMatch = agent.name.toLowerCase().includes(term);
+      const instr = (agent as any).instructions as string | undefined;
+      const instructionsMatch = instr?.toLowerCase().includes(term) ?? false;
+      return nameMatch || instructionsMatch;
+    });
+    if (filteredAgents.length === 0) {
+      return <Text size="xs" c="dimmed">No agents match "{agentFilter}"</Text>;
+    }
+
+    return (
+      <Group wrap="nowrap" style={{ gap: '0.5rem' }}>
+        {filteredAgents.map(agent => (
+          <Tooltip key={agent.id} label={agent.name} position="bottom" withArrow>
+            <Avatar 
+              size="md" 
+              radius="xl"
+            >
+              {getInitials(agent.name)}
+            </Avatar>
+          </Tooltip>
+        ))}
+      </Group>
+    );
+  };
+
   return (
       <Paper 
         shadow="md" 
         radius="sm"
         className="flex flex-col h-full"
       >
+        {/* Agent discovery/filter input and avatar list */}
+        <Box p="xs" mb="xs" style={{ borderBottom: '1px solid var(--mantine-color-dark-4)' }}>
+          <Text size="sm" fw={500} mb="xs">Available Agents</Text>
+          <TextInput
+            placeholder="Filter agents by name or skill..."
+            size="xs"
+            value={agentFilter}
+            onChange={e => setAgentFilter(e.currentTarget.value)}
+            mb="xs"
+          />
+          {renderAgentAvatars()}
+        </Box>
+        
         {buttons && buttons.length > 0 && (
-          <Group justify="flex-end" p="md">
+          <Group justify="flex-end" p="md" pt={0}>
             {buttons}
           </Group>
         )}
         <Stack h="100%">
-          <ScrollArea h="500px" viewportRef={viewport}>
+          <ScrollArea h="500px" viewportRef={viewport} style={{ flexGrow: 1 }}>
             {messages.filter(message => message.type !== 'system').map((message, index) => (
               <Box
                 key={index}
@@ -220,20 +292,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
               >
                 <Group align="flex-start" gap="xs">
                   {message.type === 'ai' && (
-                    <Avatar 
-                      size="md" 
-                      radius="xl" 
-                      alt={message.agentName || 'AI'}
-                    >
-                      {getInitials(message.agentName || 'AI')}
-                    </Avatar>
+                    <Tooltip label={message.agentName || 'Agent'} position="left" withArrow>
+                      <Avatar 
+                        size="md" 
+                        radius="xl" 
+                        alt={message.agentName || 'AI'}
+                      >
+                        {getInitials(message.agentName || 'AI')}
+                      </Avatar>
+                    </Tooltip>
                   )}
                   <Stack gap={2} align={message.type === 'human' ? 'flex-end' : 'flex-start'}>
-                    {message.type === 'ai' && (
-                      <Text size="xs" c="dimmed" style={{ marginLeft: '8px' }}>
-                        {message.agentName || 'Agent'} 
-                      </Text>
-                    )} 
                     <Paper
                       p="sm"
                       radius="lg"
@@ -254,20 +323,22 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
                     </Paper>
                   </Stack>
                   {message.type === 'human' && (
-                    <Avatar 
-                      size="md" 
-                      radius="xl" 
-                      alt="User"
-                    >
-                      {getInitials('User')} 
-                    </Avatar>
+                    <Tooltip label="User" position="right" withArrow>
+                      <Avatar 
+                        size="md" 
+                        radius="xl" 
+                        alt="User"
+                      >
+                        {getInitials('User')}
+                      </Avatar>
+                    </Tooltip>
                   )}
                 </Group>
               </Box>
             ))}
           </ScrollArea>
 
-          <form onSubmit={handleSubmit} style={{ marginTop: 'auto' }}>
+          <form onSubmit={handleSubmit} style={{ marginTop: 'auto', padding: 'var(--mantine-spacing-md)' }}>
             <Group align="flex-end">
               <TextInput
                 value={input}

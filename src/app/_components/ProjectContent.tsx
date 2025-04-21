@@ -50,7 +50,7 @@ export function ProjectContent({
   viewName: string;
   projectId: string;
 }) {
-  const [activeTab, setActiveTab] = useState<TabValue>("tasks");
+  const [activeTab, setActiveTab] = useState<TabValue>("team");
   const [taskView, setTaskView] = useState<TaskView>("list");
   const { data: project, isLoading } = api.project.getById.useQuery({
     id: projectId,
@@ -92,6 +92,9 @@ export function ProjectContent({
         </Paper>
         {/* Tabs Navigation - Moved Here */}
         <Tabs.List className="mx-auto w-full max-w-3xl">
+        <Tabs.Tab value="team" leftSection={<IconUsers size={16} />}>
+            Team
+          </Tabs.Tab>
           <Tabs.Tab value="goals" leftSection={<IconTargetArrow size={16} />}>
             Goals
           </Tabs.Tab>
@@ -107,10 +110,7 @@ export function ProjectContent({
           <Tabs.Tab value="plan" leftSection={<IconClipboardList size={16} />}>
             Plan
           </Tabs.Tab>          
-          <Tabs.Tab value="team" leftSection={<IconUsers size={16} />}>
-            Team
-          </Tabs.Tab>
-          <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
+         <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
             Settings
           </Tabs.Tab>
         </Tabs.List>

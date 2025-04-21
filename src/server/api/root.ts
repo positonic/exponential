@@ -13,6 +13,7 @@ import { transcriptionRouter } from "./routers/transcription";
 import { githubRouter } from "./routers/github";
 import { noteRouter } from "./routers/note";
 import { exerciseRouter } from "./routers/exercise";
+import { mastraRouter } from "./routers/mastra";
 /**
  * This is the primary router for your server.
  *
@@ -33,6 +34,7 @@ export const appRouter = createTRPCRouter({
   github: githubRouter,
   note: noteRouter,
   exercise: exerciseRouter,
+  mastra: mastraRouter,
 });
 
 // export type definition of API
