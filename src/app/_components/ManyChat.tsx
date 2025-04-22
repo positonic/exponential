@@ -283,7 +283,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
             {buttons}
           </Group>
         )}
-        <Stack p="sm" h="100%" style={{ border: '1px solid red' }}>
+        <Stack p="sm" h="100%">
           <ScrollArea h="500px" viewportRef={viewport} style={{ flexGrow: 1 }}>
             {messages.filter(message => message.type !== 'system').map((message, index) => (
               <Box
@@ -306,26 +306,25 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
                       </Avatar>
                     </Tooltip>
                   )}
-                  <Stack gap={2} align={message.type === 'human' ? 'flex-end' : 'flex-start'}>
-                    <Paper
-                      p="sm"
-                      radius="lg"
+                  <Paper
+                    p="sm"
+                    radius="lg"
+                    style={{
+                      maxWidth: '70%',
+                      backgroundColor: message.type === 'human' ? '#228be6' : '#2C2E33',
+                      textAlign: message.type === 'human' ? 'right' : 'left',
+                    }}
+                  >
+                    <Text
+                      size="sm"
                       style={{
-                        maxWidth: '70%',
-                        backgroundColor: message.type === 'human' ? '#228be6' : '#2C2E33',
+                        color: message.type === 'human' ? 'white' : '#C1C2C5',
+                        whiteSpace: 'pre-wrap',
                       }}
                     >
-                      <Text
-                        size="sm"
-                        style={{
-                          color: message.type === 'human' ? 'white' : '#C1C2C5',
-                          whiteSpace: 'pre-wrap',
-                        }}
-                      >
-                        {renderMessageContent(message.content)}
-                      </Text>
-                    </Paper>
-                  </Stack>
+                      {renderMessageContent(message.content)}
+                    </Text>
+                  </Paper>
                   {message.type === 'human' && (
                     <Tooltip label="User" position="right" withArrow>
                       <Avatar 
