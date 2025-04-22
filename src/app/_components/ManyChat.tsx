@@ -71,6 +71,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
     }
   });
   const transcribeAudio = api.tools.transcribe.useMutation();
+  const callAgent = api.mastra.callAgent.useMutation();
+  const chooseAgent = api.mastra.chooseAgent.useMutation();
 
   // Fetch Mastra agents
   const { data: mastraAgents, isLoading: isLoadingAgents, error: agentsError } = 
@@ -156,26 +158,28 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
     setInput('');
 
     try {
-      const response: { response: string | object; agentName?: string } = await chat.mutateAsync({
-        message: input,
-        history: messages 
+      const { agentId } = await chooseAgent.mutateAsync({ message: input });
+      const result = await callAgent.mutateAsync({
+        agentId,
+        messages: [{ role: 'user', content: input }],
       });
 
       const aiResponse: Message = {
         type: 'ai', 
-        agentName: response.agentName || 'Agent',
-        content: typeof response.response === 'string' 
-          ? response.response 
-          : JSON.stringify(response.response)
+        agentName: result.agentName || 'Agent',
+        content: typeof result.response === 'string' 
+          ? result.response 
+          : JSON.stringify(result.response)
       };
       setMessages(prev => [...prev, aiResponse]);
 
     } catch (error) {
       console.error('Chat error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Sorry, I encountered an error processing your request.';
       setMessages(prev => [...prev, { 
         type: 'ai', 
         agentName: 'System',
-        content: 'Sorry, I encountered an error processing your request.' 
+        content: errorMessage 
       }]);
     }
   };
