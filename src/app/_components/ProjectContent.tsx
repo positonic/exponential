@@ -159,7 +159,6 @@ export function ProjectContent({
         </Tabs.Panel>
 
         <Tabs.Panel value="team">
-          <Team projectId={projectId} />
           <div className="mx-auto mt-8 w-full max-w-3xl">
             <Title order={4} mb="md">Project Chat</Title>
             {/* <Chat /> */}
@@ -170,6 +169,8 @@ export function ProjectContent({
         <Tabs.Panel value="settings">
           <div className="mx-auto w-full max-w-3xl">
             <ProjectDetails project={project} />
+            <Team projectId={projectId} />
+          
           </div>
         </Tabs.Panel>
       </Stack>
