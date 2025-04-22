@@ -283,7 +283,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
             {buttons}
           </Group>
         )}
-        <Stack h="100%">
+        <Stack p="sm" h="100%" style={{ border: '1px solid red' }}>
           <ScrollArea h="500px" viewportRef={viewport} style={{ flexGrow: 1 }}>
             {messages.filter(message => message.type !== 'system').map((message, index) => (
               <Box
