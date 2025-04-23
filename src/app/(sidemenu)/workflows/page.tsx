@@ -1,5 +1,5 @@
 import { Container, Title, Text, SimpleGrid, Card, Button, Group, ThemeIcon } from '@mantine/core';
-import { IconRocket, IconArrowRight } from '@tabler/icons-react';
+import { IconRocket, IconArrowRight, IconPresentation } from '@tabler/icons-react';
 import Link from 'next/link';
 
 // Define workflow data - can be expanded later or fetched from a source
@@ -11,7 +11,14 @@ const workflows = [
     targetAudience: 'Startups, indie h  ackers, product managers',
     href: '/workflows/launch',
     cta: 'Start Launch Sprint',
-  },
+  },{
+    icon: IconPresentation,
+    title: 'Elevator Pitch',
+    description: 'Craft a compelling elevator pitch using a structured template focused on customer needs and your unique value proposition.',
+    targetAudience: 'Entrepreneurs, founders, sales teams',
+    href: '/workflows/elevator-pitch',
+    cta: 'Craft Your Pitch',
+  }
   // Add more workflows here as needed
   // {
   //   icon: IconChartInfographic,
