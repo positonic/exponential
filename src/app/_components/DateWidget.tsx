@@ -14,6 +14,7 @@ import {
   IconClock,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
+import { useState } from "react";
 
 interface DateWidgetProps {
   date: Date | null;
@@ -54,6 +55,7 @@ const quickOptions = [
 ];
 
 export default function DateWidget({ date, onClear, setDueDate }: DateWidgetProps) {
+  const [opened, setOpened] = useState(false);
   const isToday = date?.toDateString() === new Date().toDateString();
 
   const getContent = () => {
@@ -93,7 +95,12 @@ export default function DateWidget({ date, onClear, setDueDate }: DateWidgetProp
 
   return (
     <>
-      <Popover width={300} position="bottom-start">
+      <Popover 
+        width={300} 
+        position="bottom-start"
+        opened={opened}
+        onClose={() => setOpened(false)}
+      >
         {/* <Popover.Target>
           <ActionIcon variant="subtle" color="gray" radius="xl">
             <IconCalendar size={20} />
@@ -101,6 +108,7 @@ export default function DateWidget({ date, onClear, setDueDate }: DateWidgetProp
         </Popover.Target> */}
         <Popover.Target>
           <UnstyledButton
+            onClick={() => setOpened((o) => !o)}
             className={`rounded px-3 py-1.5 ${!date ? "bg-dark-700" : "bg-dark-800"} hover:bg-dark-600 flex items-center transition-colors`}
           >
             {getContent()}
@@ -113,6 +121,7 @@ export default function DateWidget({ date, onClear, setDueDate }: DateWidgetProp
                 key={option.label}
                 onClick={() => {
                   setDueDate(option.date);
+                  setOpened(false);
                   notifications.show({
                     title: "Date Updated",
                     message: option.date
