@@ -78,6 +78,7 @@ model User {
     transcriptionSessions TranscriptionSession[]
     verificationTokens VerificationToken[]
     notes         Note[]
+    alerts        Alert[]
 }
 
 model VerificationToken {
@@ -118,6 +119,7 @@ model Outcome {
     goals       Goal[]     @relation("GoalOutcomes")
     user        User       @relation(fields: [userId], references: [id])
     userId      String
+
     @@index([userId])
     @@index([projectId])
 }
@@ -330,6 +332,7 @@ model Setup {
   transcriptionSession  TranscriptionSession? @relation("TranscriptionSetups", fields: [transcriptionSessionId], references: [id])
   userId          String
   user            User     @relation(fields: [userId], references: [id])
+  alerts        Alert[]
 
   @@index([userId])
   @@index([videoId])
@@ -345,28 +348,29 @@ model Coin {
   imageUrl  String?
   coinId    String?    @unique
   setups    Setup[]
-  pairs     PairCoin[]
+  basePairs  Pair[] @relation("BaseCoinPairs")  // Pairs where this coin is the base
+  quotePairs Pair[] @relation("QuoteCoinPairs") // Pairs where this coin is the quote
 }
 
+// Represents a canonical trading pair symbol (e.g., "BTC/USDT"), independent of users or exchanges.
 model Pair {
   id        Int        @id @default(autoincrement())
   symbol    String     @unique
+
+  baseCoinId Int      @default(1) // Foreign Key for Base Coin - Added default
+  baseCoin   Coin     @relation("BaseCoinPairs", fields: [baseCoinId], references: [id])
+  quoteCoinId Int     @default(1) // Foreign Key for Quote Coin - Added default
+  quoteCoin  Coin     @relation("QuoteCoinPairs", fields: [quoteCoinId], references: [id])
+
   userPairs UserPair[]
   setups    Setup[]
-  coins     PairCoin[]
+  alerts    Alert[]
+
+  @@index([baseCoinId])
+  @@index([quoteCoinId])
 }
 
-model PairCoin {
-  pair      Pair     @relation(fields: [pairId], references: [id])
-  pairId    Int
-  coin      Coin     @relation(fields: [coinId], references: [id])
-  coinId    Int
-
-  @@id([pairId, coinId])
-  @@index([coinId])
-  @@index([pairId])
-}
-
+// Links a User to a specific Pair on a specific Exchange, storing user-specific tracking data.
 model UserPair {
   id         Int     @id @default(autoincrement())
   userId     String
@@ -472,4 +476,39 @@ model Screenshot {
   transcriptionSessionId String
   createdAt             DateTime            @default(now())
 }
- 
+
+model Alert {
+  id         String      @id @default(uuid())
+  userId     String      // Foreign Key for User
+  user       User        @relation(fields: [userId], references: [id])
+  pairId     Int         // Foreign Key for Pair
+  pair       Pair        @relation(fields: [pairId], references: [id])
+  setupId    String?     // Optional Foreign Key for Setup
+  setup      Setup?      @relation(fields: [setupId], references: [id])
+  type       AlertType
+  threshold  Decimal     // Using Decimal for precision
+  direction  Direction
+  interval   String?     // e.g., '1m', '5m', '1h', '4h', '1d' (nullable for PRICE alerts)
+  status     AlertStatus @default(PENDING)
+  createdAt  DateTime    @default(now())
+
+  @@index([userId])
+  @@index([pairId])
+  @@index([setupId])
+}
+
+enum AlertType {
+  PRICE
+  CANDLE
+}
+
+enum Direction {
+  ABOVE
+  BELOW
+}
+
+enum AlertStatus {
+  PENDING   // Alert is active and waiting to be triggered
+  TRIGGERED // Alert condition was met
+  CANCELLED // Alert was cancelled by the user or system
+}
