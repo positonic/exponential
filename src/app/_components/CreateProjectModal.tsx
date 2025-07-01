@@ -181,6 +181,7 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             label="Link to Goals"
             placeholder="Select goals"
             mt="md"
+            searchable={true}
             styles={{
               input: {
                 backgroundColor: '#262626',
@@ -196,6 +197,7 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             onChange={setSelectedOutcomes}
             label="Link to Outcomes"
             placeholder="Select outcomes"
+            searchable={true}
             mt="md"
             styles={{
               input: {
