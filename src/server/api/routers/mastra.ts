@@ -2,9 +2,17 @@ import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
+import { mastraClient } from "~/lib/mastra";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Get Mastra API URL from environment variable
+const MASTRA_API_URL = process.env.MASTRA_API_URL;
+
+if (!MASTRA_API_URL) {
+  throw new Error("MASTRA_API_URL environment variable is not set");
+}
 
 // Utility to cache agent instruction embeddings
 let agentEmbeddingsCache: { id: string; vector: number[] }[] | null = null;
@@ -14,12 +22,33 @@ let agentEmbeddingsCache: { id: string; vector: number[] }[] | null = null;
  */
 async function loadAgentEmbeddings(): Promise<{ id: string; vector: number[] }[]> {
   if (agentEmbeddingsCache) return agentEmbeddingsCache;
-  const response = await fetch("http://localhost:4111/api/agents");
-  if (!response.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Unable to fetch Mastra agents for embedding" });
-  const data = await response.json(); // { [agentId]: { instructions: string, ... } }
+
+  // Use direct fetch instead of mastraClient
+  let data: Record<string, { instructions: string; [key: string]: any }>;
+  try {
+    const response = await fetch(`${MASTRA_API_URL}/api/agents`);
+    if (!response.ok) {
+      throw new Error(`Mastra API returned status ${response.status}`);
+    }
+    data = await response.json();
+  } catch (error) {
+    console.error("Failed to fetch Mastra agents using direct fetch:", error);
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Unable to fetch Mastra agents for embedding",
+    });
+  }
+
+  if (!data || Object.keys(data).length === 0) {
+    // Handle case where no agents are returned
+    console.warn("No agents returned from Mastra API");
+    agentEmbeddingsCache = [];
+    return agentEmbeddingsCache;
+  }
+
   const agentIds = Object.keys(data);
-  // Extract instructions (assert data[id] exists)
-  const instructions = agentIds.map(id => (data[id] as any).instructions as string);
+  // Extract instructions 
+  const instructions = agentIds.map(id => data[id]!.instructions);
   const embedRes = await openai.embeddings.create({ model: 'text-embedding-ada-002', input: instructions });
   // Build embeddings array, asserting agentIds[i] is defined
   agentEmbeddingsCache = embedRes.data.map((e, i) => ({ id: agentIds[i]!, vector: e.embedding }));
@@ -44,33 +73,38 @@ export const mastraRouter = createTRPCRouter({
   getMastraAgents: publicProcedure
     .output(MastraAgentsResponseSchema) // Output is still the validated array
     .query(async () => {
-      const mastraApiUrl = "http://localhost:4111/api/agents"; // Default Mastra dev server URL
+      const mastraApiUrl = `${MASTRA_API_URL}/api/agents`; // Use environment variable
       try {
+        // Use mastraClient to fetch agents
+        // const agentsData = await mastraClient.getAgents();
+        // // console.log("Mastra API data from client:", agentsData);
+
+        // console.log("Mastra API data from client:", agentsData);
+        // Use direct fetch instead of mastraClient
+        console.log("Mastra API URL:", mastraApiUrl);
         const response = await fetch(mastraApiUrl);
-        console.log("Mastra API response:", response);
+        
         if (!response.ok) {
-          console.error(`Mastra API Error: ${response.status} ${response.statusText}`);
-          // Return empty array or throw specific TRPCError based on desired handling
-          // Returning empty array for graceful degradation if Mastra server is down
-          return []; 
+          console.error(`Mastra API returned status ${response.status}`);
+          return [];
         }
 
-        const data = await response.json();
-        console.log("Mastra API data:", data);
-
-        // Check if the response is an object
-        if (typeof data !== 'object' || data === null) {
-            console.error("Mastra API response structure unexpected. Expected an object.", data);
+        const agentsData = await response.json();
+        console.log("Mastra API data from direct fetch:", agentsData);
+        
+        // Check if the response is an object and not empty
+        if (typeof agentsData !== 'object' || agentsData === null || Object.keys(agentsData).length === 0) {
+            console.error("Mastra API response structure unexpected or empty. Expected a non-empty object.", agentsData);
             return [];
         }
         
-        // Transform the object into an array of { id, name, agentInstructions }
-        const transformedAgents = Object.keys(data).map((agentId) => {
-          const agentData = data[agentId] as any;
+        // Transform the object into an array of { id, name, instructions }
+        // The structure from the API is Record<string, AgentResponse>
+        const transformedAgents = Object.entries(agentsData).map(([agentId, agentDetails]: [string, any]) => {
           return {
             id: agentId,
-            name: agentData.name,
-            instructions: agentData.instructions,
+            name: agentDetails.name,
+            instructions: agentDetails.instructions,
           };
         });
 
@@ -142,7 +176,7 @@ export const mastraRouter = createTRPCRouter({
       const { agentId, messages } = input;
       console.log(`[mastraRouter] JSON.stringify({ messages }):`, JSON.stringify({ messages }));
       const res = await fetch(
-        `http://localhost:4111/api/agents/${agentId}/generate`,
+        `${MASTRA_API_URL}/api/agents/${agentId}/generate`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

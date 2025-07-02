@@ -83,7 +83,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
         refetchOnWindowFocus: false, // Don't refetch just on focus
       }
     );
-
+  console.log("mastraAgents is ", mastraAgents);
   useEffect(() => {
     if (viewport.current) {
       viewport.current.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
@@ -240,7 +240,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
       return nameMatch || instructionsMatch;
     });
     if (filteredAgents.length === 0) {
-      return <Text size="xs" c="dimmed">No agents match "{agentFilter}"</Text>;
+      return <Text size="xs" c="dimmed">No agents match &quot;{agentFilter}&quot;</Text>;
     }
 
     return (
