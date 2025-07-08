@@ -2,8 +2,11 @@
 import { Container, Title, Button } from "@mantine/core";
 import { OutcomesTable } from "~/app/_components/OutcomesTable";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
+import { api } from "~/trpc/react";
 
 export default function Outcomes() {
+  const outcomesQuery = api.outcome.getMyOutcomes.useQuery();
+
   return (
     <Container size="xl" className="py-8">
       {/* Header */}
@@ -26,7 +29,7 @@ export default function Outcomes() {
       </div>
 
       {/* Content */}
-      <OutcomesTable />
+      <OutcomesTable outcomes={outcomesQuery.data ?? []} />
     </Container>
   );
 } 

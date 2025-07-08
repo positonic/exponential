@@ -13,21 +13,19 @@ type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'li
 // Define the types we want to filter by
 const filterableTypes: OutcomeType[] = ['daily', 'weekly', 'monthly', 'quarterly', 'annual'];
 
-export function OutcomesTable() {
+interface OutcomesTableProps {
+  outcomes: any[];
+}
+
+export function OutcomesTable({ outcomes }: OutcomesTableProps) {
   const [activeTab, setActiveTab] = useState<string | null>('all');
   const [hidePastDue, setHidePastDue] = useState<boolean>(true);
-  const { data: outcomes, isLoading } = api.outcome.getMyOutcomes.useQuery(undefined, {
-    refetchOnWindowFocus: true,
-    staleTime: 0,
-  });
 
-  if (isLoading) {
-    return <Text>Loading...</Text>;
-  }
+  if (!outcomes) return <div>No outcomes found.</div>;
 
   const today = startOfDay(new Date());
 
-  const filteredOutcomes = outcomes?.filter(outcome => {
+  const filteredOutcomes = outcomes.filter(outcome => {
     const typeMatch = activeTab === 'all' || outcome.type === activeTab;
     const dateMatch = !hidePastDue || !outcome.dueDate || !isBefore(outcome.dueDate, today);
     return typeMatch && dateMatch;
