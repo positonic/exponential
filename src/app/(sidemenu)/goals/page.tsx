@@ -2,8 +2,14 @@
 import { Container, Title, Button } from "@mantine/core";
 import { GoalsTable } from "~/app/_components/GoalsTable";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import { api } from "~/trpc/react";
 
 export default function Goals() {
+  const { data: goals, isLoading } = api.goal.getAllMyGoals.useQuery(undefined, {
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+
   return (
     <Container size="xl" className="py-8">
       {/* Header */}
@@ -26,7 +32,7 @@ export default function Goals() {
       </div>
 
       {/* Content */}
-      <GoalsTable />
+      <GoalsTable goals={goals} />
     </Container>
   );
 }

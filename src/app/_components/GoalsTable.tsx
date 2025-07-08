@@ -1,20 +1,18 @@
 "use client";
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type FC } from 'react';
 import { Table, Text, Paper, ActionIcon, Tabs, Checkbox } from "@mantine/core";
-import { api } from "~/trpc/react";
 import { format, isBefore, startOfDay } from "date-fns";
 import { CreateGoalModal } from "./CreateGoalModal";
 import { IconEdit } from '@tabler/icons-react';
 
-export function GoalsTable() {
+interface GoalsTableProps {
+  goals: any[];
+}
+
+export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
   const [activeTab, setActiveTab] = useState<string | null>('all');
   const [hidePastDue, setHidePastDue] = useState<boolean>(true);
-
-  const { data: goals, isLoading } = api.goal.getAllMyGoals.useQuery(undefined, {
-    refetchOnWindowFocus: true,
-    staleTime: 0,
-  });
 
   const lifeDomainTitles = useMemo(() => {
     if (!goals) return [];
@@ -23,10 +21,6 @@ export function GoalsTable() {
       .filter((title): title is string => !!title);
     return [...new Set(titles)];
   }, [goals]);
-
-  if (isLoading) {
-    return <Text>Loading...</Text>;
-  }
 
   if (!goals) {
     return (

@@ -104,3 +104,28 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     },
   });
 }
+
+/**
+ * Returns all goals for a specific project for the current user.
+ * @param ctx - The request context containing session and db
+ * @param projectId - The project ID to filter goals by
+ */
+export async function getProjectGoals({ ctx, projectId }: { ctx: Context, projectId: string }) {
+  const userId = ctx.session?.user?.id;
+  console.log("projectId", projectId);
+  console.log("userId", userId);
+  if (!userId) throw new Error("User not authenticated");
+  return await ctx.db.goal.findMany({
+    where: {
+      userId,
+      projects: {
+        some: { id: projectId },
+      },
+    },
+    include: {
+      lifeDomain: true,
+      projects: true,
+      outcomes: true,
+    },
+  });
+}

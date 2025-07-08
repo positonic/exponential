@@ -162,6 +162,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
               description: description || undefined,
               dueDate: dueDate ?? undefined,
               lifeDomainId,
+              projectId: selectedProjectId,
             };
 
             if (goal?.id) {

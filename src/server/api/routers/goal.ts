@@ -8,7 +8,8 @@ import {
 import { 
   getMyPublicGoals, 
   getAllMyGoals,
-  updateGoal
+  updateGoal,
+  getProjectGoals
 } from "~/server/services/goalService";
 
 export const goalRouter = createTRPCRouter({
@@ -26,10 +27,17 @@ export const goalRouter = createTRPCRouter({
       projectId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+
       return await ctx.db.goal.create({
         data: {
-          ...input,
+          title: input.title,
+          description: input.description,
+          dueDate: input.dueDate,
+          lifeDomainId: input.lifeDomainId,
           userId: ctx.session.user.id,
+          projects: input.projectId
+            ? { connect: [{ id: input.projectId }] }
+            : undefined,
         }
       });
     }),
@@ -44,4 +52,10 @@ export const goalRouter = createTRPCRouter({
       projectId: z.string().optional(),
     }))
     .mutation(updateGoal),
+
+  getProjectGoals: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return getProjectGoals({ ctx, projectId: input.projectId });
+    }),
 });

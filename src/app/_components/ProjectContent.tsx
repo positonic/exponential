@@ -55,6 +55,7 @@ export function ProjectContent({
   const { data: project, isLoading } = api.project.getById.useQuery({
     id: projectId,
   });
+  const goalsQuery = api.goal.getProjectGoals.useQuery({ projectId });
 
   const handleTabChange = (value: string | null) => {
     if (value) {
@@ -134,7 +135,7 @@ export function ProjectContent({
             radius="sm"
             className="mx-auto w-full max-w-3xl bg-[#262626]"
           >
-            <GoalsTable />
+            <GoalsTable goals={goalsQuery.data ?? []} />
           </Paper>
         </Tabs.Panel>
 
