@@ -46,6 +46,17 @@ export const OutcomeSection = memo(({
             onChange={(e) => setNewOutcome(e.target.value)}
             size="md"
             className="flex-grow bg-[#262626]"
+            onKeyDown={(e) => {
+              if (
+                e.key === 'Enter' &&
+                e.metaKey &&
+                !isLoading &&
+                newOutcome.trim()
+              ) {
+                e.preventDefault();
+                addOutcome();
+              }
+            }}
           />
           <Button 
             onClick={addOutcome}
