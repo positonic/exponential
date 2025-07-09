@@ -36,10 +36,13 @@ rules:
   - Group related code blocks logically
   
   # Next.js Specific
+  - Always use the latest Next.js best practices and conventions
   - Use App Router patterns correctly
   - Implement proper error boundaries
   - Follow Server Component best practices
   - Handle client/server code separation properly
+  - Prefer Next.js Link over useRouter.push() for navigation
+  - Use component={Link} with Mantine components for navigation
   
   # TypeScript Compliance
   - Use strict TypeScript checking

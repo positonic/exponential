@@ -34,7 +34,7 @@ export function TodayButton() {
       leftSection="+"
       onClick={handleTodayClick}
     >
-      Today
+      Today 🗺️
     </Button>
   );
 } 
