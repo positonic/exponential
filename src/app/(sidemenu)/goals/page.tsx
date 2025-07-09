@@ -32,7 +32,7 @@ export default function Goals() {
       </div>
 
       {/* Content */}
-      <GoalsTable goals={goals} />
+      <GoalsTable goals={goals || []} />
     </Container>
   );
 }

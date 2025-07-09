@@ -82,7 +82,7 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
                     {outcome.dueDate ? format(outcome.dueDate, 'PPP') : '-'}
                   </Table.Td>
                   <Table.Td>
-                    {outcome.projects.map((project) => project.name).join(', ')}
+                    {outcome.projects.map((project: any) => project.name).join(', ')}
                   </Table.Td>
                   <Table.Td>
                     <CreateOutcomeModal
