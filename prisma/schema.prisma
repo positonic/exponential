@@ -148,6 +148,7 @@ model Project {
     goals           Goal[]      @relation("GoalProjects")
     teamMembers     TeamMember[]
     workflows       Workflow[]
+    transcriptionSessions TranscriptionSession[]
 
     @@index([name])
     @@index([status])
@@ -460,12 +461,15 @@ model TranscriptionSession {
   updatedAt     DateTime @updatedAt
   userId        String?
   user          User?    @relation(fields: [userId], references: [id])
+  projectId     String?
+  project       Project? @relation(fields: [projectId], references: [id])
   setupId       String?
   setups        Setup[]  @relation("TranscriptionSetups")
   screenshots   Screenshot[]
 
   @@index([sessionId])
   @@index([userId])
+  @@index([projectId])
 }
 
 model Screenshot {

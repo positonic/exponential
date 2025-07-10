@@ -30,6 +30,7 @@ import {
   IconTargetArrow,
   IconActivity,
   IconClock,
+  IconMicrophone,
 } from "@tabler/icons-react";
 
 type TaskView = "list" | "alignment";
@@ -40,6 +41,7 @@ type TabValue =
   | "outcomes"
   | "timeline"
   | "team"
+  | "transcriptions"
   | "settings"
   | "workflows";
 
@@ -111,7 +113,10 @@ export function ProjectContent({
           </Tabs.Tab>
           <Tabs.Tab value="plan" leftSection={<IconClipboardList size={16} />}>
             Plan
-          </Tabs.Tab>          
+          </Tabs.Tab>
+          <Tabs.Tab value="transcriptions" leftSection={<IconMicrophone size={16} />}>
+            Transcriptions
+          </Tabs.Tab>
          <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
             Settings
           </Tabs.Tab>
@@ -157,6 +162,47 @@ export function ProjectContent({
             className="mx-auto w-full max-w-3xl bg-[#262626]"
           >
             <OutcomeTimeline projectId={projectId} />
+          </Paper>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="transcriptions">
+          <Paper
+            p="md"
+            radius="sm"
+            className="mx-auto w-full max-w-3xl bg-[#262626]"
+          >
+            <Stack gap="md">
+              <Title order={4}>Transcription Sessions</Title>
+              {project.transcriptionSessions && project.transcriptionSessions.length > 0 ? (
+                <Stack gap="sm">
+                  {project.transcriptionSessions.map((session) => (
+                    <Paper key={session.id} p="md" radius="sm" className="bg-[#2a2a2a]">
+                      <Group justify="space-between" align="flex-start">
+                        <Stack gap="xs" style={{ flex: 1 }}>
+                          <Group gap="xs">
+                            <Text size="sm" fw={500}>
+                              Session ID: {session.sessionId}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {new Date(session.createdAt).toLocaleDateString()}
+                            </Text>
+                          </Group>
+                          {session.transcription && (
+                            <Text size="sm" c="dimmed" lineClamp={3}>
+                              {session.transcription}
+                            </Text>
+                          )}
+                        </Stack>
+                      </Group>
+                    </Paper>
+                  ))}
+                </Stack>
+              ) : (
+                <Text size="sm" c="dimmed" ta="center" py="xl">
+                  No transcription sessions found for this project.
+                </Text>
+              )}
+            </Stack>
           </Paper>
         </Tabs.Panel>
 

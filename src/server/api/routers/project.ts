@@ -120,6 +120,7 @@ export const projectRouter = createTRPCRouter({
           goals: true,
           outcomes: true,
           actions: true,
+          transcriptionSessions: true,
         },
       });
     }),
