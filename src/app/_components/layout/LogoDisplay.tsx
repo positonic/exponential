@@ -22,8 +22,8 @@ export function LogoDisplay({ theme, href, onClick, className }: LogoDisplayProp
     <Image 
       src={theme.logo} 
       alt={`${theme.name} logo`} 
-      width={32} // Constrained size
-      height={32} // Constrained size
+      width={20} // Constrained size
+      height={20} // Constrained size
       className="mr-2 object-contain" // Margin and contain object fit
     />
   ) : (
