@@ -10,6 +10,8 @@ import { Plan } from "./Plan";
 import { GoalsTable } from "./GoalsTable";
 import { OutcomesTable } from "./OutcomesTable";
 import { OutcomeTimeline } from "./OutcomeTimeline";
+import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import { Button } from "@mantine/core";
 import {
   Group,
   Tabs,
@@ -41,7 +43,6 @@ type TabValue =
   | "outcomes"
   | "timeline"
   | "transcriptions"
-  | "settings"
   | "workflows";
 
 export function ProjectContent({
@@ -54,6 +55,7 @@ export function ProjectContent({
   const [activeTab, setActiveTab] = useState<TabValue>("goals");
   const [drawerOpened, setDrawerOpened] = useState(false);
   const [chatDrawerOpened, setChatDrawerOpened] = useState(false);
+  const [settingsDrawerOpened, setSettingsDrawerOpened] = useState(false);
   const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
   const { data: project, isLoading } = api.project.getById.useQuery({
     id: projectId,
@@ -98,14 +100,24 @@ export function ProjectContent({
               {project.description}
             </Text>
           </div>
-          <ActionIcon
-            variant="filled"
-            size="lg"
-            onClick={() => setChatDrawerOpened(true)}
-            title="Open Project Chat"
-          >
-            <IconMessageCircle size={20} />
-          </ActionIcon>
+          <Group gap="xs">
+            <ActionIcon
+              variant="filled"
+              size="lg"
+              onClick={() => setChatDrawerOpened(true)}
+              title="Open Project Chat"
+            >
+              <IconMessageCircle size={20} />
+            </ActionIcon>
+            <ActionIcon
+              variant="filled"
+              size="lg"
+              onClick={() => setSettingsDrawerOpened(true)}
+              title="Project Settings"
+            >
+              <IconSettings size={20} />
+            </ActionIcon>
+          </Group>
         </Group>
       </Paper>
 
@@ -133,9 +145,6 @@ export function ProjectContent({
                 <Tabs.Tab value="transcriptions" leftSection={<IconMicrophone size={16} />}>
                   Transcriptions
                 </Tabs.Tab>
-                <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
-                  Settings
-                </Tabs.Tab>
               </Tabs.List>
 
               {/* Content Area */}
@@ -158,6 +167,15 @@ export function ProjectContent({
                   className="mx-auto w-full max-w-3xl bg-[#262626]"
                 >
                   <GoalsTable goals={goalsQuery.data ?? []} />
+                  <CreateGoalModal projectId={projectId}>
+                    <Button 
+                      variant="filled" 
+                      color="dark"
+                      leftSection="+"
+                    >
+                      Add Goal
+                    </Button>
+                  </CreateGoalModal>
                 </Paper>
               </Tabs.Panel>
 
@@ -228,12 +246,6 @@ export function ProjectContent({
                 </Paper>
               </Tabs.Panel>
 
-              <Tabs.Panel value="settings">
-                <div className="mx-auto w-full max-w-3xl">
-                  <ProjectDetails project={project} />
-                  <Team projectId={projectId} />
-                </div>
-              </Tabs.Panel>
             </Stack>
           </Tabs>
         </div>
@@ -335,6 +347,23 @@ export function ProjectContent({
     </Drawer.Body>
   </Drawer.Content>
 </Drawer.Root>
+
+      {/* Project Settings Drawer */}
+      <Drawer
+        opened={settingsDrawerOpened}
+        onClose={() => setSettingsDrawerOpened(false)}
+        title="Project Settings"
+        position="right"
+        size="lg"
+        trapFocus={false}
+        lockScroll={false}
+        withOverlay={false}
+      >
+        <div className="space-y-6">
+          <ProjectDetails project={project} />
+          <Team projectId={projectId} />
+        </div>
+      </Drawer>
     </>
   );
 }
