@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from "~/trpc/react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -35,25 +35,56 @@ interface ManyChatProps {
     validAssignees: string[];
   };
   buttons?: React.ReactNode[];
+  projectId?: string;
 }
 
-export default function ManyChat({ initialMessages, githubSettings, buttons }: ManyChatProps) {
-  const [messages, setMessages] = useState<Message[]>(
-    initialMessages ?? [
+export default function ManyChat({ initialMessages, githubSettings, buttons, projectId }: ManyChatProps) {
+  // Function to generate initial messages with project context
+  const generateInitialMessages = useCallback((projectData?: any, projectActions?: any[]): Message[] => {
+    const projectContext = projectData && projectActions ? `
+      
+      CURRENT PROJECT CONTEXT:
+      - Project: ${projectData.name}
+      - Description: ${projectData.description || 'No description'}
+      - Status: ${projectData.status}
+      - Priority: ${projectData.priority}
+      - Current Tasks: ${projectActions.length > 0 ? 
+        projectActions.map(action => `• ${action.name} (${action.status}, ${action.priority})`).join('\n        ') : 
+        'No active tasks'}
+      
+      When creating actions or tasks, automatically assign them to project ID: ${projectId}
+      When asked about tasks or project status, refer to the current project context above.
+    ` : '';
+
+    return [
       {
         type: 'system',
-        content: `Your name is Peter the project manager.You are a coordinator managing a multi-agent conversation. 
+        content: `Your name is Paddy the project manager. You are a coordinator managing a multi-agent conversation. 
                   Route user requests to the appropriate specialized agent if necessary.
                   Keep track of the conversation flow between the user and multiple AI agents.
                   ${githubSettings ? `When creating GitHub issues, use repo: "${githubSettings.repo}" and owner: "${githubSettings.owner}". Valid assignees are: ${githubSettings.validAssignees.join(", ")}` : ''}
+                  ${projectContext}
                   The current date is: ${new Date().toISOString().split('T')[0]}`
       },
       {
         type: 'ai',
-        agentName: 'Coordinator', // Example initial agent name
-        content: 'Hello! Multiple agents are available to assist you. How can I help today?' 
+        agentName: 'Coordinator',
+        content: projectData ? 
+          `Hello! I'm here to help you with the "${projectData.name}" project. Multiple agents are available to assist you. How can I help today?` :
+          'Hello! Multiple agents are available to assist you. How can I help today?'
+      },
+      {
+        type: 'ai',
+        agentName: 'Paddy',
+        content: projectData ? 
+          `Hello! I'm Paddy the project manager. I'm here to help you with the "${projectData.name}" (projectId: ${projectId}). Multiple agents are available to assist you. How can I help today?` :
+          'Hello! I\'m Paddy the project manager. I\'m here to help you with the "${projectData.name}" project. Multiple agents are available to assist you. How can I help today?'
       }
-    ]
+    ];
+  }, [projectId, githubSettings]);
+
+  const [messages, setMessages] = useState<Message[]>(
+    initialMessages ?? generateInitialMessages()
   );
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -72,13 +103,25 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
     onSuccess: async () => {
       await Promise.all([
         utils.action.getAll.invalidate(),
-        utils.action.getToday.invalidate()
+        utils.action.getToday.invalidate(),
+        utils.action.getProjectActions.invalidate()
       ]);
     }
   });
   const transcribeAudio = api.tools.transcribe.useMutation();
   const callAgent = api.mastra.callAgent.useMutation();
   const chooseAgent = api.mastra.chooseAgent.useMutation();
+  
+  // Fetch project context when projectId is provided
+  const { data: projectData } = api.project.getById.useQuery(
+    { id: projectId! },
+    { enabled: !!projectId }
+  );
+  
+  const { data: projectActions } = api.action.getProjectActions.useQuery(
+    { projectId: projectId! },
+    { enabled: !!projectId }
+  );
 
   // Fetch Mastra agents
   const { data: mastraAgents, isLoading: isLoadingAgents, error: agentsError } = 
@@ -90,6 +133,14 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
       }
     );
   console.log("mastraAgents is ", mastraAgents);
+  
+  // Update messages when project data is loaded
+  useEffect(() => {
+    if (projectData && projectActions && !initialMessages) {
+      const newMessages = generateInitialMessages(projectData, projectActions);
+      setMessages(newMessages);
+    }
+  }, [projectData, projectActions, initialMessages, generateInitialMessages]);
   
   // Parse agent mentions from input
   const parseAgentMention = (text: string): { agentId: string | null; cleanMessage: string } => {
