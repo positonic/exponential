@@ -128,6 +128,12 @@ export function ProjectContent({
             {/* Tabs Navigation */}
             <Tabs.List>
               <Tabs.Tab
+                value="tasks"
+                leftSection={<IconLayoutKanban size={16} />}
+              >
+                Tasks
+              </Tabs.Tab>
+              <Tabs.Tab
                 value="goals"
                 leftSection={<IconTargetArrow size={16} />}
               >
@@ -141,12 +147,6 @@ export function ProjectContent({
               </Tabs.Tab>
               <Tabs.Tab value="timeline" leftSection={<IconClock size={16} />}>
                 Timeline
-              </Tabs.Tab>
-              <Tabs.Tab
-                value="tasks"
-                leftSection={<IconLayoutKanban size={16} />}
-              >
-                Tasks
               </Tabs.Tab>
               <Tabs.Tab
                 value="plan"

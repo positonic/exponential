@@ -61,6 +61,11 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
   const chunksRef = useRef<Blob[]>([]);
   const viewport = useRef<HTMLDivElement>(null);
   const [agentFilter, setAgentFilter] = useState<string>('');
+  const [showAgentDropdown, setShowAgentDropdown] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState(0);
+  const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const utils = api.useUtils();
   const chat = api.tools.chat.useMutation({
@@ -85,11 +90,129 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
       }
     );
   console.log("mastraAgents is ", mastraAgents);
+  
+  // Parse agent mentions from input
+  const parseAgentMention = (text: string): { agentId: string | null; cleanMessage: string } => {
+    const mentionRegex = /@(\w+)/;
+    const match = text.match(mentionRegex);
+    
+    if (match && mastraAgents) {
+      const mentionedName = match[1];
+      const agent = mastraAgents.find(a => a.name.toLowerCase() === mentionedName?.toLowerCase());
+      if (agent) {
+        return {
+          agentId: agent.id,
+          cleanMessage: text.replace(mentionRegex, '').trim()
+        };
+      }
+    }
+    
+    return { agentId: null, cleanMessage: text };
+  };
+
+  // Check if cursor is after @ symbol for autocomplete
+  const checkForMention = (text: string, position: number): boolean => {
+    const beforeCursor = text.substring(0, position);
+    const lastAtIndex = beforeCursor.lastIndexOf('@');
+    if (lastAtIndex === -1) return false;
+    
+    const afterAt = beforeCursor.substring(lastAtIndex + 1);
+    return !afterAt.includes(' ') && afterAt.length >= 0;
+  };
+
+  // Filter agents based on partial mention
+  const getFilteredAgentsForMention = (text: string, position: number) => {
+    if (!mastraAgents) return [];
+    
+    const beforeCursor = text.substring(0, position);
+    const lastAtIndex = beforeCursor.lastIndexOf('@');
+    if (lastAtIndex === -1) return [];
+    
+    const searchTerm = beforeCursor.substring(lastAtIndex + 1).toLowerCase();
+    return mastraAgents.filter(agent => 
+      agent.name.toLowerCase().startsWith(searchTerm)
+    );
+  };
+
   useEffect(() => {
     if (viewport.current) {
       viewport.current.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
     }
   }, [messages]);
+
+  // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) &&
+          inputRef.current && !inputRef.current.contains(event.target as Node)) {
+        setShowAgentDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Handle input changes and autocomplete
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    const position = e.target.selectionStart || 0;
+    
+    setInput(value);
+    setCursorPosition(position);
+    setSelectedAgentIndex(0);
+    
+    const shouldShowDropdown = checkForMention(value, position);
+    setShowAgentDropdown(shouldShowDropdown);
+  };
+
+  // Handle keyboard navigation in dropdown
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showAgentDropdown) return;
+    
+    const filteredAgents = getFilteredAgentsForMention(input, cursorPosition);
+    
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedAgentIndex(prev => 
+        prev < filteredAgents.length - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedAgentIndex(prev => 
+        prev > 0 ? prev - 1 : filteredAgents.length - 1
+      );
+    } else if (e.key === 'Enter' && filteredAgents.length > 0) {
+      e.preventDefault();
+      selectAgent(filteredAgents[selectedAgentIndex]!);
+    } else if (e.key === 'Escape') {
+      setShowAgentDropdown(false);
+    }
+  };
+
+  // Handle agent selection from dropdown
+  const selectAgent = (agent: { id: string; name: string }) => {
+    if (!inputRef.current) return;
+    
+    const beforeCursor = input.substring(0, cursorPosition);
+    const afterCursor = input.substring(cursorPosition);
+    const lastAtIndex = beforeCursor.lastIndexOf('@');
+    
+    if (lastAtIndex !== -1) {
+      const newInput = beforeCursor.substring(0, lastAtIndex) + `@${agent.name} ` + afterCursor;
+      setInput(newInput);
+      setShowAgentDropdown(false);
+      
+      // Focus back to input
+      setTimeout(() => {
+        if (inputRef.current) {
+          const newPosition = lastAtIndex + agent.name.length + 2;
+          inputRef.current.focus();
+          inputRef.current.setSelectionRange(newPosition, newPosition);
+        }
+      }, 0);
+    }
+  };
 
   const startRecording = async () => {
     try {
@@ -156,13 +279,29 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
 
     const userMessage: Message = { type: 'human', content: input };
     setMessages(prev => [...prev, userMessage]);
+    
+    // Parse for agent mentions
+    const { agentId: mentionedAgentId, cleanMessage } = parseAgentMention(input);
+    const messageToSend = mentionedAgentId ? cleanMessage : input;
+    
     setInput('');
+    setShowAgentDropdown(false);
 
     try {
-      const { agentId } = await chooseAgent.mutateAsync({ message: input });
+      let targetAgentId: string;
+      
+      if (mentionedAgentId) {
+        // Use the mentioned agent directly
+        targetAgentId = mentionedAgentId;
+      } else {
+        // Use the AI to choose the best agent
+        const { agentId } = await chooseAgent.mutateAsync({ message: input });
+        targetAgentId = agentId;
+      }
+      
       const result = await callAgent.mutateAsync({
-        agentId,
-        messages: [{ role: 'user', content: input }],
+        agentId: targetAgentId,
+        messages: [{ role: 'user', content: messageToSend }],
       });
 
       const aiResponse: Message = {
@@ -417,24 +556,26 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
       <div className="flex-shrink-0 bg-[#1a1b1e] border-t border-gray-600 p-4">
         <form onSubmit={handleSubmit}>
           <Group align="flex-end">
-            <TextInput
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your message..."
-              style={{ flex: 1 }}
-              radius="sm"
-              size="lg"
-              styles={{
-                input: {
-                  backgroundColor: '#2C2E33',
-                  color: '#C1C2C5',
-                  '&::placeholder': {
-                    color: '#5C5F66'
+            <div style={{ flex: 1, position: 'relative' }}>
+              <TextInput
+                ref={inputRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder="Type your message... (use @agent to mention)"
+                radius="sm"
+                size="lg"
+                styles={{
+                  input: {
+                    backgroundColor: '#2C2E33',
+                    color: '#C1C2C5',
+                    '&::placeholder': {
+                      color: '#5C5F66'
+                    }
                   }
-                }
-              }}
-              rightSectionWidth={100}
-              rightSection={
+                }}
+                rightSectionWidth={100}
+                rightSection={
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <ActionIcon
                     onClick={handleMicClick}
@@ -459,7 +600,56 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
                   </Button>
                 </div>
               }
-            />
+              />
+              
+              {/* Agent autocomplete dropdown */}
+              {showAgentDropdown && (
+                <Paper
+                  ref={dropdownRef}
+                  style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: 0,
+                    right: 0,
+                    marginBottom: '4px',
+                    backgroundColor: '#2C2E33',
+                    border: '1px solid #444',
+                    borderRadius: '4px',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    zIndex: 1000
+                  }}
+                  p="xs"
+                >
+                  {getFilteredAgentsForMention(input, cursorPosition).map((agent, index) => (
+                    <div
+                      key={agent.id}
+                      onClick={() => selectAgent(agent)}
+                      onMouseEnter={() => setSelectedAgentIndex(index)}
+                      style={{
+                        padding: '8px',
+                        cursor: 'pointer',
+                        borderRadius: '4px',
+                        color: '#C1C2C5',
+                        backgroundColor: index === selectedAgentIndex ? '#404040' : 'transparent'
+                      }}
+                    >
+                      <Group gap="xs">
+                        <Avatar size="sm" radius="xl">
+                          {getInitials(agent.name)}
+                        </Avatar>
+                        <Text size="sm">@{agent.name}</Text>
+                      </Group>
+                    </div>
+                  ))}
+                  {getFilteredAgentsForMention(input, cursorPosition).length === 0 && (
+                    <Text size="sm" c="dimmed" p="sm">
+                      No agents found
+                    </Text>
+                  )}
+                </Paper>
+              )}
+            </div>
           </Group>
         </form>
       </div>

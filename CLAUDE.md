@@ -35,7 +35,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a productivity management application built with the T3 Stack (Next.js 15, tRPC, Prisma, NextAuth.js) featuring:
 
 ### Tech Stack
-- **Frontend**: Next.js 15 with App Router, React 18, Mantine v7 UI, Tailwind CSS
+- **Frontend**: Next.js 15 with App Router, React 18, [Mantine v7 UI](https://mantine.dev/getting-started/), Tailwind CSS
 - **Backend**: tRPC for type-safe APIs, Prisma ORM with PostgreSQL
 - **Authentication**: NextAuth.js v5 (Discord, Google, Notion providers)
 - **AI Integration**: OpenAI, Langchain, Mastra for intelligent features
@@ -77,7 +77,7 @@ src/
 - Prefer interfaces over types for object shapes
 - Use descriptive variable names with auxiliary verbs (isLoading, hasError)
 - Keep functions small and focused (single responsibility)
-- Use Mantine v7 components with Tailwind CSS for styling
+- Use [Mantine v7 components](https://mantine.dev/getting-started/) with Tailwind CSS for styling
 - Follow Next.js App Router patterns with Server Components preferred
 - Always use the latest Next.js best practices and conventions
 - Prefer Next.js Link over useRouter.push() for navigation
@@ -108,7 +108,7 @@ Key entities include:
 - **Layout Components**: Navigation, sidebar, header
 - **Feature Components**: Actions, Projects, Goals, Outcomes
 - **Section Components**: Reusable content sections for different views
-- **UI Components**: Base Mantine components with custom styling
+- **UI Components**: Base [Mantine components](https://mantine.dev/getting-started/) with custom styling
 
 ## Environment Setup
 
@@ -119,10 +119,12 @@ Required environment variables:
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - Google OAuth
 - `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` - Notion integration
 - `OPENAI_API_KEY` - AI features
+- `MASTRA_API_URL` - Mastra AI agent system URL (defaults to http://localhost:4111)
 
 ## Key Integrations
 
 ### AI Features
+- **Mastra AI**: Multi-agent system with semantic agent selection and conversation management
 - OpenAI GPT integration for intelligent assistance
 - Langchain for AI workflow management
 - Custom tools for domain-specific AI operations
@@ -132,7 +134,7 @@ Required environment variables:
 - GitHub integration for issue management
 - Video processing with transcription
 - Browser extension authentication
-- Mastra for additional AI tooling
+- [Mastra AI](https://mastra.ai/en/docs) for multi-agent system infrastructure
 
 ## Development Notes
 
