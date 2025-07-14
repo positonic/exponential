@@ -84,7 +84,7 @@ export function ProjectContent({
   return (
     <>
       {/* Project Title and Description */}
-      <Paper className="mx-auto w-full max-w-3xl" px={0} bg="transparent" mb="xl">
+      <Paper className="w-full max-w-3xl pl-8" px={0} bg="transparent" mb="xl">
         <Group justify="space-between" align="flex-start">
           <div>
             <Title
@@ -110,7 +110,7 @@ export function ProjectContent({
       </Paper>
 
       {/* Main Content */}
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="w-full max-w-3xl pl-8">
         <Tabs value={activeTab} onChange={handleTabChange}>
           <Stack gap="xl" align="stretch" justify="flex-start">
             {/* Tabs Navigation */}
@@ -322,7 +322,7 @@ export function ProjectContent({
   lockScroll={false}
   
 >
-  <Drawer.Content style={{ height: '100vh', border: '1px solid green' }}>
+  <Drawer.Content style={{ height: '100vh'}}>
     <Drawer.Header>
       <Drawer.Title>Project Chat</Drawer.Title>
       <Drawer.CloseButton />
