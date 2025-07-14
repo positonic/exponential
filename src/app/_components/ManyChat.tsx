@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { api } from "~/trpc/react";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   Paper, 
   TextInput, 
   Button, 
-  Stack, 
   ScrollArea, 
   Avatar, 
   Group, 
@@ -184,31 +185,84 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
     }
   };
 
-  const renderMessageContent = (content: string) => {
+  const renderMessageContent = (content: string, messageType: string) => {
+    // Handle video links first
     const videoPattern = /\[Video ([a-zA-Z0-9_-]+)\]/g;
-    const parts = content.split(videoPattern);
+    const hasVideoLinks = videoPattern.test(content);
     
-    if (parts.length === 1) {
-      return content; 
+    if (hasVideoLinks) {
+      const parts = content.split(videoPattern);
+      return parts.map((part, index) => {
+        if (index % 2 === 1) {
+          return (
+            <a 
+              key={index} 
+              href={`/video/${part}`}
+              style={{ 
+                color: 'inherit', 
+                textDecoration: 'underline' 
+              }}
+            >
+              {`Video ${part}`}
+            </a>
+          );
+        }
+        return part;
+      });
     }
 
-    return parts.map((part, index) => {
-      if (index % 2 === 1) {
-        return (
-          <a 
-            key={index} 
-            href={`/video/${part}`}
-            style={{ 
-              color: 'inherit', 
-              textDecoration: 'underline' 
-            }}
-          >
-            {`Video ${part}`}
-          </a>
-        );
-      }
-      return part;
-    });
+    // For AI messages, check if content looks like markdown and render accordingly
+    if (messageType === 'ai' && (content.includes('###') || content.includes('**') || content.includes('- '))) {
+      return (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            h1: ({children}) => <Text size="xl" fw={700} mb="sm">{children}</Text>,
+            h2: ({children}) => <Text size="lg" fw={600} mb="sm">{children}</Text>,
+            h3: ({children}) => <Text size="md" fw={500} mb="xs">{children}</Text>,
+            h4: ({children}) => <Text size="sm" fw={500} mb="xs">{children}</Text>,
+            p: ({children}) => <Text size="sm" mb="xs">{children}</Text>,
+            strong: ({children}) => <Text component="span" fw={600}>{children}</Text>,
+            ul: ({children}) => <Box component="ul" ml="md" mb="xs">{children}</Box>,
+            ol: ({children}) => <Box component="ol" ml="md" mb="xs">{children}</Box>,
+            li: ({children}) => <Text component="li" size="sm">{children}</Text>,
+            code: ({children}) => (
+              <Text 
+                component="code" 
+                style={{ 
+                  backgroundColor: '#2C2E33', 
+                  padding: '2px 4px', 
+                  borderRadius: '4px',
+                  fontSize: '12px'
+                }}
+              >
+                {children}
+              </Text>
+            ),
+            pre: ({children}) => (
+              <Box 
+                component="pre" 
+                style={{ 
+                  backgroundColor: '#2C2E33', 
+                  padding: '8px', 
+                  borderRadius: '4px',
+                  overflow: 'auto',
+                  fontSize: '12px'
+                }}
+                mb="xs"
+              >
+                {children}
+              </Box>
+            ),
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      );
+    }
+
+    // For regular text, return as-is
+    return content;
   };
 
   const getInitials = (name = '') => name.split(' ').map(n => n[0]).join('').toUpperCase();
@@ -313,15 +367,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
                     textAlign: message.type === 'human' ? 'right' : 'left',
                   }}
                 >
-                  <Text
-                    size="sm"
+                  <div
                     style={{
                       color: message.type === 'human' ? 'white' : '#C1C2C5',
                       whiteSpace: 'pre-wrap',
+                      fontSize: '14px',
                     }}
                   >
-                    {renderMessageContent(message.content)}
-                  </Text>
+                    {renderMessageContent(message.content, message.type)}
+                  </div>
                 </Paper>
                 {message.type === 'human' && (
                   <Tooltip label="User" position="right" withArrow>
