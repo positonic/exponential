@@ -137,7 +137,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
           return action.dueDate && action.dueDate >= today;
         default:
           if (viewName.startsWith('project-')) {
-            const projectId = viewName.split('-')[2];
+            const projectId = viewName.split('-').slice(3).join('-');
             return action.projectId === projectId;
           }
           return true; // Show all non-overdue if viewName doesn't match known types

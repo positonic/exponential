@@ -53,7 +53,7 @@ export function ProjectContent({
   viewName: string;
   projectId: string;
 }) {
-  const [activeTab, setActiveTab] = useState<TabValue>("goals");
+  const [activeTab, setActiveTab] = useState<TabValue>("tasks");
   const [drawerOpened, setDrawerOpened] = useState(false);
   const [chatDrawerOpened, setChatDrawerOpened] = useState(false);
   const [settingsDrawerOpened, setSettingsDrawerOpened] = useState(false);

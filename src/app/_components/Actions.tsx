@@ -47,7 +47,6 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
     setIsAlignmentMode(defaultView === 'alignment');
   }, [defaultView]);
 
-  console.log("projectId is ", projectId);
   console.log("outcomes are ", outcomes.data);
   // Filter outcomes for today
   const todayOutcomes = outcomes.data?.filter(outcome => {

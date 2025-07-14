@@ -40,13 +40,24 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
       try {
         // Verify the JWT token
         const decoded = jwt.verify(token, process.env.AUTH_SECRET ?? '') as {
-          userId: string;
+          userId?: string;   // Legacy format
+          sub?: string;      // New API token format
           email: string;
+          name?: string;
+          picture?: string;
+          tokenType?: string;
+          exp?: number;
         };
+
+        // Support both legacy and new token formats
+        const userId = decoded.userId || decoded.sub;
+        if (!userId) {
+          throw new Error('Invalid token: missing user identifier');
+        }
 
         // Find the user
         const user = await db.user.findUnique({
-          where: { id: decoded.userId }
+          where: { id: userId }
         });
 
         if (user) {
@@ -58,7 +69,9 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
               name: user.name,
               image: user.image,
             },
-            expires: new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 minutes from now
+            expires: decoded.exp 
+              ? new Date(decoded.exp * 1000).toISOString() 
+              : new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 minutes fallback
           };
           return {
             db,
