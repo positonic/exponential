@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run preview` - Build and start production server
+- Always use bun to install packages
 
 ### Code Quality
 - `npm run lint` - Run ESLint

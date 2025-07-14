@@ -346,8 +346,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
                 justifyContent: message.type === 'human' ? 'flex-end' : 'flex-start',
               }}
             >
-              <Group align="flex-start" gap="xs">
-                {message.type === 'ai' && (
+              {message.type === 'ai' ? (
+                <Group align="flex-start" gap="xs" style={{ maxWidth: '85%' }}>
                   <Tooltip label={message.agentName || 'Agent'} position="left" withArrow>
                     <Avatar 
                       size="md" 
@@ -357,27 +357,46 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
                       {getInitials(message.agentName || 'AI')}
                     </Avatar>
                   </Tooltip>
-                )}
-                <Paper
-                  p="sm"
-                  radius="lg"
-                  style={{
-                    maxWidth: '70%',
-                    backgroundColor: message.type === 'human' ? '#228be6' : '#2C2E33',
-                    textAlign: message.type === 'human' ? 'right' : 'left',
-                  }}
-                >
-                  <div
+                  <Paper
+                    p="sm"
+                    radius="lg"
                     style={{
-                      color: message.type === 'human' ? 'white' : '#C1C2C5',
-                      whiteSpace: 'pre-wrap',
-                      fontSize: '14px',
+                      backgroundColor: '#2C2E33',
+                      textAlign: 'left',
+                      flex: 1,
                     }}
                   >
-                    {renderMessageContent(message.content, message.type)}
-                  </div>
-                </Paper>
-                {message.type === 'human' && (
+                    <div
+                      style={{
+                        color: '#C1C2C5',
+                        whiteSpace: 'pre-wrap',
+                        fontSize: '14px',
+                      }}
+                    >
+                      {renderMessageContent(message.content, message.type)}
+                    </div>
+                  </Paper>
+                </Group>
+              ) : (
+                <Group align="flex-start" gap="xs" style={{ maxWidth: '85%' }}>
+                  <Paper
+                    p="sm"
+                    radius="lg"
+                    style={{
+                      backgroundColor: '#228be6',
+                      textAlign: 'right',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: 'white',
+                        whiteSpace: 'pre-wrap',
+                        fontSize: '14px',
+                      }}
+                    >
+                      {renderMessageContent(message.content, message.type)}
+                    </div>
+                  </Paper>
                   <Tooltip label="User" position="right" withArrow>
                     <Avatar 
                       size="md" 
@@ -387,8 +406,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
                       {getInitials('User')}
                     </Avatar>
                   </Tooltip>
-                )}
-              </Group>
+                </Group>
+              )}
             </Box>
           ))}
         </ScrollArea>

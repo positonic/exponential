@@ -110,7 +110,7 @@ export function ProjectContent({
       </Paper>
 
       {/* Main Content */}
-      <div className="w-full max-w-3xl pl-8">
+      <div className="w-full max-w-3xl">
         <Tabs value={activeTab} onChange={handleTabChange}>
           <Stack gap="xl" align="stretch" justify="flex-start">
             {/* Tabs Navigation */}
