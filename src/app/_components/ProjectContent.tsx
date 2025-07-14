@@ -13,37 +13,33 @@ import { OutcomeTimeline } from "./OutcomeTimeline";
 import {
   Group,
   Tabs,
-  SegmentedControl,
   Title,
   Paper,
   Stack,
   Text,
-  Box,
   Drawer,
   ScrollArea,
   Badge,
+  ActionIcon,
 } from "@mantine/core";
 import { api } from "~/trpc/react";
 import {
   IconLayoutKanban,
   IconSettings,
-  IconUsers,
-  IconMessageCircle,
   IconClipboardList,
   IconTargetArrow,
   IconActivity,
   IconClock,
   IconMicrophone,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 
-type TaskView = "list" | "alignment";
 type TabValue =
   | "tasks"
   | "plan"
   | "goals"
   | "outcomes"
   | "timeline"
-  | "team"
   | "transcriptions"
   | "settings"
   | "workflows";
@@ -55,9 +51,9 @@ export function ProjectContent({
   viewName: string;
   projectId: string;
 }) {
-  const [activeTab, setActiveTab] = useState<TabValue>("team");
-  const [taskView, setTaskView] = useState<TaskView>("list");
+  const [activeTab, setActiveTab] = useState<TabValue>("goals");
   const [drawerOpened, setDrawerOpened] = useState(false);
+  const [chatDrawerOpened, setChatDrawerOpened] = useState(false);
   const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
   const { data: project, isLoading } = api.project.getById.useQuery({
     id: projectId,
@@ -71,9 +67,6 @@ export function ProjectContent({
     }
   };
 
-  const handleViewChange = (value: string) => {
-    setTaskView(value as TaskView);
-  };
 
   const handleTranscriptionClick = (transcription: any) => {
     setSelectedTranscription(transcription);
@@ -90,10 +83,10 @@ export function ProjectContent({
 
   return (
     <>
-      <Tabs value={activeTab} onChange={handleTabChange}>
-        <Stack gap="xl" align="stretch" justify="flex-start">
-          {/* Project Title and Description */}
-          <Paper className="mx-auto w-full max-w-3xl" px={0} bg="transparent">
+      {/* Project Title and Description */}
+      <Paper className="mx-auto w-full max-w-3xl" px={0} bg="transparent" mb="xl">
+        <Group justify="space-between" align="flex-start">
+          <div>
             <Title
               order={2}
               mb={4}
@@ -104,142 +97,146 @@ export function ProjectContent({
             <Text size="sm" c="dimmed" lineClamp={2} maw={800}>
               {project.description}
             </Text>
-          </Paper>
-          {/* Tabs Navigation - Moved Here */}
-          <Tabs.List className="mx-auto w-full max-w-3xl">
-          <Tabs.Tab value="team" leftSection={<IconUsers size={16} />}>
-              Team
-            </Tabs.Tab>
-            <Tabs.Tab value="goals" leftSection={<IconTargetArrow size={16} />}>
-              Goals
-            </Tabs.Tab>
-            <Tabs.Tab value="outcomes" leftSection={<IconActivity size={16} />}>
-              Outcomes
-            </Tabs.Tab>
-            <Tabs.Tab value="timeline" leftSection={<IconClock size={16} />}>
-              Timeline
-            </Tabs.Tab>
-            <Tabs.Tab value="tasks" leftSection={<IconLayoutKanban size={16} />}>
-              Tasks
-            </Tabs.Tab>
-            <Tabs.Tab value="plan" leftSection={<IconClipboardList size={16} />}>
-              Plan
-            </Tabs.Tab>
-            <Tabs.Tab value="transcriptions" leftSection={<IconMicrophone size={16} />}>
-              Transcriptions
-            </Tabs.Tab>
-           <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
-              Settings
-            </Tabs.Tab>
-          </Tabs.List>
+          </div>
+          <ActionIcon
+            variant="filled"
+            size="lg"
+            onClick={() => setChatDrawerOpened(true)}
+            title="Open Project Chat"
+          >
+            <IconMessageCircle size={20} />
+          </ActionIcon>
+        </Group>
+      </Paper>
 
-          {/* Content Area - No longer needs extra padding if Tabs.List is outside */}
-          <Tabs.Panel value="tasks">
-            <Actions
-              viewName={viewName}
-              defaultView={taskView}
-              projectId={projectId}
-            />
-          </Tabs.Panel>
+      {/* Main Content */}
+      <div className="mx-auto w-full max-w-3xl">
+        <Tabs value={activeTab} onChange={handleTabChange}>
+          <Stack gap="xl" align="stretch" justify="flex-start">
+            {/* Tabs Navigation */}
+            <Tabs.List>
+                <Tabs.Tab value="goals" leftSection={<IconTargetArrow size={16} />}>
+                  Goals
+                </Tabs.Tab>
+                <Tabs.Tab value="outcomes" leftSection={<IconActivity size={16} />}>
+                  Outcomes
+                </Tabs.Tab>
+                <Tabs.Tab value="timeline" leftSection={<IconClock size={16} />}>
+                  Timeline
+                </Tabs.Tab>
+                <Tabs.Tab value="tasks" leftSection={<IconLayoutKanban size={16} />}>
+                  Tasks
+                </Tabs.Tab>
+                <Tabs.Tab value="plan" leftSection={<IconClipboardList size={16} />}>
+                  Plan
+                </Tabs.Tab>
+                <Tabs.Tab value="transcriptions" leftSection={<IconMicrophone size={16} />}>
+                  Transcriptions
+                </Tabs.Tab>
+                <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
+                  Settings
+                </Tabs.Tab>
+              </Tabs.List>
 
-          <Tabs.Panel value="plan">
-            <Plan projectId={projectId} />
-          </Tabs.Panel>
+              {/* Content Area */}
+              <Tabs.Panel value="tasks">
+                <Actions
+                  viewName={viewName}
+                  defaultView="list"
+                  projectId={projectId}
+                />
+              </Tabs.Panel>
 
-          <Tabs.Panel value="goals">
-            <Paper
-              p="md"
-              radius="sm"
-              className="mx-auto w-full max-w-3xl bg-[#262626]"
-            >
-              <GoalsTable goals={goalsQuery.data ?? []} />
-            </Paper>
-          </Tabs.Panel>
+              <Tabs.Panel value="plan">
+                <Plan projectId={projectId} />
+              </Tabs.Panel>
 
-          <Tabs.Panel value="outcomes">
-            <Paper
-              p="md"
-              radius="sm"
-              className="mx-auto w-full max-w-3xl bg-[#262626]"
-            >
-              <OutcomesTable outcomes={outcomesQuery.data ?? []} />
-            </Paper>
-          </Tabs.Panel>
+              <Tabs.Panel value="goals">
+                <Paper
+                  p="md"
+                  radius="sm"
+                  className="mx-auto w-full max-w-3xl bg-[#262626]"
+                >
+                  <GoalsTable goals={goalsQuery.data ?? []} />
+                </Paper>
+              </Tabs.Panel>
 
-          <Tabs.Panel value="timeline">
-            <Paper
-              p="md"
-              radius="sm"
-              className="mx-auto w-full max-w-3xl bg-[#262626]"
-            >
-              <OutcomeTimeline projectId={projectId} />
-            </Paper>
-          </Tabs.Panel>
+              <Tabs.Panel value="outcomes">
+                <Paper
+                  p="md"
+                  radius="sm"
+                  className="mx-auto w-full max-w-3xl bg-[#262626]"
+                >
+                  <OutcomesTable outcomes={outcomesQuery.data ?? []} />
+                </Paper>
+              </Tabs.Panel>
 
-          <Tabs.Panel value="transcriptions">
-            <Paper
-              p="md"
-              radius="sm"
-              className="mx-auto w-full max-w-3xl bg-[#262626]"
-            >
-              <Stack gap="md">
-                <Title order={4}>Transcription Sessions</Title>
-                {project.transcriptionSessions && project.transcriptionSessions.length > 0 ? (
-                  <Stack gap="sm">
-                    {project.transcriptionSessions.map((session) => (
-                      <Paper 
-                        key={session.id} 
-                        p="md" 
-                        radius="sm" 
-                        className="bg-[#2a2a2a] cursor-pointer hover:bg-[#333333] transition-colors"
-                        onClick={() => handleTranscriptionClick(session)}
-                      >
-                        <Group justify="space-between" align="flex-start">
-                          <Stack gap="xs" style={{ flex: 1 }}>
-                            <Group gap="xs">
-                              <Text size="sm" fw={500}>
-                                Session ID: {session.sessionId}
-                              </Text>
-                              <Text size="xs" c="dimmed">
-                                {new Date(session.createdAt).toLocaleDateString()}
-                              </Text>
+              <Tabs.Panel value="timeline">
+                <Paper
+                  p="md"
+                  radius="sm"
+                  className="mx-auto w-full max-w-3xl bg-[#262626]"
+                >
+                  <OutcomeTimeline projectId={projectId} />
+                </Paper>
+              </Tabs.Panel>
+
+              <Tabs.Panel value="transcriptions">
+                <Paper
+                  p="md"
+                  radius="sm"
+                  className="mx-auto w-full max-w-3xl bg-[#262626]"
+                >
+                  <Stack gap="md">
+                    <Title order={4}>Transcription Sessions</Title>
+                    {project.transcriptionSessions && project.transcriptionSessions.length > 0 ? (
+                      <Stack gap="sm">
+                        {project.transcriptionSessions.map((session) => (
+                          <Paper 
+                            key={session.id} 
+                            p="md" 
+                            radius="sm" 
+                            className="bg-[#2a2a2a] cursor-pointer hover:bg-[#333333] transition-colors"
+                            onClick={() => handleTranscriptionClick(session)}
+                          >
+                            <Group justify="space-between" align="flex-start">
+                              <Stack gap="xs" style={{ flex: 1 }}>
+                                <Group gap="xs">
+                                  <Text size="sm" fw={500}>
+                                    Session ID: {session.sessionId}
+                                  </Text>
+                                  <Text size="xs" c="dimmed">
+                                    {new Date(session.createdAt).toLocaleDateString()}
+                                  </Text>
+                                </Group>
+                                {session.transcription && (
+                                  <Text size="sm" c="dimmed" lineClamp={3}>
+                                    {session.transcription}
+                                  </Text>
+                                )}
+                              </Stack>
                             </Group>
-                            {session.transcription && (
-                              <Text size="sm" c="dimmed" lineClamp={3}>
-                                {session.transcription}
-                              </Text>
-                            )}
-                          </Stack>
-                        </Group>
-                      </Paper>
-                    ))}
+                          </Paper>
+                        ))}
+                      </Stack>
+                    ) : (
+                      <Text size="sm" c="dimmed" ta="center" py="xl">
+                        No transcription sessions found for this project.
+                      </Text>
+                    )}
                   </Stack>
-                ) : (
-                  <Text size="sm" c="dimmed" ta="center" py="xl">
-                    No transcription sessions found for this project.
-                  </Text>
-                )}
-              </Stack>
-            </Paper>
-          </Tabs.Panel>
+                </Paper>
+              </Tabs.Panel>
 
-          <Tabs.Panel value="team">
-            <div className="mx-auto mt-8 w-full max-w-3xl">
-              <Title order={4} mb="md">Project Chat</Title>
-              {/* <Chat /> */}
-              <ManyChat />
-            </div>
-          </Tabs.Panel>
-
-          <Tabs.Panel value="settings">
-            <div className="mx-auto w-full max-w-3xl">
-              <ProjectDetails project={project} />
-              <Team projectId={projectId} />
-            
-            </div>
-          </Tabs.Panel>
-        </Stack>
-      </Tabs>
+              <Tabs.Panel value="settings">
+                <div className="mx-auto w-full max-w-3xl">
+                  <ProjectDetails project={project} />
+                  <Team projectId={projectId} />
+                </div>
+              </Tabs.Panel>
+            </Stack>
+          </Tabs>
+        </div>
 
       {/* Transcription Details Drawer */}
       <Drawer
@@ -248,6 +245,9 @@ export function ProjectContent({
         title="Transcription Details"
         position="right"
         size="lg"
+        trapFocus={false}
+        lockScroll={false}
+        withOverlay={false} // optional: disables dimming the background
       >
         {selectedTranscription && (
           <ScrollArea h="100%">
@@ -311,6 +311,30 @@ export function ProjectContent({
           </ScrollArea>
         )}
       </Drawer>
+
+      {/* Project Chat Drawer */}
+      <Drawer.Root
+  opened={chatDrawerOpened}
+  onClose={() => setChatDrawerOpened(false)}
+  position="right"
+  size="lg"
+  trapFocus={false}
+  lockScroll={false}
+  
+>
+  <Drawer.Content style={{ height: '100vh', border: '1px solid green' }}>
+    <Drawer.Header>
+      <Drawer.Title>Project Chat</Drawer.Title>
+      <Drawer.CloseButton />
+    </Drawer.Header>
+    <Drawer.Body style={{ height: 'calc(100vh - 60px)', padding: 0 }}>
+      {/* 60px is the default header height, adjust if needed */}
+      <div className="h-full flex flex-col" style={{ border: '1px solid red' }}>
+        <ManyChat />
+      </div>
+    </Drawer.Body>
+  </Drawer.Content>
+</Drawer.Root>
     </>
   );
 }

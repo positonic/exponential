@@ -260,135 +260,136 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
   };
 
   return (
-      <Paper 
-        shadow="md" 
-        radius="sm"
-        className="flex flex-col h-full"
-      >
-        {/* Agent discovery/filter input and avatar list */}
-        <Box p="xs" mb="xs" style={{ borderBottom: '1px solid var(--mantine-color-dark-4)' }}>
-          <Text size="sm" fw={500} mb="xs">Available Agents</Text>
-          <TextInput
-            placeholder="Filter agents by name or skill..."
-            size="xs"
-            value={agentFilter}
-            onChange={e => setAgentFilter(e.currentTarget.value)}
-            mb="xs"
-          />
-          {renderAgentAvatars()}
-        </Box>
-        
-        {buttons && buttons.length > 0 && (
-          <Group justify="flex-end" p="md" pt={0}>
-            {buttons}
-          </Group>
-        )}
-        <Stack p="sm" h="100%">
-          <ScrollArea h="500px" viewportRef={viewport} style={{ flexGrow: 1 }}>
-            {messages.filter(message => message.type !== 'system').map((message, index) => (
-              <Box
-                key={index}
-                mb="md"
-                style={{
-                  display: 'flex',
-                  justifyContent: message.type === 'human' ? 'flex-end' : 'flex-start',
-                }}
-              >
-                <Group align="flex-start" gap="xs">
-                  {message.type === 'ai' && (
-                    <Tooltip label={message.agentName || 'Agent'} position="left" withArrow>
-                      <Avatar 
-                        size="md" 
-                        radius="xl" 
-                        alt={message.agentName || 'AI'}
-                      >
-                        {getInitials(message.agentName || 'AI')}
-                      </Avatar>
-                    </Tooltip>
-                  )}
-                  <Paper
-                    p="sm"
-                    radius="lg"
+    <div className="relative flex flex-col h-full" style={{backgroundColor: 'blue'}}>
+      {/* Agent discovery/filter input and avatar list */}
+      <Box p="xs" mb="xs" style={{ borderBottom: '1px solid var(--mantine-color-dark-4)' }}>
+        <Text size="sm" fw={500} mb="xs">Available Agents</Text>
+        <TextInput
+          placeholder="Filter agents by name or skill..."
+          size="xs"
+          value={agentFilter}
+          onChange={e => setAgentFilter(e.currentTarget.value)}
+          mb="xs"
+        />
+        {renderAgentAvatars()}
+      </Box>
+      
+      {buttons && buttons.length > 0 && (
+        <Group justify="flex-end" p="md" pt={0}>
+          {buttons}
+        </Group>
+      )}
+      
+      {/* Messages area - now uses flex-1 to fill remaining space */}
+      <div className="flex-1 h-full overflow-hidden">
+        <ScrollArea className="h-full" viewportRef={viewport} p="sm">
+          {messages.filter(message => message.type !== 'system').map((message, index) => (
+            <Box
+              key={index}
+              mb="md"
+              style={{
+                display: 'flex',
+                justifyContent: message.type === 'human' ? 'flex-end' : 'flex-start',
+              }}
+            >
+              <Group align="flex-start" gap="xs">
+                {message.type === 'ai' && (
+                  <Tooltip label={message.agentName || 'Agent'} position="left" withArrow>
+                    <Avatar 
+                      size="md" 
+                      radius="xl" 
+                      alt={message.agentName || 'AI'}
+                    >
+                      {getInitials(message.agentName || 'AI')}
+                    </Avatar>
+                  </Tooltip>
+                )}
+                <Paper
+                  p="sm"
+                  radius="lg"
+                  style={{
+                    maxWidth: '70%',
+                    backgroundColor: message.type === 'human' ? '#228be6' : '#2C2E33',
+                    textAlign: message.type === 'human' ? 'right' : 'left',
+                  }}
+                >
+                  <Text
+                    size="sm"
                     style={{
-                      maxWidth: '70%',
-                      backgroundColor: message.type === 'human' ? '#228be6' : '#2C2E33',
-                      textAlign: message.type === 'human' ? 'right' : 'left',
+                      color: message.type === 'human' ? 'white' : '#C1C2C5',
+                      whiteSpace: 'pre-wrap',
                     }}
                   >
-                    <Text
-                      size="sm"
-                      style={{
-                        color: message.type === 'human' ? 'white' : '#C1C2C5',
-                        whiteSpace: 'pre-wrap',
-                      }}
+                    {renderMessageContent(message.content)}
+                  </Text>
+                </Paper>
+                {message.type === 'human' && (
+                  <Tooltip label="User" position="right" withArrow>
+                    <Avatar 
+                      size="md" 
+                      radius="xl" 
+                      alt="User"
                     >
-                      {renderMessageContent(message.content)}
-                    </Text>
-                  </Paper>
-                  {message.type === 'human' && (
-                    <Tooltip label="User" position="right" withArrow>
-                      <Avatar 
-                        size="md" 
-                        radius="xl" 
-                        alt="User"
-                      >
-                        {getInitials('User')}
-                      </Avatar>
-                    </Tooltip>
-                  )}
-                </Group>
-              </Box>
-            ))}
-          </ScrollArea>
-
-          <form onSubmit={handleSubmit} style={{ marginTop: 'auto', padding: 'var(--mantine-spacing-md)' }}>
-            <Group align="flex-end">
-              <TextInput
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your message..."
-                style={{ flex: 1 }}
-                radius="sm"
-                size="lg"
-                styles={{
-                  input: {
-                    backgroundColor: '#2C2E33',
-                    color: '#C1C2C5',
-                    '&::placeholder': {
-                      color: '#5C5F66'
-                    }
+                      {getInitials('User')}
+                    </Avatar>
+                  </Tooltip>
+                )}
+              </Group>
+            </Box>
+          ))}
+        </ScrollArea>
+      </div>
+      
+      {/* Fixed input at bottom - now uses flex-shrink-0 to prevent shrinking */}
+      <div className="flex-shrink-0 bg-[#1a1b1e] border-t border-gray-600 p-4">
+        <form onSubmit={handleSubmit}>
+          <Group align="flex-end">
+            <TextInput
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Type your message..."
+              style={{ flex: 1 }}
+              radius="sm"
+              size="lg"
+              styles={{
+                input: {
+                  backgroundColor: '#2C2E33',
+                  color: '#C1C2C5',
+                  '&::placeholder': {
+                    color: '#5C5F66'
                   }
-                }}
-                rightSectionWidth={100}
-                rightSection={
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <ActionIcon
-                      onClick={handleMicClick}
-                      variant="subtle"
-                      color={isRecording ? "red" : "gray"}
-                      className={isRecording ? "animate-pulse" : ""}
-                      size="sm"
-                    >
-                      {isRecording ? (
-                        <IconMicrophoneOff size={16} />
-                      ) : (
-                        <IconMicrophone size={16} />
-                      )}
-                    </ActionIcon>
-                    <Button 
-                      type="submit" 
-                      radius="sm"
-                      size="sm"
-                      variant="filled"
-                    >
-                      <IconSend size={16} />
-                    </Button>
-                  </div>
                 }
-              />
-            </Group>
-          </form>
-        </Stack>
-      </Paper>
+              }}
+              rightSectionWidth={100}
+              rightSection={
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <ActionIcon
+                    onClick={handleMicClick}
+                    variant="subtle"
+                    color={isRecording ? "red" : "gray"}
+                    className={isRecording ? "animate-pulse" : ""}
+                    size="sm"
+                  >
+                    {isRecording ? (
+                      <IconMicrophoneOff size={16} />
+                    ) : (
+                      <IconMicrophone size={16} />
+                    )}
+                  </ActionIcon>
+                  <Button 
+                    type="submit" 
+                    radius="sm"
+                    size="sm"
+                    variant="filled"
+                  >
+                    <IconSend size={16} />
+                  </Button>
+                </div>
+              }
+            />
+          </Group>
+        </form>
+      </div>
+    </div>
   );
 } 
