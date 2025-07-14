@@ -14,8 +14,6 @@ export default async function Home({ params }: PageProps) {
   // If you need searchParams, await it as well:
   // const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const { slug } = resolvedParams;
-  
-  const projectId = slug.split('-').pop();
 
   return (
     <HydrateClient>
@@ -37,7 +35,7 @@ async function ProjectWrapper({ slug }: { slug: string }) {
   if (!session?.user) {
     return <Welcome />;
   }
-  const projectId = slug.split('-')[1];
+  const projectId = slug.split('-').pop();
   if (!projectId) {
     return <div>Project not found</div>;
   }

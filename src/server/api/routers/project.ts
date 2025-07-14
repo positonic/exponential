@@ -40,6 +40,17 @@ export const projectRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Generate a unique slug
+      const baseSlug = slugify(input.name);
+      let slug = baseSlug;
+      let counter = 1;
+      
+      // Check if slug exists and increment counter until we find a unique one
+      while (await ctx.db.project.findFirst({ where: { slug } })) {
+        slug = `${baseSlug}-${counter}`;
+        counter++;
+      }
+
       return ctx.db.project.create({
         data: {
           name: input.name,
@@ -47,7 +58,7 @@ export const projectRouter = createTRPCRouter({
           status: input.status,
           priority: input.priority,
           progress: input.progress ?? 0,
-          slug: slugify(input.name),
+          slug,
           reviewDate: input.reviewDate ?? null,
           nextActionDate: input.nextActionDate ?? null,
           createdBy: {
@@ -93,6 +104,22 @@ export const projectRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { id, goalIds, outcomeIds, ...updateData } = input;
       
+      // Generate a unique slug, excluding the current project
+      const baseSlug = slugify(updateData.name);
+      let slug = baseSlug;
+      let counter = 1;
+      
+      // Check if slug exists (excluding current project) and increment counter until we find a unique one
+      while (await ctx.db.project.findFirst({ 
+        where: { 
+          slug,
+          id: { not: id }
+        } 
+      })) {
+        slug = `${baseSlug}-${counter}`;
+        counter++;
+      }
+      
       return ctx.db.project.update({
         where: {
           id,
@@ -100,7 +127,7 @@ export const projectRouter = createTRPCRouter({
         },
         data: {
           ...updateData,
-          slug: slugify(updateData.name),
+          slug,
           goals: goalIds?.length ? {
             set: goalIds.map(id => ({ id: parseInt(id) })),
           } : undefined,

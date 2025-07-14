@@ -260,7 +260,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons }: M
   };
 
   return (
-    <div className="relative flex flex-col h-full" style={{backgroundColor: 'blue'}}>
+    <div className="relative flex flex-col h-full">
       {/* Agent discovery/filter input and avatar list */}
       <Box p="xs" mb="xs" style={{ borderBottom: '1px solid var(--mantine-color-dark-4)' }}>
         <Text size="sm" fw={500} mb="xs">Available Agents</Text>
