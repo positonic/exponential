@@ -329,7 +329,7 @@ export function ProjectContent({
     </Drawer.Header>
     <Drawer.Body style={{ height: 'calc(100vh - 60px)', padding: 0 }}>
       {/* 60px is the default header height, adjust if needed */}
-      <div className="h-full flex flex-col" style={{ border: '1px solid red' }}>
+      <div className="h-full flex flex-col" >
         <ManyChat />
       </div>
     </Drawer.Body>
