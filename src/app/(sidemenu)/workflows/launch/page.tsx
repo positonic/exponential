@@ -17,7 +17,7 @@ import {
   InputBase,
   useCombobox,
 } from "@mantine/core";
-import { createStyles } from '@mantine/styles';
+// Removed deprecated @mantine/styles import
 import {
   IconRocket,
   IconBulb,
@@ -49,25 +49,7 @@ interface Audience {
   description?: string;
 }
 
-const useStyles = createStyles((_theme) => ({
-  printContainer: {
-    '@media print': {
-      padding: '20px',
-      '& button': {
-        display: 'none',
-      },
-      '& .mantine-Card-root': {
-        boxShadow: 'none',
-        border: 'none',
-      }
-    }
-  },
-  actionButtons: {
-    '@media print': {
-      display: 'none'
-    }
-  }
-}));
+// Styles removed - @mantine/styles is deprecated in v7
 
 export default function LaunchSprintPage() {
   const router = useRouter();
@@ -376,7 +358,7 @@ export default function LaunchSprintPage() {
     void handleSavePlan();
   };
 
-  const { classes } = useStyles();
+  // Removed useStyles hook - deprecated in Mantine v7
 
   const confirmAndSave = () => {
     modals.openConfirmModal({
@@ -393,7 +375,7 @@ export default function LaunchSprintPage() {
   };
 
   return (
-    <Container size="sm" py="xl" className={classes.printContainer}>
+    <Container size="sm" py="xl" style={{ '@media print': { padding: '20px' } }}>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -796,7 +778,7 @@ export default function LaunchSprintPage() {
                   })}
                 </Stack>
 
-                <Group justify="flex-end" mt="xl" className={classes.actionButtons}>
+                <Group justify="flex-end" mt="xl" style={{ '@media print': { display: 'none' } }}>
                   <Button
                     variant="light"
                     onClick={() => setStep(3)}

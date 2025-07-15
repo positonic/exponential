@@ -30,6 +30,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Always run `npm run check` before committing to ensure code quality
 - No specific test framework configured - check if tests exist before running
 
+### Deployment
+- **Automated Build Checks**: Pre-push git hook automatically runs `Vercel build` before pushing
+- **Main Branch Protection**: Additional type checking (`npm run typecheck`) runs when pushing to main
+- **Vercel Ready**: Application configured for automatic Vercel deployment
+
 ## Architecture Overview
 
 This is a productivity management application built with the T3 Stack (Next.js 15, tRPC, Prisma, NextAuth.js) featuring:

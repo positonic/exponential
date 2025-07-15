@@ -3,42 +3,7 @@
 import { Stack, Title, Text, Checkbox, Group, Button, Paper } from '@mantine/core';
 import { IconDownload } from '@tabler/icons-react';
 import { api } from "~/trpc/react";
-import { createStyles } from '@mantine/styles';
-
-const useStyles = createStyles((theme) => ({
-  printContainer: {
-    '@media print': {
-      padding: '20px',
-      '& button': {
-        display: 'none',
-      }
-    }
-  },
-  actionButtons: {
-    '@media print': {
-      display: 'none'
-    }
-  },
-  weekTitle: {
-    fontSize: '1.25rem',
-    fontWeight: 500,
-    marginBottom: '0.5rem'
-  },
-  weekDescription: {
-    color: theme.colors.gray[6],
-    marginBottom: '1rem'
-  },
-  taskList: {
-    marginLeft: '1rem',
-    marginTop: '0.5rem'
-  },
-  weekContainer: {
-    padding: theme.spacing.md,
-    borderRadius: theme.radius.md,
-    border: `1px solid ${theme.colors.gray[2]}`,
-    marginBottom: theme.spacing.md
-  }
-}));
+// Styles moved to inline styles since @mantine/styles is deprecated in v7
 
 interface PlanProps {
   projectId: string;
@@ -81,7 +46,6 @@ interface Project {
 
 export function Plan({ projectId }: PlanProps) {
   const { data: project } = api.project.getById.useQuery({ id: projectId });
-  const { classes } = useStyles();
 
   if (!project) {
     return <div>Project not found</div>;
@@ -131,7 +95,7 @@ export function Plan({ projectId }: PlanProps) {
           const weekActions = actionsByWeek[week] ?? [];
 
           return (
-            <Paper key={week} className={classes.weekContainer}>
+            <Paper key={week} p="md" radius="md" style={{ border: '1px solid #e9ecef', marginBottom: '1rem' }}>
               <Title order={2}>Week {week}</Title>
               
               {weekGoals.length > 0 && (
@@ -166,7 +130,7 @@ export function Plan({ projectId }: PlanProps) {
         })}
       </Stack>
 
-      <Group justify="flex-end" mt="xl" className={classes.actionButtons}>
+      <Group justify="flex-end" mt="xl" style={{ '@media print': { display: 'none' } }}>
         <Button
           variant="outline"
           onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
