@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, publicProcedure, protectedProcedure } from "~/server/api/trpc";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
-import { mastraClient } from "~/lib/mastra";
+// import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
