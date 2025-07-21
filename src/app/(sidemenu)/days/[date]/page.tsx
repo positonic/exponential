@@ -14,12 +14,6 @@ export default async function DayPage({ params }: PageProps) {
   console.log('day', day);
   if (!day) return <StartupRoutineForm />;
 
-  // Create a correctly typed version with the journals field
-  const dayWithJournals = {
-    ...day,
-    journals: day.notes || [],
-    notes: undefined // Remove notes to avoid confusion
-  };
-
-  return <DayView day={dayWithJournals as any} />;
+  // Use day.notes directly since Journal model was removed
+  return <DayView day={day} />;
 } 

@@ -150,11 +150,6 @@ export const transcriptionRouter = createTRPCRouter({
       const session = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
         include: {
-          setups: {
-            include: {
-              pair: true,
-            }
-          },
           screenshots: {
             orderBy: {
               createdAt: 'desc'

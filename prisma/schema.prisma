@@ -53,27 +53,16 @@ model User {
   image                 String?
   accounts              Account[]
   actions               Action[]
-  alerts                Alert[]
-  exchangeUsers         ExchangeUser[]
   goals                 Goal[]
   notes                 Note[]
-  orders                Order[]
   outcomes              Outcome[]
-  positions             Position[]
   posts                 Post[]
   projects              Project[]
   sessions              Session[]
-  setups                Setup[]
   teamMemberships       TeamMember[]
   transcriptionSessions TranscriptionSession[]
-  days                  UserDay[]
   exercises             UserExercise[]
-  userPairs             UserPair[]
-  userTrades            UserTrade[]
-  userVideos            UserVideo[]
   verificationTokens    VerificationToken[]
-  workflows             Workflow[]
-  portfolioSnapshots    PortfolioSnapshot[]
 }
 
 model VerificationToken {
@@ -98,7 +87,6 @@ model Action {
   createdById   String
   createdBy     User           @relation(fields: [createdById], references: [id])
   project       Project?       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  workflowSteps WorkflowStep[]
 
   @@index([projectId])
   @@index([createdById])
@@ -155,36 +143,8 @@ model Video {
   isSearchable  Boolean?     @default(false)
   description   String?
   summary       String?
-  setups        Setup[]
-  users         UserVideo[]
-  VideoChunk    VideoChunk[]
 }
 
-model UserVideo {
-  id        String   @id @default(cuid())
-  userId    String
-  videoId   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id])
-  video     Video    @relation(fields: [videoId], references: [id])
-
-  @@unique([userId, videoId])
-  @@index([userId])
-  @@index([videoId])
-}
-
-model VideoChunk {
-  id               Int       @id @default(autoincrement())
-  video_id         String?
-  chunk_text       String
-  chunk_start      Int?
-  chunk_end        Int?
-  chunk_start_time Float?
-  chunk_end_time   Float?
-  created_at       DateTime? @default(now()) @db.Timestamptz(6)
-  Video            Video?    @relation(fields: [video_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
 
 model Week {
   id        Int      @id @default(autoincrement())
@@ -198,9 +158,7 @@ model Day {
   date      DateTime
   weekId    Int
   week      Week           @relation(fields: [weekId], references: [id])
-  Journal   Journal[]
   notes     Note[]
-  users     UserDay[]
   exercises UserExercise[]
 
   @@index([weekId])
@@ -267,19 +225,6 @@ model Note {
   @@index([type])
 }
 
-model UserDay {
-  id        String   @id @default(cuid())
-  userId    String
-  dayId     Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  day       Day      @relation(fields: [dayId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
-
-  @@unique([userId, dayId])
-  @@index([userId])
-  @@index([dayId])
-}
 
 model TeamMember {
   id               String   @id @default(cuid())
@@ -296,124 +241,6 @@ model TeamMember {
   @@index([userId])
 }
 
-model Setup {
-  id                     String                @id @default(uuid())
-  content                String
-  entryPrice             Decimal?
-  takeProfitPrice        Decimal?
-  stopPrice              Decimal?
-  timeframe              String?
-  confidence             Int?
-  status                 String                @default("active")
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
-  videoId                String?
-  pairId                 Int
-  direction              String
-  coinId                 Int?
-  privacy                String                @default("private")
-  userId                 String
-  transcriptionSessionId String?
-  alerts                 Alert[]
-  coin                   Coin?                 @relation(fields: [coinId], references: [id])
-  pair                   Pair                  @relation(fields: [pairId], references: [id])
-  transcriptionSession   TranscriptionSession? @relation("TranscriptionSetups", fields: [transcriptionSessionId], references: [id])
-  user                   User                  @relation(fields: [userId], references: [id])
-  video                  Video?                @relation(fields: [videoId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([videoId])
-  @@index([pairId])
-  @@index([coinId])
-  @@index([transcriptionSessionId])
-}
-
-model Coin {
-  id         Int     @id @default(autoincrement())
-  name       String
-  symbol     String
-  imageUrl   String?
-  coinId     String? @unique
-  basePairs  Pair[]  @relation("BaseCoinPairs")
-  quotePairs Pair[]  @relation("QuoteCoinPairs")
-  setups     Setup[]
-}
-
-model Pair {
-  id          Int         @id @default(autoincrement())
-  symbol      String      @unique
-  baseCoinId  Int         @default(1)
-  quoteCoinId Int         @default(1)
-  alerts      Alert[]
-  orders      Order[]
-  baseCoin    Coin        @relation("BaseCoinPairs", fields: [baseCoinId], references: [id])
-  quoteCoin   Coin        @relation("QuoteCoinPairs", fields: [quoteCoinId], references: [id])
-  positions   Position[]
-  setups      Setup[]
-  userPairs   UserPair[]
-  userTrades  UserTrade[]
-
-  @@index([baseCoinId])
-  @@index([quoteCoinId])
-}
-
-model UserPair {
-  id                 Int       @id @default(autoincrement())
-  userId             String
-  pairId             Int
-  exchangeId         Int
-  lastTradesSyncTime DateTime?
-  exchange           Exchange  @relation(fields: [exchangeId], references: [id])
-  pair               Pair      @relation(fields: [pairId], references: [id])
-  user               User      @relation(fields: [userId], references: [id])
-
-  @@unique([userId, pairId, exchangeId])
-}
-
-model Exchange {
-  id            Int            @id @default(autoincrement())
-  name          String         @unique
-  exchangeUsers ExchangeUser[]
-  userPairs     UserPair[]
-}
-
-model ExchangeUser {
-  id                 Int       @id @default(autoincrement())
-  userId             String
-  exchangeId         Int
-  lastTradesSyncTime DateTime?
-  exchange           Exchange  @relation(fields: [exchangeId], references: [id])
-  user               User      @relation(fields: [userId], references: [id])
-}
-
-model Workflow {
-  id          String         @id @default(cuid())
-  title       String
-  description String?
-  type        String
-  createdById String
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  createdBy   User           @relation(fields: [createdById], references: [id])
-  steps       WorkflowStep[]
-
-  @@index([createdById])
-  @@index([type])
-}
-
-model WorkflowStep {
-  id         String   @id @default(cuid())
-  workflowId String
-  order      Int
-  title      String
-  actionId   String?
-  status     String   @default("PENDING")
-  action     Action?  @relation(fields: [actionId], references: [id])
-  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-
-  @@index([workflowId])
-  @@index([actionId])
-}
 
 model Differentiator {
   id          String   @id @default(cuid())
@@ -447,7 +274,6 @@ model TranscriptionSession {
   title         String?
   description   String?
   screenshots   Screenshot[]
-  setups        Setup[]      @relation("TranscriptionSetups")
   project       Project?     @relation(fields: [projectId], references: [id])
   user          User?        @relation(fields: [userId], references: [id])
 
@@ -465,149 +291,3 @@ model Screenshot {
   transcriptionSession   TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id])
 }
 
-model Alert {
-  id        String      @id @default(uuid())
-  userId    String
-  type      AlertType
-  threshold Decimal
-  direction Direction
-  interval  String?
-  status    AlertStatus @default(PENDING)
-  createdAt DateTime    @default(now())
-  pairId    Int
-  setupId   String?
-  pair      Pair        @relation(fields: [pairId], references: [id])
-  setup     Setup?      @relation(fields: [setupId], references: [id])
-  user      User        @relation(fields: [userId], references: [id])
-
-  @@index([userId])
-  @@index([pairId])
-  @@index([setupId])
-}
-
-model UserTrade {
-  id            Int      @id @default(autoincrement())
-  ordertxid     String
-  pair          String
-  time          BigInt
-  type          String
-  ordertype     String
-  price         String
-  cost          String
-  fee           String
-  vol           Float
-  margin        String
-  leverage      String
-  misc          String
-  closedPnL     Decimal?
-  tradeId       String   @unique
-  exchange      String
-  userId        String
-  orderId       Int?
-  pairId        Int?
-  direction     String?
-  transactionId String?
-  order         Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  pairRecord    Pair?    @relation(fields: [pairId], references: [id])
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([pairId])
-}
-
-model Order {
-  id           Int         @id @default(autoincrement())
-  ordertxid    String
-  time         BigInt
-  type         String
-  pair         String
-  amount       Decimal
-  totalCost    Decimal
-  fee          Decimal
-  highestPrice Decimal
-  lowestPrice  Decimal
-  averagePrice Decimal
-  exchange     String
-  userId       String
-  closedPnL    Decimal?
-  createdAt    DateTime    @default(now())
-  positionId   Int?
-  pairId       Int?
-  direction    String?
-  pairRecord   Pair?       @relation(fields: [pairId], references: [id])
-  position     Position?   @relation(fields: [positionId], references: [id], onDelete: Cascade)
-  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  trades       UserTrade[]
-
-  @@index([time])
-  @@index([userId])
-  @@index([pair])
-  @@index([pairId])
-}
-
-model Position {
-  id                Int      @id @default(autoincrement())
-  status            String
-  positionType      String
-  direction         String
-  pair              String
-  averageEntryPrice Decimal
-  averageExitPrice  Decimal
-  totalCostBuy      Decimal
-  totalCostSell     Decimal
-  amount            Decimal
-  profitLoss        Decimal
-  duration          String
-  time              BigInt
-  userId            String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  pairId            Int?
-  orders            Order[]
-  pairRecord        Pair?    @relation(fields: [pairId], references: [id])
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([pair])
-  @@index([pairId])
-  @@index([time])
-  @@index([status])
-}
-
-model Journal {
-  id        Int      @id @default(autoincrement())
-  content   String
-  dayId     Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime
-  Day       Day      @relation(fields: [dayId], references: [id])
-
-  @@index([dayId])
-}
-
-enum AlertType {
-  PRICE
-  CANDLE
-}
-
-enum Direction {
-  ABOVE
-  BELOW
-}
-
-enum AlertStatus {
-  PENDING
-  TRIGGERED
-  CANCELLED
-}
-model PortfolioSnapshot {
-  id            String   @id @default(cuid())
-  userId        String
-  exchange      String
-  timestamp     DateTime @default(now())
-  totalUsdValue Decimal
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([userId, exchange])
-  @@index([timestamp])
-}

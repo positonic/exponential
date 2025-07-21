@@ -9,8 +9,7 @@ import { StartupRoutineForm } from './StartupRoutineForm';
 interface DayViewProps {
   day: Day & {
     exercises: any[];
-    journals: any[];
-    users: any[];
+    notes: any[];
   };
 }
 

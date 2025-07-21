@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { type Setup } from "@prisma/client";
+// Setup model was removed
 import Chat from "./Chat";
 import { type Message } from "~/types/Message";
 import ParseTranscriptButton from './ParseTranscriptButton';
@@ -9,7 +9,7 @@ import ParseTranscriptButton from './ParseTranscriptButton';
 interface RecordingChatProps {
   initialMessages?: Message[];
   transcription?: string | null;
-  setups?: Setup[];
+  // setups?: Setup[]; // Setup model removed
   githubSettings?: {
     owner: string;
     repo: string;
@@ -20,7 +20,7 @@ interface RecordingChatProps {
 export default function RecordingChat({ 
   initialMessages,
   transcription,
-  setups,
+  // setups, // Setup model removed
   githubSettings = {
     owner: "akashic-fund",
     repo: "akashic",

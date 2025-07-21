@@ -32,11 +32,7 @@ export const videoRouter = createTRPCRouter({
   getLatest: protectedProcedure.query(async ({ ctx }) => {
     const video = await ctx.db.video.findFirst({
       where: {
-        users: {
-          some: {
-            userId: ctx.session.user.id
-          }
-        }
+        // UserVideo model removed - show all videos for now
       },
       orderBy: { createdAt: "desc" },
     });
@@ -47,11 +43,7 @@ export const videoRouter = createTRPCRouter({
   get: protectedProcedure.query(async ({ ctx }) => {
     return await ctx.db.video.findMany({
       where: {
-        users: {
-          some: {
-            userId: ctx.session.user.id
-          }
-        }
+        // UserVideo model removed - show all videos for now
       },
       orderBy: { createdAt: "desc" },
     });
@@ -160,11 +152,7 @@ export const videoRouter = createTRPCRouter({
   getCount: publicProcedure.query(async ({ ctx }) => {
     const count = await ctx.db.video.count({
       where: {
-        users: {
-          some: {
-            userId: ctx.session?.user?.id
-          }
-        }
+        // UserVideo model removed - count all videos for now
       }
     });
     return count;

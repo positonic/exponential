@@ -67,9 +67,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       )}
 
       <Title order={3} mt="xl" mb="md">Screenshots</Title>
-      {session.screenshots?.length > 0 ? (
+      {session.screenshots && session.screenshots.length > 0 ? (
         <SimpleGrid cols={3} spacing="md">
-          {session.screenshots.map((screenshot) => (
+          {session.screenshots.map((screenshot: any) => (
             <div key={screenshot.id}>
               <Text size="sm" c="dimmed" mb="xs">{screenshot.timestamp}</Text>
               <Image

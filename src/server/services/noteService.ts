@@ -90,11 +90,7 @@ export async function getNotesByDate({
         gte: startOfDay(input.date),
         lt: endOfDay(input.date)
       },
-      users: {
-        some: {
-          userId: ctx.session.user.id
-        }
-      }
+      // UserDay model removed
     }
   });
 

@@ -65,11 +65,7 @@ export class VideoRepository {
           status: data.status,
           slug: data.slug,
           isSearchable: data.isSearchable,
-          users: {
-            create: {
-              userId: data.userId
-            }
-          }
+          // UserVideo model removed
         }
       });
       return video;
@@ -97,26 +93,20 @@ export class VideoRepository {
   async getVideo(id: string) {
     return this.prisma.video.findUnique({
       where: { id },
-      include: {
-        users: true,
-      },
+      // include removed
     });
   }
 
   async getVideoBySlug(slug: string) {
     return this.prisma.video.findFirst({
       where: { slug },
-      include: {
-        users: true,
-      },
+      // include removed
     });
   }
 
   async getVideos() {
     return this.prisma.video.findMany({
-      include: {
-        users: true,
-      },
+      // include removed
       orderBy: {
         createdAt: 'desc',
       },
@@ -136,22 +126,12 @@ export class VideoRepository {
   }
 
   async getUserVideo(userId: string, videoId: string) {
-    return await this.prisma.userVideo.findUnique({
-      where: {
-        userId_videoId: {
-          userId,
-          videoId
-        }
-      }
-    });
+    // UserVideo model removed - functionality disabled
+    return null;
   }
 
   async createUserVideo(userId: string, videoId: string) {
-    return await this.prisma.userVideo.create({
-      data: {
-        userId,
-        videoId
-      }
-    });
+    // UserVideo model removed - functionality disabled
+    return null;
   }
 }

@@ -5,11 +5,7 @@ export async function getUserDays({ ctx }: { ctx: Context }) {
   const userId = ctx.session?.user?.id;
   return await ctx.db.day.findMany({
     where: {
-      users: {
-        some: {
-          userId: userId
-        }
-      }
+      // UserDay model removed - show all days for now
     }
   });
 }
@@ -56,11 +52,7 @@ export async function createUserDay({ ctx, input }: { ctx: Context, input: { dat
         gte: startOfDay(input.date),
         lt: endOfDay(input.date)
       },
-      users: {
-        some: {
-          userId: ctx.session.user.id
-        }
-      }
+      // UserDay model removed
     }
   });
   
@@ -77,11 +69,7 @@ export async function createUserDay({ ctx, input }: { ctx: Context, input: { dat
     data: {
       date: input.date,
       weekId: week.id,
-      users: {
-        create: {
-          userId: ctx.session.user.id
-        }
-      }
+      // UserDay model removed
     }
   });
 }
@@ -93,16 +81,12 @@ export async function getDayByDate({ ctx, input }: { ctx: Context, input: { date
         gte: startOfDay(input.date),
         lt: endOfDay(input.date)
       },
-      users: {
-        some: {
-          userId: ctx.session?.user?.id
-        }
-      }
+      // UserDay model removed
     },
     include: {
       exercises: true,
       notes: true,
-      users: true
+      // UserDay relations removed
     }
   });
 }
