@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
-import jwt from "jsonwebtoken";
+// import jwt from "jsonwebtoken"; // Not needed for short API keys
 import crypto from "crypto";
 
 // OpenAI client for embeddings
@@ -219,63 +219,36 @@ export const mastraRouter = createTRPCRouter({
       return { response: responseText, agentName: agentId };
     }),
 
-  // API Token Generation for Mastra Agents (NextAuth-aligned)
+  // API Key Generation for Mastra Agents and Webhooks (32 characters)
   generateApiToken: protectedProcedure
     .input(z.object({
-      name: z.string().optional().default('Mastra Agent Token'),
+      name: z.string().optional().default('Mastra Agent Key'),
       expiresIn: z.string().optional().default('24h'), // 24h, 7d, 30d, etc.
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!process.env.AUTH_SECRET) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'AUTH_SECRET not configured'
-        });
-      }
-
       // Calculate expiration based on input
       const now = new Date();
       const expirationMs = parseExpiration(input.expiresIn);
       const expiresAt = new Date(now.getTime() + expirationMs);
 
       try {
-        // Create a token that works with existing JWT validation
-        const tokenPayload = {
-          userId: ctx.session.user.id,       // Legacy format for compatibility
-          sub: ctx.session.user.id,          // Standard JWT subject
-          email: ctx.session.user.email,
-          name: ctx.session.user.name,
-          iat: Math.floor(now.getTime() / 1000),
-          exp: Math.floor(expiresAt.getTime() / 1000),
-          jti: crypto.randomUUID(),          // Unique token ID
-          tokenType: 'api-token',            // Identifies as API token
-          tokenName: input.name,
-          picture: ctx.session.user.image,
-        };
+        // Generate a secure 32-character API key (perfect for webhooks)
+        const apiKey = crypto.randomBytes(16).toString('hex'); // 32 characters
+        const tokenId = crypto.randomUUID(); // Unique identifier for tracking
 
-        const token = jwt.sign(
-          tokenPayload,
-          process.env.AUTH_SECRET,
-          { 
-            algorithm: 'HS256',  // Same as NextAuth default
-            issuer: 'todo-app',
-            audience: 'mastra-agents'
-          } as jwt.SignOptions
-        );
-
-        // Store token metadata in VerificationToken table
+        // Store API key and metadata in VerificationToken table
         await ctx.db.verificationToken.create({
           data: {
-            identifier: `api-token:${input.name}`,
-            token: tokenPayload.jti, // Store token ID, not the actual token
+            identifier: `api-key:${input.name}`,
+            token: apiKey, // Store the actual API key for validation
             expires: expiresAt,
             userId: ctx.session.user.id,
           }
         });
 
         return { 
-          token,
-          tokenId: tokenPayload.jti,
+          token: apiKey, // Return the 32-character API key
+          tokenId: tokenId, // For UI tracking (not stored in DB)
           expiresAt: expiresAt.toISOString(),
           expiresIn: input.expiresIn,
           name: input.name,
@@ -290,7 +263,7 @@ export const mastraRouter = createTRPCRouter({
       }
     }),
 
-  // List API tokens for the current user
+  // List API keys for the current user
   listApiTokens: protectedProcedure
     .output(z.array(z.object({
       tokenId: z.string(),
@@ -300,12 +273,12 @@ export const mastraRouter = createTRPCRouter({
       userId: z.string(),
     })))
     .query(async ({ ctx }) => {
-      // Query VerificationToken table for API tokens
+      // Query VerificationToken table for API keys
       const tokens = await ctx.db.verificationToken.findMany({
         where: {
           userId: ctx.session.user.id,
           identifier: {
-            startsWith: 'api-token:'
+            startsWith: 'api-key:'
           }
         },
         orderBy: {
@@ -315,7 +288,7 @@ export const mastraRouter = createTRPCRouter({
 
       // Transform the data to match the expected output format
       return tokens.map(token => {
-        const name = token.identifier.replace('api-token:', '');
+        const name = token.identifier.replace('api-key:', '');
         const now = new Date();
         const expiresAt = token.expires;
         const timeUntilExpiry = expiresAt.getTime() - now.getTime();
@@ -333,7 +306,7 @@ export const mastraRouter = createTRPCRouter({
         }
 
         return {
-          tokenId: token.token, // This is the JWT ID (jti)
+          tokenId: token.token, // This is the actual API key (32 chars)
           name: name,
           expiresAt: token.expires.toISOString(),
           expiresIn: expiresIn,
@@ -342,19 +315,19 @@ export const mastraRouter = createTRPCRouter({
       });
     }),
 
-  // Revoke API token
+  // Revoke API key
   revokeApiToken: protectedProcedure
     .input(z.object({
       tokenId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Delete the token from VerificationToken table
+      // Delete the API key from VerificationToken table
       const deleted = await ctx.db.verificationToken.deleteMany({
         where: {
           token: input.tokenId,
-          userId: ctx.session.user.id, // Ensure user can only delete their own tokens
+          userId: ctx.session.user.id, // Ensure user can only delete their own keys
           identifier: {
-            startsWith: 'api-token:'
+            startsWith: 'api-key:'
           }
         }
       });
@@ -362,7 +335,7 @@ export const mastraRouter = createTRPCRouter({
       if (deleted.count === 0) {
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: 'Token not found or access denied'
+          message: 'API key not found or access denied'
         });
       }
 

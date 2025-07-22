@@ -64,29 +64,34 @@ const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
 });
 
 export const transcriptionRouter = createTRPCRouter({
-  startSession: apiKeyMiddleware.mutation(async ({ ctx }) => {
-    // Type-safe userId access
-    const userId = ctx.userId;
+  startSession: apiKeyMiddleware
+    .input(z.object({ projectId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Type-safe userId access
+      const userId = ctx.userId;
+      const { projectId } = input;
 
-    // Create record in database using ctx.db
-    const session = await ctx.db.transcriptionSession.create({
-      data: {
-        sessionId: `session_${Date.now()}`, // Keep this as a reference
-        transcription: "", // Start with empty transcription
-        userId, // Now type-safe
-      },
-    });
+      // Create record in database using ctx.db
+      const session = await ctx.db.transcriptionSession.create({
+        data: {
+          sessionId: `session_${Date.now()}`,
+          transcription: "",
+          userId,
+          projectId, // Save projectId
+        },
+      });
 
-    // Keep in-memory store for debugging
-    transcriptionStore[session.id] = [];
-    console.log("\n🎙️ New session started:", session.id);
-    logStore();
+      // Keep in-memory store for debugging
+      transcriptionStore[session.id] = [];
+      console.log("\n🎙️ New session started:", session.id);
+      logStore();
 
-    return {
-      id: session.id, // Return the database ID
-      startTime: new Date().toISOString(),
-    };
-  }),
+      return {
+        id: session.id,
+        startTime: new Date().toISOString(),
+        projectId: session.projectId,
+      };
+    }),
 
   saveTranscription: protectedProcedure
     .input(
@@ -129,13 +134,20 @@ export const transcriptionRouter = createTRPCRouter({
     }),
 
   getSessions: protectedProcedure.query(async ({ ctx }) => {
-    console.log("getSessions", ctx.session.user.id);
     return ctx.db.transcriptionSession.findMany({
       where: {
         userId: ctx.session.user.id,
       },
       orderBy: {
         createdAt: "desc",
+      },
+      select: {
+        id: true,
+        setupId: true,
+        createdAt: true,
+        updatedAt: true,
+        transcription: true,
+        title: true,
       },
     });
   }),
@@ -152,9 +164,9 @@ export const transcriptionRouter = createTRPCRouter({
         include: {
           screenshots: {
             orderBy: {
-              createdAt: 'desc'
-            }
-          }
+              createdAt: "desc",
+            },
+          },
         },
       });
 
@@ -196,36 +208,70 @@ export const transcriptionRouter = createTRPCRouter({
       return session;
     }),
 
+  updateTitle: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Ensure the session belongs to the user
+      const session = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+      });
+      if (!session) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Session not found",
+        });
+      }
+      if (session.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this session",
+        });
+      }
+      // Update the title
+      const updated = await ctx.db.transcriptionSession.update({
+        where: { id: input.id },
+        data: { title: input.title, updatedAt: new Date() },
+      });
+      return updated;
+    }),
+
   // Add to your transcriptionRouter
   saveScreenshot: protectedProcedure
-    .input(z.object({
-      sessionId: z.string(),
-      screenshot: z.string(),
-      timestamp: z.string()
-    }))
+    .input(
+      z.object({
+        sessionId: z.string(),
+        screenshot: z.string(),
+        timestamp: z.string(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       try {
         // Generate unique filename
-        const filename = `screenshots/${input.sessionId}/${input.timestamp.replace(/[/:]/g, '-')}.png`;
-        
+        const filename = `screenshots/${input.sessionId}/${input.timestamp.replace(/[/:]/g, "-")}.png`;
+
         // Upload to Vercel Blob
         const blob = await uploadToBlob(input.screenshot, filename);
-        
+
         // Save metadata in database
         const screenshot = await ctx.db.screenshot.create({
           data: {
             url: blob.url,
             timestamp: input.timestamp,
             transcriptionSessionId: input.sessionId,
-          }
+          },
         });
 
         return { success: true, url: blob.url };
       } catch (error) {
-        console.error('Error saving screenshot:', error);
+        console.error("Error saving screenshot:", error);
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to save screenshot'
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to save screenshot",
         });
       }
     }),

@@ -20,11 +20,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run format:check` - Check code formatting
 
 ### Database Operations
-- `npm run db:push` - Push database schema changes (development)
-- `npm run db:generate` - Generate Prisma client and run migrations
+- `npx prisma migrate dev --name <migration_name>` - Create and apply a new migration (ALWAYS use this for schema changes!)
+- `npm run db:generate` - Generate Prisma client after migrations
 - `npm run db:migrate` - Deploy database migrations (production)
 - `npm run db:studio` - Open Prisma Studio for database management
 - `bun prisma/seed.ts` - Seed database with initial data
+
+**IMPORTANT**: Always create proper migration files when changing the schema:
+1. First, modify the schema.prisma file
+2. Run `npx prisma migrate dev --name descriptive_migration_name` to create a migration file
+3. This will automatically apply the migration and regenerate the Prisma client
+
+Do NOT use `db:push` as it bypasses the migration system. Migrations are essential for:
+- Version control of database changes
+- Team collaboration
+- Production deployments
+- Rollback capabilities
 
 ### Testing
 - Always run `npm run check` before committing to ensure code quality

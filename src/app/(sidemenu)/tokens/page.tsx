@@ -53,8 +53,8 @@ export default function TokensPage() {
       setGeneratedToken(data.token);
       setShowToken(true);
       notifications.show({
-        title: 'Token Generated',
-        message: 'Your API token has been generated successfully. Make sure to copy it now!',
+        title: 'API Key Generated',
+        message: 'Your 32-character API key has been generated successfully. Perfect for webhooks! Make sure to copy it now!',
         color: 'green',
         icon: <IconCheck size={16} />,
       });
@@ -64,7 +64,7 @@ export default function TokensPage() {
     onError: (error) => {
       notifications.show({
         title: 'Error',
-        message: error.message || 'Failed to generate token',
+        message: error.message || 'Failed to generate API key',
         color: 'red',
         icon: <IconAlertCircle size={16} />,
       });
@@ -74,8 +74,8 @@ export default function TokensPage() {
   const revokeToken = api.mastra.revokeApiToken.useMutation({
     onSuccess: () => {
       notifications.show({
-        title: 'Token Revoked',
-        message: 'The API token has been revoked successfully.',
+        title: 'API Key Revoked',
+        message: 'The API key has been revoked successfully.',
         color: 'green',
         icon: <IconCheck size={16} />,
       });
@@ -84,7 +84,7 @@ export default function TokensPage() {
     onError: (error) => {
       notifications.show({
         title: 'Error',
-        message: error.message || 'Failed to revoke token',
+        message: error.message || 'Failed to revoke API key',
         color: 'red',
         icon: <IconAlertCircle size={16} />,
       });
@@ -98,7 +98,7 @@ export default function TokensPage() {
       description: '',
     },
     validate: {
-      name: (value) => value.trim().length === 0 ? 'Token name is required' : null,
+      name: (value) => value.trim().length === 0 ? 'API key name is required' : null,
     },
   });
 
@@ -134,23 +134,23 @@ export default function TokensPage() {
       <Stack gap="lg">
         <Group justify="space-between" align="center">
           <div>
-            <Title order={1} size="h2">API Tokens</Title>
+            <Title order={1} size="h2">API Keys</Title>
             <Text c="dimmed" size="sm">
-              Manage your API tokens for Mastra agents and external applications
+              Manage your API keys for Mastra agents, webhooks, and external applications
             </Text>
           </div>
           <Button 
             leftSection={<IconPlus size={16} />}
             onClick={open}
           >
-            Create Token
+            Create API Key
           </Button>
         </Group>
 
         {/* Tokens Table */}
         <Paper withBorder p="md">
           {isLoading ? (
-            <Text>Loading tokens...</Text>
+            <Text>Loading API keys...</Text>
           ) : tokens && tokens.length > 0 ? (
             <Table striped highlightOnHover>
               <Table.Thead>
@@ -183,7 +183,7 @@ export default function TokensPage() {
                     </Table.Td>
                     <Table.Td>
                       <Group gap="xs">
-                        <Tooltip label="Revoke token">
+                        <Tooltip label="Revoke API key">
                           <ActionIcon 
                             color="red" 
                             variant="light"
@@ -203,9 +203,9 @@ export default function TokensPage() {
           ) : (
             <Stack align="center" py="xl">
               <IconKey size={48} color="gray" />
-              <Text size="lg" fw={500}>No API tokens found</Text>
+              <Text size="lg" fw={500}>No API keys found</Text>
               <Text c="dimmed" ta="center">
-                Create your first API token to start using the API with Mastra agents
+                Create your first API key to start using the API with Mastra agents and webhooks
               </Text>
             </Stack>
           )}
@@ -215,7 +215,7 @@ export default function TokensPage() {
         <Modal 
           opened={opened} 
           onClose={handleCloseModal}
-          title="Create API Token"
+          title="Create API Key"
           size="md"
         >
           <form onSubmit={form.onSubmit(handleCreateToken)}>
@@ -223,8 +223,8 @@ export default function TokensPage() {
               {!showToken ? (
                 <>
                   <TextInput
-                    label="Token Name"
-                    placeholder="e.g., Project Manager Agent"
+                    label="API Key Name"
+                    placeholder="e.g., Fireflies Webhook"
                     required
                     {...form.getInputProps('name')}
                   />
@@ -251,9 +251,9 @@ export default function TokensPage() {
                   <Alert 
                     icon={<IconAlertCircle size={16} />}
                     title="Important"
-                    color="yellow"
+                    color="blue"
                   >
-                    Make sure to copy your token after creation. You won&apos;t be able to see it again.
+                    API keys are 32 characters and perfect for webhooks (like Fireflies). Copy your key after creation - you won&apos;t be able to see it again.
                   </Alert>
 
                   <Group justify="flex-end">
@@ -264,7 +264,7 @@ export default function TokensPage() {
                       type="submit" 
                       loading={generateToken.isPending}
                     >
-                      Generate Token
+                      Generate API Key
                     </Button>
                   </Group>
                 </>
@@ -272,14 +272,14 @@ export default function TokensPage() {
                 <>
                   <Alert 
                     icon={<IconCheck size={16} />}
-                    title="Token Generated Successfully"
+                    title="API Key Generated Successfully"
                     color="green"
                   >
-                    Your API token has been generated. Copy it now and store it securely.
+                    Your 32-character API key has been generated. Perfect for webhook secrets! Copy it now and store it securely.
                   </Alert>
 
                   <div>
-                    <Text size="sm" fw={500} mb="xs">Your API Token:</Text>
+                    <Text size="sm" fw={500} mb="xs">Your API Key (32 characters):</Text>
                     <Paper withBorder p="sm" bg="gray.0">
                       <Group justify="space-between" wrap="nowrap">
                         <Code 
@@ -311,7 +311,7 @@ export default function TokensPage() {
                     title="Security Notice"
                     color="red"
                   >
-                    This token will not be shown again. Make sure to save it in a secure location.
+                    This API key will not be shown again. Save it securely - it&apos;s perfect for webhook configurations!
                   </Alert>
 
                   <Group justify="flex-end">

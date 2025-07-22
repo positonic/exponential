@@ -14,6 +14,7 @@ import { githubRouter } from "./routers/github";
 import { noteRouter } from "./routers/note";
 import { exerciseRouter } from "./routers/exercise";
 import { mastraRouter } from "./routers/mastra";
+import { integrationRouter } from "./routers/integration";
 /**
  * This is the primary router for your server.
  *
@@ -35,6 +36,7 @@ export const appRouter = createTRPCRouter({
   note: noteRouter,
   exercise: exerciseRouter,
   mastra: mastraRouter,
+  integration: integrationRouter,
 });
 
 // export type definition of API

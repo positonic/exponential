@@ -63,6 +63,7 @@ model User {
   transcriptionSessions TranscriptionSession[]
   exercises             UserExercise[]
   verificationTokens    VerificationToken[]
+  integrations          Integration[]
 }
 
 model VerificationToken {
@@ -289,5 +290,35 @@ model Screenshot {
   transcriptionSessionId String
   createdAt              DateTime             @default(now())
   transcriptionSession   TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id])
+}
+
+model Integration {
+  id          String                    @id @default(cuid())
+  name        String
+  type        String                    // 'API_KEY', 'OAUTH', 'WEBHOOK', etc.
+  provider    String                    // 'fireflies', 'github', 'slack', 'notion', etc.
+  status      String                    @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'EXPIRED'
+  description String?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  userId      String
+  user        User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentials IntegrationCredential[]
+
+  @@index([userId])
+  @@index([provider])
+}
+
+model IntegrationCredential {
+  id            String      @id @default(cuid())
+  key           String      // The actual API key or credential
+  keyType       String      // 'API_KEY', 'ACCESS_TOKEN', 'REFRESH_TOKEN', 'SECRET'
+  expiresAt     DateTime?   // For tokens that expire
+  isEncrypted   Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  integrationId String
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([integrationId])
 }
 

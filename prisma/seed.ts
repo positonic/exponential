@@ -45,6 +45,20 @@ async function main() {
     });
   }
 
+  // Seed life domains
+  const defaultLifeDomains = [
+    { title: 'Work' },
+    { title: 'Home' },
+    { title: 'Personal' },
+    { title: 'Finance' },
+  ];
+  for (const domain of defaultLifeDomains) {
+    const existing = await prisma.lifeDomain.findFirst({ where: { title: domain.title } });
+    if (!existing) {
+      await prisma.lifeDomain.create({ data: domain });
+    }
+  }
+
   console.log('Seeding finished.');
 }
 
