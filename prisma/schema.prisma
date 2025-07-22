@@ -267,6 +267,7 @@ model TranscriptionSession {
   id            String       @id @default(cuid())
   sessionId     String       @unique
   transcription String?
+  summary       String?      // JSON string containing Fireflies summary data
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   userId        String?

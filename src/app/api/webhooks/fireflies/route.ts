@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
 import { db } from '~/server/db';
+import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
+import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
+import { NotificationServiceFactory } from '~/server/services/notifications/NotificationServiceFactory';
 
 // Types based on Fireflies webhook schema
 interface FirefliesWebhookPayload {
@@ -153,6 +156,20 @@ async function fetchFirefliesTranscript(meetingId: string, apiKey: string) {
             start_time
             end_time
           }
+          summary {
+            keywords
+            action_items
+            outline
+            shorthand_bullet
+            overview
+            bullet_gist
+            gist
+            short_summary
+            short_overview
+            meeting_type
+            topics_discussed
+            transcript_chapters
+          }
         }
       }
     `;
@@ -227,14 +244,17 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
     }
 
     // 2. Fetch the transcript from Fireflies API
-    let transcript;
-    let transcriptText = '';
+    let transcript: FirefliesTranscript | null = null;
+    let processedData;
+    
     try {
-      transcript = await fetchFirefliesTranscript(meetingId, apiKey);
+      transcript = await fetchFirefliesTranscript(meetingId, apiKey) as FirefliesTranscript;
       if (transcript && transcript.sentences) {
-        // Convert sentences array to a readable transcript string
-        transcriptText = JSON.stringify(transcript, null, 2);
         console.log(`✅ Retrieved transcript with ${transcript.sentences.length} sentences`);
+        
+        // 3. Process transcript data using FirefliesService
+        processedData = FirefliesService.processTranscription(transcript);
+        console.log(`📊 Processed summary and found ${processedData.actionItems.length} action items`);
       } else {
         console.warn('⚠️ No transcript sentences found');
       }
@@ -243,7 +263,7 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       // Continue with creation but without transcript content
     }
 
-    // 3. Save transcription session to database
+    // 4. Save transcription session to database with summary
     const sessionId = clientReferenceId || meetingId;
     const title = transcript?.title || `Fireflies Meeting ${meetingId}`;
     
@@ -252,13 +272,18 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       where: { sessionId }
     });
 
+    const sessionData = {
+      title,
+      transcription: processedData?.transcriptText || '',
+      summary: processedData ? JSON.stringify(processedData.summary, null, 2) : null,
+    };
+
     if (existingSession) {
-      // Update existing session with transcript
+      // Update existing session
       await db.transcriptionSession.update({
         where: { sessionId },
         data: {
-          transcription: transcriptText,
-          title,
+          ...sessionData,
           description: `${existingSession.description || ''}\n\nUpdated from Fireflies webhook: ${meetingId}`,
         }
       });
@@ -268,13 +293,62 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       await db.transcriptionSession.create({
         data: {
           sessionId,
-          title,
+          ...sessionData,
           description: `Auto-imported from Fireflies. Meeting ID: ${meetingId}`,
           userId: user.id,
-          transcription: transcriptText,
         }
       });
       console.log(`✅ Created new transcription session: ${sessionId}`);
+    }
+
+    // 5. Process action items if available
+    let actionResults: any[] = [];
+    if (processedData && processedData.actionItems.length > 0) {
+      try {
+        console.log(`🎯 Processing ${processedData.actionItems.length} action items`);
+        
+        // Get action processors for this user
+        const processors = await ActionProcessorFactory.createProcessors(user.id);
+        
+        for (const processor of processors) {
+          const result = await processor.processActionItems(processedData.actionItems);
+          actionResults.push({
+            processor: processor.name,
+            ...result
+          });
+          console.log(`✅ ${processor.name}: Created ${result.processedCount} actions`);
+        }
+      } catch (actionError) {
+        console.error('❌ Failed to process action items:', actionError);
+        // Don't throw - continue with notifications even if action processing fails
+      }
+    }
+
+    // 6. Send notifications
+    if (processedData) {
+      try {
+        const totalActionsCreated = actionResults.reduce((sum, result) => sum + result.processedCount, 0);
+        const notificationMessage = FirefliesService.generateNotificationSummary(
+          processedData.summary,
+          totalActionsCreated
+        );
+
+        const notificationResults = await NotificationServiceFactory.sendToAll(user.id, {
+          title: `📋 Meeting Summary: ${title}`,
+          message: notificationMessage,
+          priority: 'normal',
+          metadata: {
+            meetingId,
+            actionItemsCount: processedData.actionItems.length,
+            actionsCreated: totalActionsCreated,
+          }
+        });
+
+        console.log(`📢 Sent notifications:`, notificationResults);
+      } catch (notificationError) {
+        console.error('❌ Failed to send notifications:', notificationError);
+        // Don't throw - the main processing was successful
+      }
     }
 
     console.log('✅ Transcription completion handled successfully');
