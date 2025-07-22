@@ -2,25 +2,6 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 
-const integrationSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  type: z.string(),
-  provider: z.string(),
-  status: z.string(),
-  description: z.string().nullable(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-});
-
-const integrationCredentialSchema = z.object({
-  id: z.string(),
-  keyType: z.string(),
-  expiresAt: z.date().nullable(),
-  isEncrypted: z.boolean(),
-  createdAt: z.date(),
-});
-
 // Test Fireflies API connection
 async function testFirefliesConnection(apiKey: string): Promise<{ success: boolean; error?: string }> {
   try {
