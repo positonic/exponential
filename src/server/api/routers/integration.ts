@@ -31,28 +31,31 @@ async function testFirefliesConnection(apiKey: string): Promise<{ success: boole
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        query: `query { 
-          user { 
-            id 
-            name 
-            email 
-          } 
-        }`,
+        query: "query { user { email } }",
+        variables: {}
       }),
     });
 
     if (!response.ok) {
-      return { success: false, error: `HTTP ${response.status}` };
+      const errorText = await response.text();
+      console.error('Fireflies API error response:', errorText);
+      return { success: false, error: `HTTP ${response.status}: ${errorText}` };
     }
 
     const data = await response.json();
     
     if (data.errors) {
+      console.error('Fireflies GraphQL errors:', data.errors);
       return { success: false, error: data.errors[0]?.message || 'GraphQL error' };
+    }
+
+    if (!data.data?.user) {
+      return { success: false, error: 'Invalid API key - no user data returned' };
     }
 
     return { success: true };
   } catch (error) {
+    console.error('Fireflies connection test error:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
   }
 }
