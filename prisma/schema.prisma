@@ -54,6 +54,7 @@ model User {
   accounts              Account[]
   actions               Action[]
   goals                 Goal[]
+  integrations          Integration[]
   notes                 Note[]
   outcomes              Outcome[]
   posts                 Post[]
@@ -63,7 +64,6 @@ model User {
   transcriptionSessions TranscriptionSession[]
   exercises             UserExercise[]
   verificationTokens    VerificationToken[]
-  integrations          Integration[]
 }
 
 model VerificationToken {
@@ -78,28 +78,31 @@ model VerificationToken {
 }
 
 model Action {
-  id            String         @id @default(cuid())
-  name          String
-  description   String?
-  dueDate       DateTime?
-  status        String         @default("ACTIVE")
-  priority      String         @default("Quick")
-  projectId     String?
-  createdById   String
-  createdBy     User           @relation(fields: [createdById], references: [id])
-  project       Project?       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id                     String                @id @default(cuid())
+  name                   String
+  description            String?
+  dueDate                DateTime?
+  status                 String                @default("ACTIVE")
+  priority               String                @default("Quick")
+  projectId              String?
+  createdById            String
+  transcriptionSessionId String?
+  createdBy              User                  @relation(fields: [createdById], references: [id])
+  project                Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
   @@index([createdById])
+  @@index([transcriptionSessionId])
 }
 
 model Outcome {
   id          String    @id @default(cuid())
   description String
   dueDate     DateTime?
+  userId      String?
   type        String?   @default("daily")
   projectId   String?
-  userId      String?
   user        User?     @relation(fields: [userId], references: [id], onDelete: Restrict)
   goals       Goal[]    @relation("GoalOutcomes")
   projects    Project[] @relation("ProjectOutcomes")
@@ -133,19 +136,18 @@ model Project {
 }
 
 model Video {
-  id            String       @id @default(uuid())
-  slug          String?      @unique
+  id            String    @id @default(uuid())
+  slug          String?   @unique
   title         String?
-  videoUrl      String       @unique
+  videoUrl      String    @unique
   transcription String?
   status        String
-  createdAt     DateTime?    @default(now()) @db.Timestamptz(6)
-  updatedAt     DateTime?    @default(now()) @updatedAt @db.Timestamptz(6)
-  isSearchable  Boolean?     @default(false)
+  createdAt     DateTime? @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  isSearchable  Boolean?  @default(false)
   description   String?
   summary       String?
 }
-
 
 model Week {
   id        Int      @id @default(autoincrement())
@@ -226,7 +228,6 @@ model Note {
   @@index([type])
 }
 
-
 model TeamMember {
   id               String   @id @default(cuid())
   name             String
@@ -242,46 +243,49 @@ model TeamMember {
   @@index([userId])
 }
 
-
 model Differentiator {
   id          String   @id @default(cuid())
   value       String   @unique
   label       String
-  description String   @default("")
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  description String   @default("")
 }
 
 model Audience {
   id          String   @id @default(cuid())
   value       String   @unique
   label       String
-  description String   @default("")
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  description String   @default("")
 }
 
 model TranscriptionSession {
-  id            String       @id @default(cuid())
-  sessionId     String       @unique
-  transcription String?
-  summary       String?      // JSON string containing Fireflies summary data
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  userId        String?
-  setupId       String?
-  projectId     String?
-  title         String?
-  description   String?
-  screenshots   Screenshot[]
-  project       Project?     @relation(fields: [projectId], references: [id])
-  user          User?        @relation(fields: [userId], references: [id])
+  id                  String       @id @default(cuid())
+  sessionId           String       @unique
+  transcription       String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  userId              String?
+  setupId             String?
+  projectId           String?
+  description         String?
+  title               String?
+  summary             String?      // JSON string containing Fireflies summary data
+  sourceIntegrationId String?      // Track which integration created this transcription
+  screenshots         Screenshot[]
+  actions             Action[]     // Actions created from this transcription
+  project             Project?     @relation(fields: [projectId], references: [id])
+  user                User?        @relation(fields: [userId], references: [id])
+  sourceIntegration   Integration? @relation(fields: [sourceIntegrationId], references: [id], onDelete: SetNull)
 
   @@index([sessionId])
   @@index([userId])
   @@index([projectId])
+  @@index([sourceIntegrationId])
 }
 
 model Screenshot {
@@ -294,17 +298,18 @@ model Screenshot {
 }
 
 model Integration {
-  id          String                    @id @default(cuid())
-  name        String
-  type        String                    // 'API_KEY', 'OAUTH', 'WEBHOOK', etc.
-  provider    String                    // 'fireflies', 'github', 'slack', 'notion', etc.
-  status      String                    @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'EXPIRED'
-  description String?
-  createdAt   DateTime                  @default(now())
-  updatedAt   DateTime                  @updatedAt
-  userId      String
-  user        User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  credentials IntegrationCredential[]
+  id                    String                    @id @default(cuid())
+  name                  String
+  type                  String                    // 'API_KEY', 'OAUTH', 'WEBHOOK', etc.
+  provider              String                    // 'fireflies', 'github', 'slack', 'notion', etc.
+  status                String                    @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'EXPIRED'
+  description           String?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  userId                String
+  user                  User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentials           IntegrationCredential[]
+  transcriptionSessions TranscriptionSession[]    // Transcriptions created by this integration
 
   @@index([userId])
   @@index([provider])
@@ -322,4 +327,3 @@ model IntegrationCredential {
 
   @@index([integrationId])
 }
-

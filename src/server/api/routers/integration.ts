@@ -89,7 +89,7 @@ export const integrationRouter = createTRPCRouter({
   createIntegration: protectedProcedure
     .input(z.object({
       name: z.string().min(1),
-      provider: z.enum(['fireflies', 'github', 'slack', 'notion', 'webhook']),
+      provider: z.enum(['fireflies', 'exponential-plugin', 'github', 'slack', 'notion', 'webhook']),
       description: z.string().optional(),
       apiKey: z.string().min(1),
     }))

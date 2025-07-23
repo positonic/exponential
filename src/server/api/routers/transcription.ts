@@ -240,6 +240,58 @@ export const transcriptionRouter = createTRPCRouter({
       return updated;
     }),
 
+  getAllTranscriptions: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.db.transcriptionSession.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        screenshots: true,
+        sourceIntegration: {
+          select: {
+            id: true,
+            provider: true,
+            name: true,
+          },
+        },
+        actions: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            priority: true,
+          },
+        },
+      },
+    });
+  }),
+
+  assignProject: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        projectId: z.string().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.update({
+        where: {
+          id: input.transcriptionId,
+        },
+        data: {
+          projectId: input.projectId,
+          updatedAt: new Date(),
+        },
+      });
+      return session;
+    }),
+
   // Add to your transcriptionRouter
   saveScreenshot: protectedProcedure
     .input(

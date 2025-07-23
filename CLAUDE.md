@@ -28,8 +28,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **IMPORTANT**: Always create proper migration files when changing the schema:
 1. First, modify the schema.prisma file
-2. Run `npx prisma migrate dev --name descriptive_migration_name` to create a migration file
-3. This will automatically apply the migration and regenerate the Prisma client
+2. **ALWAYS ASK THE USER TO RUN MIGRATIONS MANUALLY** - Never attempt to run migrations yourself
+3. Ask the user to run: `npx prisma migrate dev --name descriptive_migration_name`
+4. This will automatically apply the migration and regenerate the Prisma client
+
+**NEVER RUN MIGRATIONS AUTOMATICALLY** - Always ask the user to run them manually.
 
 Do NOT use `db:push` as it bypasses the migration system. Migrations are essential for:
 - Version control of database changes

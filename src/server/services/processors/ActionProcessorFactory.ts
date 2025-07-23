@@ -16,7 +16,8 @@ export class ActionProcessorFactory {
    */
   static async createProcessors(
     userId: string, 
-    projectId?: string
+    projectId?: string,
+    transcriptionId?: string
   ): Promise<ActionProcessor[]> {
     const processors: ActionProcessor[] = [];
     
@@ -38,6 +39,7 @@ export class ActionProcessorFactory {
     const internalConfig: ActionProcessorConfig = {
       userId,
       projectId,
+      transcriptionId,
     };
     processors.push(new InternalActionProcessor(internalConfig));
 
@@ -47,6 +49,7 @@ export class ActionProcessorFactory {
         userId,
         projectId,
         integrationId: integration.id,
+        transcriptionId,
         additionalConfig: {
           name: integration.name,
           description: integration.description,
@@ -79,12 +82,14 @@ export class ActionProcessorFactory {
     type: ActionProcessorType,
     userId: string,
     projectId?: string,
-    integrationId?: string
+    integrationId?: string,
+    transcriptionId?: string
   ): Promise<ActionProcessor | null> {
     const config: ActionProcessorConfig = {
       userId,
       projectId,
       integrationId,
+      transcriptionId,
     };
 
     switch (type) {

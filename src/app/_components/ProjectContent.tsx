@@ -36,6 +36,7 @@ import {
   IconMessageCircle,
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
+import { TranscriptionRenderer } from "./TranscriptionRenderer";
 
 type TabValue =
   | "tasks"
@@ -247,9 +248,12 @@ export function ProjectContent({
                                 </Text>
                               </Group>
                               {session.transcription && (
-                                <Text size="sm" c="dimmed" lineClamp={3}>
-                                  {session.transcription}
-                                </Text>
+                                <TranscriptionRenderer
+                                  transcription={session.transcription}
+                                  provider={session.sourceIntegration?.provider}
+                                  isPreview={true}
+                                  maxLines={3}
+                                />
                               )}
                             </Stack>
                           </Group>
@@ -310,18 +314,11 @@ export function ProjectContent({
               <Paper p="md" radius="sm" className="bg-[#2a2a2a]">
                 <Stack gap="sm">
                   <Title order={5}>Transcription</Title>
-                  {selectedTranscription.transcription ? (
-                    <Text
-                      size="sm"
-                      style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}
-                    >
-                      {selectedTranscription.transcription}
-                    </Text>
-                  ) : (
-                    <Text size="sm" c="dimmed" ta="center" py="xl">
-                      No transcription available for this session.
-                    </Text>
-                  )}
+                  <TranscriptionRenderer
+                    transcription={selectedTranscription.transcription}
+                    provider={selectedTranscription.sourceIntegration?.provider}
+                    isPreview={false}
+                  />
                 </Stack>
               </Paper>
 

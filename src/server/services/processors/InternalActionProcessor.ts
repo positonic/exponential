@@ -78,6 +78,7 @@ export class InternalActionProcessor extends ActionProcessor {
       status: 'ACTIVE' as const,
       createdById: assigneeUserId || this.config.userId, // Use matched user or fallback to webhook user
       projectId: this.config.projectId || null,
+      transcriptionSessionId: this.config.transcriptionId || null,
       dueDate: actionItem.dueDate || null,
     };
 

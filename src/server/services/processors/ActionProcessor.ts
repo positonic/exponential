@@ -22,6 +22,7 @@ export interface ActionProcessorConfig {
   userId: string;
   projectId?: string;
   integrationId?: string;
+  transcriptionId?: string;
   additionalConfig?: Record<string, any>;
 }
 

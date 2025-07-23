@@ -42,7 +42,8 @@ interface CreateIntegrationForm {
 }
 
 const PROVIDER_OPTIONS = [
-  { value: 'fireflies', label: 'Fireflies.ai', icon: IconBrandFirebase },
+  { value: 'fireflies', label: 'Fireflies.ai', icon: IconBrandFirebase, disabled: false },
+  { value: 'exponential-plugin', label: 'Exponential Plugin', disabled: false },
   { value: 'github', label: 'GitHub', disabled: true },
   { value: 'slack', label: 'Slack', disabled: true },
   { value: 'notion', label: 'Notion', disabled: true },

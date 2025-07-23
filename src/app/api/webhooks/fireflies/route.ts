@@ -203,7 +203,7 @@ async function fetchFirefliesTranscript(meetingId: string, apiKey: string) {
   }
 }
 
-async function getFirefliesApiKey(userId: string): Promise<string | null> {
+async function getFirefliesIntegration(userId: string): Promise<{ apiKey: string; integrationId: string } | null> {
   try {
     const integration = await db.integration.findFirst({
       where: {
@@ -225,9 +225,12 @@ async function getFirefliesApiKey(userId: string): Promise<string | null> {
       return null;
     }
 
-    return integration.credentials[0]!.key;
+    return {
+      apiKey: integration.credentials[0]!.key,
+      integrationId: integration.id,
+    };
   } catch (error) {
-    console.error('Error getting Fireflies API key:', error);
+    console.error('Error getting Fireflies integration:', error);
     return null;
   }
 }
@@ -236,10 +239,10 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
   try {
     console.log(`📝 Handling transcription completion for meeting: ${meetingId} (User: ${user.email})`);
     
-    // 1. Get user's Fireflies API key
-    const apiKey = await getFirefliesApiKey(user.id);
-    if (!apiKey) {
-      console.error('❌ No Fireflies API key found for user:', user.email);
+    // 1. Get user's Fireflies integration
+    const firefliesIntegration = await getFirefliesIntegration(user.id);
+    if (!firefliesIntegration) {
+      console.error('❌ No Fireflies integration found for user:', user.email);
       throw new Error('No Fireflies integration found for user');
     }
 
@@ -248,7 +251,7 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
     let processedData;
     
     try {
-      transcript = await fetchFirefliesTranscript(meetingId, apiKey) as FirefliesTranscript;
+      transcript = await fetchFirefliesTranscript(meetingId, firefliesIntegration.apiKey) as FirefliesTranscript;
       if (transcript && transcript.sentences) {
         console.log(`✅ Retrieved transcript with ${transcript.sentences.length} sentences`);
         
@@ -276,11 +279,13 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       title,
       transcription: processedData?.transcriptText || '',
       summary: processedData ? JSON.stringify(processedData.summary, null, 2) : null,
+      sourceIntegrationId: firefliesIntegration.integrationId,
     };
 
+    let transcriptionSession;
     if (existingSession) {
       // Update existing session
-      await db.transcriptionSession.update({
+      transcriptionSession = await db.transcriptionSession.update({
         where: { sessionId },
         data: {
           ...sessionData,
@@ -290,7 +295,7 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       console.log(`✅ Updated existing transcription session: ${sessionId}`);
     } else {
       // Create new session
-      await db.transcriptionSession.create({
+      transcriptionSession = await db.transcriptionSession.create({
         data: {
           sessionId,
           ...sessionData,
@@ -307,8 +312,12 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       try {
         console.log(`🎯 Processing ${processedData.actionItems.length} action items`);
         
-        // Get action processors for this user
-        const processors = await ActionProcessorFactory.createProcessors(user.id);
+        // Get action processors for this user with transcription context
+        const processors = await ActionProcessorFactory.createProcessors(
+          user.id, 
+          undefined, // projectId - not specified at webhook level
+          transcriptionSession.id
+        );
         
         for (const processor of processors) {
           const result = await processor.processActionItems(processedData.actionItems);
