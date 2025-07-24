@@ -149,12 +149,12 @@ export function ProjectContent({
               <Tabs.Tab value="timeline" leftSection={<IconClock size={16} />}>
                 Timeline
               </Tabs.Tab>
-              <Tabs.Tab
+              {/* <Tabs.Tab
                 value="plan"
                 leftSection={<IconClipboardList size={16} />}
               >
                 Plan
-              </Tabs.Tab>
+              </Tabs.Tab> */}
               <Tabs.Tab
                 value="transcriptions"
                 leftSection={<IconMicrophone size={16} />}
@@ -172,9 +172,9 @@ export function ProjectContent({
               />
             </Tabs.Panel>
 
-            <Tabs.Panel value="plan">
+            {/* <Tabs.Panel value="plan">
               <Plan projectId={projectId} />
-            </Tabs.Panel>
+            </Tabs.Panel> */}
 
             <Tabs.Panel value="goals">
               <Paper
