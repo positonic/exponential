@@ -16,7 +16,15 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string | undefined>(initProjectId || undefined);
   const [priority, setPriority] = useState<ActionPriority>("Quick");
-  const [dueDate, setDueDate] = useState<Date | null>(null);
+  const [dueDate, setDueDate] = useState<Date | null>(() => {
+    // If we're on the /today page, default to today's date
+    if (viewName.toLowerCase() === 'today') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return today;
+    }
+    return null;
+  });
 
   const utils = api.useUtils();
   const createAction = api.action.create.useMutation({
@@ -148,7 +156,15 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
       setDescription("");
       setProjectId(undefined);
       setPriority("Quick");
-      setDueDate(null);
+      // Reset dueDate to today if on /today page, otherwise null
+      setDueDate(() => {
+        if (viewName.toLowerCase() === 'today') {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          return today;
+        }
+        return null;
+      });
       close();
     },
   });
