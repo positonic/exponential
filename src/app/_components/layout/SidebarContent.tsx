@@ -4,7 +4,7 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone } from "@tabler/icons-react";
+import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import Link from "next/link";
@@ -67,6 +67,9 @@ export function SidebarContent() {
               </NavLink>
               <NavLink href="/meetings" icon={IconMicrophone}>
                 Meetings
+              </NavLink>
+              <NavLink href="/workflows" icon={IconGitBranch}>
+                Workflows
               </NavLink>
               <NavLink href="/integrations" icon={IconPlug}>
                 Connect Services

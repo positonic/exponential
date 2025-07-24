@@ -8,7 +8,8 @@ import {
   IconSparkles,
   IconTarget,
   IconCalendar,
-  IconChartLine
+  IconChartLine,
+  IconGitBranch
 } from '@tabler/icons-react';
 import Link from 'next/link';
 import { auth } from "~/server/auth";
@@ -32,7 +33,7 @@ export default async function HomePage() {
         </div>
 
         {/* Main Features Grid */}
-        <SimpleGrid cols={{ base: 1, md: 2, lg: 3 }} spacing="lg">
+        <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing="lg">
           {/* Task Management */}
           <Paper
             shadow="sm"
@@ -157,6 +158,49 @@ export default async function HomePage() {
               mt="md"
             >
               Manage Integrations
+            </Button>
+          </Paper>
+
+          {/* Workflows */}
+          <Paper
+            shadow="sm"
+            p="lg"
+            radius="md"
+            className="h-full bg-[#262626] border border-gray-800 hover:border-gray-700 transition-colors cursor-pointer"
+            component={Link}
+            href="/workflows"
+          >
+            <ThemeIcon size={50} radius="md" variant="light" color="teal" className="mb-4">
+              <IconGitBranch size={30} />
+            </ThemeIcon>
+            <Title order={3} size="h4" className="mb-2">
+              Automated Workflows
+            </Title>
+            <Text c="dimmed" size="sm" className="mb-4">
+              Set up intelligent automations that capture data from external services 
+              and create action items automatically.
+            </Text>
+            <Stack gap="sm">
+              <Paper p="sm" radius="sm" className="bg-[#1E1E1E]">
+                <Group gap="sm">
+                  <ThemeIcon size={30} variant="filled" color="orange">
+                    <IconMicrophone size={18} />
+                  </ThemeIcon>
+                  <div className="flex-1">
+                    <Text size="sm" fw={500}>Fireflies → Actions</Text>
+                    <Text size="xs" c="dimmed">Auto-create tasks from meetings</Text>
+                  </div>
+                </Group>
+              </Paper>
+            </Stack>
+            <Button
+              size="sm"
+              variant="light"
+              color="teal"
+              fullWidth
+              mt="md"
+            >
+              Manage Workflows
             </Button>
           </Paper>
         </SimpleGrid>

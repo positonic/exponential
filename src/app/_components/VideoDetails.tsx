@@ -242,6 +242,7 @@ export function VideoDetails({
           title="Full Transcription" 
           content={transcription} 
           useMarkdown={false}
+          showCopyButton={true}
         />
       )}
       

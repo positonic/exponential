@@ -1,14 +1,16 @@
 'use client';
 
-import { Accordion, Paper, Title, Text } from '@mantine/core';
+import { Accordion, Paper, Title, Text, Group } from '@mantine/core';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import { type ReactNode } from 'react';
+import { CopyButton } from './CopyButton';
 
 interface ContentAccordionProps {
   title: string;
   content: string;
   subtitle?: ReactNode;
   useMarkdown?: boolean;
+  showCopyButton?: boolean;
 }
 
 const markdownComponents: Partial<Components> = {
@@ -31,7 +33,7 @@ const markdownComponents: Partial<Components> = {
     <ul className="mb-4 list-disc pl-6" {...props}>{children}</ul>
   ),
   li: ({ children, ...props }) => <li className="mb-2" {...props}>{children}</li>,
-  p: ({ children, ...props }: React.HTMLProps<HTMLParagraphElement>) => (
+  p: ({ children, ..._props }: React.HTMLProps<HTMLParagraphElement>) => (
     <Text size="sm" mb="md">
       {children}
     </Text>
@@ -43,11 +45,32 @@ export function ContentAccordion(_props: ContentAccordionProps) {
     <Accordion>
       <Accordion.Item value={_props.title.toLowerCase()}>
         <Accordion.Control>
-          <h2 className="text-xl font-semibold">{_props.title}</h2>
-          {_props.subtitle}
+          <Group justify="space-between" align="center" w="100%">
+            <div>
+              <h2 className="text-xl font-semibold">{_props.title}</h2>
+              {_props.subtitle}
+            </div>
+            {_props.showCopyButton && (
+              <CopyButton 
+                text={_props.content} 
+                variant="icon" 
+                size="sm"
+                tooltipLabel={`Copy ${_props.title.toLowerCase()}`}
+              />
+            )}
+          </Group>
         </Accordion.Control>
         <Accordion.Panel>
           <Paper shadow="sm" p="md" radius="md" withBorder>
+            {_props.showCopyButton && (
+              <Group justify="flex-end" mb="md">
+                <CopyButton 
+                  text={_props.content}
+                  label="Copy Content"
+                  size="xs"
+                />
+              </Group>
+            )}
             {_props.useMarkdown ? (
               <ReactMarkdown components={markdownComponents}>
                 {_props.content}

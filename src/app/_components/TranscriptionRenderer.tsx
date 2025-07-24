@@ -1,6 +1,8 @@
 "use client";
 
-import { Text, Stack, Group, Badge } from "@mantine/core";
+import { Text, Stack, Group, Badge, ActionIcon, Tooltip, Button } from "@mantine/core";
+import { IconCopy, IconCheck } from "@tabler/icons-react";
+import { useState } from "react";
 
 interface FirefliesSentence {
   text: string;
@@ -19,14 +21,50 @@ interface TranscriptionRendererProps {
   provider?: string;
   isPreview?: boolean;
   maxLines?: number;
+  showCopyButton?: boolean;
+}
+
+// Custom hook for copy functionality
+function useCopyToClipboard() {
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
+  return { copied, copyToClipboard };
+}
+
+// Helper function to extract plain text from Fireflies transcription
+function extractPlainTextFromFireflies(parsed: FirefliesTranscription): string {
+  const lines = parsed.sentences.map(sentence => 
+    `${sentence.speaker_name}: ${sentence.text}`
+  );
+  return lines.join('\n');
+}
+
+// Helper function to extract formatted text with timestamps
+function extractFormattedTextFromFireflies(parsed: FirefliesTranscription): string {
+  const lines = parsed.sentences.map(sentence => 
+    `[${formatTime(sentence.start_time)}] ${sentence.speaker_name}: ${sentence.text}`
+  );
+  return lines.join('\n');
 }
 
 export function TranscriptionRenderer({ 
   transcription, 
   provider, 
   isPreview = false, 
-  maxLines = 3 
+  maxLines = 3,
+  showCopyButton = true
 }: TranscriptionRendererProps) {
+  const { copied, copyToClipboard } = useCopyToClipboard();
   if (!transcription) {
     return (
       <Text size="sm" c="dimmed" ta="center" py="md">
@@ -64,13 +102,63 @@ export function TranscriptionRenderer({
             </Stack>
           );
         } else {
-          // Show full conversation
+          // Show full conversation with copy functionality
           return (
             <Stack gap="sm">
               {parsed.title && (
-                <Text fw={500} size="sm" mb="xs">
-                  {parsed.title}
-                </Text>
+                <Group justify="space-between" align="center">
+                  <Text fw={500} size="sm">
+                    {parsed.title}
+                  </Text>
+                  {showCopyButton && (
+                    <Group gap="xs">
+                      <Tooltip label="Copy formatted text with timestamps">
+                        <ActionIcon
+                          variant="subtle"
+                          size="sm"
+                          color="gray"
+                          onClick={() => copyToClipboard(extractFormattedTextFromFireflies(parsed))}
+                        >
+                          {copied ? <IconCheck size={16} color="green" /> : <IconCopy size={16} />}
+                        </ActionIcon>
+                      </Tooltip>
+                      <Button
+                        variant="subtle"
+                        size="xs"
+                        color="gray"
+                        leftSection={copied ? <IconCheck size={14} color="green" /> : <IconCopy size={14} />}
+                        onClick={() => copyToClipboard(extractPlainTextFromFireflies(parsed))}
+                      >
+                        {copied ? 'Copied!' : 'Copy All'}
+                      </Button>
+                    </Group>
+                  )}
+                </Group>
+              )}
+              {!parsed.title && showCopyButton && (
+                <Group justify="flex-end" mb="xs">
+                  <Group gap="xs">
+                    <Tooltip label="Copy formatted text with timestamps">
+                      <ActionIcon
+                        variant="subtle"
+                        size="sm"
+                        color="gray"
+                        onClick={() => copyToClipboard(extractFormattedTextFromFireflies(parsed))}
+                      >
+                        {copied ? <IconCheck size={16} color="green" /> : <IconCopy size={16} />}
+                      </ActionIcon>
+                    </Tooltip>
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      color="gray"
+                      leftSection={copied ? <IconCheck size={14} color="green" /> : <IconCopy size={14} />}
+                      onClick={() => copyToClipboard(extractPlainTextFromFireflies(parsed))}
+                    >
+                      {copied ? 'Copied!' : 'Copy All'}
+                    </Button>
+                  </Group>
+                </Group>
               )}
               {parsed.sentences.map((sentence, idx) => (
                 <Group key={idx} align="flex-start" gap="sm" wrap="nowrap">
@@ -78,9 +166,24 @@ export function TranscriptionRenderer({
                     {sentence.speaker_name}
                   </Badge>
                   <div style={{ flex: 1 }}>
-                    <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
-                      {sentence.text}
-                    </Text>
+                    <Group justify="space-between" align="flex-start">
+                      <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, flex: 1 }}>
+                        {sentence.text}
+                      </Text>
+                      {showCopyButton && (
+                        <Tooltip label="Copy this message">
+                          <ActionIcon
+                            variant="subtle"
+                            size="xs"
+                            color="gray"
+                            onClick={() => copyToClipboard(`${sentence.speaker_name}: ${sentence.text}`)}
+                            style={{ opacity: 0.6, marginTop: 2 }}
+                          >
+                            <IconCopy size={12} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
+                    </Group>
                     <Text size="xs" c="dimmed" mt="xs">
                       {formatTime(sentence.start_time)} - {formatTime(sentence.end_time)}
                     </Text>
@@ -106,9 +209,24 @@ export function TranscriptionRenderer({
     );
   } else {
     return (
-      <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
-        {transcription}
-      </Text>
+      <Stack gap="xs">
+        {showCopyButton && (
+          <Group justify="flex-end">
+            <Button
+              variant="subtle"
+              size="xs"
+              color="gray"
+              leftSection={copied ? <IconCheck size={14} color="green" /> : <IconCopy size={14} />}
+              onClick={() => copyToClipboard(transcription)}
+            >
+              {copied ? 'Copied!' : 'Copy All'}
+            </Button>
+          </Group>
+        )}
+        <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+          {transcription}
+        </Text>
+      </Stack>
     );
   }
 }
