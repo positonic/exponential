@@ -1,4 +1,4 @@
-import { PutBlobResult } from '@vercel/blob';
+import { type PutBlobResult } from '@vercel/blob';
 import { put } from '@vercel/blob';
 
 export async function uploadToBlob(

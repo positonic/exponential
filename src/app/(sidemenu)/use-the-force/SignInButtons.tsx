@@ -3,9 +3,11 @@
 import { Button, Stack } from "@mantine/core";
 import { IconBrandDiscord, IconBrandGoogle } from "@tabler/icons-react";
 import { signIn } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 
 export function SignInButtons() {
-  //const [email, setEmail] = useState("");
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get('callbackUrl') || '/home';
 
   return (
     <Stack gap="md">
@@ -56,7 +58,7 @@ export function SignInButtons() {
       {/* Auth Options */}
       <Stack gap="sm">
         <Button
-          onClick={() => signIn("google", { callbackUrl: "/" })}
+          onClick={() => signIn("google", { callbackUrl })}
           size="lg"
           variant="outline"
           leftSection={<IconBrandGoogle size={20} />}
@@ -71,7 +73,7 @@ export function SignInButtons() {
         </Button>
 
         <Button
-          onClick={() => signIn("discord", { callbackUrl: "/" })}
+          onClick={() => signIn("discord", { callbackUrl })}
           size="lg"
           variant="outline"
           leftSection={<IconBrandDiscord size={20} />}

@@ -1,6 +1,6 @@
-import { ActionProcessor, ParsedActionItem, ActionProcessorResult, ActionProcessorConfig } from './ActionProcessor';
+import { ActionProcessor, type ParsedActionItem, type ActionProcessorResult, type ActionProcessorConfig } from './ActionProcessor';
 import { db } from '~/server/db';
-import { PRIORITY_VALUES } from '~/types/priority';
+import { type PRIORITY_VALUES } from '~/types/priority';
 
 export class InternalActionProcessor extends ActionProcessor {
   name = 'Internal Actions';
@@ -73,7 +73,7 @@ export class InternalActionProcessor extends ActionProcessor {
 
     const actionData = {
       name,
-      description: actionItem.context || `Action item from Fireflies transcript${assigneeInfo ? ` - ${actionItem.assignee}` : ''}`,
+      description: actionItem.context || `Action item${assigneeInfo ? ` - ${actionItem.assignee}` : ''}`,
       priority,
       status: 'ACTIVE' as const,
       createdById: assigneeUserId || this.config.userId, // Use matched user or fallback to webhook user
@@ -82,9 +82,25 @@ export class InternalActionProcessor extends ActionProcessor {
       dueDate: actionItem.dueDate || null,
     };
 
-    return await db.action.create({
+    console.log('🔨 Creating action in database:', {
+      name: actionData.name,
+      priority: actionData.priority,
+      createdById: actionData.createdById,
+      projectId: actionData.projectId,
+      description: actionData.description
+    });
+
+    const createdAction = await db.action.create({
       data: actionData,
     });
+
+    console.log('✅ Action created successfully:', {
+      id: createdAction.id,
+      name: createdAction.name,
+      createdById: createdAction.createdById
+    });
+
+    return createdAction;
   }
 
   private async findUserByName(assigneeName: string): Promise<{ id: string; name: string } | null> {

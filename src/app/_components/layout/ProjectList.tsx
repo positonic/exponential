@@ -19,6 +19,10 @@ export function ProjectList() {
     include: {
       actions: true,
     },
+  }, {
+    refetchOnWindowFocus: false,
+    staleTime: 30 * 1000, // Consider data stale after 30 seconds
+    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
   });
 
   if (!projects) return null;

@@ -1,5 +1,6 @@
-import { ActionProcessor, ActionProcessorConfig } from './ActionProcessor';
+import { type ActionProcessor, type ActionProcessorConfig } from './ActionProcessor';
 import { InternalActionProcessor } from './InternalActionProcessor';
+import { SlackActionProcessor } from './SlackActionProcessor';
 import { db } from '~/server/db';
 
 export type ActionProcessorType = 'internal' | 'notion' | 'asana' | 'slack';
@@ -67,7 +68,7 @@ export class ActionProcessorFactory {
           // processors.push(new AsanaActionProcessor(config));
           break;
         case 'slack':
-          // TODO: Implement SlackActionProcessor (for notifications, not actions)
+          processors.push(new SlackActionProcessor(config));
           break;
       }
     }
@@ -95,6 +96,8 @@ export class ActionProcessorFactory {
     switch (type) {
       case 'internal':
         return new InternalActionProcessor(config);
+      case 'slack':
+        return new SlackActionProcessor(config);
       case 'notion':
         // TODO: return new NotionActionProcessor(config);
         return null;
@@ -120,7 +123,7 @@ export class ActionProcessorFactory {
         userId,
         status: 'ACTIVE',
         provider: {
-          in: ['notion', 'asana']
+          in: ['notion', 'asana', 'slack']
         }
       }
     });
@@ -144,6 +147,12 @@ export class ActionProcessorFactory {
         type: 'asana',
         name: 'Asana',
         available: availableIntegrations.includes('asana'),
+        requiresIntegration: true,
+      },
+      {
+        type: 'slack',
+        name: 'Slack Notifications',
+        available: availableIntegrations.includes('slack'),
         requiresIntegration: true,
       },
     ];

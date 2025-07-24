@@ -3,7 +3,11 @@
 import { api } from "~/trpc/react";
 
 export function UpcomingCount() {
-  const { data: actions } = api.action.getAll.useQuery();
+  const { data: actions } = api.action.getAll.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 30 * 1000, // Consider data stale after 30 seconds
+    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
+  });
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 

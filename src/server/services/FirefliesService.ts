@@ -1,4 +1,4 @@
-import { ParsedActionItem } from './processors/ActionProcessor';
+import { type ParsedActionItem } from './processors/ActionProcessor';
 
 export interface FirefliesSummary {
   keywords?: string[];

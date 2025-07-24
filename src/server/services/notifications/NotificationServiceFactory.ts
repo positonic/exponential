@@ -1,4 +1,4 @@
-import { NotificationService, NotificationConfig } from './NotificationService';
+import { type NotificationService, type NotificationConfig } from './NotificationService';
 import { SlackNotificationService } from './SlackNotificationService';
 import { db } from '~/server/db';
 

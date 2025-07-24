@@ -7,7 +7,11 @@ import { NavLink } from "./NavLinks";
 import { IconTarget, IconNumber } from "@tabler/icons-react";
 export function GoalList() {
   const pathname = usePathname();
-  const { data: goals } = api.goal.getAllMyGoals.useQuery();
+  const { data: goals } = api.goal.getAllMyGoals.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 30 * 1000, // Consider data stale after 30 seconds
+    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
+  });
 
   if (!goals) return null;
   

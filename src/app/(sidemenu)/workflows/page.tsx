@@ -1,5 +1,5 @@
 import { Container, Title, Text, SimpleGrid, Card, Button, Group, ThemeIcon, Stack, Paper, Badge } from '@mantine/core';
-import { IconRocket, IconArrowRight, IconPresentation, IconGitBranch, IconMicrophone, IconWebhook, IconPlaylistAdd } from '@tabler/icons-react';
+import { IconRocket, IconArrowRight, IconPresentation, IconGitBranch, IconMicrophone, IconWebhook, IconPlaylistAdd, IconBrandSlack } from '@tabler/icons-react';
 import Link from 'next/link';
 
 // Define automation workflows
@@ -15,6 +15,19 @@ const automationWorkflows = [
       'Fetch call transcript and summary',
       'Extract action items using AI',
       'Create tasks in your inbox'
+    ]
+  },
+  {
+    icon: IconBrandSlack,
+    title: 'Slack → Actions',
+    description: 'Create actions directly from Slack messages, receive notifications about meeting outcomes, and interact with your tasks via Slack commands.',
+    status: 'Available',
+    enabled: false,
+    steps: [
+      'Connect Slack workspace via OAuth',
+      'Configure notification channels',
+      'Set up slash commands and bot permissions',
+      'Start creating actions from Slack!'
     ]
   },
   {

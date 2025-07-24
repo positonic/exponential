@@ -41,6 +41,43 @@ async function testFirefliesConnection(apiKey: string): Promise<{ success: boole
   }
 }
 
+// Test Slack bot token connection
+async function testSlackConnection(botToken: string): Promise<{ success: boolean; error?: string; teamInfo?: any }> {
+  try {
+    const response = await fetch('https://slack.com/api/auth.test', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${botToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    const data = await response.json();
+    
+    if (!data.ok) {
+      return { success: false, error: data.error || 'Slack authentication failed' };
+    }
+
+    return { 
+      success: true, 
+      teamInfo: {
+        team: data.team,
+        team_id: data.team_id,
+        user: data.user,
+        user_id: data.user_id,
+        bot_id: data.bot_id
+      }
+    };
+  } catch (error) {
+    console.error('Slack connection test error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
+  }
+}
+
 export const integrationRouter = createTRPCRouter({
   // List all integrations for the current user
   listIntegrations: protectedProcedure
@@ -147,6 +184,106 @@ export const integrationRouter = createTRPCRouter({
       }
     }),
 
+  // Create Slack integration via OAuth
+  createSlackIntegration: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1),
+      description: z.string().optional(),
+      botToken: z.string().min(1),
+      userToken: z.string().optional(),
+      signingSecret: z.string().min(1),
+      teamId: z.string().optional(), // Make optional - we'll get it from the token
+      teamName: z.string().optional(), // Make optional - we'll get it from the token
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Test the bot token
+      const testResult = await testSlackConnection(input.botToken);
+      if (!testResult.success) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Slack connection failed: ${testResult.error}`,
+        });
+      }
+
+      // Get team info from the token test result
+      const teamId = testResult.teamInfo?.team_id;
+      const teamName = testResult.teamInfo?.team || input.teamName || 'Unknown Team';
+      
+      if (!teamId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Could not retrieve team ID from Slack token',
+        });
+      }
+
+      try {
+        // Create the integration
+        const integration = await ctx.db.integration.create({
+          data: {
+            name: input.name,
+            type: 'OAUTH',
+            provider: 'slack',
+            description: input.description || `Slack integration for ${teamName}`,
+            userId: ctx.session.user.id,
+          },
+        });
+
+        // Create the credentials
+        const credentials = [
+          {
+            key: input.botToken,
+            keyType: 'BOT_TOKEN',
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+          {
+            key: input.signingSecret,
+            keyType: 'SIGNING_SECRET',
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+          {
+            key: teamId,
+            keyType: 'TEAM_ID',
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+        ];
+
+        if (input.userToken) {
+          credentials.push({
+            key: input.userToken,
+            keyType: 'USER_TOKEN',
+            isEncrypted: false,
+            integrationId: integration.id,
+          });
+        }
+
+        await ctx.db.integrationCredential.createMany({
+          data: credentials,
+        });
+
+        return {
+          integration: {
+            id: integration.id,
+            name: integration.name,
+            type: integration.type,
+            provider: integration.provider,
+            status: integration.status,
+            description: integration.description,
+            createdAt: integration.createdAt.toISOString(),
+            teamInfo: testResult.teamInfo,
+          },
+        };
+      } catch (error) {
+        console.error('Slack integration creation failed:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to create Slack integration',
+        });
+      }
+    }),
+
   // Delete an integration
   deleteIntegration: protectedProcedure
     .input(z.object({
@@ -184,19 +321,14 @@ export const integrationRouter = createTRPCRouter({
       integrationId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Get the integration and its API key
+      // Get the integration and its credentials
       const integration = await ctx.db.integration.findUnique({
         where: {
           id: input.integrationId,
           userId: ctx.session.user.id,
         },
         include: {
-          credentials: {
-            where: {
-              keyType: 'API_KEY',
-            },
-            take: 1,
-          },
+          credentials: true,
         },
       });
 
@@ -207,22 +339,39 @@ export const integrationRouter = createTRPCRouter({
         });
       }
 
-      if (integration.credentials.length === 0) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'No API key found for this integration',
-        });
-      }
-
-      const apiKey = integration.credentials[0]!.key;
-
       // Test based on provider
       if (integration.provider === 'fireflies') {
-        const result = await testFirefliesConnection(apiKey);
+        const apiKeyCredential = integration.credentials.find(c => c.keyType === 'API_KEY');
+        if (!apiKeyCredential) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'No API key found for this integration',
+          });
+        }
+
+        const result = await testFirefliesConnection(apiKeyCredential.key);
         return {
           success: result.success,
           error: result.error,
           provider: integration.provider,
+        };
+      }
+
+      if (integration.provider === 'slack') {
+        const botTokenCredential = integration.credentials.find(c => c.keyType === 'BOT_TOKEN');
+        if (!botTokenCredential) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'No bot token found for this Slack integration',
+          });
+        }
+
+        const result = await testSlackConnection(botTokenCredential.key);
+        return {
+          success: result.success,
+          error: result.error,
+          provider: integration.provider,
+          teamInfo: result.teamInfo,
         };
       }
 
@@ -268,5 +417,115 @@ export const integrationRouter = createTRPCRouter({
       }
 
       return integration.credentials[0]!.key;
+    }),
+
+  // Get Slack OAuth URL for integration setup
+  getSlackOAuthUrl: protectedProcedure
+    .query(({ ctx }) => {
+      const clientId = process.env.SLACK_CLIENT_ID;
+      const redirectUri = process.env.SLACK_REDIRECT_URI || 'http://localhost:3000/api/auth/slack/callback';
+      
+      if (!clientId) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Slack client ID not configured',
+        });
+      }
+
+      const scopes = [
+        'app_mentions:read',
+        'channels:history',
+        'chat:write',
+        'commands',
+        'im:history',
+        'im:read',
+        'im:write',
+        'users:read',
+        'channels:read',
+        'groups:read',
+        'mpim:read'
+      ].join(',');
+
+      const state = ctx.session.user.id; // Use user ID as state for security
+      
+      const authUrl = `https://slack.com/oauth/v2/authorize?` +
+        `client_id=${clientId}&` +
+        `scope=${encodeURIComponent(scopes)}&` +
+        `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+        `state=${state}`;
+
+      return {
+        authUrl,
+        scopes: scopes.split(','),
+      };
+    }),
+
+  // Handle Slack OAuth callback
+  handleSlackCallback: protectedProcedure
+    .input(z.object({
+      code: z.string(),
+      state: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify state matches user ID
+      if (input.state !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Invalid state parameter',
+        });
+      }
+
+      const clientId = process.env.SLACK_CLIENT_ID;
+      const clientSecret = process.env.SLACK_CLIENT_SECRET;
+      const redirectUri = process.env.SLACK_REDIRECT_URI || 'http://localhost:3000/api/auth/slack/callback';
+
+      if (!clientId || !clientSecret) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Slack OAuth credentials not configured',
+        });
+      }
+
+      try {
+        // Exchange code for tokens
+        const response = await fetch('https://slack.com/api/oauth.v2.access', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            code: input.code,
+            redirect_uri: redirectUri,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!data.ok) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: data.error || 'OAuth exchange failed',
+          });
+        }
+
+        return {
+          accessToken: data.access_token,
+          botToken: data.bot_token,
+          scope: data.scope,
+          botUserId: data.bot_user_id,
+          team: {
+            id: data.team.id,
+            name: data.team.name,
+          },
+        };
+      } catch (error) {
+        console.error('Slack OAuth callback error:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to exchange OAuth code',
+        });
+      }
     }),
 });

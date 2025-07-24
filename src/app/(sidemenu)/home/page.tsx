@@ -9,7 +9,8 @@ import {
   IconTarget,
   IconCalendar,
   IconChartLine,
-  IconGitBranch
+  IconGitBranch,
+  IconBrandSlack
 } from '@tabler/icons-react';
 import Link from 'next/link';
 import { auth } from "~/server/auth";
@@ -189,6 +190,17 @@ export default async function HomePage() {
                   <div className="flex-1">
                     <Text size="sm" fw={500}>Fireflies → Actions</Text>
                     <Text size="xs" c="dimmed">Auto-create tasks from meetings</Text>
+                  </div>
+                </Group>
+              </Paper>
+              <Paper p="sm" radius="sm" className="bg-[#1E1E1E]">
+                <Group gap="sm">
+                  <ThemeIcon size={30} variant="filled" color="violet">
+                    <IconBrandSlack size={18} />
+                  </ThemeIcon>
+                  <div className="flex-1">
+                    <Text size="sm" fw={500}>Slack → Actions</Text>
+                    <Text size="xs" c="dimmed">Create tasks via Slack commands</Text>
                   </div>
                 </Group>
               </Paper>
