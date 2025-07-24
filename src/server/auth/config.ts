@@ -136,10 +136,9 @@ export const authConfig = {
      * @returns The URL to redirect to.
      */
     redirect: async ({ url, baseUrl }) => {
-      // Always redirect to the specified workflow URL after successful sign-in
-      // You might want to add conditions here, e.g., only redirect
-      // if the original 'url' points to the base path after login.
-      return "/workflows"; // Use relative path
+      // Always redirect to the home page after successful sign-in
+      // This serves as the onboarding/welcome page for new users
+      return "/home"; // Use relative path
 
       // Default behavior (useful if you don't always want to force the redirect):
       // Allows relative callback URLs

@@ -6,6 +6,7 @@ import {
   IconInbox,
   IconCalendarEvent,
   IconCalendarTime,
+  IconHome,
   
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
@@ -37,6 +38,9 @@ export function NavLink({ href, icon: Icon, children, count }: {
 export function NavLinks() {
   return (
     <>
+      <NavLink href="/home" icon={IconHome}>
+        Home
+      </NavLink>
       <NavLink href="/inbox" icon={IconInbox}>
         Inbox
         <InboxCount />
