@@ -15,9 +15,10 @@ interface ActionsProps {
   viewName: string;
   defaultView?: 'list' | 'alignment';
   projectId?: string;
+  displayAlignment?: boolean;
 }
 
-export function Actions({ viewName, defaultView = 'list', projectId }: ActionsProps) {
+export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = true }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
 
   // Conditionally fetch actions based on projectId
@@ -88,16 +89,18 @@ export function Actions({ viewName, defaultView = 'list', projectId }: ActionsPr
       <div className="relative mb-4">
         <Group justify="space-between" align="center">
           <Title order={2}></Title>
-          <Button
-            variant="subtle"
-            size="sm"
-            onClick={() => setIsAlignmentMode(!isAlignmentMode)}
-          >
-            <Group gap="xs">
-              {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
-              {isAlignmentMode ? 'Task View' : 'Alignment View'}
-            </Group>
-          </Button>
+          {displayAlignment && (
+            <Button
+              variant="subtle"
+              size="sm"
+              onClick={() => setIsAlignmentMode(!isAlignmentMode)}
+            >
+              <Group gap="xs">
+                {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
+                {isAlignmentMode ? 'Task View' : 'Alignment View'}
+              </Group>
+            </Button>
+          )}
         </Group>
       </div>
 

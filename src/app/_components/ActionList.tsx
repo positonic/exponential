@@ -262,7 +262,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
       {/* Main Action List (Today/Upcoming/Inbox/Project) */} 
       <Group justify="space-between" mb="md" className="flex-col sm:flex-row gap-4">
         {/* Consider making the title dynamic based on viewName */}
-        <h2 className="text-xl font-semibold capitalize">{viewName.startsWith('project-') ? viewName.split('-')[1] : viewName} View</h2> 
+        {/* <h2 className="text-xl font-semibold capitalize">{viewName.startsWith('project-') ? viewName.split('-')[1] : viewName} View</h2>  */}
         <button
           onClick={() => setFilter(filter === "ACTIVE" ? "COMPLETED" : "ACTIVE")}
           className="text-sm text-gray-400 hover:text-gray-300 transition-colors"

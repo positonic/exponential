@@ -169,6 +169,7 @@ export function ProjectContent({
                 viewName={viewName}
                 defaultView="list"
                 projectId={projectId}
+                displayAlignment={false}
               />
             </Tabs.Panel>
 

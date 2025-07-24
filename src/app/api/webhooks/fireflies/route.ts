@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
 import { db } from '~/server/db';
 import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
@@ -307,7 +307,7 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
     }
 
     // 5. Process action items if available
-    let actionResults: any[] = [];
+    const actionResults: any[] = [];
     if (processedData && processedData.actionItems.length > 0) {
       try {
         console.log(`🎯 Processing ${processedData.actionItems.length} action items`);
