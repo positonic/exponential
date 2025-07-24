@@ -274,6 +274,7 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
     case 'message':
       // Only process non-bot messages that mention the bot or are DMs
       if (!event.bot_id && (event.text?.includes(`<@${integration.data?.bot_user_id}>`) || event.channel?.startsWith('D'))) {
+        console.log(`💬 Processing message - Channel: ${event.channel}, Is DM: ${event.channel?.startsWith('D')}, Text: "${event.text?.substring(0, 50)}..."`);
         return await handleBotMention(event, user, integrationData);
       }
       break;
@@ -304,6 +305,22 @@ async function handleSlashCommand(payload: SlackSlashCommandPayload, integration
       case '/expo':
       case '/exponential':
         return await handleExpoCommand(text, user, response_url, channel_id, integrationData);
+      
+      case '/paddy':
+      case '/p':
+        // Direct shorthand for chatting with Paddy
+        if (text.trim()) {
+          void handleDeferredPaddyResponse(text, user, response_url);
+          return {
+            response_type: 'ephemeral',
+            text: '🤖 Paddy is thinking... I\'ll respond shortly!'
+          };
+        } else {
+          return {
+            response_type: 'ephemeral',
+            text: 'Hi! I\'m Paddy, your AI project manager. What can I help you with today?'
+          };
+        }
       
       default:
         return {
@@ -345,13 +362,191 @@ async function handleInteractiveComponent(payload: SlackInteractivePayload, inte
   return { success: true };
 }
 
+async function chatWithPaddy(message: string, user: any): Promise<string> {
+  const startTime = Date.now();
+  
+  try {
+    const MASTRA_API_URL = process.env.MASTRA_API_URL;
+    if (!MASTRA_API_URL) {
+      throw new Error('MASTRA_API_URL not configured');
+    }
+
+    console.log(`🤖 [Paddy] Starting chat with message: "${message.substring(0, 50)}..."`);
+
+    // Get available agents with timeout
+    console.log('📡 [Paddy] Fetching agents from Mastra...');
+    const agentsController = new AbortController();
+    const agentsTimeout = setTimeout(() => agentsController.abort(), 10000); // 10s timeout
+    
+    const agentsResponse = await fetch(`${MASTRA_API_URL}/api/agents`, {
+      signal: agentsController.signal
+    });
+    clearTimeout(agentsTimeout);
+    
+    if (!agentsResponse.ok) {
+      throw new Error(`Failed to fetch agents: ${agentsResponse.status}`);
+    }
+    const agentsData = await agentsResponse.json();
+    console.log(`📋 [Paddy] Found ${Object.keys(agentsData).length} agents`);
+
+    // Choose the best agent for this message
+    console.log('🎯 [Paddy] Selecting best agent...');
+    const agentId = await chooseAgentForMessage(message, agentsData);
+    console.log(`✨ [Paddy] Selected agent: ${agentId}`);
+
+    // Generate system context for the agent
+    const systemContext = `You are Paddy, a helpful project manager assistant integrated with Slack. 
+The user is ${user.name || 'User'} (ID: ${user.id}).
+Current date: ${new Date().toISOString().split('T')[0]}
+
+You can help with:
+- Creating and managing tasks/actions
+- Discussing projects and priorities  
+- General productivity and project management advice
+- Answering questions about their work
+
+Keep responses concise and friendly, suitable for Slack chat. Use Slack formatting when helpful (like *bold* or _italic_).
+
+IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
+
+    // Call the selected agent with timeout
+    console.log('🚀 [Paddy] Calling agent...');
+    const generateController = new AbortController();
+    const generateTimeout = setTimeout(() => generateController.abort(), 25000); // 25s timeout
+    
+    const response = await fetch(`${MASTRA_API_URL}/api/agents/${agentId}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: systemContext },
+          { role: 'user', content: message }
+        ]
+      }),
+      signal: generateController.signal
+    });
+    clearTimeout(generateTimeout);
+
+    const responseTime = Date.now() - startTime;
+    console.log(`⏱️ [Paddy] Agent response took ${responseTime}ms`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ [Paddy] Agent call failed: ${response.status} - ${errorText}`);
+      throw new Error(`Agent call failed: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    const finalResponse = result.text || 'Sorry, I had trouble understanding that. Can you try rephrasing?';
+    
+    console.log(`✅ [Paddy] Success! Response length: ${finalResponse.length} chars`);
+    return finalResponse;
+
+  } catch (error) {
+    const totalTime = Date.now() - startTime;
+    console.error(`❌ [Paddy] Error after ${totalTime}ms:`, error);
+    
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        return 'Sorry, that request took too long to process. Please try a simpler question or try again later.';
+      }
+      if (error.message.includes('timeout')) {
+        return 'The request timed out. Please try asking something simpler or try again in a moment.';
+      }
+    }
+    
+    throw error;
+  }
+}
+
+async function chooseAgentForMessage(message: string, agentsData: any): Promise<string> {
+  try {
+    // Simple agent selection logic - you can enhance this
+    // For now, try to find "Paddy" agent or use the first available agent
+    const agentEntries = Object.entries(agentsData);
+    
+    // Look for Paddy first
+    const paddyAgent = agentEntries.find(([id, agent]: [string, any]) => 
+      agent.name.toLowerCase().includes('paddy')
+    );
+    
+    if (paddyAgent) {
+      return paddyAgent[0];
+    }
+    
+    // Look for project manager agent
+    const pmAgent = agentEntries.find(([id, agent]: [string, any]) => 
+      agent.name.toLowerCase().includes('project') || 
+      agent.instructions?.toLowerCase().includes('project')
+    );
+    
+    if (pmAgent) {
+      return pmAgent[0];
+    }
+    
+    // Fallback to first agent
+    if (agentEntries.length > 0) {
+      return agentEntries[0]![0];
+    }
+    
+    throw new Error('No agents available');
+  } catch (error) {
+    console.error('Error choosing agent:', error);
+    throw error;
+  }
+}
+
+async function handleDeferredPaddyResponse(message: string, user: any, responseUrl: string) {
+  try {
+    console.log(`🕐 [Deferred] Starting deferred response for: "${message.substring(0, 50)}..."`);
+    
+    const paddyResponse = await chatWithPaddy(message, user);
+    
+    // Send the response back to Slack using the response_url
+    await fetch(responseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        response_type: 'in_channel',
+        text: paddyResponse
+      })
+    });
+    
+    console.log(`✅ [Deferred] Successfully sent deferred response`);
+  } catch (error) {
+    console.error('❌ [Deferred] Error in deferred Paddy response:', error);
+    
+    // Send error message back to Slack
+    await fetch(responseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        response_type: 'ephemeral',
+        text: 'Sorry, I encountered an error processing your request. Please try a simpler question or try again later.'
+      })
+    });
+  }
+}
+
 async function handleBotMention(event: SlackEvent, user: any, integrationData: any) {
   const text = event.text || '';
   const cleanText = text.replace(/<@[A-Z0-9]+>/g, '').trim();
+  const isDM = event.channel?.startsWith('D');
 
-  console.log('🗣️ Bot mentioned with text:', cleanText);
+  console.log(`🗣️ ${isDM ? 'DM' : 'Mention'} with text:`, cleanText);
 
-  // Simple command parsing
+  // For DMs, if no text or just greeting, send welcome message
+  if (isDM && (!cleanText || cleanText.toLowerCase().match(/^(hi|hello|hey|sup|yo)$/))) {
+    await sendSlackResponse(
+      'Hello! I\'m Paddy, your AI project manager. You can chat with me naturally here - no commands needed! \n\nTry asking me things like:\n• "What should I work on today?"\n• "What goals do I have?"\n• "Help me prioritize my tasks"\n• "Create a task to review the marketing proposal"',
+      event.channel!,
+      integrationData,
+      event.thread_ts
+    );
+    return { success: true };
+  }
+
+  // Simple command parsing for backwards compatibility
   if (cleanText.toLowerCase().includes('create action') || cleanText.toLowerCase().includes('add task')) {
     const actionTitle = cleanText.replace(/create action|add task/i, '').trim();
     if (actionTitle) {
@@ -360,15 +555,34 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
     }
   }
 
-  // Default response - could integrate with AI assistant here
-  await sendSlackResponse(
-    `Hello! I can help you manage your tasks. Try:
-• "create action [description]" to add a new task
-• Use \`/expo help\` for more commands`,
-    event.channel!,
-    integrationData,
-    event.thread_ts
-  );
+  try {
+    // Send immediate "thinking" response
+    await sendSlackResponse(
+      '🤖 Paddy is thinking... I\'ll respond shortly!',
+      event.channel!,
+      integrationData,
+      event.thread_ts
+    );
+    
+    // Process in background
+    const response = await chatWithPaddy(cleanText, user);
+    
+    await sendSlackResponse(
+      response,
+      event.channel!,
+      integrationData,
+      event.thread_ts
+    );
+  } catch (error) {
+    console.error('Error chatting with Paddy:', error);
+    // Send error response
+    await sendSlackResponse(
+      'Sorry, I encountered an error. Please try a simpler question or try again later.',
+      event.channel!,
+      integrationData,
+      event.thread_ts
+    );
+  }
 
   return { success: true };
 }
@@ -400,6 +614,22 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
     case 'projects':
       return await listUserProjects(user, responseUrl);
 
+    case 'chat':
+      const chatMessage = args.slice(1).join(' ');
+      if (chatMessage) {
+        // Immediately return acknowledgment and process in background
+        void handleDeferredPaddyResponse(chatMessage, user, responseUrl);
+        return {
+          response_type: 'ephemeral',
+          text: '🤖 Paddy is thinking... I\'ll respond shortly!'
+        };
+      } else {
+        return {
+          response_type: 'ephemeral',
+          text: 'Please provide a message to chat with Paddy. Usage: `/expo chat [your message]`'
+        };
+      }
+
     case 'help':
       return {
         response_type: 'ephemeral',
@@ -407,9 +637,10 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
 • \`/expo create [description]\` - Create a new action
 • \`/expo list\` - List your pending actions
 • \`/expo projects\` - List your active projects
+• \`/expo chat [message]\` - Chat with Paddy, your AI assistant
 • \`/expo help\` - Show this help message
 
-You can also mention me (@Exponential) in any channel to create actions!`
+You can also mention me (@Exponential) in any channel to chat with Paddy!`
       };
 
     default:
