@@ -50,6 +50,15 @@ export const actionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Verify user exists before creating action
+      const user = await ctx.db.user.findUnique({
+        where: { id: ctx.session.user.id }
+      });
+      
+      if (!user) {
+        throw new Error(`User not found: ${ctx.session.user.id}. Please ensure your account is properly set up.`);
+      }
+      
       return ctx.db.action.create({
         data: {
           ...input,

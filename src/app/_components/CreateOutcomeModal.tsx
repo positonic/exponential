@@ -337,15 +337,6 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
               },
               day: {
                 color: '#C1C2C5',
-                '&[data-selected]': {
-                  backgroundColor: '#1971c2',
-                },
-                '&[data-in-range]': {
-                  backgroundColor: '#1971c2',
-                },
-                '&:hover': {
-                  backgroundColor: '#373A40',
-                },
               },
             }}
           />
