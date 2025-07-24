@@ -34,7 +34,7 @@ export default function ConnectionsPage() {
                 <Title order={3} size="h4">Connect to External Services</Title>
                 <Text c="dimmed" size="sm">
                   Connect Exponential to external services like Fireflies, GitHub, etc. 
-                  You'll need API keys from those services.
+                  You&apos;ll need API keys from those services.
                 </Text>
               </div>
               {/* <IntegrationsContent /> */}

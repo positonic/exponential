@@ -60,7 +60,7 @@ export default async function HomePage() {
                 size="sm"
                 variant="light"
               >
-                View Today's Tasks
+                View Today&apos;s Tasks
               </Button>
               <Button
                 component={Link}
@@ -302,7 +302,7 @@ export default async function HomePage() {
               href="/journal"
               variant="light"
             >
-              Start Today's Journal
+              Start Today&apos;s Journal
             </Button>
             <Button
               component={Link}
