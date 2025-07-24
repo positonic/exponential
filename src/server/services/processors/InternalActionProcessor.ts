@@ -94,31 +94,37 @@ export class InternalActionProcessor extends ActionProcessor {
         where: {
           name: {
             equals: assigneeName,
-            mode: 'insensitive'
+            mode: 'insensitive',
+            not: null
           }
         },
         select: { id: true, name: true }
       });
       
-      if (exactMatch) {
-        return exactMatch;
+      if (exactMatch && exactMatch.name) {
+        return exactMatch as { id: string; name: string };
       }
 
       // Try partial matches (first name, last name)
       const nameParts = assigneeName.toLowerCase().split(' ');
       const partialMatch = await db.user.findFirst({
         where: {
-          OR: nameParts.map(part => ({
-            name: {
-              contains: part,
-              mode: 'insensitive'
+          AND: [
+            { name: { not: null } },
+            {
+              OR: nameParts.map(part => ({
+                name: {
+                  contains: part,
+                  mode: 'insensitive'
+                }
+              }))
             }
-          }))
+          ]
         },
         select: { id: true, name: true }
       });
 
-      return partialMatch;
+      return partialMatch && partialMatch.name ? partialMatch as { id: string; name: string } : null;
     } catch (error) {
       console.error('Error finding user by name:', error);
       return null;

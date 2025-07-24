@@ -137,7 +137,10 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
           return action.dueDate && action.dueDate >= today;
         default:
           if (viewName.startsWith('project-')) {
-            const projectId = viewName.split('-').slice(3).join('-');
+            // Extract project ID by splitting from the last hyphen (more robust)
+            // This handles both old format (name-1-id) and new format (name_1-id)
+            const parts = viewName.split('-');
+            const projectId = parts[parts.length - 1]; // Get the last part (the actual project ID)
             return action.projectId === projectId;
           }
           return true; // Show all non-overdue if viewName doesn't match known types

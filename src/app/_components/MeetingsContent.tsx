@@ -23,21 +23,67 @@ import {
   IconCalendar,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
+import { ActionList } from "./ActionList";
 
 type TabValue = "transcriptions" | "upcoming" | "archive";
 
 export function MeetingsContent() {
+  // Add CSS animation for fade effect
+  const fadeAnimationStyles = `
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: translateY(-5px); }
+      10% { opacity: 1; transform: translateY(0); }
+      90% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-5px); }
+    }
+  `;
+
+  // Add styles to document if not already present
+  if (typeof document !== 'undefined' && !document.getElementById('fade-animation-styles')) {
+    const style = document.createElement('style');
+    style.id = 'fade-animation-styles';
+    style.textContent = fadeAnimationStyles;
+    document.head.appendChild(style);
+  }
   const [activeTab, setActiveTab] = useState<TabValue>("transcriptions");
   const [drawerOpened, setDrawerOpened] = useState(false);
   const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
+  const [updatingActions, setUpdatingActions] = useState<string | null>(null); // transcriptionId being updated
+  const [successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message
   
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery();
   const { data: projects } = api.project.getAll.useQuery();
+  const utils = api.useUtils();
   
   const assignProjectMutation = api.transcription.assignProject.useMutation({
     onSuccess: () => {
       // Refetch transcriptions to update the UI
-      api.transcription.getAllTranscriptions.useQuery();
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
+  });
+
+  const updateActionsProjectMutation = api.action.updateActionsProject.useMutation({
+    onSuccess: (data, variables) => {
+      const transcriptionId = variables.transcriptionSessionId;
+      setUpdatingActions(null);
+      
+      // Set success message for this specific transcription
+      setSuccessMessages(prev => ({ ...prev, [transcriptionId]: data.message }));
+      
+      // Fade out the message after 1 second
+      setTimeout(() => {
+        setSuccessMessages(prev => {
+          const newMessages = { ...prev };
+          delete newMessages[transcriptionId];
+          return newMessages;
+        });
+      }, 1000);
+      
+      // Refetch transcriptions to update the UI
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
+    onError: () => {
+      setUpdatingActions(null);
     },
   });
 
@@ -54,6 +100,11 @@ export function MeetingsContent() {
 
   const handleProjectAssignment = (transcriptionId: string, projectId: string | null) => {
     assignProjectMutation.mutate({ transcriptionId, projectId });
+  };
+
+  const handleUpdateActions = (transcriptionSessionId: string, projectId: string | null) => {
+    setUpdatingActions(transcriptionSessionId);
+    updateActionsProjectMutation.mutate({ transcriptionSessionId, projectId });
   };
 
   if (isLoading) {
@@ -116,51 +167,134 @@ export function MeetingsContent() {
                       {transcriptions.map((session) => (
                         <Paper
                           key={session.id}
-                          p="md"
+                          p={0}
                           radius="sm"
-                          className="cursor-pointer bg-[#2a2a2a] transition-colors hover:bg-[#333333]"
-                          onClick={() => handleTranscriptionClick(session)}
+                          className="bg-[#2a2a2a]"
                         >
-                          <Group justify="space-between" align="flex-start">
-                            <Stack gap="xs" style={{ flex: 1 }}>
-                              <Group gap="xs">
-                                <Text size="sm" fw={500}>
-                                  {session.title || `Session ${session.sessionId}`}
-                                </Text>
-                                <Text size="xs" c="dimmed">
-                                  {new Date(session.createdAt).toLocaleDateString()}
-                                </Text>
-                              </Group>
-                              {session.transcription && (
-                                <TranscriptionRenderer
-                                  transcription={session.transcription}
-                                  provider={session.sourceIntegration?.provider}
-                                  isPreview={true}
-                                  maxLines={2}
-                                />
-                              )}
-                              {session.project && (
-                                <Badge variant="light" color="blue" size="sm">
-                                  {session.project.name}
-                                </Badge>
-                              )}
-                            </Stack>
-                            <Select
-                              placeholder="Assign to project"
-                              value={session.projectId}
-                              onChange={(value) => handleProjectAssignment(session.id, value)}
-                              onClick={(e) => e.stopPropagation()}
-                              data={[
-                                { value: "", label: "No project" },
-                                ...(projects?.map((p) => ({
-                                  value: p.id,
-                                  label: p.name,
-                                })) || []),
-                              ]}
-                              size="xs"
-                              style={{ width: 200 }}
-                            />
-                          </Group>
+                          <Accordion variant="separated" radius="sm">
+                            {/* Meeting Info Section */}
+                            <Accordion.Item value="info" className="border-none">
+                              <Accordion.Control
+                                className="hover:bg-[#333333]"
+                                onClick={(_e) => {
+                                  // Allow default accordion behavior, but also trigger drawer
+                                  setTimeout(() => handleTranscriptionClick(session), 100);
+                                }}
+                              >
+                                <Stack gap="sm" style={{ width: '100%' }}>
+                                  <Group justify="space-between" align="flex-start">
+                                    <Stack gap="xs" style={{ flex: 1 }}>
+                                      <Group gap="xs">
+                                        <Text size="sm" fw={500}>
+                                          {session.title || `Session ${session.sessionId}`}
+                                        </Text>
+                                        <Text size="xs" c="dimmed">
+                                          {new Date(session.createdAt).toLocaleDateString()}
+                                        </Text>
+                                        {session.sourceIntegration && (
+                                          <Badge variant="dot" color="cyan" size="xs">
+                                            {session.sourceIntegration.provider}
+                                          </Badge>
+                                        )}
+                                      </Group>
+                                      {session.transcription && (
+                                        <TranscriptionRenderer
+                                          transcription={session.transcription}
+                                          provider={session.sourceIntegration?.provider}
+                                          isPreview={true}
+                                          maxLines={2}
+                                        />
+                                      )}
+                                      {session.project && (
+                                        <Badge variant="light" color="blue" size="sm">
+                                          {session.project.name}
+                                        </Badge>
+                                      )}
+                                    </Stack>
+                                    <Select
+                                      placeholder="Assign to project"
+                                      value={session.projectId}
+                                      onChange={(value) => handleProjectAssignment(session.id, value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      data={[
+                                        { value: "", label: "No project" },
+                                        ...(projects?.map((p) => ({
+                                          value: p.id,
+                                          label: p.name,
+                                        })) || []),
+                                      ]}
+                                      size="xs"
+                                      style={{ width: 200 }}
+                                    />
+                                  </Group>
+                                  
+                                  {/* Update Actions Button - appears when project is selected and actions exist */}
+                                  {session.projectId && session.actions && session.actions.length > 0 && (
+                                    <Group justify="flex-end" style={{ width: '100%' }}>
+                                      <Button
+                                        size="xs"
+                                        variant="light"
+                                        color="blue"
+                                        loading={updatingActions === session.id}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleUpdateActions(session.id, session.projectId);
+                                        }}
+                                        style={{ marginRight: '8px' }}
+                                      >
+                                        Update Actions
+                                      </Button>
+                                    </Group>
+                                  )}
+                                  
+                                  {/* Success Message */}
+                                  {successMessages[session.id] && updatingActions !== session.id && (
+                                    <Group justify="flex-end" style={{ width: '100%' }}>
+                                      <Text
+                                        size="xs"
+                                        c="green"
+                                        style={{
+                                          marginRight: '8px',
+                                          animation: 'fadeInOut 1s ease-in-out',
+                                        }}
+                                      >
+                                        {successMessages[session.id]}
+                                      </Text>
+                                    </Group>
+                                  )}
+                                </Stack>
+                              </Accordion.Control>
+                            </Accordion.Item>
+
+                            {/* Meeting Actions Section */}
+                            <Accordion.Item value="actions" className="border-none">
+                              <Accordion.Control className="hover:bg-[#333333]">
+                                <Group justify="space-between" style={{ width: '100%' }}>
+                                  <Text size="sm" fw={500}>Meeting Actions</Text>
+                                  <Badge variant="light" color="blue" size="sm">
+                                    {session.actions?.length || 0}
+                                  </Badge>
+                                </Group>
+                              </Accordion.Control>
+                              <Accordion.Panel>
+                                {session.actions && session.actions.length > 0 ? (
+                                  <ActionList 
+                                    viewName="meeting-actions" 
+                                    actions={session.actions.map((action: any) => ({
+                                      ...action,
+                                      dueDate: action.dueDate ? new Date(action.dueDate) : null,
+                                      createdAt: new Date(action.createdAt),
+                                      updatedAt: new Date(action.updatedAt),
+                                    }))}
+                                  />
+                                ) : (
+                                  <Text size="sm" c="dimmed" ta="center" py="md">
+                                    No actions from this meeting yet.
+                                  </Text>
+                                )}
+                              </Accordion.Panel>
+                            </Accordion.Item>
+                          </Accordion>
                         </Paper>
                       ))}
                     </Stack>
@@ -282,29 +416,15 @@ export function MeetingsContent() {
                         Create Action
                       </Button>
                       {selectedTranscription.actions && selectedTranscription.actions.length > 0 ? (
-                        <Stack gap="xs">
-                          {selectedTranscription.actions.map((action: any) => (
-                            <Paper key={action.id} p="sm" radius="xs" className="bg-[#333333]">
-                              <Group justify="space-between">
-                                <Text size="sm" fw={500}>
-                                  {action.name}
-                                </Text>
-                                <Group gap="xs">
-                                  <Badge 
-                                    variant="light" 
-                                    color={action.status === "COMPLETED" ? "green" : "yellow"}
-                                    size="xs"
-                                  >
-                                    {action.status}
-                                  </Badge>
-                                  <Badge variant="outline" size="xs">
-                                    {action.priority}
-                                  </Badge>
-                                </Group>
-                              </Group>
-                            </Paper>
-                          ))}
-                        </Stack>
+                        <ActionList 
+                          viewName="transcription-actions" 
+                          actions={selectedTranscription.actions.map((action: any) => ({
+                            ...action,
+                            dueDate: action.dueDate ? new Date(action.dueDate) : null,
+                            createdAt: new Date(action.createdAt),
+                            updatedAt: new Date(action.updatedAt),
+                          }))}
+                        />
                       ) : (
                         <Text size="sm" c="dimmed" ta="center" py="md">
                           No actions associated with this transcription yet.

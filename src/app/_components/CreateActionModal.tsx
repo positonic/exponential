@@ -46,6 +46,7 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
         projectId: newAction.projectId ?? null,
         createdById: previousState.projects?.[0]?.createdById ?? "",
         dueDate: newAction.dueDate ? new Date(newAction.dueDate) : null,
+        transcriptionSessionId: null,
         project: newAction.projectId 
           ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
           : null,

@@ -47,7 +47,7 @@ export const projectRouter = createTRPCRouter({
       
       // Check if slug exists and increment counter until we find a unique one
       while (await ctx.db.project.findFirst({ where: { slug } })) {
-        slug = `${baseSlug}-${counter}`;
+        slug = `${baseSlug}_${counter}`;
         counter++;
       }
 
@@ -116,7 +116,7 @@ export const projectRouter = createTRPCRouter({
           id: { not: id }
         } 
       })) {
-        slug = `${baseSlug}-${counter}`;
+        slug = `${baseSlug}_${counter}`;
         counter++;
       }
       

@@ -104,4 +104,29 @@ export const actionRouter = createTRPCRouter({
       },
     });
   }),
+
+  updateActionsProject: protectedProcedure
+    .input(
+      z.object({
+        transcriptionSessionId: z.string(),
+        projectId: z.string().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Update all actions associated with this transcription session
+      const result = await ctx.db.action.updateMany({
+        where: {
+          transcriptionSessionId: input.transcriptionSessionId,
+          createdById: ctx.session.user.id, // Ensure user can only update their own actions
+        },
+        data: {
+          projectId: input.projectId,
+        },
+      });
+
+      return {
+        count: result.count,
+        message: `Updated ${result.count} action${result.count === 1 ? '' : 's'}`,
+      };
+    }),
 }); 
