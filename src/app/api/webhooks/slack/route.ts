@@ -397,12 +397,16 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
     case 'list':
       return await listUserActions(user, responseUrl);
 
+    case 'projects':
+      return await listUserProjects(user, responseUrl);
+
     case 'help':
       return {
         response_type: 'ephemeral',
         text: `Available commands:
 • \`/expo create [description]\` - Create a new action
 • \`/expo list\` - List your pending actions
+• \`/expo projects\` - List your active projects
 • \`/expo help\` - Show this help message
 
 You can also mention me (@Exponential) in any channel to create actions!`
@@ -496,13 +500,69 @@ async function listUserActions(user: any, responseUrl: string) {
 
     return {
       response_type: 'ephemeral',
-      text: `📋 Your pending actions:\n${actionList}\n\n_Visit your Exponential dashboard to manage these actions_`
+      text: `📋 Your pending actions:\n${actionList}\n\n_Visit your <https://exponential.im/home|Exponential> dashboard to manage these actions_`
     };
   } catch (error) {
     console.error('Error listing actions:', error);
     return {
       response_type: 'ephemeral',
       text: '❌ Sorry, I couldn\'t retrieve your actions right now.'
+    };
+  }
+}
+
+async function listUserProjects(user: any, responseUrl: string) {
+  try {
+    // Get user's projects
+    const projects = await db.project.findMany({
+      where: {
+        createdById: user.id,
+        status: {
+          in: ['ACTIVE', 'IN_PROGRESS']
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      },
+      take: 15,
+      include: {
+        actions: {
+          where: {
+            status: 'ACTIVE'
+          },
+          select: {
+            id: true
+          }
+        }
+      }
+    });
+
+    if (projects.length === 0) {
+      return {
+        response_type: 'ephemeral',
+        text: '📁 No active projects found. Create your first project in the Exponential dashboard!'
+      };
+    }
+
+    const projectList = projects.map(project => {
+      const statusEmoji = project.status === 'IN_PROGRESS' ? '🔄' : '📋';
+      const priorityEmoji = project.priority === '1st Priority' ? '🔥' : 
+                           project.priority === '2nd Priority' ? '⚡' :
+                           project.priority === '3rd Priority' ? '📌' : '';
+      const actionCount = project.actions.length > 0 ? ` (${project.actions.length} actions)` : '';
+      
+      return `${statusEmoji} ${project.name}${priorityEmoji}${actionCount}`;
+    }).join('\n');
+
+    return {
+      response_type: 'ephemeral',
+      text: `📁 Your active projects:\n${projectList}\n\n_Visit your <https://exponential.im/projects|Exponential> dashboard to manage these projects_`
+    };
+  } catch (error) {
+    console.error('Error listing projects:', error);
+    return {
+      response_type: 'ephemeral',
+      text: '❌ Sorry, I couldn\'t retrieve your projects right now.'
     };
   }
 }
