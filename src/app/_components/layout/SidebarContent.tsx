@@ -68,11 +68,11 @@ export function SidebarContent() {
               <NavLink href="/meetings" icon={IconMicrophone}>
                 Meetings
               </NavLink>
-              <NavLink href="/tokens" icon={IconKey}>
-                API Tokens
-              </NavLink>
               <NavLink href="/integrations" icon={IconPlug}>
-                Integrations
+                Connect Services
+              </NavLink>
+              <NavLink href="/tokens" icon={IconKey}>
+                API Access
               </NavLink>
             </div>
           </Accordion.Panel>

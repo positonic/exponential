@@ -33,6 +33,7 @@ import {
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
+import Link from 'next/link';
 
 interface CreateIntegrationForm {
   name: string;
@@ -184,9 +185,12 @@ export default function IntegrationsPage() {
       <Stack gap="lg">
         <Group justify="space-between" align="center">
           <div>
-            <Title order={1} size="h2">Integrations</Title>
+            <Title order={1} size="h2">External Service Integrations</Title>
             <Text c="dimmed" size="sm">
-              Connect external services to enhance your workflow automation
+              Connect Exponential TO external services (Fireflies, GitHub, etc.) using their API keys
+            </Text>
+            <Text c="blue" size="sm" mt="xs">
+              💡 Need to give external apps access to YOUR Exponential data? <Link href="/tokens" style={{ textDecoration: 'underline' }}>Generate API tokens here</Link>
             </Text>
           </div>
           <Button 

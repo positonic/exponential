@@ -26,6 +26,7 @@ import { IconPlus, IconKey, IconTrash, IconCopy, IconCheck, IconAlertCircle } fr
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
+import Link from 'next/link';
 
 // interface ApiToken {
 //   tokenId: string;
@@ -134,9 +135,12 @@ export default function TokensPage() {
       <Stack gap="lg">
         <Group justify="space-between" align="center">
           <div>
-            <Title order={1} size="h2">API Keys</Title>
+            <Title order={1} size="h2">API Access Tokens</Title>
             <Text c="dimmed" size="sm">
-              Manage your API keys for Mastra agents, webhooks, and external applications
+              Generate API keys for external applications to access YOUR Exponential data
+            </Text>
+            <Text c="orange" size="sm" mt="xs">
+              🔗 Looking to connect Exponential to external services? <Link href="/integrations" style={{ textDecoration: 'underline' }}>Set up integrations here</Link>
             </Text>
           </div>
           <Button 

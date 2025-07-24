@@ -253,7 +253,7 @@ export default async function HomePage() {
               href="/integrations"
               variant="subtle"
             >
-              Connect Services
+              Connect External Services
             </Button>
           </Group>
         </Paper>
