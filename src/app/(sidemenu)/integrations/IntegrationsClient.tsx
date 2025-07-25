@@ -29,7 +29,8 @@ import {
   IconAlertCircle,
   IconTestPipe,
   IconBrandFirebase,
-  IconBrandSlack
+  IconBrandSlack,
+  IconRefresh
 } from '@tabler/icons-react';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
@@ -61,6 +62,7 @@ const PROVIDER_OPTIONS = [
 export default function IntegrationsClient() {
   const [opened, { open, close }] = useDisclosure(false);
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
+  const [refreshingIntegration, setRefreshingIntegration] = useState<string | null>(null);
   const searchParams = useSearchParams();
 
   // Handle success/error messages from URL parameters (e.g., from Slack OAuth callback)
@@ -184,6 +186,28 @@ export default function IntegrationsClient() {
     },
   });
 
+  const refreshSlackIntegration = api.integration.refreshSlackIntegration.useMutation({
+    onSuccess: (data) => {
+      notifications.show({
+        title: 'Integration Refreshed',
+        message: data.message,
+        color: 'green',
+        icon: <IconCheck size={16} />,
+      });
+      void refetch(); // Refresh the integrations list
+      setRefreshingIntegration(null);
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Refresh Failed',
+        message: error.message || 'Failed to refresh Slack integration',
+        color: 'red',
+        icon: <IconAlertCircle size={16} />,
+      });
+      setRefreshingIntegration(null);
+    },
+  });
+
   const form = useForm<CreateIntegrationForm>({
     initialValues: {
       name: '',
@@ -244,6 +268,11 @@ export default function IntegrationsClient() {
   const handleTestConnection = async (integrationId: string) => {
     setTestingConnection(integrationId);
     await testConnection.mutateAsync({ integrationId });
+  };
+
+  const handleRefreshSlackIntegration = async (integrationId: string) => {
+    setRefreshingIntegration(integrationId);
+    await refreshSlackIntegration.mutateAsync({ integrationId });
   };
 
   const formatDate = (dateString: string) => {
@@ -350,6 +379,19 @@ export default function IntegrationsClient() {
                             <IconTestPipe size={14} />
                           </ActionIcon>
                         </Tooltip>
+                        {integration.provider === 'slack' && (
+                          <Tooltip label="Refresh integration (update team info)">
+                            <ActionIcon 
+                              color="green" 
+                              variant="light"
+                              size="sm"
+                              loading={refreshingIntegration === integration.id}
+                              onClick={() => handleRefreshSlackIntegration(integration.id)}
+                            >
+                              <IconRefresh size={14} />
+                            </ActionIcon>
+                          </Tooltip>
+                        )}
                         <Tooltip label="Delete integration">
                           <ActionIcon 
                             color="red" 

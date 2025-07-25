@@ -382,6 +382,96 @@ export const integrationRouter = createTRPCRouter({
       };
     }),
 
+  // Refresh Slack integration (fetch latest team info and update database)
+  refreshSlackIntegration: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify the integration belongs to the user and is Slack
+      const integration = await ctx.db.integration.findUnique({
+        where: {
+          id: input.integrationId,
+          userId: ctx.session.user.id,
+          provider: 'slack',
+        },
+        include: {
+          credentials: true,
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Slack integration not found or access denied',
+        });
+      }
+
+      // Get the bot token
+      const botTokenCredential = integration.credentials.find(c => c.keyType === 'BOT_TOKEN');
+      if (!botTokenCredential) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'No bot token found for this Slack integration',
+        });
+      }
+
+      // Test the connection and get latest team info
+      const testResult = await testSlackConnection(botTokenCredential.key);
+      if (!testResult.success) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Slack connection failed: ${testResult.error}`,
+        });
+      }
+
+      const teamId = testResult.teamInfo?.team_id;
+      const teamName = testResult.teamInfo?.team;
+
+      if (!teamId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Could not retrieve team ID from Slack',
+        });
+      }
+
+      // Update the team ID and team name in the database
+      const teamIdCredential = integration.credentials.find(c => c.keyType === 'TEAM_ID');
+      
+      if (teamIdCredential) {
+        // Update existing team ID
+        await ctx.db.integrationCredential.update({
+          where: { id: teamIdCredential.id },
+          data: { key: teamId },
+        });
+      } else {
+        // Create new team ID credential if it doesn't exist
+        await ctx.db.integrationCredential.create({
+          data: {
+            key: teamId,
+            keyType: 'TEAM_ID',
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+        });
+      }
+
+      // Update integration description with new team name
+      await ctx.db.integration.update({
+        where: { id: integration.id },
+        data: {
+          description: `Slack integration for ${teamName}`,
+        },
+      });
+
+      return {
+        success: true,
+        teamId,
+        teamName,
+        message: `Successfully updated Slack integration for team "${teamName}"`,
+      };
+    }),
+
   // Get Fireflies API key for a specific user (used by webhook handler)
   getFirefliesApiKey: protectedProcedure
     .input(z.object({
