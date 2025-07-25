@@ -135,9 +135,9 @@ export default function TokensPage() {
       <Stack gap="lg">
         <Group justify="space-between" align="center">
           <div>
-            <Title order={1} size="h2">API Access Tokens</Title>
+            <Title order={1} size="h2">API / Webhook Access Tokens</Title>
             <Text c="dimmed" size="sm">
-              Generate API keys for external applications to access YOUR Exponential data
+              Generate API keys for external applications to access YOUR Exponential data, or insert / update your exponential data via webhooks. 
             </Text>
             <Text c="orange" size="sm" mt="xs">
               🔗 Looking to connect Exponential to external services? <Link href="/integrations" style={{ textDecoration: 'underline' }}>Set up integrations here</Link>
