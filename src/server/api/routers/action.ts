@@ -122,20 +122,127 @@ export const actionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      console.log('🔄 updateActionsProject called with:', {
+        transcriptionSessionId: input.transcriptionSessionId,
+        projectId: input.projectId,
+        userId: ctx.session.user.id
+      });
+
+      // First, let's check what actions exist for this transcription session
+      let existingActions;
+      try {
+        existingActions = await ctx.db.action.findMany({
+          where: {
+            transcriptionSessionId: input.transcriptionSessionId,
+            createdById: ctx.session.user.id,
+          },
+          select: {
+            id: true,
+            name: true,
+            projectId: true,
+            transcriptionSessionId: true,
+          },
+        });
+
+        console.log('📋 Found existing actions for this transcription:', {
+          count: existingActions.length,
+          actions: existingActions.map(a => ({
+            id: a.id,
+            name: a.name,
+            currentProjectId: a.projectId,
+            transcriptionSessionId: a.transcriptionSessionId
+          }))
+        });
+      } catch (error) {
+        console.error('❌ Error finding actions:', error);
+        throw new Error(`Failed to find actions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+
       // Update all actions associated with this transcription session
+      let result;
+      try {
+        result = await ctx.db.action.updateMany({
+          where: {
+            transcriptionSessionId: input.transcriptionSessionId,
+            createdById: ctx.session.user.id, // Ensure user can only update their own actions
+          },
+          data: {
+            projectId: input.projectId,
+          },
+        });
+
+        console.log('✅ Update result:', {
+          count: result.count,
+          message: `Updated ${result.count} action${result.count === 1 ? '' : 's'}`,
+          existingActionsFound: existingActions.length
+        });
+      } catch (error) {
+        console.error('❌ Error updating actions:', error);
+        throw new Error(`Failed to update actions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+
+      return {
+        count: result.count,
+        message: `Updated ${result.count} action${result.count === 1 ? '' : 's'}`,
+      };
+    }),
+
+  // Debug endpoint to check action-transcription relationships
+  debugTranscriptionActions: protectedProcedure
+    .input(z.object({ transcriptionSessionId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const actions = await ctx.db.action.findMany({
+        where: {
+          createdById: ctx.session.user.id,
+        },
+        select: {
+          id: true,
+          name: true,
+          projectId: true,
+          transcriptionSessionId: true,
+        },
+        orderBy: {
+          id: 'desc'
+        }
+      });
+
+      const transcriptionSession = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionSessionId },
+        select: {
+          id: true,
+          sessionId: true,
+          title: true,
+        }
+      });
+
+      return {
+        transcriptionSession,
+        allUserActions: actions,
+        actionsForThisTranscription: actions.filter(a => a.transcriptionSessionId === input.transcriptionSessionId),
+        totalActions: actions.length,
+      };
+    }),
+
+  // Link existing actions to a transcription session
+  linkActionsToTranscription: protectedProcedure
+    .input(z.object({ 
+      actionIds: z.array(z.string()),
+      transcriptionSessionId: z.string() 
+    }))
+    .mutation(async ({ ctx, input }) => {
       const result = await ctx.db.action.updateMany({
         where: {
-          transcriptionSessionId: input.transcriptionSessionId,
-          createdById: ctx.session.user.id, // Ensure user can only update their own actions
+          id: { in: input.actionIds },
+          createdById: ctx.session.user.id, // Ensure user owns the actions
         },
         data: {
-          projectId: input.projectId,
+          transcriptionSessionId: input.transcriptionSessionId,
         },
       });
 
       return {
         count: result.count,
-        message: `Updated ${result.count} action${result.count === 1 ? '' : 's'}`,
+        message: `Linked ${result.count} action${result.count === 1 ? '' : 's'} to transcription`,
       };
     }),
 }); 
