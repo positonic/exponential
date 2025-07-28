@@ -31,6 +31,7 @@ export default function NotionWorkflowPage() {
   
   // API calls for checking configuration status
   const { data: integrations = [] } = api.integration.listIntegrations.useQuery();
+  const { data: workflows = [] } = api.workflow.list.useQuery();
   const utils = api.useUtils();
 
   // Test connection and get databases
@@ -111,6 +112,32 @@ export default function NotionWorkflowPage() {
     integration.status === 'ACTIVE'
   );
 
+  // Get Notion workflows
+  const notionWorkflows = workflows.filter(workflow => workflow.provider === 'notion');
+
+  // Run workflow mutation
+  const runWorkflow = api.workflow.run.useMutation({
+    onSuccess: (data) => {
+      notifications.show({
+        title: 'Sync Complete',
+        message: `Successfully synced ${data.itemsCreated} new tasks and updated ${data.itemsUpdated} existing tasks.`,
+        color: 'green',
+      });
+      void utils.workflow.list.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Sync Failed',
+        message: error.message || 'Failed to sync workflow',
+        color: 'red',
+      });
+    },
+  });
+
+  const handleSyncWorkflow = (workflowId: string) => {
+    runWorkflow.mutate({ id: workflowId });
+  };
+
   const handleCreateIntegration = async (values: NotionIntegrationForm) => {
     await createIntegration.mutateAsync({
       name: values.name,
@@ -131,9 +158,9 @@ export default function NotionWorkflowPage() {
     }
   };
 
-  const handleCreateWorkflow = async (_values: NotionWorkflowForm) => {
-    try {
-      // This would be implemented with a workflow creation API
+  // Create workflow mutation
+  const createWorkflow = api.workflow.create.useMutation({
+    onSuccess: () => {
       notifications.show({
         title: 'Workflow Created',
         message: 'Your Notion workflow has been configured successfully.',
@@ -141,13 +168,44 @@ export default function NotionWorkflowPage() {
       });
       closeWorkflowModal();
       workflowForm.reset();
-    } catch (_error) {
+      void utils.workflow.list.invalidate();
+    },
+    onError: (error) => {
       notifications.show({
         title: 'Error',
-        message: 'Failed to create workflow',
+        message: error.message || 'Failed to create workflow',
         color: 'red',
       });
+    },
+  });
+
+  const handleCreateWorkflow = async (values: NotionWorkflowForm) => {
+    const notionIntegration = integrations.find(integration => 
+      integration.provider === 'notion' && 
+      integration.status === 'ACTIVE'
+    );
+    
+    if (!notionIntegration) {
+      notifications.show({
+        title: 'Error',
+        message: 'No active Notion integration found',
+        color: 'red',
+      });
+      return;
     }
+
+    await createWorkflow.mutateAsync({
+      name: values.name,
+      type: 'NOTION_SYNC',
+      provider: 'notion',
+      syncDirection: values.syncDirection,
+      syncFrequency: values.syncFrequency,
+      integrationId: notionIntegration.id,
+      config: {
+        databaseId: values.databaseId,
+      },
+      description: values.description,
+    });
   };
 
   return (
@@ -516,6 +574,7 @@ export default function NotionWorkflowPage() {
                 </Button>
                 <Button 
                   type="submit" 
+                  loading={createWorkflow.isPending}
                   leftSection={<IconPlus size={16} />}
                 >
                   Create Workflow
@@ -593,6 +652,70 @@ export default function NotionWorkflowPage() {
             </Group>
           </Stack>
         </Modal>
+
+        {/* Existing Workflows */}
+        {notionWorkflows.length > 0 && (
+          <Card shadow="sm" padding="lg" radius="md" withBorder>
+            <Group justify="space-between" align="center" mb="md">
+              <Title order={4}>Active Notion Workflows</Title>
+              <Badge variant="light" color="blue">
+                {notionWorkflows.length} workflow{notionWorkflows.length !== 1 ? 's' : ''}
+              </Badge>
+            </Group>
+            
+            <Stack gap="md">
+              {notionWorkflows.map((workflow) => (
+                <Paper key={workflow.id} p="md" radius="sm" withBorder>
+                  <Group justify="space-between" align="flex-start">
+                    <div style={{ flex: 1 }}>
+                      <Group gap="sm" mb="xs">
+                        <Text fw={500}>{workflow.name}</Text>
+                        <Badge 
+                          size="sm" 
+                          color={workflow.status === 'ACTIVE' ? 'green' : workflow.status === 'ERROR' ? 'red' : 'gray'}
+                          variant="light"
+                        >
+                          {workflow.status}
+                        </Badge>
+                        <Badge size="sm" variant="outline">
+                          {workflow.syncDirection}
+                        </Badge>
+                        <Badge size="sm" variant="outline">
+                          {workflow.syncFrequency}
+                        </Badge>
+                      </Group>
+                      
+                      {workflow.runs && workflow.runs.length > 0 && (
+                        <Text size="sm" c="dimmed">
+                          Last run: {new Date(workflow.runs[0]!.startedAt).toLocaleString()} • 
+                          {workflow.runs[0]!.status === 'SUCCESS' ? (
+                            <span style={{ color: 'var(--mantine-color-green-6)' }}>
+                              {workflow.runs[0]!.itemsCreated} created, {workflow.runs[0]!.itemsUpdated || 0} updated
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--mantine-color-red-6)' }}>
+                              {workflow.runs[0]!.status}
+                            </span>
+                          )}
+                        </Text>
+                      )}
+                    </div>
+                    
+                    <Button
+                      size="sm"
+                      variant="light"
+                      disabled={workflow.status !== 'ACTIVE'}
+                      loading={runWorkflow.isPending}
+                      onClick={() => handleSyncWorkflow(workflow.id)}
+                    >
+                      Sync Now
+                    </Button>
+                  </Group>
+                </Paper>
+              ))}
+            </Stack>
+          </Card>
+        )}
 
         {/* Back to Workflows */}
         <Group justify="center">

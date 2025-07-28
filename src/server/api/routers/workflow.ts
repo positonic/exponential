@@ -160,6 +160,7 @@ export const workflowRouter = createTRPCRouter({
               completedAt: true,
               itemsProcessed: true,
               itemsCreated: true,
+              itemsUpdated: true,
               errorMessage: true,
             },
           },
@@ -285,8 +286,7 @@ export const workflowRouter = createTRPCRouter({
               // Check if action already exists (by Notion ID)
               const existingAction = await ctx.db.action.findFirst({
                 where: {
-                  userId: ctx.session.user.id,
-                  sourceIntegrationId: workflow.integrationId,
+                  createdById: ctx.session.user.id,
                   // Store Notion ID in description or create a separate field
                   description: {
                     contains: `notion:${task.notionId}`,
@@ -312,7 +312,6 @@ export const workflowRouter = createTRPCRouter({
                       status: task.status,
                       priority: task.priority,
                       dueDate: task.dueDate,
-                      updatedAt: new Date(),
                     },
                   });
                   itemsUpdated++;
@@ -330,8 +329,7 @@ export const workflowRouter = createTRPCRouter({
                     status: task.status,
                     priority: task.priority,
                     dueDate: task.dueDate,
-                    userId: ctx.session.user.id,
-                    sourceIntegrationId: workflow.integrationId,
+                    createdById: ctx.session.user.id,
                     projectId: workflow.projectId,
                   },
                 });
@@ -449,5 +447,67 @@ export const workflowRouter = createTRPCRouter({
       });
 
       return updatedWorkflow;
+    }),
+
+  // Get all differentiators
+  getAllDifferentiators: protectedProcedure
+    .query(async ({ ctx }) => {
+      const differentiators = await ctx.db.differentiator.findMany({
+        orderBy: {
+          label: 'asc',
+        },
+      });
+      return differentiators;
+    }),
+
+  // Create a new differentiator
+  createDifferentiator: protectedProcedure
+    .input(z.object({
+      value: z.string(),
+      label: z.string(),
+      description: z.string().optional(),
+      isDefault: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const differentiator = await ctx.db.differentiator.create({
+        data: {
+          value: input.value,
+          label: input.label,
+          description: input.description || '',
+          isDefault: input.isDefault || false,
+        },
+      });
+      return differentiator;
+    }),
+
+  // Get all audiences
+  getAllAudiences: protectedProcedure
+    .query(async ({ ctx }) => {
+      const audiences = await ctx.db.audience.findMany({
+        orderBy: {
+          label: 'asc',
+        },
+      });
+      return audiences;
+    }),
+
+  // Create a new audience
+  createAudience: protectedProcedure
+    .input(z.object({
+      value: z.string(),
+      label: z.string(),
+      description: z.string().optional(),
+      isDefault: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const audience = await ctx.db.audience.create({
+        data: {
+          value: input.value,
+          label: input.label,
+          description: input.description || '',
+          isDefault: input.isDefault || false,
+        },
+      });
+      return audience;
     }),
 });
