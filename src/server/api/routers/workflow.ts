@@ -1,338 +1,453 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import path from "path";
-import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Test Notion connection and sync data
+async function syncNotionTasks(accessToken: string, databaseId: string) {
+  try {
+    // Fetch database content from Notion
+    const response = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        page_size: 100,
+      }),
+    });
 
-// Input validation schema
-const launchPlanInputSchema = z.object({
-  productDescription: z.string(),
-  differentiators: z.array(z.string()),
-  goals: z.array(z.string()),
-  audience: z.array(z.string()),
-});
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
 
-// Response schema
-const launchPlanResponseSchema = z.object({
-  project: z.object({
-    name: z.string(),
-    description: z.string(),
-  }),
-  outcome: z.object({
-    description: z.string(),
-    type: z.string(),
-    dueDate: z.string(),
-  }),
-  weeklyGoals: z.array(z.object({
-    week: z.number().min(1).max(3),
-    title: z.string(),
-    description: z.string(),
-  })),
-  actions: z.array(z.object({
-    name: z.string(),
-    description: z.string(),
-    dueDate: z.string(),
-    priority: z.enum(["High", "Medium", "Low"]),
-    week: z.number().min(1).max(3),
-  })),
-});
+    const data = await response.json();
+    
+    // Transform Notion pages to task format
+    const tasks = data.results.map((page: any) => {
+      const title = page.properties.Name?.title?.[0]?.plain_text || 
+                   page.properties.Title?.title?.[0]?.plain_text ||
+                   'Untitled Task';
+      
+      const status = page.properties.Status?.select?.name || 
+                    page.properties.Done?.checkbox ? 'COMPLETED' : 'ACTIVE';
+      
+      const dueDate = page.properties['Due Date']?.date?.start ||
+                     page.properties.Date?.date?.start;
+      
+      const description = page.properties.Description?.rich_text?.[0]?.plain_text ||
+                         page.properties.Notes?.rich_text?.[0]?.plain_text;
 
-async function readPromptTemplate(templateName: string) {
-  // Dynamic import fs promises only when the function is called (server-side)
-  const fs = await import('node:fs/promises');
-  const promptPath = path.join(process.cwd(), "src/prompts", templateName);
-  return fs.readFile(promptPath, "utf-8");
+      const priority = page.properties.Priority?.select?.name || 'Medium';
+
+      return {
+        notionId: page.id,
+        name: title,
+        description,
+        status,
+        priority,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        notionUrl: page.url,
+        lastModified: new Date(page.last_edited_time),
+      };
+    });
+
+    return {
+      success: true,
+      tasks,
+      totalFetched: data.results.length,
+    };
+  } catch (error) {
+    console.error('Notion sync error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to sync with Notion',
+      tasks: [],
+      totalFetched: 0,
+    };
+  }
 }
 
 export const workflowRouter = createTRPCRouter({
-  suggestDifferentiatorsAndAudience: protectedProcedure
-    .input(z.object({ productDescription: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      try {
-        // Fetch all differentiators and audiences from the database
-        const [differentiators, audiences] = await Promise.all([
-          ctx.db.differentiator.findMany({
-            orderBy: [{ isDefault: 'desc' }, { label: 'asc' }]
-          }),
-          ctx.db.audience.findMany({
-            orderBy: [{ isDefault: 'desc' }, { label: 'asc' }]
-          })
-        ]);
-
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4-turbo-preview",
-          messages: [
-            {
-              role: "system",
-              content: `You are a product strategist helping identify key differentiators, target audiences, and compelling taglines. Based on the product description:
-              
-1) Suggest 3-5 key differentiators from this list: ${differentiators.map(d => d.label).join(', ')}
-2) For each differentiator, provide an expanded description that highlights its value proposition
-3) Suggest 2-4 target audiences from this list: ${audiences.map(a => a.label).join(', ')}
-4) For each audience, provide an expanded description explaining why they are a good fit and their key needs
-5) Create 3 compelling taglines that emphasize the product's unique value
-
-Return your response as a JSON object with:
-- 'differentiators': array of objects with { label, value, description }
-- 'audiences': array of objects with { label, description }
-- 'taglines': array of strings with compelling taglines`,
-            },
-            {
-              role: "user",
-              content: `Please analyze this product description and return the expanded suggestions as JSON: "${input.productDescription}"`,
-            },
-          ],
-          response_format: { type: "json_object" },
-        });
-
-        const response = completion.choices[0]?.message.content;
-        if (!response) throw new Error("Failed to generate suggestions");
-
-        const result = z.object({
-          differentiators: z.array(z.object({
-            label: z.string(),
-            value: z.string(),
-            description: z.string().optional(),
-          })),
-          audiences: z.array(z.object({
-            label: z.string(),
-            description: z.string(),
-          })),
-          taglines: z.array(z.string()),
-        }).parse(JSON.parse(response));
-
-        return result;
-      } catch (error) {
-        console.error('Error in suggestDifferentiatorsAndAudience:', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to suggest differentiators and audiences',
-        });
-      }
-    }),
-
-  generateLaunchPlan: protectedProcedure
-    .input(launchPlanInputSchema)
-    .mutation(async ({ ctx, input }) => {
-      try {
-        // Verify session
-        if (!ctx.session?.user?.id) {
-          throw new TRPCError({
-            code: 'UNAUTHORIZED',
-            message: 'You must be logged in to generate a launch plan',
-          });
-        }
-
-        console.log('Starting launch plan generation with input:', input);
-
-        // 1. Read the prompt template
-        const promptTemplate = await readPromptTemplate("launch-sprint.txt");
-
-        // 2. Fill in the template
-        const filledPrompt = promptTemplate
-          .replace("{{product_description}}", input.productDescription)
-          .replace("{{[differentiators]}}", JSON.stringify(input.differentiators))
-          .replace("{{[goals]}}", JSON.stringify(input.goals))
-          .replace("{{[audience]}}", JSON.stringify(input.audience));
-
-        console.log('Calling OpenAI with prompt...');
-
-        // 3. Call OpenAI
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4-turbo-preview",
-          messages: [
-            {
-              role: "system",
-              content: "You are a startup co-pilot that helps entrepreneurs launch their products.",
-            },
-            {
-              role: "user",
-              content: filledPrompt,
-            },
-          ],
-          response_format: { type: "json_object" },
-        });
-
-        const response = completion.choices[0]?.message.content;
-        if (!response) throw new Error("Failed to generate launch plan");
-
-        console.log('Received OpenAI response, parsing...');
-
-        // 4. Parse and validate the response
-        const plan = launchPlanResponseSchema.parse(JSON.parse(response));
-        console.log('Parsed launch plan:', plan);
-        console.log('Creating workflow in database...');
-
-        return { plan };
-      } catch (error) {
-        console.error('Error in generateLaunchPlan:', error);
-        if (error instanceof TRPCError) throw error;
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'An unexpected error occurred',
-        });
-      }
-    }),
-
-  saveLaunchPlan: protectedProcedure
+  // Create a new workflow
+  create: protectedProcedure
     .input(z.object({
-      plan: launchPlanResponseSchema
+      name: z.string().min(1),
+      type: z.string(),
+      provider: z.string(),
+      syncDirection: z.enum(['push', 'pull', 'bidirectional']),
+      syncFrequency: z.enum(['manual', 'hourly', 'daily', 'weekly']),
+      integrationId: z.string(),
+      projectId: z.string().optional(),
+      config: z.object({
+        databaseId: z.string(),
+        fieldMappings: z.record(z.string()).optional(),
+      }),
+      description: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const baseSlug = input.plan.project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      const uniqueSlug = `${baseSlug}`;
+      // Verify the integration belongs to the user
+      const integration = await ctx.db.integration.findUnique({
+        where: {
+          id: input.integrationId,
+          userId: ctx.session.user.id,
+        },
+      });
 
-      // Create the project with all related data
-      const project = await ctx.db.project.create({
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Integration not found or access denied',
+        });
+      }
+
+      // Create the workflow
+      const workflow = await ctx.db.workflow.create({
         data: {
-          name: input.plan.project.name,
-          description: input.plan.project.description,
-          slug: uniqueSlug,
-          createdById: ctx.session.user.id,
-          status: "ACTIVE",
-          // Create the main outcome
-          outcomes: {
-            create: {
-              description: input.plan.outcome.description,
-              type: input.plan.outcome.type,
-              dueDate: new Date(input.plan.outcome.dueDate),
-              userId: ctx.session.user.id,
-            },
-          },
-          // Create weekly goals
-          goals: {
-            create: input.plan.weeklyGoals.map(goal => ({
-              title: `Week ${goal.week}: ${goal.title}`,
-              description: goal.description,
-              lifeDomainId: 1, // Launch domain
-              userId: ctx.session.user.id,
-              dueDate: new Date(input.plan.actions.find(a => a.week === goal.week)?.dueDate ?? new Date()),
-            }))
-          },
-          // Create actions
-          actions: {
-            create: input.plan.actions.map((action, index) => ({
-              name: action.name,
-              description: action.description,
-              dueDate: new Date(action.dueDate),
-              priority: action.priority === "High" ? "1st Priority" : 
-                       action.priority === "Medium" ? "2nd Priority" : 
-                       "3rd Priority",
-              createdById: ctx.session.user.id,
-              status: "ACTIVE",
-            }))
-          }
+          name: input.name,
+          type: input.type,
+          provider: input.provider,
+          syncDirection: input.syncDirection,
+          syncFrequency: input.syncFrequency,
+          config: input.config,
+          integrationId: input.integrationId,
+          userId: ctx.session.user.id,
+          projectId: input.projectId,
         },
         include: {
-          outcomes: true,
-          goals: true,
-          actions: true,
+          integration: true,
+          project: true,
         },
       });
 
-      if (!project) throw new Error("Failed to create project");
-
-      return { projects: [project] };
+      return workflow;
     }),
 
-  getAllDifferentiators: protectedProcedure
+  // List user's workflows
+  list: protectedProcedure
     .query(async ({ ctx }) => {
-      return ctx.db.differentiator.findMany({
-        orderBy: [
-          { isDefault: 'desc' },
-          { label: 'asc' }
-        ]
-      });
-    }),
-
-  getAllAudiences: protectedProcedure
-    .query(async ({ ctx }) => {
-      return ctx.db.audience.findMany({
-        orderBy: [
-          { isDefault: 'desc' },
-          { label: 'asc' }
-        ]
-      });
-    }),
-
-  createDifferentiator: protectedProcedure
-    .input(z.object({
-      value: z.string(),
-      label: z.string(),
-      description: z.string().optional(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.db.differentiator.create({
-        data: {
-          value: input.value,
-          label: input.label,
-          description: input.description || "",
-          isDefault: false,
-        }
-      });
-    }),
-
-  generateAudienceDescription: protectedProcedure
-    .input(z.object({
-      audienceLabel: z.string(),
-      productDescription: z.string(),
-    }))
-    .mutation(async ({ input }) => {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4-turbo-preview",
-        messages: [
-          {
-            role: "system",
-            content: "You are a product strategist helping to identify why a specific audience segment would benefit from a product. Generate a concise but detailed description (2-3 sentences) explaining why this audience is a good fit and what specific needs the product addresses for them.",
+      const workflows = await ctx.db.workflow.findMany({
+        where: {
+          userId: ctx.session.user.id,
+        },
+        include: {
+          integration: {
+            select: {
+              id: true,
+              name: true,
+              provider: true,
+              status: true,
+            },
           },
-          {
-            role: "user",
-            content: `Please generate a description for the audience "${input.audienceLabel}" based on this product description: "${input.productDescription}"`,
+          project: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
           },
-        ],
+          runs: {
+            take: 1,
+            orderBy: {
+              startedAt: 'desc',
+            },
+            select: {
+              id: true,
+              status: true,
+              startedAt: true,
+              completedAt: true,
+              itemsProcessed: true,
+              itemsCreated: true,
+              errorMessage: true,
+            },
+          },
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
       });
 
-      const description = completion.choices[0]?.message.content;
-      if (!description) throw new Error("Failed to generate audience description");
-
-      return { description };
+      return workflows;
     }),
 
-  createAudience: protectedProcedure
+  // Get workflow by ID
+  get: protectedProcedure
     .input(z.object({
-      value: z.string(),
-      label: z.string(),
-      description: z.string().optional(),
-      productDescription: z.string().optional(),
+      id: z.string(),
     }))
-    .mutation(async ({ ctx, input }) => {
-      let description = input.description || "";
-      
-      // If no description is provided but we have a product description, generate one
-      if (!description && input.productDescription) {
-        try {
-          const result = await workflowRouter.createCaller(ctx).generateAudienceDescription({
-            audienceLabel: input.label,
-            productDescription: input.productDescription,
-          });
-          description = result.description;
-        } catch (error) {
-          console.error('Failed to generate audience description:', error);
-          // Continue with empty description if generation fails
-        }
+    .query(async ({ ctx, input }) => {
+      const workflow = await ctx.db.workflow.findUnique({
+        where: {
+          id: input.id,
+          userId: ctx.session.user.id,
+        },
+        include: {
+          integration: {
+            include: {
+              credentials: true,
+            },
+          },
+          project: true,
+          runs: {
+            take: 10,
+            orderBy: {
+              startedAt: 'desc',
+            },
+          },
+        },
+      });
+
+      if (!workflow) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Workflow not found or access denied',
+        });
       }
 
-      return ctx.db.audience.create({
-        data: {
-          value: input.value,
-          label: input.label,
-          description: description,
-          isDefault: false,
-        }
-      });
+      return workflow;
     }),
-}); 
+
+  // Run a workflow manually
+  run: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Get the workflow with integration details
+      const workflow = await ctx.db.workflow.findUnique({
+        where: {
+          id: input.id,
+          userId: ctx.session.user.id,
+        },
+        include: {
+          integration: {
+            include: {
+              credentials: true,
+            },
+          },
+        },
+      });
+
+      if (!workflow) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Workflow not found or access denied',
+        });
+      }
+
+      if (workflow.status !== 'ACTIVE') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Workflow is not active',
+        });
+      }
+
+      // Create a workflow run record
+      const run = await ctx.db.workflowRun.create({
+        data: {
+          workflowId: workflow.id,
+          status: 'RUNNING',
+        },
+      });
+
+      try {
+        // Execute the workflow based on type
+        if (workflow.provider === 'notion' && workflow.syncDirection === 'pull') {
+          const config = workflow.config as { databaseId: string };
+          const accessToken = workflow.integration.credentials.find(
+            c => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+          )?.key;
+
+          if (!accessToken) {
+            throw new Error('No access token found for Notion integration');
+          }
+
+          if (!config.databaseId) {
+            throw new Error('No database ID configured for workflow');
+          }
+
+          // Sync tasks from Notion
+          const syncResult = await syncNotionTasks(accessToken, config.databaseId);
+
+          if (!syncResult.success) {
+            throw new Error(syncResult.error || 'Sync failed');
+          }
+
+          // Create actions for each task
+          let itemsCreated = 0;
+          let itemsUpdated = 0;
+          let itemsSkipped = 0;
+
+          for (const task of syncResult.tasks) {
+            try {
+              // Check if action already exists (by Notion ID)
+              const existingAction = await ctx.db.action.findFirst({
+                where: {
+                  userId: ctx.session.user.id,
+                  sourceIntegrationId: workflow.integrationId,
+                  // Store Notion ID in description or create a separate field
+                  description: {
+                    contains: `notion:${task.notionId}`,
+                  },
+                },
+              });
+
+              if (existingAction) {
+                // Update existing action if it's different
+                const needsUpdate = 
+                  existingAction.name !== task.name ||
+                  existingAction.status !== task.status ||
+                  (existingAction.dueDate?.getTime() !== task.dueDate?.getTime());
+
+                if (needsUpdate) {
+                  await ctx.db.action.update({
+                    where: { id: existingAction.id },
+                    data: {
+                      name: task.name,
+                      description: task.description ? 
+                        `${task.description}\n\nnotion:${task.notionId}` : 
+                        `notion:${task.notionId}`,
+                      status: task.status,
+                      priority: task.priority,
+                      dueDate: task.dueDate,
+                      updatedAt: new Date(),
+                    },
+                  });
+                  itemsUpdated++;
+                } else {
+                  itemsSkipped++;
+                }
+              } else {
+                // Create new action
+                await ctx.db.action.create({
+                  data: {
+                    name: task.name,
+                    description: task.description ? 
+                      `${task.description}\n\nnotion:${task.notionId}` : 
+                      `notion:${task.notionId}`,
+                    status: task.status,
+                    priority: task.priority,
+                    dueDate: task.dueDate,
+                    userId: ctx.session.user.id,
+                    sourceIntegrationId: workflow.integrationId,
+                    projectId: workflow.projectId,
+                  },
+                });
+                itemsCreated++;
+              }
+            } catch (taskError) {
+              console.error(`Error processing task ${task.notionId}:`, taskError);
+              itemsSkipped++;
+            }
+          }
+
+          // Update the run with success
+          await ctx.db.workflowRun.update({
+            where: { id: run.id },
+            data: {
+              status: 'SUCCESS',
+              completedAt: new Date(),
+              itemsProcessed: syncResult.totalFetched,
+              itemsCreated,
+              itemsUpdated,
+              itemsSkipped,
+              metadata: {
+                notionTasks: syncResult.tasks.length,
+                databaseId: config.databaseId,
+              },
+            },
+          });
+
+          // Update workflow last run time
+          await ctx.db.workflow.update({
+            where: { id: workflow.id },
+            data: { lastRunAt: new Date() },
+          });
+
+          return {
+            success: true,
+            runId: run.id,
+            itemsProcessed: syncResult.totalFetched,
+            itemsCreated,
+            itemsUpdated,
+            itemsSkipped,
+          };
+        } else {
+          throw new Error(`Workflow type not implemented: ${workflow.provider}/${workflow.syncDirection}`);
+        }
+      } catch (error) {
+        // Update the run with failure
+        await ctx.db.workflowRun.update({
+          where: { id: run.id },
+          data: {
+            status: 'FAILED',
+            completedAt: new Date(),
+            errorMessage: error instanceof Error ? error.message : 'Unknown error',
+          },
+        });
+
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error instanceof Error ? error.message : 'Workflow execution failed',
+        });
+      }
+    }),
+
+  // Delete a workflow
+  delete: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const workflow = await ctx.db.workflow.findUnique({
+        where: {
+          id: input.id,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!workflow) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Workflow not found or access denied',
+        });
+      }
+
+      await ctx.db.workflow.delete({
+        where: { id: input.id },
+      });
+
+      return { success: true };
+    }),
+
+  // Update workflow status
+  updateStatus: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      status: z.enum(['ACTIVE', 'DISABLED', 'ERROR']),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const workflow = await ctx.db.workflow.findUnique({
+        where: {
+          id: input.id,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!workflow) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Workflow not found or access denied',
+        });
+      }
+
+      const updatedWorkflow = await ctx.db.workflow.update({
+        where: { id: input.id },
+        data: { status: input.status },
+      });
+
+      return updatedWorkflow;
+    }),
+});

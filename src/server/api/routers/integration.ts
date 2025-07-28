@@ -41,6 +41,86 @@ async function testFirefliesConnection(apiKey: string): Promise<{ success: boole
   }
 }
 
+// Test Notion access token connection
+async function testNotionConnection(accessToken: string): Promise<{ success: boolean; error?: string; userInfo?: any }> {
+  try {
+    const response = await fetch('https://api.notion.com/v1/users/me', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Notion-Version': '2022-06-28',
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `HTTP ${response.status}: ${errorText}` };
+    }
+
+    const data = await response.json();
+    
+    return { 
+      success: true, 
+      userInfo: {
+        id: data.id,
+        name: data.name,
+        avatar_url: data.avatar_url,
+        type: data.type,
+        person: data.person
+      }
+    };
+  } catch (error) {
+    console.error('Notion connection test error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
+  }
+}
+
+// Fetch Notion databases accessible to the integration
+async function fetchNotionDatabases(accessToken: string): Promise<{ success: boolean; error?: string; databases?: any[] }> {
+  try {
+    const response = await fetch('https://api.notion.com/v1/search', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filter: {
+          value: 'database',
+          property: 'object'
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `HTTP ${response.status}: ${errorText}` };
+    }
+
+    const data = await response.json();
+    
+    const databases = data.results.map((db: any) => ({
+      id: db.id,
+      title: db.title?.[0]?.plain_text || 'Untitled Database',
+      permissions: [
+        db.is_inline ? 'inline' : 'full_page',
+        ...(db.archived ? ['archived'] : []),
+        'read',
+        ...(db.parent?.type === 'workspace' ? ['workspace'] : ['page']),
+      ]
+    }));
+
+    return { 
+      success: true, 
+      databases
+    };
+  } catch (error) {
+    console.error('Notion databases fetch error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to fetch databases' };
+  }
+}
+
 // Test Slack bot token connection
 async function testSlackConnection(botToken: string): Promise<{ success: boolean; error?: string; teamInfo?: any }> {
   try {
@@ -375,6 +455,35 @@ export const integrationRouter = createTRPCRouter({
         };
       }
 
+      if (integration.provider === 'notion') {
+        const accessTokenCredential = integration.credentials.find(c => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY');
+        if (!accessTokenCredential) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'No access token found for this Notion integration',
+          });
+        }
+
+        const result = await testNotionConnection(accessTokenCredential.key);
+        if (!result.success) {
+          return {
+            success: result.success,
+            error: result.error,
+            provider: integration.provider,
+          };
+        }
+
+        // Also fetch databases for Notion
+        const databasesResult = await fetchNotionDatabases(accessTokenCredential.key);
+        return {
+          success: result.success,
+          error: result.error,
+          provider: integration.provider,
+          userInfo: result.userInfo,
+          databases: databasesResult.databases,
+        };
+      }
+
       return {
         success: false,
         error: 'Connection testing not implemented for this provider',
@@ -618,4 +727,5 @@ export const integrationRouter = createTRPCRouter({
         });
       }
     }),
+
 });

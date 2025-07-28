@@ -64,6 +64,7 @@ model User {
   transcriptionSessions TranscriptionSession[]
   exercises             UserExercise[]
   verificationTokens    VerificationToken[]
+  workflows             Workflow[]
 }
 
 model VerificationToken {
@@ -129,6 +130,7 @@ model Project {
   transcriptionSessions TranscriptionSession[]
   goals                 Goal[]                 @relation("GoalProjects")
   outcomes              Outcome[]              @relation("ProjectOutcomes")
+  workflows             Workflow[]
 
   @@index([name])
   @@index([status])
@@ -310,6 +312,7 @@ model Integration {
   user                  User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   credentials           IntegrationCredential[]
   transcriptionSessions TranscriptionSession[]    // Transcriptions created by this integration
+  workflows             Workflow[]                // Workflows using this integration
 
   @@index([userId])
   @@index([provider])
@@ -326,4 +329,61 @@ model IntegrationCredential {
   integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@index([integrationId])
+}
+
+model Workflow {
+  id            String        @id @default(cuid())
+  name          String
+  type          String        // 'NOTION_SYNC', 'SLACK_ACTIONS', etc.
+  provider      String        // 'notion', 'slack', etc.
+  status        String        @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'ERROR'
+  syncDirection String        // 'push', 'pull', 'bidirectional'
+  syncFrequency String        // 'manual', 'hourly', 'daily', 'weekly'
+  
+  // Configuration specific to the workflow type
+  config        Json          // JSON blob for flexible configuration (database ID, field mappings, etc.)
+  
+  // Relationships
+  integrationId String
+  userId        String
+  projectId     String?       // Optional: associate with a specific project
+  
+  // Timestamps
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  lastRunAt     DateTime?     // When the workflow was last executed
+  
+  // Relations
+  integration   Integration   @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project       Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  runs          WorkflowRun[]
+
+  @@index([userId])
+  @@index([integrationId])
+  @@index([status])
+  @@index([provider])
+}
+
+model WorkflowRun {
+  id         String    @id @default(cuid())
+  workflowId String
+  status     String    // 'RUNNING', 'SUCCESS', 'FAILED'
+  startedAt  DateTime  @default(now())
+  completedAt DateTime?
+  
+  // Results and metadata
+  itemsProcessed Int     @default(0)
+  itemsCreated   Int     @default(0)
+  itemsUpdated   Int     @default(0)
+  itemsSkipped   Int     @default(0)
+  errorMessage   String?
+  metadata       Json?   // Additional data about the run
+  
+  // Relations
+  workflow       Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  
+  @@index([workflowId])
+  @@index([status])
+  @@index([startedAt])
 }

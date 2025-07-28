@@ -1,8 +1,86 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
+import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
 
+// Middleware to check API key (similar to transcription router)
+const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
+  const apiKey = ctx.headers.get("x-api-key");
+
+  if (!apiKey) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "API key is required",
+    });
+  }
+
+  // Find the verification token and associated user
+  const verificationToken = await ctx.db.verificationToken.findFirst({
+    where: {
+      token: apiKey,
+      expires: {
+        gt: new Date(), // Only non-expired tokens
+      },
+    },
+    include: {
+      user: true,
+    },
+  });
+
+  if (!verificationToken) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Invalid or expired API key",
+    });
+  }
+
+  // Type-safe error handling
+  const userId = verificationToken.userId;
+  if (!userId) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "No user associated with this API key",
+    });
+  }
+
+  // Add the user id to the context
+  return next({
+    ctx: {
+      ...ctx,
+      userId, // Now type-safe
+      user: verificationToken.user,
+    },
+  });
+});
+
 export const projectRouter = createTRPCRouter({
+  // API endpoint for browser plugin - uses API key authentication
+  getUserProjects: apiKeyMiddleware
+    .output(z.object({
+      projects: z.array(z.object({
+        id: z.string(),
+        name: z.string(),
+      }))
+    }))
+    .query(async ({ ctx }) => {
+      const projects = await ctx.db.project.findMany({
+        where: {
+          createdById: ctx.userId,
+        },
+        select: {
+          id: true,
+          name: true,
+        },
+        orderBy: {
+          name: "asc",
+        },
+      });
+
+      return {
+        projects,
+      };
+    }),
+
   getAll: protectedProcedure
     .input(z.object({
       include: z.object({

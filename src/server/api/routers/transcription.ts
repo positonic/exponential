@@ -93,7 +93,7 @@ export const transcriptionRouter = createTRPCRouter({
       };
     }),
 
-  saveTranscription: protectedProcedure
+  saveTranscription: apiKeyMiddleware
     .input(
       z.object({
         id: z.string(),
@@ -110,6 +110,14 @@ export const transcriptionRouter = createTRPCRouter({
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Transcription session not found",
+        });
+      }
+
+      // Verify the session belongs to the authenticated user
+      if (existingSession.userId !== ctx.userId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this transcription session",
         });
       }
 

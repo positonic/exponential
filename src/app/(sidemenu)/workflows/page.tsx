@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Container, Title, Text, SimpleGrid, Card, Button, Group, ThemeIcon, Stack, Paper, Badge, Accordion, Alert, Modal, TextInput, Select, Textarea, Code, CopyButton, ActionIcon } from '@mantine/core';
-import { IconRocket, IconArrowRight, IconPresentation, IconGitBranch, IconMicrophone, IconWebhook, IconPlaylistAdd, IconBrandSlack, IconCheck, IconX, IconAlertCircle, IconPlus, IconKey, IconBrandFirebase, IconCopy } from '@tabler/icons-react';
+import { IconRocket, IconArrowRight, IconPresentation, IconGitBranch, IconMicrophone, IconWebhook, IconPlaylistAdd, IconBrandSlack, IconCheck, IconAlertCircle, IconPlus, IconKey, IconBrandFirebase, IconCopy, IconBrandNotion } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
@@ -10,7 +10,15 @@ import { api } from "~/trpc/react";
 import Link from 'next/link';
 
 // Define automation workflows
-const automationWorkflows = [
+const automationWorkflows: Array<{
+  icon: any;
+  title: string;
+  description: string;
+  status: string;
+  enabled: boolean;
+  href?: string;
+  steps: string[];
+}> = [
   {
     icon: IconMicrophone,
     title: 'Fireflies → Action Items',
@@ -35,6 +43,20 @@ const automationWorkflows = [
       'Configure notification channels',
       'Set up slash commands and bot permissions',
       'Start creating actions from Slack!'
+    ]
+  },
+  {
+    icon: IconBrandNotion,
+    title: 'Notion → Tasks Sync',
+    description: 'Bidirectional sync between your tasks and Notion databases. Keep your project management in sync across platforms.',
+    status: 'Available',
+    enabled: false,
+    href: '/workflows/notion',
+    steps: [
+      'Connect Notion workspace via OAuth',
+      'Configure database sync settings',
+      'Map fields between systems',
+      'Activate bidirectional sync'
     ]
   },
   {
@@ -94,6 +116,7 @@ export default function WorkflowsPage() {
   // API calls for checking configuration status
   const { data: tokens = [] } = api.mastra.listApiTokens.useQuery();
   const { data: integrations = [] } = api.integration.listIntegrations.useQuery();
+  const utils = api.useUtils();
 
   // API mutations for creating tokens and integrations
   const generateToken = api.mastra.generateApiToken.useMutation({
@@ -106,6 +129,8 @@ export default function WorkflowsPage() {
         color: 'green',
       });
       tokenForm.reset();
+      // Invalidate tokens cache to update the UI
+      void utils.mastra.listApiTokens.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -125,6 +150,8 @@ export default function WorkflowsPage() {
       });
       closeIntegrationModal();
       integrationForm.reset();
+      // Invalidate integrations cache to update the UI immediately
+      void utils.integration.listIntegrations.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -432,14 +459,27 @@ export default function WorkflowsPage() {
                     </Stack>
                   </Paper>
 
-                  <Button
-                    variant={workflow.enabled ? "light" : "filled"}
-                    color="teal"
-                    size="sm"
-                    leftSection={<IconPlaylistAdd size={16} />}
-                  >
-                    {workflow.enabled ? 'Configure' : 'Set Up Workflow'}
-                  </Button>
+                  {workflow.href ? (
+                    <Button
+                      component={Link}
+                      href={workflow.href}
+                      variant={workflow.enabled ? "light" : "filled"}
+                      color="teal"
+                      size="sm"
+                      leftSection={<IconPlaylistAdd size={16} />}
+                    >
+                      {workflow.enabled ? 'Configure' : 'Set Up Workflow'}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant={workflow.enabled ? "light" : "filled"}
+                      color="teal"
+                      size="sm"
+                      leftSection={<IconPlaylistAdd size={16} />}
+                    >
+                      {workflow.enabled ? 'Configure' : 'Set Up Workflow'}
+                    </Button>
+                  )}
                 </Card>
               );
             })}
@@ -561,7 +601,7 @@ export default function WorkflowsPage() {
                     title="API Token Generated Successfully"
                     color="green"
                   >
-                    Your Fireflies webhook token has been generated. Copy it now and store it securely - you won't be able to see it again.
+                    Your Fireflies webhook token has been generated. Copy it now and store it securely - you won&apos;t be able to see it again.
                   </Alert>
 
                   <div>
@@ -597,7 +637,7 @@ export default function WorkflowsPage() {
                     title="Security Notice"
                     color="red"
                   >
-                    This API token will not be shown again. Save it securely - it's perfect for webhook configurations!
+                    This API token will not be shown again. Save it securely - it&apos;s perfect for webhook configurations!
                   </Alert>
 
                   <Group justify="flex-end">
