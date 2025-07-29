@@ -401,7 +401,7 @@ export const workflowRouter = createTRPCRouter({
           }
 
           // Get recent actions to process (depending on configuration)
-          let actionsQuery: any = {
+          const actionsQuery: any = {
             createdById: ctx.session.user.id,
             status: 'ACTIVE',
           };
@@ -413,6 +413,53 @@ export const workflowRouter = createTRPCRouter({
             actionsQuery.transcriptionSessionId = null;
           }
           // If source is 'all' or not specified, include all actions
+          
+          console.log('🔍 DEBUG: Config source:', config.source, 'Will find actions with transcriptionSessionId constraint:', !!actionsQuery.transcriptionSessionId);
+
+          // First, find projects that are configured to use Monday.com
+          const mondayProjects = await ctx.db.project.findMany({
+            where: {
+              createdById: ctx.session.user.id,
+              taskManagementTool: 'monday',
+            },
+            select: { id: true }
+          });
+
+          const mondayProjectIds = mondayProjects.map(p => p.id);
+          console.log('🔍 DEBUG: Monday-configured project IDs:', mondayProjectIds);
+
+          // Only search for actions from projects that are configured for Monday.com
+          if (mondayProjectIds.length > 0) {
+            actionsQuery.projectId = { in: mondayProjectIds };
+          } else {
+            // No projects configured for Monday.com, so no actions to sync
+            actionsQuery.projectId = 'no-monday-projects';
+          }
+
+          console.log('🔍 DEBUG: Workflow config:', config);
+          console.log('🔍 DEBUG: Actions query:', actionsQuery);
+          console.log('🔍 DEBUG: User ID:', ctx.session.user.id);
+
+          // Debug: Check all actions for this project regardless of source
+          const allProjectActions = await ctx.db.action.findMany({
+            where: {
+              createdById: ctx.session.user.id,
+              status: 'ACTIVE',
+              projectId: { in: mondayProjectIds }
+            },
+            include: {
+              project: true,
+              transcriptionSession: true,
+            },
+          });
+          console.log('🔍 DEBUG: ALL project actions (regardless of source):', allProjectActions.length);
+          console.log('🔍 DEBUG: ALL project actions:', allProjectActions.map(a => ({
+            id: a.id,
+            name: a.name,
+            projectId: a.projectId,
+            hasTranscriptionSession: !!a.transcriptionSessionId,
+            source: a.transcriptionSessionId ? 'fireflies' : 'manual'
+          })));
 
           // Note: Actions don't have createdAt field, so we'll get recent actions by ID
           // In practice, you might want to add a createdAt field to the Action model
@@ -427,10 +474,25 @@ export const workflowRouter = createTRPCRouter({
             take: 50, // Limit to avoid processing too many at once
           });
 
+          console.log('🔍 DEBUG: Total actions found:', actions.length);
+          console.log('🔍 DEBUG: Actions:', actions.map(a => ({
+            id: a.id,
+            name: a.name,
+            projectId: a.projectId,
+            projectName: a.project?.name,
+            taskManagementTool: a.project?.taskManagementTool,
+            hasTranscriptionSession: !!a.transcriptionSessionId
+          })));
+
+          // Since we already filtered by Monday-configured projects in the query, 
+          // all returned actions should be Monday-compatible
+          const mondayCompatibleActions = actions;
+          console.log('🔍 DEBUG: Monday-compatible actions:', mondayCompatibleActions.length);
+
           let itemsCreated = 0;
           let itemsSkipped = 0;
 
-          for (const action of actions) {
+          for (const action of mondayCompatibleActions) {
             try {
               // Check if this action was already processed to Monday.com
               // We can use a naming convention or metadata to track this
@@ -469,10 +531,14 @@ export const workflowRouter = createTRPCRouter({
                 columnValues[config.columnMappings.description] = MondayService.formatColumnValue('long-text', description);
               }
 
-              // Create item on Monday.com
+              // Create item on Monday.com - truncate name if too long
+              const truncatedName = action.name.length > 255 
+                ? action.name.substring(0, 252) + '...' 
+                : action.name;
+                
               const createdItem = await mondayService.createItem({
                 boardId: config.boardId,
-                itemName: action.name, // Use 'name' field instead of 'text'
+                itemName: truncatedName,
                 columnValues,
               });
 
@@ -494,11 +560,13 @@ export const workflowRouter = createTRPCRouter({
               status: 'COMPLETED',
               completedAt: new Date(),
               metadata: {
-                itemsProcessed: actions.length,
+                itemsProcessed: mondayCompatibleActions.length,
                 itemsCreated: itemsCreated,
                 itemsSkipped: itemsSkipped,
                 boardId: config.boardId,
                 source: config.source || 'all',
+                totalActionsFound: actions.length,
+                mondayCompatibleActions: mondayCompatibleActions.length,
               },
             },
           });
@@ -512,7 +580,7 @@ export const workflowRouter = createTRPCRouter({
           return {
             success: true,
             runId: run.id,
-            itemsProcessed: actions.length,
+            itemsProcessed: mondayCompatibleActions.length,
             itemsCreated,
             itemsUpdated: 0,
             itemsSkipped,

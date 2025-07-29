@@ -133,6 +133,8 @@ model Project {
   teamId                String?
   slug                  String                 @unique
   description           String?
+  taskManagementTool    String?                @default("internal") // 'internal', 'monday', 'notion', etc.
+  taskManagementConfig  Json?                  // Tool-specific configuration
   actions               Action[]
   createdBy             User                   @relation(fields: [createdById], references: [id])
   team                  Team?                  @relation(fields: [teamId], references: [id])
@@ -146,6 +148,7 @@ model Project {
   @@index([status])
   @@index([priority])
   @@index([teamId])
+  @@index([taskManagementTool])
 }
 
 model Video {

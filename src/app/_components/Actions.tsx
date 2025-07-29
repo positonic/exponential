@@ -3,11 +3,12 @@
 import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
-import { IconLayoutKanban, IconList } from "@tabler/icons-react";
+import { IconLayoutKanban, IconList, IconCalendarEvent, IconUpload } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import { notifications } from "@mantine/notifications";
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
@@ -20,6 +21,7 @@ interface ActionsProps {
 
 export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = true }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
+  const [syncingToIntegration, setSyncingToIntegration] = useState(false);
 
   // Conditionally fetch actions based on projectId
   const actionsQuery = projectId
@@ -27,6 +29,55 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     : api.action.getAll.useQuery(); // Consider using getToday for specific views if needed
 
   const actions = actionsQuery.data; // Extract data from the chosen query
+
+  // Get project data if we have a projectId to check task management configuration
+  const { data: project } = api.project.getById.useQuery(
+    { id: projectId! },
+    { enabled: !!projectId }
+  );
+
+  // Get available workflows
+  const { data: workflows = [] } = api.workflow.list.useQuery();
+
+  // Sync to integration mutation
+  const syncToIntegrationMutation = api.workflow.run.useMutation({
+    onSuccess: (data) => {
+      setSyncingToIntegration(false);
+      
+      const integrationName = project?.taskManagementTool === 'monday' ? 'Monday.com' : project?.taskManagementTool;
+      const itemsCreated = data.itemsCreated || 0;
+      const itemsSkipped = data.itemsSkipped || 0;
+      const totalProcessed = data.itemsProcessed || 0;
+      
+      let message = `✅ ${itemsCreated} task${itemsCreated !== 1 ? 's' : ''} synced to ${integrationName}`;
+      
+      if (itemsSkipped > 0) {
+        message += `\n⚠️ ${itemsSkipped} task${itemsSkipped !== 1 ? 's' : ''} skipped`;
+      }
+      
+      if (totalProcessed > 0) {
+        message += `\n📊 ${totalProcessed} total task${totalProcessed !== 1 ? 's' : ''} processed`;
+      }
+
+      notifications.show({
+        title: '🎉 Sync Complete!',
+        message: message,
+        color: 'green',
+        autoClose: 5000,
+        withCloseButton: true,
+      });
+    },
+    onError: (error) => {
+      setSyncingToIntegration(false);
+      notifications.show({
+        title: '❌ Sync Failed',
+        message: error.message || 'Failed to sync actions to integration',
+        color: 'red',
+        autoClose: 8000,
+        withCloseButton: true,
+      });
+    },
+  });
 
   
   // Use the appropriate query based on whether we have a projectId
@@ -84,23 +135,89 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     console.log('📊 Weekly outcomes:', weeklyOutcomes);
   }, [todayOutcomes, weeklyOutcomes]);
 
+  // Handler for syncing actions to configured integration
+  const handleSyncToIntegration = () => {
+    if (!project || !projectId) {
+      notifications.show({
+        title: 'Error',
+        message: 'No project selected',
+        color: 'red',
+      });
+      return;
+    }
+
+    if (!project.taskManagementTool || project.taskManagementTool === 'internal') {
+      notifications.show({
+        title: 'No Integration Configured',
+        message: 'This project is not configured to use an external task management tool. Configure it in project settings.',
+        color: 'orange',
+      });
+      return;
+    }
+
+    // Get the workflow ID from project configuration
+    const workflowId = project.taskManagementConfig?.workflowId;
+    if (!workflowId) {
+      notifications.show({
+        title: 'Configuration Missing',
+        message: `No ${project.taskManagementTool} workflow configured for this project. Please configure it in project settings.`,
+        color: 'orange',
+      });
+      return;
+    }
+
+    // Verify the workflow exists and is active
+    const workflow = workflows.find(w => 
+      w.id === workflowId && 
+      w.provider === project.taskManagementTool && 
+      w.status === 'ACTIVE'
+    );
+
+    if (!workflow) {
+      notifications.show({
+        title: 'Workflow Not Found',
+        message: `The configured ${project.taskManagementTool} workflow is no longer available or active.`,
+        color: 'orange',
+      });
+      return;
+    }
+
+    setSyncingToIntegration(true);
+    syncToIntegrationMutation.mutate({ id: workflowId });
+  };
+
   return (
     <div className="w-full max-w-3xl mx-auto">
       <div className="relative mb-4">
         <Group justify="space-between" align="center">
           <Title order={2}></Title>
-          {displayAlignment && (
-            <Button
-              variant="subtle"
-              size="sm"
-              onClick={() => setIsAlignmentMode(!isAlignmentMode)}
-            >
-              <Group gap="xs">
-                {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
-                {isAlignmentMode ? 'Task View' : 'Alignment View'}
-              </Group>
-            </Button>
-          )}
+          <Group gap="xs">
+            {/* Sync to Integration Button - only show for projects with external task management */}
+            {projectId && project && project.taskManagementTool && project.taskManagementTool !== 'internal' && (
+              <Button
+                variant="light"
+                size="sm"
+                color={project.taskManagementTool === 'monday' ? 'orange' : 'blue'}
+                loading={syncingToIntegration}
+                onClick={handleSyncToIntegration}
+                leftSection={<IconUpload size={16} />}
+              >
+                Sync to {project.taskManagementTool === 'monday' ? 'Monday.com' : project.taskManagementTool}
+              </Button>
+            )}
+            {displayAlignment && (
+              <Button
+                variant="subtle"
+                size="sm"
+                onClick={() => setIsAlignmentMode(!isAlignmentMode)}
+              >
+                <Group gap="xs">
+                  {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
+                  {isAlignmentMode ? 'Task View' : 'Alignment View'}
+                </Group>
+              </Button>
+            )}
+          </Group>
         </Group>
       </div>
 

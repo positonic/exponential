@@ -15,12 +15,15 @@ import {
   Button,
   Accordion,
   List,
+  Card,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import {
   IconMicrophone,
   IconClipboardList,
   IconCalendar,
+  IconCalendarEvent,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { ActionList } from "./ActionList";
@@ -50,9 +53,11 @@ export function MeetingsContent() {
   const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
   const [updatingActions, setUpdatingActions] = useState<string | null>(null); // transcriptionId being updated
   const [successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message
+  const [syncingToMonday, setSyncingToMonday] = useState<string | null>(null); // transcriptionId being synced to Monday.com
   
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery();
   const { data: projects } = api.project.getAll.useQuery();
+  const { data: workflows = [] } = api.workflow.list.useQuery();
   const utils = api.useUtils();
   
   const assignProjectMutation = api.transcription.assignProject.useMutation({
@@ -87,6 +92,36 @@ export function MeetingsContent() {
     },
   });
 
+  const syncToMondayMutation = api.workflow.run.useMutation({
+    onSuccess: (data, variables) => {
+      const workflowId = variables.id;
+      setSyncingToMonday(null);
+      
+      // Find which transcription this sync was for (we'll need to track this)
+      const message = `Successfully synced ${data.itemsCreated} actions to Monday.com`;
+      
+      // Set success message - we'll use a different approach to track which meeting this was for
+      setSuccessMessages(prev => ({ ...prev, [`monday-${workflowId}`]: message }));
+      
+      // Fade out the message after 3 seconds
+      setTimeout(() => {
+        setSuccessMessages(prev => {
+          const newMessages = { ...prev };
+          delete newMessages[`monday-${workflowId}`];
+          return newMessages;
+        });
+      }, 3000);
+    },
+    onError: (error) => {
+      setSyncingToMonday(null);
+      notifications.show({
+        title: 'Monday.com Sync Failed',
+        message: error.message || 'Failed to sync to Monday.com',
+        color: 'red',
+      });
+    },
+  });
+
   const handleTabChange = (value: string | null) => {
     if (value) {
       setActiveTab(value as TabValue);
@@ -105,6 +140,47 @@ export function MeetingsContent() {
   const handleUpdateActions = (transcriptionSessionId: string, projectId: string | null) => {
     setUpdatingActions(transcriptionSessionId);
     updateActionsProjectMutation.mutate({ transcriptionSessionId, projectId });
+  };
+
+  const handleSyncToMonday = (session: any) => {
+    if (!session.project || session.project.taskManagementTool !== 'monday') {
+      notifications.show({
+        title: 'Configuration Error',
+        message: 'Project is not configured to use Monday.com for task management',
+        color: 'orange',
+      });
+      return;
+    }
+
+    // Get the workflow ID from project configuration
+    const workflowId = session.project.taskManagementConfig?.workflowId;
+    if (!workflowId) {
+      notifications.show({
+        title: 'Configuration Missing',
+        message: 'No Monday.com workflow configured for this project. Please configure it in project settings.',
+        color: 'orange',
+      });
+      return;
+    }
+
+    // Verify the workflow exists and is active
+    const mondayWorkflow = workflows.find(w => 
+      w.id === workflowId && 
+      w.provider === 'monday' && 
+      w.status === 'ACTIVE'
+    );
+
+    if (!mondayWorkflow) {
+      notifications.show({
+        title: 'Workflow Not Found',
+        message: 'The configured Monday.com workflow is no longer available or active.',
+        color: 'orange',
+      });
+      return;
+    }
+
+    setSyncingToMonday(session.id);
+    syncToMondayMutation.mutate({ id: workflowId });
   };
 
   if (isLoading) {
@@ -155,156 +231,206 @@ export function MeetingsContent() {
 
             {/* Content Area */}
             <Tabs.Panel value="transcriptions">
-              <Paper
-                p="md"
-                radius="sm"
-                className="mx-auto w-full max-w-3xl bg-[#262626]"
-              >
-                <Stack gap="md">
-                  <Title order={4}>All Transcriptions</Title>
-                  {transcriptions && transcriptions.length > 0 ? (
-                    <Stack gap="sm">
-                      {transcriptions.map((session) => (
-                        <Paper
-                          key={session.id}
-                          p={0}
-                          radius="sm"
-                          className="bg-[#2a2a2a]"
-                        >
-                          <Accordion variant="separated" radius="sm">
-                            {/* Meeting Info Section */}
-                            <Accordion.Item value="info" className="border-none">
-                              <Accordion.Control
-                                className="hover:bg-[#333333]"
-                                onClick={(_e) => {
-                                  // Allow default accordion behavior, but also trigger drawer
-                                  setTimeout(() => handleTranscriptionClick(session), 100);
-                                }}
-                              >
-                                <Stack gap="sm" style={{ width: '100%' }}>
-                                  <Group justify="space-between" align="flex-start">
-                                    <Stack gap="xs" style={{ flex: 1 }}>
-                                      <Group gap="xs">
-                                        <Text size="sm" fw={500}>
-                                          {session.title || `Session ${session.sessionId}`}
-                                        </Text>
-                                        <Text size="xs" c="dimmed">
-                                          {new Date(session.createdAt).toLocaleDateString()}
-                                        </Text>
-                                        {session.sourceIntegration && (
-                                          <Badge variant="dot" color="cyan" size="xs">
-                                            {session.sourceIntegration.provider}
-                                          </Badge>
-                                        )}
-                                      </Group>
-                                      {session.transcription && (
-                                        <TranscriptionRenderer
-                                          transcription={session.transcription}
-                                          provider={session.sourceIntegration?.provider}
-                                          isPreview={true}
-                                          maxLines={2}
-                                        />
-                                      )}
-                                      {session.project && (
-                                        <Badge variant="light" color="blue" size="sm">
-                                          {session.project.name}
-                                        </Badge>
-                                      )}
-                                    </Stack>
-                                    <Select
-                                      placeholder="Assign to project"
-                                      value={session.projectId}
-                                      onChange={(value) => handleProjectAssignment(session.id, value)}
-                                      onClick={(e) => e.stopPropagation()}
-                                      data={[
-                                        { value: "", label: "No project" },
-                                        ...(projects?.map((p) => ({
-                                          value: p.id,
-                                          label: p.name,
-                                        })) || []),
-                                      ]}
-                                      size="xs"
-                                      style={{ width: 200 }}
-                                    />
-                                  </Group>
-                                  
-                                  {/* Update Actions Button - appears when project is selected and actions exist */}
-                                  {session.projectId && session.actions && session.actions.length > 0 && (
-                                    <Group justify="flex-end" style={{ width: '100%' }}>
-                                      <Button
-                                        size="xs"
-                                        variant="light"
-                                        color="blue"
-                                        loading={updatingActions === session.id}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleUpdateActions(session.id, session.projectId);
-                                        }}
-                                        style={{ marginRight: '8px' }}
-                                      >
-                                        Update Actions
-                                      </Button>
-                                    </Group>
+              <Stack gap="md">
+                <Group justify="space-between" align="center">
+                  <Title order={4}>Recent Meetings</Title>
+                  <Text size="sm" c="dimmed">
+                    {transcriptions?.length || 0} meetings
+                  </Text>
+                </Group>
+                
+                {transcriptions && transcriptions.length > 0 ? (
+                  <Stack gap="lg">
+                    {transcriptions.map((session) => (
+                      <Card
+                        key={session.id}
+                        withBorder
+                        shadow="sm"
+                        radius="md"
+                        className="hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => handleTranscriptionClick(session)}
+                      >
+                        <Stack gap="md">
+                          {/* Meeting Header */}
+                          <Group justify="space-between" align="flex-start">
+                            <Stack gap="xs" style={{ flex: 1 }}>
+                              <Group gap="sm" wrap="nowrap">
+                                <Text size="lg" fw={600} lineClamp={1}>
+                                  {session.title || `Meeting ${session.sessionId}`}
+                                </Text>
+                                <Group gap="xs">
+                                  {session.sourceIntegration && (
+                                    <Badge variant="dot" color="teal" size="sm">
+                                      {session.sourceIntegration.provider}
+                                    </Badge>
                                   )}
-                                  
-                                  {/* Success Message */}
-                                  {successMessages[session.id] && updatingActions !== session.id && (
-                                    <Group justify="flex-end" style={{ width: '100%' }}>
-                                      <Text
-                                        size="xs"
-                                        c="green"
-                                        style={{
-                                          marginRight: '8px',
-                                          animation: 'fadeInOut 1s ease-in-out',
-                                        }}
-                                      >
-                                        {successMessages[session.id]}
-                                      </Text>
-                                    </Group>
-                                  )}
-                                </Stack>
-                              </Accordion.Control>
-                            </Accordion.Item>
+                                </Group>
+                              </Group>
+                              
+                              <Group gap="md" c="dimmed">
+                                <Text size="sm">
+                                  {new Date(session.createdAt).toLocaleDateString('en-US', {
+                                    weekday: 'short',
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                  })}
+                                </Text>
+                                <Text size="sm">
+                                  {new Date(session.createdAt).toLocaleTimeString('en-US', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </Text>
+                                {session.actions && session.actions.length > 0 && (
+                                  <>
+                                    <Text size="sm">•</Text>
+                                    <Text size="sm">
+                                      {session.actions.length} {session.actions.length === 1 ? 'action' : 'actions'}
+                                    </Text>
+                                  </>
+                                )}
+                              </Group>
+                            </Stack>
+                            
+                            <Select
+                              placeholder="Assign to project"
+                              value={session.projectId || ''}
+                              onChange={(value) => handleProjectAssignment(session.id, value)}
+                              onClick={(e) => e.stopPropagation()}
+                              onFocus={(e) => e.stopPropagation()}
+                              data={[
+                                { value: "", label: "No project" },
+                                ...(projects?.map((p) => ({
+                                  value: p.id,
+                                  label: p.name,
+                                })) || []),
+                              ]}
+                              size="sm"
+                              style={{ minWidth: 200 }}
+                            />
+                          </Group>
 
-                            {/* Meeting Actions Section */}
-                            <Accordion.Item value="actions" className="border-none">
-                              <Accordion.Control className="hover:bg-[#333333]">
-                                <Group justify="space-between" style={{ width: '100%' }}>
-                                  <Text size="sm" fw={500}>Meeting Actions</Text>
-                                  <Badge variant="light" color="blue" size="sm">
-                                    {session.actions?.length || 0}
+                          {/* Project Badge */}
+                          {session.project && (
+                            <Group>
+                              <Badge variant="light" color="blue" size="md" leftSection="📁">
+                                {session.project.name}
+                              </Badge>
+                            </Group>
+                          )}
+
+                          {/* Meeting Preview */}
+                          {session.transcription && (
+                            <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800">
+                              <TranscriptionRenderer
+                                transcription={session.transcription}
+                                provider={session.sourceIntegration?.provider}
+                                isPreview={true}
+                                maxLines={3}
+                              />
+                            </Paper>
+                          )}
+
+                          {/* Actions Summary */}
+                          {session.actions && session.actions.length > 0 && (
+                            <Paper p="sm" radius="sm" withBorder>
+                              <Group justify="space-between" align="center">
+                                <Group gap="xs">
+                                  <Text size="sm" fw={500} c="dimmed">
+                                    Action Items:
+                                  </Text>
+                                  <Badge variant="filled" color="blue" size="sm">
+                                    {session.actions.length}
                                   </Badge>
                                 </Group>
-                              </Accordion.Control>
-                              <Accordion.Panel>
-                                {session.actions && session.actions.length > 0 ? (
-                                  <ActionList 
-                                    viewName="meeting-actions" 
-                                    actions={session.actions.map((action: any) => ({
-                                      ...action,
-                                      dueDate: action.dueDate ? new Date(action.dueDate) : null,
-                                      createdAt: new Date(action.createdAt),
-                                      updatedAt: new Date(action.updatedAt),
-                                    }))}
-                                  />
-                                ) : (
-                                  <Text size="sm" c="dimmed" ta="center" py="md">
-                                    No actions from this meeting yet.
+                                
+                                <Group gap="xs">
+                                  {/* Update Actions Button */}
+                                  {session.projectId && (
+                                    <Button
+                                      size="xs"
+                                      variant="light"
+                                      color="blue"
+                                      loading={updatingActions === session.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateActions(session.id, session.projectId);
+                                      }}
+                                    >
+                                      Update Actions
+                                    </Button>
+                                  )}
+
+                                  {/* Sync to Monday.com Button */}
+                                  {session.project && session.project.taskManagementTool === 'monday' && session.actions && session.actions.length > 0 && (
+                                    <Button
+                                      size="xs"
+                                      variant="light"
+                                      color="orange"
+                                      loading={syncingToMonday === session.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSyncToMonday(session);
+                                      }}
+                                      leftSection={<IconCalendarEvent size={12} />}
+                                    >
+                                      Sync to Monday.com
+                                    </Button>
+                                  )}
+                                  
+                                  {/* Success Messages */}
+                                  {successMessages[session.id] && updatingActions !== session.id && (
+                                    <Text size="xs" c="green" fw={500}>
+                                      {successMessages[session.id]}
+                                    </Text>
+                                  )}
+                                  {successMessages[`monday-${session.id}`] && syncingToMonday !== session.id && (
+                                    <Text size="xs" c="green" fw={500}>
+                                      {successMessages[`monday-${session.id}`]}
+                                    </Text>
+                                  )}
+                                </Group>
+                              </Group>
+                              
+                              {/* Action Items Preview */}
+                              <Stack gap="xs" mt="xs">
+                                {session.actions.slice(0, 3).map((action: any) => (
+                                  <Group key={action.id} gap="xs" align="flex-start">
+                                    <Text size="xs" c="dimmed" mt={2}>•</Text>
+                                    <Text size="sm" lineClamp={1} style={{ flex: 1 }}>
+                                      {action.name}
+                                    </Text>
+                                    {action.priority && (
+                                      <Badge variant="outline" size="xs" color="gray">
+                                        {action.priority}
+                                      </Badge>
+                                    )}
+                                  </Group>
+                                ))}
+                                {session.actions.length > 3 && (
+                                  <Text size="xs" c="dimmed" fs="italic">
+                                    +{session.actions.length - 3} more actions...
                                   </Text>
                                 )}
-                              </Accordion.Panel>
-                            </Accordion.Item>
-                          </Accordion>
-                        </Paper>
-                      ))}
+                              </Stack>
+                            </Paper>
+                          )}
+                        </Stack>
+                      </Card>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Paper p="xl" radius="md" className="text-center">
+                    <Stack gap="md" align="center">
+                      <Text size="lg" c="dimmed">No meetings found</Text>
+                      <Text size="sm" c="dimmed">
+                        Meeting transcriptions will appear here once they are processed
+                      </Text>
                     </Stack>
-                  ) : (
-                    <Text size="sm" c="dimmed" ta="center" py="xl">
-                      No transcription sessions found.
-                    </Text>
-                  )}
-                </Stack>
-              </Paper>
+                  </Paper>
+                )}
+              </Stack>
             </Tabs.Panel>
 
             <Tabs.Panel value="upcoming">

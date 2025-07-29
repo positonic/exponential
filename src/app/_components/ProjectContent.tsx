@@ -37,6 +37,7 @@ import {
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
+import { TaskManagementSettings } from "./TaskManagementSettings";
 
 type TabValue =
   | "tasks"
@@ -397,6 +398,7 @@ export function ProjectContent({
       >
         <div className="space-y-6">
           <ProjectDetails project={project} />
+          <TaskManagementSettings project={project} />
           <Team projectId={projectId} />
         </div>
       </Drawer>

@@ -59,6 +59,15 @@ export default function MondayWorkflowPage() {
     onSuccess: (data) => {
       if (data.success && data.boards) {
         setBoards(data.boards);
+        
+        // If we're editing a workflow and have a boardId, set the selected board
+        if (editingWorkflow && editingWorkflow.config?.boardId) {
+          const currentBoard = data.boards.find(board => board.id === editingWorkflow.config.boardId);
+          if (currentBoard) {
+            setSelectedBoard(currentBoard);
+          }
+        }
+        
         openBoardsModal();
       } else {
         notifications.show({
@@ -278,7 +287,14 @@ export default function MondayWorkflowPage() {
 
   const handleSelectBoard = (board: MondayBoard) => {
     setSelectedBoard(board);
-    workflowForm.setFieldValue('boardId', board.id);
+    
+    // Update the appropriate form based on whether we're editing or creating
+    if (editingWorkflow) {
+      editWorkflowForm.setFieldValue('boardId', board.id);
+    } else {
+      workflowForm.setFieldValue('boardId', board.id);
+    }
+    
     closeBoardsModal();
     
     // Debug: Log all column types to console
@@ -838,12 +854,19 @@ export default function MondayWorkflowPage() {
             <Group grow>
               <div>
                 <Text size="sm" fw={500} mb={5}>Current Board</Text>
-                {editingWorkflow?.config?.boardId ? (
+                {editWorkflowForm.values.boardId ? (
                   <Paper withBorder p="sm">
                     <Group justify="space-between">
-                      <Text size="sm">
-                        Board ID: {editingWorkflow.config.boardId}
-                      </Text>
+                      <div>
+                        {selectedBoard ? (
+                          <>
+                            <Text size="sm" fw={500}>{selectedBoard.name}</Text>
+                            <Text size="xs" c="dimmed">Board ID: {editWorkflowForm.values.boardId}</Text>
+                          </>
+                        ) : (
+                          <Text size="sm">Board ID: {editWorkflowForm.values.boardId}</Text>
+                        )}
+                      </div>
                       <Button 
                         size="xs" 
                         variant="light"

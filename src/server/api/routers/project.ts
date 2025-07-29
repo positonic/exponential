@@ -175,6 +175,8 @@ export const projectRouter = createTRPCRouter({
         description: z.string().optional(),
         status: z.enum(["ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"]),
         priority: z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]),
+        taskManagementTool: z.enum(["internal", "monday", "notion"]).optional(),
+        taskManagementConfig: z.record(z.any()).optional(),
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
       }),
@@ -243,9 +245,30 @@ export const projectRouter = createTRPCRouter({
   getTeamMembers: protectedProcedure
     .input(z.object({ projectId: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.teamMember.findMany({
+      return ctx.db.projectMember.findMany({
         where: {
           projectId: input.projectId,
+        },
+      });
+    }),
+
+  updateTaskManagement: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        taskManagementTool: z.enum(["internal", "monday", "notion"]),
+        taskManagementConfig: z.record(z.any()).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.project.update({
+        where: {
+          id: input.id,
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          taskManagementTool: input.taskManagementTool,
+          taskManagementConfig: input.taskManagementConfig,
         },
       });
     }),

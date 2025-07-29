@@ -42,7 +42,7 @@ export default async function RootLayout({
           <TRPCReactProvider>
             <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
               <ModalsProvider>
-                <Notifications position="top-right" />
+                <Notifications position="top-right" zIndex={2000} />
                 <Layout domain={domain}>
                   {children}
                   <Analytics />

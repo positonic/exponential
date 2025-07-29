@@ -32,9 +32,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 3. Ask the user to run: `npx prisma migrate dev --name descriptive_migration_name`
 4. This will automatically apply the migration and regenerate the Prisma client
 
+**🚨 CRITICAL DATABASE SAFETY RULES 🚨**
+
 **NEVER RUN MIGRATIONS AUTOMATICALLY** - Always ask the user to run them manually.
 
-Do NOT use `db:push` as it bypasses the migration system. Migrations are essential for:
+**ABSOLUTELY NEVER USE `db:push`** - This command bypasses migrations and CAN CAUSE DATA LOSS. It has already caused database issues in this project before. 
+
+**FORBIDDEN COMMANDS:**
+- `npx prisma db push` ❌ 
+- `npm run db:push` ❌
+- Any variation of database push commands ❌
+
+**ONLY ALLOWED DATABASE COMMANDS:**
+- `npx prisma migrate dev --name <descriptive_name>` ✅ (user runs manually)
+- `npx prisma generate` ✅ (to regenerate client after migrations)
+
+Migrations are essential for:
 - Version control of database changes
 - Team collaboration
 - Production deployments
