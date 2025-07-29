@@ -48,8 +48,9 @@ export async function GET(request: NextRequest) {
         botToken: oauthResult.botToken,
         userToken: oauthResult.accessToken,
         signingSecret: process.env.SLACK_SIGNING_SECRET || '', // We'll need to get this from environment
-        teamId: oauthResult.team.id,
+        slackTeamId: oauthResult.team.id,
         teamName: oauthResult.team.name,
+        appId: oauthResult.appId, // Add app ID from OAuth response
       });
 
       console.log('✅ Slack integration created successfully:', integration.integration.id);

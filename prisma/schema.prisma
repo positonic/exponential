@@ -53,6 +53,7 @@ model User {
   image                 String?
   accounts              Account[]
   actions               Action[]
+  assignedActions       Action[]               @relation("AssignedActions")
   goals                 Goal[]
   integrations          Integration[]
   notes                 Note[]
@@ -60,7 +61,8 @@ model User {
   posts                 Post[]
   projects              Project[]
   sessions              Session[]
-  teamMemberships       TeamMember[]
+  projectMemberships    ProjectMember[]
+  teams                 TeamUser[]
   transcriptionSessions TranscriptionSession[]
   exercises             UserExercise[]
   verificationTokens    VerificationToken[]
@@ -87,13 +89,19 @@ model Action {
   priority               String                @default("Quick")
   projectId              String?
   createdById            String
+  teamId                 String?
+  assignedToId           String?
   transcriptionSessionId String?
   createdBy              User                  @relation(fields: [createdById], references: [id])
+  assignedTo             User?                 @relation("AssignedActions", fields: [assignedToId], references: [id])
+  team                   Team?                 @relation(fields: [teamId], references: [id])
   project                Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
   @@index([createdById])
+  @@index([teamId])
+  @@index([assignedToId])
   @@index([transcriptionSessionId])
 }
 
@@ -122,11 +130,13 @@ model Project {
   reviewDate            DateTime?
   nextActionDate        DateTime?
   createdById           String
+  teamId                String?
   slug                  String                 @unique
   description           String?
   actions               Action[]
   createdBy             User                   @relation(fields: [createdById], references: [id])
-  teamMembers           TeamMember[]
+  team                  Team?                  @relation(fields: [teamId], references: [id])
+  projectMembers        ProjectMember[]
   transcriptionSessions TranscriptionSession[]
   goals                 Goal[]                 @relation("GoalProjects")
   outcomes              Outcome[]              @relation("ProjectOutcomes")
@@ -135,6 +145,7 @@ model Project {
   @@index([name])
   @@index([status])
   @@index([priority])
+  @@index([teamId])
 }
 
 model Video {
@@ -230,7 +241,7 @@ model Note {
   @@index([type])
 }
 
-model TeamMember {
+model ProjectMember {
   id               String   @id @default(cuid())
   name             String
   role             String
@@ -243,6 +254,38 @@ model TeamMember {
 
   @@index([projectId])
   @@index([userId])
+}
+
+model Team {
+  id          String        @id @default(cuid())
+  name        String
+  slug        String        @unique
+  description String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  // Relations
+  members      TeamUser[]
+  projects     Project[]
+  actions      Action[]
+  integrations Integration[]
+  
+  @@index([slug])
+}
+
+model TeamUser {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String
+  role      String   @default("member") // owner, admin, member
+  joinedAt  DateTime @default(now())
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, teamId])
+  @@index([userId])
+  @@index([teamId])
 }
 
 model Differentiator {
@@ -308,13 +351,16 @@ model Integration {
   description           String?
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
-  userId                String
-  user                  User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                String?
+  teamId                String?
+  user                  User?                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team                  Team?                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   credentials           IntegrationCredential[]
   transcriptionSessions TranscriptionSession[]    // Transcriptions created by this integration
   workflows             Workflow[]                // Workflows using this integration
 
   @@index([userId])
+  @@index([teamId])
   @@index([provider])
 }
 

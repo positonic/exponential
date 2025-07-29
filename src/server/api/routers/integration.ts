@@ -159,8 +159,11 @@ async function testSlackConnection(botToken: string): Promise<{ success: boolean
 }
 
 export const integrationRouter = createTRPCRouter({
-  // List all integrations for the current user
+  // List all integrations for the current user and their teams
   listIntegrations: protectedProcedure
+    .input(z.object({
+      teamId: z.string().optional(),
+    }).optional())
     .output(z.array(z.object({
       id: z.string(),
       name: z.string(),
@@ -171,16 +174,60 @@ export const integrationRouter = createTRPCRouter({
       createdAt: z.string(),
       updatedAt: z.string(),
       credentialCount: z.number(),
+      scope: z.enum(['personal', 'team']),
+      teamName: z.string().nullable(),
     })))
-    .query(async ({ ctx }) => {
-      const integrations = await ctx.db.integration.findMany({
+    .query(async ({ ctx, input }) => {
+      // Get user's team memberships to include team integrations
+      const userTeams = await ctx.db.teamUser.findMany({
         where: {
           userId: ctx.session.user.id,
         },
+        select: {
+          teamId: true,
+          team: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      });
+
+      const teamIds = userTeams.map(membership => membership.teamId);
+
+      // Build where clause to include personal and team integrations
+      const whereClause: any = {
+        OR: [
+          { userId: ctx.session.user.id }, // Personal integrations
+          ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integrations
+        ],
+      };
+
+      // If filtering by specific team, only show that team's integrations
+      if (input?.teamId) {
+        // Verify user is member of the requested team
+        const isMember = teamIds.includes(input.teamId);
+        if (!isMember) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You are not a member of this team',
+          });
+        }
+        whereClause.teamId = input.teamId;
+        delete whereClause.OR;
+      }
+
+      const integrations = await ctx.db.integration.findMany({
+        where: whereClause,
         include: {
           credentials: {
             select: {
               id: true,
+            },
+          },
+          team: {
+            select: {
+              name: true,
             },
           },
         },
@@ -199,6 +246,8 @@ export const integrationRouter = createTRPCRouter({
         createdAt: integration.createdAt.toISOString(),
         updatedAt: integration.updatedAt.toISOString(),
         credentialCount: integration.credentials.length,
+        scope: integration.teamId ? 'team' as const : 'personal' as const,
+        teamName: integration.team?.name || null,
       }));
     }),
 
@@ -209,8 +258,28 @@ export const integrationRouter = createTRPCRouter({
       provider: z.enum(['fireflies', 'exponential-plugin', 'github', 'slack', 'notion', 'webhook']),
       description: z.string().optional(),
       apiKey: z.string().min(1),
+      teamId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // If teamId is provided, verify user is a member of the team
+      if (input.teamId) {
+        const teamMember = await ctx.db.teamUser.findUnique({
+          where: {
+            userId_teamId: {
+              userId: ctx.session.user.id,
+              teamId: input.teamId,
+            },
+          },
+        });
+
+        if (!teamMember) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You are not a member of this team',
+          });
+        }
+      }
+
       // Test connection for Fireflies
       if (input.provider === 'fireflies') {
         const testResult = await testFirefliesConnection(input.apiKey);
@@ -230,7 +299,8 @@ export const integrationRouter = createTRPCRouter({
             type: 'API_KEY',
             provider: input.provider,
             description: input.description,
-            userId: ctx.session.user.id,
+            userId: input.teamId ? null : ctx.session.user.id, // Personal if no team
+            teamId: input.teamId || null, // Team if provided
           },
         });
 
@@ -272,10 +342,31 @@ export const integrationRouter = createTRPCRouter({
       botToken: z.string().min(1),
       userToken: z.string().optional(),
       signingSecret: z.string().min(1),
-      teamId: z.string().optional(), // Make optional - we'll get it from the token
+      slackTeamId: z.string().optional(), // Make optional - we'll get it from the token
       teamName: z.string().optional(), // Make optional - we'll get it from the token
+      appTeamId: z.string().optional(), // Optional team ID for the app (our internal teams)
+      appId: z.string().optional(), // Slack app ID for distinguishing multiple apps
     }))
     .mutation(async ({ ctx, input }) => {
+      // If appTeamId is provided, verify user is a member of the team
+      if (input.appTeamId) {
+        const teamMember = await ctx.db.teamUser.findUnique({
+          where: {
+            userId_teamId: {
+              userId: ctx.session.user.id,
+              teamId: input.appTeamId,
+            },
+          },
+        });
+
+        if (!teamMember) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You are not a member of this team',
+          });
+        }
+      }
+
       // Test the bot token
       const testResult = await testSlackConnection(input.botToken);
       if (!testResult.success) {
@@ -286,10 +377,10 @@ export const integrationRouter = createTRPCRouter({
       }
 
       // Get team info from the token test result
-      const teamId = testResult.teamInfo?.team_id;
+      const slackTeamId = testResult.teamInfo?.team_id;
       const teamName = testResult.teamInfo?.team || input.teamName || 'Unknown Team';
       
-      if (!teamId) {
+      if (!slackTeamId) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'Could not retrieve team ID from Slack token',
@@ -304,7 +395,8 @@ export const integrationRouter = createTRPCRouter({
             type: 'OAUTH',
             provider: 'slack',
             description: input.description || `Slack integration for ${teamName}`,
-            userId: ctx.session.user.id,
+            userId: input.appTeamId ? null : ctx.session.user.id, // Personal if no app team
+            teamId: input.appTeamId || null, // App team if provided
           },
         });
 
@@ -323,12 +415,22 @@ export const integrationRouter = createTRPCRouter({
             integrationId: integration.id,
           },
           {
-            key: teamId,
+            key: slackTeamId,
             keyType: 'TEAM_ID',
             isEncrypted: false,
             integrationId: integration.id,
           },
         ];
+
+        // Add APP_ID if provided
+        if (input.appId) {
+          credentials.push({
+            key: input.appId,
+            keyType: 'APP_ID',
+            isEncrypted: false,
+            integrationId: integration.id,
+          });
+        }
 
         if (input.userToken) {
           credentials.push({
@@ -370,11 +472,30 @@ export const integrationRouter = createTRPCRouter({
       integrationId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Verify the integration belongs to the user
+      // Get user's team memberships
+      const userTeams = await ctx.db.teamUser.findMany({
+        where: {
+          userId: ctx.session.user.id,
+        },
+        select: {
+          teamId: true,
+        },
+      });
+
+      const teamIds = userTeams.map(membership => membership.teamId);
+
+      // Verify the integration belongs to the user or their teams
       const integration = await ctx.db.integration.findUnique({
         where: {
           id: input.integrationId,
-          userId: ctx.session.user.id,
+          OR: [
+            { userId: ctx.session.user.id }, // Personal integration
+            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
+          ],
+        },
+        select: {
+          id: true,
+          teamId: true,
         },
       });
 
@@ -383,6 +504,25 @@ export const integrationRouter = createTRPCRouter({
           code: 'NOT_FOUND',
           message: 'Integration not found or access denied',
         });
+      }
+
+      // If it's a team integration, verify user has permission to delete
+      if (integration.teamId) {
+        const teamMember = await ctx.db.teamUser.findUnique({
+          where: {
+            userId_teamId: {
+              userId: ctx.session.user.id,
+              teamId: integration.teamId,
+            },
+          },
+        });
+
+        if (!teamMember || (teamMember.role !== 'owner' && teamMember.role !== 'admin')) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Only team owners and admins can delete team integrations',
+          });
+        }
       }
 
       // Delete the integration (credentials will be deleted via cascade)
@@ -401,11 +541,26 @@ export const integrationRouter = createTRPCRouter({
       integrationId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Get user's team memberships
+      const userTeams = await ctx.db.teamUser.findMany({
+        where: {
+          userId: ctx.session.user.id,
+        },
+        select: {
+          teamId: true,
+        },
+      });
+
+      const teamIds = userTeams.map(membership => membership.teamId);
+
       // Get the integration and its credentials
       const integration = await ctx.db.integration.findUnique({
         where: {
           id: input.integrationId,
-          userId: ctx.session.user.id,
+          OR: [
+            { userId: ctx.session.user.id }, // Personal integration
+            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
+          ],
         },
         include: {
           credentials: true,
@@ -497,12 +652,27 @@ export const integrationRouter = createTRPCRouter({
       integrationId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Get user's team memberships
+      const userTeams = await ctx.db.teamUser.findMany({
+        where: {
+          userId: ctx.session.user.id,
+        },
+        select: {
+          teamId: true,
+        },
+      });
+
+      const teamIds = userTeams.map(membership => membership.teamId);
+
       // Verify the integration belongs to the user and is Slack
       const integration = await ctx.db.integration.findUnique({
         where: {
           id: input.integrationId,
-          userId: ctx.session.user.id,
           provider: 'slack',
+          OR: [
+            { userId: ctx.session.user.id }, // Personal integration
+            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
+          ],
         },
         include: {
           credentials: true,
@@ -595,11 +765,27 @@ export const integrationRouter = createTRPCRouter({
         });
       }
 
-      const integration = await ctx.db.integration.findFirst({
+      // Get user's team memberships
+      const userTeams = await ctx.db.teamUser.findMany({
         where: {
           userId: input.userId,
+        },
+        select: {
+          teamId: true,
+        },
+      });
+
+      const teamIds = userTeams.map(membership => membership.teamId);
+
+      // Look for personal or team Fireflies integrations
+      const integration = await ctx.db.integration.findFirst({
+        where: {
           provider: 'fireflies',
           status: 'ACTIVE',
+          OR: [
+            { userId: input.userId }, // Personal integration
+            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
+          ],
         },
         include: {
           credentials: {
@@ -714,6 +900,7 @@ export const integrationRouter = createTRPCRouter({
           botToken: data.bot_token,
           scope: data.scope,
           botUserId: data.bot_user_id,
+          appId: data.app_id, // Add app ID from OAuth response
           team: {
             id: data.team.id,
             name: data.team.name,
@@ -726,6 +913,180 @@ export const integrationRouter = createTRPCRouter({
           message: 'Failed to exchange OAuth code',
         });
       }
+    }),
+
+  // Get integration details for editing
+  getIntegrationDetails: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Get user's team memberships
+      const userTeams = await ctx.db.teamUser.findMany({
+        where: {
+          userId: ctx.session.user.id,
+        },
+        select: {
+          teamId: true,
+        },
+      });
+
+      const teamIds = userTeams.map(membership => membership.teamId);
+
+      // Get the integration and its credentials
+      const integration = await ctx.db.integration.findUnique({
+        where: {
+          id: input.integrationId,
+          OR: [
+            { userId: ctx.session.user.id }, // Personal integration
+            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
+          ],
+        },
+        include: {
+          credentials: true,
+          team: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Integration not found or access denied',
+        });
+      }
+
+      // Extract credentials for safe return (don't expose sensitive values)
+      const credentials: Record<string, boolean> = {};
+      integration.credentials.forEach(cred => {
+        credentials[cred.keyType] = true; // Just indicate presence, not actual values
+      });
+
+      // For APP_ID, we can return the actual value since it's not sensitive
+      const appIdCredential = integration.credentials.find(c => c.keyType === 'APP_ID');
+
+      return {
+        id: integration.id,
+        name: integration.name,
+        description: integration.description,
+        provider: integration.provider,
+        status: integration.status,
+        scope: integration.teamId ? 'team' as const : 'personal' as const,
+        teamName: integration.team?.name || null,
+        credentials,
+        appId: appIdCredential?.key || '', // Safe to return APP_ID
+      };
+    }),
+
+  // Update integration details
+  updateIntegration: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+      name: z.string().min(1).optional(),
+      description: z.string().optional(),
+      // Slack-specific updates
+      appId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Get user's team memberships
+      const userTeams = await ctx.db.teamUser.findMany({
+        where: {
+          userId: ctx.session.user.id,
+        },
+        select: {
+          teamId: true,
+        },
+      });
+
+      const teamIds = userTeams.map(membership => membership.teamId);
+
+      // Verify the integration belongs to the user or their teams
+      const integration = await ctx.db.integration.findUnique({
+        where: {
+          id: input.integrationId,
+          OR: [
+            { userId: ctx.session.user.id }, // Personal integration
+            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
+          ],
+        },
+        include: {
+          credentials: true,
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Integration not found or access denied',
+        });
+      }
+
+      // If it's a team integration, verify user has permission to edit
+      if (integration.teamId) {
+        const teamMember = await ctx.db.teamUser.findUnique({
+          where: {
+            userId_teamId: {
+              userId: ctx.session.user.id,
+              teamId: integration.teamId,
+            },
+          },
+        });
+
+        if (!teamMember || (teamMember.role !== 'owner' && teamMember.role !== 'admin')) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Only team owners and admins can edit team integrations',
+          });
+        }
+      }
+
+      // Update integration basic info
+      const updateData: any = {};
+      if (input.name !== undefined) updateData.name = input.name;
+      if (input.description !== undefined) updateData.description = input.description;
+
+      if (Object.keys(updateData).length > 0) {
+        await ctx.db.integration.update({
+          where: { id: input.integrationId },
+          data: updateData,
+        });
+      }
+
+      // Handle Slack-specific updates
+      if (input.appId !== undefined && integration.provider === 'slack') {
+        const existingAppIdCredential = integration.credentials.find(c => c.keyType === 'APP_ID');
+        
+        if (input.appId.trim().length === 0) {
+          // Remove APP_ID if empty string provided
+          if (existingAppIdCredential) {
+            await ctx.db.integrationCredential.delete({
+              where: { id: existingAppIdCredential.id },
+            });
+          }
+        } else {
+          // Add or update APP_ID
+          if (existingAppIdCredential) {
+            await ctx.db.integrationCredential.update({
+              where: { id: existingAppIdCredential.id },
+              data: { key: input.appId },
+            });
+          } else {
+            await ctx.db.integrationCredential.create({
+              data: {
+                key: input.appId,
+                keyType: 'APP_ID',
+                isEncrypted: false,
+                integrationId: integration.id,
+              },
+            });
+          }
+        }
+      }
+
+      return { success: true };
     }),
 
 });

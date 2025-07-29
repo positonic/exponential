@@ -4,7 +4,7 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch } from "@tabler/icons-react";
+import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import Link from "next/link";
@@ -38,6 +38,20 @@ export function SidebarContent() {
           </Accordion.Control>
           <Accordion.Panel>
             <GoalList />
+          </Accordion.Panel>
+        </Accordion.Item>
+
+        <Accordion.Item value="teams">
+          <Accordion.Control>
+            <div className="flex items-center justify-between text-gray-400 hover:text-gray-300">
+              <span className="text-sm font-medium">Teams</span>
+              <div className="flex items-center gap-2"></div>
+            </div>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <NavLink href="/teams" icon={IconUsers}>
+              My Teams
+            </NavLink>
           </Accordion.Panel>
         </Accordion.Item>
 

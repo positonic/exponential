@@ -15,6 +15,7 @@ import { noteRouter } from "./routers/note";
 import { exerciseRouter } from "./routers/exercise";
 import { mastraRouter } from "./routers/mastra";
 import { integrationRouter } from "./routers/integration";
+import { teamRouter } from "./routers/team";
 /**
  * This is the primary router for your server.
  *
@@ -37,6 +38,7 @@ export const appRouter = createTRPCRouter({
   exercise: exerciseRouter,
   mastra: mastraRouter,
   integration: integrationRouter,
+  team: teamRouter,
 });
 
 // export type definition of API

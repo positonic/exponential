@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Container, 
   Title, 
@@ -30,14 +30,14 @@ import {
   IconTestPipe,
   IconBrandFirebase,
   IconBrandSlack,
-  IconRefresh
+  IconRefresh,
+  IconEdit
 } from '@tabler/icons-react';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useEffect } from 'react';
 
 interface CreateIntegrationForm {
   name: string;
@@ -49,6 +49,14 @@ interface CreateIntegrationForm {
   signingSecret?: string;
   teamId?: string;
   teamName?: string;
+  appId?: string;
+}
+
+interface EditIntegrationForm {
+  name: string;
+  description?: string;
+  // Slack-specific fields for editing
+  appId?: string;
 }
 
 const PROVIDER_OPTIONS = [
@@ -61,8 +69,10 @@ const PROVIDER_OPTIONS = [
 
 export default function IntegrationsClient() {
   const [opened, { open, close }] = useDisclosure(false);
+  const [editModalOpened, { open: openEditModal, close: closeEditModal }] = useDisclosure(false);
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [refreshingIntegration, setRefreshingIntegration] = useState<string | null>(null);
+  const [editingIntegration, setEditingIntegration] = useState<any>(null);
   const searchParams = useSearchParams();
 
   // Handle success/error messages from URL parameters (e.g., from Slack OAuth callback)
@@ -208,6 +218,34 @@ export default function IntegrationsClient() {
     },
   });
 
+  const updateIntegration = api.integration.updateIntegration.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Integration Updated',
+        message: 'Your integration has been updated successfully.',
+        color: 'green',
+        icon: <IconCheck size={16} />,
+      });
+      void refetch();
+      closeEditModal();
+      setEditingIntegration(null);
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Update Failed',
+        message: error.message || 'Failed to update integration',
+        color: 'red',
+        icon: <IconAlertCircle size={16} />,
+      });
+    },
+  });
+
+  // Query for integration details when editing
+  const { data: integrationDetails } = api.integration.getIntegrationDetails.useQuery(
+    { integrationId: editingIntegration?.id || '' },
+    { enabled: !!editingIntegration?.id }
+  );
+
   const form = useForm<CreateIntegrationForm>({
     initialValues: {
       name: '',
@@ -218,6 +256,7 @@ export default function IntegrationsClient() {
       signingSecret: '',
       teamId: '',
       teamName: '',
+      appId: '',
     },
     validate: {
       name: (value) => value.trim().length === 0 ? 'Integration name is required' : null,
@@ -239,9 +278,44 @@ export default function IntegrationsClient() {
         }
         return null;
       },
+      appId: (value, values) => {
+        if (values.provider === 'slack' && (!value || value.trim().length === 0)) {
+          return 'App ID is required for Slack integration';
+        }
+        return null;
+      },
       // Team ID and Team Name are now optional - will be fetched from bot token
     },
   });
+
+  const editForm = useForm<EditIntegrationForm>({
+    initialValues: {
+      name: '',
+      description: '',
+      appId: '',
+    },
+    validate: {
+      name: (value) => value.trim().length === 0 ? 'Integration name is required' : null,
+      appId: (value, values) => {
+        // For Slack integrations, APP_ID should be required
+        if (integrationDetails?.provider === 'slack' && (!value || value.trim().length === 0)) {
+          return 'App ID is required for Slack integrations';
+        }
+        return null;
+      },
+    },
+  });
+
+  // Update edit form when integration details load
+  useEffect(() => {
+    if (integrationDetails) {
+      editForm.setValues({
+        name: integrationDetails.name,
+        description: integrationDetails.description || '',
+        appId: integrationDetails.appId || '',
+      });
+    }
+  }, [integrationDetails]);
 
   const handleCreateIntegration = async (values: CreateIntegrationForm) => {
     // Special handling for Slack - use createSlackIntegration with manual credentials
@@ -251,8 +325,9 @@ export default function IntegrationsClient() {
         description: values.description,
         botToken: values.botToken!,
         signingSecret: values.signingSecret!,
-        teamId: values.teamId || undefined,
+        slackTeamId: values.teamId || undefined,
         teamName: values.teamName || undefined,
+        appId: values.appId || undefined,
       });
       return;
     }
@@ -263,6 +338,22 @@ export default function IntegrationsClient() {
       apiKey: values.apiKey,
       description: values.description,
     });
+  };
+
+  const handleEditIntegration = async (values: EditIntegrationForm) => {
+    if (!editingIntegration) return;
+    
+    await updateIntegration.mutateAsync({
+      integrationId: editingIntegration.id,
+      name: values.name,
+      description: values.description,
+      appId: values.appId,
+    });
+  };
+
+  const openEditModalForIntegration = (integration: any) => {
+    setEditingIntegration(integration);
+    openEditModal();
   };
 
   const handleTestConnection = async (integrationId: string) => {
@@ -368,6 +459,16 @@ export default function IntegrationsClient() {
                     </Table.Td>
                     <Table.Td>
                       <Group gap="xs">
+                        <Tooltip label="Edit integration">
+                          <ActionIcon 
+                            color="gray" 
+                            variant="light"
+                            size="sm"
+                            onClick={() => openEditModalForIntegration(integration)}
+                          >
+                            <IconEdit size={14} />
+                          </ActionIcon>
+                        </Tooltip>
                         <Tooltip label="Test connection">
                           <ActionIcon 
                             color="blue" 
@@ -502,6 +603,14 @@ export default function IntegrationsClient() {
                     {...form.getInputProps('teamName')}
                     description="Will be auto-detected from bot token if not provided"
                   />
+
+                  <TextInput
+                    label="App ID"
+                    placeholder="A1234567890"
+                    required
+                    {...form.getInputProps('appId')}
+                    description="Found in Basic Information > App ID. Required to distinguish between dev/prod apps in same workspace."
+                  />
                 </>
               )}
 
@@ -535,6 +644,86 @@ export default function IntegrationsClient() {
               </Group>
             </Stack>
           </form>
+        </Modal>
+
+        {/* Edit Integration Modal */}
+        <Modal 
+          opened={editModalOpened} 
+          onClose={() => {
+            closeEditModal();
+            setEditingIntegration(null);
+          }}
+          title="Edit Integration"
+          size="md"
+        >
+          {integrationDetails && (
+            <form onSubmit={editForm.onSubmit(handleEditIntegration)}>
+              <Stack gap="md">
+                <TextInput
+                  label="Integration Name"
+                  placeholder="e.g., My Fireflies Account"
+                  required
+                  {...editForm.getInputProps('name')}
+                />
+
+                <Textarea
+                  label="Description (Optional)"
+                  placeholder="What will this integration be used for?"
+                  {...editForm.getInputProps('description')}
+                  minRows={2}
+                />
+
+                {integrationDetails.provider === 'slack' && (
+                  <>
+                    <Alert 
+                      icon={<IconBrandSlack size={16} />}
+                      title="Slack App Configuration"
+                      color="blue"
+                    >
+                      Adding the App ID helps distinguish between different Slack apps (e.g., dev vs prod) 
+                      in the same workspace. Find your App ID in your Slack app's Basic Information section.
+                    </Alert>
+
+                    <TextInput
+                      label="App ID"
+                      placeholder="A1234567890"
+                      required
+                      {...editForm.getInputProps('appId')}
+                      description="Found in Basic Information > App ID. Required to distinguish between dev/prod apps in same workspace."
+                    />
+
+                    {integrationDetails.scope === 'team' && (
+                      <Alert 
+                        color="orange"
+                        title="Team Integration"
+                      >
+                        This is a team integration for "{integrationDetails.teamName}". 
+                        Changes will affect all team members.
+                      </Alert>
+                    )}
+                  </>
+                )}
+
+                <Group justify="flex-end">
+                  <Button 
+                    variant="light" 
+                    onClick={() => {
+                      closeEditModal();
+                      setEditingIntegration(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="submit" 
+                    loading={updateIntegration.isPending}
+                  >
+                    Update Integration
+                  </Button>
+                </Group>
+              </Stack>
+            </form>
+          )}
         </Modal>
       </Stack>
     </Container>

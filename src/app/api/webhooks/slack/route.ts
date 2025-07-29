@@ -82,6 +82,7 @@ function verifySlackSignature(payload: string, timestamp: string, signature: str
     // Request should be within 5 minutes
     if (Math.abs(currentTime - requestTime) > 300) {
       console.error('Slack webhook timestamp too old');
+      console.error('Time difference:', Math.abs(currentTime - requestTime), 'seconds');
       return false;
     }
     
@@ -89,6 +90,14 @@ function verifySlackSignature(payload: string, timestamp: string, signature: str
     const computedSignature = `v0=${createHmac('sha256', signingSecret)
       .update(baseString, 'utf8')
       .digest('hex')}`;
+    
+    console.log('🔐 Signature verification:', {
+      providedSignature: signature.substring(0, 20) + '...',
+      computedSignature: computedSignature.substring(0, 20) + '...',
+      signingSecretLength: signingSecret.length,
+      payloadLength: payload.length,
+      timestamp
+    });
     
     // Constant-time comparison
     return signature === computedSignature;
@@ -98,13 +107,66 @@ function verifySlackSignature(payload: string, timestamp: string, signature: str
   }
 }
 
-async function findSlackIntegrationByTeam(teamId: string) {
+async function findSlackIntegrationByTeam(teamId: string, appId?: string) {
   try {
+    // First, try to find by team_id and app_id if app_id is provided
+    if (appId) {
+      const integrationWithAppId = await db.integration.findFirst({
+        where: {
+          provider: 'slack',
+          status: 'ACTIVE',
+          AND: [
+            {
+              credentials: {
+                some: {
+                  keyType: 'TEAM_ID',
+                  key: teamId
+                }
+              }
+            },
+            {
+              credentials: {
+                some: {
+                  keyType: 'APP_ID',
+                  key: appId
+                }
+              }
+            }
+          ]
+        },
+        include: {
+          user: true,
+          team: true,
+          credentials: {
+            where: {
+              keyType: {
+                in: ['BOT_TOKEN', 'SIGNING_SECRET', 'USER_TOKEN', 'APP_ID']
+              }
+            }
+          }
+        }
+      });
+
+      if (integrationWithAppId) {
+        const credentials = integrationWithAppId.credentials.reduce((acc: Record<string, string>, cred: any) => {
+          acc[cred.keyType as string] = cred.key;
+          return acc;
+        }, {} as Record<string, string>);
+
+        return {
+          integration: integrationWithAppId,
+          user: integrationWithAppId.user,
+          team: integrationWithAppId.team,
+          credentials
+        };
+      }
+    }
+
+    // Fallback: find by team_id only (existing behavior)
     const integration = await db.integration.findFirst({
       where: {
         provider: 'slack',
         status: 'ACTIVE',
-        // Look for team_id in credentials
         credentials: {
           some: {
             keyType: 'TEAM_ID',
@@ -114,10 +176,11 @@ async function findSlackIntegrationByTeam(teamId: string) {
       },
       include: {
         user: true,
+        team: true,
         credentials: {
           where: {
             keyType: {
-              in: ['BOT_TOKEN', 'SIGNING_SECRET', 'USER_TOKEN']
+              in: ['BOT_TOKEN', 'SIGNING_SECRET', 'USER_TOKEN', 'APP_ID']
             }
           }
         }
@@ -136,6 +199,7 @@ async function findSlackIntegrationByTeam(teamId: string) {
     return {
       integration,
       user: integration.user,
+      team: integration.team,
       credentials
     };
   } catch (error) {
@@ -190,8 +254,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ challenge: payload.challenge });
     }
 
-    // Get team ID from different payload types
+    // Get team ID and app ID from different payload types
     let teamId: string;
+    let appId: string | undefined;
+    
     if ('team_id' in payload) {
       teamId = payload.team_id;
     } else if ('team' in payload && payload.team.id) {
@@ -203,16 +269,33 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    
+    // Get app ID if available
+    if ('api_app_id' in payload) {
+      appId = payload.api_app_id;
+    } else if ('app_id' in payload) {
+      appId = payload.app_id;
+    }
+    
+    console.log('📱 Slack identifiers:', { teamId, appId });
 
-    // Find the integration for this team
-    const integrationData = await findSlackIntegrationByTeam(teamId);
+    // Find the integration for this team and app
+    const integrationData = await findSlackIntegrationByTeam(teamId, appId);
     if (!integrationData) {
-      console.error('❌ No Slack integration found for team:', teamId);
+      console.error('❌ No Slack integration found for team:', teamId, 'appId:', appId);
       return NextResponse.json(
         { error: 'Integration not found' },
         { status: 404 }
       );
     }
+    
+    console.log('🔍 Found integration:', {
+      teamId,
+      hasSigningSecret: !!integrationData.credentials.SIGNING_SECRET,
+      credentialKeys: Object.keys(integrationData.credentials),
+      signingSecretFirst4: integrationData.credentials.SIGNING_SECRET?.substring(0, 4),
+      signingSecretLast4: integrationData.credentials.SIGNING_SECRET?.substring(integrationData.credentials.SIGNING_SECRET.length - 4)
+    });
 
     // Verify signature if we have signing secret
     if (timestamp && signature && integrationData.credentials.SIGNING_SECRET) {
