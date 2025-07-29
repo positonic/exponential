@@ -291,7 +291,7 @@ export default function TeamsClient({ currentUserId }: TeamsClientProps) {
                           <Avatar
                             size="sm"
                             src={member.user.image}
-                            name={member.user.name || member.user.email}
+                            name={member.user.name || member.user.email || undefined}
                           />
                           <div>
                             <Text size="xs" truncate maw={100}>

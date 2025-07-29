@@ -594,7 +594,7 @@ export default function MondayWorkflowPage() {
               <Text component="a" href="https://your-workspace.monday.com/admin/integrations/api" target="_blank" style={{ textDecoration: 'underline' }}>
                 /admin/integrations/api
               </Text>{' '}
-              and clicking 'Generate' next to "Personal API Token". Your token will be tested to ensure it has access to your boards.
+              and clicking &apos;Generate&apos; next to &quot;Personal API Token&quot;. Your token will be tested to ensure it has access to your boards.
             </Alert>
 
             <Group justify="flex-end">
@@ -739,7 +739,7 @@ export default function MondayWorkflowPage() {
                 
                 {/* Debug: Show all available columns */}
                 <Paper withBorder p="xs" mb="sm">
-                  <Text size="xs" fw={500} mb={4}>Available columns on "{selectedBoard.name}":</Text>
+                  <Text size="xs" fw={500} mb={4}>Available columns on &quot;{selectedBoard.name}&quot;:</Text>
                   <Group gap="xs">
                     {selectedBoard.columns.map((col) => (
                       <Badge key={col.id} size="xs" variant="outline">
@@ -898,7 +898,7 @@ export default function MondayWorkflowPage() {
                 
                 {/* Debug: Show all available columns */}
                 <Paper withBorder p="xs" mb="sm">
-                  <Text size="xs" fw={500} mb={4}>Available columns on "{selectedBoard.name}":</Text>
+                  <Text size="xs" fw={500} mb={4}>Available columns on &quot;{selectedBoard.name}&quot;:</Text>
                   <Group gap="xs">
                     {selectedBoard.columns.map((col) => (
                       <Badge key={col.id} size="xs" variant="outline">

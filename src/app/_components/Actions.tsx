@@ -156,7 +156,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     }
 
     // Get the workflow ID from project configuration
-    const workflowId = project.taskManagementConfig?.workflowId;
+    const workflowId = (project.taskManagementConfig as { workflowId?: string })?.workflowId;
     if (!workflowId) {
       notifications.show({
         title: 'Configuration Missing',

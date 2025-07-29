@@ -696,7 +696,7 @@ export default function IntegrationsClient() {
                       color="blue"
                     >
                       Adding the App ID helps distinguish between different Slack apps (e.g., dev vs prod) 
-                      in the same workspace. Find your App ID in your Slack app's Basic Information section.
+                      in the same workspace. Find your App ID in your Slack app&apos;s Basic Information section.
                     </Alert>
 
                     <TextInput
@@ -712,7 +712,7 @@ export default function IntegrationsClient() {
                         color="orange"
                         title="Team Integration"
                       >
-                        This is a team integration for "{integrationDetails.teamName}". 
+                        This is a team integration for &quot;{integrationDetails.teamName}&quot;. 
                         Changes will affect all team members.
                       </Alert>
                     )}

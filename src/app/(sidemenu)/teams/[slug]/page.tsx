@@ -4,20 +4,21 @@ import { api } from "~/trpc/server";
 import TeamDetailClient from "./TeamDetailClient";
 
 interface TeamDetailPageProps {
-  params: {
+  params: Promise<{
     slug: string;
-  };
+  }>;
 }
 
 export default async function TeamDetailPage({ params }: TeamDetailPageProps) {
   const session = await auth();
+  const { slug } = await params;
 
   if (!session?.user) {
-    redirect(`/use-the-force?callbackUrl=/teams/${params.slug}`);
+    redirect(`/use-the-force?callbackUrl=/teams/${slug}`);
   }
 
   try {
-    const team = await api.team.getBySlug({ slug: params.slug });
+    const team = await api.team.getBySlug({ slug });
     
     return (
       <TeamDetailClient 
