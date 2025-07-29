@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { MondayService } from "~/server/services/MondayService";
 
 // Test Fireflies API connection
 async function testFirefliesConnection(apiKey: string): Promise<{ success: boolean; error?: string }> {
@@ -118,6 +119,26 @@ async function fetchNotionDatabases(accessToken: string): Promise<{ success: boo
   } catch (error) {
     console.error('Notion databases fetch error:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Failed to fetch databases' };
+  }
+}
+
+// Test Monday.com API connection
+async function testMondayConnection(apiKey: string): Promise<{ success: boolean; error?: string; userInfo?: any }> {
+  try {
+    const mondayService = new MondayService(apiKey);
+    const result = await mondayService.testConnection();
+    
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    return {
+      success: true,
+      userInfo: result.user,
+    };
+  } catch (error) {
+    console.error('Monday.com connection test error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
   }
 }
 
@@ -255,7 +276,7 @@ export const integrationRouter = createTRPCRouter({
   createIntegration: protectedProcedure
     .input(z.object({
       name: z.string().min(1),
-      provider: z.enum(['fireflies', 'exponential-plugin', 'github', 'slack', 'notion', 'webhook']),
+      provider: z.enum(['fireflies', 'exponential-plugin', 'github', 'slack', 'notion', 'webhook', 'monday']),
       description: z.string().optional(),
       apiKey: z.string().min(1),
       teamId: z.string().optional(),
@@ -287,6 +308,17 @@ export const integrationRouter = createTRPCRouter({
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: `Fireflies connection failed: ${testResult.error}`,
+          });
+        }
+      }
+
+      // Test connection for Monday.com
+      if (input.provider === 'monday') {
+        const testResult = await testMondayConnection(input.apiKey);
+        if (!testResult.success) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Monday.com connection failed: ${testResult.error}`,
           });
         }
       }
@@ -636,6 +668,43 @@ export const integrationRouter = createTRPCRouter({
           provider: integration.provider,
           userInfo: result.userInfo,
           databases: databasesResult.databases,
+        };
+      }
+
+      if (integration.provider === 'monday') {
+        const apiKeyCredential = integration.credentials.find(c => c.keyType === 'API_KEY');
+        if (!apiKeyCredential) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'No API key found for this Monday.com integration',
+          });
+        }
+
+        const result = await testMondayConnection(apiKeyCredential.key);
+        if (!result.success) {
+          return {
+            success: result.success,
+            error: result.error,
+            provider: integration.provider,
+          };
+        }
+
+        // Also fetch boards with columns for Monday.com
+        const mondayService = new MondayService(apiKeyCredential.key);
+        let boardsWithColumns: Array<any> = [];
+        try {
+          boardsWithColumns = await mondayService.getBoardsWithColumns();
+        } catch (error) {
+          console.error('Failed to fetch Monday.com boards:', error);
+          boardsWithColumns = [];
+        }
+
+        return {
+          success: result.success,
+          error: result.error,
+          provider: integration.provider,
+          userInfo: result.userInfo,
+          boards: boardsWithColumns,
         };
       }
 

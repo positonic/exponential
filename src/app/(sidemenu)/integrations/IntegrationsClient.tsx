@@ -65,6 +65,7 @@ const PROVIDER_OPTIONS = [
   { value: 'github', label: 'GitHub', disabled: true },
   { value: 'slack', label: 'Slack', icon: IconBrandSlack, disabled: false },
   { value: 'notion', label: 'Notion', disabled: true },
+  { value: 'monday', label: 'Monday.com', disabled: false },
 ];
 
 export default function IntegrationsClient() {
@@ -628,6 +629,20 @@ export default function IntegrationsClient() {
                   color="blue"
                 >
                   Your Fireflies API key will be tested during creation. Make sure to configure webhooks in your Fireflies account to point to this application.
+                </Alert>
+              )}
+
+              {form.values.provider === 'monday' && (
+                <Alert 
+                  icon={<IconAlertCircle size={16} />}
+                  title="Monday.com Setup"
+                  color="blue"
+                >
+                  Get your personal API token from Monday.com by going to{' '}
+                  <Text component="a" href="https://your-workspace.monday.com/admin/integrations/api" target="_blank" style={{ textDecoration: 'underline' }}>
+                    /admin/integrations/api
+                  </Text>{' '}
+                  and clicking &apos;Generate&apos; next to &quot;Personal API Token&quot;. Your token will be tested to ensure it has access to your boards.
                 </Alert>
               )}
 

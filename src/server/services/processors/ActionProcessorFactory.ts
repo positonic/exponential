@@ -1,9 +1,10 @@
 import { type ActionProcessor, type ActionProcessorConfig } from './ActionProcessor';
 import { InternalActionProcessor } from './InternalActionProcessor';
 import { SlackActionProcessor } from './SlackActionProcessor';
+import { MondayActionProcessor, type MondayProcessorConfig } from './MondayActionProcessor';
 import { db } from '~/server/db';
 
-export type ActionProcessorType = 'internal' | 'notion' | 'asana' | 'slack';
+export type ActionProcessorType = 'internal' | 'notion' | 'asana' | 'slack' | 'monday';
 
 export interface ProcessorPreferences {
   processors: ActionProcessorType[];
@@ -28,7 +29,7 @@ export class ActionProcessorFactory {
         userId,
         status: 'ACTIVE',
         provider: {
-          in: ['internal', 'notion', 'asana', 'slack']
+          in: ['internal', 'notion', 'asana', 'slack', 'monday']
         }
       },
       include: {
@@ -70,6 +71,15 @@ export class ActionProcessorFactory {
         case 'slack':
           processors.push(new SlackActionProcessor(config));
           break;
+        case 'monday':
+          // For Monday.com, we need basic board configuration
+          // This would typically come from workflow configuration
+          const mondayConfig: MondayProcessorConfig = {
+            boardId: config.additionalConfig?.boardId || 'default-board-id',
+            columnMappings: config.additionalConfig?.columnMappings || {},
+          };
+          processors.push(new MondayActionProcessor(config, mondayConfig));
+          break;
       }
     }
 
@@ -104,6 +114,13 @@ export class ActionProcessorFactory {
       case 'asana':
         // TODO: return new AsanaActionProcessor(config);
         return null;
+      case 'monday':
+        // For Monday.com, we need board configuration
+        const mondayConfig: MondayProcessorConfig = {
+          boardId: config.additionalConfig?.boardId || 'default-board-id',
+          columnMappings: config.additionalConfig?.columnMappings || {},
+        };
+        return new MondayActionProcessor(config, mondayConfig);
       default:
         return null;
     }
@@ -123,7 +140,7 @@ export class ActionProcessorFactory {
         userId,
         status: 'ACTIVE',
         provider: {
-          in: ['notion', 'asana', 'slack']
+          in: ['notion', 'asana', 'slack', 'monday']
         }
       }
     });
@@ -153,6 +170,12 @@ export class ActionProcessorFactory {
         type: 'slack',
         name: 'Slack Notifications',
         available: availableIntegrations.includes('slack'),
+        requiresIntegration: true,
+      },
+      {
+        type: 'monday',
+        name: 'Monday.com',
+        available: availableIntegrations.includes('monday'),
         requiresIntegration: true,
       },
     ];

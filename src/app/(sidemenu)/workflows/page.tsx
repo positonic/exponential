@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Container, Title, Text, SimpleGrid, Card, Button, Group, ThemeIcon, Stack, Paper, Badge, Accordion, Alert, Modal, TextInput, Select, Textarea, Code, CopyButton, ActionIcon } from '@mantine/core';
-import { IconRocket, IconArrowRight, IconPresentation, IconGitBranch, IconMicrophone, IconWebhook, IconPlaylistAdd, IconBrandSlack, IconCheck, IconAlertCircle, IconPlus, IconKey, IconBrandFirebase, IconCopy, IconBrandNotion } from '@tabler/icons-react';
+import { IconRocket, IconArrowRight, IconPresentation, IconGitBranch, IconMicrophone, IconWebhook, IconPlaylistAdd, IconBrandSlack, IconCheck, IconAlertCircle, IconPlus, IconKey, IconBrandFirebase, IconCopy, IconBrandNotion, IconCalendarEvent } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
@@ -57,6 +57,20 @@ const automationWorkflows: Array<{
       'Configure database sync settings',
       'Map fields between systems',
       'Activate bidirectional sync'
+    ]
+  },
+  {
+    icon: IconCalendarEvent,
+    title: 'Actions → Monday.com',
+    description: 'Push your action items and tasks to Monday.com boards. Keep your project management synchronized across platforms.',
+    status: 'Available',
+    enabled: false,
+    href: '/workflows/monday',
+    steps: [
+      'Connect Monday.com with API token',
+      'Select target board and columns',
+      'Configure field mappings',
+      'Activate automatic sync'
     ]
   },
   {

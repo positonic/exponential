@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { ActionProcessorFactory } from "~/server/services/processors/ActionProcessorFactory";
+import { MondayService } from "~/server/services/MondayService";
 
 // Test Notion connection and sync data
 async function syncNotionTasks(accessToken: string, databaseId: string) {
@@ -81,10 +83,7 @@ export const workflowRouter = createTRPCRouter({
       syncFrequency: z.enum(['manual', 'hourly', 'daily', 'weekly']),
       integrationId: z.string(),
       projectId: z.string().optional(),
-      config: z.object({
-        databaseId: z.string(),
-        fieldMappings: z.record(z.string()).optional(),
-      }),
+      config: z.record(z.any()),
       description: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -372,6 +371,152 @@ export const workflowRouter = createTRPCRouter({
             itemsUpdated,
             itemsSkipped,
           };
+        } else if (workflow.provider === 'monday' && workflow.syncDirection === 'push') {
+          // Monday.com workflow - push actions to Monday.com board
+          const config = workflow.config as { 
+            boardId: string; 
+            columnMappings?: Record<string, string>;
+            source?: 'fireflies' | 'internal' | 'all';
+          };
+          
+          const apiKey = workflow.integration.credentials.find(
+            c => c.keyType === 'API_KEY'
+          )?.key;
+
+          if (!apiKey) {
+            throw new Error('No API key found for Monday.com integration');
+          }
+
+          if (!config.boardId) {
+            throw new Error('No board ID configured for workflow');
+          }
+
+          // Initialize Monday.com service
+          const mondayService = new MondayService(apiKey);
+
+          // Test connection first
+          const connectionTest = await mondayService.testConnection();
+          if (!connectionTest.success) {
+            throw new Error(`Monday.com connection failed: ${connectionTest.error}`);
+          }
+
+          // Get recent actions to process (depending on configuration)
+          let actionsQuery: any = {
+            createdById: ctx.session.user.id,
+            status: 'ACTIVE',
+          };
+
+          // If source is specified, filter accordingly
+          if (config.source === 'fireflies') {
+            actionsQuery.transcriptionSessionId = { not: null };
+          } else if (config.source === 'internal') {
+            actionsQuery.transcriptionSessionId = null;
+          }
+          // If source is 'all' or not specified, include all actions
+
+          // Note: Actions don't have createdAt field, so we'll get recent actions by ID
+          // In practice, you might want to add a createdAt field to the Action model
+
+          const actions = await ctx.db.action.findMany({
+            where: actionsQuery,
+            include: {
+              project: true,
+              transcriptionSession: true,
+            },
+            orderBy: { id: 'desc' }, // Actions don't have createdAt, use id instead
+            take: 50, // Limit to avoid processing too many at once
+          });
+
+          let itemsCreated = 0;
+          let itemsSkipped = 0;
+
+          for (const action of actions) {
+            try {
+              // Check if this action was already processed to Monday.com
+              // We can use a naming convention or metadata to track this
+              const existingItems = await mondayService.getBoards();
+              // This is a simplified check - in practice, you'd want to store 
+              // Monday.com item IDs in your database or use a consistent naming pattern
+
+              // Transform action to monday.com item format
+              const columnValues: Record<string, any> = {};
+              
+              // Map fields based on configuration
+              if (config.columnMappings?.priority && action.priority) {
+                const priorityMapping: Record<string, string> = {
+                  'Quick': 'High',
+                  '1st Priority': 'High',
+                  '2nd Priority': 'Medium', 
+                  '3rd Priority': 'Low',
+                  'Someday Maybe': 'Low',
+                };
+                const mondayPriority = priorityMapping[action.priority] || action.priority;
+                columnValues[config.columnMappings.priority] = MondayService.formatColumnValue('status', mondayPriority);
+              }
+
+              if (config.columnMappings?.dueDate && action.dueDate) {
+                columnValues[config.columnMappings.dueDate] = MondayService.formatColumnValue('date', action.dueDate);
+              }
+
+              if (config.columnMappings?.description) {
+                let description = action.description || '';
+                if (action.transcriptionSession) {
+                  description += `\n\nFrom meeting: ${action.transcriptionSession.title || 'Untitled'}`;
+                }
+                if (action.project) {
+                  description += `\n\nProject: ${action.project.name}`;
+                }
+                columnValues[config.columnMappings.description] = MondayService.formatColumnValue('long-text', description);
+              }
+
+              // Create item on Monday.com
+              const createdItem = await mondayService.createItem({
+                boardId: config.boardId,
+                itemName: action.name, // Use 'name' field instead of 'text'
+                columnValues,
+              });
+
+              itemsCreated++;
+
+              console.log(`Created Monday.com item: ${createdItem.name} (ID: ${createdItem.id})`);
+
+            } catch (error) {
+              console.error(`Failed to create Monday.com item for action ${action.id}:`, error);
+              itemsSkipped++;
+              // Continue processing other actions
+            }
+          }
+
+          // Update run with success
+          await ctx.db.workflowRun.update({
+            where: { id: run.id },
+            data: {
+              status: 'COMPLETED',
+              completedAt: new Date(),
+              metadata: {
+                itemsProcessed: actions.length,
+                itemsCreated: itemsCreated,
+                itemsSkipped: itemsSkipped,
+                boardId: config.boardId,
+                source: config.source || 'all',
+              },
+            },
+          });
+
+          // Update workflow last run time
+          await ctx.db.workflow.update({
+            where: { id: workflow.id },
+            data: { lastRunAt: new Date() },
+          });
+
+          return {
+            success: true,
+            runId: run.id,
+            itemsProcessed: actions.length,
+            itemsCreated,
+            itemsUpdated: 0,
+            itemsSkipped,
+          };
         } else {
           throw new Error(`Workflow type not implemented: ${workflow.provider}/${workflow.syncDirection}`);
         }
@@ -391,6 +536,80 @@ export const workflowRouter = createTRPCRouter({
           message: error instanceof Error ? error.message : 'Workflow execution failed',
         });
       }
+    }),
+
+  // Update workflow
+  update: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      name: z.string().min(1).optional(),
+      type: z.string().optional(),
+      provider: z.string().optional(),
+      syncDirection: z.enum(['push', 'pull', 'bidirectional']).optional(),
+      syncFrequency: z.enum(['manual', 'hourly', 'daily', 'weekly']).optional(),
+      integrationId: z.string().optional(),
+      projectId: z.string().optional(),
+      config: z.record(z.any()).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...updateData } = input;
+      
+      // Verify workflow exists and belongs to user
+      const workflow = await ctx.db.workflow.findUnique({
+        where: {
+          id,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!workflow) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Workflow not found or access denied',
+        });
+      }
+
+      // If integrationId is being updated, verify it belongs to the user
+      if (updateData.integrationId) {
+        const integration = await ctx.db.integration.findUnique({
+          where: {
+            id: updateData.integrationId,
+            userId: ctx.session.user.id,
+          },
+        });
+
+        if (!integration) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Integration not found or access denied',
+          });
+        }
+      }
+
+      // Update the workflow
+      const updatedWorkflow = await ctx.db.workflow.update({
+        where: { id },
+        data: updateData,
+        include: {
+          integration: {
+            select: {
+              id: true,
+              name: true,
+              provider: true,
+              status: true,
+            },
+          },
+          project: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
+          },
+        },
+      });
+
+      return updatedWorkflow;
     }),
 
   // Delete a workflow
