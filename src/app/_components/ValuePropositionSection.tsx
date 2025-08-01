@@ -80,7 +80,7 @@ export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = (
               </span>
             </div>
 
-            <Title className="text-4xl md:text-5xl font-bold mb-6 text-white pb-4">
+            <Title order={2} className="text-4xl md:text-5xl font-bold mb-6 text-white pb-4">
               Your AI-Powered Product Execution Engine
             </Title>
 

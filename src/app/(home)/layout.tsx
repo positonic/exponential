@@ -34,6 +34,37 @@ export default async function HomeLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400..900&display=swap" rel="stylesheet" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "SoftwareApplication",
+              "name": "Exponential",
+              "description": "AI-powered productivity platform for solo founders to turn ideas into working products faster with project management, task automation, and GitHub integration.",
+              "url": "https://exponential.im",
+              "applicationCategory": "ProductivityApplication",
+              "operatingSystem": "Web Browser",
+              "offers": {
+                "@type": "Offer",
+                "price": "0",
+                "priceCurrency": "USD"
+              },
+              "creator": {
+                "@type": "Organization",
+                "name": "Exponential",
+                "url": "https://exponential.im"
+              },
+              "featureList": [
+                "AI-powered project management",
+                "GitHub integration",
+                "Task automation",
+                "Solo founder optimization",
+                "Product execution engine"
+              ]
+            })
+          }}
+        />
       </head>
       <body className="h-full w-full overflow-x-hidden">
         <ThemeProvider domain={domain}>

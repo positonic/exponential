@@ -33,6 +33,7 @@
     "@mantine/notifications": "^7.17.8",
     "@mantine/tiptap": "^7.17.8",
     "@mastra/client-js": "^0.1.17",
+    "@notionhq/client": "^4.0.1",
     "@octokit/rest": "^21.1.1",
     "@openai/realtime-api-beta": "github:simliai/openai-realtime-api-beta",
     "@prisma/client": "^5.14.0",

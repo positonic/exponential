@@ -43,6 +43,11 @@ interface MondayConfigForm {
   boardId: string;
 }
 
+interface NotionConfigForm {
+  workflowId: string;
+  databaseId: string;
+}
+
 const TASK_MANAGEMENT_TOOLS = [
   {
     value: "internal",
@@ -106,9 +111,27 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
     },
   });
 
+  // Notion configuration form
+  const notionConfigForm = useForm<NotionConfigForm>({
+    initialValues: {
+      workflowId: project.taskManagementConfig?.workflowId || '',
+      databaseId: project.taskManagementConfig?.databaseId || '',
+    },
+    validate: {
+      workflowId: (value) => !value ? 'Please select a workflow' : null,
+      databaseId: (value) => !value ? 'Database ID is required' : null,
+    },
+  });
+
   const currentTool = TASK_MANAGEMENT_TOOLS.find(tool => tool.value === (project.taskManagementTool || 'internal'));
   const mondayIntegration = integrations.find(int => int.provider === 'monday' && int.status === 'ACTIVE');
   const mondayWorkflows = workflows.filter(w => w.provider === 'monday');
+  const notionIntegration = integrations.find(int => int.provider === 'notion' && int.status === 'ACTIVE');
+  const notionWorkflows = workflows.filter(w => w.provider === 'notion');
+  
+  // Debug logging
+  console.log('All workflows:', workflows);
+  console.log('Notion workflows:', notionWorkflows);
 
   const handleToolChange = async (value: string | null) => {
     if (!value) return;
@@ -122,8 +145,19 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
       return;
     }
 
-    if (value === 'monday') {
-      // Open configuration modal for Monday.com
+    if (value === 'notion' && !notionIntegration) {
+      notifications.show({
+        title: 'Notion Integration Required',
+        message: 'Please set up a Notion integration first in the Workflows section.',
+        color: 'orange',
+      });
+      return;
+    }
+
+    if (value === 'monday' || value === 'notion') {
+      // Refresh workflows before opening modal to get latest changes
+      void utils.workflow.list.invalidate();
+      // Open configuration modal for external tools
       openConfigModal();
     } else {
       // For other tools, update directly
@@ -151,6 +185,22 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
     }
   };
 
+  const handleNotionWorkflowChange = (workflowId: string | null) => {
+    // First, update the form field
+    notionConfigForm.setFieldValue('workflowId', workflowId || '');
+
+    if (!workflowId) {
+      notionConfigForm.setFieldValue('databaseId', '');
+      return;
+    }
+
+    // Find the selected workflow and auto-populate database ID
+    const selectedWorkflow = notionWorkflows.find(w => w.id === workflowId);
+    if (selectedWorkflow?.config?.databaseId) {
+      notionConfigForm.setFieldValue('databaseId', selectedWorkflow.config.databaseId);
+    }
+  };
+
   const handleMondayConfig = async (values: MondayConfigForm) => {
     await updateTaskManagement.mutateAsync({
       id: project.id,
@@ -158,6 +208,18 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
       taskManagementConfig: {
         workflowId: values.workflowId,
         boardId: values.boardId,
+      },
+    });
+    closeConfigModal();
+  };
+
+  const handleNotionConfig = async (values: NotionConfigForm) => {
+    await updateTaskManagement.mutateAsync({
+      id: project.id,
+      taskManagementTool: 'notion',
+      taskManagementConfig: {
+        workflowId: values.workflowId,
+        databaseId: values.databaseId,
       },
     });
     closeConfigModal();
@@ -228,6 +290,28 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
             </Alert>
           )}
 
+          {project.taskManagementTool === 'notion' && (
+            <Alert
+              icon={project.taskManagementConfig?.workflowId ? <IconCheck size={16} /> : <IconAlertCircle size={16} />}
+              color={project.taskManagementConfig?.workflowId ? 'green' : 'orange'}
+              variant="light"
+            >
+              {project.taskManagementConfig?.workflowId ? (
+                <>
+                  Configured with workflow: <strong>
+                    {notionWorkflows.find(w => w.id === project.taskManagementConfig?.workflowId)?.name || 
+                     'Unknown Workflow'}
+                  </strong>
+                  {project.taskManagementConfig?.databaseId && (
+                    <> (Database: {project.taskManagementConfig.databaseId})</>
+                  )}
+                </>
+              ) : (
+                'Notion integration needs configuration'
+              )}
+            </Alert>
+          )}
+
           {/* Tool Selection */}
           <Select
             label="Task Management Tool"
@@ -246,8 +330,25 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
             <Button
               variant="light"
               leftSection={<IconSettings size={16} />}
-              onClick={openConfigModal}
+              onClick={() => {
+                void utils.workflow.list.invalidate();
+                openConfigModal();
+              }}
               disabled={!mondayIntegration}
+            >
+              {project.taskManagementConfig?.workflowId ? 'Change Workflow' : 'Select Workflow'}
+            </Button>
+          )}
+
+          {project.taskManagementTool === 'notion' && (
+            <Button
+              variant="light"
+              leftSection={<IconSettings size={16} />}
+              onClick={() => {
+                void utils.workflow.list.invalidate();
+                openConfigModal();
+              }}
+              disabled={!notionIntegration}
             >
               {project.taskManagementConfig?.workflowId ? 'Change Workflow' : 'Select Workflow'}
             </Button>
@@ -259,83 +360,159 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
               No active Monday.com integration found. Please set up the integration in the Workflows section first.
             </Alert>
           )}
+
+          {project.taskManagementTool === 'notion' && !notionIntegration && (
+            <Alert icon={<IconAlertCircle size={16} />} color="orange" variant="light">
+              No active Notion integration found. Please set up the integration in the Workflows section first.
+            </Alert>
+          )}
         </Stack>
       </Card>
 
-      {/* Monday.com Configuration Modal */}
+      {/* Configuration Modal */}
       <Modal
         opened={configModalOpened}
         onClose={closeConfigModal}
-        title="Configure Monday.com Integration"
+        title={`Configure ${project.taskManagementTool === 'monday' ? 'Monday.com' : 'Notion'} Integration`}
         size="md"
       >
-        <form onSubmit={mondayConfigForm.onSubmit(handleMondayConfig)}>
-          <Stack gap="md">
-            <Select
-              label="Monday.com Workflow"
-              placeholder="Select a workflow"
-              description="Choose which Monday.com workflow this project should use"
-              data={mondayWorkflows.map(w => ({
-                value: w.id,
-                label: w.name,
-              }))}
-              value={mondayConfigForm.values.workflowId}
-              onChange={handleWorkflowChange}
-              error={mondayConfigForm.errors.workflowId}
-              required
-            />
+        {project.taskManagementTool === 'monday' ? (
+          <form onSubmit={mondayConfigForm.onSubmit(handleMondayConfig)}>
+            <Stack gap="md">
+              <Select
+                label="Monday.com Workflow"
+                placeholder="Select a workflow"
+                description="Choose which Monday.com workflow this project should use"
+                data={mondayWorkflows.map(w => ({
+                  value: w.id,
+                  label: w.name,
+                }))}
+                value={mondayConfigForm.values.workflowId}
+                onChange={handleWorkflowChange}
+                error={mondayConfigForm.errors.workflowId}
+                required
+              />
 
-            {mondayWorkflows.length === 0 && (
-              <Alert icon={<IconAlertCircle size={16} />} color="orange" variant="light">
-                No Monday.com workflows found. You need to create a workflow first.
+              {mondayWorkflows.length === 0 && (
+                <Alert icon={<IconAlertCircle size={16} />} color="orange" variant="light">
+                  No Monday.com workflows found. You need to create a workflow first.
+                </Alert>
+              )}
+
+              <Group gap="xs" mb="sm">
+                <Button
+                  component="a"
+                  href="/workflows/monday"
+                  target="_blank"
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconExternalLink size={14} />}
+                >
+                  {mondayWorkflows.length === 0 ? 'Create Monday.com Workflow' : 'Manage Workflows'}
+                </Button>
+                <Text size="xs" c="dimmed">
+                  Opens in new tab
+                </Text>
+              </Group>
+
+              <TextInput
+                label="Board ID"
+                placeholder="Auto-populated from selected workflow"
+                description="The Monday.com board ID where tasks will be created"
+                required
+                readOnly
+                {...mondayConfigForm.getInputProps('boardId')}
+              />
+
+              <Alert icon={<IconCalendarEvent size={16} />} color="blue" variant="light">
+                This configuration will be used when syncing action items from meetings to your Monday.com board. 
+                The board ID is automatically populated from the selected workflow configuration.
               </Alert>
-            )}
 
-            <Group gap="xs" mb="sm">
-              <Button
-                component="a"
-                href="/workflows/monday"
-                target="_blank"
-                size="xs"
-                variant="light"
-                leftSection={<IconExternalLink size={14} />}
-              >
-                {mondayWorkflows.length === 0 ? 'Create Monday.com Workflow' : 'Manage Workflows'}
-              </Button>
-              <Text size="xs" c="dimmed">
-                Opens in new tab
-              </Text>
-            </Group>
+              <Group justify="flex-end">
+                <Button variant="light" onClick={closeConfigModal}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  loading={updateTaskManagement.isPending}
+                  leftSection={<IconCheck size={16} />}
+                  disabled={!mondayConfigForm.values.workflowId || !mondayConfigForm.values.boardId}
+                >
+                  Save Configuration
+                </Button>
+              </Group>
+            </Stack>
+          </form>
+        ) : (
+          <form onSubmit={notionConfigForm.onSubmit(handleNotionConfig)}>
+            <Stack gap="md">
+              <Select
+                label="Notion Workflow"
+                placeholder="Select a workflow"
+                description="Choose which Notion workflow this project should use"
+                data={notionWorkflows.map(w => ({
+                  value: w.id,
+                  label: w.name,
+                }))}
+                value={notionConfigForm.values.workflowId}
+                onChange={handleNotionWorkflowChange}
+                error={notionConfigForm.errors.workflowId}
+                required
+              />
 
-            <TextInput
-              label="Board ID"
-              placeholder="Auto-populated from selected workflow"
-              description="The Monday.com board ID where tasks will be created"
-              required
-              readOnly
-              {...mondayConfigForm.getInputProps('boardId')}
-            />
+              {notionWorkflows.length === 0 && (
+                <Alert icon={<IconAlertCircle size={16} />} color="orange" variant="light">
+                  No Notion workflows found. You need to create a workflow first.
+                </Alert>
+              )}
 
-            <Alert icon={<IconCalendarEvent size={16} />} color="blue" variant="light">
-              This configuration will be used when syncing action items from meetings to your Monday.com board. 
-              The board ID is automatically populated from the selected workflow configuration.
-            </Alert>
+              <Group gap="xs" mb="sm">
+                <Button
+                  component="a"
+                  href="/workflows/notion"
+                  target="_blank"
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconExternalLink size={14} />}
+                >
+                  {notionWorkflows.length === 0 ? 'Create Notion Workflow' : 'Manage Workflows'}
+                </Button>
+                <Text size="xs" c="dimmed">
+                  Opens in new tab
+                </Text>
+              </Group>
 
-            <Group justify="flex-end">
-              <Button variant="light" onClick={closeConfigModal}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                loading={updateTaskManagement.isPending}
-                leftSection={<IconCheck size={16} />}
-                disabled={!mondayConfigForm.values.workflowId || !mondayConfigForm.values.boardId}
-              >
-                Save Configuration
-              </Button>
-            </Group>
-          </Stack>
-        </form>
+              <TextInput
+                label="Database ID"
+                placeholder="Auto-populated from selected workflow"
+                description="The Notion database ID where tasks will be created"
+                required
+                readOnly
+                {...notionConfigForm.getInputProps('databaseId')}
+              />
+
+              <Alert icon={<IconDatabase size={16} />} color="blue" variant="light">
+                This configuration will be used when syncing action items from meetings to your Notion database. 
+                The database ID is automatically populated from the selected workflow configuration.
+              </Alert>
+
+              <Group justify="flex-end">
+                <Button variant="light" onClick={closeConfigModal}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  loading={updateTaskManagement.isPending}
+                  leftSection={<IconCheck size={16} />}
+                  disabled={!notionConfigForm.values.workflowId || !notionConfigForm.values.databaseId}
+                >
+                  Save Configuration
+                </Button>
+              </Group>
+            </Stack>
+          </form>
+        )}
       </Modal>
     </>
   );

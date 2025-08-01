@@ -101,20 +101,64 @@ async function fetchNotionDatabases(accessToken: string): Promise<{ success: boo
 
     const data = await response.json();
     
-    const databases = data.results.map((db: any) => ({
-      id: db.id,
-      title: db.title?.[0]?.plain_text || 'Untitled Database',
-      permissions: [
-        db.is_inline ? 'inline' : 'full_page',
-        ...(db.archived ? ['archived'] : []),
-        'read',
-        ...(db.parent?.type === 'workspace' ? ['workspace'] : ['page']),
-      ]
-    }));
-
+    // Fetch properties for each database
+    const databasesWithProperties = await Promise.all(
+      data.results.map(async (db: any) => {
+        try {
+          // Fetch the database schema to get properties
+          const dbResponse = await fetch(`https://api.notion.com/v1/databases/${db.id}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Notion-Version': '2022-06-28',
+            },
+          });
+          
+          if (!dbResponse.ok) {
+            console.error(`Failed to fetch database ${db.id} properties`);
+            return {
+              id: db.id,
+              title: db.title?.[0]?.plain_text || 'Untitled Database',
+              url: db.url,
+              properties: {},
+            };
+          }
+          
+          const dbData = await dbResponse.json();
+          
+          // Transform properties to a simpler format
+          const properties: Record<string, any> = {};
+          if (dbData.properties) {
+            Object.entries(dbData.properties).forEach(([key, prop]: [string, any]) => {
+              properties[key] = {
+                id: prop.id,
+                name: prop.name,
+                type: prop.type,
+              };
+            });
+          }
+          
+          return {
+            id: db.id,
+            title: db.title?.[0]?.plain_text || 'Untitled Database',
+            url: db.url,
+            properties,
+          };
+        } catch (error) {
+          console.error(`Error fetching database ${db.id}:`, error);
+          return {
+            id: db.id,
+            title: db.title?.[0]?.plain_text || 'Untitled Database',
+            url: db.url,
+            properties: {},
+          };
+        }
+      })
+    );
+    
     return { 
       success: true, 
-      databases
+      databases: databasesWithProperties
     };
   } catch (error) {
     console.error('Notion databases fetch error:', error);

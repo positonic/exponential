@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { ActionProcessorFactory } from "~/server/services/processors/ActionProcessorFactory";
 import { MondayService } from "~/server/services/MondayService";
+import { NotionService } from "~/server/services/NotionService";
 
 // Test Notion connection and sync data
 async function syncNotionTasks(accessToken: string, databaseId: string) {
@@ -114,6 +115,7 @@ export const workflowRouter = createTRPCRouter({
           integrationId: input.integrationId,
           userId: ctx.session.user.id,
           projectId: input.projectId,
+          status: 'ACTIVE',
         },
         include: {
           integration: true,
@@ -581,6 +583,177 @@ export const workflowRouter = createTRPCRouter({
             success: true,
             runId: run.id,
             itemsProcessed: mondayCompatibleActions.length,
+            itemsCreated,
+            itemsUpdated: 0,
+            itemsSkipped,
+          };
+        } else if (workflow.provider === 'notion' && workflow.syncDirection === 'push') {
+          // Notion workflow - push actions to Notion database
+          const config = workflow.config as { 
+            databaseId: string; 
+            propertyMappings?: Record<string, string>;
+            source?: 'fireflies' | 'internal' | 'all';
+          };
+          
+          const accessToken = workflow.integration.credentials.find(
+            c => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+          )?.key;
+
+          if (!accessToken) {
+            throw new Error('No access token found for Notion integration');
+          }
+
+          if (!config.databaseId) {
+            throw new Error('No database ID configured for workflow');
+          }
+
+          // Initialize Notion service
+          const notionService = new NotionService(accessToken);
+
+          // Get actions to sync based on configuration
+          let actionsQuery: any = {
+            createdById: ctx.session.user.id,
+            status: {
+              not: 'COMPLETED',
+            },
+          };
+
+          // Apply source filtering
+          if (config.source === 'fireflies') {
+            actionsQuery.transcriptionSessionId = {
+              not: null,
+            };
+          } else if (config.source === 'internal') {
+            actionsQuery.transcriptionSessionId = null;
+          }
+          // 'all' means no additional filtering
+
+          // Only get actions from projects configured for Notion
+          const notionProjects = await ctx.db.project.findMany({
+            where: {
+              createdById: ctx.session.user.id,
+              taskManagementTool: 'notion',
+            },
+            select: { id: true }
+          });
+
+          const projectIds = notionProjects.map(p => p.id);
+          if (projectIds.length > 0) {
+            actionsQuery.projectId = {
+              in: projectIds,
+            };
+          } else {
+            // No projects configured for Notion, but allow project-less actions
+            actionsQuery.OR = [
+              { projectId: null },
+              { projectId: { in: [] } } // Empty array means no projects match
+            ];
+          }
+
+          const actions = await ctx.db.action.findMany({
+            where: actionsQuery,
+            include: {
+              project: true,
+              transcriptionSession: true,
+            },
+            orderBy: {
+              dueDate: 'asc',
+            },
+          });
+
+          console.log(`Found ${actions.length} actions to sync to Notion`);
+          console.log('Project filtering:', {
+            notionProjectIds: projectIds,
+            totalActions: actions.length,
+            source: config.source
+          });
+
+          let itemsCreated = 0;
+          let itemsSkipped = 0;
+
+          for (const action of actions) {
+            try {
+              // Check if action was already synced to Notion (simple check by name)
+              // In a production system, you'd want to store Notion page IDs
+              
+              // Transform action to Notion page format
+              const properties: Record<string, any> = {};
+              
+              // Map fields based on configuration
+              if (config.propertyMappings?.priority && action.priority) {
+                const priorityMapping: Record<string, string> = {
+                  'Quick': 'High',
+                  '1st Priority': 'High',
+                  '2nd Priority': 'Medium', 
+                  '3rd Priority': 'Low',
+                  'Someday Maybe': 'Low',
+                };
+                const notionPriority = priorityMapping[action.priority] || action.priority;
+                properties[config.propertyMappings.priority] = NotionService.formatPropertyValue('select', notionPriority);
+              }
+
+              if (config.propertyMappings?.dueDate && action.dueDate) {
+                properties[config.propertyMappings.dueDate] = NotionService.formatPropertyValue('date', action.dueDate);
+              }
+
+              if (config.propertyMappings?.description) {
+                let description = action.description || '';
+                if (action.transcriptionSession) {
+                  description += `\n\nFrom meeting: ${action.transcriptionSession.title || 'Untitled'}`;
+                }
+                if (action.project) {
+                  description += `\n\nProject: ${action.project.name}`;
+                }
+                properties[config.propertyMappings.description] = NotionService.formatPropertyValue('rich_text', description);
+              }
+
+              // Create page in Notion database
+              const createdPage = await notionService.createPage({
+                databaseId: config.databaseId,
+                title: action.name,
+                properties,
+                titleProperty: config.propertyMappings?.title,
+              });
+
+              itemsCreated++;
+
+              console.log(`Created Notion page: ${createdPage.title} (ID: ${createdPage.id})`);
+
+            } catch (error) {
+              console.error(`Failed to create Notion page for action ${action.id}:`, error);
+              itemsSkipped++;
+              // Continue processing other actions
+            }
+          }
+
+          // Update run with success
+          await ctx.db.workflowRun.update({
+            where: { id: run.id },
+            data: {
+              status: 'COMPLETED',
+              completedAt: new Date(),
+              metadata: {
+                itemsProcessed: actions.length,
+                itemsCreated: itemsCreated,
+                itemsSkipped: itemsSkipped,
+                databaseId: config.databaseId,
+                source: config.source || 'all',
+                totalActionsFound: actions.length,
+                notionCompatibleActions: actions.length,
+              },
+            },
+          });
+
+          // Update workflow last run time
+          await ctx.db.workflow.update({
+            where: { id: workflow.id },
+            data: { lastRunAt: new Date() },
+          });
+
+          return {
+            success: true,
+            runId: run.id,
+            itemsProcessed: actions.length,
             itemsCreated,
             itemsUpdated: 0,
             itemsSkipped,

@@ -128,7 +128,7 @@ export const ProductRoadmapSection: React.FC<ProductRoadmapSectionProps> = ({ id
     <section id={id} className="w-full py-24 bg-[#0e1525]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-16 text-center">
-          <Title className="text-4xl md:text-5xl font-bold mb-6" style={{ color: "#a78bfa" }}>
+          <Title order={2} className="text-4xl md:text-5xl font-bold mb-6" style={{ color: "#a78bfa" }}>
             Product Roadmap
           </Title>
           <p className="text-gray-300 text-lg mb-8 max-w-[60%] mx-auto">

@@ -44,7 +44,9 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     onSuccess: (data) => {
       setSyncingToIntegration(false);
       
-      const integrationName = project?.taskManagementTool === 'monday' ? 'Monday.com' : project?.taskManagementTool;
+      const integrationName = project?.taskManagementTool === 'monday' ? 'Monday.com' : 
+                             project?.taskManagementTool === 'notion' ? 'Notion' : 
+                             project?.taskManagementTool;
       const itemsCreated = data.itemsCreated || 0;
       const itemsSkipped = data.itemsSkipped || 0;
       const totalProcessed = data.itemsProcessed || 0;
@@ -197,12 +199,15 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               <Button
                 variant="light"
                 size="sm"
-                color={project.taskManagementTool === 'monday' ? 'orange' : 'blue'}
+                color={project.taskManagementTool === 'monday' ? 'orange' : 
+                      project.taskManagementTool === 'notion' ? 'gray' : 'blue'}
                 loading={syncingToIntegration}
                 onClick={handleSyncToIntegration}
                 leftSection={<IconUpload size={16} />}
               >
-                Sync to {project.taskManagementTool === 'monday' ? 'Monday.com' : project.taskManagementTool}
+                Sync to {project.taskManagementTool === 'monday' ? 'Monday.com' : 
+                         project.taskManagementTool === 'notion' ? 'Notion' : 
+                         project.taskManagementTool}
               </Button>
             )}
             {displayAlignment && (

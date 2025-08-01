@@ -16,6 +16,7 @@ import {
   Accordion,
   List,
   Card,
+  Checkbox,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
@@ -53,7 +54,8 @@ export function MeetingsContent() {
   const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
   const [updatingActions, setUpdatingActions] = useState<string | null>(null); // transcriptionId being updated
   const [successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message
-  const [syncingToMonday, setSyncingToMonday] = useState<string | null>(null); // transcriptionId being synced to Monday.com
+  const [syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
+  const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set()); // For manual action selection
   
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery();
   const { data: projects } = api.project.getAll.useQuery();
@@ -92,31 +94,44 @@ export function MeetingsContent() {
     },
   });
 
-  const syncToMondayMutation = api.workflow.run.useMutation({
+  const syncToIntegrationMutation = api.workflow.run.useMutation({
     onSuccess: (data, variables) => {
       const workflowId = variables.id;
-      setSyncingToMonday(null);
+      setSyncingToIntegration(null);
       
-      // Find which transcription this sync was for (we'll need to track this)
-      const message = `Successfully synced ${data.itemsCreated} actions to Monday.com`;
+      // Find the workflow to get the provider name
+      const workflow = workflows.find(w => w.id === workflowId);
+      const providerName = workflow?.provider === 'monday' ? 'Monday.com' : 
+                          workflow?.provider === 'notion' ? 'Notion' : 
+                          workflow?.provider;
       
-      // Set success message - we'll use a different approach to track which meeting this was for
-      setSuccessMessages(prev => ({ ...prev, [`monday-${workflowId}`]: message }));
+      const message = `Successfully synced ${data.itemsCreated} actions to ${providerName}`;
+      
+      // Set success message
+      setSuccessMessages(prev => ({ ...prev, [`sync-${workflowId}`]: message }));
       
       // Fade out the message after 3 seconds
       setTimeout(() => {
         setSuccessMessages(prev => {
           const newMessages = { ...prev };
-          delete newMessages[`monday-${workflowId}`];
+          delete newMessages[`sync-${workflowId}`];
           return newMessages;
         });
       }, 3000);
     },
-    onError: (error) => {
-      setSyncingToMonday(null);
+    onError: (error, variables) => {
+      setSyncingToIntegration(null);
+      
+      // Find the workflow to get the provider name for error message
+      const workflowId = variables.id;
+      const workflow = workflows.find(w => w.id === workflowId);
+      const providerName = workflow?.provider === 'monday' ? 'Monday.com' : 
+                          workflow?.provider === 'notion' ? 'Notion' : 
+                          workflow?.provider;
+      
       notifications.show({
-        title: 'Monday.com Sync Failed',
-        message: error.message || 'Failed to sync to Monday.com',
+        title: `${providerName} Sync Failed`,
+        message: error.message || `Failed to sync to ${providerName}`,
         color: 'red',
       });
     },
@@ -142,45 +157,153 @@ export function MeetingsContent() {
     updateActionsProjectMutation.mutate({ transcriptionSessionId, projectId });
   };
 
-  const handleSyncToMonday = (session: any) => {
-    if (!session.project || session.project.taskManagementTool !== 'monday') {
+  const handleSyncToIntegration = (session: any) => {
+    if (!session.project || !session.project.taskManagementTool || session.project.taskManagementTool === 'internal') {
       notifications.show({
         title: 'Configuration Error',
-        message: 'Project is not configured to use Monday.com for task management',
+        message: 'Project is not configured to use an external task management tool',
         color: 'orange',
       });
       return;
     }
+
+    const toolName = session.project.taskManagementTool === 'monday' ? 'Monday.com' : 
+                    session.project.taskManagementTool === 'notion' ? 'Notion' : 
+                    session.project.taskManagementTool;
 
     // Get the workflow ID from project configuration
     const workflowId = session.project.taskManagementConfig?.workflowId;
     if (!workflowId) {
       notifications.show({
         title: 'Configuration Missing',
-        message: 'No Monday.com workflow configured for this project. Please configure it in project settings.',
+        message: `No ${toolName} workflow configured for this project. Please configure it in project settings.`,
         color: 'orange',
       });
       return;
     }
 
     // Verify the workflow exists and is active
-    const mondayWorkflow = workflows.find(w => 
+    const workflow = workflows.find(w => 
       w.id === workflowId && 
-      w.provider === 'monday' && 
+      w.provider === session.project.taskManagementTool && 
       w.status === 'ACTIVE'
     );
 
-    if (!mondayWorkflow) {
+    if (!workflow) {
       notifications.show({
         title: 'Workflow Not Found',
-        message: 'The configured Monday.com workflow is no longer available or active.',
+        message: `The configured ${toolName} workflow is no longer available or active.`,
         color: 'orange',
       });
       return;
     }
 
-    setSyncingToMonday(session.id);
-    syncToMondayMutation.mutate({ id: workflowId });
+    setSyncingToIntegration(session.id);
+    syncToIntegrationMutation.mutate({ id: workflowId });
+  };
+
+  const handleSendToNotion = () => {
+    console.log('handleSendToNotion called');
+    console.log('selectedTranscription:', selectedTranscription);
+    console.log('selectedActionIds:', selectedActionIds);
+    
+    if (!selectedTranscription || selectedActionIds.size === 0) return;
+
+    // Check if there's a project assigned
+    if (!selectedTranscription.project) {
+      notifications.show({
+        title: 'No Project Assigned',
+        message: 'Please assign a project to this transcription first',
+        color: 'orange',
+      });
+      return;
+    }
+
+    console.log('Project task management tool:', selectedTranscription.project.taskManagementTool);
+    console.log('Project task management config:', selectedTranscription.project.taskManagementConfig);
+
+    // Check if project is configured for Notion
+    if (selectedTranscription.project.taskManagementTool !== 'notion') {
+      const currentTool = selectedTranscription.project.taskManagementTool || 'internal';
+      notifications.show({
+        title: 'Project Not Configured for Notion',
+        message: `This project is currently set to use "${currentTool}" task management. To send actions to Notion, go to project settings and change the task management tool to "Notion".`,
+        color: 'orange',
+      });
+      return;
+    }
+
+    // Get the workflow ID from project configuration
+    const workflowId = selectedTranscription.project.taskManagementConfig?.workflowId;
+    console.log('Workflow ID from project:', workflowId);
+    
+    if (!workflowId) {
+      notifications.show({
+        title: 'No Notion Workflow',
+        message: 'No Notion workflow configured for this project. Please configure it in project settings.',
+        color: 'orange',
+      });
+      return;
+    }
+
+    // Find the workflow
+    const workflow = workflows.find(w => 
+      w.id === workflowId && 
+      w.provider === 'notion' && 
+      w.status === 'ACTIVE'
+    );
+
+    console.log('Found workflow:', workflow);
+    console.log('All workflows:', workflows);
+
+    if (!workflow) {
+      notifications.show({
+        title: 'Workflow Not Found',
+        message: 'The configured Notion workflow is no longer available or active.',
+        color: 'orange',
+      });
+      return;
+    }
+
+    // Show immediate feedback
+    notifications.show({
+      title: 'Sending to Notion',
+      message: `Sending ${selectedActionIds.size} actions to Notion...`,
+      color: 'blue',
+      loading: true,
+      id: 'notion-sync',
+    });
+
+    // TODO: Implement API call to send specific actions to Notion
+    // For now, we'll use the existing sync mechanism which syncs all actions
+    setSyncingToIntegration(selectedTranscription.id);
+    
+    syncToIntegrationMutation.mutate(
+      { id: workflowId },
+      {
+        onSuccess: (data) => {
+          notifications.update({
+            id: 'notion-sync',
+            title: 'Success!',
+            message: `Successfully sent ${data.itemsCreated} actions to Notion`,
+            color: 'green',
+            loading: false,
+          });
+          // Clear selection after successful sending
+          setSelectedActionIds(new Set());
+        },
+        onError: (error) => {
+          notifications.update({
+            id: 'notion-sync',
+            title: 'Failed to send to Notion',
+            message: error.message || 'An error occurred while sending actions to Notion',
+            color: 'red',
+            loading: false,
+          });
+          setSyncingToIntegration(null);
+        },
+      }
+    );
   };
 
   if (isLoading) {
@@ -362,20 +485,23 @@ export function MeetingsContent() {
                                     </Button>
                                   )}
 
-                                  {/* Sync to Monday.com Button */}
-                                  {session.project && session.project.taskManagementTool === 'monday' && session.actions && session.actions.length > 0 && (
+                                  {/* Sync to Integration Button */}
+                                  {session.project && session.project.taskManagementTool && session.project.taskManagementTool !== 'internal' && session.actions && session.actions.length > 0 && (
                                     <Button
                                       size="xs"
                                       variant="light"
-                                      color="orange"
-                                      loading={syncingToMonday === session.id}
+                                      color={session.project.taskManagementTool === 'monday' ? 'orange' : 
+                                             session.project.taskManagementTool === 'notion' ? 'gray' : 'blue'}
+                                      loading={syncingToIntegration === session.id}
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        handleSyncToMonday(session);
+                                        handleSyncToIntegration(session);
                                       }}
                                       leftSection={<IconCalendarEvent size={12} />}
                                     >
-                                      Sync to Monday.com
+                                      Sync to {session.project.taskManagementTool === 'monday' ? 'Monday.com' : 
+                                               session.project.taskManagementTool === 'notion' ? 'Notion' : 
+                                               session.project.taskManagementTool}
                                     </Button>
                                   )}
                                   
@@ -385,9 +511,10 @@ export function MeetingsContent() {
                                       {successMessages[session.id]}
                                     </Text>
                                   )}
-                                  {successMessages[`monday-${session.id}`] && syncingToMonday !== session.id && (
+                                  {/* Success Messages for Sync */}
+                                  {session.project?.taskManagementConfig && (session.project.taskManagementConfig as any)?.workflowId && successMessages[`sync-${(session.project.taskManagementConfig as any).workflowId}`] && syncingToIntegration !== session.id && (
                                     <Text size="xs" c="green" fw={500}>
-                                      {successMessages[`monday-${session.id}`]}
+                                      {successMessages[`sync-${(session.project.taskManagementConfig as any).workflowId}`]}
                                     </Text>
                                   )}
                                 </Group>
@@ -463,7 +590,10 @@ export function MeetingsContent() {
       {/* Transcription Details Drawer */}
       <Drawer
         opened={drawerOpened}
-        onClose={() => setDrawerOpened(false)}
+        onClose={() => {
+          setDrawerOpened(false);
+          setSelectedActionIds(new Set()); // Clear selection when drawer closes
+        }}
         title="Transcription Details"
         position="right"
         size="lg"
@@ -538,19 +668,74 @@ export function MeetingsContent() {
                   </Accordion.Control>
                   <Accordion.Panel>
                     <Stack gap="sm">
-                      <Button size="xs" variant="light" style={{ alignSelf: 'flex-start' }}>
-                        Create Action
-                      </Button>
+                      <Group justify="space-between">
+                        <Button size="xs" variant="light">
+                          Create Action
+                        </Button>
+                        {selectedActionIds.size > 0 && (
+                          <Button 
+                            size="xs" 
+                            variant="filled"
+                            color="gray"
+                            onClick={() => handleSendToNotion()}
+                            loading={syncingToIntegration === selectedTranscription?.id}
+                          >
+                            Send {selectedActionIds.size} to Notion
+                          </Button>
+                        )}
+                      </Group>
                       {selectedTranscription.actions && selectedTranscription.actions.length > 0 ? (
-                        <ActionList 
-                          viewName="transcription-actions" 
-                          actions={selectedTranscription.actions.map((action: any) => ({
-                            ...action,
-                            dueDate: action.dueDate ? new Date(action.dueDate) : null,
-                            createdAt: new Date(action.createdAt),
-                            updatedAt: new Date(action.updatedAt),
-                          }))}
-                        />
+                        <Stack gap="xs">
+                          {selectedTranscription.actions.map((action: any) => (
+                            <Paper
+                              key={action.id}
+                              p="sm"
+                              radius="sm"
+                              withBorder
+                              className="hover:shadow-sm transition-shadow"
+                            >
+                              <Group>
+                                <Checkbox
+                                  checked={selectedActionIds.has(action.id)}
+                                  onChange={(event) => {
+                                    const newSelectedIds = new Set(selectedActionIds);
+                                    if (event.currentTarget.checked) {
+                                      newSelectedIds.add(action.id);
+                                    } else {
+                                      newSelectedIds.delete(action.id);
+                                    }
+                                    setSelectedActionIds(newSelectedIds);
+                                  }}
+                                />
+                                <Stack gap={4} style={{ flex: 1 }}>
+                                  <Text size="sm" fw={500}>
+                                    {action.name}
+                                  </Text>
+                                  {action.description && (
+                                    <Text size="xs" c="dimmed">
+                                      {action.description}
+                                    </Text>
+                                  )}
+                                  <Group gap="xs">
+                                    {action.priority && (
+                                      <Badge size="xs" variant="light" color="blue">
+                                        {action.priority}
+                                      </Badge>
+                                    )}
+                                    {action.dueDate && (
+                                      <Badge size="xs" variant="light" color="red">
+                                        Due: {new Date(action.dueDate).toLocaleDateString()}
+                                      </Badge>
+                                    )}
+                                    <Badge size="xs" variant="light" color={action.status === 'COMPLETED' ? 'green' : 'gray'}>
+                                      {action.status}
+                                    </Badge>
+                                  </Group>
+                                </Stack>
+                              </Group>
+                            </Paper>
+                          ))}
+                        </Stack>
                       ) : (
                         <Text size="sm" c="dimmed" ta="center" py="md">
                           No actions associated with this transcription yet.

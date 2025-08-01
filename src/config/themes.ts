@@ -70,8 +70,8 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
         }
       },
     branding: {
-      title: 'Exponential',
-      description: 'Scale Your Impact, Multiply Your Results.',
+      title: 'Exponential - AI-Powered Productivity Platform for Solo Founders',
+      description: 'Turn your ideas into working products faster with Exponential. AI-powered project management, task automation, and GitHub integration designed for solo entrepreneurs and founders.',
       descriptionLonger: 'Transform your productivity with Exponential - an AI-powered personal management system that helps you organize tasks, track projects, and make better decisions. Features smart project management, semantic search, and intelligent insights.',
       heroTitle: 'Turn Linear Progress into Exponential Growth',
       heroSubtitle: 'AI-powered system for exponential personal and professional growth.'

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Container, Title, Text, Button, Card, Group, Stack, ThemeIcon, Badge, Alert, Modal, TextInput, Select, Textarea, Paper, Accordion, List, Table } from '@mantine/core';
-import { IconDatabase, IconArrowRight, IconCheck, IconAlertCircle, IconPlus, IconBrandNotion, IconExternalLink } from '@tabler/icons-react';
+import { IconDatabase, IconArrowRight, IconCheck, IconAlertCircle, IconPlus, IconBrandNotion, IconExternalLink, IconEdit, IconTrash } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
@@ -20,14 +20,37 @@ interface NotionWorkflowForm {
   databaseId: string;
   syncDirection: 'push' | 'pull' | 'bidirectional';
   syncFrequency: 'manual' | 'hourly' | 'daily' | 'weekly';
-  description?: string;
+  source: 'fireflies' | 'internal' | 'all';
+  propertyMappings: {
+    title?: string;
+    assignee?: string;
+    dueDate?: string;
+    priority?: string;
+    description?: string;
+  };
+}
+
+interface NotionDatabase {
+  id: string;
+  title: string;
+  url: string;
+  properties?: Record<string, NotionProperty>;
+}
+
+interface NotionProperty {
+  id: string;
+  name: string;
+  type: string;
 }
 
 export default function NotionWorkflowPage() {
   const [integrationModalOpened, { open: openIntegrationModal, close: closeIntegrationModal }] = useDisclosure(false);
   const [workflowModalOpened, { open: openWorkflowModal, close: closeWorkflowModal }] = useDisclosure(false);
+  const [editWorkflowModalOpened, { open: openEditWorkflowModal, close: closeEditWorkflowModal }] = useDisclosure(false);
   const [databasesModalOpened, { open: openDatabasesModal, close: closeDatabasesModal }] = useDisclosure(false);
-  const [databases, setDatabases] = useState<Array<{ id: string; title: string; permissions: string[] }>>([]);
+  const [databases, setDatabases] = useState<NotionDatabase[]>([]);
+  const [selectedDatabase, setSelectedDatabase] = useState<NotionDatabase | null>(null);
+  const [editingWorkflow, setEditingWorkflow] = useState<any>(null);
   
   // API calls for checking configuration status
   const { data: integrations = [] } = api.integration.listIntegrations.useQuery();
@@ -39,6 +62,15 @@ export default function NotionWorkflowPage() {
     onSuccess: (data) => {
       if (data.success && data.databases) {
         setDatabases(data.databases);
+        
+        // If we're editing a workflow and have a databaseId, set the selected database
+        if (editingWorkflow && editingWorkflow.config?.databaseId) {
+          const currentDatabase = data.databases.find(db => db.id === editingWorkflow.config.databaseId);
+          if (currentDatabase) {
+            setSelectedDatabase(currentDatabase);
+          }
+        }
+        
         openDatabasesModal();
       } else {
         notifications.show({
@@ -94,20 +126,54 @@ export default function NotionWorkflowPage() {
 
   const workflowForm = useForm<NotionWorkflowForm>({
     initialValues: {
-      name: 'Task Management Sync',
+      name: 'Actions → Notion Sync',
       databaseId: '',
-      syncDirection: 'bidirectional',
-      syncFrequency: 'daily',
-      description: 'Sync tasks between your application and Notion database',
+      syncDirection: 'push',
+      syncFrequency: 'manual',
+      source: 'fireflies',
+      propertyMappings: {
+        title: '',
+        assignee: '',
+        dueDate: '',
+        priority: '',
+        description: '',
+      },
     },
     validate: {
       name: (value) => value.trim().length === 0 ? 'Workflow name is required' : null,
-      databaseId: (value) => value.trim().length === 0 ? 'Database ID is required' : null,
+      databaseId: (value) => value.trim().length === 0 ? 'Database selection is required' : null,
+    },
+  });
+
+  const editWorkflowForm = useForm<NotionWorkflowForm>({
+    initialValues: {
+      name: '',
+      databaseId: '',
+      syncDirection: 'push',
+      syncFrequency: 'manual',
+      source: 'fireflies',
+      propertyMappings: {
+        title: '',
+        assignee: '',
+        dueDate: '',
+        priority: '',
+        description: '',
+      },
+    },
+    validate: {
+      name: (value) => value.trim().length === 0 ? 'Workflow name is required' : null,
+      databaseId: (value) => value.trim().length === 0 ? 'Database selection is required' : null,
     },
   });
 
   // Check if Notion integration exists
   const hasNotionIntegration = integrations.some(integration => 
+    integration.provider === 'notion' && 
+    integration.status === 'ACTIVE'
+  );
+
+  // Get the active Notion integration
+  const notionIntegration = integrations.find(integration => 
     integration.provider === 'notion' && 
     integration.status === 'ACTIVE'
   );
@@ -148,11 +214,6 @@ export default function NotionWorkflowPage() {
   };
 
   const handleTestDatabases = () => {
-    const notionIntegration = integrations.find(integration => 
-      integration.provider === 'notion' && 
-      integration.status === 'ACTIVE'
-    );
-    
     if (notionIntegration) {
       testConnection.mutate({ integrationId: notionIntegration.id });
     }
@@ -168,6 +229,7 @@ export default function NotionWorkflowPage() {
       });
       closeWorkflowModal();
       workflowForm.reset();
+      setSelectedDatabase(null);
       void utils.workflow.list.invalidate();
     },
     onError: (error) => {
@@ -179,12 +241,49 @@ export default function NotionWorkflowPage() {
     },
   });
 
+  // Update workflow mutation
+  const updateWorkflow = api.workflow.update.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Workflow Updated',
+        message: 'Your Notion workflow has been updated successfully.',
+        color: 'green',
+      });
+      closeEditWorkflowModal();
+      editWorkflowForm.reset();
+      setEditingWorkflow(null);
+      setSelectedDatabase(null);
+      void utils.workflow.list.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to update workflow',
+        color: 'red',
+      });
+    },
+  });
+
+  // Delete workflow mutation
+  const deleteWorkflow = api.workflow.delete.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Workflow Deleted',
+        message: 'Your Notion workflow has been deleted successfully.',
+        color: 'green',
+      });
+      void utils.workflow.list.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to delete workflow',
+        color: 'red',
+      });
+    },
+  });
+
   const handleCreateWorkflow = async (values: NotionWorkflowForm) => {
-    const notionIntegration = integrations.find(integration => 
-      integration.provider === 'notion' && 
-      integration.status === 'ACTIVE'
-    );
-    
     if (!notionIntegration) {
       notifications.show({
         title: 'Error',
@@ -203,9 +302,119 @@ export default function NotionWorkflowPage() {
       integrationId: notionIntegration.id,
       config: {
         databaseId: values.databaseId,
+        source: values.source,
+        propertyMappings: values.propertyMappings,
       },
       description: values.description,
     });
+  };
+
+  const handleUpdateWorkflow = async (values: NotionWorkflowForm) => {
+    if (!editingWorkflow) {
+      notifications.show({
+        title: 'Error',
+        message: 'No workflow selected for editing',
+        color: 'red',
+      });
+      return;
+    }
+
+    await updateWorkflow.mutateAsync({
+      id: editingWorkflow.id,
+      name: values.name,
+      syncDirection: values.syncDirection,
+      syncFrequency: values.syncFrequency,
+      config: {
+        databaseId: values.databaseId,
+        source: values.source,
+        propertyMappings: values.propertyMappings,
+      },
+    });
+  };
+
+  const handleEditWorkflow = (workflow: any) => {
+    setEditingWorkflow(workflow);
+    editWorkflowForm.setValues({
+      name: workflow.name,
+      databaseId: workflow.config?.databaseId || '',
+      syncDirection: workflow.syncDirection || 'push',
+      syncFrequency: workflow.syncFrequency || 'manual',
+      source: workflow.config?.source || 'fireflies',
+      propertyMappings: {
+        title: workflow.config?.propertyMappings?.title || '',
+        assignee: workflow.config?.propertyMappings?.assignee || '',
+        dueDate: workflow.config?.propertyMappings?.dueDate || '',
+        priority: workflow.config?.propertyMappings?.priority || '',
+        description: workflow.config?.propertyMappings?.description || '',
+      },
+    });
+    
+    // If we have a databaseId, try to fetch databases and set selected database
+    if (workflow.config?.databaseId) {
+      if (notionIntegration) {
+        testConnection.mutate({ integrationId: notionIntegration.id });
+      }
+    }
+    
+    openEditWorkflowModal();
+  };
+
+  const handleDeleteWorkflow = (workflowId: string, workflowName: string) => {
+    if (confirm(`Are you sure you want to delete the workflow "${workflowName}"?`)) {
+      deleteWorkflow.mutate({ id: workflowId });
+    }
+  };
+
+  const handleSelectDatabase = (database: NotionDatabase) => {
+    setSelectedDatabase(database);
+    
+    // If we're editing a workflow, update the form
+    if (editingWorkflow) {
+      editWorkflowForm.setFieldValue('databaseId', database.id);
+    } else {
+      // For new workflows, update the workflow form
+      workflowForm.setFieldValue('databaseId', database.id);
+    }
+    
+    // Close the databases modal
+    closeDatabasesModal();
+    
+    notifications.show({
+      title: 'Database Selected',
+      message: `Selected database: ${database.title}`,
+      color: 'green',
+    });
+  };
+
+  // Helper function to get property options by type
+  const getPropertyOptions = (type: string) => {
+    if (!selectedDatabase || !selectedDatabase.properties) return [];
+    
+    console.log('Getting properties for type:', type);
+    console.log('Available properties:', selectedDatabase.properties);
+    
+    // Define type mappings
+    let typesToCheck: string[] = [];
+    switch (type) {
+      case 'person':
+        typesToCheck = ['person', 'people'];
+        break;
+      case 'text':
+        typesToCheck = ['rich_text', 'text'];
+        break;
+      case 'title':
+        typesToCheck = ['title'];
+        break;
+      default:
+        typesToCheck = [type];
+    }
+    
+    return Object.entries(selectedDatabase.properties)
+      .filter(([_, prop]) => typesToCheck.includes(prop.type))
+      .map(([key, prop]) => ({
+        value: key,
+        label: `${prop.name} (${prop.type})`,
+      }));
   };
 
   return (
@@ -257,15 +466,28 @@ export default function NotionWorkflowPage() {
 
           {/* Configuration Status Alert */}
           {hasNotionIntegration ? (
-            <Alert 
-              icon={<IconCheck size={16} />}
-              title="Notion Connected!"
-              color="green"
-              variant="light"
-              mb="md"
-            >
-              Your Notion integration is connected and ready to sync with databases.
-            </Alert>
+            <>
+              <Alert 
+                icon={<IconCheck size={16} />}
+                title="Notion Connected!"
+                color="green"
+                variant="light"
+                mb="md"
+              >
+                Your Notion integration is connected and ready to sync with databases.
+              </Alert>
+              {notionWorkflows.length === 0 && (
+                <Alert
+                  icon={<IconAlertCircle size={16} />}
+                  title="No workflows configured"
+                  color="red"
+                  variant="light"
+                  mb="md"
+                >
+                  You need to configure at least one workflow to sync data with Notion.
+                </Alert>
+              )}
+            </>
           ) : (
             <Alert 
               icon={<IconAlertCircle size={16} />}
@@ -506,67 +728,155 @@ export default function NotionWorkflowPage() {
           </form>
         </Modal>
 
-        {/* Sync Configuration Modal */}
+        {/* Workflow Modal */}
         <Modal 
           opened={workflowModalOpened} 
           onClose={closeWorkflowModal}
-          title="Configure Notion Database Sync"
-          size="md"
+          title="Create Notion Workflow"
+          size="xl"
+          styles={{
+            body: { maxHeight: '80vh', overflowY: 'auto' },
+            content: { maxHeight: '90vh' }
+          }}
         >
           <form onSubmit={workflowForm.onSubmit(handleCreateWorkflow)}>
             <Stack gap="md">
               <TextInput
                 label="Workflow Name"
-                placeholder="e.g., Task Management Sync"
+                placeholder="e.g., Actions → Notion Sync"
                 required
                 {...workflowForm.getInputProps('name')}
               />
 
-              <TextInput
-                label="Notion Database ID"
-                placeholder="Enter your Notion database ID"
-                description="You can find the database ID in your Notion database URL"
-                required
-                {...workflowForm.getInputProps('databaseId')}
-              />
+              <Group grow>
+                <div>
+                  <Text size="sm" fw={500} mb={5}>Selected Database</Text>
+                  {selectedDatabase ? (
+                    <Paper withBorder p="sm">
+                      <Group justify="space-between">
+                        <Text size="sm">{selectedDatabase.title}</Text>
+                        <Button 
+                          size="xs" 
+                          variant="light"
+                          onClick={() => testConnection.mutate({ integrationId: notionIntegration!.id })}
+                        >
+                          Change Database
+                        </Button>
+                      </Group>
+                    </Paper>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      fullWidth
+                      onClick={() => testConnection.mutate({ integrationId: notionIntegration!.id })}
+                      loading={testConnection.isPending}
+                    >
+                      Select Database
+                    </Button>
+                  )}
+                </div>
+              </Group>
+
+              {selectedDatabase && (
+                <>
+                  <Text fw={500} size="sm">Property Mappings (Optional)</Text>
+                  <Text size="xs" c="dimmed" mb="xs">
+                    Map your action fields to Notion database properties:
+                  </Text>
+                  
+                  {/* Debug: Show all available properties */}
+                  <Paper withBorder p="xs" mb="sm">
+                    <Text size="xs" fw={500} mb={4}>Available properties on &ldquo;{selectedDatabase.title}&rdquo;:</Text>
+                    <Group gap="xs">
+                      {selectedDatabase.properties && Object.entries(selectedDatabase.properties).map(([key, prop]) => (
+                        <Badge key={key} size="xs" variant="outline">
+                          {prop.name} ({prop.type})
+                        </Badge>
+                      ))}
+                      {!selectedDatabase.properties && (
+                        <Text size="xs" c="dimmed">No properties available</Text>
+                      )}
+                    </Group>
+                  </Paper>
+                  
+                  <Select
+                    label="Title Property"
+                    placeholder="Select title property"
+                    description="Choose which property will hold the task name"
+                    data={getPropertyOptions('title')}
+                    {...workflowForm.getInputProps('propertyMappings.title')}
+                    clearable
+                    mb="md"
+                  />
+                  
+                  <Group grow>
+                    <Select
+                      label="Assignee Property"
+                      placeholder="Select person property"
+                      data={getPropertyOptions('person')}
+                      {...workflowForm.getInputProps('propertyMappings.assignee')}
+                      clearable
+                    />
+                    <Select
+                      label="Due Date Property"
+                      placeholder="Select date property"
+                      data={getPropertyOptions('date')}
+                      {...workflowForm.getInputProps('propertyMappings.dueDate')}
+                      clearable
+                    />
+                  </Group>
+
+                  <Group grow>
+                    <Select
+                      label="Priority Property"
+                      placeholder="Select select property"
+                      data={getPropertyOptions('select')}
+                      {...workflowForm.getInputProps('propertyMappings.priority')}
+                      clearable
+                    />
+                    <Select
+                      label="Description Property"
+                      placeholder="Select text property"
+                      data={getPropertyOptions('rich_text')}
+                      {...workflowForm.getInputProps('propertyMappings.description')}
+                      clearable
+                    />
+                  </Group>
+                </>
+              )}
 
               <Select
-                label="Sync Direction"
-                description="Choose how data should flow between systems"
+                label="Action Source"
+                description="Choose which actions to sync to Notion"
                 data={[
-                  { value: 'push', label: 'Push Only (App → Notion)' },
-                  { value: 'pull', label: 'Pull Only (Notion → App)' },
-                  { value: 'bidirectional', label: 'Bidirectional (Both ways)' },
+                  { value: 'fireflies', label: 'Fireflies meetings only' },
+                  { value: 'internal', label: 'Internal actions only' },
+                  { value: 'all', label: 'All actions' },
                 ]}
-                {...workflowForm.getInputProps('syncDirection')}
+                {...workflowForm.getInputProps('source')}
               />
 
-              <Select
-                label="Sync Frequency"
-                description="How often should the sync run?"
-                data={[
-                  { value: 'manual', label: 'Manual Only' },
-                  { value: 'hourly', label: 'Every Hour' },
-                  { value: 'daily', label: 'Daily' },
-                  { value: 'weekly', label: 'Weekly' },
-                ]}
-                {...workflowForm.getInputProps('syncFrequency')}
-              />
-
-              <Textarea
-                label="Description"
-                placeholder="Optional description for this workflow"
-                {...workflowForm.getInputProps('description')}
-                minRows={2}
-              />
-
-              <Alert 
-                icon={<IconBrandNotion size={16} />}
-                title="Database Permissions"
-                color="blue"
-              >
-                Make sure your database is shared with your integration and has appropriate permissions.
-              </Alert>
+              <Group grow>
+                <Select
+                  label="Sync Direction"
+                  data={[
+                    { value: 'push', label: 'Push to Notion' },
+                    { value: 'pull', label: 'Pull from Notion' },
+                    { value: 'bidirectional', label: 'Bidirectional' },
+                  ]}
+                  {...workflowForm.getInputProps('syncDirection')}
+                />
+                <Select
+                  label="Sync Frequency"
+                  data={[
+                    { value: 'manual', label: 'Manual only' },
+                    { value: 'hourly', label: 'Every hour' },
+                    { value: 'daily', label: 'Daily' },
+                    { value: 'weekly', label: 'Weekly' },
+                  ]}
+                  {...workflowForm.getInputProps('syncFrequency')}
+                />
+              </Group>
 
               <Group justify="flex-end">
                 <Button variant="light" onClick={closeWorkflowModal}>
@@ -575,7 +885,7 @@ export default function NotionWorkflowPage() {
                 <Button 
                   type="submit" 
                   loading={createWorkflow.isPending}
-                  leftSection={<IconPlus size={16} />}
+                  disabled={!selectedDatabase}
                 >
                   Create Workflow
                 </Button>
@@ -609,27 +919,42 @@ export default function NotionWorkflowPage() {
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>Database Name</Table.Th>
-                      <Table.Th>Permissions</Table.Th>
-                      <Table.Th>Database ID</Table.Th>
+                      <Table.Th>Properties</Table.Th>
+                      <Table.Th>Action</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
                     {databases.map((db) => (
                       <Table.Tr key={db.id}>
-                        <Table.Td>{db.title || 'Untitled Database'}</Table.Td>
+                        <Table.Td>
+                          <div>
+                            <Text fw={500}>{db.title || 'Untitled Database'}</Text>
+                            <Text size="xs" c="dimmed" style={{ fontFamily: 'monospace' }}>
+                              {db.id}
+                            </Text>
+                          </div>
+                        </Table.Td>
                         <Table.Td>
                           <Group gap="xs">
-                            {db.permissions.map((permission) => (
-                              <Badge key={permission} size="xs" variant="light">
-                                {permission}
+                            {db.properties && Object.entries(db.properties).slice(0, 3).map(([key, prop]) => (
+                              <Badge key={key} size="xs" variant="outline">
+                                {prop.name} ({prop.type})
                               </Badge>
                             ))}
+                            {db.properties && Object.keys(db.properties).length > 3 && (
+                              <Badge size="xs" variant="outline" color="gray">
+                                +{Object.keys(db.properties).length - 3} more
+                              </Badge>
+                            )}
                           </Group>
                         </Table.Td>
                         <Table.Td>
-                          <Text size="xs" c="dimmed" style={{ fontFamily: 'monospace' }}>
-                            {db.id}
-                          </Text>
+                          <Button 
+                            size="xs" 
+                            onClick={() => handleSelectDatabase(db)}
+                          >
+                            Select
+                          </Button>
                         </Table.Td>
                       </Table.Tr>
                     ))}
@@ -701,21 +1026,214 @@ export default function NotionWorkflowPage() {
                       )}
                     </div>
                     
-                    <Button
-                      size="sm"
-                      variant="light"
-                      disabled={workflow.status !== 'ACTIVE'}
-                      loading={runWorkflow.isPending}
-                      onClick={() => handleSyncWorkflow(workflow.id)}
-                    >
-                      Sync Now
-                    </Button>
+                    <Group gap="xs">
+                      <Button 
+                        size="xs" 
+                        variant="light"
+                        onClick={() => handleSyncWorkflow(workflow.id)}
+                        loading={runWorkflow.isPending}
+                      >
+                        Sync Now
+                      </Button>
+                      <Button 
+                        size="xs" 
+                        variant="outline"
+                        leftSection={<IconEdit size={12} />}
+                        onClick={() => handleEditWorkflow(workflow)}
+                      >
+                        Edit
+                      </Button>
+                      <Button 
+                        size="xs" 
+                        variant="outline"
+                        color="red"
+                        leftSection={<IconTrash size={12} />}
+                        onClick={() => handleDeleteWorkflow(workflow.id, workflow.name)}
+                        loading={deleteWorkflow.isPending}
+                      >
+                        Delete
+                      </Button>
+                    </Group>
                   </Group>
                 </Paper>
               ))}
             </Stack>
           </Card>
         )}
+
+        {/* Edit Workflow Modal */}
+        <Modal 
+          opened={editWorkflowModalOpened} 
+          onClose={closeEditWorkflowModal}
+          title="Edit Notion Workflow"
+          size="xl"
+          styles={{
+            body: { maxHeight: '80vh', overflowY: 'auto' },
+            content: { maxHeight: '90vh' }
+          }}
+        >
+          <form onSubmit={editWorkflowForm.onSubmit(handleUpdateWorkflow)}>
+            <Stack gap="md">
+              <TextInput
+                label="Workflow Name"
+                placeholder="e.g., Actions → Notion Sync"
+                required
+                {...editWorkflowForm.getInputProps('name')}
+              />
+
+              <Group grow>
+                <div>
+                  <Text size="sm" fw={500} mb={5}>Current Database</Text>
+                  {editWorkflowForm.values.databaseId ? (
+                    <Paper withBorder p="sm">
+                      <Group justify="space-between">
+                        <div>
+                          {selectedDatabase ? (
+                            <>
+                              <Text size="sm" fw={500}>{selectedDatabase.title}</Text>
+                              <Text size="xs" c="dimmed">Database ID: {editWorkflowForm.values.databaseId}</Text>
+                            </>
+                          ) : (
+                            <Text size="sm">Database ID: {editWorkflowForm.values.databaseId}</Text>
+                          )}
+                        </div>
+                        <Button 
+                          size="xs" 
+                          variant="light"
+                          onClick={() => testConnection.mutate({ integrationId: notionIntegration!.id })}
+                        >
+                          Change Database
+                        </Button>
+                      </Group>
+                    </Paper>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      fullWidth
+                      onClick={() => testConnection.mutate({ integrationId: notionIntegration!.id })}
+                      loading={testConnection.isPending}
+                    >
+                      Select Database
+                    </Button>
+                  )}
+                </div>
+              </Group>
+
+              {selectedDatabase && (
+                <>
+                  <Text fw={500} size="sm">Property Mappings (Optional)</Text>
+                  <Text size="xs" c="dimmed" mb="xs">
+                    Map your action fields to Notion database properties:
+                  </Text>
+                  
+                  {/* Debug: Show all available properties */}
+                  <Paper withBorder p="xs" mb="sm">
+                    <Text size="xs" fw={500} mb={4}>Available properties on &ldquo;{selectedDatabase.title}&rdquo;:</Text>
+                    <Group gap="xs">
+                      {selectedDatabase.properties && Object.entries(selectedDatabase.properties).map(([key, prop]) => (
+                        <Badge key={key} size="xs" variant="outline">
+                          {prop.name} ({prop.type})
+                        </Badge>
+                      ))}
+                      {!selectedDatabase.properties && (
+                        <Text size="xs" c="dimmed">No properties available</Text>
+                      )}
+                    </Group>
+                  </Paper>
+                  
+                  <Select
+                    label="Title Property"
+                    placeholder="Select title property"
+                    description="Choose which property will hold the task name"
+                    data={getPropertyOptions('title')}
+                    {...editWorkflowForm.getInputProps('propertyMappings.title')}
+                    clearable
+                    mb="md"
+                  />
+                  
+                  <Group grow>
+                    <Select
+                      label="Assignee Property"
+                      placeholder="Select person property"
+                      data={getPropertyOptions('person')}
+                      {...editWorkflowForm.getInputProps('propertyMappings.assignee')}
+                      clearable
+                    />
+                    <Select
+                      label="Due Date Property"
+                      placeholder="Select date property"
+                      data={getPropertyOptions('date')}
+                      {...editWorkflowForm.getInputProps('propertyMappings.dueDate')}
+                      clearable
+                    />
+                  </Group>
+
+                  <Group grow>
+                    <Select
+                      label="Priority Property"
+                      placeholder="Select select property"
+                      data={getPropertyOptions('select')}
+                      {...editWorkflowForm.getInputProps('propertyMappings.priority')}
+                      clearable
+                    />
+                    <Select
+                      label="Description Property"
+                      placeholder="Select text property"
+                      data={getPropertyOptions('rich_text')}
+                      {...editWorkflowForm.getInputProps('propertyMappings.description')}
+                      clearable
+                    />
+                  </Group>
+                </>
+              )}
+
+              <Select
+                label="Action Source"
+                description="Choose which actions to sync to Notion"
+                data={[
+                  { value: 'fireflies', label: 'Fireflies meetings only' },
+                  { value: 'internal', label: 'Internal actions only' },
+                  { value: 'all', label: 'All actions' },
+                ]}
+                {...editWorkflowForm.getInputProps('source')}
+              />
+
+              <Group grow>
+                <Select
+                  label="Sync Direction"
+                  data={[
+                    { value: 'push', label: 'Push to Notion' },
+                    { value: 'pull', label: 'Pull from Notion' },
+                    { value: 'bidirectional', label: 'Bidirectional' },
+                  ]}
+                  {...editWorkflowForm.getInputProps('syncDirection')}
+                />
+                <Select
+                  label="Sync Frequency"
+                  data={[
+                    { value: 'manual', label: 'Manual only' },
+                    { value: 'hourly', label: 'Every hour' },
+                    { value: 'daily', label: 'Daily' },
+                    { value: 'weekly', label: 'Weekly' },
+                  ]}
+                  {...editWorkflowForm.getInputProps('syncFrequency')}
+                />
+              </Group>
+
+              <Group justify="flex-end">
+                <Button variant="light" onClick={closeEditWorkflowModal}>
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit" 
+                  loading={updateWorkflow.isPending}
+                >
+                  Update Workflow
+                </Button>
+              </Group>
+            </Stack>
+          </form>
+        </Modal>
 
         {/* Back to Workflows */}
         <Group justify="center">

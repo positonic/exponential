@@ -81,6 +81,7 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({ id }) => {
       <Container size="lg">
         <div className="mb-16 text-center">
           <Title 
+            order={2}
             className="text-4xl md:text-5xl font-bold mb-6"
             style={{ color: "#a78bfa" }} // Specific purple color from design
           >
