@@ -3,7 +3,7 @@
 import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
-import { IconLayoutKanban, IconList, IconCalendarEvent, IconUpload } from "@tabler/icons-react";
+import { IconLayoutKanban, IconList, IconCalendarEvent, IconUpload, IconDownload } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
@@ -22,6 +22,7 @@ interface ActionsProps {
 export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = true }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
   const [syncingToIntegration, setSyncingToIntegration] = useState(false);
+  const [pullingFromIntegration, setPullingFromIntegration] = useState(false);
 
   // Conditionally fetch actions based on projectId
   const actionsQuery = projectId
@@ -39,7 +40,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   // Get available workflows
   const { data: workflows = [] } = api.workflow.list.useQuery();
 
-  // Sync to integration mutation
+  // Sync to integration mutation (push)
   const syncToIntegrationMutation = api.workflow.run.useMutation({
     onSuccess: (data) => {
       setSyncingToIntegration(false);
@@ -62,18 +63,71 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       }
 
       notifications.show({
-        title: '🎉 Sync Complete!',
+        title: '🎉 Push Sync Complete!',
         message: message,
         color: 'green',
         autoClose: 5000,
         withCloseButton: true,
       });
+      
+      // Refresh actions list
+      void actionsQuery.refetch();
     },
     onError: (error) => {
       setSyncingToIntegration(false);
       notifications.show({
-        title: '❌ Sync Failed',
+        title: '❌ Push Sync Failed',
         message: error.message || 'Failed to sync actions to integration',
+        color: 'red',
+        autoClose: 8000,
+        withCloseButton: true,
+      });
+    },
+  });
+
+  // Pull from integration mutation
+  const pullFromIntegrationMutation = api.workflow.run.useMutation({
+    onSuccess: (data) => {
+      setPullingFromIntegration(false);
+      
+      const integrationName = project?.taskManagementTool === 'monday' ? 'Monday.com' : 
+                             project?.taskManagementTool === 'notion' ? 'Notion' : 
+                             project?.taskManagementTool;
+      const itemsCreated = data.itemsCreated || 0;
+      const itemsUpdated = data.itemsUpdated || 0;
+      const itemsSkipped = data.itemsSkipped || 0;
+      const totalProcessed = data.itemsProcessed || 0;
+      
+      let message = `✅ ${itemsCreated} new task${itemsCreated !== 1 ? 's' : ''} imported from ${integrationName}`;
+      
+      if (itemsUpdated > 0) {
+        message += `\n🔄 ${itemsUpdated} task${itemsUpdated !== 1 ? 's' : ''} updated`;
+      }
+      
+      if (itemsSkipped > 0) {
+        message += `\n⚠️ ${itemsSkipped} task${itemsSkipped !== 1 ? 's' : ''} skipped`;
+      }
+      
+      if (totalProcessed > 0) {
+        message += `\n📊 ${totalProcessed} total task${totalProcessed !== 1 ? 's' : ''} processed`;
+      }
+
+      notifications.show({
+        title: '🎉 Pull Sync Complete!',
+        message: message,
+        color: 'blue',
+        autoClose: 5000,
+        withCloseButton: true,
+      });
+      
+      // Refresh actions list
+      void actionsQuery.refetch();
+    },
+    onError: (error) => {
+      setPullingFromIntegration(false);
+      notifications.show({
+        title: '❌ Pull Sync Failed',
+        message: error.message || 'Failed to pull actions from integration',
         color: 'red',
         autoClose: 8000,
         withCloseButton: true,
@@ -137,7 +191,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     console.log('📊 Weekly outcomes:', weeklyOutcomes);
   }, [todayOutcomes, weeklyOutcomes]);
 
-  // Handler for syncing actions to configured integration
+  // Handler for syncing actions to configured integration (push sync)
   const handleSyncToIntegration = () => {
     if (!project || !projectId) {
       notifications.show({
@@ -168,17 +222,18 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       return;
     }
 
-    // Verify the workflow exists and is active
+    // Verify the workflow exists and is active, and ensure it supports push
     const workflow = workflows.find(w => 
       w.id === workflowId && 
       w.provider === project.taskManagementTool && 
-      w.status === 'ACTIVE'
+      w.status === 'ACTIVE' &&
+      (w.syncDirection === 'push' || w.syncDirection === 'bidirectional')
     );
 
     if (!workflow) {
       notifications.show({
         title: 'Workflow Not Found',
-        message: `The configured ${project.taskManagementTool} workflow is no longer available or active.`,
+        message: `The configured ${project.taskManagementTool} workflow is no longer available, active, or does not support push sync.`,
         color: 'orange',
       });
       return;
@@ -188,27 +243,83 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     syncToIntegrationMutation.mutate({ id: workflowId });
   };
 
+  // Handler for pulling actions from configured integration (pull sync)
+  const handlePullFromIntegration = () => {
+    if (!project || !projectId) {
+      notifications.show({
+        title: 'Error',
+        message: 'No project selected',
+        color: 'red',
+      });
+      return;
+    }
+
+    if (!project.taskManagementTool || project.taskManagementTool === 'internal') {
+      notifications.show({
+        title: 'No Integration Configured',
+        message: 'This project is not configured to use an external task management tool. Configure it in project settings.',
+        color: 'orange',
+      });
+      return;
+    }
+
+    // For pull sync, we need to find a pull workflow for the same provider
+    const pullWorkflow = workflows.find(w => 
+      w.provider === project.taskManagementTool && 
+      w.status === 'ACTIVE' &&
+      (w.syncDirection === 'pull' || w.syncDirection === 'bidirectional')
+    );
+
+    if (!pullWorkflow) {
+      notifications.show({
+        title: 'Pull Workflow Not Found',
+        message: `No active ${project.taskManagementTool} workflow found that supports pull sync. Please create or enable one in the Workflows section.`,
+        color: 'orange',
+      });
+      return;
+    }
+
+    setPullingFromIntegration(true);
+    pullFromIntegrationMutation.mutate({ id: pullWorkflow.id });
+  };
+
   return (
     <div className="w-full max-w-3xl mx-auto">
       <div className="relative mb-4">
         <Group justify="space-between" align="center">
           <Title order={2}></Title>
           <Group gap="xs">
-            {/* Sync to Integration Button - only show for projects with external task management */}
+            {/* Sync Buttons - only show for projects with external task management */}
             {projectId && project && project.taskManagementTool && project.taskManagementTool !== 'internal' && (
-              <Button
-                variant="light"
-                size="sm"
-                color={project.taskManagementTool === 'monday' ? 'orange' : 
-                      project.taskManagementTool === 'notion' ? 'gray' : 'blue'}
-                loading={syncingToIntegration}
-                onClick={handleSyncToIntegration}
-                leftSection={<IconUpload size={16} />}
-              >
-                Sync to {project.taskManagementTool === 'monday' ? 'Monday.com' : 
-                         project.taskManagementTool === 'notion' ? 'Notion' : 
-                         project.taskManagementTool}
-              </Button>
+              <>
+                <Button
+                  variant="light"
+                  size="sm"
+                  color={project.taskManagementTool === 'monday' ? 'orange' : 
+                        project.taskManagementTool === 'notion' ? 'gray' : 'blue'}
+                  loading={syncingToIntegration}
+                  onClick={handleSyncToIntegration}
+                  leftSection={<IconUpload size={16} />}
+                >
+                  Push to {project.taskManagementTool === 'monday' ? 'Monday.com' : 
+                           project.taskManagementTool === 'notion' ? 'Notion' : 
+                           project.taskManagementTool}
+                </Button>
+                
+                {/* Pull button - only show for providers that support it */}
+                {project.taskManagementTool === 'notion' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    color="gray"
+                    loading={pullingFromIntegration}
+                    onClick={handlePullFromIntegration}
+                    leftSection={<IconDownload size={16} />}
+                  >
+                    Pull from Notion
+                  </Button>
+                )}
+              </>
             )}
             {displayAlignment && (
               <Button

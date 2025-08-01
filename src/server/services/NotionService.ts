@@ -213,6 +213,105 @@ export class NotionService {
     return null;
   }
 
+  async getAllPagesFromDatabase(databaseId: string): Promise<any[]> {
+    try {
+      console.log(`🔍 Fetching all pages from Notion database: ${databaseId}`);
+      
+      const response = await this.client.databases.query({
+        database_id: databaseId,
+        page_size: 100,
+      });
+
+      console.log(`✅ Found ${response.results.length} pages in Notion database`);
+      return response.results;
+    } catch (error) {
+      console.error('Failed to fetch pages from Notion database:', error);
+      throw new Error('Failed to fetch pages from Notion database');
+    }
+  }
+
+  parseNotionPageToAction(page: any, propertyMappings?: Record<string, string>): {
+    notionId: string;
+    name: string;
+    description?: string;
+    status: string;
+    priority?: string;
+    dueDate?: Date;
+    lastModified: Date;
+  } {
+    try {
+      // Get title from title property (could be Name, Title, Task, etc.)
+      let name = 'Untitled Task';
+      const titleProperty = this.findTitleProperty(page.properties);
+      if (titleProperty && page.properties[titleProperty]?.title?.[0]?.plain_text) {
+        name = page.properties[titleProperty].title[0].plain_text;
+      }
+
+      // Get description from mapped property or fallback
+      let description: string | undefined;
+      const descriptionProp = propertyMappings?.description || 'Description';
+      if (page.properties[descriptionProp]?.rich_text?.[0]?.plain_text) {
+        description = page.properties[descriptionProp].rich_text[0].plain_text;
+      }
+
+      // Get status - default to ACTIVE if not found
+      let status = 'ACTIVE';
+      const statusProp = propertyMappings?.status || 'Status';
+      if (page.properties[statusProp]?.select?.name) {
+        const notionStatus = page.properties[statusProp].select.name;
+        // Map Notion status to our status
+        const statusMapping: Record<string, string> = {
+          'Done': 'COMPLETED',
+          'Completed': 'COMPLETED',
+          'Complete': 'COMPLETED',
+          'Finished': 'COMPLETED',
+          'In Progress': 'ACTIVE',
+          'Active': 'ACTIVE',
+          'Todo': 'ACTIVE',
+          'Not Started': 'ACTIVE',
+        };
+        status = statusMapping[notionStatus] || 'ACTIVE';
+      } else if (page.properties[statusProp]?.checkbox !== undefined) {
+        status = page.properties[statusProp].checkbox ? 'COMPLETED' : 'ACTIVE';
+      }
+
+      // Get priority
+      let priority: string | undefined;
+      const priorityProp = propertyMappings?.priority || 'Priority';
+      if (page.properties[priorityProp]?.select?.name) {
+        const notionPriority = page.properties[priorityProp].select.name;
+        // Map Notion priority to our priority
+        const priorityMapping: Record<string, string> = {
+          'High': '1st Priority',
+          'Medium': '2nd Priority',
+          'Low': '3rd Priority',
+          'Urgent': 'Quick',
+        };
+        priority = priorityMapping[notionPriority] || notionPriority;
+      }
+
+      // Get due date
+      let dueDate: Date | undefined;
+      const dueDateProp = propertyMappings?.dueDate || 'Due Date';
+      if (page.properties[dueDateProp]?.date?.start) {
+        dueDate = new Date(page.properties[dueDateProp].date.start);
+      }
+
+      return {
+        notionId: page.id,
+        name,
+        description,
+        status,
+        priority,
+        dueDate,
+        lastModified: new Date(page.last_edited_time),
+      };
+    } catch (error) {
+      console.error('Failed to parse Notion page:', error);
+      throw new Error('Failed to parse Notion page data');
+    }
+  }
+
   static formatPropertyValue(type: string, value: any): any {
     switch (type) {
       case 'title':

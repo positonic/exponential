@@ -5,6 +5,7 @@ import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
 import { MantineProvider } from '@mantine/core';
 import '@mantine/core/styles.css';
+import '@mantine/notifications/styles.css';
 import { Notifications } from '@mantine/notifications';
 import { ThemeProvider } from '~/providers/ThemeProvider';
 import { themes, type ValidDomain } from '~/config/themes';

@@ -97,6 +97,7 @@ model Action {
   team                   Team?                 @relation(fields: [teamId], references: [id])
   project                Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id], onDelete: SetNull)
+  syncs                  ActionSync[]
 
   @@index([projectId])
   @@index([createdById])
@@ -435,4 +436,22 @@ model WorkflowRun {
   @@index([workflowId])
   @@index([status])
   @@index([startedAt])
+}
+
+model ActionSync {
+  id         String   @id @default(cuid())
+  actionId   String
+  provider   String   // 'notion', 'monday', 'asana', etc.
+  externalId String   // The ID in the external system (e.g., Notion page ID)
+  syncedAt   DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  status     String   @default("synced") // 'synced', 'failed', 'needs_update'
+  
+  // Relations
+  action     Action   @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  
+  @@unique([actionId, provider]) // One sync record per action per provider
+  @@index([provider, externalId])
+  @@index([provider])
+  @@index([actionId])
 }

@@ -5,73 +5,6 @@ import { ActionProcessorFactory } from "~/server/services/processors/ActionProce
 import { MondayService } from "~/server/services/MondayService";
 import { NotionService } from "~/server/services/NotionService";
 
-// Test Notion connection and sync data
-async function syncNotionTasks(accessToken: string, databaseId: string) {
-  try {
-    // Fetch database content from Notion
-    const response = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Notion-Version': '2022-06-28',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        page_size: 100,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
-    
-    // Transform Notion pages to task format
-    const tasks = data.results.map((page: any) => {
-      const title = page.properties.Name?.title?.[0]?.plain_text || 
-                   page.properties.Title?.title?.[0]?.plain_text ||
-                   'Untitled Task';
-      
-      const status = page.properties.Status?.select?.name || 
-                    page.properties.Done?.checkbox ? 'COMPLETED' : 'ACTIVE';
-      
-      const dueDate = page.properties['Due Date']?.date?.start ||
-                     page.properties.Date?.date?.start;
-      
-      const description = page.properties.Description?.rich_text?.[0]?.plain_text ||
-                         page.properties.Notes?.rich_text?.[0]?.plain_text;
-
-      const priority = page.properties.Priority?.select?.name || 'Medium';
-
-      return {
-        notionId: page.id,
-        name: title,
-        description,
-        status,
-        priority,
-        dueDate: dueDate ? new Date(dueDate) : null,
-        notionUrl: page.url,
-        lastModified: new Date(page.last_edited_time),
-      };
-    });
-
-    return {
-      success: true,
-      tasks,
-      totalFetched: data.results.length,
-    };
-  } catch (error) {
-    console.error('Notion sync error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to sync with Notion',
-      tasks: [],
-      totalFetched: 0,
-    };
-  }
-}
 
 export const workflowRouter = createTRPCRouter({
   // Create a new workflow
@@ -270,36 +203,43 @@ export const workflowRouter = createTRPCRouter({
             throw new Error('No database ID configured for workflow');
           }
 
-          // Sync tasks from Notion
-          const syncResult = await syncNotionTasks(accessToken, config.databaseId);
+          // Initialize Notion service
+          const notionService = new NotionService(accessToken);
 
-          if (!syncResult.success) {
-            throw new Error(syncResult.error || 'Sync failed');
-          }
+          // Get all pages from the Notion database
+          const notionPages = await notionService.getAllPagesFromDatabase(config.databaseId);
+          
+          console.log(`Found ${notionPages.length} pages in Notion database`);
 
           // Create actions for each task
           let itemsCreated = 0;
           let itemsUpdated = 0;
           let itemsSkipped = 0;
 
-          for (const task of syncResult.tasks) {
+          for (const page of notionPages) {
             try {
-              // Check if action already exists (by Notion ID)
-              const existingAction = await ctx.db.action.findFirst({
+              // Parse Notion page to action format
+              const task = notionService.parseNotionPageToAction(page, config.propertyMappings);
+              
+              // Check if we already have an ActionSync record for this Notion page
+              const existingSync = await ctx.db.actionSync.findFirst({
                 where: {
-                  createdById: ctx.session.user.id,
-                  // Store Notion ID in description or create a separate field
-                  description: {
-                    contains: `notion:${task.notionId}`,
-                  },
+                  provider: 'notion',
+                  externalId: task.notionId,
+                },
+                include: {
+                  action: true,
                 },
               });
 
-              if (existingAction) {
+              if (existingSync && existingSync.action) {
                 // Update existing action if it's different
+                const existingAction = existingSync.action;
                 const needsUpdate = 
                   existingAction.name !== task.name ||
                   existingAction.status !== task.status ||
+                  existingAction.description !== task.description ||
+                  existingAction.priority !== task.priority ||
                   (existingAction.dueDate?.getTime() !== task.dueDate?.getTime());
 
                 if (needsUpdate) {
@@ -307,37 +247,56 @@ export const workflowRouter = createTRPCRouter({
                     where: { id: existingAction.id },
                     data: {
                       name: task.name,
-                      description: task.description ? 
-                        `${task.description}\n\nnotion:${task.notionId}` : 
-                        `notion:${task.notionId}`,
+                      description: task.description,
                       status: task.status,
                       priority: task.priority,
                       dueDate: task.dueDate,
                     },
                   });
+                  
+                  // Update the sync record
+                  await ctx.db.actionSync.update({
+                    where: { id: existingSync.id },
+                    data: {
+                      status: 'synced',
+                      updatedAt: new Date(),
+                    },
+                  });
+                  
                   itemsUpdated++;
+                  console.log(`Updated action ${existingAction.id} from Notion page ${task.notionId}`);
                 } else {
                   itemsSkipped++;
                 }
               } else {
-                // Create new action
-                await ctx.db.action.create({
+                // Create new action and ActionSync record
+                const newAction = await ctx.db.action.create({
                   data: {
                     name: task.name,
-                    description: task.description ? 
-                      `${task.description}\n\nnotion:${task.notionId}` : 
-                      `notion:${task.notionId}`,
+                    description: task.description,
                     status: task.status,
-                    priority: task.priority,
+                    priority: task.priority || 'Quick',
                     dueDate: task.dueDate,
                     createdById: ctx.session.user.id,
                     projectId: workflow.projectId,
                   },
                 });
+
+                // Create ActionSync record
+                await ctx.db.actionSync.create({
+                  data: {
+                    actionId: newAction.id,
+                    provider: 'notion',
+                    externalId: task.notionId,
+                    status: 'synced',
+                  },
+                });
+
                 itemsCreated++;
+                console.log(`Created new action ${newAction.id} from Notion page ${task.notionId}`);
               }
             } catch (taskError) {
-              console.error(`Error processing task ${task.notionId}:`, taskError);
+              console.error(`Error processing Notion page ${page.id}:`, taskError);
               itemsSkipped++;
             }
           }
@@ -348,13 +307,14 @@ export const workflowRouter = createTRPCRouter({
             data: {
               status: 'SUCCESS',
               completedAt: new Date(),
-              itemsProcessed: syncResult.totalFetched,
+              itemsProcessed: notionPages.length,
               itemsCreated,
               itemsUpdated,
               itemsSkipped,
               metadata: {
-                notionTasks: syncResult.tasks.length,
+                notionPages: notionPages.length,
                 databaseId: config.databaseId,
+                syncDirection: 'pull',
               },
             },
           });
@@ -368,7 +328,7 @@ export const workflowRouter = createTRPCRouter({
           return {
             success: true,
             runId: run.id,
-            itemsProcessed: syncResult.totalFetched,
+            itemsProcessed: notionPages.length,
             itemsCreated,
             itemsUpdated,
             itemsSkipped,
@@ -673,8 +633,19 @@ export const workflowRouter = createTRPCRouter({
 
           for (const action of actions) {
             try {
-              // Check if action was already synced to Notion (simple check by name)
-              // In a production system, you'd want to store Notion page IDs
+              // Check if this action has already been synced to Notion
+              const existingSync = await ctx.db.actionSync.findFirst({
+                where: {
+                  actionId: action.id,
+                  provider: 'notion',
+                },
+              });
+
+              if (existingSync) {
+                console.log(`Skipping action ${action.id} - already synced to Notion (page: ${existingSync.externalId})`);
+                itemsSkipped++;
+                continue;
+              }
               
               // Transform action to Notion page format
               const properties: Record<string, any> = {};
@@ -715,12 +686,37 @@ export const workflowRouter = createTRPCRouter({
                 titleProperty: config.propertyMappings?.title,
               });
 
+              // Create ActionSync record to track this sync
+              await ctx.db.actionSync.create({
+                data: {
+                  actionId: action.id,
+                  provider: 'notion',
+                  externalId: createdPage.id,
+                  status: 'synced',
+                },
+              });
+
               itemsCreated++;
 
-              console.log(`Created Notion page: ${createdPage.title} (ID: ${createdPage.id})`);
+              console.log(`Created Notion page: ${createdPage.title} (ID: ${createdPage.id}) and ActionSync record`);
 
             } catch (error) {
               console.error(`Failed to create Notion page for action ${action.id}:`, error);
+              
+              // Create ActionSync record with failed status
+              try {
+                await ctx.db.actionSync.create({
+                  data: {
+                    actionId: action.id,
+                    provider: 'notion',
+                    externalId: `failed-${Date.now()}`, // Temporary ID for failed syncs
+                    status: 'failed',
+                  },
+                });
+              } catch (syncError) {
+                console.error(`Failed to create ActionSync failure record for action ${action.id}:`, syncError);
+              }
+              
               itemsSkipped++;
               // Continue processing other actions
             }
