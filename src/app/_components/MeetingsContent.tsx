@@ -8,17 +8,12 @@ import {
   Paper,
   Stack,
   Text,
-  Drawer,
-  ScrollArea,
   Badge,
   Select,
   Button,
-  Accordion,
-  List,
   Card,
   Checkbox,
   MultiSelect,
-  ActionIcon,
   Menu,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
@@ -38,6 +33,7 @@ import {
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { ActionList } from "./ActionList";
 import { FirefliesSyncPanel } from "./FirefliesSyncPanel";
+import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 
 type TabValue = "transcriptions" | "upcoming" | "archive";
 
@@ -65,7 +61,6 @@ export function MeetingsContent() {
   const [updatingActions, setUpdatingActions] = useState<string | null>(null); // transcriptionId being updated
   const [successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message
   const [syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
-  const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set()); // For manual action selection
   
   // New state for filtering and bulk operations
   const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
@@ -286,109 +281,6 @@ export function MeetingsContent() {
       )).map(item => JSON.parse(item))
     : [];
 
-  const handleSendToNotion = () => {
-    console.log('handleSendToNotion called');
-    console.log('selectedTranscription:', selectedTranscription);
-    console.log('selectedActionIds:', selectedActionIds);
-    
-    if (!selectedTranscription || selectedActionIds.size === 0) return;
-
-    // Check if there's a project assigned
-    if (!selectedTranscription.project) {
-      notifications.show({
-        title: 'No Project Assigned',
-        message: 'Please assign a project to this transcription first',
-        color: 'orange',
-      });
-      return;
-    }
-
-    console.log('Project task management tool:', selectedTranscription.project.taskManagementTool);
-    console.log('Project task management config:', selectedTranscription.project.taskManagementConfig);
-
-    // Check if project is configured for Notion
-    if (selectedTranscription.project.taskManagementTool !== 'notion') {
-      const currentTool = selectedTranscription.project.taskManagementTool || 'internal';
-      notifications.show({
-        title: 'Project Not Configured for Notion',
-        message: `This project is currently set to use "${currentTool}" task management. To send actions to Notion, go to project settings and change the task management tool to "Notion".`,
-        color: 'orange',
-      });
-      return;
-    }
-
-    // Get the workflow ID from project configuration
-    const workflowId = selectedTranscription.project.taskManagementConfig?.workflowId;
-    console.log('Workflow ID from project:', workflowId);
-    
-    if (!workflowId) {
-      notifications.show({
-        title: 'No Notion Workflow',
-        message: 'No Notion workflow configured for this project. Please configure it in project settings.',
-        color: 'orange',
-      });
-      return;
-    }
-
-    // Find the workflow
-    const workflow = workflows.find(w => 
-      w.id === workflowId && 
-      w.provider === 'notion' && 
-      w.status === 'ACTIVE'
-    );
-
-    console.log('Found workflow:', workflow);
-    console.log('All workflows:', workflows);
-
-    if (!workflow) {
-      notifications.show({
-        title: 'Workflow Not Found',
-        message: 'The configured Notion workflow is no longer available or active.',
-        color: 'orange',
-      });
-      return;
-    }
-
-    // Show immediate feedback
-    notifications.show({
-      title: 'Sending to Notion',
-      message: `Sending ${selectedActionIds.size} actions to Notion...`,
-      color: 'blue',
-      loading: true,
-      id: 'notion-sync',
-    });
-
-    // TODO: Implement API call to send specific actions to Notion
-    // For now, we'll use the existing sync mechanism which syncs all actions
-    setSyncingToIntegration(selectedTranscription.id);
-    
-    syncToIntegrationMutation.mutate(
-      { id: workflowId },
-      {
-        onSuccess: (data) => {
-          notifications.update({
-            id: 'notion-sync',
-            title: 'Success!',
-            message: `Successfully sent ${data.itemsCreated} actions to Notion`,
-            color: 'green',
-            loading: false,
-          });
-          // Clear selection after successful sending
-          setSelectedActionIds(new Set());
-        },
-        onError: (error) => {
-          notifications.update({
-            id: 'notion-sync',
-            title: 'Failed to send to Notion',
-            message: error.message || 'An error occurred while sending actions to Notion',
-            color: 'red',
-            loading: false,
-          });
-          setSyncingToIntegration(null);
-        },
-      }
-    );
-  };
 
   if (isLoading) {
     return <div>Loading transcriptions...</div>;
@@ -798,420 +690,42 @@ export function MeetingsContent() {
       </div>
 
       {/* Transcription Details Drawer */}
-      <Drawer
+      <TranscriptionDetailsDrawer
         opened={drawerOpened}
-        onClose={() => {
-          setDrawerOpened(false);
-          setSelectedActionIds(new Set()); // Clear selection when drawer closes
+        onClose={() => setDrawerOpened(false)}
+        transcription={selectedTranscription}
+        workflows={workflows}
+        onSyncToIntegration={(workflowId) => {
+          setSyncingToIntegration(selectedTranscription?.id || null);
+          syncToIntegrationMutation.mutate(
+            { id: workflowId },
+            {
+              onSuccess: (data) => {
+                notifications.update({
+                  id: 'notion-sync',
+                  title: 'Success!',
+                  message: `Successfully sent ${data.itemsCreated} actions to Notion`,
+                  color: 'green',
+                  loading: false,
+                });
+                // Clear the loading state
+                setSyncingToIntegration(null);
+              },
+              onError: (error) => {
+                notifications.update({
+                  id: 'notion-sync',
+                  title: 'Failed to send to Notion',
+                  message: error.message || 'An error occurred while sending actions to Notion',
+                  color: 'red',
+                  loading: false,
+                });
+                setSyncingToIntegration(null);
+              },
+            }
+          );
         }}
-        title="Transcription Details"
-        position="right"
-        size="lg"
-        trapFocus={false}
-        lockScroll={false}
-        withOverlay={false}
-      >
-        {selectedTranscription && (
-          <ScrollArea h="100%">
-            <Stack gap="md">
-              {/* Session Information */}
-              <Paper p="md" radius="sm" className="bg-[#2a2a2a]">
-                <Stack gap="sm">
-                  <Group justify="space-between">
-                  {selectedTranscription.title && (
-                    <Title order={5}>
-                      <strong>Title:</strong> {selectedTranscription.title}
-                    </Title>
-                  )}
-                  <Badge variant="light" color="blue">
-                      {selectedTranscription.sessionId}
-                    </Badge>
-                  </Group>
-                  
-                  {selectedTranscription.description && (
-                    <Text size="sm">
-                      <strong>Description:</strong> {selectedTranscription.description}
-                    </Text>
-                  )}
-                  
-                </Stack>
-              </Paper>
-
-              {selectedTranscription.project && (
-                <Paper p="md" radius="sm" className="bg-[#2a2a2a]">
-                  <Stack gap="sm">
-                    <Title order={5}>Assigned Project</Title>
-                    <Group>
-                      <Badge variant="filled" color="blue">
-                        {selectedTranscription.project.name}
-                      </Badge>
-                    </Group>
-                  </Stack>
-                </Paper>
-              )}
-
-              {/* Accordion for main content sections */}
-              <Accordion multiple defaultValue={['transcription']}>
-                {/* Transcription Section */}
-                <Accordion.Item value="transcription">
-                  <Accordion.Control>
-                    <Title order={5}>Transcription</Title>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <TranscriptionRenderer
-                      transcription={selectedTranscription.transcription}
-                      provider={selectedTranscription.sourceIntegration?.provider}
-                      isPreview={false}
-                    />
-                  </Accordion.Panel>
-                </Accordion.Item>
-
-                {/* Associated Actions Section */}
-                <Accordion.Item value="actions">
-                  <Accordion.Control>
-                    <Group justify="space-between" style={{ width: '100%' }}>
-                      <Title order={5}>Associated Actions</Title>
-                      <Badge variant="light" color="blue" size="sm">
-                        {selectedTranscription.actions?.length || 0}
-                      </Badge>
-                    </Group>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <Stack gap="sm">
-                      <Group justify="space-between">
-                        <Button size="xs" variant="light">
-                          Create Action
-                        </Button>
-                        {selectedActionIds.size > 0 && (
-                          <Button 
-                            size="xs" 
-                            variant="filled"
-                            color="gray"
-                            onClick={() => handleSendToNotion()}
-                            loading={syncingToIntegration === selectedTranscription?.id}
-                          >
-                            Send {selectedActionIds.size} to Notion
-                          </Button>
-                        )}
-                      </Group>
-                      {selectedTranscription.actions && selectedTranscription.actions.length > 0 ? (
-                        <Stack gap="xs">
-                          {selectedTranscription.actions.map((action: any) => (
-                            <Paper
-                              key={action.id}
-                              p="sm"
-                              radius="sm"
-                              withBorder
-                              className="hover:shadow-sm transition-shadow"
-                            >
-                              <Group>
-                                <Checkbox
-                                  checked={selectedActionIds.has(action.id)}
-                                  onChange={(event) => {
-                                    const newSelectedIds = new Set(selectedActionIds);
-                                    if (event.currentTarget.checked) {
-                                      newSelectedIds.add(action.id);
-                                    } else {
-                                      newSelectedIds.delete(action.id);
-                                    }
-                                    setSelectedActionIds(newSelectedIds);
-                                  }}
-                                />
-                                <Stack gap={4} style={{ flex: 1 }}>
-                                  <Text size="sm" fw={500}>
-                                    {action.name}
-                                  </Text>
-                                  {action.description && (
-                                    <Text size="xs" c="dimmed">
-                                      {action.description}
-                                    </Text>
-                                  )}
-                                  <Group gap="xs">
-                                    {action.priority && (
-                                      <Badge size="xs" variant="light" color="blue">
-                                        {action.priority}
-                                      </Badge>
-                                    )}
-                                    {action.dueDate && (
-                                      <Badge size="xs" variant="light" color="red">
-                                        Due: {new Date(action.dueDate).toLocaleDateString()}
-                                      </Badge>
-                                    )}
-                                    <Badge size="xs" variant="light" color={action.status === 'COMPLETED' ? 'green' : 'gray'}>
-                                      {action.status}
-                                    </Badge>
-                                  </Group>
-                                </Stack>
-                              </Group>
-                            </Paper>
-                          ))}
-                        </Stack>
-                      ) : (
-                        <Text size="sm" c="dimmed" ta="center" py="md">
-                          No actions associated with this transcription yet.
-                        </Text>
-                      )}
-                    </Stack>
-                  </Accordion.Panel>
-                </Accordion.Item>
-
-                {/* Summary Sections */}
-                {selectedTranscription.summary && (() => {
-                  let summaryData;
-                  try {
-                    summaryData = typeof selectedTranscription.summary === "string" 
-                      ? JSON.parse(selectedTranscription.summary) 
-                      : selectedTranscription.summary;
-                  } catch {
-                    summaryData = null;
-                  }
-
-                  if (!summaryData) {
-                    return (
-                      <Accordion.Item value="summary">
-                        <Accordion.Control>
-                          <Title order={5}>Summary</Title>
-                        </Accordion.Control>
-                        <Accordion.Panel>
-                          <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                            {selectedTranscription.summary}
-                          </Text>
-                        </Accordion.Panel>
-                      </Accordion.Item>
-                    );
-                  }
-
-                  return (
-                    <>
-                      {/* Keywords */}
-                      {summaryData.keywords && summaryData.keywords.length > 0 && (
-                        <Accordion.Item value="keywords">
-                          <Accordion.Control>
-                            <Title order={5}>Keywords</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Group gap="xs">
-                              {summaryData.keywords.map((keyword: string, index: number) => (
-                                <Badge key={index} variant="light" size="sm">
-                                  {keyword}
-                                </Badge>
-                              ))}
-                            </Group>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-
-                      {/* Action Items */}
-                      {summaryData.action_items && (
-                        <Accordion.Item value="summary-actions">
-                          <Accordion.Control>
-                            <Title order={5}>Action Items (From Summary)</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Text size="sm" style={{ whiteSpace: "pre-wrap", fontFamily: 'monospace' }}>
-                              {summaryData.action_items}
-                            </Text>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-
-                      {/* Overview */}
-                      {summaryData.overview && (
-                        <Accordion.Item value="overview">
-                          <Accordion.Control>
-                            <Title order={5}>Overview</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                              {summaryData.overview}
-                            </Text>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-
-                      {/* Short Summary */}
-                      {summaryData.short_summary && (
-                        <Accordion.Item value="short-summary">
-                          <Accordion.Control>
-                            <Title order={5}>Short Summary</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                              {summaryData.short_summary}
-                            </Text>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-
-                      {/* Gist */}
-                      {summaryData.gist && (
-                        <Accordion.Item value="gist">
-                          <Accordion.Control>
-                            <Title order={5}>Gist</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                              {summaryData.gist}
-                            </Text>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-
-                      {/* Bullet Gist */}
-                      {summaryData.bullet_gist && (
-                        <Accordion.Item value="bullet-gist">
-                          <Accordion.Control>
-                            <Title order={5}>Key Points</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                              {summaryData.bullet_gist}
-                            </Text>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-
-                      {/* Shorthand Bullet */}
-                      {summaryData.shorthand_bullet && (
-                        <Accordion.Item value="shorthand-bullet">
-                          <Accordion.Control>
-                            <Title order={5}>Detailed Breakdown</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                              {summaryData.shorthand_bullet}
-                            </Text>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-
-                      {/* Outline */}
-                      {summaryData.outline && (
-                        <Accordion.Item value="outline">
-                          <Accordion.Control>
-                            <Title order={5}>Outline</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                              {summaryData.outline}
-                            </Text>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-
-                      {/* Meeting Type */}
-                      {summaryData.meeting_type && (
-                        <Accordion.Item value="meeting-type">
-                          <Accordion.Control>
-                            <Title order={5}>Meeting Type</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Badge variant="filled" color="cyan">
-                              {summaryData.meeting_type}
-                            </Badge>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-
-                      {/* Topics Discussed */}
-                      {summaryData.topics_discussed && summaryData.topics_discussed.length > 0 && (
-                        <Accordion.Item value="topics">
-                          <Accordion.Control>
-                            <Title order={5}>Topics Discussed</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <List>
-                              {summaryData.topics_discussed.map((topic: string, index: number) => (
-                                <List.Item key={index}>{topic}</List.Item>
-                              ))}
-                            </List>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-
-                      {/* Transcript Chapters */}
-                      {summaryData.transcript_chapters && summaryData.transcript_chapters.length > 0 && (
-                        <Accordion.Item value="chapters">
-                          <Accordion.Control>
-                            <Title order={5}>Transcript Chapters</Title>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Stack gap="sm">
-                              {summaryData.transcript_chapters.map((chapter: any, index: number) => (
-                                <Paper key={index} p="sm" radius="xs" className="bg-[#333333]">
-                                  <Text size="sm" fw={500}>
-                                    {chapter.title || `Chapter ${index + 1}`}
-                                  </Text>
-                                  {chapter.summary && (
-                                    <Text size="xs" c="dimmed" mt="xs">
-                                      {chapter.summary}
-                                    </Text>
-                                  )}
-                                </Paper>
-                              ))}
-                            </Stack>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      )}
-                    </>
-                  );
-                })()}
-
-                {/* Screenshots Section */}
-                {selectedTranscription.screenshots && selectedTranscription.screenshots.length > 0 && (
-                  <Accordion.Item value="screenshots">
-                    <Accordion.Control>
-                      <Group justify="space-between" style={{ width: '100%' }}>
-                        <Title order={5}>Screenshots</Title>
-                        <Badge variant="light" color="green" size="sm">
-                          {selectedTranscription.screenshots.length}
-                        </Badge>
-                      </Group>
-                    </Accordion.Control>
-                    <Accordion.Panel>
-                      <Stack gap="xs">
-                        {selectedTranscription.screenshots.map((screenshot: any) => (
-                          <Paper
-                            key={screenshot.id}
-                            p="sm"
-                            radius="xs"
-                            className="bg-[#333333]"
-                          >
-                            <Group justify="space-between">
-                              <Text size="sm" fw={500}>
-                                {screenshot.timestamp}
-                              </Text>
-                              <Text size="xs" c="dimmed">
-                                {new Date(screenshot.createdAt).toLocaleString()}
-                              </Text>
-                            </Group>
-                          </Paper>
-                        ))}
-                      </Stack>
-                    </Accordion.Panel>
-                  </Accordion.Item>
-                )}
-              </Accordion>
-              <Group gap="md">
-                    <Text size="sm">
-                      <strong>Created:</strong>{" "}
-                      {new Date(selectedTranscription.createdAt).toLocaleString()}
-                    </Text>
-                    <Text size="sm">
-                      <strong>Updated:</strong>{" "}
-                      {new Date(selectedTranscription.updatedAt).toLocaleString()}
-                    </Text>
-                    {selectedTranscription.sourceIntegration && (
-                    <Text size="sm">
-                      <strong>Source:</strong> {selectedTranscription.sourceIntegration.provider} 
-                      {selectedTranscription.sourceIntegration.name && ` (${selectedTranscription.sourceIntegration.name})`}
-                    </Text>
-                  )}
-                  </Group>
-            </Stack>
-          </ScrollArea>
-        )}
-      </Drawer>
+        syncingToIntegration={syncingToIntegration}
+      />
     </>
   );
 }

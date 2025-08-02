@@ -20,9 +20,9 @@ import {
   Stack,
   Text,
   Drawer,
-  ScrollArea,
   Badge,
   ActionIcon,
+  Card,
 } from "@mantine/core";
 import { api } from "~/trpc/react";
 import {
@@ -39,6 +39,7 @@ import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { ProjectIntegrations } from "./ProjectIntegrations";
 import { ProjectSyncStatus } from "./ProjectSyncStatus";
+import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 
 type TabValue =
   | "tasks"
@@ -229,148 +230,144 @@ export function ProjectContent({
             </Tabs.Panel>
 
             <Tabs.Panel value="transcriptions">
-              <Paper
-                p="md"
-                radius="sm"
-                className="mx-auto w-full max-w-3xl bg-[#262626]"
-              >
-                <Stack gap="md">
-                  <Title order={4}>Transcription Sessions</Title>
-                  {project.transcriptionSessions &&
-                  project.transcriptionSessions.length > 0 ? (
-                    <Stack gap="sm">
-                      {project.transcriptionSessions.map((session) => (
-                        <Paper
-                          key={session.id}
-                          p="md"
-                          radius="sm"
-                          className="cursor-pointer bg-[#2a2a2a] transition-colors hover:bg-[#333333]"
-                          onClick={() => handleTranscriptionClick(session)}
-                        >
-                          <Group justify="space-between" align="flex-start">
+              <Stack gap="md">
+                <Group justify="space-between" align="center">
+                  <Title order={4}>Project Transcriptions</Title>
+                  <Text size="sm" c="dimmed">
+                    {project.transcriptionSessions?.length || 0} transcriptions
+                  </Text>
+                </Group>
+
+                {project.transcriptionSessions && project.transcriptionSessions.length > 0 ? (
+                  <Stack gap="lg">
+                    {project.transcriptionSessions.map((session) => (
+                      <Card
+                        key={session.id}
+                        withBorder
+                        shadow="sm"
+                        radius="md"
+                        className="hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => handleTranscriptionClick(session)}
+                      >
+                        <Stack gap="md">
+                          {/* Transcription Header */}
+                          <Group justify="space-between" align="flex-start" wrap="nowrap">
                             <Stack gap="xs" style={{ flex: 1 }}>
-                              <Group gap="xs">
-                                <Text size="sm" fw={500}>
-                                  Session ID: {session.sessionId}
+                              <Group gap="sm" wrap="nowrap">
+                                <Text size="lg" fw={600} lineClamp={1}>
+                                  {session.title || `Session ${session.sessionId}`}
                                 </Text>
-                                <Text size="xs" c="dimmed">
-                                  {new Date(
-                                    session.createdAt,
-                                  ).toLocaleDateString()}
-                                </Text>
+                                <Group gap="xs">
+                                  {session.sourceIntegration && (
+                                    <Badge variant="dot" color="teal" size="sm">
+                                      {session.sourceIntegration.provider}
+                                    </Badge>
+                                  )}
+                                </Group>
                               </Group>
-                              {session.transcription && (
-                                <TranscriptionRenderer
-                                  transcription={session.transcription}
-                                  provider={session.sourceIntegration?.provider}
-                                  isPreview={true}
-                                  maxLines={3}
-                                />
-                              )}
+                              
+                              <Group gap="md" c="dimmed">
+                                <Text size="sm">
+                                  {new Date(session.createdAt).toLocaleDateString('en-US', {
+                                    weekday: 'short',
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                  })}
+                                </Text>
+                                <Text size="sm">
+                                  {new Date(session.createdAt).toLocaleTimeString('en-US', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </Text>
+                                {session.actions && session.actions.length > 0 && (
+                                  <>
+                                    <Text size="sm">•</Text>
+                                    <Text size="sm">
+                                      {session.actions.length} {session.actions.length === 1 ? 'action' : 'actions'}
+                                    </Text>
+                                  </>
+                                )}
+                              </Group>
                             </Stack>
                           </Group>
-                        </Paper>
-                      ))}
+
+                          {/* Transcription Preview */}
+                          {session.transcription && (
+                            <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800">
+                              <TranscriptionRenderer
+                                transcription={session.transcription}
+                                provider={session.sourceIntegration?.provider}
+                                isPreview={true}
+                                maxLines={3}
+                              />
+                            </Paper>
+                          )}
+
+                          {/* Actions Summary */}
+                          {session.actions && session.actions.length > 0 && (
+                            <Paper p="sm" radius="sm" withBorder>
+                              <Group justify="space-between" align="center">
+                                <Group gap="xs">
+                                  <Text size="sm" fw={500} c="dimmed">
+                                    Action Items:
+                                  </Text>
+                                  <Badge variant="filled" color="blue" size="sm">
+                                    {session.actions.length}
+                                  </Badge>
+                                </Group>
+                              </Group>
+                              
+                              {/* Action Items Preview */}
+                              <Stack gap="xs" mt="xs">
+                                {session.actions.slice(0, 3).map((action: any) => (
+                                  <Group key={action.id} gap="xs" align="flex-start">
+                                    <Text size="xs" c="dimmed" mt={2}>•</Text>
+                                    <Text size="sm" lineClamp={1} style={{ flex: 1 }}>
+                                      {action.name}
+                                    </Text>
+                                    {action.priority && (
+                                      <Badge variant="outline" size="xs" color="gray">
+                                        {action.priority}
+                                      </Badge>
+                                    )}
+                                  </Group>
+                                ))}
+                                {session.actions.length > 3 && (
+                                  <Text size="xs" c="dimmed" fs="italic">
+                                    +{session.actions.length - 3} more actions...
+                                  </Text>
+                                )}
+                              </Stack>
+                            </Paper>
+                          )}
+                        </Stack>
+                      </Card>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Paper p="xl" radius="md" className="text-center">
+                    <Stack gap="md" align="center">
+                      <Text size="lg" c="dimmed">No transcriptions found</Text>
+                      <Text size="sm" c="dimmed">
+                        Transcription sessions assigned to this project will appear here
+                      </Text>
                     </Stack>
-                  ) : (
-                    <Text size="sm" c="dimmed" ta="center" py="xl">
-                      No transcription sessions found for this project.
-                    </Text>
-                  )}
-                </Stack>
-              </Paper>
+                  </Paper>
+                )}
+              </Stack>
             </Tabs.Panel>
           </Stack>
         </Tabs>
       </div>
 
       {/* Transcription Details Drawer */}
-      <Drawer
+      <TranscriptionDetailsDrawer
         opened={drawerOpened}
         onClose={() => setDrawerOpened(false)}
-        title="Transcription Details"
-        position="right"
-        size="lg"
-        trapFocus={false}
-        lockScroll={false}
-        withOverlay={false} // optional: disables dimming the background
-      >
-        {selectedTranscription && (
-          <ScrollArea h="100%">
-            <Stack gap="md">
-              <Paper p="md" radius="sm" className="bg-[#2a2a2a]">
-                <Stack gap="sm">
-                  <Group justify="space-between">
-                    <Title order={5}>Session Information</Title>
-                    <Badge variant="light" color="blue">
-                      {selectedTranscription.sessionId}
-                    </Badge>
-                  </Group>
-                  <Group gap="md">
-                    <Text size="sm">
-                      <strong>Created:</strong>{" "}
-                      {new Date(
-                        selectedTranscription.createdAt,
-                      ).toLocaleString()}
-                    </Text>
-                    <Text size="sm">
-                      <strong>Updated:</strong>{" "}
-                      {new Date(
-                        selectedTranscription.updatedAt,
-                      ).toLocaleString()}
-                    </Text>
-                  </Group>
-                </Stack>
-              </Paper>
-
-              <Paper p="md" radius="sm" className="bg-[#2a2a2a]">
-                <Stack gap="sm">
-                  <Title order={5}>Transcription</Title>
-                  <TranscriptionRenderer
-                    transcription={selectedTranscription.transcription}
-                    provider={selectedTranscription.sourceIntegration?.provider}
-                    isPreview={false}
-                  />
-                </Stack>
-              </Paper>
-
-              {selectedTranscription.screenshots &&
-                selectedTranscription.screenshots.length > 0 && (
-                  <Paper p="md" radius="sm" className="bg-[#2a2a2a]">
-                    <Stack gap="sm">
-                      <Title order={5}>
-                        Screenshots ({selectedTranscription.screenshots.length})
-                      </Title>
-                      <Stack gap="xs">
-                        {selectedTranscription.screenshots.map(
-                          (screenshot: any) => (
-                            <Paper
-                              key={screenshot.id}
-                              p="sm"
-                              radius="xs"
-                              className="bg-[#333333]"
-                            >
-                              <Group justify="space-between">
-                                <Text size="sm" fw={500}>
-                                  {screenshot.timestamp}
-                                </Text>
-                                <Text size="xs" c="dimmed">
-                                  {new Date(
-                                    screenshot.createdAt,
-                                  ).toLocaleString()}
-                                </Text>
-                              </Group>
-                            </Paper>
-                          ),
-                        )}
-                      </Stack>
-                    </Stack>
-                  </Paper>
-                )}
-            </Stack>
-          </ScrollArea>
-        )}
-      </Drawer>
+        transcription={selectedTranscription}
+      />
 
       {/* Project Chat Drawer */}
       <Drawer.Root
