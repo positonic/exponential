@@ -14,6 +14,7 @@ export const actionRouter = createTRPCRouter({
       },
       include: {
         project: true,
+        syncs: true, // Include ActionSync records to show sync status
       },
       orderBy: {
         project: {
@@ -36,6 +37,7 @@ export const actionRouter = createTRPCRouter({
         },
         include: {
           project: true,
+          syncs: true, // Include ActionSync records to show sync status
         },
         orderBy: [
           { priority: "asc" },

@@ -1,5 +1,5 @@
-import { Checkbox, Text, Group, Paper, Accordion } from '@mantine/core';
-import { IconCalendar } from '@tabler/icons-react';
+import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip } from '@mantine/core';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck } from '@tabler/icons-react';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
 import { useState } from "react";
@@ -22,6 +22,89 @@ const HTMLContent = ({ html, className }: { html: string, className?: string }) 
 const formatDate = (date: Date | null | undefined): string => {
   if (!date) return '';
   return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+};
+
+// Helper function to get sync status for an action
+const getSyncStatus = (action: Action) => {
+  if (!action.syncs || action.syncs.length === 0) {
+    return { status: 'not_synced', provider: null };
+  }
+
+  // Check for Notion sync status
+  const notionSync = action.syncs.find(sync => sync.provider === 'notion');
+  if (notionSync) {
+    return { 
+      status: notionSync.status, 
+      provider: 'notion',
+      externalId: notionSync.externalId,
+      syncedAt: notionSync.syncedAt 
+    };
+  }
+
+  // Check for other providers
+  const otherSync = action.syncs[0];
+  return { 
+    status: otherSync.status, 
+    provider: otherSync.provider,
+    externalId: otherSync.externalId,
+    syncedAt: otherSync.syncedAt 
+  };
+};
+
+// Helper component to render sync status indicator
+const SyncStatusIndicator = ({ action }: { action: Action }) => {
+  const syncInfo = getSyncStatus(action);
+  
+  if (syncInfo.status === 'not_synced') {
+    return null; // No indicator for unsynced items
+  }
+
+  if (syncInfo.status === 'deleted_remotely') {
+    return (
+      <Tooltip label={`Deleted from ${syncInfo.provider === 'notion' ? 'Notion' : syncInfo.provider}. This task no longer exists in the external system.`}>
+        <Badge 
+          size="sm" 
+          color="red" 
+          variant="light"
+          leftSection={<IconCloudOff size={12} />}
+        >
+          Deleted from {syncInfo.provider === 'notion' ? 'Notion' : syncInfo.provider}
+        </Badge>
+      </Tooltip>
+    );
+  }
+
+  if (syncInfo.status === 'failed') {
+    return (
+      <Tooltip label={`Failed to sync to ${syncInfo.provider === 'notion' ? 'Notion' : syncInfo.provider}. There was an error during synchronization.`}>
+        <Badge 
+          size="sm" 
+          color="orange" 
+          variant="light"
+          leftSection={<IconAlertTriangle size={12} />}
+        >
+          Sync failed
+        </Badge>
+      </Tooltip>
+    );
+  }
+
+  if (syncInfo.status === 'synced') {
+    return (
+      <Tooltip label={`Synced to ${syncInfo.provider === 'notion' ? 'Notion' : syncInfo.provider} on ${new Date(syncInfo.syncedAt!).toLocaleDateString()}`}>
+        <Badge 
+          size="sm" 
+          color="green" 
+          variant="light"
+          leftSection={<IconCloudCheck size={12} />}
+        >
+          Synced
+        </Badge>
+      </Tooltip>
+    );
+  }
+
+  return null;
 };
 
 export function ActionList({ viewName, actions }: { viewName: string, actions: Action[] }) {
@@ -217,12 +300,15 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
           </div>
           <div className="truncate flex-grow">
             <HTMLContent html={action.name} />
-            {action.dueDate && (
-               <Group gap={4} align="center" className={`text-xs ${isOverdue ? 'text-red-500' : 'text-gray-500'} mt-1`}>
-                 <IconCalendar size={12} />
-                 <span>{formatDate(action.dueDate)}</span>
-               </Group>
-            )}
+            <Group gap="xs" align="center" className="mt-1">
+              {action.dueDate && (
+                <Group gap={4} align="center" className={`text-xs ${isOverdue ? 'text-red-500' : 'text-gray-500'}`}>
+                  <IconCalendar size={12} />
+                  <span>{formatDate(action.dueDate)}</span>
+                </Group>
+              )}
+              <SyncStatusIndicator action={action} />
+            </Group>
           </div>
         </Group>
         {/* Optional: Add Project/Context Info Here if needed, similar to screenshot */}

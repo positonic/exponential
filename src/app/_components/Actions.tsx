@@ -62,20 +62,80 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         message = `ℹ️ No new tasks to sync to ${integrationName}`;
         color = 'blue';
         
-        // Add specific skip reasons if available (from metadata)
+        // Group skip reasons by type
         const metadata = data as any;
-        if (metadata.itemsAlreadySynced > 0) {
-          message += `\n✓ ${metadata.itemsAlreadySynced} task${metadata.itemsAlreadySynced !== 1 ? 's' : ''} already synced`;
+        const skipReasonGroups: Record<string, number> = {};
+        
+        if (metadata.skippedReasons && Array.isArray(metadata.skippedReasons)) {
+          metadata.skippedReasons.forEach((reason: string) => {
+            // Extract the reason type from the full message
+            if (reason.includes('Already synced')) {
+              skipReasonGroups['already_synced'] = (skipReasonGroups['already_synced'] || 0) + 1;
+            } else if (reason.includes('Deleted from Notion')) {
+              skipReasonGroups['deleted_remotely'] = (skipReasonGroups['deleted_remotely'] || 0) + 1;
+            } else if (reason.includes('Failed')) {
+              skipReasonGroups['failed'] = (skipReasonGroups['failed'] || 0) + 1;
+            } else {
+              skipReasonGroups['other'] = (skipReasonGroups['other'] || 0) + 1;
+            }
+          });
         }
-        if (metadata.itemsFailedToSync > 0) {
-          message += `\n⚠️ ${metadata.itemsFailedToSync} task${metadata.itemsFailedToSync !== 1 ? 's' : ''} failed to sync`;
+        
+        // Build grouped skip message
+        if (skipReasonGroups['already_synced'] > 0) {
+          message += `\n✓ ${skipReasonGroups['already_synced']} already synced`;
+        }
+        if (skipReasonGroups['deleted_remotely'] > 0) {
+          message += `\n🗑️ ${skipReasonGroups['deleted_remotely']} deleted from ${integrationName}`;
+        }
+        if (skipReasonGroups['failed'] > 0) {
+          message += `\n⚠️ ${skipReasonGroups['failed']} failed to sync`;
+        }
+        if (skipReasonGroups['other'] > 0) {
+          message += `\n• ${skipReasonGroups['other']} skipped (other reasons)`;
+        }
+        
+        // Show detailed skip reasons if user wants more info
+        if (metadata.skippedReasons && metadata.skippedReasons.length <= 3) {
+          message += '\n\n📋 Details:';
+          metadata.skippedReasons.forEach((reason: string) => {
+            message += `\n• ${reason}`;
+          });
         }
       } else {
         // Some items were created
         message = `✅ ${itemsCreated} task${itemsCreated !== 1 ? 's' : ''} synced to ${integrationName}`;
         
         if (itemsSkipped > 0) {
-          message += `\n⚠️ ${itemsSkipped} task${itemsSkipped !== 1 ? 's' : ''} skipped`;
+          // Group skip reasons for created + skipped scenario too
+          const metadata = data as any;
+          const skipReasonGroups: Record<string, number> = {};
+          
+          if (metadata.skippedReasons && Array.isArray(metadata.skippedReasons)) {
+            metadata.skippedReasons.forEach((reason: string) => {
+              if (reason.includes('Already synced')) {
+                skipReasonGroups['already_synced'] = (skipReasonGroups['already_synced'] || 0) + 1;
+              } else if (reason.includes('Deleted from Notion')) {
+                skipReasonGroups['deleted_remotely'] = (skipReasonGroups['deleted_remotely'] || 0) + 1;
+              } else if (reason.includes('Failed')) {
+                skipReasonGroups['failed'] = (skipReasonGroups['failed'] || 0) + 1;
+              } else {
+                skipReasonGroups['other'] = (skipReasonGroups['other'] || 0) + 1;
+              }
+            });
+          }
+          
+          message += '\n\n⚠️ Skipped:';
+          if (skipReasonGroups['already_synced'] > 0) {
+            message += `\n• ${skipReasonGroups['already_synced']} already synced`;
+          }
+          if (skipReasonGroups['deleted_remotely'] > 0) {
+            message += `\n• ${skipReasonGroups['deleted_remotely']} deleted from ${integrationName}`;
+          }
+          if (skipReasonGroups['failed'] > 0) {
+            message += `\n• ${skipReasonGroups['failed']} failed`;
+          }
+          
           color = 'yellow';
         }
       }
