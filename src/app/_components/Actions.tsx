@@ -4,7 +4,7 @@ import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
 import { IconLayoutKanban, IconList, IconCalendarEvent, IconUpload, IconDownload, IconSettings } from "@tabler/icons-react";
-import { Button, Title, Stack, Paper, Text, Group, ActionIcon } from "@mantine/core";
+import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Switch, Tooltip } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
@@ -24,6 +24,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
   const [syncingToIntegration, setSyncingToIntegration] = useState(false);
   const [pullingFromIntegration, setPullingFromIntegration] = useState(false);
+  const [exponentialIsSourceOfTruth, setExponentialIsSourceOfTruth] = useState(false);
 
   // Conditionally fetch actions based on projectId
   const actionsQuery = projectId
@@ -82,16 +83,16 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         }
         
         // Build grouped skip message
-        if (skipReasonGroups['already_synced'] > 0) {
+        if (skipReasonGroups['already_synced'] && skipReasonGroups['already_synced'] > 0) {
           message += `\n✓ ${skipReasonGroups['already_synced']} already synced`;
         }
-        if (skipReasonGroups['deleted_remotely'] > 0) {
+        if (skipReasonGroups['deleted_remotely'] && skipReasonGroups['deleted_remotely'] > 0) {
           message += `\n🗑️ ${skipReasonGroups['deleted_remotely']} deleted from ${integrationName}`;
         }
-        if (skipReasonGroups['failed'] > 0) {
+        if (skipReasonGroups['failed'] && skipReasonGroups['failed'] > 0) {
           message += `\n⚠️ ${skipReasonGroups['failed']} failed to sync`;
         }
-        if (skipReasonGroups['other'] > 0) {
+        if (skipReasonGroups['other'] && skipReasonGroups['other'] > 0) {
           message += `\n• ${skipReasonGroups['other']} skipped (other reasons)`;
         }
         
@@ -126,13 +127,13 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           }
           
           message += '\n\n⚠️ Skipped:';
-          if (skipReasonGroups['already_synced'] > 0) {
+          if (skipReasonGroups['already_synced'] && skipReasonGroups['already_synced'] > 0) {
             message += `\n• ${skipReasonGroups['already_synced']} already synced`;
           }
-          if (skipReasonGroups['deleted_remotely'] > 0) {
+          if (skipReasonGroups['deleted_remotely'] && skipReasonGroups['deleted_remotely'] > 0) {
             message += `\n• ${skipReasonGroups['deleted_remotely']} deleted from ${integrationName}`;
           }
-          if (skipReasonGroups['failed'] > 0) {
+          if (skipReasonGroups['failed'] && skipReasonGroups['failed'] > 0) {
             message += `\n• ${skipReasonGroups['failed']} failed`;
           }
           
@@ -412,7 +413,11 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     }
 
     setSyncingToIntegration(true);
-    syncToIntegrationMutation.mutate({ id: workflowId });
+    syncToIntegrationMutation.mutate({ 
+      id: workflowId, 
+      projectId: projectId,
+      overwriteMode: exponentialIsSourceOfTruth 
+    });
   };
 
   // Handler for pulling actions from configured integration (pull sync)
@@ -552,20 +557,40 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               // Show manual sync buttons for manual strategy
               return (
                 <>
+                  {/* Source of truth toggle - only for Notion */}
+                  {project.taskManagementTool === 'notion' && (
+                    <Tooltip label={exponentialIsSourceOfTruth ? 
+                      "Exponential is the source of truth. Push will overwrite Notion completely." : 
+                      "Notion is the source of truth. Push will only add/update tasks."}>
+                      <Switch
+                        size="sm"
+                        checked={exponentialIsSourceOfTruth}
+                        onChange={(event) => setExponentialIsSourceOfTruth(event.currentTarget.checked)}
+                        label={
+                          <Text size="xs" c="dimmed">
+                            {exponentialIsSourceOfTruth ? "Exponential → Notion" : "Notion ← Exponential"}
+                          </Text>
+                        }
+                      />
+                    </Tooltip>
+                  )}
+                  
                   <Button
                     variant="light"
                     size="sm"
                     color={project.taskManagementTool === 'monday' ? 'orange' : 
-                          project.taskManagementTool === 'notion' ? 'gray' : 'blue'}
+                          project.taskManagementTool === 'notion' ? (exponentialIsSourceOfTruth ? 'red' : 'gray') : 'blue'}
                     loading={syncingToIntegration}
                     onClick={handleSyncToIntegration}
                     leftSection={<IconUpload size={16} />}
                   >
-                    Push to {integrationName}
+                    {project.taskManagementTool === 'notion' && exponentialIsSourceOfTruth ? 
+                      `Overwrite ${integrationName}` : 
+                      `Push to ${integrationName}`}
                   </Button>
                   
-                  {/* Pull button - only show for providers that support it */}
-                  {project.taskManagementTool === 'notion' && (
+                  {/* Pull button - only show for providers that support it and when Notion is source of truth */}
+                  {project.taskManagementTool === 'notion' && !exponentialIsSourceOfTruth && (
                     <Group gap="xs">
                       <Button
                         variant="outline"
@@ -589,6 +614,19 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
                         </ActionIcon>
                       )}
                     </Group>
+                  )}
+                  
+                  {/* Settings button for Notion when Exponential is source of truth */}
+                  {project.taskManagementTool === 'notion' && exponentialIsSourceOfTruth && onToggleSyncStatus && (
+                    <ActionIcon
+                      variant="light"
+                      size="sm"
+                      color="gray"
+                      onClick={onToggleSyncStatus}
+                      title="Show sync configuration"
+                    >
+                      <IconSettings size={16} />
+                    </ActionIcon>
                   )}
                 </>
               );

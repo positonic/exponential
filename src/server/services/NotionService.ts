@@ -84,7 +84,7 @@ export class NotionService {
       return {
         id: response.id,
         title: (response as any).title?.[0]?.plain_text || 'Untitled Database',
-        url: response.url,
+        url: (response as any).url || '',
         properties: this.formatProperties((response as any).properties),
       };
     } catch (error) {
@@ -96,6 +96,32 @@ export class NotionService {
   private stripHtml(html: string): string {
     // Simple HTML tag removal - replace with plain text content
     return html.replace(/<[^>]*>/g, '').trim();
+  }
+
+  async archivePage(pageId: string): Promise<void> {
+    try {
+      await this.client.pages.update({
+        page_id: pageId,
+        archived: true,
+      });
+      console.log(`✅ Archived Notion page: ${pageId}`);
+    } catch (error) {
+      console.error('❌ Failed to archive Notion page:', error);
+      throw new Error('Failed to archive page in Notion');
+    }
+  }
+
+  async updatePage(params: { pageId: string; properties: Record<string, any> }): Promise<void> {
+    try {
+      await this.client.pages.update({
+        page_id: params.pageId,
+        properties: params.properties,
+      });
+      console.log(`✅ Updated Notion page: ${params.pageId}`);
+    } catch (error) {
+      console.error('❌ Failed to update Notion page:', error);
+      throw new Error('Failed to update page in Notion');
+    }
   }
 
   async createPage(params: CreatePageParams): Promise<NotionPage> {
@@ -111,7 +137,7 @@ export class NotionService {
       });
 
       // Use provided title property or find it automatically
-      let titleProperty = params.titleProperty;
+      let titleProperty: string | null | undefined = params.titleProperty;
       if (!titleProperty) {
         const database = await this.getDatabaseById(params.databaseId);
         titleProperty = this.findTitleProperty(database.properties);
@@ -174,7 +200,7 @@ export class NotionService {
       return {
         id: response.id,
         title: cleanTitle,
-        url: response.url,
+        url: (response as any).url || '',
         properties: (response as any).properties,
       };
     } catch (error) {

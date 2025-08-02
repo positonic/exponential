@@ -43,12 +43,17 @@ const getSyncStatus = (action: Action) => {
 
   // Check for other providers
   const otherSync = action.syncs[0];
-  return { 
-    status: otherSync.status, 
-    provider: otherSync.provider,
-    externalId: otherSync.externalId,
-    syncedAt: otherSync.syncedAt 
-  };
+  if (otherSync) {
+    return { 
+      status: otherSync.status, 
+      provider: otherSync.provider,
+      externalId: otherSync.externalId,
+      syncedAt: otherSync.syncedAt 
+    };
+  }
+
+  // Fallback if no sync records found
+  return { status: 'not_synced', provider: null };
 };
 
 // Helper component to render sync status indicator
@@ -128,7 +133,7 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
       };
       
       // Helper function to update action in a list
-      const updateActionInList = (old: Action[] | undefined) => {
+      const updateActionInList = (old: Action[] | undefined): Action[] => {
         if (!old) return [];
         return old.map((action) =>
           action.id === id 

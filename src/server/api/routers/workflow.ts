@@ -238,7 +238,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
 }
 
 // Helper function for Notion push sync
-async function runNotionPushSync(ctx: any, workflow: any, runId: string) {
+async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwriteMode: boolean = false, projectId?: string) {
   const config = workflow.config as { 
     databaseId: string; 
     propertyMappings?: Record<string, string>;
@@ -312,6 +312,7 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string) {
   });
 
   console.log(`Found ${actions.length} actions to sync to Notion`);
+  console.log(`🔧 Overwrite mode: ${overwriteMode ? 'YES - Exponential is source of truth' : 'NO - Standard push'}`);
 
   // 🔧 IMPORTANT: Check for deletions before pushing to avoid showing stale sync status
   console.log('🔍 Checking for tasks deleted from Notion before pushing...');
@@ -352,45 +353,59 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string) {
   let itemsSkipped = 0;
   let itemsAlreadySynced = 0;
   let itemsFailedToSync = 0;
+  let itemsDeleted = 0;
+  let itemsUpdated = 0;
   const skippedReasons: string[] = [];
+
+  // In overwrite mode, delete all Notion tasks that don't exist in our local actions
+  if (overwriteMode) {
+    console.log('🗑️ Overwrite mode: Checking for Notion tasks to delete...');
+    
+    // Get all pages from Notion for this project
+    const allNotionPages = await notionService.getAllPagesFromDatabase(
+      config.databaseId,
+      projectId ? (await ctx.db.project.findUnique({ 
+        where: { id: projectId }, 
+        select: { notionProjectId: true } 
+      }))?.notionProjectId : undefined
+    );
+    
+    const localActionNotionIds = new Set(
+      await ctx.db.actionSync.findMany({
+        where: {
+          provider: 'notion',
+          action: {
+            createdById: ctx.session.user.id,
+            projectId: projectId || { in: projectIds },
+            status: { not: 'DELETED' },
+          },
+        },
+        select: { externalId: true },
+      }).then(syncs => syncs.map(s => s.externalId))
+    );
+    
+    // Delete Notion pages that don't have corresponding local actions
+    for (const notionPage of allNotionPages) {
+      if (!localActionNotionIds.has(notionPage.id)) {
+        try {
+          console.log(`🗑️ Deleting Notion page ${notionPage.id} (not in local actions)`);
+          // Archive the page in Notion (safer than hard delete)
+          await notionService.archivePage(notionPage.id);
+          itemsDeleted++;
+        } catch (error) {
+          console.error(`Failed to delete Notion page ${notionPage.id}:`, error);
+        }
+      }
+    }
+    
+    if (itemsDeleted > 0) {
+      console.log(`🗑️ Deleted ${itemsDeleted} Notion pages that don't exist locally`);
+    }
+  }
 
   for (const action of actions) {
     try {
-      // Check if this action has already been synced to Notion
-      const existingSync = await ctx.db.actionSync.findFirst({
-        where: {
-          actionId: action.id,
-          provider: 'notion',
-        },
-      });
-
-      console.log(`🔍 Debug - Action "${action.name}" (${action.id}):`, {
-        hasExistingSync: !!existingSync,
-        syncStatus: existingSync?.status,
-        externalId: existingSync?.externalId,
-        syncedAt: existingSync?.syncedAt
-      });
-
-      if (existingSync) {
-        if (existingSync.status === 'deleted_remotely') {
-          console.log(`🗑️ Skipping action ${action.id} - was deleted from Notion (page: ${existingSync.externalId})`);
-          itemsAlreadySynced++;
-          itemsSkipped++;
-          skippedReasons.push(`"${action.name}" - Deleted from Notion (cannot recreate)`);
-          continue;
-        } else if (existingSync.status === 'synced') {
-          console.log(`✅ Skipping action ${action.id} - already synced to Notion (page: ${existingSync.externalId})`);
-          itemsAlreadySynced++;
-          itemsSkipped++;
-          skippedReasons.push(`"${action.name}" - Already synced to Notion`);
-          continue;
-        } else if (existingSync.status === 'failed') {
-          console.log(`⚠️ Retrying failed sync for action ${action.id} (previous failure with page: ${existingSync.externalId})`);
-          // Allow the sync to proceed for failed items
-        }
-      }
-      
-      // Transform action to Notion page format
+      // Transform action to Notion page format first (needed for overwrite mode)
       const properties: Record<string, any> = {};
       
       // Map fields based on configuration
@@ -420,6 +435,63 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string) {
         }
         properties[config.propertyMappings.description] = NotionService.formatPropertyValue('rich_text', description);
       }
+
+      // Check if this action has already been synced to Notion
+      const existingSync = await ctx.db.actionSync.findFirst({
+        where: {
+          actionId: action.id,
+          provider: 'notion',
+        },
+      });
+
+      console.log(`🔍 Debug - Action "${action.name}" (${action.id}):`, {
+        hasExistingSync: !!existingSync,
+        syncStatus: existingSync?.status,
+        externalId: existingSync?.externalId,
+        syncedAt: existingSync?.syncedAt
+      });
+
+      if (existingSync) {
+        if (existingSync.status === 'deleted_remotely') {
+          console.log(`🗑️ Skipping action ${action.id} - was deleted from Notion (page: ${existingSync.externalId})`);
+          itemsAlreadySynced++;
+          itemsSkipped++;
+          skippedReasons.push(`"${action.name}" - Deleted from Notion (cannot recreate)`);
+          continue;
+        } else if (existingSync.status === 'synced') {
+          if (overwriteMode) {
+            // In overwrite mode, update the existing page
+            console.log(`🔄 Overwrite mode: Updating existing Notion page for action ${action.id}`);
+            
+            try {
+              // Update the existing Notion page
+              await notionService.updatePage({
+                pageId: existingSync.externalId,
+                properties: properties,
+              });
+              
+              itemsUpdated++;
+              console.log(`✅ Updated Notion page ${existingSync.externalId} in overwrite mode`);
+            } catch (error) {
+              console.error(`Failed to update Notion page ${existingSync.externalId}:`, error);
+              itemsFailedToSync++;
+              itemsSkipped++;
+              skippedReasons.push(`"${action.name}" - Failed to update: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+            continue;
+          } else {
+            console.log(`✅ Skipping action ${action.id} - already synced to Notion (page: ${existingSync.externalId})`);
+            itemsAlreadySynced++;
+            itemsSkipped++;
+            skippedReasons.push(`"${action.name}" - Already synced to Notion`);
+            continue;
+          }
+        } else if (existingSync.status === 'failed') {
+          console.log(`⚠️ Retrying failed sync for action ${action.id} (previous failure with page: ${existingSync.externalId})`);
+          // Allow the sync to proceed for failed items
+        }
+      }
+      
 
       // Get the project's notionProjectId for linking
       const project = action.project ? await ctx.db.project.findUnique({
@@ -516,10 +588,11 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string) {
     runId,
     itemsProcessed: actions.length,
     itemsCreated,
-    itemsUpdated: 0,
+    itemsUpdated,
     itemsSkipped,
     itemsAlreadySynced,
     itemsFailedToSync,
+    itemsDeleted,
     skippedReasons,
   };
 }
@@ -668,6 +741,7 @@ export const workflowRouter = createTRPCRouter({
     .input(z.object({
       id: z.string(),
       projectId: z.string().optional(), // Optional project context for filtering
+      overwriteMode: z.boolean().optional(), // For "Exponential is source of truth" mode
     }))
     .mutation(async ({ ctx, input }) => {
       // Get the workflow with integration details
@@ -950,7 +1024,13 @@ export const workflowRouter = createTRPCRouter({
           };
         } else if (workflow.provider === 'notion' && workflow.syncDirection === 'push') {
           // Notion workflow - push actions to Notion database using robust implementation
-          const result = await runNotionPushSync(ctx, workflow, run.id);
+          const result = await runNotionPushSync(
+            ctx, 
+            workflow, 
+            run.id, 
+            input.overwriteMode || false,
+            input.projectId
+          );
           
           // Update workflow last run time
           await ctx.db.workflow.update({
