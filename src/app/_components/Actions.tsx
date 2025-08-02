@@ -4,7 +4,7 @@ import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
 import { IconLayoutKanban, IconList, IconCalendarEvent, IconUpload, IconDownload, IconSettings } from "@tabler/icons-react";
-import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Switch, Tooltip } from "@mantine/core";
+import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Switch, Tooltip, Badge } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
@@ -25,6 +25,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [syncingToIntegration, setSyncingToIntegration] = useState(false);
   const [pullingFromIntegration, setPullingFromIntegration] = useState(false);
   const [exponentialIsSourceOfTruth, setExponentialIsSourceOfTruth] = useState(false);
+  const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
 
   // Conditionally fetch actions based on projectId
   const actionsQuery = projectId
@@ -41,6 +42,27 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
   // Get available workflows
   const { data: workflows = [] } = api.workflow.list.useQuery();
+  const utils = api.useUtils();
+
+  // Bulk delete mutation
+  const bulkDeleteMutation = api.action.bulkDelete.useMutation({
+    onSuccess: (data) => {
+      notifications.show({
+        title: 'Actions Deleted',
+        message: `Successfully deleted ${data.count} actions`,
+        color: 'green',
+      });
+      setSelectedActionIds(new Set());
+      void actionsQuery.refetch();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Delete Failed',
+        message: error.message || 'Failed to delete actions',
+        color: 'red',
+      });
+    },
+  });
 
   // Sync to integration mutation (push)
   const syncToIntegrationMutation = api.workflow.run.useMutation({
@@ -308,6 +330,25 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     },
   });
 
+  // Helper functions for bulk operations
+  const handleSelectAll = () => {
+    const allActionIds = actions?.map(action => action.id) || [];
+    setSelectedActionIds(new Set(allActionIds));
+  };
+
+  const handleSelectNone = () => {
+    setSelectedActionIds(new Set());
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedActionIds.size === 0) return;
+    
+    if (window.confirm(`Are you sure you want to delete ${selectedActionIds.size} actions?`)) {
+      await bulkDeleteMutation.mutateAsync({
+        actionIds: Array.from(selectedActionIds),
+      });
+    }
+  };
   
   // Use the appropriate query based on whether we have a projectId
   const outcomes = projectId 
@@ -751,8 +792,63 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           </CreateOutcomeModal>
         </Paper>
       )}
+      
+      {/* Bulk Operations Bar */}
+      {actions && actions.length > 0 && (
+        <Paper withBorder p="md" radius="sm" mb="md">
+          <Group justify="space-between" align="center">
+            <Group gap="md">
+              {/* Selection Info */}
+              {selectedActionIds.size > 0 && (
+                <Badge variant="filled" color="blue">
+                  {selectedActionIds.size} selected
+                </Badge>
+              )}
+            </Group>
+
+            <Group gap="xs">
+              {/* Select All/None */}
+              <Button
+                size="xs"
+                variant="light"
+                onClick={handleSelectAll}
+                leftSection={<IconLayoutKanban size={14} />}
+              >
+                Select All
+              </Button>
+              <Button
+                size="xs"
+                variant="light"
+                onClick={handleSelectNone}
+                leftSection={<IconList size={14} />}
+              >
+                Select None
+              </Button>
+
+              {/* Bulk Actions */}
+              {selectedActionIds.size > 0 && (
+                <Button
+                  size="xs"
+                  variant="filled"
+                  color="red"
+                  onClick={handleBulkDelete}
+                  loading={bulkDeleteMutation.isPending}
+                >
+                  Delete Selected
+                </Button>
+              )}
+            </Group>
+          </Group>
+        </Paper>
+      )}
+      
       {/* Pass the fetched actions data to ActionList */}
-      <ActionList viewName={viewName} actions={actions ?? []} />
+      <ActionList 
+        viewName={viewName} 
+        actions={actions ?? []} 
+        selectedActionIds={selectedActionIds}
+        onSelectionChange={setSelectedActionIds}
+      />
       <div className="mt-6">
         <CreateActionModal viewName={viewName} projectId={projectId}/>
       </div>

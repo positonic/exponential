@@ -112,7 +112,17 @@ const SyncStatusIndicator = ({ action }: { action: Action }) => {
   return null;
 };
 
-export function ActionList({ viewName, actions }: { viewName: string, actions: Action[] }) {
+export function ActionList({ 
+  viewName, 
+  actions,
+  selectedActionIds = new Set(),
+  onSelectionChange 
+}: { 
+  viewName: string, 
+  actions: Action[],
+  selectedActionIds?: Set<string>,
+  onSelectionChange?: (ids: Set<string>) => void
+}) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
   const [editModalOpened, setEditModalOpened] = useState(false);
@@ -267,13 +277,33 @@ export function ActionList({ viewName, actions }: { viewName: string, actions: A
       className="transition-all hover:shadow-md cursor-pointer mb-3"
       onClick={(e) => {
         // Only open modal if we didn't click the checkbox
-        if (!(e.target as HTMLElement).closest('.checkbox-wrapper')) {
+        if (!(e.target as HTMLElement).closest('.checkbox-wrapper') && 
+            !(e.target as HTMLElement).closest('.bulk-checkbox-wrapper')) {
           handleActionClick(action);
         }
       }}
     >
       <Group justify="space-between" align="center" wrap="nowrap">
         <Group gap="md" wrap="nowrap" className="min-w-0 flex-1">
+          {/* Bulk selection checkbox */}
+          {onSelectionChange && (
+            <div className="bulk-checkbox-wrapper">
+              <Checkbox
+                size="sm"
+                checked={selectedActionIds.has(action.id)}
+                onChange={(event) => {
+                  const newSelected = new Set(selectedActionIds);
+                  if (event.currentTarget.checked) {
+                    newSelected.add(action.id);
+                  } else {
+                    newSelected.delete(action.id);
+                  }
+                  onSelectionChange(newSelected);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
           <div className="checkbox-wrapper pl-1"> {/* Added padding for alignment */}
             <Checkbox
               size="md"

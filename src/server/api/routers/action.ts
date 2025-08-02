@@ -253,4 +253,23 @@ export const actionRouter = createTRPCRouter({
         message: `Linked ${result.count} action${result.count === 1 ? '' : 's'} to transcription`,
       };
     }),
+
+  // Bulk delete actions
+  bulkDelete: protectedProcedure
+    .input(z.object({
+      actionIds: z.array(z.string()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.db.action.deleteMany({
+        where: {
+          id: { in: input.actionIds },
+          createdById: ctx.session.user.id, // Ensure user owns the actions
+        },
+      });
+
+      return {
+        count: result.count,
+        message: `Deleted ${result.count} action${result.count === 1 ? '' : 's'}`,
+      };
+    }),
 }); 
