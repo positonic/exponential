@@ -783,8 +783,8 @@ export const workflowRouter = createTRPCRouter({
 
       try {
         // Execute the workflow based on type
-        // If projectId is provided, treat it as a pull operation regardless of syncDirection
-        if (workflow.provider === 'notion' && (workflow.syncDirection === 'pull' || input.projectId)) {
+        // Only treat as pull if syncDirection is pull AND no overwriteMode is specified
+        if (workflow.provider === 'notion' && workflow.syncDirection === 'pull' && !input.overwriteMode) {
           // Use the helper function with project context
           const result = await runNotionPullSync(
             ctx, 
