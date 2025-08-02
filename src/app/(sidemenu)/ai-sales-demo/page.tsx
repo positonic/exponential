@@ -143,19 +143,22 @@ export default function AISalesDemoPage() {
                       <Paper
                         p="sm"
                         radius="md"
-                        bg={message.role === 'user' ? 'blue.0' : 'gray.0'}
+                        bg={message.role === 'user' ? 'blue.8' : 'dark.6'}
                         maw="80%"
+                        className={message.role === 'user' ? 'text-blue-100' : 'text-gray-100'}
                       >
-                        <Text size="sm">{message.content}</Text>
+                        <Text size="sm" c={message.role === 'user' ? 'blue.1' : 'gray.1'}>
+                          {message.content}
+                        </Text>
                       </Paper>
                     </div>
                   ))}
                   {isLoading && (
                     <div className="flex justify-start">
-                      <Paper p="sm" radius="md" bg="gray.0">
+                      <Paper p="sm" radius="md" bg="dark.6">
                         <Group gap="xs">
                           <Loader size="xs" />
-                          <Text size="sm" c="dimmed">AI is thinking...</Text>
+                          <Text size="sm" c="gray.3">AI is thinking...</Text>
                         </Group>
                       </Paper>
                     </div>
@@ -230,7 +233,7 @@ export default function AISalesDemoPage() {
               <Stack gap="lg">
                 {/* Hero Section */}
                 <div className="text-center">
-                  <Title order={2} className="text-2xl font-bold mb-2 text-gray-900">
+                  <Title order={2} className="text-2xl font-bold mb-2" c="gray.1">
                     {salesPage.headline}
                   </Title>
                   <Text size="lg" c="dimmed" maw={400} mx="auto">
@@ -255,8 +258,8 @@ export default function AISalesDemoPage() {
 
                 {/* Testimonial */}
                 {salesPage.testimonial && (
-                  <Paper p="md" radius="md" bg="gray.0">
-                    <Text size="sm" style={{ fontStyle: 'italic' }}>
+                  <Paper p="md" radius="md" bg="dark.7" withBorder>
+                    <Text size="sm" style={{ fontStyle: 'italic' }} c="gray.2">
                       {salesPage.testimonial}
                     </Text>
                   </Paper>
@@ -323,7 +326,7 @@ export default function AISalesDemoPage() {
         </div>
 
         {/* Call to Action for Friends */}
-        <Paper shadow="sm" p="xl" radius="md" withBorder className="text-center bg-gradient-to-r from-violet-50 to-indigo-50">
+        <Paper shadow="sm" p="xl" radius="md" withBorder className="text-center" bg="dark.8">
           <Title order={3} mb="md">Want to Try This for Real?</Title>
           <Text size="lg" c="dimmed" mb="lg" maw={600} mx="auto">
             This is a working prototype of an AI-powered sales page builder that learns from your actual projects. 
@@ -331,6 +334,8 @@ export default function AISalesDemoPage() {
           </Text>
           <Group justify="center">
             <Button
+              component="a"
+              href="/ai-sales-feedback"
               size="lg"
               variant="gradient"
               gradient={{ from: 'violet', to: 'indigo' }}
