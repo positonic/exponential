@@ -28,6 +28,7 @@ import {
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { ActionList } from "./ActionList";
+import { FirefliesSyncPanel } from "./FirefliesSyncPanel";
 
 type TabValue = "transcriptions" | "upcoming" | "archive";
 
@@ -355,6 +356,14 @@ export function MeetingsContent() {
             {/* Content Area */}
             <Tabs.Panel value="transcriptions">
               <Stack gap="md">
+                {/* Fireflies Sync Panel */}
+                <FirefliesSyncPanel 
+                  onSyncComplete={() => {
+                    // Refresh transcriptions when sync completes
+                    void utils.transcription.getAllTranscriptions.invalidate();
+                  }}
+                />
+
                 <Group justify="space-between" align="center">
                   <Title order={4}>Recent Meetings</Title>
                   <Text size="sm" c="dimmed">

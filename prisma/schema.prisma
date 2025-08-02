@@ -354,6 +354,7 @@ model Integration {
   provider              String                    // 'fireflies', 'github', 'slack', 'notion', etc.
   status                String                    @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'EXPIRED'
   description           String?
+  lastSyncAt            DateTime?                 // Last time transcripts were synced from this integration
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
   userId                String?

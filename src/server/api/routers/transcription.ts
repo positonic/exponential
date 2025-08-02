@@ -7,6 +7,7 @@ import {
 import { TRPCError } from "@trpc/server";
 //import { getSetups } from "~/server/services/videoService";
 import { uploadToBlob } from "~/lib/blob";
+import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
@@ -336,5 +337,61 @@ export const transcriptionRouter = createTRPCRouter({
           message: "Failed to save screenshot",
         });
       }
+    }),
+
+  // Fireflies bulk sync endpoints
+  getFirefliesIntegrations: protectedProcedure.query(async ({ ctx }) => {
+    return FirefliesSyncService.getUserFirefliesIntegrations(ctx.session.user.id);
+  }),
+
+  getFirefliesSyncStatus: protectedProcedure
+    .input(z.object({ integrationId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const integration = await FirefliesSyncService.getFirefliesIntegration(
+        ctx.session.user.id,
+        input.integrationId
+      );
+      
+      if (!integration) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Fireflies integration not found",
+        });
+      }
+
+      const estimatedNewCount = await FirefliesSyncService.estimateNewTranscripts(
+        ctx.session.user.id,
+        input.integrationId
+      );
+
+      return {
+        integrationName: integration.name,
+        lastSyncAt: integration.lastSyncAt,
+        estimatedNewCount,
+      };
+    }),
+
+  bulkSyncFromFireflies: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+        syncSinceDays: z.number().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const result = await FirefliesSyncService.bulkSyncFromFireflies(
+        ctx.session.user.id,
+        input.integrationId,
+        input.syncSinceDays
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error || "Failed to sync from Fireflies",
+        });
+      }
+
+      return result;
     }),
 });

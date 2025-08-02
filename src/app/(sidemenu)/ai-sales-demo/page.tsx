@@ -344,11 +344,13 @@ export default function AISalesDemoPage() {
               Give Feedback
             </Button>
             <Button
+              component="a"
+              href="/ai-sales-blog"
               size="lg"
               variant="outline"
               leftSection={<IconArrowRight size={20} />}
             >
-              See Full Concept
+              Read Full Vision
             </Button>
           </Group>
         </Paper>

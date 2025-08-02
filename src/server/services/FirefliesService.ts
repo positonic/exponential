@@ -20,6 +20,7 @@ export interface FirefliesSummary {
 }
 
 export interface FirefliesTranscript {
+  id: string;
   title: string;
   sentences: Array<{
     text: string;
