@@ -6,7 +6,7 @@ import { MondayService } from "~/server/services/MondayService";
 import { NotionService } from "~/server/services/NotionService";
 
 // Helper function for Notion pull sync
-async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletionBehavior?: string) {
+async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletionBehavior?: string, projectId?: string) {
   const config = workflow.config as { databaseId: string; propertyMappings?: Record<string, string> };
   const accessToken = workflow.integration.credentials.find(
     (c: any) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
@@ -20,11 +20,20 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
     throw new Error('No database ID configured for workflow');
   }
 
-  // Get the project's notionProjectId for filtering
-  const project = await ctx.db.project.findUnique({
-    where: { id: workflow.projectId },
-    select: { notionProjectId: true },
-  });
+  // Get the project's notionProjectId for filtering if projectId is provided
+  let project = null;
+  let notionProjectId = undefined;
+  
+  if (projectId) {
+    project = await ctx.db.project.findUnique({
+      where: { id: projectId },
+      select: { notionProjectId: true, name: true },
+    });
+    notionProjectId = project?.notionProjectId;
+    console.log(`🔍 Pulling tasks for project: ${project?.name} (Notion Project ID: ${notionProjectId || 'Not set'})`);
+  } else {
+    console.log('🔍 Pulling all tasks (no project filter)');
+  }
 
   // Initialize Notion service
   const notionService = new NotionService(accessToken);
@@ -32,7 +41,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
   // Get pages from the Notion database, filtered by project if available
   const notionPages = await notionService.getAllPagesFromDatabase(
     config.databaseId, 
-    project?.notionProjectId || undefined
+    notionProjectId
   );
   
   console.log(`Found ${notionPages.length} pages in Notion database`);
@@ -58,43 +67,63 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
         },
       });
 
-      if (existingSync && existingSync.action) {
-        // Update existing action if it's different
-        const existingAction = existingSync.action;
-        const needsUpdate = 
-          existingAction.name !== task.name ||
-          existingAction.status !== task.status ||
-          existingAction.description !== task.description ||
-          existingAction.priority !== task.priority ||
-          (existingAction.dueDate?.getTime() !== task.dueDate?.getTime());
+      let shouldCreateNew = false;
 
-        if (needsUpdate) {
-          await ctx.db.action.update({
-            where: { id: existingAction.id },
-            data: {
-              name: task.name,
-              description: task.description,
-              status: task.status,
-              priority: task.priority,
-              dueDate: task.dueDate,
-            },
-          });
-          
-          // Update the sync record
-          await ctx.db.actionSync.update({
-            where: { id: existingSync.id },
-            data: {
-              status: 'synced',
-              updatedAt: new Date(),
-            },
-          });
-          
-          itemsUpdated++;
-          console.log(`Updated action ${existingAction.id} from Notion page ${task.notionId}`);
+      if (existingSync) {
+        if (existingSync.action) {
+          // Update existing action if it's different
+          const existingAction = existingSync.action;
+          const needsUpdate = 
+            existingAction.name !== task.name ||
+            existingAction.status !== task.status ||
+            existingAction.description !== task.description ||
+            existingAction.priority !== task.priority ||
+            (existingAction.dueDate?.getTime() !== task.dueDate?.getTime());
+
+          if (needsUpdate) {
+            await ctx.db.action.update({
+              where: { id: existingAction.id },
+              data: {
+                name: task.name,
+                description: task.description,
+                status: task.status,
+                priority: task.priority,
+                dueDate: task.dueDate,
+              },
+            });
+            
+            // Update the sync record
+            await ctx.db.actionSync.update({
+              where: { id: existingSync.id },
+              data: {
+                status: 'synced',
+                updatedAt: new Date(),
+              },
+            });
+            
+            itemsUpdated++;
+            console.log(`Updated action ${existingAction.id} from Notion page ${task.notionId}`);
+          } else {
+            itemsSkipped++;
+            console.log(`Skipped unchanged action ${existingAction.id} from Notion page ${task.notionId}`);
+          }
         } else {
-          itemsSkipped++;
+          // Sync record exists but action was deleted locally - recreate it
+          console.log(`Found orphaned sync record for Notion page ${task.notionId}, recreating action`);
+          
+          // Delete the orphaned sync record
+          await ctx.db.actionSync.delete({
+            where: { id: existingSync.id },
+          });
+          
+          // Mark that we need to create a new action
+          shouldCreateNew = true;
         }
       } else {
+        shouldCreateNew = true;
+      }
+      
+      if (shouldCreateNew) {
         // Create new action and ActionSync record
         const newAction = await ctx.db.action.create({
           data: {
@@ -104,7 +133,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             priority: task.priority || 'Quick',
             dueDate: task.dueDate,
             createdById: ctx.session.user.id,
-            projectId: workflow.projectId,
+            projectId: projectId || undefined, // Use the provided projectId
           },
         });
 
@@ -119,7 +148,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
         });
 
         itemsCreated++;
-        console.log(`Created new action ${newAction.id} from Notion page ${task.notionId}`);
+        console.log(`✅ Created new action "${newAction.name}" (${newAction.id}) from Notion page ${task.notionId}`);
       }
     } catch (taskError) {
       console.error(`Error processing Notion page ${page.id}:`, taskError);
@@ -128,13 +157,13 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
   }
 
   // Handle deletions - find actions that exist locally but not in Notion
-  if (deletionBehavior === 'mark_deleted') {
+  if (deletionBehavior === 'mark_deleted' && projectId) {
     const localActionSyncs = await ctx.db.actionSync.findMany({
       where: {
         provider: 'notion',
         action: {
           createdById: ctx.session.user.id,
-          projectId: workflow.projectId,
+          projectId: projectId, // Use the provided projectId
           status: {
             not: 'DELETED',
           },
@@ -165,6 +194,13 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
       }
     }
   }
+
+  console.log(`📊 Pull sync completed:`, {
+    itemsCreated,
+    itemsUpdated,
+    itemsSkipped,
+    totalProcessed: notionPages.length,
+  });
 
   // Update the run with success
   await ctx.db.workflowRun.update({
@@ -631,6 +667,7 @@ export const workflowRouter = createTRPCRouter({
   run: protectedProcedure
     .input(z.object({
       id: z.string(),
+      projectId: z.string().optional(), // Optional project context for filtering
     }))
     .mutation(async ({ ctx, input }) => {
       // Get the workflow with integration details
@@ -672,136 +709,17 @@ export const workflowRouter = createTRPCRouter({
 
       try {
         // Execute the workflow based on type
-        if (workflow.provider === 'notion' && workflow.syncDirection === 'pull') {
-          const config = workflow.config as { databaseId: string };
-          const accessToken = workflow.integration.credentials.find(
-            c => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
-          )?.key;
-
-          if (!accessToken) {
-            throw new Error('No access token found for Notion integration');
-          }
-
-          if (!config.databaseId) {
-            throw new Error('No database ID configured for workflow');
-          }
-
-          // Initialize Notion service
-          const notionService = new NotionService(accessToken);
-
-          // Get all pages from the Notion database
-          const notionPages = await notionService.getAllPagesFromDatabase(config.databaseId);
+        // If projectId is provided, treat it as a pull operation regardless of syncDirection
+        if (workflow.provider === 'notion' && (workflow.syncDirection === 'pull' || input.projectId)) {
+          // Use the helper function with project context
+          const result = await runNotionPullSync(
+            ctx, 
+            workflow, 
+            run.id, 
+            'mark_deleted', // Default deletion behavior
+            input.projectId // Pass the project context from input
+          );
           
-          console.log(`Found ${notionPages.length} pages in Notion database`);
-
-          // Create actions for each task
-          let itemsCreated = 0;
-          let itemsUpdated = 0;
-          let itemsSkipped = 0;
-
-          for (const page of notionPages) {
-            try {
-              // Parse Notion page to action format
-              const task = notionService.parseNotionPageToAction(page, config.propertyMappings);
-              
-              // Check if we already have an ActionSync record for this Notion page
-              const existingSync = await ctx.db.actionSync.findFirst({
-                where: {
-                  provider: 'notion',
-                  externalId: task.notionId,
-                },
-                include: {
-                  action: true,
-                },
-              });
-
-              if (existingSync && existingSync.action) {
-                // Update existing action if it's different
-                const existingAction = existingSync.action;
-                const needsUpdate = 
-                  existingAction.name !== task.name ||
-                  existingAction.status !== task.status ||
-                  existingAction.description !== task.description ||
-                  existingAction.priority !== task.priority ||
-                  (existingAction.dueDate?.getTime() !== task.dueDate?.getTime());
-
-                if (needsUpdate) {
-                  await ctx.db.action.update({
-                    where: { id: existingAction.id },
-                    data: {
-                      name: task.name,
-                      description: task.description,
-                      status: task.status,
-                      priority: task.priority,
-                      dueDate: task.dueDate,
-                    },
-                  });
-                  
-                  // Update the sync record
-                  await ctx.db.actionSync.update({
-                    where: { id: existingSync.id },
-                    data: {
-                      status: 'synced',
-                      updatedAt: new Date(),
-                    },
-                  });
-                  
-                  itemsUpdated++;
-                  console.log(`Updated action ${existingAction.id} from Notion page ${task.notionId}`);
-                } else {
-                  itemsSkipped++;
-                }
-              } else {
-                // Create new action and ActionSync record
-                const newAction = await ctx.db.action.create({
-                  data: {
-                    name: task.name,
-                    description: task.description,
-                    status: task.status,
-                    priority: task.priority || 'Quick',
-                    dueDate: task.dueDate,
-                    createdById: ctx.session.user.id,
-                    projectId: workflow.projectId,
-                  },
-                });
-
-                // Create ActionSync record
-                await ctx.db.actionSync.create({
-                  data: {
-                    actionId: newAction.id,
-                    provider: 'notion',
-                    externalId: task.notionId,
-                    status: 'synced',
-                  },
-                });
-
-                itemsCreated++;
-                console.log(`Created new action ${newAction.id} from Notion page ${task.notionId}`);
-              }
-            } catch (taskError) {
-              console.error(`Error processing Notion page ${page.id}:`, taskError);
-              itemsSkipped++;
-            }
-          }
-
-          // Update the run with success
-          await ctx.db.workflowRun.update({
-            where: { id: run.id },
-            data: {
-              status: 'SUCCESS',
-              completedAt: new Date(),
-              itemsProcessed: notionPages.length,
-              itemsCreated,
-              itemsUpdated,
-              itemsSkipped,
-              metadata: {
-                notionPages: notionPages.length,
-                databaseId: config.databaseId,
-                syncDirection: 'pull',
-              },
-            },
-          });
-
           // Update workflow last run time
           await ctx.db.workflow.update({
             where: { id: workflow.id },
@@ -811,10 +729,10 @@ export const workflowRouter = createTRPCRouter({
           return {
             success: true,
             runId: run.id,
-            itemsProcessed: notionPages.length,
-            itemsCreated,
-            itemsUpdated,
-            itemsSkipped,
+            itemsProcessed: result.itemsProcessed,
+            itemsCreated: result.itemsCreated,
+            itemsUpdated: result.itemsUpdated,
+            itemsSkipped: result.itemsSkipped,
           };
         } else if (workflow.provider === 'monday' && workflow.syncDirection === 'push') {
           // Monday.com workflow - push actions to Monday.com board
@@ -1316,9 +1234,8 @@ export const workflowRouter = createTRPCRouter({
 
       // Step 1: Pull sync (if strategy requires it)
       if (syncStrategy === 'notion_canonical' || syncStrategy === 'auto_pull_then_push') {
-        const pullWorkflow = workflows.find(w => 
-          w.syncDirection === 'pull' || w.syncDirection === 'bidirectional'
-        );
+        // For pull, we can use any active workflow since we're explicitly pulling
+        const pullWorkflow = workflows[0]; // Use the first active workflow
 
         if (pullWorkflow) {
           console.log(`🔄 Smart sync: Running pull sync first (strategy: ${syncStrategy})`);
@@ -1334,7 +1251,7 @@ export const workflowRouter = createTRPCRouter({
           try {
             // Call the existing pull sync logic from the run method
             if (project.taskManagementTool === 'notion') {
-              pullResults = await runNotionPullSync(ctx, pullWorkflow, pullRunResult.id, config.deletionBehavior);
+              pullResults = await runNotionPullSync(ctx, pullWorkflow, pullRunResult.id, config.deletionBehavior, input.projectId);
             }
           } catch (error) {
             console.error('Pull sync failed:', error);

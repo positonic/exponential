@@ -435,24 +435,24 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       return;
     }
 
-    // For pull sync, we need to find a pull workflow for the same provider
+    // For pull sync, we can use any active workflow for the same provider
+    // The syncDirection doesn't matter since we're explicitly calling pull
     const pullWorkflow = workflows.find(w => 
       w.provider === project.taskManagementTool && 
-      w.status === 'ACTIVE' &&
-      (w.syncDirection === 'pull' || w.syncDirection === 'bidirectional')
+      w.status === 'ACTIVE'
     );
 
     if (!pullWorkflow) {
       notifications.show({
-        title: 'Pull Workflow Not Found',
-        message: `No active ${project.taskManagementTool} workflow found that supports pull sync. Please create or enable one in the Workflows section.`,
+        title: 'Workflow Not Found',
+        message: `No active ${project.taskManagementTool} workflow found. Please create or enable one in the Workflows section.`,
         color: 'orange',
       });
       return;
     }
 
     setPullingFromIntegration(true);
-    pullFromIntegrationMutation.mutate({ id: pullWorkflow.id });
+    pullFromIntegrationMutation.mutate({ id: pullWorkflow.id, projectId: projectId });
   };
 
   // Handler for smart sync (checks project configuration and chooses appropriate sync method)
