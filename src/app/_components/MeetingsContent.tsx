@@ -58,7 +58,6 @@ export function MeetingsContent() {
   const [activeTab, setActiveTab] = useState<TabValue>("transcriptions");
   const [drawerOpened, setDrawerOpened] = useState(false);
   const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
-  const [updatingActions, setUpdatingActions] = useState<string | null>(null); // transcriptionId being updated
   const [successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message
   const [syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
   
@@ -76,6 +75,11 @@ export function MeetingsContent() {
     onSuccess: () => {
       // Refetch transcriptions to update the UI
       void utils.transcription.getAllTranscriptions.invalidate();
+      notifications.show({
+        title: 'Project Assigned',
+        message: 'Transcription and its actions have been assigned to the project',
+        color: 'green',
+      });
     },
   });
 
@@ -83,7 +87,7 @@ export function MeetingsContent() {
     onSuccess: (data) => {
       notifications.show({
         title: 'Bulk Assignment Complete',
-        message: `Assigned ${data.count} transcriptions to project`,
+        message: `Assigned ${data.count} transcriptions and their actions to project`,
         color: 'green',
       });
       // Clear selections and refresh data
@@ -100,30 +104,6 @@ export function MeetingsContent() {
     },
   });
 
-  const updateActionsProjectMutation = api.action.updateActionsProject.useMutation({
-    onSuccess: (data, variables) => {
-      const transcriptionId = variables.transcriptionSessionId;
-      setUpdatingActions(null);
-      
-      // Set success message for this specific transcription
-      setSuccessMessages(prev => ({ ...prev, [transcriptionId]: data.message }));
-      
-      // Fade out the message after 1 second
-      setTimeout(() => {
-        setSuccessMessages(prev => {
-          const newMessages = { ...prev };
-          delete newMessages[transcriptionId];
-          return newMessages;
-        });
-      }, 1000);
-      
-      // Refetch transcriptions to update the UI
-      void utils.transcription.getAllTranscriptions.invalidate();
-    },
-    onError: () => {
-      setUpdatingActions(null);
-    },
-  });
 
   const syncToIntegrationMutation = api.workflow.run.useMutation({
     onSuccess: (data, variables) => {
@@ -183,10 +163,6 @@ export function MeetingsContent() {
     assignProjectMutation.mutate({ transcriptionId, projectId });
   };
 
-  const handleUpdateActions = (transcriptionSessionId: string, projectId: string | null) => {
-    setUpdatingActions(transcriptionSessionId);
-    updateActionsProjectMutation.mutate({ transcriptionSessionId, projectId });
-  };
 
   const handleSyncToIntegration = (session: any) => {
     if (!session.project || !session.project.taskManagementTool || session.project.taskManagementTool === 'internal') {
@@ -571,22 +547,6 @@ export function MeetingsContent() {
                                 </Group>
                                 
                                 <Group gap="xs">
-                                  {/* Update Actions Button */}
-                                  {session.projectId && (
-                                    <Button
-                                      size="xs"
-                                      variant="light"
-                                      color="blue"
-                                      loading={updatingActions === session.id}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleUpdateActions(session.id, session.projectId);
-                                      }}
-                                    >
-                                      Update Actions
-                                    </Button>
-                                  )}
-
                                   {/* Sync to Integration Button */}
                                   {session.project && session.project.taskManagementTool && session.project.taskManagementTool !== 'internal' && session.actions && session.actions.length > 0 && (
                                     <Button
@@ -607,12 +567,6 @@ export function MeetingsContent() {
                                     </Button>
                                   )}
                                   
-                                  {/* Success Messages */}
-                                  {successMessages[session.id] && updatingActions !== session.id && (
-                                    <Text size="xs" c="green" fw={500}>
-                                      {successMessages[session.id]}
-                                    </Text>
-                                  )}
                                   {/* Success Messages for Sync */}
                                   {session.project?.taskManagementConfig && (session.project.taskManagementConfig as any)?.workflowId && successMessages[`sync-${(session.project.taskManagementConfig as any).workflowId}`] && syncingToIntegration !== session.id && (
                                     <Text size="xs" c="green" fw={500}>

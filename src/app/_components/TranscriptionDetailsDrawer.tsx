@@ -16,7 +16,6 @@ import {
   List,
 } from "@mantine/core";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
-import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 
 interface TranscriptionDetailsDrawerProps {

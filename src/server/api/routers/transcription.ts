@@ -291,6 +291,7 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Update the transcription session
       const session = await ctx.db.transcriptionSession.update({
         where: {
           id: input.transcriptionId,
@@ -300,6 +301,18 @@ export const transcriptionRouter = createTRPCRouter({
           updatedAt: new Date(),
         },
       });
+      
+      // Also update all associated actions to the same project
+      await ctx.db.action.updateMany({
+        where: {
+          transcriptionSessionId: input.transcriptionId,
+        },
+        data: {
+          projectId: input.projectId,
+          updatedAt: new Date(),
+        },
+      });
+      
       return session;
     }),
 
@@ -311,6 +324,7 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Update all transcription sessions
       const result = await ctx.db.transcriptionSession.updateMany({
         where: {
           id: {
@@ -323,6 +337,20 @@ export const transcriptionRouter = createTRPCRouter({
           updatedAt: new Date(),
         },
       });
+      
+      // Also update all associated actions to the same project
+      await ctx.db.action.updateMany({
+        where: {
+          transcriptionSessionId: {
+            in: input.transcriptionIds,
+          },
+        },
+        data: {
+          projectId: input.projectId,
+          updatedAt: new Date(),
+        },
+      });
+      
       return { count: result.count };
     }),
 
