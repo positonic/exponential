@@ -754,7 +754,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       {/* Pass the fetched actions data to ActionList */}
       <ActionList viewName={viewName} actions={actions ?? []} />
       <div className="mt-6">
-        <CreateActionModal viewName={viewName}/>
+        <CreateActionModal viewName={viewName} projectId={projectId}/>
       </div>
     </div>
   );

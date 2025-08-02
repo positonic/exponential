@@ -7,10 +7,11 @@ import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
 import { IconPlus } from '@tabler/icons-react';
 
-export function CreateActionModal({ viewName }: { viewName: string }) {
+export function CreateActionModal({ viewName, projectId: propProjectId }: { viewName: string; projectId?: string }) {
   
   const { width } = useViewportSize();
-  const initProjectId = viewName.includes("project-") ? viewName.split("-")[2] : '';
+  // Use propProjectId if provided, otherwise try to extract from viewName
+  const initProjectId = propProjectId || (viewName.includes("project-") ? viewName.split("-").pop() : '');
   const [opened, { open, close }] = useDisclosure(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -154,7 +155,8 @@ export function CreateActionModal({ viewName }: { viewName: string }) {
       // Reset form state
       setName("");
       setDescription("");
-      setProjectId(undefined);
+      // Reset projectId to initial value (current project if on project page)
+      setProjectId(initProjectId || undefined);
       setPriority("Quick");
       // Reset dueDate to today if on /today page, otherwise null
       setDueDate(() => {

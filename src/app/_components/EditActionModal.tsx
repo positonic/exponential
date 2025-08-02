@@ -33,8 +33,9 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
   }, [action]);
 
   const updateAction = api.action.update.useMutation({
-    onSuccess: () => {
-      void utils.action.getAll.invalidate();
+    onSuccess: async () => {
+      await utils.action.getAll.invalidate();
+      await utils.action.getProjectActions.invalidate();
       onClose();
     },
   });

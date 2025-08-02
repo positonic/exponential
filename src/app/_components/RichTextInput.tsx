@@ -47,6 +47,7 @@ export const RichTextInput = forwardRef<HTMLDivElement, RichTextInputProps>(
         }),
       ],
       content: value,
+      immediatelyRender: false,
       onUpdate: ({ editor }) => {
         // Strip paragraph tags before saving
         const html = stripParagraphTags(editor.getHTML());
