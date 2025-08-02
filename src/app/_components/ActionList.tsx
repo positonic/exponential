@@ -116,12 +116,14 @@ export function ActionList({
   viewName, 
   actions,
   selectedActionIds = new Set(),
-  onSelectionChange 
+  onSelectionChange,
+  showCheckboxes = true
 }: { 
   viewName: string, 
   actions: Action[],
   selectedActionIds?: Set<string>,
-  onSelectionChange?: (ids: Set<string>) => void
+  onSelectionChange?: (ids: Set<string>) => void,
+  showCheckboxes?: boolean
 }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
@@ -286,7 +288,7 @@ export function ActionList({
       <Group justify="space-between" align="center" wrap="nowrap">
         <Group gap="md" wrap="nowrap" className="min-w-0 flex-1">
           {/* Bulk selection checkbox */}
-          {onSelectionChange && (
+          {onSelectionChange && showCheckboxes && (
             <div className="bulk-checkbox-wrapper">
               <Checkbox
                 size="sm"

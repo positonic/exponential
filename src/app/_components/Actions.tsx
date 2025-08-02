@@ -3,7 +3,7 @@
 import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
-import { IconLayoutKanban, IconList, IconCalendarEvent, IconUpload, IconDownload, IconSettings } from "@tabler/icons-react";
+import { IconLayoutKanban, IconList, IconCalendarEvent, IconUpload, IconDownload, IconSettings, IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Switch, Tooltip, Badge } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
@@ -26,6 +26,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [pullingFromIntegration, setPullingFromIntegration] = useState(false);
   const [exponentialIsSourceOfTruth, setExponentialIsSourceOfTruth] = useState(false);
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
+  const [syncConfigExpanded, setSyncConfigExpanded] = useState(false);
 
   // Conditionally fetch actions based on projectId
   const actionsQuery = projectId
@@ -457,7 +458,8 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     syncToIntegrationMutation.mutate({ 
       id: workflowId, 
       projectId: projectId,
-      overwriteMode: exponentialIsSourceOfTruth 
+      overwriteMode: exponentialIsSourceOfTruth,
+      actionIds: selectedActionIds.size > 0 ? Array.from(selectedActionIds) : undefined
     });
   };
 
@@ -531,7 +533,10 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     if (syncStrategy === 'auto_pull_then_push' || syncStrategy === 'notion_canonical') {
       setSyncingToIntegration(true);
       setPullingFromIntegration(true); // Both operations happening
-      smartSyncMutation.mutate({ projectId });
+      smartSyncMutation.mutate({ 
+        projectId,
+        actionIds: selectedActionIds.size > 0 ? Array.from(selectedActionIds) : undefined
+      });
     } else {
       // For manual strategy, use the regular push sync
       handleSyncToIntegration();
@@ -540,143 +545,31 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
   return (
     <div className="w-full max-w-3xl mx-auto">
-      <div className="relative mb-4">
-        <Group justify="space-between" align="center">
-          <div>
-            <Title order={2}></Title>
-            {/* Show sync configuration label for projects with external task management */}
-            {projectId && project && project.taskManagementTool && project.taskManagementTool !== 'internal' && (
-              <Text size="sm" c="dimmed" mt="xs">
+      {/* Sync Configuration Accordion */}
+      {actions && actions.length > 0 && (
+        <Paper withBorder radius="sm" mb="md">
+          {/* Accordion Header */}
+          <Group 
+            justify="space-between" 
+            align="center" 
+            p="md" 
+            style={{ cursor: 'pointer' }}
+            onClick={() => setSyncConfigExpanded(!syncConfigExpanded)}
+          >
+            <Group gap="xs">
+              <Text size="sm" c="dimmed">
                 Sync Configuration
               </Text>
-            )}
-          </div>
-          <Group gap="xs">
-            {/* Sync Buttons - only show for projects with external task management */}
-            {projectId && project && project.taskManagementTool && project.taskManagementTool !== 'internal' && (() => {
-              const config = project.taskManagementConfig as {
-                syncStrategy?: 'manual' | 'auto_pull_then_push' | 'notion_canonical';
-              } || {};
-              const syncStrategy = config.syncStrategy || 'manual';
-              const integrationName = project.taskManagementTool === 'monday' ? 'Monday.com' : 
-                                     project.taskManagementTool === 'notion' ? 'Notion' : 
-                                     project.taskManagementTool;
-
-              // Show smart sync button for non-manual strategies
-              if (syncStrategy === 'auto_pull_then_push' || syncStrategy === 'notion_canonical') {
-                return (
-                  <Group gap="xs">
-                    <Button
-                      variant="light"
-                      size="sm"
-                      color={project.taskManagementTool === 'monday' ? 'orange' : 
-                            project.taskManagementTool === 'notion' ? 'violet' : 'blue'}
-                      loading={syncingToIntegration || pullingFromIntegration}
-                      onClick={handleSmartSync}
-                      leftSection={syncStrategy === 'notion_canonical' ? 
-                        <IconDownload size={16} /> : <IconUpload size={16} />}
-                    >
-                      {syncStrategy === 'notion_canonical' ? 
-                        `Sync with ${integrationName}` : 
-                        `Smart Sync with ${integrationName}`}
-                    </Button>
-                    {onToggleSyncStatus && (
-                      <ActionIcon
-                        variant="light"
-                        size="sm"
-                        color="gray"
-                        onClick={onToggleSyncStatus}
-                        title="Show sync configuration"
-                      >
-                        <IconSettings size={16} />
-                      </ActionIcon>
-                    )}
-                  </Group>
-                );
-              }
-
-              // Show manual sync buttons for manual strategy
-              return (
-                <>
-                  {/* Source of truth toggle - only for Notion */}
-                  {project.taskManagementTool === 'notion' && (
-                    <Tooltip label={exponentialIsSourceOfTruth ? 
-                      "Exponential is the source of truth. Push will overwrite Notion completely." : 
-                      "Notion is the source of truth. Push will only add/update tasks."}>
-                      <Switch
-                        size="sm"
-                        checked={exponentialIsSourceOfTruth}
-                        onChange={(event) => setExponentialIsSourceOfTruth(event.currentTarget.checked)}
-                        label={
-                          <Text size="xs" c="dimmed">
-                            {exponentialIsSourceOfTruth ? "Exponential → Notion" : "Notion ← Exponential"}
-                          </Text>
-                        }
-                      />
-                    </Tooltip>
-                  )}
-                  
-                  <Button
-                    variant="light"
-                    size="sm"
-                    color={project.taskManagementTool === 'monday' ? 'orange' : 
-                          project.taskManagementTool === 'notion' ? (exponentialIsSourceOfTruth ? 'red' : 'gray') : 'blue'}
-                    loading={syncingToIntegration}
-                    onClick={handleSyncToIntegration}
-                    leftSection={<IconUpload size={16} />}
-                  >
-                    {project.taskManagementTool === 'notion' && exponentialIsSourceOfTruth ? 
-                      `Overwrite ${integrationName}` : 
-                      `Push to ${integrationName}`}
-                  </Button>
-                  
-                  {/* Pull button - only show for providers that support it and when Notion is source of truth */}
-                  {project.taskManagementTool === 'notion' && !exponentialIsSourceOfTruth && (
-                    <Group gap="xs">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        color="gray"
-                        loading={pullingFromIntegration}
-                        onClick={handlePullFromIntegration}
-                        leftSection={<IconDownload size={16} />}
-                      >
-                        Pull from Notion
-                      </Button>
-                      {onToggleSyncStatus && (
-                        <ActionIcon
-                          variant="light"
-                          size="sm"
-                          color="gray"
-                          onClick={onToggleSyncStatus}
-                          title="Show sync configuration"
-                        >
-                          <IconSettings size={16} />
-                        </ActionIcon>
-                      )}
-                    </Group>
-                  )}
-                  
-                  {/* Settings button for Notion when Exponential is source of truth */}
-                  {project.taskManagementTool === 'notion' && exponentialIsSourceOfTruth && onToggleSyncStatus && (
-                    <ActionIcon
-                      variant="light"
-                      size="sm"
-                      color="gray"
-                      onClick={onToggleSyncStatus}
-                      title="Show sync configuration"
-                    >
-                      <IconSettings size={16} />
-                    </ActionIcon>
-                  )}
-                </>
-              );
-            })()}
+              {syncConfigExpanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+            </Group>
             {displayAlignment && (
               <Button
                 variant="subtle"
                 size="sm"
-                onClick={() => setIsAlignmentMode(!isAlignmentMode)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsAlignmentMode(!isAlignmentMode);
+                }}
               >
                 <Group gap="xs">
                   {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
@@ -685,8 +578,164 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               </Button>
             )}
           </Group>
-        </Group>
-      </div>
+
+          {/* Accordion Content */}
+          {syncConfigExpanded && (
+            <div style={{ borderTop: '1px solid var(--mantine-color-gray-7)' }}>
+              <Group justify="space-between" align="center" p="md">
+                <Group gap="md">
+                  {/* Select All/None - on left side */}
+                  <Button
+                    size="xs"
+                    variant="light"
+                    onClick={handleSelectAll}
+                    leftSection={<IconLayoutKanban size={14} />}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="light"
+                    onClick={handleSelectNone}
+                    leftSection={<IconList size={14} />}
+                  >
+                    Select None
+                  </Button>
+                  
+                  {/* Selection Info */}
+                  {selectedActionIds.size > 0 && (
+                    <Badge variant="filled" color="blue">
+                      {selectedActionIds.size} selected
+                    </Badge>
+                  )}
+                </Group>
+
+                <Group gap="xs">
+                  {/* Sync Buttons - only show for projects with external task management */}
+                  {projectId && project && project.taskManagementTool && project.taskManagementTool !== 'internal' && (() => {
+                    const config = project.taskManagementConfig as {
+                      syncStrategy?: 'manual' | 'auto_pull_then_push' | 'notion_canonical';
+                    } || {};
+                    const syncStrategy = config.syncStrategy || 'manual';
+                    const integrationName = project.taskManagementTool === 'monday' ? 'Monday.com' : 
+                                           project.taskManagementTool === 'notion' ? 'Notion' : 
+                                           project.taskManagementTool;
+
+                    // Show smart sync button for non-manual strategies
+                    if (syncStrategy === 'auto_pull_then_push' || syncStrategy === 'notion_canonical') {
+                      return (
+                        <Group gap="xs">
+                          <Button
+                            variant="light"
+                            size="sm"
+                            color={project.taskManagementTool === 'monday' ? 'orange' : 
+                                  project.taskManagementTool === 'notion' ? 'violet' : 'blue'}
+                            loading={syncingToIntegration || pullingFromIntegration}
+                            onClick={handleSmartSync}
+                            leftSection={syncStrategy === 'notion_canonical' ? 
+                              <IconDownload size={16} /> : <IconUpload size={16} />}
+                          >
+                            {syncStrategy === 'notion_canonical' ? 
+                              `Sync with ${integrationName}` : 
+                              `Smart Sync with ${integrationName}`}
+                          </Button>
+                          {onToggleSyncStatus && (
+                            <ActionIcon
+                              variant="light"
+                              size="sm"
+                              color="gray"
+                              onClick={onToggleSyncStatus}
+                              title="Show sync configuration"
+                            >
+                              <IconSettings size={16} />
+                            </ActionIcon>
+                          )}
+                        </Group>
+                      );
+                    }
+
+                    // Show manual sync buttons for manual strategy
+                    return (
+                      <>
+                        {/* Source of truth toggle - only for Notion */}
+                        {project.taskManagementTool === 'notion' && (
+                          <Tooltip label={exponentialIsSourceOfTruth ? 
+                            "Exponential is the source of truth. Push will overwrite Notion completely." : 
+                            "Notion is the source of truth. Push will only add/update tasks."}>
+                            <Switch
+                              size="sm"
+                              checked={exponentialIsSourceOfTruth}
+                              onChange={(event) => setExponentialIsSourceOfTruth(event.currentTarget.checked)}
+                              label={
+                                <Text size="xs" c="dimmed">
+                                  {exponentialIsSourceOfTruth ? "Exponential → Notion" : "Notion ← Exponential"}
+                                </Text>
+                              }
+                            />
+                          </Tooltip>
+                        )}
+                        
+                        <Button
+                          variant="light"
+                          size="sm"
+                          color={project.taskManagementTool === 'monday' ? 'orange' : 
+                                project.taskManagementTool === 'notion' ? (exponentialIsSourceOfTruth ? 'red' : 'gray') : 'blue'}
+                          loading={syncingToIntegration}
+                          onClick={handleSyncToIntegration}
+                          leftSection={<IconUpload size={16} />}
+                        >
+                          {project.taskManagementTool === 'notion' && exponentialIsSourceOfTruth ? 
+                            `Overwrite ${integrationName}` : 
+                            `Push to ${integrationName}`}
+                        </Button>
+                        
+                        {/* Pull button - only show for providers that support it and when Notion is source of truth */}
+                        {project.taskManagementTool === 'notion' && !exponentialIsSourceOfTruth && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            color="gray"
+                            loading={pullingFromIntegration}
+                            onClick={handlePullFromIntegration}
+                            leftSection={<IconDownload size={16} />}
+                          >
+                            Pull from Notion
+                          </Button>
+                        )}
+                        
+                        {onToggleSyncStatus && (
+                          <ActionIcon
+                            variant="light"
+                            size="sm"
+                            color="gray"
+                            onClick={onToggleSyncStatus}
+                            title="Show sync configuration"
+                          >
+                            <IconSettings size={16} />
+                          </ActionIcon>
+                        )}
+                      </>
+                    );
+                  })()}
+
+                  {/* Bulk Actions */}
+                  {selectedActionIds.size > 0 && (
+                    <Button
+                      size="xs"
+                      variant="filled"
+                      color="red"
+                      onClick={handleBulkDelete}
+                      loading={bulkDeleteMutation.isPending}
+                    >
+                      Delete Selected
+                    </Button>
+                  )}
+                </Group>
+              </Group>
+            </div>
+          )}
+        </Paper>
+      )}
 
       {isAlignmentMode && (
         <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-[#262626] border border-blue-900/30">
@@ -793,61 +842,13 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         </Paper>
       )}
       
-      {/* Bulk Operations Bar */}
-      {actions && actions.length > 0 && (
-        <Paper withBorder p="md" radius="sm" mb="md">
-          <Group justify="space-between" align="center">
-            <Group gap="md">
-              {/* Selection Info */}
-              {selectedActionIds.size > 0 && (
-                <Badge variant="filled" color="blue">
-                  {selectedActionIds.size} selected
-                </Badge>
-              )}
-            </Group>
-
-            <Group gap="xs">
-              {/* Select All/None */}
-              <Button
-                size="xs"
-                variant="light"
-                onClick={handleSelectAll}
-                leftSection={<IconLayoutKanban size={14} />}
-              >
-                Select All
-              </Button>
-              <Button
-                size="xs"
-                variant="light"
-                onClick={handleSelectNone}
-                leftSection={<IconList size={14} />}
-              >
-                Select None
-              </Button>
-
-              {/* Bulk Actions */}
-              {selectedActionIds.size > 0 && (
-                <Button
-                  size="xs"
-                  variant="filled"
-                  color="red"
-                  onClick={handleBulkDelete}
-                  loading={bulkDeleteMutation.isPending}
-                >
-                  Delete Selected
-                </Button>
-              )}
-            </Group>
-          </Group>
-        </Paper>
-      )}
-      
       {/* Pass the fetched actions data to ActionList */}
       <ActionList 
         viewName={viewName} 
         actions={actions ?? []} 
         selectedActionIds={selectedActionIds}
         onSelectionChange={setSelectedActionIds}
+        showCheckboxes={syncConfigExpanded}
       />
       <div className="mt-6">
         <CreateActionModal viewName={viewName} projectId={projectId}/>

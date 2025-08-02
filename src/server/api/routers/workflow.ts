@@ -238,7 +238,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
 }
 
 // Helper function for Notion push sync
-async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwriteMode: boolean = false, projectId?: string) {
+async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwriteMode: boolean = false, projectId?: string, actionIds?: string[]) {
   const config = workflow.config as { 
     databaseId: string; 
     propertyMappings?: Record<string, string>;
@@ -268,17 +268,7 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
     },
   };
 
-  // Apply source filtering
-  if (config.source === 'fireflies') {
-    actionsQuery.transcriptionSessionId = {
-      not: null,
-    };
-  } else if (config.source === 'internal') {
-    actionsQuery.transcriptionSessionId = null;
-  }
-  // 'all' means no additional filtering
-
-  // Only get actions from projects configured for Notion
+  // Get Notion projects for later use
   const notionProjects = await ctx.db.project.findMany({
     where: {
       createdById: ctx.session.user.id,
@@ -288,16 +278,34 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
   });
 
   const projectIds = notionProjects.map((p: any) => p.id);
-  if (projectIds.length > 0) {
-    actionsQuery.projectId = {
-      in: projectIds,
-    };
+
+  // If specific action IDs are provided, filter by them
+  if (actionIds && actionIds.length > 0) {
+    actionsQuery.id = { in: actionIds };
+    console.log('🔍 DEBUG: Filtering Notion sync by specific action IDs:', actionIds);
   } else {
-    // No projects configured for Notion, but allow project-less actions
-    actionsQuery.OR = [
-      { projectId: null },
-      { projectId: { in: [] } } // Empty array means no projects match
-    ];
+    // Apply source filtering (only when not using specific IDs)
+    if (config.source === 'fireflies') {
+      actionsQuery.transcriptionSessionId = {
+        not: null,
+      };
+    } else if (config.source === 'internal') {
+      actionsQuery.transcriptionSessionId = null;
+    }
+    // 'all' means no additional filtering
+
+    // Only get actions from projects configured for Notion
+    if (projectIds.length > 0) {
+      actionsQuery.projectId = {
+        in: projectIds,
+      };
+    } else {
+      // No projects configured for Notion, but allow project-less actions
+      actionsQuery.OR = [
+        { projectId: null },
+        { projectId: { in: [] } } // Empty array means no projects match
+      ];
+    }
   }
 
   const actions = await ctx.db.action.findMany({
@@ -742,6 +750,7 @@ export const workflowRouter = createTRPCRouter({
       id: z.string(),
       projectId: z.string().optional(), // Optional project context for filtering
       overwriteMode: z.boolean().optional(), // For "Exponential is source of truth" mode
+      actionIds: z.array(z.string()).optional(), // Optional specific action IDs to sync
     }))
     .mutation(async ({ ctx, input }) => {
       // Get the workflow with integration details
@@ -843,16 +852,6 @@ export const workflowRouter = createTRPCRouter({
             status: 'ACTIVE',
           };
 
-          // If source is specified, filter accordingly
-          if (config.source === 'fireflies') {
-            actionsQuery.transcriptionSessionId = { not: null };
-          } else if (config.source === 'internal') {
-            actionsQuery.transcriptionSessionId = null;
-          }
-          // If source is 'all' or not specified, include all actions
-          
-          console.log('🔍 DEBUG: Config source:', config.source, 'Will find actions with transcriptionSessionId constraint:', !!actionsQuery.transcriptionSessionId);
-
           // First, find projects that are configured to use Monday.com
           const mondayProjects = await ctx.db.project.findMany({
             where: {
@@ -865,12 +864,28 @@ export const workflowRouter = createTRPCRouter({
           const mondayProjectIds = mondayProjects.map(p => p.id);
           console.log('🔍 DEBUG: Monday-configured project IDs:', mondayProjectIds);
 
-          // Only search for actions from projects that are configured for Monday.com
-          if (mondayProjectIds.length > 0) {
-            actionsQuery.projectId = { in: mondayProjectIds };
+          // If specific action IDs are provided, filter by them
+          if (input.actionIds && input.actionIds.length > 0) {
+            actionsQuery.id = { in: input.actionIds };
+            console.log('🔍 DEBUG: Filtering by specific action IDs:', input.actionIds);
           } else {
-            // No projects configured for Monday.com, so no actions to sync
-            actionsQuery.projectId = 'no-monday-projects';
+            // If source is specified, filter accordingly (only when not using specific IDs)
+            if (config.source === 'fireflies') {
+              actionsQuery.transcriptionSessionId = { not: null };
+            } else if (config.source === 'internal') {
+              actionsQuery.transcriptionSessionId = null;
+            }
+            // If source is 'all' or not specified, include all actions
+            
+            console.log('🔍 DEBUG: Config source:', config.source, 'Will find actions with transcriptionSessionId constraint:', !!actionsQuery.transcriptionSessionId);
+
+            // Only search for actions from projects that are configured for Monday.com
+            if (mondayProjectIds.length > 0) {
+              actionsQuery.projectId = { in: mondayProjectIds };
+            } else {
+              // No projects configured for Monday.com, so no actions to sync
+              actionsQuery.projectId = 'no-monday-projects';
+            }
           }
 
           console.log('🔍 DEBUG: Workflow config:', config);
@@ -1029,7 +1044,8 @@ export const workflowRouter = createTRPCRouter({
             workflow, 
             run.id, 
             input.overwriteMode || false,
-            input.projectId
+            input.projectId,
+            input.actionIds
           );
           
           // Update workflow last run time
@@ -1266,6 +1282,7 @@ export const workflowRouter = createTRPCRouter({
   smartSync: protectedProcedure
     .input(z.object({
       projectId: z.string(),
+      actionIds: z.array(z.string()).optional(), // Optional specific action IDs to sync
     }))
     .mutation(async ({ ctx, input }) => {
       // Get the project with its task management configuration
@@ -1367,7 +1384,7 @@ export const workflowRouter = createTRPCRouter({
         try {
           // Call the existing push sync logic from the run method
           if (project.taskManagementTool === 'notion') {
-            pushResults = await runNotionPushSync(ctx, pushWorkflow, pushRunResult.id);
+            pushResults = await runNotionPushSync(ctx, pushWorkflow, pushRunResult.id, false, input.projectId, input.actionIds);
           }
         } catch (error) {
           console.error('Push sync failed:', error);

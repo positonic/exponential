@@ -443,4 +443,48 @@ export const transcriptionRouter = createTRPCRouter({
 
       return result;
     }),
+
+  deleteTranscription: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify the transcription belongs to the user
+      const transcription = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+      });
+
+      if (!transcription) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (transcription.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to delete this transcription",
+        });
+      }
+
+      // Delete the transcription (actions will be deleted due to onDelete: SetNull)
+      await ctx.db.transcriptionSession.delete({
+        where: { id: input.id },
+      });
+
+      return { success: true };
+    }),
+
+  bulkDeleteTranscriptions: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      // Delete only transcriptions that belong to the current user
+      const result = await ctx.db.transcriptionSession.deleteMany({
+        where: {
+          id: { in: input.ids },
+          userId: ctx.session.user.id, // Ensure user only deletes their own transcriptions
+        },
+      });
+
+      return { count: result.count };
+    }),
 });

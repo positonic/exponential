@@ -15,6 +15,7 @@ import {
   Checkbox,
   MultiSelect,
   Menu,
+  Modal,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
@@ -29,6 +30,7 @@ import {
   IconSquare,
   IconDotsVertical,
   IconFolder,
+  IconTrash,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { ActionList } from "./ActionList";
@@ -65,6 +67,7 @@ export function MeetingsContent() {
   const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
   const [bulkProjectAssignment, setBulkProjectAssignment] = useState<string | null>(null);
+  const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery();
   const { data: projects } = api.project.getAll.useQuery();
@@ -99,6 +102,26 @@ export function MeetingsContent() {
       notifications.show({
         title: 'Bulk Assignment Failed',
         message: error.message || 'Failed to assign transcriptions to project',
+        color: 'red',
+      });
+    },
+  });
+
+  const bulkDeleteMutation = api.transcription.bulkDeleteTranscriptions.useMutation({
+    onSuccess: (data) => {
+      notifications.show({
+        title: 'Bulk Delete Complete',
+        message: `Deleted ${data.count} transcriptions`,
+        color: 'green',
+      });
+      // Clear selections and refresh data
+      setSelectedTranscriptionIds(new Set());
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Bulk Delete Failed',
+        message: error.message || 'Failed to delete transcriptions',
         color: 'red',
       });
     },
@@ -226,6 +249,15 @@ export function MeetingsContent() {
       transcriptionIds: Array.from(selectedTranscriptionIds),
       projectId: bulkProjectAssignment === "none" ? null : bulkProjectAssignment,
     });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedTranscriptionIds.size === 0) return;
+    
+    await bulkDeleteMutation.mutateAsync({
+      ids: Array.from(selectedTranscriptionIds),
+    });
+    setDeleteModalOpened(false);
   };
 
   const getFilteredTranscriptions = () => {
@@ -414,6 +446,14 @@ export function MeetingsContent() {
                               }}
                             >
                               Remove from Project
+                            </Menu.Item>
+                            <Menu.Divider />
+                            <Menu.Item
+                              color="red"
+                              leftSection={<IconTrash size={14} />}
+                              onClick={() => setDeleteModalOpened(true)}
+                            >
+                              Delete Transcriptions
                             </Menu.Item>
                           </Menu.Dropdown>
                         </Menu>
@@ -680,6 +720,39 @@ export function MeetingsContent() {
         }}
         syncingToIntegration={syncingToIntegration}
       />
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        opened={deleteModalOpened}
+        onClose={() => setDeleteModalOpened(false)}
+        title="Delete Transcriptions"
+        centered
+      >
+        <Stack gap="md">
+          <Text>
+            Are you sure you want to delete {selectedTranscriptionIds.size} transcription{selectedTranscriptionIds.size === 1 ? '' : 's'}?
+          </Text>
+          <Text size="sm" c="dimmed">
+            This action cannot be undone. All associated actions will also be removed.
+          </Text>
+          <Group justify="flex-end" gap="sm">
+            <Button
+              variant="light"
+              onClick={() => setDeleteModalOpened(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              loading={bulkDeleteMutation.isPending}
+              onClick={handleBulkDelete}
+              leftSection={<IconTrash size={16} />}
+            >
+              Delete {selectedTranscriptionIds.size} Transcription{selectedTranscriptionIds.size === 1 ? '' : 's'}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </>
   );
 }
