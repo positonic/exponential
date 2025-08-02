@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Container, Title, Text, SimpleGrid, Card, Button, Group, ThemeIcon, Stack, Paper, Badge, Accordion, Alert, Modal, TextInput, Select, Textarea, Code, CopyButton, ActionIcon } from '@mantine/core';
-import { IconRocket, IconArrowRight, IconPresentation, IconGitBranch, IconMicrophone, IconWebhook, IconPlaylistAdd, IconBrandSlack, IconCheck, IconAlertCircle, IconPlus, IconKey, IconBrandFirebase, IconCopy, IconBrandNotion, IconCalendarEvent } from '@tabler/icons-react';
+import { Container, Title, Text, SimpleGrid, Card, Button, Group, ThemeIcon, Stack, Paper, Badge, Alert, Modal, TextInput, Select, Textarea, Code, CopyButton, ActionIcon, Collapse } from '@mantine/core';
+import { IconRocket, IconArrowRight, IconPresentation, IconGitBranch, IconMicrophone, IconWebhook, IconBrandSlack, IconCheck, IconAlertCircle, IconPlus, IconKey, IconBrandFirebase, IconCopy, IconBrandNotion, IconCalendarEvent, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
@@ -18,6 +18,7 @@ const automationWorkflows: Array<{
   enabled: boolean;
   href?: string;
   steps: string[];
+  configKey?: 'fireflies';
 }> = [
   {
     icon: IconMicrophone,
@@ -25,6 +26,7 @@ const automationWorkflows: Array<{
     description: 'Automatically receive notifications when Fireflies processes a meeting, then fetch call details and create action items.',
     status: 'Active',
     enabled: true,
+    configKey: 'fireflies',
     steps: [
       'Fireflies sends webhook notification',
       'Fetch call transcript and summary',
@@ -126,6 +128,7 @@ export default function WorkflowsPage() {
   const [integrationModalOpened, { open: openIntegrationModal, close: closeIntegrationModal }] = useDisclosure(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [showToken, setShowToken] = useState(false);
+  const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(new Set());
 
   // API calls for checking configuration status
   const { data: tokens = [] } = api.mastra.listApiTokens.useQuery();
@@ -235,6 +238,35 @@ export default function WorkflowsPage() {
     setShowToken(false);
     setGeneratedToken(null);
   };
+
+  const toggleWorkflowExpanded = (workflowTitle: string) => {
+    setExpandedWorkflows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(workflowTitle)) {
+        newSet.delete(workflowTitle);
+      } else {
+        newSet.add(workflowTitle);
+      }
+      return newSet;
+    });
+  };
+
+  // Get workflow status
+  const getWorkflowStatus = (workflow: typeof automationWorkflows[0]) => {
+    if (workflow.configKey === 'fireflies') {
+      return isFirefliesConfigured ? 'Active' : 'Setup Required';
+    }
+    return workflow.status;
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Active': return 'green';
+      case 'Available': return 'blue';
+      case 'Setup Required': return 'orange';
+      default: return 'gray';
+    }
+  };
   return (
     <Container size="lg" py="xl">
       <Stack gap="xl">
@@ -265,239 +297,227 @@ export default function WorkflowsPage() {
             Set up intelligent automations that capture data from external services and create action items automatically.
           </Text>
           
-          <SimpleGrid cols={{ base: 1, sm: 1 }} spacing="md">
+          <Stack gap="sm">
             {automationWorkflows.map((workflow) => {
-              // Special handling for Fireflies workflow
-              if (workflow.title === 'Fireflies → Action Items') {
-                return (
-                  <Card key={workflow.title} shadow="sm" padding="lg" radius="md" withBorder>
-                    <Group justify="space-between" align="flex-start" mb="md">
-                      <Group align="center">
+              const status = getWorkflowStatus(workflow);
+              const isConfigured = status === 'Active';
+              const isExpanded = expandedWorkflows.has(workflow.title);
+              
+              return (
+                <Card key={workflow.title} shadow="sm" padding="md" radius="md" withBorder>
+                  <Stack gap="md">
+                    {/* Main Row */}
+                    <Group justify="space-between" align="center" wrap="nowrap">
+                      <Group align="center" gap="md" style={{ flex: 1 }}>
                         <ThemeIcon size="lg" variant="light" color="teal" radius="md">
                           <workflow.icon size={24} />
                         </ThemeIcon>
-                        <div>
-                          <Title order={4} className="text-lg font-semibold">
-                            {workflow.title}
-                          </Title>
-                          <Badge 
-                            color={isFirefliesConfigured ? 'green' : 'orange'} 
-                            variant="light" 
-                            size="sm"
-                          >
-                            {isFirefliesConfigured ? 'Ready' : 'Setup Required'}
-                          </Badge>
+                        <div style={{ flex: 1 }}>
+                          <Group gap="xs" align="center">
+                            <Text fw={600} size="md">
+                              {workflow.title}
+                            </Text>
+                            <Badge 
+                              color={getStatusColor(status)} 
+                              variant="light" 
+                              size="sm"
+                            >
+                              {status}
+                            </Badge>
+                          </Group>
+                          <Text size="sm" c="dimmed" mt={2}>
+                            {workflow.description}
+                          </Text>
                         </div>
                       </Group>
-                      {isFirefliesConfigured && (
-                        <ThemeIcon size="md" variant="light" color="green" radius="xl">
-                          <IconCheck size={16} />
-                        </ThemeIcon>
-                      )}
-                    </Group>
-
-                    <Text size="sm" c="dimmed" mb="md">
-                      {workflow.description}
-                    </Text>
-
-                    {/* Configuration Status Alert */}
-                    {isFirefliesConfigured ? (
-                      <Alert 
-                        icon={<IconCheck size={16} />}
-                        title="Ready to Go!"
-                        color="green"
-                        variant="light"
-                        mb="md"
-                      >
-                        Your Fireflies workflow is fully configured and ready to receive webhooks.
-                      </Alert>
-                    ) : (
-                      <Alert 
-                        icon={<IconAlertCircle size={16} />}
-                        title="Setup Required"
-                        color="orange"
-                        variant="light"
-                        mb="md"
-                      >
-                        Complete the setup steps below to activate this workflow.
-                      </Alert>
-                    )}
-
-                    {/* Setup Steps Accordion */}
-                    <Accordion variant="contained" mb="md">
-                      <Accordion.Item value="setup">
-                        <Accordion.Control>
-                          <Group gap="sm">
-                            <Text fw={500}>Workflow Setup Steps</Text>
-                            {isFirefliesConfigured && (
-                              <Badge color="green" size="sm" variant="filled">Complete</Badge>
-                            )}
-                          </Group>
-                        </Accordion.Control>
-                        <Accordion.Panel>
-                          <Stack gap="md">
-                            {/* Step 1: API Token */}
-                            <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800/50">
-                              <Group justify="space-between" align="center" mb="xs">
-                                <Group gap="sm">
-                                  <ThemeIcon 
-                                    size="sm" 
-                                    variant="filled" 
-                                    color={hasFirefliesToken ? 'green' : 'gray'} 
-                                    radius="xl"
-                                  >
-                                    {hasFirefliesToken ? <IconCheck size={12} /> : <Text size="xs">1</Text>}
-                                  </ThemeIcon>
-                                  <Text size="sm" fw={500}>Create Fireflies Webhook Token</Text>
-                                </Group>
-                                {hasFirefliesToken ? (
-                                  <Badge color="green" size="xs" variant="light">Configured</Badge>
-                                ) : (
-                                  <Button 
-                                    size="xs" 
-                                    variant="light" 
-                                    leftSection={<IconPlus size={12} />}
-                                    onClick={openTokenModal}
-                                  >
-                                    Create Token
-                                  </Button>
-                                )}
-                              </Group>
-                              <Text size="xs" c="dimmed" ml="xl">
-                                Generate an API token that Fireflies can use to send webhook data to your account.
-                              </Text>
-                            </Paper>
-
-                            {/* Step 2: Fireflies Integration */}
-                            <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800/50">
-                              <Group justify="space-between" align="center" mb="xs">
-                                <Group gap="sm">
-                                  <ThemeIcon 
-                                    size="sm" 
-                                    variant="filled" 
-                                    color={hasFirefliesIntegration ? 'green' : 'gray'} 
-                                    radius="xl"
-                                  >
-                                    {hasFirefliesIntegration ? <IconCheck size={12} /> : <Text size="xs">2</Text>}
-                                  </ThemeIcon>
-                                  <Text size="sm" fw={500}>Add Fireflies API Key</Text>
-                                </Group>
-                                {hasFirefliesIntegration ? (
-                                  <Badge color="green" size="xs" variant="light">Configured</Badge>
-                                ) : (
-                                  <Button 
-                                    size="xs" 
-                                    variant="light" 
-                                    leftSection={<IconPlus size={12} />}
-                                    onClick={openIntegrationModal}
-                                  >
-                                    Add Integration
-                                  </Button>
-                                )}
-                              </Group>
-                              <Text size="xs" c="dimmed" ml="xl">
-                                Connect your Fireflies account so we can fetch meeting transcripts and summaries.
-                              </Text>
-                            </Paper>
-
-                            {/* Additional Steps */}
-                            <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800/50">
-                              <Group gap="sm" mb="xs">
-                                <ThemeIcon size="sm" variant="filled" color="blue" radius="xl">
-                                  <Text size="xs">3</Text>
-                                </ThemeIcon>
-                                <Text size="sm" fw={500}>Configure Fireflies Webhook (External)</Text>
-                              </Group>
-                              <Text size="xs" c="dimmed" ml="xl">
-                                In your Fireflies account, set up a webhook to notify this application when meetings are processed.
-                              </Text>
-                            </Paper>
-                          </Stack>
-                        </Accordion.Panel>
-                      </Accordion.Item>
-                    </Accordion>
-
-                    <Button
-                      variant={isFirefliesConfigured ? "light" : "filled"}
-                      color="teal"
-                      size="sm"
-                      leftSection={<IconPlaylistAdd size={16} />}
-                      disabled={!isFirefliesConfigured}
-                    >
-                      {isFirefliesConfigured ? 'Workflow Active' : 'Complete Setup First'}
-                    </Button>
-                  </Card>
-                );
-              }
-
-              // Regular workflow cards for other workflows
-              return (
-                <Card key={workflow.title} shadow="sm" padding="lg" radius="md" withBorder>
-                  <Group justify="space-between" align="flex-start" mb="md">
-                    <Group align="center">
-                      <ThemeIcon size="lg" variant="light" color="teal" radius="md">
-                        <workflow.icon size={24} />
-                      </ThemeIcon>
-                      <div>
-                        <Title order={4} className="text-lg font-semibold">
-                          {workflow.title}
-                        </Title>
-                        <Badge 
-                          color={workflow.enabled ? 'green' : 'gray'} 
-                          variant="light" 
-                          size="sm"
+                      
+                      {/* Action Buttons */}
+                      <Group gap="xs">
+                        {workflow.configKey === 'fireflies' ? (
+                          isConfigured ? (
+                            <ThemeIcon size="md" variant="light" color="green" radius="xl">
+                              <IconCheck size={16} />
+                            </ThemeIcon>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="filled"
+                              onClick={() => {
+                                if (!hasFirefliesToken) {
+                                  openTokenModal();
+                                } else if (!hasFirefliesIntegration) {
+                                  openIntegrationModal();
+                                }
+                              }}
+                            >
+                              Setup Workflow
+                            </Button>
+                          )
+                        ) : workflow.href ? (
+                          <Button
+                            component={Link}
+                            href={workflow.href}
+                            size="sm"
+                            variant="light"
+                          >
+                            Setup Workflow
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="light"
+                            disabled
+                          >
+                            Coming Soon
+                          </Button>
+                        )}
+                        
+                        <ActionIcon
+                          variant="subtle"
+                          onClick={() => toggleWorkflowExpanded(workflow.title)}
+                          aria-label={isExpanded ? 'Collapse details' : 'Expand details'}
                         >
-                          {workflow.status}
-                        </Badge>
-                      </div>
+                          {isExpanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                        </ActionIcon>
+                      </Group>
                     </Group>
-                  </Group>
 
-                  <Text size="sm" c="dimmed" mb="md">
-                    {workflow.description}
-                  </Text>
+                    {/* Expandable Details */}
+                    <Collapse in={isExpanded}>
+                      <Stack gap="md" pt="sm">
+                        {/* Special handling for Fireflies workflow */}
+                        {workflow.configKey === 'fireflies' && (
+                          <>
+                            {/* Configuration Status Alert */}
+                            {isConfigured ? (
+                              <Alert 
+                                icon={<IconCheck size={16} />}
+                                title="Ready to Go!"
+                                color="green"
+                                variant="light"
+                              >
+                                Your Fireflies workflow is fully configured and ready to receive webhooks.
+                              </Alert>
+                            ) : (
+                              <Alert 
+                                icon={<IconAlertCircle size={16} />}
+                                title="Setup Required"
+                                color="orange"
+                                variant="light"
+                              >
+                                Complete the setup steps below to activate this workflow.
+                              </Alert>
+                            )}
 
-                  <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800/50 mb-md">
-                    <Text size="xs" fw={500} mb="xs" c="dimmed">
-                      Workflow Steps:
-                    </Text>
-                    <Stack gap="xs">
-                      {workflow.steps.map((step, index) => (
-                        <Group key={index} gap="xs" align="center">
-                          <ThemeIcon size="xs" variant="filled" color="teal" radius="xl">
-                            <Text size="xs">{index + 1}</Text>
-                          </ThemeIcon>
-                          <Text size="xs" c="dimmed">{step}</Text>
-                        </Group>
-                      ))}
-                    </Stack>
-                  </Paper>
+                            {/* Setup Steps */}
+                            <Stack gap="sm">
+                              <Text size="sm" fw={500}>Setup Steps:</Text>
+                              
+                              {/* Step 1: API Token */}
+                              <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800/50">
+                                <Group justify="space-between" align="center" mb="xs">
+                                  <Group gap="sm">
+                                    <ThemeIcon 
+                                      size="sm" 
+                                      variant="filled" 
+                                      color={hasFirefliesToken ? 'green' : 'gray'} 
+                                      radius="xl"
+                                    >
+                                      {hasFirefliesToken ? <IconCheck size={12} /> : <Text size="xs">1</Text>}
+                                    </ThemeIcon>
+                                    <Text size="sm" fw={500}>Create Fireflies Webhook Token</Text>
+                                  </Group>
+                                  {hasFirefliesToken ? (
+                                    <Badge color="green" size="xs" variant="light">Configured</Badge>
+                                  ) : (
+                                    <Button 
+                                      size="xs" 
+                                      variant="light" 
+                                      leftSection={<IconPlus size={12} />}
+                                      onClick={openTokenModal}
+                                    >
+                                      Create Token
+                                    </Button>
+                                  )}
+                                </Group>
+                                <Text size="xs" c="dimmed" ml="xl">
+                                  Generate an API token that Fireflies can use to send webhook data to your account.
+                                </Text>
+                              </Paper>
 
-                  {workflow.href ? (
-                    <Button
-                      component={Link}
-                      href={workflow.href}
-                      variant={workflow.enabled ? "light" : "filled"}
-                      color="teal"
-                      size="sm"
-                      leftSection={<IconPlaylistAdd size={16} />}
-                    >
-                      {workflow.enabled ? 'Configure' : 'Set Up Workflow'}
-                    </Button>
-                  ) : (
-                    <Button
-                      variant={workflow.enabled ? "light" : "filled"}
-                      color="teal"
-                      size="sm"
-                      leftSection={<IconPlaylistAdd size={16} />}
-                    >
-                      {workflow.enabled ? 'Configure' : 'Set Up Workflow'}
-                    </Button>
-                  )}
+                              {/* Step 2: Fireflies Integration */}
+                              <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800/50">
+                                <Group justify="space-between" align="center" mb="xs">
+                                  <Group gap="sm">
+                                    <ThemeIcon 
+                                      size="sm" 
+                                      variant="filled" 
+                                      color={hasFirefliesIntegration ? 'green' : 'gray'} 
+                                      radius="xl"
+                                    >
+                                      {hasFirefliesIntegration ? <IconCheck size={12} /> : <Text size="xs">2</Text>}
+                                    </ThemeIcon>
+                                    <Text size="sm" fw={500}>Add Fireflies API Key</Text>
+                                  </Group>
+                                  {hasFirefliesIntegration ? (
+                                    <Badge color="green" size="xs" variant="light">Configured</Badge>
+                                  ) : (
+                                    <Button 
+                                      size="xs" 
+                                      variant="light" 
+                                      leftSection={<IconPlus size={12} />}
+                                      onClick={openIntegrationModal}
+                                    >
+                                      Add Integration
+                                    </Button>
+                                  )}
+                                </Group>
+                                <Text size="xs" c="dimmed" ml="xl">
+                                  Connect your Fireflies account so we can fetch meeting transcripts and summaries.
+                                </Text>
+                              </Paper>
+
+                              {/* Step 3: External Configuration */}
+                              <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800/50">
+                                <Group gap="sm" mb="xs">
+                                  <ThemeIcon size="sm" variant="filled" color="blue" radius="xl">
+                                    <Text size="xs">3</Text>
+                                  </ThemeIcon>
+                                  <Text size="sm" fw={500}>Configure Fireflies Webhook (External)</Text>
+                                </Group>
+                                <Text size="xs" c="dimmed" ml="xl">
+                                  In your Fireflies account, set up a webhook to notify this application when meetings are processed.
+                                </Text>
+                              </Paper>
+                            </Stack>
+                          </>
+                        )}
+
+                        {/* Regular workflow steps */}
+                        {!workflow.configKey && (
+                          <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800/50">
+                            <Text size="sm" fw={500} mb="xs">
+                              Workflow Steps:
+                            </Text>
+                            <Stack gap="xs">
+                              {workflow.steps.map((step, index) => (
+                                <Group key={index} gap="xs" align="center">
+                                  <ThemeIcon size="xs" variant="filled" color="teal" radius="xl">
+                                    <Text size="xs">{index + 1}</Text>
+                                  </ThemeIcon>
+                                  <Text size="xs" c="dimmed">{step}</Text>
+                                </Group>
+                              ))}
+                            </Stack>
+                          </Paper>
+                        )}
+                      </Stack>
+                    </Collapse>
+                  </Stack>
                 </Card>
               );
             })}
-          </SimpleGrid>
+          </Stack>
         </div>
 
         {/* Guided Workflows */}
@@ -514,38 +534,34 @@ export default function WorkflowsPage() {
             Streamline your product journey with guided processes designed to help you achieve specific goals, faster.
           </Text>
           
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xl">
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             {guidedWorkflows.map((workflow) => (
-              <Card key={workflow.title} shadow="sm" padding="lg" radius="md" withBorder className="flex flex-col">
-                <Group justify="flex-start" align="center" mb="md">
-                   <ThemeIcon size="lg" variant="light" color="violet" radius="md">
-                     <workflow.icon size={24} />
-                   </ThemeIcon>
-                   <Title order={3} className="text-lg font-semibold">
-                     {workflow.title}
-                   </Title>
+              <Card key={workflow.title} shadow="sm" padding="md" radius="md" withBorder>
+                <Group justify="space-between" align="center" mb="sm">
+                  <Group align="center" gap="md">
+                    <ThemeIcon size="lg" variant="light" color="violet" radius="md">
+                      <workflow.icon size={24} />
+                    </ThemeIcon>
+                    <Text fw={600} size="md">
+                      {workflow.title}
+                    </Text>
+                  </Group>
+                  <Button
+                    component={Link}
+                    href={workflow.href}
+                    size="sm"
+                    variant="light"
+                    rightSection={<IconArrowRight size={14} />}
+                  >
+                    {workflow.cta}
+                  </Button>
                 </Group>
-
-                <Text size="sm" c="dimmed" className="flex-grow">
+                <Text size="sm" c="dimmed">
                   {workflow.description}
                 </Text>
-
-                 <Text size="xs" c="dimmed" mt="sm">
-                   Ideal for: {workflow.targetAudience}
-                 </Text>
-
-                <Button
-                  component={Link}
-                  href={workflow.href}
-                  variant="gradient"
-                  gradient={{ from: 'violet', to: 'indigo' }}
-                  fullWidth
-                  mt="md"
-                  radius="md"
-                  rightSection={<IconArrowRight size={16} />}
-                >
-                  {workflow.cta}
-                </Button>
+                <Text size="xs" c="dimmed" mt="xs">
+                  Ideal for: {workflow.targetAudience}
+                </Text>
               </Card>
             ))}
           </SimpleGrid>

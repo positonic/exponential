@@ -3,8 +3,8 @@
 import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
-import { IconLayoutKanban, IconList, IconCalendarEvent, IconUpload, IconDownload } from "@tabler/icons-react";
-import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
+import { IconLayoutKanban, IconList, IconCalendarEvent, IconUpload, IconDownload, IconSettings } from "@tabler/icons-react";
+import { Button, Title, Stack, Paper, Text, Group, ActionIcon } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
@@ -17,9 +17,10 @@ interface ActionsProps {
   defaultView?: 'list' | 'alignment';
   projectId?: string;
   displayAlignment?: boolean;
+  onToggleSyncStatus?: () => void;
 }
 
-export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = true }: ActionsProps) {
+export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = true, onToggleSyncStatus }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
   const [syncingToIntegration, setSyncingToIntegration] = useState(false);
   const [pullingFromIntegration, setPullingFromIntegration] = useState(false);
@@ -52,10 +53,31 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       const itemsSkipped = data.itemsSkipped || 0;
       const totalProcessed = data.itemsProcessed || 0;
       
-      let message = `✅ ${itemsCreated} task${itemsCreated !== 1 ? 's' : ''} synced to ${integrationName}`;
+      let message = '';
+      let color: 'green' | 'yellow' | 'blue' = 'green';
       
-      if (itemsSkipped > 0) {
-        message += `\n⚠️ ${itemsSkipped} task${itemsSkipped !== 1 ? 's' : ''} skipped`;
+      // Determine the main message based on what happened
+      if (itemsCreated === 0 && itemsSkipped > 0) {
+        // Nothing was created, only skipped
+        message = `ℹ️ No new tasks to sync to ${integrationName}`;
+        color = 'blue';
+        
+        // Add specific skip reasons if available (from metadata)
+        const metadata = data as any;
+        if (metadata.itemsAlreadySynced > 0) {
+          message += `\n✓ ${metadata.itemsAlreadySynced} task${metadata.itemsAlreadySynced !== 1 ? 's' : ''} already synced`;
+        }
+        if (metadata.itemsFailedToSync > 0) {
+          message += `\n⚠️ ${metadata.itemsFailedToSync} task${metadata.itemsFailedToSync !== 1 ? 's' : ''} failed to sync`;
+        }
+      } else {
+        // Some items were created
+        message = `✅ ${itemsCreated} task${itemsCreated !== 1 ? 's' : ''} synced to ${integrationName}`;
+        
+        if (itemsSkipped > 0) {
+          message += `\n⚠️ ${itemsSkipped} task${itemsSkipped !== 1 ? 's' : ''} skipped`;
+          color = 'yellow';
+        }
       }
       
       if (totalProcessed > 0) {
@@ -63,9 +85,9 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       }
 
       notifications.show({
-        title: '🎉 Push Sync Complete!',
+        title: itemsCreated > 0 ? '🎉 Push Sync Complete!' : '✅ Sync Status',
         message: message,
-        color: 'green',
+        color: color,
         autoClose: 5000,
         withCloseButton: true,
       });
@@ -128,6 +150,96 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       notifications.show({
         title: '❌ Pull Sync Failed',
         message: error.message || 'Failed to pull actions from integration',
+        color: 'red',
+        autoClose: 8000,
+        withCloseButton: true,
+      });
+    },
+  });
+
+  // Smart sync mutation
+  const smartSyncMutation = api.workflow.smartSync.useMutation({
+    onSuccess: (data) => {
+      setPullingFromIntegration(false);
+      setSyncingToIntegration(false);
+      
+      const integrationName = project?.taskManagementTool === 'monday' ? 'Monday.com' : 
+                             project?.taskManagementTool === 'notion' ? 'Notion' : 
+                             project?.taskManagementTool;
+      
+      const totalCreated = data.itemsCreated || 0;
+      const totalUpdated = data.itemsUpdated || 0;
+      const totalSkipped = data.itemsSkipped || 0;
+      const totalProcessed = data.itemsProcessed || 0;
+      const itemsAlreadySynced = data.itemsAlreadySynced || 0;
+      const itemsFailedToSync = data.itemsFailedToSync || 0;
+      
+      let message = '';
+      let color: 'green' | 'yellow' | 'blue' = 'green';
+      
+      // Build message based on results
+      if (totalCreated === 0 && totalUpdated === 0 && totalSkipped > 0) {
+        message = `ℹ️ No changes to sync with ${integrationName}`;
+        color = 'blue';
+        
+        if (itemsAlreadySynced > 0) {
+          message += `\n✓ ${itemsAlreadySynced} task${itemsAlreadySynced !== 1 ? 's' : ''} already up to date`;
+        }
+        if (itemsFailedToSync > 0) {
+          message += `\n⚠️ ${itemsFailedToSync} task${itemsFailedToSync !== 1 ? 's' : ''} failed to sync`;
+        }
+      } else {
+        if (totalCreated > 0) {
+          message = `✅ ${totalCreated} task${totalCreated !== 1 ? 's' : ''} created/synced`;
+        }
+        
+        if (totalUpdated > 0) {
+          message += message ? '\n' : '';
+          message += `🔄 ${totalUpdated} task${totalUpdated !== 1 ? 's' : ''} updated`;
+        }
+        
+        if (totalSkipped > 0) {
+          message += `\n⚠️ ${totalSkipped} task${totalSkipped !== 1 ? 's' : ''} skipped`;
+          if (itemsAlreadySynced > 0) {
+            message += ` (${itemsAlreadySynced} already synced)`;
+          }
+          color = totalCreated > 0 || totalUpdated > 0 ? 'yellow' : 'blue';
+        }
+      }
+      
+      if (totalProcessed > 0) {
+        message += `\n📊 ${totalProcessed} total task${totalProcessed !== 1 ? 's' : ''} processed`;
+      }
+      
+      // Show different messages based on sync strategy
+      const strategy = data.syncStrategy;
+      let title = '🎉 Smart Sync Complete!';
+      
+      if (strategy === 'notion_canonical') {
+        title = '🎉 Notion Canonical Sync Complete!';
+        message += `\n🎯 Notion was treated as the source of truth`;
+      } else if (strategy === 'auto_pull_then_push') {
+        title = '🎉 Smart Sync Complete!';
+        message += `\n🔄 Pulled from ${integrationName} first, then pushed updates`;
+      }
+
+      notifications.show({
+        title,
+        message,
+        color,
+        autoClose: 6000,
+        withCloseButton: true,
+      });
+      
+      // Refresh actions list
+      void actionsQuery.refetch();
+    },
+    onError: (error) => {
+      setPullingFromIntegration(false);
+      setSyncingToIntegration(false);
+      notifications.show({
+        title: '❌ Smart Sync Failed',
+        message: error.message || 'Failed to run smart sync',
         color: 'red',
         autoClose: 8000,
         withCloseButton: true,
@@ -283,44 +395,144 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     pullFromIntegrationMutation.mutate({ id: pullWorkflow.id });
   };
 
+  // Handler for smart sync (checks project configuration and chooses appropriate sync method)
+  const handleSmartSync = () => {
+    if (!project || !projectId) {
+      notifications.show({
+        title: 'Error',
+        message: 'No project selected',
+        color: 'red',
+      });
+      return;
+    }
+
+    if (!project.taskManagementTool || project.taskManagementTool === 'internal') {
+      notifications.show({
+        title: 'No Integration Configured',
+        message: 'This project is not configured to use an external task management tool. Configure it in project settings.',
+        color: 'orange',
+      });
+      return;
+    }
+
+    const config = project.taskManagementConfig as {
+      syncStrategy?: 'manual' | 'auto_pull_then_push' | 'notion_canonical';
+    } || {};
+
+    const syncStrategy = config.syncStrategy || 'manual';
+
+    // For non-manual strategies, use smart sync
+    if (syncStrategy === 'auto_pull_then_push' || syncStrategy === 'notion_canonical') {
+      setSyncingToIntegration(true);
+      setPullingFromIntegration(true); // Both operations happening
+      smartSyncMutation.mutate({ projectId });
+    } else {
+      // For manual strategy, use the regular push sync
+      handleSyncToIntegration();
+    }
+  };
+
   return (
     <div className="w-full max-w-3xl mx-auto">
       <div className="relative mb-4">
         <Group justify="space-between" align="center">
-          <Title order={2}></Title>
+          <div>
+            <Title order={2}></Title>
+            {/* Show sync configuration label for projects with external task management */}
+            {projectId && project && project.taskManagementTool && project.taskManagementTool !== 'internal' && (
+              <Text size="sm" c="dimmed" mt="xs">
+                Sync Configuration
+              </Text>
+            )}
+          </div>
           <Group gap="xs">
             {/* Sync Buttons - only show for projects with external task management */}
-            {projectId && project && project.taskManagementTool && project.taskManagementTool !== 'internal' && (
-              <>
-                <Button
-                  variant="light"
-                  size="sm"
-                  color={project.taskManagementTool === 'monday' ? 'orange' : 
-                        project.taskManagementTool === 'notion' ? 'gray' : 'blue'}
-                  loading={syncingToIntegration}
-                  onClick={handleSyncToIntegration}
-                  leftSection={<IconUpload size={16} />}
-                >
-                  Push to {project.taskManagementTool === 'monday' ? 'Monday.com' : 
-                           project.taskManagementTool === 'notion' ? 'Notion' : 
-                           project.taskManagementTool}
-                </Button>
-                
-                {/* Pull button - only show for providers that support it */}
-                {project.taskManagementTool === 'notion' && (
+            {projectId && project && project.taskManagementTool && project.taskManagementTool !== 'internal' && (() => {
+              const config = project.taskManagementConfig as {
+                syncStrategy?: 'manual' | 'auto_pull_then_push' | 'notion_canonical';
+              } || {};
+              const syncStrategy = config.syncStrategy || 'manual';
+              const integrationName = project.taskManagementTool === 'monday' ? 'Monday.com' : 
+                                     project.taskManagementTool === 'notion' ? 'Notion' : 
+                                     project.taskManagementTool;
+
+              // Show smart sync button for non-manual strategies
+              if (syncStrategy === 'auto_pull_then_push' || syncStrategy === 'notion_canonical') {
+                return (
+                  <Group gap="xs">
+                    <Button
+                      variant="light"
+                      size="sm"
+                      color={project.taskManagementTool === 'monday' ? 'orange' : 
+                            project.taskManagementTool === 'notion' ? 'violet' : 'blue'}
+                      loading={syncingToIntegration || pullingFromIntegration}
+                      onClick={handleSmartSync}
+                      leftSection={syncStrategy === 'notion_canonical' ? 
+                        <IconDownload size={16} /> : <IconUpload size={16} />}
+                    >
+                      {syncStrategy === 'notion_canonical' ? 
+                        `Sync with ${integrationName}` : 
+                        `Smart Sync with ${integrationName}`}
+                    </Button>
+                    {onToggleSyncStatus && (
+                      <ActionIcon
+                        variant="light"
+                        size="sm"
+                        color="gray"
+                        onClick={onToggleSyncStatus}
+                        title="Show sync configuration"
+                      >
+                        <IconSettings size={16} />
+                      </ActionIcon>
+                    )}
+                  </Group>
+                );
+              }
+
+              // Show manual sync buttons for manual strategy
+              return (
+                <>
                   <Button
-                    variant="outline"
+                    variant="light"
                     size="sm"
-                    color="gray"
-                    loading={pullingFromIntegration}
-                    onClick={handlePullFromIntegration}
-                    leftSection={<IconDownload size={16} />}
+                    color={project.taskManagementTool === 'monday' ? 'orange' : 
+                          project.taskManagementTool === 'notion' ? 'gray' : 'blue'}
+                    loading={syncingToIntegration}
+                    onClick={handleSyncToIntegration}
+                    leftSection={<IconUpload size={16} />}
                   >
-                    Pull from Notion
+                    Push to {integrationName}
                   </Button>
-                )}
-              </>
-            )}
+                  
+                  {/* Pull button - only show for providers that support it */}
+                  {project.taskManagementTool === 'notion' && (
+                    <Group gap="xs">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        color="gray"
+                        loading={pullingFromIntegration}
+                        onClick={handlePullFromIntegration}
+                        leftSection={<IconDownload size={16} />}
+                      >
+                        Pull from Notion
+                      </Button>
+                      {onToggleSyncStatus && (
+                        <ActionIcon
+                          variant="light"
+                          size="sm"
+                          color="gray"
+                          onClick={onToggleSyncStatus}
+                          title="Show sync configuration"
+                        >
+                          <IconSettings size={16} />
+                        </ActionIcon>
+                      )}
+                    </Group>
+                  )}
+                </>
+              );
+            })()}
             {displayAlignment && (
               <Button
                 variant="subtle"

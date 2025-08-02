@@ -38,6 +38,7 @@ import {
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { TaskManagementSettings } from "./TaskManagementSettings";
+import { ProjectSyncStatus } from "./ProjectSyncStatus";
 
 type TabValue =
   | "tasks"
@@ -60,6 +61,7 @@ export function ProjectContent({
   const [chatDrawerOpened, setChatDrawerOpened] = useState(false);
   const [settingsDrawerOpened, setSettingsDrawerOpened] = useState(false);
   const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
+  const [syncStatusOpened, setSyncStatusOpened] = useState(false);
   const { data: project, isLoading } = api.project.getById.useQuery({
     id: projectId,
   });
@@ -166,12 +168,20 @@ export function ProjectContent({
 
             {/* Content Area */}
             <Tabs.Panel value="tasks">
-              <Actions
-                viewName={viewName}
-                defaultView="list"
-                projectId={projectId}
-                displayAlignment={false}
-              />
+              <Stack gap="md">
+                <ProjectSyncStatus 
+                  project={project} 
+                  opened={syncStatusOpened} 
+                  onToggle={() => setSyncStatusOpened(!syncStatusOpened)} 
+                />
+                <Actions
+                  viewName={viewName}
+                  defaultView="list"
+                  projectId={projectId}
+                  displayAlignment={false}
+                  onToggleSyncStatus={() => setSyncStatusOpened(!syncStatusOpened)}
+                />
+              </Stack>
             </Tabs.Panel>
 
             {/* <Tabs.Panel value="plan">

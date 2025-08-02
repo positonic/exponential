@@ -257,7 +257,17 @@ export const projectRouter = createTRPCRouter({
       z.object({
         id: z.string(),
         taskManagementTool: z.enum(["internal", "monday", "notion"]),
-        taskManagementConfig: z.record(z.any()).optional(),
+        taskManagementConfig: z.object({
+          // Core workflow configuration
+          workflowId: z.string().optional(),
+          databaseId: z.string().optional(), // for Notion
+          boardId: z.string().optional(), // for Monday
+          
+          // New sync strategy options
+          syncStrategy: z.enum(['manual', 'auto_pull_then_push', 'notion_canonical']).optional().default('manual'),
+          conflictResolution: z.enum(['local_wins', 'remote_wins']).optional().default('local_wins'),
+          deletionBehavior: z.enum(['mark_deleted', 'archive']).optional().default('mark_deleted'),
+        }).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

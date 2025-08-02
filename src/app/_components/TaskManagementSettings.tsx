@@ -46,6 +46,9 @@ interface MondayConfigForm {
 interface NotionConfigForm {
   workflowId: string;
   databaseId: string;
+  syncStrategy: 'manual' | 'auto_pull_then_push' | 'notion_canonical';
+  conflictResolution: 'local_wins' | 'remote_wins';
+  deletionBehavior: 'mark_deleted' | 'archive';
 }
 
 const TASK_MANAGEMENT_TOOLS = [
@@ -116,6 +119,9 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
     initialValues: {
       workflowId: project.taskManagementConfig?.workflowId || '',
       databaseId: project.taskManagementConfig?.databaseId || '',
+      syncStrategy: project.taskManagementConfig?.syncStrategy || 'manual',
+      conflictResolution: project.taskManagementConfig?.conflictResolution || 'local_wins',
+      deletionBehavior: project.taskManagementConfig?.deletionBehavior || 'mark_deleted',
     },
     validate: {
       workflowId: (value) => !value ? 'Please select a workflow' : null,
@@ -220,6 +226,9 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
       taskManagementConfig: {
         workflowId: values.workflowId,
         databaseId: values.databaseId,
+        syncStrategy: values.syncStrategy,
+        conflictResolution: values.conflictResolution,
+        deletionBehavior: values.deletionBehavior,
       },
     });
     closeConfigModal();
@@ -492,9 +501,47 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
                 {...notionConfigForm.getInputProps('databaseId')}
               />
 
+              <Select
+                label="Sync Strategy"
+                description="How should syncing between your app and Notion work?"
+                data={[
+                  { value: 'manual', label: 'Manual - Sync only when I click buttons' },
+                  { value: 'auto_pull_then_push', label: 'Smart Sync - Pull from Notion first, then push' },
+                  { value: 'notion_canonical', label: 'Notion Canonical - Notion is always the source of truth' },
+                ]}
+                {...notionConfigForm.getInputProps('syncStrategy')}
+              />
+
+              <Select
+                label="Conflict Resolution"
+                description="When the same task is changed in both places, which version wins?"
+                data={[
+                  { value: 'local_wins', label: 'Local Wins - Your app version takes priority' },
+                  { value: 'remote_wins', label: 'Remote Wins - Notion version takes priority' },
+                ]}
+                {...notionConfigForm.getInputProps('conflictResolution')}
+              />
+
+              <Select
+                label="Deletion Behavior"
+                description="What happens when tasks are deleted in Notion?"
+                data={[
+                  { value: 'mark_deleted', label: 'Mark Deleted - Keep tasks but mark as deleted' },
+                  { value: 'archive', label: 'Archive - Move to archive instead of delete' },
+                ]}
+                {...notionConfigForm.getInputProps('deletionBehavior')}
+              />
+
               <Alert icon={<IconDatabase size={16} />} color="blue" variant="light">
-                This configuration will be used when syncing action items from meetings to your Notion database. 
-                The database ID is automatically populated from the selected workflow configuration.
+                <Text size="sm" fw={500} mb="xs">Sync Configuration</Text>
+                <Text size="sm">
+                  <strong>Notion Canonical:</strong> Recommended for treating Notion as your primary task manager. 
+                  Changes in Notion will overwrite local changes, and deleted Notion tasks will be marked as deleted locally.
+                </Text>
+                <Text size="sm" mt="xs">
+                  <strong>Smart Sync:</strong> Pulls the latest from Notion before pushing your changes, 
+                  helping prevent conflicts while keeping your local changes.
+                </Text>
               </Alert>
 
               <Group justify="flex-end">

@@ -8,6 +8,9 @@ export const actionRouter = createTRPCRouter({
     return ctx.db.action.findMany({
       where: {
         createdById: ctx.session.user.id,
+        status: {
+          not: "DELETED",
+        },
       },
       include: {
         project: true,
@@ -27,6 +30,9 @@ export const actionRouter = createTRPCRouter({
         where: {
           createdById: ctx.session.user.id,
           projectId: input.projectId,
+          status: {
+            not: "DELETED",
+          },
         },
         include: {
           project: true,
@@ -46,7 +52,7 @@ export const actionRouter = createTRPCRouter({
         projectId: z.string().optional(),
         dueDate: z.date().optional(),
         priority: z.enum(PRIORITY_VALUES).default("Quick"),
-        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]).default("ACTIVE"),
+        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED"]).default("ACTIVE"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -76,7 +82,7 @@ export const actionRouter = createTRPCRouter({
         projectId: z.string().optional(),
         dueDate: z.date().optional(),
         priority: z.enum(PRIORITY_VALUES).optional(),
-        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED"]).optional(),
+        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED"]).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
