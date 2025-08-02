@@ -943,14 +943,39 @@ export const workflowRouter = createTRPCRouter({
 
           let itemsCreated = 0;
           let itemsSkipped = 0;
+          let itemsAlreadySynced = 0;
+          let itemsFailedToSync = 0;
+          const skippedReasons: string[] = [];
 
           for (const action of mondayCompatibleActions) {
             try {
-              // Check if this action was already processed to Monday.com
-              // We can use a naming convention or metadata to track this
-              const existingItems = await mondayService.getBoards();
-              // This is a simplified check - in practice, you'd want to store 
-              // Monday.com item IDs in your database or use a consistent naming pattern
+              // Check if this action has already been synced to Monday.com
+              const existingSync = await ctx.db.actionSync.findFirst({
+                where: {
+                  actionId: action.id,
+                  provider: 'monday',
+                },
+              });
+
+              console.log(`🔍 Debug - Monday.com Action "${action.name}" (${action.id}):`, {
+                hasExistingSync: !!existingSync,
+                syncStatus: existingSync?.status,
+                externalId: existingSync?.externalId,
+                syncedAt: existingSync?.syncedAt
+              });
+
+              if (existingSync) {
+                if (existingSync.status === 'synced') {
+                  console.log(`✅ Skipping action ${action.id} - already synced to Monday.com (item: ${existingSync.externalId})`);
+                  itemsAlreadySynced++;
+                  itemsSkipped++;
+                  skippedReasons.push(`"${action.name}" - Already synced to Monday.com`);
+                  continue;
+                } else if (existingSync.status === 'failed') {
+                  console.log(`⚠️ Retrying failed sync for action ${action.id} (previous failure with item: ${existingSync.externalId})`);
+                  // Allow the sync to proceed for failed items
+                }
+              }
 
               // Transform action to monday.com item format
               const columnValues: Record<string, any> = {};
@@ -994,13 +1019,42 @@ export const workflowRouter = createTRPCRouter({
                 columnValues,
               });
 
+              // Create ActionSync record to track this sync
+              await ctx.db.actionSync.create({
+                data: {
+                  actionId: action.id,
+                  provider: 'monday',
+                  externalId: createdItem.id,
+                  status: 'synced',
+                },
+              });
+
               itemsCreated++;
 
-              console.log(`Created Monday.com item: ${createdItem.name} (ID: ${createdItem.id})`);
+              console.log(`✅ Created Monday.com item: ${createdItem.name} (ID: ${createdItem.id}) and ActionSync record`);
 
             } catch (error) {
               console.error(`Failed to create Monday.com item for action ${action.id}:`, error);
+              
+              itemsFailedToSync++;
               itemsSkipped++;
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              skippedReasons.push(`"${action.name}" - Failed: ${errorMessage}`);
+              
+              // Create ActionSync record with failed status
+              try {
+                await ctx.db.actionSync.create({
+                  data: {
+                    actionId: action.id,
+                    provider: 'monday',
+                    externalId: `failed-${Date.now()}`, // Temporary ID for failed syncs
+                    status: 'failed',
+                  },
+                });
+              } catch (syncError) {
+                console.error(`Failed to create ActionSync failure record for action ${action.id}:`, syncError);
+              }
+              
               // Continue processing other actions
             }
           }
@@ -1011,10 +1065,17 @@ export const workflowRouter = createTRPCRouter({
             data: {
               status: 'COMPLETED',
               completedAt: new Date(),
+              itemsProcessed: mondayCompatibleActions.length,
+              itemsCreated,
+              itemsUpdated: 0,
+              itemsSkipped,
               metadata: {
                 itemsProcessed: mondayCompatibleActions.length,
                 itemsCreated: itemsCreated,
                 itemsSkipped: itemsSkipped,
+                itemsAlreadySynced,
+                itemsFailedToSync,
+                skippedReasons,
                 boardId: config.boardId,
                 source: config.source || 'all',
                 totalActionsFound: actions.length,
@@ -1036,6 +1097,9 @@ export const workflowRouter = createTRPCRouter({
             itemsCreated,
             itemsUpdated: 0,
             itemsSkipped,
+            itemsAlreadySynced,
+            itemsFailedToSync,
+            skippedReasons,
           };
         } else if (workflow.provider === 'notion' && workflow.syncDirection === 'push') {
           // Notion workflow - push actions to Notion database using robust implementation

@@ -115,6 +115,7 @@ export const projectRouter = createTRPCRouter({
         nextActionDate: z.date().nullable().optional(),
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
+        teamId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -144,6 +145,11 @@ export const projectRouter = createTRPCRouter({
               id: ctx.session.user.id,
             },
           },
+          team: input.teamId ? {
+            connect: {
+              id: input.teamId,
+            },
+          } : undefined,
           goals: input.goalIds?.length ? {
             connect: input.goalIds.map(id => ({ id: parseInt(id) })),
           } : undefined,
@@ -214,6 +220,50 @@ export const projectRouter = createTRPCRouter({
           outcomes: outcomeIds?.length ? {
             set: outcomeIds.map(id => ({ id })),
           } : undefined,
+        },
+      });
+    }),
+
+  assignToTeam: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        teamId: z.string().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.project.update({
+        where: {
+          id: input.projectId,
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          team: input.teamId ? {
+            connect: { id: input.teamId }
+          } : {
+            disconnect: true
+          },
+        },
+      });
+    }),
+
+  getUnassignedProjects: protectedProcedure
+    .query(async ({ ctx }) => {
+      return ctx.db.project.findMany({
+        where: {
+          createdById: ctx.session.user.id,
+          teamId: null,
+        },
+        orderBy: {
+          name: "asc",
+        },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          priority: true,
+          slug: true,
         },
       });
     }),

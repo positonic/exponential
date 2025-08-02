@@ -37,7 +37,8 @@ import {
   IconFolders,
   IconPlug,
   IconArrowLeft,
-  IconUserMinus
+  IconUserMinus,
+  IconPlus
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
@@ -45,6 +46,8 @@ import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { AddProjectToTeamModal } from '~/app/_components/AddProjectToTeamModal';
+import { AssignProjectToTeamModal } from '~/app/_components/AssignProjectToTeamModal';
 
 interface AddMemberForm {
   email: string;
@@ -301,7 +304,31 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
           <Tabs.Panel value="projects" pt="md">
             <Card withBorder>
               <Stack gap="md">
-                <Title order={3}>Team Projects</Title>
+                <Group justify="space-between">
+                  <Title order={3}>Team Projects</Title>
+                  {isOwnerOrAdmin && (
+                    <Group>
+                      <AssignProjectToTeamModal teamId={team.id} onProjectsAssigned={() => void refetch()}>
+                        <Button
+                          size="sm"
+                          variant="light"
+                          leftSection={<IconFolders size={16} />}
+                        >
+                          Assign Existing
+                        </Button>
+                      </AssignProjectToTeamModal>
+                      <AddProjectToTeamModal teamId={team.id} onProjectAdded={() => void refetch()}>
+                        <Button
+                          size="sm"
+                          leftSection={<IconPlus size={16} />}
+                        >
+                          Create New
+                        </Button>
+                      </AddProjectToTeamModal>
+                    </Group>
+                  )}
+                </Group>
+                
                 {team.projects && team.projects.length > 0 ? (
                   <Stack gap="sm">
                     {team.projects.map((project: any) => (
