@@ -309,7 +309,6 @@ export const transcriptionRouter = createTRPCRouter({
         },
         data: {
           projectId: input.projectId,
-          updatedAt: new Date(),
         },
       });
       
@@ -347,7 +346,6 @@ export const transcriptionRouter = createTRPCRouter({
         },
         data: {
           projectId: input.projectId,
-          updatedAt: new Date(),
         },
       });
       

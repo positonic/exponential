@@ -237,6 +237,9 @@ export const projectRouter = createTRPCRouter({
                 },
               },
             },
+            orderBy: {
+              createdAt: "desc",
+            },
           },
         },
       });
