@@ -303,6 +303,29 @@ export const transcriptionRouter = createTRPCRouter({
       return session;
     }),
 
+  bulkAssignProject: protectedProcedure
+    .input(
+      z.object({
+        transcriptionIds: z.array(z.string()),
+        projectId: z.string().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.db.transcriptionSession.updateMany({
+        where: {
+          id: {
+            in: input.transcriptionIds,
+          },
+          userId: ctx.session.user.id, // Ensure user only updates their own transcriptions
+        },
+        data: {
+          projectId: input.projectId,
+          updatedAt: new Date(),
+        },
+      });
+      return { count: result.count };
+    }),
+
   // Add to your transcriptionRouter
   saveScreenshot: protectedProcedure
     .input(

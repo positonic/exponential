@@ -17,6 +17,9 @@ import {
   List,
   Card,
   Checkbox,
+  MultiSelect,
+  ActionIcon,
+  Menu,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
@@ -25,6 +28,12 @@ import {
   IconClipboardList,
   IconCalendar,
   IconCalendarEvent,
+  IconFilter,
+  IconCheck,
+  IconChecks,
+  IconSquare,
+  IconDotsVertical,
+  IconFolder,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { ActionList } from "./ActionList";
@@ -58,6 +67,11 @@ export function MeetingsContent() {
   const [syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set()); // For manual action selection
   
+  // New state for filtering and bulk operations
+  const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
+  const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
+  const [bulkProjectAssignment, setBulkProjectAssignment] = useState<string | null>(null);
+  
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery();
   const { data: projects } = api.project.getAll.useQuery();
   const { data: workflows = [] } = api.workflow.list.useQuery();
@@ -67,6 +81,27 @@ export function MeetingsContent() {
     onSuccess: () => {
       // Refetch transcriptions to update the UI
       void utils.transcription.getAllTranscriptions.invalidate();
+    },
+  });
+
+  const bulkAssignProjectMutation = api.transcription.bulkAssignProject.useMutation({
+    onSuccess: (data) => {
+      notifications.show({
+        title: 'Bulk Assignment Complete',
+        message: `Assigned ${data.count} transcriptions to project`,
+        color: 'green',
+      });
+      // Clear selections and refresh data
+      setSelectedTranscriptionIds(new Set());
+      setBulkProjectAssignment(null);
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Bulk Assignment Failed',
+        message: error.message || 'Failed to assign transcriptions to project',
+        color: 'red',
+      });
     },
   });
 
@@ -202,6 +237,54 @@ export function MeetingsContent() {
     setSyncingToIntegration(session.id);
     syncToIntegrationMutation.mutate({ id: workflowId });
   };
+
+  // Helper functions for bulk operations
+  const handleSelectAll = () => {
+    const filteredTranscriptions = getFilteredTranscriptions();
+    setSelectedTranscriptionIds(new Set(filteredTranscriptions.map(t => t.id)));
+  };
+
+  const handleSelectNone = () => {
+    setSelectedTranscriptionIds(new Set());
+  };
+
+  const handleBulkProjectAssignment = async () => {
+    if (selectedTranscriptionIds.size === 0 || !bulkProjectAssignment) return;
+    
+    await bulkAssignProjectMutation.mutateAsync({
+      transcriptionIds: Array.from(selectedTranscriptionIds),
+      projectId: bulkProjectAssignment === "none" ? null : bulkProjectAssignment,
+    });
+  };
+
+  const getFilteredTranscriptions = () => {
+    if (!transcriptions) return [];
+    
+    let filtered = transcriptions;
+    
+    // Filter by integration
+    if (selectedIntegrationFilter.length > 0) {
+      filtered = filtered.filter(session => 
+        session.sourceIntegration && 
+        selectedIntegrationFilter.includes(session.sourceIntegration.id)
+      );
+    }
+    
+    return filtered;
+  };
+
+  // Get unique integrations for filter options
+  const integrationOptions = transcriptions 
+    ? Array.from(new Set(
+        transcriptions
+          .filter(t => t.sourceIntegration)
+          .map(t => ({
+            value: t.sourceIntegration!.id,
+            label: `${t.sourceIntegration!.name} (${t.sourceIntegration!.provider})`
+          }))
+          .map(item => JSON.stringify(item))
+      )).map(item => JSON.parse(item))
+    : [];
 
   const handleSendToNotion = () => {
     console.log('handleSendToNotion called');
@@ -367,13 +450,113 @@ export function MeetingsContent() {
                 <Group justify="space-between" align="center">
                   <Title order={4}>Recent Meetings</Title>
                   <Text size="sm" c="dimmed">
-                    {transcriptions?.length || 0} meetings
+                    {getFilteredTranscriptions().length} of {transcriptions?.length || 0} meetings
                   </Text>
                 </Group>
+
+                {/* Filter and Bulk Operations Bar */}
+                <Paper withBorder p="md" radius="sm">
+                  <Group justify="space-between" align="center">
+                    <Group gap="md">
+                      {/* Integration Filter */}
+                      <MultiSelect
+                        placeholder="Filter by integration"
+                        data={integrationOptions}
+                        value={selectedIntegrationFilter}
+                        onChange={setSelectedIntegrationFilter}
+                        leftSection={<IconFilter size={16} />}
+                        clearable
+                        searchable
+                        size="sm"
+                        style={{ minWidth: 200 }}
+                      />
+
+                      {/* Selection Info */}
+                      {selectedTranscriptionIds.size > 0 && (
+                        <Badge variant="filled" color="blue">
+                          {selectedTranscriptionIds.size} selected
+                        </Badge>
+                      )}
+                    </Group>
+
+                    <Group gap="xs">
+                      {/* Select All/None */}
+                      <Button
+                        size="xs"
+                        variant="light"
+                        onClick={handleSelectAll}
+                        leftSection={<IconChecks size={14} />}
+                      >
+                        Select All
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="light"
+                        onClick={handleSelectNone}
+                        leftSection={<IconSquare size={14} />}
+                      >
+                        Select None
+                      </Button>
+
+                      {/* Bulk Actions Menu */}
+                      {selectedTranscriptionIds.size > 0 && (
+                        <Menu shadow="md">
+                          <Menu.Target>
+                            <Button
+                              size="xs"
+                              variant="filled"
+                              rightSection={<IconDotsVertical size={14} />}
+                            >
+                              Bulk Actions
+                            </Button>
+                          </Menu.Target>
+
+                          <Menu.Dropdown>
+                            <Menu.Label>Project Assignment</Menu.Label>
+                            <Menu.Item
+                              leftSection={<IconFolder size={14} />}
+                              onClick={() => {
+                                const projectId = window.prompt('Enter project ID or leave empty to unassign:');
+                                if (projectId !== null) {
+                                  setBulkProjectAssignment(projectId || "none");
+                                  handleBulkProjectAssignment();
+                                }
+                              }}
+                            >
+                              Assign to Project
+                            </Menu.Item>
+                            <Menu.Divider />
+                            {projects?.map(project => (
+                              <Menu.Item
+                                key={project.id}
+                                onClick={() => {
+                                  setBulkProjectAssignment(project.id);
+                                  handleBulkProjectAssignment();
+                                }}
+                              >
+                                📁 {project.name}
+                              </Menu.Item>
+                            ))}
+                            <Menu.Divider />
+                            <Menu.Item
+                              color="gray"
+                              onClick={() => {
+                                setBulkProjectAssignment("none");
+                                handleBulkProjectAssignment();
+                              }}
+                            >
+                              Remove from Project
+                            </Menu.Item>
+                          </Menu.Dropdown>
+                        </Menu>
+                      )}
+                    </Group>
+                  </Group>
+                </Paper>
                 
-                {transcriptions && transcriptions.length > 0 ? (
+                {getFilteredTranscriptions().length > 0 ? (
                   <Stack gap="lg">
-                    {transcriptions.map((session) => (
+                    {getFilteredTranscriptions().map((session) => (
                       <Card
                         key={session.id}
                         withBorder
@@ -384,63 +567,81 @@ export function MeetingsContent() {
                       >
                         <Stack gap="md">
                           {/* Meeting Header */}
-                          <Group justify="space-between" align="flex-start">
-                            <Stack gap="xs" style={{ flex: 1 }}>
-                              <Group gap="sm" wrap="nowrap">
-                                <Text size="lg" fw={600} lineClamp={1}>
-                                  {session.title || `Meeting ${session.sessionId}`}
-                                </Text>
-                                <Group gap="xs">
-                                  {session.sourceIntegration && (
-                                    <Badge variant="dot" color="teal" size="sm">
-                                      {session.sourceIntegration.provider}
-                                    </Badge>
-                                  )}
-                                </Group>
-                              </Group>
-                              
-                              <Group gap="md" c="dimmed">
-                                <Text size="sm">
-                                  {new Date(session.createdAt).toLocaleDateString('en-US', {
-                                    weekday: 'short',
-                                    year: 'numeric',
-                                    month: 'short',
-                                    day: 'numeric',
-                                  })}
-                                </Text>
-                                <Text size="sm">
-                                  {new Date(session.createdAt).toLocaleTimeString('en-US', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}
-                                </Text>
-                                {session.actions && session.actions.length > 0 && (
-                                  <>
-                                    <Text size="sm">•</Text>
-                                    <Text size="sm">
-                                      {session.actions.length} {session.actions.length === 1 ? 'action' : 'actions'}
-                                    </Text>
-                                  </>
-                                )}
-                              </Group>
-                            </Stack>
-                            
-                            <Select
-                              placeholder="Assign to project"
-                              value={session.projectId || ''}
-                              onChange={(value) => handleProjectAssignment(session.id, value)}
+                          <Group justify="space-between" align="flex-start" wrap="nowrap">
+                            {/* Checkbox for bulk selection */}
+                            <Checkbox
+                              checked={selectedTranscriptionIds.has(session.id)}
+                              onChange={(event) => {
+                                const newSelected = new Set(selectedTranscriptionIds);
+                                if (event.currentTarget.checked) {
+                                  newSelected.add(session.id);
+                                } else {
+                                  newSelected.delete(session.id);
+                                }
+                                setSelectedTranscriptionIds(newSelected);
+                              }}
                               onClick={(e) => e.stopPropagation()}
-                              onFocus={(e) => e.stopPropagation()}
-                              data={[
-                                { value: "", label: "No project" },
-                                ...(projects?.map((p) => ({
-                                  value: p.id,
-                                  label: p.name,
-                                })) || []),
-                              ]}
-                              size="sm"
-                              style={{ minWidth: 200 }}
                             />
+                            <div style={{ flex: 1 }}>
+                              <Group justify="space-between" align="flex-start" wrap="nowrap">
+                                <Stack gap="xs" style={{ flex: 1 }}>
+                                  <Group gap="sm" wrap="nowrap">
+                                    <Text size="lg" fw={600} lineClamp={1}>
+                                      {session.title || `Meeting ${session.sessionId}`}
+                                    </Text>
+                                    <Group gap="xs">
+                                      {session.sourceIntegration && (
+                                        <Badge variant="dot" color="teal" size="sm">
+                                          {session.sourceIntegration.provider}
+                                        </Badge>
+                                      )}
+                                    </Group>
+                                  </Group>
+                                  
+                                  <Group gap="md" c="dimmed">
+                                    <Text size="sm">
+                                      {new Date(session.createdAt).toLocaleDateString('en-US', {
+                                        weekday: 'short',
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric',
+                                      })}
+                                    </Text>
+                                    <Text size="sm">
+                                      {new Date(session.createdAt).toLocaleTimeString('en-US', {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                      })}
+                                    </Text>
+                                    {session.actions && session.actions.length > 0 && (
+                                      <>
+                                        <Text size="sm">•</Text>
+                                        <Text size="sm">
+                                          {session.actions.length} {session.actions.length === 1 ? 'action' : 'actions'}
+                                        </Text>
+                                      </>
+                                    )}
+                                  </Group>
+                                </Stack>
+                                
+                                <Select
+                                  placeholder="Assign to project"
+                                  value={session.projectId || ''}
+                                  onChange={(value) => handleProjectAssignment(session.id, value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onFocus={(e) => e.stopPropagation()}
+                                  data={[
+                                    { value: "", label: "No project" },
+                                    ...(projects?.map((p) => ({
+                                      value: p.id,
+                                      label: p.name,
+                                    })) || []),
+                                  ]}
+                                  size="sm"
+                                  style={{ minWidth: 200 }}
+                                />
+                              </Group>
+                            </div>
                           </Group>
 
                           {/* Project Badge */}
