@@ -18,6 +18,7 @@ interface NotionIntegrationForm {
 interface NotionWorkflowForm {
   name: string;
   databaseId: string;
+  projectsDatabaseId: string;
   syncDirection: 'push' | 'pull' | 'bidirectional';
   syncFrequency: 'manual' | 'hourly' | 'daily' | 'weekly';
   source: 'fireflies' | 'internal' | 'all';
@@ -50,6 +51,8 @@ export default function NotionWorkflowPage() {
   const [databasesModalOpened, { open: openDatabasesModal, close: closeDatabasesModal }] = useDisclosure(false);
   const [databases, setDatabases] = useState<NotionDatabase[]>([]);
   const [selectedDatabase, setSelectedDatabase] = useState<NotionDatabase | null>(null);
+  const [selectedProjectsDatabase, setSelectedProjectsDatabase] = useState<NotionDatabase | null>(null);
+  const [selectingDatabaseFor, setSelectingDatabaseFor] = useState<'tasks' | 'projects' | null>(null);
   const [editingWorkflow, setEditingWorkflow] = useState<any>(null);
   
   // API calls for checking configuration status
@@ -63,11 +66,19 @@ export default function NotionWorkflowPage() {
       if (data.success && data.databases) {
         setDatabases(data.databases);
         
-        // If we're editing a workflow and have a databaseId, set the selected database
-        if (editingWorkflow && editingWorkflow.config?.databaseId) {
-          const currentDatabase = data.databases.find(db => db.id === editingWorkflow.config.databaseId);
-          if (currentDatabase) {
-            setSelectedDatabase(currentDatabase);
+        // If we're editing a workflow and have database IDs, set the selected databases
+        if (editingWorkflow) {
+          if (editingWorkflow.config?.databaseId) {
+            const currentDatabase = data.databases.find(db => db.id === editingWorkflow.config.databaseId);
+            if (currentDatabase) {
+              setSelectedDatabase(currentDatabase);
+            }
+          }
+          if (editingWorkflow.config?.projectsDatabaseId) {
+            const currentProjectsDatabase = data.databases.find(db => db.id === editingWorkflow.config.projectsDatabaseId);
+            if (currentProjectsDatabase) {
+              setSelectedProjectsDatabase(currentProjectsDatabase);
+            }
           }
         }
         
@@ -128,6 +139,7 @@ export default function NotionWorkflowPage() {
     initialValues: {
       name: 'Actions → Notion Sync',
       databaseId: '',
+      projectsDatabaseId: '',
       syncDirection: 'push',
       syncFrequency: 'manual',
       source: 'fireflies',
@@ -141,7 +153,8 @@ export default function NotionWorkflowPage() {
     },
     validate: {
       name: (value) => value.trim().length === 0 ? 'Workflow name is required' : null,
-      databaseId: (value) => value.trim().length === 0 ? 'Database selection is required' : null,
+      databaseId: (value) => value.trim().length === 0 ? 'Tasks database selection is required' : null,
+      projectsDatabaseId: (value) => value.trim().length === 0 ? 'Projects database selection is required' : null,
     },
   });
 
@@ -149,6 +162,7 @@ export default function NotionWorkflowPage() {
     initialValues: {
       name: '',
       databaseId: '',
+      projectsDatabaseId: '',
       syncDirection: 'push',
       syncFrequency: 'manual',
       source: 'fireflies',
@@ -162,7 +176,8 @@ export default function NotionWorkflowPage() {
     },
     validate: {
       name: (value) => value.trim().length === 0 ? 'Workflow name is required' : null,
-      databaseId: (value) => value.trim().length === 0 ? 'Database selection is required' : null,
+      databaseId: (value) => value.trim().length === 0 ? 'Tasks database selection is required' : null,
+      projectsDatabaseId: (value) => value.trim().length === 0 ? 'Projects database selection is required' : null,
     },
   });
 
@@ -219,6 +234,20 @@ export default function NotionWorkflowPage() {
     }
   };
 
+  const handleSelectTasksDatabase = () => {
+    setSelectingDatabaseFor('tasks');
+    if (notionIntegration) {
+      testConnection.mutate({ integrationId: notionIntegration.id });
+    }
+  };
+
+  const handleSelectProjectsDatabase = () => {
+    setSelectingDatabaseFor('projects');
+    if (notionIntegration) {
+      testConnection.mutate({ integrationId: notionIntegration.id });
+    }
+  };
+
   // Create workflow mutation
   const createWorkflow = api.workflow.create.useMutation({
     onSuccess: () => {
@@ -230,6 +259,7 @@ export default function NotionWorkflowPage() {
       closeWorkflowModal();
       workflowForm.reset();
       setSelectedDatabase(null);
+      setSelectedProjectsDatabase(null);
       void utils.workflow.list.invalidate();
     },
     onError: (error) => {
@@ -253,6 +283,7 @@ export default function NotionWorkflowPage() {
       editWorkflowForm.reset();
       setEditingWorkflow(null);
       setSelectedDatabase(null);
+      setSelectedProjectsDatabase(null);
       void utils.workflow.list.invalidate();
     },
     onError: (error) => {
@@ -302,6 +333,7 @@ export default function NotionWorkflowPage() {
       integrationId: notionIntegration.id,
       config: {
         databaseId: values.databaseId,
+        projectsDatabaseId: values.projectsDatabaseId,
         source: values.source,
         propertyMappings: values.propertyMappings,
       },
@@ -326,6 +358,7 @@ export default function NotionWorkflowPage() {
       syncFrequency: values.syncFrequency,
       config: {
         databaseId: values.databaseId,
+        projectsDatabaseId: values.projectsDatabaseId,
         source: values.source,
         propertyMappings: values.propertyMappings,
       },
@@ -337,6 +370,7 @@ export default function NotionWorkflowPage() {
     editWorkflowForm.setValues({
       name: workflow.name,
       databaseId: workflow.config?.databaseId || '',
+      projectsDatabaseId: workflow.config?.projectsDatabaseId || '',
       syncDirection: workflow.syncDirection || 'push',
       syncFrequency: workflow.syncFrequency || 'manual',
       source: workflow.config?.source || 'fireflies',
@@ -349,8 +383,8 @@ export default function NotionWorkflowPage() {
       },
     });
     
-    // If we have a databaseId, try to fetch databases and set selected database
-    if (workflow.config?.databaseId) {
+    // If we have database IDs, try to fetch databases and set selected databases
+    if (workflow.config?.databaseId || workflow.config?.projectsDatabaseId) {
       if (notionIntegration) {
         testConnection.mutate({ integrationId: notionIntegration.id });
       }
@@ -366,24 +400,43 @@ export default function NotionWorkflowPage() {
   };
 
   const handleSelectDatabase = (database: NotionDatabase) => {
-    setSelectedDatabase(database);
-    
-    // If we're editing a workflow, update the form
-    if (editingWorkflow) {
-      editWorkflowForm.setFieldValue('databaseId', database.id);
-    } else {
-      // For new workflows, update the workflow form
-      workflowForm.setFieldValue('databaseId', database.id);
+    if (selectingDatabaseFor === 'tasks') {
+      setSelectedDatabase(database);
+      
+      // If we're editing a workflow, update the form
+      if (editingWorkflow) {
+        editWorkflowForm.setFieldValue('databaseId', database.id);
+      } else {
+        // For new workflows, update the workflow form
+        workflowForm.setFieldValue('databaseId', database.id);
+      }
+      
+      notifications.show({
+        title: 'Tasks Database Selected',
+        message: `Selected tasks database: ${database.title}`,
+        color: 'green',
+      });
+    } else if (selectingDatabaseFor === 'projects') {
+      setSelectedProjectsDatabase(database);
+      
+      // If we're editing a workflow, update the form
+      if (editingWorkflow) {
+        editWorkflowForm.setFieldValue('projectsDatabaseId', database.id);
+      } else {
+        // For new workflows, update the workflow form
+        workflowForm.setFieldValue('projectsDatabaseId', database.id);
+      }
+      
+      notifications.show({
+        title: 'Projects Database Selected',
+        message: `Selected projects database: ${database.title}`,
+        color: 'green',
+      });
     }
     
     // Close the databases modal
     closeDatabasesModal();
-    
-    notifications.show({
-      title: 'Database Selected',
-      message: `Selected database: ${database.title}`,
-      color: 'green',
-    });
+    setSelectingDatabaseFor(null);
   };
 
   // Helper function to get property options by type
@@ -750,7 +803,8 @@ export default function NotionWorkflowPage() {
 
               <Group grow>
                 <div>
-                  <Text size="sm" fw={500} mb={5}>Selected Database</Text>
+                  <Text size="sm" fw={500} mb={5}>Tasks Database</Text>
+                  <Text size="xs" c="dimmed" mb={5}>Where your tasks/todos are stored</Text>
                   {selectedDatabase ? (
                     <Paper withBorder p="sm">
                       <Group justify="space-between">
@@ -758,9 +812,9 @@ export default function NotionWorkflowPage() {
                         <Button 
                           size="xs" 
                           variant="light"
-                          onClick={() => testConnection.mutate({ integrationId: notionIntegration!.id })}
+                          onClick={handleSelectTasksDatabase}
                         >
-                          Change Database
+                          Change
                         </Button>
                       </Group>
                     </Paper>
@@ -768,10 +822,37 @@ export default function NotionWorkflowPage() {
                     <Button 
                       variant="outline" 
                       fullWidth
-                      onClick={() => testConnection.mutate({ integrationId: notionIntegration!.id })}
+                      onClick={handleSelectTasksDatabase}
                       loading={testConnection.isPending}
                     >
-                      Select Database
+                      Select Tasks Database
+                    </Button>
+                  )}
+                </div>
+                <div>
+                  <Text size="sm" fw={500} mb={5}>Projects Database</Text>
+                  <Text size="xs" c="dimmed" mb={5}>Where your project records are stored</Text>
+                  {selectedProjectsDatabase ? (
+                    <Paper withBorder p="sm">
+                      <Group justify="space-between">
+                        <Text size="sm">{selectedProjectsDatabase.title}</Text>
+                        <Button 
+                          size="xs" 
+                          variant="light"
+                          onClick={handleSelectProjectsDatabase}
+                        >
+                          Change
+                        </Button>
+                      </Group>
+                    </Paper>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      fullWidth
+                      onClick={handleSelectProjectsDatabase}
+                      loading={testConnection.isPending}
+                    >
+                      Select Projects Database
                     </Button>
                   )}
                 </div>
@@ -885,7 +966,7 @@ export default function NotionWorkflowPage() {
                 <Button 
                   type="submit" 
                   loading={createWorkflow.isPending}
-                  disabled={!selectedDatabase}
+                  disabled={!selectedDatabase || !selectedProjectsDatabase}
                 >
                   Create Workflow
                 </Button>
@@ -898,7 +979,7 @@ export default function NotionWorkflowPage() {
         <Modal
           opened={databasesModalOpened}
           onClose={closeDatabasesModal}
-          title="Accessible Notion Databases"
+          title={`Select ${selectingDatabaseFor === 'tasks' ? 'Tasks' : selectingDatabaseFor === 'projects' ? 'Projects' : 'Notion'} Database`}
           size="lg"
         >
           <Stack gap="md">
@@ -1083,7 +1164,8 @@ export default function NotionWorkflowPage() {
 
               <Group grow>
                 <div>
-                  <Text size="sm" fw={500} mb={5}>Current Database</Text>
+                  <Text size="sm" fw={500} mb={5}>Tasks Database</Text>
+                  <Text size="xs" c="dimmed" mb={5}>Where your tasks/todos are stored</Text>
                   {editWorkflowForm.values.databaseId ? (
                     <Paper withBorder p="sm">
                       <Group justify="space-between">
@@ -1100,9 +1182,9 @@ export default function NotionWorkflowPage() {
                         <Button 
                           size="xs" 
                           variant="light"
-                          onClick={() => testConnection.mutate({ integrationId: notionIntegration!.id })}
+                          onClick={handleSelectTasksDatabase}
                         >
-                          Change Database
+                          Change
                         </Button>
                       </Group>
                     </Paper>
@@ -1110,10 +1192,46 @@ export default function NotionWorkflowPage() {
                     <Button 
                       variant="outline" 
                       fullWidth
-                      onClick={() => testConnection.mutate({ integrationId: notionIntegration!.id })}
+                      onClick={handleSelectTasksDatabase}
                       loading={testConnection.isPending}
                     >
-                      Select Database
+                      Select Tasks Database
+                    </Button>
+                  )}
+                </div>
+                <div>
+                  <Text size="sm" fw={500} mb={5}>Projects Database</Text>
+                  <Text size="xs" c="dimmed" mb={5}>Where your project records are stored</Text>
+                  {editWorkflowForm.values.projectsDatabaseId ? (
+                    <Paper withBorder p="sm">
+                      <Group justify="space-between">
+                        <div>
+                          {selectedProjectsDatabase ? (
+                            <>
+                              <Text size="sm" fw={500}>{selectedProjectsDatabase.title}</Text>
+                              <Text size="xs" c="dimmed">Database ID: {editWorkflowForm.values.projectsDatabaseId}</Text>
+                            </>
+                          ) : (
+                            <Text size="sm">Database ID: {editWorkflowForm.values.projectsDatabaseId}</Text>
+                          )}
+                        </div>
+                        <Button 
+                          size="xs" 
+                          variant="light"
+                          onClick={handleSelectProjectsDatabase}
+                        >
+                          Change
+                        </Button>
+                      </Group>
+                    </Paper>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      fullWidth
+                      onClick={handleSelectProjectsDatabase}
+                      loading={testConnection.isPending}
+                    >
+                      Select Projects Database
                     </Button>
                   )}
                 </div>
@@ -1227,6 +1345,7 @@ export default function NotionWorkflowPage() {
                 <Button 
                   type="submit" 
                   loading={updateWorkflow.isPending}
+                  disabled={!editWorkflowForm.values.databaseId || !editWorkflowForm.values.projectsDatabaseId}
                 >
                   Update Workflow
                 </Button>

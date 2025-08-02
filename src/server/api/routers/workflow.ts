@@ -20,11 +20,20 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
     throw new Error('No database ID configured for workflow');
   }
 
+  // Get the project's notionProjectId for filtering
+  const project = await ctx.db.project.findUnique({
+    where: { id: workflow.projectId },
+    select: { notionProjectId: true },
+  });
+
   // Initialize Notion service
   const notionService = new NotionService(accessToken);
 
-  // Get all pages from the Notion database
-  const notionPages = await notionService.getAllPagesFromDatabase(config.databaseId);
+  // Get pages from the Notion database, filtered by project if available
+  const notionPages = await notionService.getAllPagesFromDatabase(
+    config.databaseId, 
+    project?.notionProjectId || undefined
+  );
   
   console.log(`Found ${notionPages.length} pages in Notion database`);
 
@@ -323,12 +332,19 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string) {
         properties[config.propertyMappings.description] = NotionService.formatPropertyValue('rich_text', description);
       }
 
+      // Get the project's notionProjectId for linking
+      const project = action.project ? await ctx.db.project.findUnique({
+        where: { id: action.project.id },
+        select: { notionProjectId: true },
+      }) : null;
+
       // Create page in Notion database
       const createdPage = await notionService.createPage({
         databaseId: config.databaseId,
         title: action.name,
         properties,
         titleProperty: config.propertyMappings?.title,
+        projectId: project?.notionProjectId || undefined,
       });
 
       // Create ActionSync record to track this sync
@@ -1513,5 +1529,73 @@ export const workflowRouter = createTRPCRouter({
         itemsFailedToSync: pushResults?.itemsFailedToSync || 0,
         skippedReasons: pushResults?.skippedReasons || [],
       };
+    }),
+
+  // Fetch Notion projects from a Projects database
+  getNotionProjects: protectedProcedure
+    .input(z.object({
+      workflowId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Find the workflow
+      const workflow = await ctx.db.workflow.findFirst({
+        where: {
+          id: input.workflowId,
+          userId: ctx.session.user.id,
+          provider: 'notion',
+          status: 'ACTIVE',
+        },
+        include: {
+          integration: {
+            include: {
+              credentials: true,
+            },
+          },
+        },
+      });
+
+      if (!workflow) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Workflow not found',
+        });
+      }
+
+      const config = workflow.config as { 
+        projectsDatabaseId?: string;
+      };
+
+      if (!config.projectsDatabaseId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'No Projects database configured for this workflow',
+        });
+      }
+
+      // Get access token
+      const accessToken = workflow.integration.credentials.find(
+        (c: any) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+      )?.key;
+
+      if (!accessToken) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'No access token found for Notion integration',
+        });
+      }
+
+      // Initialize Notion service and fetch projects
+      const notionService = new NotionService(accessToken);
+      
+      try {
+        const projects = await notionService.getProjectsFromDatabase(config.projectsDatabaseId);
+        return projects;
+      } catch (error) {
+        console.error('Failed to fetch Notion projects:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to fetch Notion projects',
+        });
+      }
     }),
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   Title,
@@ -30,12 +30,14 @@ interface ProjectSyncStatusProps {
     name: string;
     taskManagementTool?: string | null;
     taskManagementConfig?: any;
+    notionProjectId?: string | null;
   };
   opened: boolean;
   onToggle: () => void;
 }
 
 export function ProjectSyncStatus({ project, opened, onToggle }: ProjectSyncStatusProps) {
+  const [notionProjectName, setNotionProjectName] = useState<string | null>(null);
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const { data: workflowRuns = [] } = api.workflow.list.useQuery();
 
@@ -57,6 +59,17 @@ export function ProjectSyncStatus({ project, opened, onToggle }: ProjectSyncStat
 
   // Find the configured workflow
   const configuredWorkflow = workflows.find(w => w.id === config.workflowId);
+
+  // Fetch Notion project name if we have a notionProjectId
+  useEffect(() => {
+    if (project.notionProjectId && configuredWorkflow && project.taskManagementTool === 'notion') {
+      // We would fetch the project name here, but for now we'll show the ID
+      // In a real implementation, you'd want to cache this or fetch it from the API
+      setNotionProjectName(`Project: ${project.notionProjectId.slice(-8)}`); // Show last 8 chars of ID
+    } else {
+      setNotionProjectName(null);
+    }
+  }, [project.notionProjectId, configuredWorkflow, project.taskManagementTool]);
   
   // Get recent workflow runs for this project
   const recentRuns = workflowRuns
@@ -166,6 +179,15 @@ export function ProjectSyncStatus({ project, opened, onToggle }: ProjectSyncStat
               {configuredWorkflow.lastRunAt && (
                 <> • Last run: {new Date(configuredWorkflow.lastRunAt).toLocaleString()}</>
               )}
+            </Text>
+          </Group>
+        )}
+
+        {notionProjectName && project.taskManagementTool === 'notion' && (
+          <Group gap="xs" align="center">
+            <IconArrowsExchange size={14} />
+            <Text size="xs" c="dimmed">
+              Linked to: <strong>{notionProjectName}</strong>
             </Text>
           </Group>
         )}

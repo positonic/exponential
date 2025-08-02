@@ -268,6 +268,7 @@ export const projectRouter = createTRPCRouter({
           conflictResolution: z.enum(['local_wins', 'remote_wins']).optional().default('local_wins'),
           deletionBehavior: z.enum(['mark_deleted', 'archive']).optional().default('mark_deleted'),
         }).optional(),
+        notionProjectId: z.string().optional(), // ID of the associated Notion Projects database record
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -279,6 +280,7 @@ export const projectRouter = createTRPCRouter({
         data: {
           taskManagementTool: input.taskManagementTool,
           taskManagementConfig: input.taskManagementConfig,
+          notionProjectId: input.notionProjectId,
         },
       });
     }),

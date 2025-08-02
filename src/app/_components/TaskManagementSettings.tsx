@@ -35,6 +35,7 @@ interface TaskManagementSettingsProps {
     name: string;
     taskManagementTool?: string | null;
     taskManagementConfig?: any;
+    notionProjectId?: string | null;
   };
 }
 
@@ -46,6 +47,7 @@ interface MondayConfigForm {
 interface NotionConfigForm {
   workflowId: string;
   databaseId: string;
+  notionProjectId: string;
   syncStrategy: 'manual' | 'auto_pull_then_push' | 'notion_canonical';
   conflictResolution: 'local_wins' | 'remote_wins';
   deletionBehavior: 'mark_deleted' | 'archive';
@@ -77,6 +79,8 @@ const TASK_MANAGEMENT_TOOLS = [
 
 export function TaskManagementSettings({ project }: TaskManagementSettingsProps) {
   const [configModalOpened, { open: openConfigModal, close: closeConfigModal }] = useDisclosure(false);
+  const [notionProjects, setNotionProjects] = useState<Array<{ id: string; title: string }>>([]);
+  const [loadingNotionProjects, setLoadingNotionProjects] = useState(false);
   const utils = api.useUtils();
 
   // Get available integrations for configuration
@@ -119,6 +123,7 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
     initialValues: {
       workflowId: project.taskManagementConfig?.workflowId || '',
       databaseId: project.taskManagementConfig?.databaseId || '',
+      notionProjectId: project.notionProjectId || '',
       syncStrategy: project.taskManagementConfig?.syncStrategy || 'manual',
       conflictResolution: project.taskManagementConfig?.conflictResolution || 'local_wins',
       deletionBehavior: project.taskManagementConfig?.deletionBehavior || 'mark_deleted',
@@ -126,6 +131,7 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
     validate: {
       workflowId: (value) => !value ? 'Please select a workflow' : null,
       databaseId: (value) => !value ? 'Database ID is required' : null,
+      notionProjectId: (value) => !value ? 'Please select a Notion project' : null,
     },
   });
 
@@ -191,12 +197,14 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
     }
   };
 
-  const handleNotionWorkflowChange = (workflowId: string | null) => {
+  const handleNotionWorkflowChange = async (workflowId: string | null) => {
     // First, update the form field
     notionConfigForm.setFieldValue('workflowId', workflowId || '');
 
     if (!workflowId) {
       notionConfigForm.setFieldValue('databaseId', '');
+      notionConfigForm.setFieldValue('notionProjectId', '');
+      setNotionProjects([]);
       return;
     }
 
@@ -204,6 +212,26 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
     const selectedWorkflow = notionWorkflows.find(w => w.id === workflowId);
     if (selectedWorkflow?.config?.databaseId) {
       notionConfigForm.setFieldValue('databaseId', selectedWorkflow.config.databaseId);
+    }
+
+    // Fetch Notion projects if we have the projects database configured
+    if (selectedWorkflow?.config?.projectsDatabaseId) {
+      setLoadingNotionProjects(true);
+      try {
+        // Use the tRPC query to fetch Notion projects
+        const response = await utils.workflow.getNotionProjects.fetch({ workflowId });
+        setNotionProjects(response.map(p => ({ id: p.id, title: p.title })));
+      } catch (error) {
+        console.error('Failed to fetch Notion projects:', error);
+        notifications.show({
+          title: 'Error',
+          message: 'Failed to fetch Notion projects. Make sure your workflow is configured with a Projects database.',
+          color: 'red',
+        });
+        setNotionProjects([]);
+      } finally {
+        setLoadingNotionProjects(false);
+      }
     }
   };
 
@@ -230,6 +258,7 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
         conflictResolution: values.conflictResolution,
         deletionBehavior: values.deletionBehavior,
       },
+      notionProjectId: values.notionProjectId,
     });
     closeConfigModal();
   };
@@ -502,6 +531,30 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
               />
 
               <Select
+                label="Notion Project"
+                placeholder={loadingNotionProjects ? "Loading projects..." : "Search for a Notion project..."}
+                description="Choose which Notion project this app project should be linked to"
+                data={notionProjects.map(p => ({
+                  value: p.id,
+                  label: p.title,
+                }))}
+                value={notionConfigForm.values.notionProjectId}
+                onChange={(value) => notionConfigForm.setFieldValue('notionProjectId', value || '')}
+                error={notionConfigForm.errors.notionProjectId}
+                disabled={loadingNotionProjects || notionProjects.length === 0}
+                searchable
+                clearable
+                nothingFoundMessage="No projects found"
+                required
+              />
+
+              {notionProjects.length === 0 && !loadingNotionProjects && notionConfigForm.values.workflowId && (
+                <Alert icon={<IconAlertCircle size={16} />} color="orange" variant="light">
+                  No Notion projects found. Make sure your workflow is configured with a Projects database ID.
+                </Alert>
+              )}
+
+              <Select
                 label="Sync Strategy"
                 description="How should syncing between your app and Notion work?"
                 data={[
@@ -552,7 +605,7 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
                   type="submit"
                   loading={updateTaskManagement.isPending}
                   leftSection={<IconCheck size={16} />}
-                  disabled={!notionConfigForm.values.workflowId || !notionConfigForm.values.databaseId}
+                  disabled={!notionConfigForm.values.workflowId || !notionConfigForm.values.databaseId || !notionConfigForm.values.notionProjectId}
                 >
                   Save Configuration
                 </Button>

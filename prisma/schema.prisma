@@ -136,6 +136,7 @@ model Project {
   description           String?
   taskManagementTool    String?                @default("internal") // 'internal', 'monday', 'notion', etc.
   taskManagementConfig  Json?                  // Tool-specific configuration
+  notionProjectId       String?                // ID of the associated Notion Projects database record
   actions               Action[]
   createdBy             User                   @relation(fields: [createdById], references: [id])
   team                  Team?                  @relation(fields: [teamId], references: [id])

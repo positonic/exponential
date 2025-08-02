@@ -25,6 +25,7 @@ export interface CreatePageParams {
   title: string;
   properties: Record<string, any>;
   titleProperty?: string; // Optional override for which property to use as title
+  projectId?: string; // Optional Notion project ID to link the page to
 }
 
 export class NotionService {
@@ -145,6 +146,16 @@ export class NotionService {
           //     },
           //   ],
           // },
+          // Link to project if provided
+          ...(params.projectId && {
+            Project: {
+              relation: [
+                {
+                  id: params.projectId,
+                },
+              ],
+            },
+          }),
           // Other properties
           ...params.properties,
         },
@@ -213,20 +224,68 @@ export class NotionService {
     return null;
   }
 
-  async getAllPagesFromDatabase(databaseId: string): Promise<any[]> {
+  async getAllPagesFromDatabase(databaseId: string, filterByProjectId?: string): Promise<any[]> {
     try {
-      console.log(`🔍 Fetching all pages from Notion database: ${databaseId}`);
+      console.log(`🔍 Fetching pages from Notion database: ${databaseId}`);
+      if (filterByProjectId) {
+        console.log(`🔍 Filtering by project ID: ${filterByProjectId}`);
+      }
       
-      const response = await this.client.databases.query({
+      const queryOptions: any = {
         database_id: databaseId,
         page_size: 100,
-      });
+      };
+
+      // Add filter for project if provided
+      if (filterByProjectId) {
+        queryOptions.filter = {
+          property: 'Project', // Assuming the relation property is named 'Project'
+          relation: {
+            contains: filterByProjectId,
+          },
+        };
+      }
+
+      const response = await this.client.databases.query(queryOptions);
 
       console.log(`✅ Found ${response.results.length} pages in Notion database`);
       return response.results;
     } catch (error) {
       console.error('Failed to fetch pages from Notion database:', error);
       throw new Error('Failed to fetch pages from Notion database');
+    }
+  }
+
+  async getProjectsFromDatabase(databaseId: string): Promise<NotionPage[]> {
+    try {
+      console.log(`🔍 Fetching projects from Notion Projects database: ${databaseId}`);
+      
+      const response = await this.client.databases.query({
+        database_id: databaseId,
+        page_size: 100,
+      });
+
+      const projects = response.results.map((page: any) => {
+        // Find the title property
+        let title = 'Untitled Project';
+        const titleProperty = this.findTitleProperty(page.properties);
+        if (titleProperty && page.properties[titleProperty]?.title?.[0]?.plain_text) {
+          title = page.properties[titleProperty].title[0].plain_text;
+        }
+
+        return {
+          id: page.id,
+          title,
+          url: page.url,
+          properties: page.properties,
+        };
+      });
+
+      console.log(`✅ Found ${projects.length} projects in Notion Projects database`);
+      return projects;
+    } catch (error) {
+      console.error('Failed to fetch projects from Notion Projects database:', error);
+      throw new Error('Failed to fetch projects from Notion Projects database');
     }
   }
 
