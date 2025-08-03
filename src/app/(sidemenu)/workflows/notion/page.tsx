@@ -17,6 +17,7 @@ interface NotionIntegrationForm {
 
 interface NotionWorkflowForm {
   name: string;
+  description?: string;
   databaseId: string;
   projectsDatabaseId: string;
   syncDirection: 'push' | 'pull' | 'bidirectional';

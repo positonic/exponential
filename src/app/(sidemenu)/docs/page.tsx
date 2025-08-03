@@ -400,7 +400,7 @@ export default function DocsPage() {
                         {section.sections.map((subsection, subIndex) => (
                           <Card key={subIndex} withBorder className="mb-4">
                             <div className="flex items-start gap-3 mb-3">
-                              {subsection.icon && (
+                              {'icon' in subsection && subsection.icon && (
                                 <ThemeIcon size={28} radius="md" color="violet" variant="light">
                                   <subsection.icon size={16} />
                                 </ThemeIcon>
@@ -415,11 +415,11 @@ export default function DocsPage() {
                               </div>
                             </div>
                             
-                            {subsection.characteristics && (
+                            {'characteristics' in subsection && subsection.characteristics && (
                               <div className="mb-3">
                                 <Text size="sm" fw={500} className="mb-2">Key Characteristics:</Text>
                                 <ul className="space-y-1">
-                                  {subsection.characteristics.map((char, charIndex) => (
+                                  {subsection.characteristics.map((char: string, charIndex: number) => (
                                     <li key={charIndex} className="text-sm text-gray-600 dark:text-gray-400">
                                       • {char}
                                     </li>
@@ -428,7 +428,7 @@ export default function DocsPage() {
                               </div>
                             )}
                             
-                            {subsection.example && (
+                            {'example' in subsection && subsection.example && typeof subsection.example === 'string' && (
                               <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-md">
                                 <Text size="sm" fw={500} className="mb-1">Example:</Text>
                                 <Text size="sm" c="dimmed" className="italic">
@@ -437,12 +437,12 @@ export default function DocsPage() {
                               </div>
                             )}
                             
-                            {subsection.flow && (
+                            {'flow' in subsection && subsection.flow && (
                               <div className="mb-3">
                                 <Text size="sm" fw={500} className="mb-2">Data Flow:</Text>
                                 <Code block className="mb-2">{subsection.flow}</Code>
                                 <ul className="space-y-1">
-                                  {subsection.details?.map((detail, detailIndex) => (
+                                  {'details' in subsection && subsection.details?.map((detail: string, detailIndex: number) => (
                                     <li key={detailIndex} className="text-sm text-gray-600 dark:text-gray-400">
                                       • {detail}
                                     </li>
@@ -451,7 +451,7 @@ export default function DocsPage() {
                               </div>
                             )}
                             
-                            {subsection.comparison && (
+                            {'comparison' in subsection && subsection.comparison && (
                               <div className="mb-3">
                                 <div className="overflow-x-auto">
                                   <table className="w-full text-sm">
@@ -463,7 +463,7 @@ export default function DocsPage() {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {subsection.comparison.map((comp, compIndex) => (
+                                      {subsection.comparison.map((comp: any, compIndex: number) => (
                                         <tr key={compIndex} className="border-b border-gray-100 dark:border-gray-800">
                                           <td className="py-2 font-medium text-violet-600 dark:text-violet-400">
                                             {comp.aspect}
@@ -482,7 +482,7 @@ export default function DocsPage() {
                               </div>
                             )}
                             
-                            {subsection.example && typeof subsection.example === 'object' && (
+                            {'example' in subsection && subsection.example && typeof subsection.example === 'object' && (
                               <div className="mb-3">
                                 <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-md border border-blue-200 dark:border-blue-800">
                                   <div className="mb-3">
@@ -499,7 +499,7 @@ export default function DocsPage() {
                                       Workflows:
                                     </Text>
                                     <ul className="space-y-1">
-                                      {subsection.example.workflows?.map((workflow, wfIndex) => (
+                                      {subsection.example.workflows?.map((workflow: string, wfIndex: number) => (
                                         <li key={wfIndex} className="text-sm text-blue-700 dark:text-blue-300">
                                           • {workflow}
                                         </li>
@@ -519,13 +519,13 @@ export default function DocsPage() {
                               </div>
                             )}
                             
-                            {subsection.benefits && (
+                            {'benefits' in subsection && subsection.benefits && (
                               <div>
                                 <Text size="sm" fw={500} className="mb-2 text-green-700 dark:text-green-300">
                                   Benefits of this separation:
                                 </Text>
                                 <ul className="space-y-1">
-                                  {subsection.benefits.map((benefit, benefitIndex) => (
+                                  {subsection.benefits.map((benefit: string, benefitIndex: number) => (
                                     <li key={benefitIndex} className="text-sm text-green-600 dark:text-green-400">
                                       ✓ {benefit}
                                     </li>

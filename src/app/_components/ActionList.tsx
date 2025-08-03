@@ -7,7 +7,9 @@ import React from "react";
 import { EditActionModal } from "./EditActionModal";
 import type { Priority } from "~/types/action";
 
-type Action = RouterOutputs["action"]["getAll"][0];
+type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
+type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
+type Action = ActionWithSyncs | ActionWithoutSyncs;
 
 // Helper component to render HTML content safely
 const HTMLContent = ({ html, className }: { html: string, className?: string }) => (
@@ -26,12 +28,12 @@ const formatDate = (date: Date | null | undefined): string => {
 
 // Helper function to get sync status for an action
 const getSyncStatus = (action: Action) => {
-  if (!action.syncs || action.syncs.length === 0) {
+  if (!('syncs' in action) || !action.syncs || action.syncs.length === 0) {
     return { status: 'not_synced', provider: null };
   }
 
   // Check for Notion sync status
-  const notionSync = action.syncs.find(sync => sync.provider === 'notion');
+  const notionSync = ('syncs' in action) ? action.syncs.find(sync => sync.provider === 'notion') : undefined;
   if (notionSync) {
     return { 
       status: notionSync.status, 
@@ -42,7 +44,7 @@ const getSyncStatus = (action: Action) => {
   }
 
   // Check for other providers
-  const otherSync = action.syncs[0];
+  const otherSync = ('syncs' in action) ? action.syncs[0] : undefined;
   if (otherSync) {
     return { 
       status: otherSync.status, 
@@ -144,8 +146,8 @@ export function ActionList({
         todayActions: utils.action.getToday.getData()
       };
       
-      // Helper function to update action in a list
-      const updateActionInList = (old: Action[] | undefined): Action[] => {
+      // Helper function to update action in the getAll list (with syncs)
+      const updateActionInGetAllList = (old: ActionWithSyncs[] | undefined): ActionWithSyncs[] => {
         if (!old) return [];
         return old.map((action) =>
           action.id === id 
@@ -154,9 +156,10 @@ export function ActionList({
         );
       };
 
-      // Optimistically update both caches
-      utils.action.getAll.setData(undefined, updateActionInList);
-      utils.action.getToday.setData(undefined, updateActionInList);
+      // Optimistically update cache
+      utils.action.getAll.setData(undefined, updateActionInGetAllList);
+      // Note: getToday has different type structure (missing syncs), so we invalidate instead
+      void utils.action.getToday.invalidate();
       
       return previousState;
     },

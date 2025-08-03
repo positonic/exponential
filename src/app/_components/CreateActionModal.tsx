@@ -56,6 +56,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
         createdById: previousState.projects?.[0]?.createdById ?? "",
         dueDate: newAction.dueDate ? new Date(newAction.dueDate) : null,
         transcriptionSessionId: null,
+        teamId: null,
+        assignedToId: null,
+        syncs: [], // Initialize empty syncs array for consistency with getAll type
         project: newAction.projectId 
           ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
           : null,
@@ -72,7 +75,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
 
       // Update today's actions - only if we're in the today view
       if (viewName.toLowerCase() === 'today') {
-        utils.action.getToday.setData(undefined, addActionToList);
+        void utils.action.getToday.invalidate();
       }
 
       // Update project if action belongs to one

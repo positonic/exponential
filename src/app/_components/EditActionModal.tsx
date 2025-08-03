@@ -5,7 +5,9 @@ import { type RouterOutputs } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
 
-type Action = RouterOutputs["action"]["getAll"][0];
+type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
+type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
+type Action = ActionWithSyncs | ActionWithoutSyncs;
 
 interface EditActionModalProps {
   action: Action | null;

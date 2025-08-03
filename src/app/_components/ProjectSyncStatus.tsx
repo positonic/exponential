@@ -161,13 +161,13 @@ export function ProjectSyncStatus({ project, opened, onToggle }: ProjectSyncStat
           {syncStrategy === 'notion_canonical' && (
             <Text size="sm" mt="xs">
               💡 <strong>Your scenario:</strong> When you delete a task in Notion, it will be marked as deleted here. 
-              Already-synced tasks won't be re-created.
+              Already-synced tasks won&apos;t be re-created.
             </Text>
           )}
           
           {syncStrategy === 'manual' && (
             <Text size="sm" mt="xs">
-              💡 Use separate "Push to {integrationName}" and "Pull from {integrationName}" buttons for precise control.
+              💡 Use separate &ldquo;Push to {integrationName}&rdquo; and &ldquo;Pull from {integrationName}&rdquo; buttons for precise control.
             </Text>
           )}
         </Alert>

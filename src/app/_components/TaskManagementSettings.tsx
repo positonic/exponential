@@ -192,7 +192,7 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
 
     // Find the selected workflow and auto-populate board ID
     const selectedWorkflow = mondayWorkflows.find(w => w.id === workflowId);
-    if (selectedWorkflow?.config?.boardId) {
+    if (selectedWorkflow?.config && typeof selectedWorkflow.config === 'object' && 'boardId' in selectedWorkflow.config && typeof selectedWorkflow.config.boardId === 'string') {
       mondayConfigForm.setFieldValue('boardId', selectedWorkflow.config.boardId);
     }
   };
@@ -210,12 +210,12 @@ export function TaskManagementSettings({ project }: TaskManagementSettingsProps)
 
     // Find the selected workflow and auto-populate database ID
     const selectedWorkflow = notionWorkflows.find(w => w.id === workflowId);
-    if (selectedWorkflow?.config?.databaseId) {
+    if (selectedWorkflow?.config && typeof selectedWorkflow.config === 'object' && 'databaseId' in selectedWorkflow.config && typeof selectedWorkflow.config.databaseId === 'string') {
       notionConfigForm.setFieldValue('databaseId', selectedWorkflow.config.databaseId);
     }
 
     // Fetch Notion projects if we have the projects database configured
-    if (selectedWorkflow?.config?.projectsDatabaseId) {
+    if (selectedWorkflow?.config && typeof selectedWorkflow.config === 'object' && 'projectsDatabaseId' in selectedWorkflow.config) {
       setLoadingNotionProjects(true);
       try {
         // Use the tRPC query to fetch Notion projects

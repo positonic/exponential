@@ -234,7 +234,7 @@ export class NotionService {
     
     // Look for title type properties in the database schema
     for (const [key, prop] of Object.entries(databaseProperties)) {
-      if ((prop as any).type === 'title') {
+      if (prop && typeof prop === 'object' && 'type' in prop && prop.type === 'title') {
         return key;
       }
     }

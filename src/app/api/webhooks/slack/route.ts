@@ -273,7 +273,7 @@ export async function POST(request: NextRequest) {
     // Get app ID if available
     if ('api_app_id' in payload) {
       appId = payload.api_app_id;
-    } else if ('app_id' in payload) {
+    } else if ('app_id' in payload && typeof payload.app_id === 'string') {
       appId = payload.app_id;
     }
     
@@ -311,8 +311,8 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('✅ Slack webhook verified for user:', {
-      userId: integrationData.user.id,
-      userEmail: integrationData.user.email,
+      userId: integrationData.user?.id,
+      userEmail: integrationData.user?.email,
       teamId: teamId
     });
 

@@ -238,7 +238,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
 }
 
 // Helper function for Notion push sync
-async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwriteMode: boolean = false, projectId?: string, actionIds?: string[]) {
+async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwriteMode = false, projectId?: string, actionIds?: string[]) {
   const config = workflow.config as { 
     databaseId: string; 
     propertyMappings?: Record<string, string>;
@@ -389,7 +389,7 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
           },
         },
         select: { externalId: true },
-      }).then(syncs => syncs.map(s => s.externalId))
+      }).then((syncs: any) => syncs.map((s: any) => s.externalId))
     );
     
     // Delete Notion pages that don't have corresponding local actions

@@ -180,7 +180,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
         taskManagementTool: 'notion',
         taskManagementConfig: {
           workflowId: values.workflowId,
-          databaseId: workflow.config?.databaseId || '',
+          databaseId: (workflow.config && typeof workflow.config === 'object' && 'databaseId' in workflow.config && typeof workflow.config.databaseId === 'string') ? workflow.config.databaseId : '',
           syncStrategy: 'manual',
           conflictResolution: 'local_wins',
           deletionBehavior: 'mark_deleted',
@@ -192,7 +192,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
         taskManagementTool: 'monday',
         taskManagementConfig: {
           workflowId: values.workflowId,
-          boardId: workflow.config?.boardId || '',
+          boardId: (workflow.config && typeof workflow.config === 'object' && 'boardId' in workflow.config && typeof workflow.config.boardId === 'string') ? workflow.config.boardId : '',
         },
       });
     }
@@ -449,8 +449,8 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                 only one task management sync (Notion OR Monday.com) is supported per project.
               </Text>
               <Text size="sm" mt="xs">
-                To switch to a different task sync integration, you'll need to remove the current one first 
-                by changing the task management tool to "Internal" in the integration settings.
+                To switch to a different task sync integration, you&apos;ll need to remove the current one first 
+                by changing the task management tool to &ldquo;Internal&rdquo; in the integration settings.
               </Text>
             </Alert>
           </Stack>

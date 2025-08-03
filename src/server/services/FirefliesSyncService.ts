@@ -83,7 +83,7 @@ export class FirefliesSyncService {
   /**
    * Fetch recent transcripts from Fireflies API
    */
-  static async fetchRecentTranscripts(apiKey: string, sinceDays: number = 7): Promise<FirefliesTranscript[]> {
+  static async fetchRecentTranscripts(apiKey: string, sinceDays = 7): Promise<FirefliesTranscript[]> {
     try {
       const sinceDate = new Date();
       sinceDate.setDate(sinceDate.getDate() - sinceDays);
