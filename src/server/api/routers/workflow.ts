@@ -261,7 +261,7 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
   const notionService = new NotionService(accessToken);
 
   // Get actions to sync based on configuration
-  let actionsQuery: any = {
+  const actionsQuery: any = {
     createdById: ctx.session.user.id,
     status: {
       not: 'COMPLETED',

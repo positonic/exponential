@@ -16,7 +16,7 @@ import {
   IconBrandTypescript,
   IconNetwork,
   IconDatabase,
-  IconWorkflow,
+  IconGitBranch,
   IconPlug
 } from "@tabler/icons-react";
 import { motion } from "framer-motion";
@@ -149,7 +149,7 @@ const architectureData = [
       },
       {
         title: "Workflows - The Automation Layer", 
-        icon: IconWorkflow,
+        icon: IconGitBranch,
         description: "Defines automated processes that use integrations to sync data",
         characteristics: [
           "Process Definition: Specifies how data flows (push/pull/bidirectional)",

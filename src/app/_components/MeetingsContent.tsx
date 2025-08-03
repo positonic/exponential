@@ -419,7 +419,7 @@ export function MeetingsContent() {
                                 const projectId = window.prompt('Enter project ID or leave empty to unassign:');
                                 if (projectId !== null) {
                                   setBulkProjectAssignment(projectId || "none");
-                                  handleBulkProjectAssignment();
+                                  void handleBulkProjectAssignment();
                                 }
                               }}
                             >
@@ -431,7 +431,7 @@ export function MeetingsContent() {
                                 key={project.id}
                                 onClick={() => {
                                   setBulkProjectAssignment(project.id);
-                                  handleBulkProjectAssignment();
+                                  void handleBulkProjectAssignment();
                                 }}
                               >
                                 📁 {project.name}
@@ -442,7 +442,7 @@ export function MeetingsContent() {
                               color="gray"
                               onClick={() => {
                                 setBulkProjectAssignment("none");
-                                handleBulkProjectAssignment();
+                                void handleBulkProjectAssignment();
                               }}
                             >
                               Remove from Project
@@ -535,7 +535,7 @@ export function MeetingsContent() {
                                 <Select
                                   placeholder="Assign to project"
                                   value={session.projectId || ''}
-                                  onChange={(value) => handleProjectAssignment(session.id, value)}
+                                  onChange={(value) => void handleProjectAssignment(session.id, value)}
                                   onClick={(e) => e.stopPropagation()}
                                   onFocus={(e) => e.stopPropagation()}
                                   data={[
@@ -597,7 +597,7 @@ export function MeetingsContent() {
                                       loading={syncingToIntegration === session.id}
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        handleSyncToIntegration(session);
+                                        void handleSyncToIntegration(session);
                                       }}
                                       leftSection={<IconCalendarEvent size={12} />}
                                     >

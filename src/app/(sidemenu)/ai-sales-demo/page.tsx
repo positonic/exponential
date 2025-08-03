@@ -49,7 +49,7 @@ export default function AISalesDemoPage() {
     // Simulate AI processing delay
     setTimeout(() => {
       let aiResponse = '';
-      let updatedPage = { ...salesPage };
+      const updatedPage = { ...salesPage };
       
       if (userMessage.toLowerCase().includes('more premium') || userMessage.toLowerCase().includes('expensive')) {
         aiResponse = "Perfect! I'm updating the page to target high-end restaurants. Notice how I changed the headline to focus on 'premium dining experience' and added luxury positioning.";
@@ -201,7 +201,7 @@ export default function AISalesDemoPage() {
                       setTimeout(() => handleSendMessage(), 100);
                     }}
                   >
-                    "Make it premium"
+                    &ldquo;Make it premium&rdquo;
                   </Button>
                   <Button 
                     size="xs" 
@@ -211,7 +211,7 @@ export default function AISalesDemoPage() {
                       setTimeout(() => handleSendMessage(), 100);
                     }}
                   >
-                    "Add urgency"
+                    &ldquo;Add urgency&rdquo;
                   </Button>
                 </Group>
               </Stack>
@@ -330,7 +330,7 @@ export default function AISalesDemoPage() {
           <Title order={3} mb="md">Want to Try This for Real?</Title>
           <Text size="lg" c="dimmed" mb="lg" maw={600} mx="auto">
             This is a working prototype of an AI-powered sales page builder that learns from your actual projects. 
-            I'm looking for feedback from friends before building the full version.
+            I&apos;m looking for feedback from friends before building the full version.
           </Text>
           <Group justify="center">
             <Button

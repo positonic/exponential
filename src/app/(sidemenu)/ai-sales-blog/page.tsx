@@ -19,7 +19,7 @@ export default function AISalesBlogPage() {
           </Title>
           <Text size="xl" c="dimmed" maw={800} mx="auto">
             Why AI-powered conversational sales page builders represent the next evolution in business growth tools - 
-            and how we're building it step by step.
+            and how we&apos;re building it step by step.
           </Text>
         </div>
 
@@ -32,7 +32,7 @@ export default function AISalesBlogPage() {
             A designer rebrands a company that gets featured in TechCrunch.
           </Text>
           <Text size="lg" mb="md">
-            But here's what happens next: <strong>nothing</strong>.
+            But here&apos;s what happens next: <strong>nothing</strong>.
           </Text>
           <Text size="lg">
             That incredible success story sits buried in a project folder, mentioned only in passing during networking events. 
@@ -242,7 +242,7 @@ export default function AISalesBlogPage() {
                   with AI through natural language
                 </List.Item>
                 <List.Item>
-                  <strong>No-Code Movement:</strong> Users expect sophisticated tools that don't require 
+                  <strong>No-Code Movement:</strong> Users expect sophisticated tools that don&apos;t require 
                   technical skills
                 </List.Item>
               </List>
@@ -260,7 +260,7 @@ export default function AISalesBlogPage() {
                   to stay competitive
                 </List.Item>
                 <List.Item>
-                  <strong>Competition is Outdated:</strong> Current tools (Wix, Squarespace) haven't 
+                  <strong>Competition is Outdated:</strong> Current tools (Wix, Squarespace) haven&apos;t 
                   integrated conversational AI yet
                 </List.Item>
               </List>
@@ -282,7 +282,7 @@ export default function AISalesBlogPage() {
               </Group>
               <Text size="sm" c="dimmed">
                 Unlike generic website builders, we understand your actual work and results. 
-                This creates uniquely compelling, data-driven sales pages that competitors can't match.
+                This creates uniquely compelling, data-driven sales pages that competitors can&apos;t match.
               </Text>
             </Card>
 
@@ -320,8 +320,8 @@ export default function AISalesBlogPage() {
                 <Title order={4}>Speed to Market</Title>
               </Group>
               <Text size="sm" c="dimmed">
-                From idea to professional sales page in under 2 minutes. This isn't just faster - 
-                it's fast enough to be impulse-driven, changing how people think about marketing.
+                From idea to professional sales page in under 2 minutes. This isn&apos;t just faster - 
+                it&apos;s fast enough to be impulse-driven, changing how people think about marketing.
               </Text>
             </Card>
           </div>
@@ -329,7 +329,7 @@ export default function AISalesBlogPage() {
 
         {/* Success Metrics */}
         <Paper shadow="sm" p="xl" radius="md" withBorder>
-          <Title order={2} mb="lg" ta="center">Success Metrics: How We'll Measure Progress</Title>
+          <Title order={2} mb="lg" ta="center">Success Metrics: How We&apos;ll Measure Progress</Title>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="text-center">
@@ -368,7 +368,7 @@ export default function AISalesBlogPage() {
         <Paper shadow="sm" p="xl" radius="md" withBorder className="text-center" bg="gradient-to-r from-violet-900/20 to-indigo-900/20">
           <Title order={2} mb="md">The Future is Conversational</Title>
           <Text size="lg" c="dimmed" mb="lg" maw={700} mx="auto">
-            We're not just building another website builder. We're creating the first AI-powered system 
+            We&apos;re not just building another website builder. We&apos;re creating the first AI-powered system 
             that transforms completed work into new business opportunities automatically.
           </Text>
           <Text size="lg" mb="lg" fw={600}>

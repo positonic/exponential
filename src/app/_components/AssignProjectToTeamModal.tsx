@@ -108,7 +108,7 @@ export function AssignProjectToTeamModal({ children, teamId, onProjectsAssigned 
       >
         <Stack gap="md">
           <Alert icon={<IconInfoCircle size={16} />} color="blue">
-            Select existing projects to assign to this team. Only projects that aren't already assigned to a team are shown.
+            Select existing projects to assign to this team. Only projects that aren&apos;t already assigned to a team are shown.
           </Alert>
 
           <div style={{ position: 'relative', minHeight: 200 }}>
@@ -141,7 +141,7 @@ export function AssignProjectToTeamModal({ children, teamId, onProjectsAssigned 
               </Stack>
             ) : !isLoading ? (
               <Text c="dimmed" ta="center" py="xl">
-                No unassigned projects found. All your projects are either already assigned to teams or you haven't created any projects yet.
+                No unassigned projects found. All your projects are either already assigned to teams or you haven&apos;t created any projects yet.
               </Text>
             ) : null}
           </div>

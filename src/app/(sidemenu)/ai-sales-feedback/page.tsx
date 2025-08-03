@@ -91,8 +91,8 @@ export default function AISalesFeedbackPage() {
             Help Shape the Future
           </Title>
           <Text size="lg" c="dimmed" maw={500} mx="auto">
-            I'm building an AI-powered sales page builder and would love your honest feedback. 
-            This will help me decide if it's worth pursuing!
+            I&apos;m building an AI-powered sales page builder and would love your honest feedback. 
+            This will help me decide if it&apos;s worth pursuing!
           </Text>
         </div>
 
@@ -129,7 +129,7 @@ export default function AISalesFeedbackPage() {
 
             {/* Most Exciting */}
             <div>
-              <Text fw={500} mb="sm">What's the most exciting part of this idea?</Text>
+              <Text fw={500} mb="sm">What&apos;s the most exciting part of this idea?</Text>
               <Textarea
                 placeholder="The conversational AI, the automatic project analysis, the real-time updates..."
                 value={feedback.mostExciting}

@@ -41,11 +41,7 @@ export function ProjectSyncStatus({ project, opened, onToggle }: ProjectSyncStat
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const { data: workflowRuns = [] } = api.workflow.list.useQuery();
 
-  // Don't show for internal projects
-  if (!project.taskManagementTool || project.taskManagementTool === 'internal') {
-    return null;
-  }
-
+  // Get config and derived values
   const config = project.taskManagementConfig as {
     workflowId?: string;
     syncStrategy?: 'manual' | 'auto_pull_then_push' | 'notion_canonical';
@@ -70,7 +66,12 @@ export function ProjectSyncStatus({ project, opened, onToggle }: ProjectSyncStat
       setNotionProjectName(null);
     }
   }, [project.notionProjectId, configuredWorkflow, project.taskManagementTool]);
-  
+
+  // Don't show for internal projects
+  if (!project.taskManagementTool || project.taskManagementTool === 'internal') {
+    return null;
+  }
+
   // Get recent workflow runs for this project
   const recentRuns = workflowRuns
     .filter(w => w.provider === project.taskManagementTool)
