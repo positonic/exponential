@@ -286,6 +286,16 @@ export const projectRouter = createTRPCRouter({
                   name: true,
                 },
               },
+              actions: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  status: true,
+                  priority: true,
+                  dueDate: true,
+                },
+              },
             },
             orderBy: {
               createdAt: "desc",

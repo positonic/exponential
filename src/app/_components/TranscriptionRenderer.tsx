@@ -57,6 +57,28 @@ function extractFormattedTextFromFireflies(parsed: FirefliesTranscription): stri
   return lines.join('\n');
 }
 
+// Helper function to assign colors to speakers based on order of appearance
+function getSpeakerColor(speakerName: string, sentences: FirefliesSentence[]): string {
+  const colors = [
+    'blue', 'green', 'orange', 'purple', 'cyan', 'pink', 'yellow', 'red', 
+    'indigo', 'teal', 'lime', 'grape', 'violet', 'gray'
+  ];
+  
+  // Get unique speakers in order of first appearance
+  const uniqueSpeakers: string[] = [];
+  for (const sentence of sentences) {
+    if (!uniqueSpeakers.includes(sentence.speaker_name)) {
+      uniqueSpeakers.push(sentence.speaker_name);
+    }
+  }
+  
+  // Find the index of this speaker
+  const speakerIndex = uniqueSpeakers.indexOf(speakerName);
+  
+  // Return color based on order of appearance, cycle through colors if more speakers than colors
+  return colors[speakerIndex % colors.length] || 'blue';
+}
+
 export function TranscriptionRenderer({ 
   transcription, 
   provider, 
@@ -86,7 +108,7 @@ export function TranscriptionRenderer({
             <Stack gap="xs">
               {previewSentences.map((sentence, idx) => (
                 <Group key={idx} gap="xs" wrap="nowrap">
-                  <Badge size="xs" variant="light" color="blue">
+                  <Badge size="xs" variant="light" color={getSpeakerColor(sentence.speaker_name, parsed.sentences)}>
                     {sentence.speaker_name}
                   </Badge>
                   <Text size="sm" c="dimmed" lineClamp={1}>
@@ -162,7 +184,7 @@ export function TranscriptionRenderer({
               )}
               {parsed.sentences.map((sentence, idx) => (
                 <Group key={idx} align="flex-start" gap="sm" wrap="nowrap">
-                  <Badge size="sm" variant="light" color="blue" style={{ minWidth: "fit-content" }}>
+                  <Badge size="sm" variant="light" color={getSpeakerColor(sentence.speaker_name, parsed.sentences)} style={{ minWidth: "fit-content" }}>
                     {sentence.speaker_name}
                   </Badge>
                   <div style={{ flex: 1 }}>

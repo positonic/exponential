@@ -352,7 +352,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       
       const result = await callAgent.mutateAsync({
         agentId: targetAgentId,
-        messages: [{ role: 'user', content: messageToSend }],
+        messages: [
+          { role: 'system', content: messages.find(m => m.type === 'system')?.content || '' },
+          { role: 'user', content: messageToSend }
+        ],
       });
 
       const aiResponse: Message = {

@@ -371,7 +371,7 @@ export const mastraRouter = createTRPCRouter({
             }
           },
           outcomes: true,
-          teamMembers: true,
+          projectMembers: true, // Project members relation
         }
       });
 
@@ -418,7 +418,7 @@ export const mastraRouter = createTRPCRouter({
           type: outcome.type ?? 'daily',
           dueDate: outcome.dueDate?.toISOString(),
         })),
-        teamMembers: project.teamMembers.map(member => ({
+        teamMembers: project.projectMembers.map((member: any) => ({
           id: member.id,
           name: member.name,
           role: member.role,
@@ -592,4 +592,537 @@ export const mastraRouter = createTRPCRouter({
         }
       };
     }),
+
+  // Meeting Transcription Endpoints
+  getMeetingTranscriptions: protectedProcedure
+    .input(z.object({
+      projectId: z.string().optional(),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      participants: z.array(z.string()).optional(),
+      meetingType: z.string().optional(),
+      limit: z.number().optional().default(10),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Build where clause for TranscriptionSession query
+      const whereClause: any = {
+        userId: userId, // Ensure user can only access their own transcriptions
+      };
+
+      if (input.projectId) {
+        whereClause.projectId = input.projectId;
+        // Verify user has access to this project
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId, createdById: userId }
+        });
+        if (!project) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Project not found or access denied'
+          });
+        }
+      }
+
+      if (input.startDate || input.endDate) {
+        whereClause.createdAt = {}; // Use createdAt instead of meetingDate
+        if (input.startDate) whereClause.createdAt.gte = new Date(input.startDate);
+        if (input.endDate) whereClause.createdAt.lte = new Date(input.endDate);
+      }
+
+      // Note: participants and meetingType are not in schema, so we ignore those filters
+
+      const transcriptions = await ctx.db.transcriptionSession.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' }, // Use createdAt instead of meetingDate
+        take: input.limit,
+        select: {
+          id: true,
+          title: true,
+          transcription: true, // Use transcription instead of transcript
+          createdAt: true,
+          projectId: true,
+          summary: true,
+        }
+      });
+
+      return {
+        transcriptions: transcriptions.map(t => ({
+          id: t.id,
+          title: t.title || "",
+          transcript: t.transcription || "", // Map transcription to transcript for consistency
+          participants: [], // Empty array - field doesn't exist in schema
+          meetingDate: t.createdAt.toISOString(), // Map createdAt to meetingDate
+          meetingType: "", // Empty string - field doesn't exist in schema
+          projectId: t.projectId,
+          duration: null, // Null - field doesn't exist in schema
+          summary: t.summary,
+        })),
+        total: transcriptions.length,
+      };
+    }),
+
+  queryMeetingContext: protectedProcedure
+    .input(z.object({
+      query: z.string(),
+      projectId: z.string().optional(),
+      dateRange: z.object({
+        start: z.string(),
+        end: z.string(),
+      }).optional(),
+      topK: z.number().optional().default(5),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Build where clause for filtering transcriptions
+      const whereClause: any = {
+        userId: userId, // Ensure user can only access their own transcriptions
+      };
+
+      if (input.projectId) {
+        // Verify user has access to this project
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId, createdById: userId }
+        });
+        if (!project) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Project not found or access denied'
+          });
+        }
+        whereClause.projectId = input.projectId;
+      }
+
+      if (input.dateRange) {
+        whereClause.createdAt = { // Use createdAt instead of meetingDate
+          gte: new Date(input.dateRange.start),
+          lte: new Date(input.dateRange.end),
+        };
+      }
+
+      // Get relevant transcriptions
+      const transcriptions = await ctx.db.transcriptionSession.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        take: 20, // Limit for semantic search
+      });
+
+      // Enhanced semantic search using OpenAI embeddings
+      try {
+        // Create embedding for the query
+        const queryEmbedding = await openai.embeddings.create({
+          model: 'text-embedding-3-small',
+          input: input.query,
+        });
+
+        // For now, use simple keyword matching (you can enhance with vector search)
+        const results = transcriptions
+          .map(t => {
+            const transcript = (t.transcription || "").toLowerCase();
+            const query = input.query.toLowerCase();
+            const queryWords = query.split(' ');
+
+            // Calculate relevance score
+            let relevanceScore = 0;
+            queryWords.forEach(word => {
+              const matches = (transcript.match(new RegExp(word, 'g')) || []).length;
+              relevanceScore += matches;
+            });
+
+            if (relevanceScore === 0) return null;
+
+            // Extract context around matches
+            const sentences = (t.transcription || "").split(/[.!?]+/);
+            const relevantSentences = sentences.filter(sentence =>
+              queryWords.some(word => sentence.toLowerCase().includes(word))
+            );
+
+            return {
+              content: relevantSentences.slice(0, 3).join('. '),
+              meetingTitle: t.title || "",
+              meetingDate: t.createdAt.toISOString(),
+              participants: [], // Empty array - field doesn't exist in schema
+              meetingType: "", // Empty string - field doesn't exist in schema
+              projectId: t.projectId,
+              relevanceScore: relevanceScore / queryWords.length,
+              contextType: determineContextType(relevantSentences.join(' ')),
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => (b?.relevanceScore || 0) - (a?.relevanceScore || 0))
+          .slice(0, input.topK);
+
+        return { results };
+      } catch (error) {
+        console.error('Error in queryMeetingContext:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to query meeting context'
+        });
+      }
+    }),
+
+  getMeetingInsights: protectedProcedure
+    .input(z.object({
+      projectId: z.string().optional(),
+      timeframe: z.enum(['last_week', 'last_month', 'last_quarter', 'custom']).default('last_week'),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      insightTypes: z.array(z.enum(['decisions', 'action_items', 'deadlines', 'blockers', 'milestones', 'team_updates'])).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Calculate date range based on timeframe
+      const now = new Date();
+      let startDate: Date;
+      let endDate: Date = now;
+
+      switch (input.timeframe) {
+        case 'last_week':
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case 'last_month':
+          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          break;
+        case 'last_quarter':
+          startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+          break;
+        case 'custom':
+          if (!input.startDate || !input.endDate) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Custom timeframe requires startDate and endDate'
+            });
+          }
+          startDate = new Date(input.startDate);
+          endDate = new Date(input.endDate);
+          break;
+      }
+
+      const whereClause: any = {
+        userId: userId, // Ensure user can only access their own transcriptions
+        createdAt: { // Use createdAt instead of meetingDate
+          gte: startDate,
+          lte: endDate,
+        }
+      };
+
+      if (input.projectId) {
+        // Verify user has access to this project
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId, createdById: userId }
+        });
+        if (!project) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Project not found or access denied'
+          });
+        }
+        whereClause.projectId = input.projectId;
+      }
+
+      const transcriptions = await ctx.db.transcriptionSession.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+      });
+
+      // Extract insights using AI-enhanced analysis
+      const insights = await extractInsightsFromTranscriptions(transcriptions, input.insightTypes, openai);
+
+      return {
+        insights,
+        summary: {
+          totalMeetings: transcriptions.length,
+          timeframe: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`,
+          keyThemes: extractKeyThemes(transcriptions),
+          projectProgress: summarizeProjectProgress(transcriptions),
+          upcomingDeadlines: insights.deadlines.filter(d => new Date(d.dueDate) > now).length,
+          activeBlockers: insights.blockers.filter(b => !b.resolution).length,
+        }
+      };
+    }),
 }); 
+
+// Helper functions for meeting insights extraction
+function determineContextType(content: string): 'decision' | 'action_item' | 'deadline' | 'blocker' | 'discussion' | 'update' {
+  const lowerContent = content.toLowerCase();
+
+  if (lowerContent.includes('decide') || lowerContent.includes('decision') || lowerContent.includes('agreed')) {
+    return 'decision';
+  }
+  if (lowerContent.includes('action') || lowerContent.includes('todo') || lowerContent.includes('will do')) {
+    return 'action_item';
+  }
+  if (lowerContent.includes('deadline') || lowerContent.includes('due') || lowerContent.includes('by ')) {
+    return 'deadline';
+  }
+  if (lowerContent.includes('block') || lowerContent.includes('issue') || lowerContent.includes('problem')) {
+    return 'blocker';
+  }
+  if (lowerContent.includes('update') || lowerContent.includes('progress') || lowerContent.includes('status')) {
+    return 'update';
+  }
+  return 'discussion';
+}
+
+async function extractInsightsFromTranscriptions(transcriptions: any[], insightTypes?: string[], openaiClient?: OpenAI) {
+  const insights = {
+    decisions: [] as any[],
+    actionItems: [] as any[],
+    deadlines: [] as any[],
+    blockers: [] as any[],
+    milestones: [] as any[],
+    teamUpdates: [] as any[],
+  };
+
+  for (const transcript of transcriptions) {
+    // Use AI to extract structured insights if OpenAI is available
+    if (openaiClient && transcript.transcription && transcript.transcription.length > 100) {
+      try {
+        const prompt = `Analyze this meeting transcript and extract structured insights. Return a JSON object with the following structure:
+        {
+          "decisions": [{"decision": "text", "impact": "high|medium|low", "participants": ["name1", "name2"]}],
+          "actionItems": [{"action": "text", "assignee": "name", "dueDate": "YYYY-MM-DD or null", "priority": "high|medium|low"}],
+          "deadlines": [{"deadline": "text", "dueDate": "YYYY-MM-DD", "owner": "name"}],
+          "blockers": [{"blocker": "text", "severity": "critical|high|medium|low", "owner": "name"}],
+          "teamUpdates": [{"member": "name", "update": "text", "category": "progress|blocker|achievement|challenge"}]
+        }
+
+        Meeting transcript: ${transcript.transcription.substring(0, 4000)}`;
+
+        const response = await openaiClient.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+        });
+
+        const aiInsights = JSON.parse(response.choices[0]?.message?.content || '{}');
+
+        // Merge AI insights with meeting metadata
+        if (aiInsights.decisions) {
+          insights.decisions.push(...aiInsights.decisions.map((d: any) => ({
+            ...d,
+            meetingDate: transcript.createdAt,
+            context: `From ${transcript.title || 'Untitled Meeting'}`,
+          })));
+        }
+
+        if (aiInsights.actionItems) {
+          insights.actionItems.push(...aiInsights.actionItems.map((a: any) => ({
+            ...a,
+            meetingDate: transcript.createdAt,
+            status: 'pending',
+          })));
+        }
+
+        if (aiInsights.deadlines) {
+          insights.deadlines.push(...aiInsights.deadlines.map((d: any) => ({
+            ...d,
+            meetingDate: transcript.createdAt,
+            status: new Date(d.dueDate) > new Date() ? 'upcoming' : 'overdue',
+          })));
+        }
+
+        if (aiInsights.blockers) {
+          insights.blockers.push(...aiInsights.blockers.map((b: any) => ({
+            ...b,
+            meetingDate: transcript.createdAt,
+            impact: `Mentioned in ${transcript.title || 'Untitled Meeting'}`,
+            resolution: null,
+          })));
+        }
+
+        if (aiInsights.teamUpdates) {
+          insights.teamUpdates.push(...aiInsights.teamUpdates.map((u: any) => ({
+            ...u,
+            meetingDate: transcript.createdAt,
+          })));
+        }
+
+      } catch (error) {
+        console.error('AI insight extraction failed, falling back to keyword matching:', error);
+        // Fallback to simple keyword extraction
+        extractKeywordBasedInsights(transcript, insights);
+      }
+    } else {
+      // Fallback keyword-based extraction
+      extractKeywordBasedInsights(transcript, insights);
+    }
+  }
+
+  return insights;
+}
+
+function extractKeywordBasedInsights(transcript: any, insights: any) {
+  const sentences = (transcript.transcription || "").split(/[.!?]+/);
+
+  sentences.forEach((sentence: string) => {
+    const lowerSentence = sentence.toLowerCase().trim();
+    if (lowerSentence.length < 10) return;
+
+    // Extract decisions
+    if (lowerSentence.includes('decide') || lowerSentence.includes('decision') || lowerSentence.includes('agreed')) {
+      insights.decisions.push({
+        decision: sentence.trim(),
+        context: `From ${transcript.title || 'Untitled Meeting'}`,
+        meetingDate: transcript.createdAt,
+        participants: [], // Empty since we don't have this data
+        impact: 'medium',
+      });
+    }
+
+    // Extract action items
+    if (lowerSentence.includes('action') || lowerSentence.includes('todo') || lowerSentence.includes('will do')) {
+      insights.actionItems.push({
+        action: sentence.trim(),
+        assignee: extractAssignee(sentence),
+        dueDate: extractDueDate(sentence),
+        status: 'pending',
+        meetingDate: transcript.createdAt,
+        priority: 'medium',
+      });
+    }
+
+    // Extract deadlines
+    if (lowerSentence.includes('deadline') || lowerSentence.includes('due') || lowerSentence.includes('by ')) {
+      const dueDate = extractDueDate(sentence);
+      if (dueDate) {
+        insights.deadlines.push({
+          deadline: sentence.trim(),
+          description: sentence.trim(),
+          dueDate,
+          owner: extractAssignee(sentence),
+          status: new Date(dueDate) > new Date() ? 'upcoming' : 'overdue',
+          meetingDate: transcript.createdAt,
+        });
+      }
+    }
+
+    // Extract blockers
+    if (lowerSentence.includes('block') || lowerSentence.includes('issue') || lowerSentence.includes('problem')) {
+      insights.blockers.push({
+        blocker: sentence.trim(),
+        impact: `Mentioned in ${transcript.title || 'Untitled Meeting'}`,
+        owner: extractAssignee(sentence),
+        resolution: null,
+        meetingDate: transcript.createdAt,
+        severity: 'medium',
+      });
+    }
+
+    // Extract team updates
+    if (lowerSentence.includes('update') || lowerSentence.includes('progress') || lowerSentence.includes('working on')) {
+      insights.teamUpdates.push({
+        member: extractAssignee(sentence) || 'Unknown',
+        update: sentence.trim(),
+        category: 'progress',
+        meetingDate: transcript.createdAt,
+      });
+    }
+  });
+}
+
+function extractAssignee(sentence: string): string | undefined {
+  const assigneePatterns = [
+    /(?:will|should|needs to|assigned to)\s+([A-Z][a-z]+)/,
+    /([A-Z][a-z]+)\s+(?:will|should|needs to)/,
+  ];
+
+  for (const pattern of assigneePatterns) {
+    const match = sentence.match(pattern);
+    if (match) return match[1];
+  }
+  return undefined;
+}
+
+function extractDueDate(sentence: string): string | undefined {
+  const datePatterns = [
+    /by\s+(\w+\s+\d{1,2})/i,
+    /due\s+(\w+\s+\d{1,2})/i,
+    /(\d{1,2}\/\d{1,2}\/\d{2,4})/,
+    /(next week|this week|tomorrow)/i,
+  ];
+
+  for (const pattern of datePatterns) {
+    const match = sentence.match(pattern);
+    if (match && match[1]) {
+      const dateStr = match[1].toLowerCase();
+      const now = new Date();
+
+      if (dateStr === 'next week') {
+        const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return nextWeek.toISOString();
+      }
+      if (dateStr === 'this week') {
+        const endOfWeek = new Date(now.getTime() + (7 - now.getDay()) * 24 * 60 * 60 * 1000);
+        return endOfWeek.toISOString();
+      }
+      if (dateStr === 'tomorrow') {
+        const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+        return tomorrow.toISOString();
+      }
+
+      try {
+        const parsed = new Date(match[1]);
+        if (!isNaN(parsed.getTime())) {
+          return parsed.toISOString();
+        }
+      } catch (e) {
+        // Ignore parsing errors
+      }
+    }
+  }
+  return undefined;
+}
+
+function extractKeyThemes(transcriptions: any[]): string[] {
+  const wordCounts = new Map<string, number>();
+  const excludeWords = new Set(['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'cannot']);
+
+  transcriptions.forEach(transcript => {
+    const words = (transcript.transcription || "").toLowerCase().match(/\b[a-z]+\b/g) || [];
+    words.forEach((word: string) => {
+      if (word.length > 3 && !excludeWords.has(word)) {
+        wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
+      }
+    });
+  });
+
+  return Array.from(wordCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([word]) => word);
+}
+
+function summarizeProjectProgress(transcriptions: any[]): string {
+  const progressWords = ['completed', 'finished', 'done', 'progress', 'moving', 'advancing'];
+  const blockingWords = ['blocked', 'stuck', 'delayed', 'problem', 'issue', 'challenge'];
+
+  let progressScore = 0;
+  let total = 0;
+
+  transcriptions.forEach(transcript => {
+    const text = (transcript.transcription || "").toLowerCase();
+    progressWords.forEach(word => {
+      const matches = (text.match(new RegExp(word, 'g')) || []).length;
+      progressScore += matches;
+      total += matches;
+    });
+    blockingWords.forEach(word => {
+      const matches = (text.match(new RegExp(word, 'g')) || []).length;
+      progressScore -= matches;
+      total += matches;
+    });
+  });
+
+  if (total === 0) return 'No clear progress indicators found';
+
+  const ratio = progressScore / total;
+  if (ratio > 0.5) return 'Strong positive progress';
+  if (ratio > 0) return 'Moderate progress with some challenges';
+  if (ratio > -0.5) return 'Mixed progress with notable blockers';
+  return 'Significant challenges and blockers identified';
+}
