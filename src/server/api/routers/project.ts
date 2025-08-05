@@ -272,7 +272,10 @@ export const projectRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.db.project.findUnique({
-        where: { id: input.id },
+        where: { 
+          id: input.id,
+          createdById: ctx.session.user.id // 🔒 Security fix: Only return user's own projects
+        },
         include: {
           goals: true,
           outcomes: true,

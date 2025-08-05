@@ -43,17 +43,23 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const generateInitialMessages = useCallback((projectData?: any, projectActions?: any[]): Message[] => {
     const projectContext = projectData && projectActions ? `
       
-      CURRENT PROJECT CONTEXT:
-      - Project: ${projectData.name}
+      📋 CURRENT PROJECT CONTEXT (Authorized User Data Only):
+      - Project: ${projectData.name} (ID: ${projectId})
+      - Owner: Authenticated user (secure context)
       - Description: ${projectData.description || 'No description'}
       - Status: ${projectData.status}
       - Priority: ${projectData.priority}
-      - Current Tasks: ${projectActions.length > 0 ? 
-        projectActions.map(action => `• ${action.name} (${action.status}, ${action.priority})`).join('\n        ') : 
-        'No active tasks'}
+      - Progress: ${projectData.progress || 0}%
+      - Active Tasks Shown: ${projectActions.length} (use retrieveActionsTool for complete history)
+      ${projectActions.length > 0 ? 
+        projectActions.map(action => `  • ${action.name} (${action.status}, ${action.priority})`).join('\n      ') : 
+        '  • No active tasks'}
       
-      When creating actions or tasks, automatically assign them to project ID: ${projectId}
-      When asked about tasks or project status, refer to the current project context above.
+      🎯 ACTIONS REQUIRED:
+      - When creating actions: automatically assign to project ID: ${projectId}
+      - When asked about tasks: refer to context above or use tools for complete data
+      - Always specify project ID in tool calls for security
+      - For historical data beyond current context, explicitly use retrieveActionsTool
     ` : '';
 
     return [
@@ -62,6 +68,26 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         content: `Your name is Paddy the project manager. You are a coordinator managing a multi-agent conversation. 
                   Route user requests to the appropriate specialized agent if necessary.
                   Keep track of the conversation flow between the user and multiple AI agents.
+                  
+                  🔒 SECURITY & DATA SCOPE:
+                  - You are operating in single-project context only
+                  - Only data from the current project is available in context
+                  - Never reference or access data from other projects or users
+                  ${projectId ? `- Current project ID: ${projectId}` : ''}
+                  
+                  🛠️ TOOL USAGE PROTOCOLS:
+                  - ALWAYS report tool failures to user (never fail silently)
+                  - Use format: "⚠️ Tool Error: [action] failed - [reason]. Working with available context instead."
+                  - Context shows current/recent data only - use tools for historical/complete data
+                  - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue
+                  - If authentication fails, inform user and suggest checking token validity
+                  
+                  📊 CONTEXT LIMITATIONS:
+                  - Project data: Current snapshot only (real-time via tools)
+                  - Actions: Active actions shown (use retrieveActionsTool for historical)
+                  - For complete datasets or older data, explicitly use tools
+                  - Always mention when working with limited context vs complete data
+                  
                   ${githubSettings ? `When creating GitHub issues, use repo: "${githubSettings.repo}" and owner: "${githubSettings.owner}". Valid assignees are: ${githubSettings.validAssignees.join(", ")}` : ''}
                   ${projectContext}
                   The current date is: ${new Date().toISOString().split('T')[0]}`
@@ -98,16 +124,6 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const utils = api.useUtils();
-  const chat = api.tools.chat.useMutation({
-    onSuccess: async () => {
-      await Promise.all([
-        utils.action.getAll.invalidate(),
-        utils.action.getToday.invalidate(),
-        utils.action.getProjectActions.invalidate()
-      ]);
-    }
-  });
   const transcribeAudio = api.tools.transcribe.useMutation();
   const callAgent = api.mastra.callAgent.useMutation();
   const chooseAgent = api.mastra.chooseAgent.useMutation();
@@ -137,6 +153,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // Update messages when project data is loaded
   useEffect(() => {
     if (projectData && projectActions && !initialMessages) {
+      // Security audit logging
+      console.log('🔒 [SECURITY AUDIT] Generating agent context:', {
+        projectId: projectData.id,
+        projectName: projectData.name,
+        actionsCount: projectActions.length,
+        timestamp: new Date().toISOString(),
+        hasInitialMessages: !!initialMessages,
+        contextScope: 'single-project-only'
+      });
+      
       const newMessages = generateInitialMessages(projectData, projectActions);
       setMessages(newMessages);
     }
@@ -341,13 +367,24 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     try {
       let targetAgentId: string;
       
+      // Security audit logging for agent calls
+      console.log('🔒 [SECURITY AUDIT] Agent call initiated:', {
+        projectId,
+        messageLength: input.length,
+        hasMentionedAgent: !!mentionedAgentId,
+        timestamp: new Date().toISOString(),
+        contextScope: 'single-project-only'
+      });
+      
       if (mentionedAgentId) {
         // Use the mentioned agent directly
         targetAgentId = mentionedAgentId;
+        console.log('🔒 [SECURITY AUDIT] Using mentioned agent:', { agentId: mentionedAgentId });
       } else {
         // Use the AI to choose the best agent
         const { agentId } = await chooseAgent.mutateAsync({ message: input });
         targetAgentId = agentId;
+        console.log('🔒 [SECURITY AUDIT] AI selected agent:', { agentId });
       }
       
       const result = await callAgent.mutateAsync({
@@ -369,11 +406,47 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
 
     } catch (error) {
       console.error('Chat error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Sorry, I encountered an error processing your request.';
+      
+      // Enhanced error detection and reporting
+      let errorMessage = 'Sorry, I encountered an error processing your request.';
+      let errorType = 'Unknown';
+      
+      if (error instanceof Error) {
+        const errorText = error.message.toLowerCase();
+        
+        // Detect specific error types
+        if (errorText.includes('unauthorized') || errorText.includes('401')) {
+          errorType = 'Authentication';
+          errorMessage = `🔐 **Authentication Error**: Agent tools are not accessible due to expired or invalid authentication. Please check your API tokens in the /tokens page. Working with available context only.`;
+        } else if (errorText.includes('forbidden') || errorText.includes('403')) {
+          errorType = 'Authorization';  
+          errorMessage = `🚫 **Authorization Error**: Agent doesn't have permission to access the requested data. This might be a security issue. Working with available context only.`;
+        } else if (errorText.includes('not found') || errorText.includes('404')) {
+          errorType = 'Resource Not Found';
+          errorMessage = `📂 **Resource Error**: The requested project or data was not found. This might be a security restriction or the data may not exist. Working with available context only.`;
+        } else if (errorText.includes('timeout') || errorText.includes('network')) {
+          errorType = 'Network';
+          errorMessage = `🌐 **Network Error**: Agent communication failed due to network issues. Please try again. Working with available context only.`;
+        } else if (errorText.includes('mastra') || errorText.includes('agent')) {
+          errorType = 'Agent Communication';
+          errorMessage = `🤖 **Agent Error**: Failed to communicate with the AI agent system. The agent service might be unavailable. Working with available context only.`;
+        } else {
+          errorMessage = `⚠️ **System Error**: ${error.message}. Working with available context only.`;
+        }
+        
+        // Log detailed error info for debugging
+        console.error(`[ManyChat] ${errorType} Error:`, {
+          message: error.message,
+          projectId,
+          timestamp: new Date().toISOString(),
+          userAgent: navigator.userAgent
+        });
+      }
+      
       setMessages(prev => [...prev, { 
         type: 'ai', 
-        agentName: 'System',
-        content: errorMessage 
+        agentName: 'System Error',
+        content: `${errorMessage}\n\n_Error Type: ${errorType}_\n_Time: ${new Date().toLocaleTimeString()}_\n\n**Next Steps:**\n• Try rephrasing your request\n• Check /tokens page for authentication issues\n• Report persistent issues to support` 
       }]);
     }
   };
