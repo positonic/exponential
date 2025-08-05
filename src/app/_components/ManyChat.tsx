@@ -94,17 +94,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       },
       {
         type: 'ai',
-        agentName: 'Coordinator',
-        content: projectData ? 
-          `Hello! I'm here to help you with the "${projectData.name}" project. Multiple agents are available to assist you. How can I help today?` :
-          'Hello! Multiple agents are available to assist you. How can I help today?'
-      },
-      {
-        type: 'ai',
         agentName: 'Paddy',
         content: projectData ? 
-          `Hello! I'm Paddy the project manager. I'm here to help you with the "${projectData.name}" (projectId: ${projectId}). Multiple agents are available to assist you. How can I help today?` :
-          'Hello! I\'m Paddy the project manager. I\'m here to help you with the "${projectData.name}" project. Multiple agents are available to assist you. How can I help today?'
+          `Hello! I'm Paddy, your project manager. I'll be your default assistant for the "${projectData.name}" project (ID: ${projectId}). \n\nI'm here to help with project management, task coordination, and can connect you with other specialized agents when needed. Just mention them with @ (like @designer or @developer) to speak with them directly.\n\nHow can I help you today?` :
+          'Hello! I\'m Paddy, your project manager. I\'ll be your default assistant here. \n\nI can help with project management, task coordination, and can connect you with other specialized agents when needed. Just mention them with @ to speak with them directly.\n\nHow can I help you today?'
       }
     ];
   }, [projectId, githubSettings]);
@@ -381,10 +374,24 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         targetAgentId = mentionedAgentId;
         console.log('🔒 [SECURITY AUDIT] Using mentioned agent:', { agentId: mentionedAgentId });
       } else {
-        // Use the AI to choose the best agent
-        const { agentId } = await chooseAgent.mutateAsync({ message: input });
-        targetAgentId = agentId;
-        console.log('🔒 [SECURITY AUDIT] AI selected agent:', { agentId });
+        // Always default to Paddy the project manager unless another agent is specifically mentioned
+        // First, find Paddy's agent ID
+        const paddyAgent = mastraAgents?.find(agent => 
+          agent.name.toLowerCase() === 'paddy' || 
+          agent.name.toLowerCase().includes('project manager') ||
+          agent.name.toLowerCase().includes('paddy')
+        );
+        
+        if (paddyAgent) {
+          targetAgentId = paddyAgent.id;
+          console.log('🔒 [SECURITY AUDIT] Defaulting to Paddy:', { agentId: paddyAgent.id });
+        } else {
+          // Fallback: Use AI to choose if Paddy not found (shouldn't happen)
+          console.warn('⚠️ Paddy agent not found, using AI selection');
+          const { agentId } = await chooseAgent.mutateAsync({ message: input });
+          targetAgentId = agentId;
+          console.log('🔒 [SECURITY AUDIT] AI selected agent:', { agentId });
+        }
       }
       
       const result = await callAgent.mutateAsync({
@@ -689,7 +696,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                placeholder="Type your message... (use @agent to mention)"
+                placeholder="Type your message... (Paddy will respond, or use @agent to mention others)"
                 radius="sm"
                 size="lg"
                 styles={{
