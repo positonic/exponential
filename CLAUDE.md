@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Core Development
 - `npm run dev` - Start development server with turbo
+- `npm run dev:log` - Start development server with logging to todo.log file
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run preview` - Build and start production server
