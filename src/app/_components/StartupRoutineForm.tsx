@@ -32,23 +32,12 @@ import { OutcomeSection } from './sections/OutcomeSection';
 import { ExerciseSection } from './sections/ExerciseSection';
 import { NotToDoSection } from './sections/NotToDoSection';
 import { ConfigurationSection } from './sections/ConfigurationSection';
-
-interface StartupRoutineState {
-  intention: string;
-  gratitude: string;
-  exercise: string;
-  journalName: string;
-  journalContent: string;
-  notToDo: string[];
-  completedItems: string[];
-}
+import { GratitudeOnlySection } from './sections/GratitudeOnlySection';
 
 const getTodayString = (): string => {
   const now = new Date();
   return now.toISOString().split('T')[0]!;
 };
-
-const todayString = getTodayString();
 
 // Create optimized button components
 const SaveButton = memo(({ 
@@ -104,7 +93,7 @@ export function StartupRoutineForm() {
 
   // Create a day if it doesn't exist - memoize the mutation to stabilize it
   const createUserDay = api.day.createUserDay.useMutation({
-    onSuccess: (data) => {
+    onSuccess: () => {
       // Refetch the day data to get the new day ID
       void utils.day.getByDate.invalidate({ date: today });
     },
@@ -118,7 +107,7 @@ export function StartupRoutineForm() {
     if (!dayData && !isDayLoading && !createUserDay.isPending) {
       createUserDay.mutate({ date: today });
     }
-  }, [dayData, isDayLoading, createUserDay.isPending, createUserDay, today]);
+  }, [dayData, isDayLoading, createUserDay, today]);
 
   // Use a more controlled effect that only runs once on mount and when day data changes
   useEffect(() => {
@@ -214,10 +203,8 @@ export function StartupRoutineForm() {
   });
 
   // Initialize form state from database
-  const [intention, setIntention] = useState('');
   const [gratitude, setGratitude] = useState('');
   const [exercise, setExercise] = useState('');
-  const [journalName, setJournalName] = useState('');
   const [journalContent, setJournalContent] = useState('');
   const [notToDo, setNotToDo] = useState<string[]>([]);
   const [completedItems, setCompletedItems] = useState<string[]>([]);
@@ -341,7 +328,7 @@ export function StartupRoutineForm() {
         createNote.mutate({
           content: journalContent,
           type: 'journal',
-          title: journalName || 'Daily Journal',
+          title: 'Daily Journal',
           dayId: dayData.id,
         });
       }
@@ -380,7 +367,7 @@ export function StartupRoutineForm() {
       });
     }
   }, [
-    gratitude, journalContent, journalName, notToDo, 
+    gratitude, journalContent, notToDo, 
     completedItems, exercise, dayData, createNote,
     saveNotToDoMutation, saveCompletedItemsMutation
   ]);
