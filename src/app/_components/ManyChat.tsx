@@ -143,9 +143,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     );
   console.log("mastraAgents is ", mastraAgents);
   
-  // Update messages when project data is loaded
+  // Update messages when project data is loaded - but only if messages are still initial
   useEffect(() => {
-    if (projectData && projectActions && !initialMessages) {
+    if (projectData && projectActions && !initialMessages && messages.length <= 2) {
+      // Only reset messages if we still have just the initial welcome messages
       // Security audit logging
       console.log('🔒 [SECURITY AUDIT] Generating agent context:', {
         projectId: projectData.id,
@@ -153,13 +154,14 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         actionsCount: projectActions.length,
         timestamp: new Date().toISOString(),
         hasInitialMessages: !!initialMessages,
-        contextScope: 'single-project-only'
+        contextScope: 'single-project-only',
+        currentMessageCount: messages.length
       });
       
       const newMessages = generateInitialMessages(projectData, projectActions);
       setMessages(newMessages);
     }
-  }, [projectData, projectActions, initialMessages, generateInitialMessages]);
+  }, [projectData, projectActions, initialMessages]); // Removed generateInitialMessages from deps
   
   // Parse agent mentions from input
   const parseAgentMention = (text: string): { agentId: string | null; cleanMessage: string } => {
