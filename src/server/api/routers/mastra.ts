@@ -86,6 +86,26 @@ function parseExpiration(expiresIn: string): number {
   }
 }
 
+// Helper function to generate JWT for agent contexts
+function generateAgentJWT(user: { id: string; email?: string | null; name?: string | null; image?: string | null }, expiryMinutes: number = 30): string {
+  return jwt.sign(
+    {
+      userId: user.id,
+      sub: user.id,
+      email: user.email,
+      name: user.name,
+      picture: user.image,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + (60 * expiryMinutes),
+      jti: crypto.randomUUID(),
+      tokenType: 'agent-context',
+      aud: 'mastra-agents',
+      iss: 'todo-app'
+    },
+    process.env.AUTH_SECRET ?? ''
+  );
+}
+
 export const mastraRouter = createTRPCRouter({
   getMastraAgents: publicProcedure
     .output(MastraAgentsResponseSchema) // Output is still the validated array
@@ -171,7 +191,7 @@ export const mastraRouter = createTRPCRouter({
       return { agentId: best.id };
     }),
 
-  callAgent: publicProcedure
+  callAgent: protectedProcedure
     .input(
       z.object({
         agentId: z.string(),
@@ -189,15 +209,31 @@ export const mastraRouter = createTRPCRouter({
         output: z.record(z.any()).optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { agentId, messages } = input;
       console.log(`[mastraRouter] JSON.stringify({ messages }):`, JSON.stringify({ messages }));
+      
+      // Generate JWT token for agent authentication
+      const agentJWT = generateAgentJWT(ctx.session.user, 30);
+      
+      console.log(`[mastraRouter] Generated agent JWT for user:`, ctx.session.user.email);
+      
       const res = await fetch(
         `${MASTRA_API_URL}/api/agents/${agentId}/generate`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages }),
+          headers: { 
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ 
+            messages,
+            runtimeContext: {
+              authToken: agentJWT,
+              userId: ctx.session.user.id,
+              userEmail: ctx.session.user.email,
+              todoAppBaseUrl: process.env.NEXTAUTH_URL || 'http://localhost:3000'
+            }
+          }),
         }
       );
       console.log(`[mastraRouter] Mastra generate response:`, res);
@@ -382,13 +418,15 @@ export const mastraRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  // Debug endpoint to inspect JWT tokens
+
+  // Debug endpoint to inspect JWT tokens (including agent JWTs)
   debugToken: publicProcedure
     .input(z.object({
       token: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
       console.log('🔍 [DEBUG TOKEN] debugToken endpoint called');
+      
       
       // Get token from input or authorization header
       let token = input.token;

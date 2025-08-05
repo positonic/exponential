@@ -187,3 +187,17 @@ Required environment variables:
 - Image optimization with Next.js Image component
 
 Always ensure code follows the project's ESLint rules and TypeScript configuration. Run `npm run check` before committing changes to maintain code quality.
+
+## Debugging & Logs
+
+### Application Logs
+- **Log File**: `todo.log` in project root - contains all application logs
+- **Dev Logging**: `npm run dev:log` - starts dev server with logging to todo.log
+- **JWT Debugging**: Use `mastra.debugToken` endpoint to inspect JWT tokens
+- **Agent Logs**: Look for `[mastraRouter]` prefixed logs for agent communication
+
+### Common Log Patterns
+- `🔍 [AUTH DEBUG]` - Authentication and JWT verification logs
+- `[mastraRouter]` - Agent communication and JWT generation logs  
+- `[TRPC]` - API call performance and execution logs
+- `❌ tRPC failed` - API errors and failures
