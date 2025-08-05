@@ -29,28 +29,17 @@ import { db } from "~/server/db";
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
-  console.log('🔍 [AUTH DEBUG] tRPC Context Creation Started');
-  
   // First try to get the session from NextAuth
   const session = await auth();
-  console.log('🔍 [AUTH DEBUG] NextAuth session:', session?.user ? { userId: session.user.id, email: session.user.email } : 'No session');
 
   // If no session, check for JWT token in Authorization header
   if (!session?.user) {
-    console.log('🔍 [AUTH DEBUG] No NextAuth session, checking for JWT token...');
     const authHeader = opts.headers.get('authorization');
-    console.log('🔍 [AUTH DEBUG] Authorization header:', authHeader ? `Bearer ${authHeader.substring(7, 20)}...` : 'No auth header');
     
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
-      console.log('🔍 [AUTH DEBUG] JWT token length:', token.length);
-      console.log('🔍 [AUTH DEBUG] JWT token last 20 chars:', '...' + token.slice(-20));
-      console.log('🔍 [AUTH DEBUG] Full JWT token:', token); // Full token for debugging
       
       try {
-        console.log('🔍 [AUTH DEBUG] Current server time:', new Date().toISOString());
-        console.log('🔍 [AUTH DEBUG] Attempting JWT verification with AUTH_SECRET...');
-        
         // Verify the JWT token
         const decoded = jwt.verify(token, process.env.AUTH_SECRET ?? '') as {
           userId?: string;   // Legacy format
@@ -64,45 +53,18 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           jti?: string;
         };
 
-        const now = Math.floor(Date.now() / 1000);
-        const isExpired = decoded.exp ? decoded.exp < now : false;
-        
-        console.log('🔍 [AUTH DEBUG] JWT decoded successfully:', {
-          userId: decoded.userId,
-          sub: decoded.sub,
-          email: decoded.email,
-          tokenType: decoded.tokenType,
-          jti: decoded.jti,
-          iat: decoded.iat ? new Date(decoded.iat * 1000).toISOString() : 'No issued time',
-          exp: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'No expiry',
-          expTimestamp: decoded.exp,
-          currentTimestamp: now,
-          secondsUntilExpiry: decoded.exp ? decoded.exp - now : 'N/A',
-        });
-        
-        if (isExpired) {
-          console.log('⚠️ [AUTH DEBUG] WARNING: TOKEN SHOULD BE EXPIRED!');
-          console.log('⚠️ [AUTH DEBUG] Token exp:', decoded.exp, 'Current time:', now);
-          console.log('⚠️ [AUTH DEBUG] But JWT verification passed somehow!');
-        }
-
         // Support both legacy and new token formats
         const userId = decoded.userId || decoded.sub;
         if (!userId) {
-          console.log('❌ [AUTH DEBUG] No userId found in JWT payload');
           throw new Error('Invalid token: missing user identifier');
         }
 
-        console.log('🔍 [AUTH DEBUG] Looking up user with ID:', userId);
         // Find the user
         const user = await db.user.findUnique({
           where: { id: userId }
         });
 
-        console.log('🔍 [AUTH DEBUG] User lookup result:', user ? { id: user.id, email: user.email, name: user.name } : 'User not found');
-
         if (user) {
-          console.log('✅ [AUTH DEBUG] User found! Creating JWT session...');
           // Create a session-like object from the JWT token
           const jwtSession: Session = {
             user: {
@@ -115,36 +77,17 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
               ? new Date(decoded.exp * 1000).toISOString() 
               : new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 minutes fallback
           };
-          console.log('✅ [AUTH DEBUG] JWT session created successfully for user:', user.email);
           return {
             db,
             session: jwtSession,
             ...opts,
           };
-        } else {
-          console.log('❌ [AUTH DEBUG] JWT token valid but user not found in database');
         }
       } catch (error) {
-        console.error('❌ [AUTH DEBUG] JWT verification failed:', error);
-        console.error('❌ [AUTH DEBUG] Error details:', {
-          message: error instanceof Error ? error.message : 'Unknown error',
-          tokenPreview: token.substring(0, 50),
-          authSecret: process.env.AUTH_SECRET ? 'Present' : 'Missing'
-        });
+        console.error('JWT verification failed:', error);
       }
-    } else {
-      console.log('🔍 [AUTH DEBUG] No Bearer token found in headers');
     }
   }
-
-  // Add final session debug info
-  if (session?.user) {
-    console.log('🔍 [AUTH DEBUG] Final session source:', 
-      session.user.id === (await auth())?.user?.id ? 'NextAuth session' : 'JWT session'
-    );
-  }
-  
-  console.log('🔍 [AUTH DEBUG] Returning context with session:', session?.user ? `Session present (user: ${session.user.email})` : 'No session');
   return {
     db,
     session,

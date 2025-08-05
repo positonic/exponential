@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Container, Title, Text, Button, Card, Group, Stack, ThemeIcon, Badge, Alert, Modal, TextInput, Select, Textarea, Paper, Accordion, List, Table } from '@mantine/core';
-import { IconCalendarEvent, IconArrowRight, IconCheck, IconAlertCircle, IconPlus, IconExternalLink, IconRefresh, IconEdit, IconTrash } from '@tabler/icons-react';
+import { Container, Title, Text, Button, Card, Group, Stack, ThemeIcon, Badge, Alert, Modal, TextInput, Select, Textarea, Paper, /* Accordion, */ List, Table } from '@mantine/core';
+import { IconCalendarEvent, IconArrowRight, /* IconCheck, */ IconAlertCircle, IconPlus, IconExternalLink, IconRefresh, IconEdit, IconTrash } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';

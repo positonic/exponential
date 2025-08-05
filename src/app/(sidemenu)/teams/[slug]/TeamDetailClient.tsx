@@ -29,8 +29,8 @@ import {
   // IconSettings,
   IconUserPlus,
   IconDots,
-  IconTrash,
-  IconEdit,
+  // IconTrash,
+  // IconEdit,
   IconCrown,
   IconShield,
   IconUser,
@@ -60,7 +60,7 @@ interface TeamDetailClientProps {
 }
 
 export default function TeamDetailClient({ team: initialTeam, currentUserId }: TeamDetailClientProps) {
-  const router = useRouter();
+  // const router = useRouter();
   const [addMemberModalOpened, { open: openAddMemberModal, close: closeAddMemberModal }] = useDisclosure(false);
 
   // Get fresh team data

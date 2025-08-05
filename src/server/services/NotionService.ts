@@ -104,7 +104,6 @@ export class NotionService {
         page_id: pageId,
         archived: true,
       });
-      console.log(`✅ Archived Notion page: ${pageId}`);
     } catch (error) {
       console.error('❌ Failed to archive Notion page:', error);
       throw new Error('Failed to archive page in Notion');
@@ -117,7 +116,6 @@ export class NotionService {
         page_id: params.pageId,
         properties: params.properties,
       });
-      console.log(`✅ Updated Notion page: ${params.pageId}`);
     } catch (error) {
       console.error('❌ Failed to update Notion page:', error);
       throw new Error('Failed to update page in Notion');
@@ -129,21 +127,13 @@ export class NotionService {
       // Strip HTML from title for Notion
       const cleanTitle = this.stripHtml(params.title);
       
-      console.log('🔍 NotionService.createPage called with params:', {
-        databaseId: params.databaseId,
-        title: params.title,
-        cleanTitle: cleanTitle,
-        properties: params.properties,
-      });
 
       // Use provided title property or find it automatically
       let titleProperty: string | null | undefined = params.titleProperty;
       if (!titleProperty) {
         const database = await this.getDatabaseById(params.databaseId);
         titleProperty = this.findTitleProperty(database.properties);
-        console.log('🔍 Database properties:', database.properties);
       }
-      console.log('🔍 Using title property:', titleProperty);
 
       const pageData = {
         parent: {
@@ -187,15 +177,9 @@ export class NotionService {
         },
       };
 
-      console.log('🔍 Sending to Notion API:', JSON.stringify(pageData, null, 2));
 
       const response = await this.client.pages.create(pageData);
 
-      console.log('✅ Notion page created successfully:', {
-        id: response.id,
-        url: (response as any).url || '',
-        title: params.title,
-      });
 
       return {
         id: response.id,
@@ -252,10 +236,6 @@ export class NotionService {
 
   async getAllPagesFromDatabase(databaseId: string, filterByProjectId?: string): Promise<any[]> {
     try {
-      console.log(`🔍 Fetching pages from Notion database: ${databaseId}`);
-      if (filterByProjectId) {
-        console.log(`🔍 Filtering by project ID: ${filterByProjectId}`);
-      }
       
       const queryOptions: any = {
         database_id: databaseId,
@@ -274,7 +254,6 @@ export class NotionService {
 
       const response = await this.client.databases.query(queryOptions);
 
-      console.log(`✅ Found ${response.results.length} pages in Notion database`);
       return response.results;
     } catch (error) {
       console.error('Failed to fetch pages from Notion database:', error);
@@ -284,7 +263,6 @@ export class NotionService {
 
   async getProjectsFromDatabase(databaseId: string): Promise<NotionPage[]> {
     try {
-      console.log(`🔍 Fetching projects from Notion Projects database: ${databaseId}`);
       
       const response = await this.client.databases.query({
         database_id: databaseId,
@@ -307,7 +285,6 @@ export class NotionService {
         };
       });
 
-      console.log(`✅ Found ${projects.length} projects in Notion Projects database`);
       return projects;
     } catch (error) {
       console.error('Failed to fetch projects from Notion Projects database:', error);

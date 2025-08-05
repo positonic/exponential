@@ -134,7 +134,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       return previousData;
     },
 
-    onSuccess: async (updatedOutcome) => {
+    onSuccess: async (_updatedOutcome) => {
       // Invalidate and refetch immediately
       await Promise.all([
         utils.outcome.getMyOutcomes.invalidate(),

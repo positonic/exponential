@@ -25,7 +25,7 @@ import {
   IconCalendar,
   IconCalendarEvent,
   IconFilter,
-  IconCheck,
+  // IconCheck,
   IconChecks,
   IconSquare,
   IconDotsVertical,
@@ -33,7 +33,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
-import { ActionList } from "./ActionList";
+// import { ActionList } from "./ActionList";
 import { FirefliesSyncPanel } from "./FirefliesSyncPanel";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 

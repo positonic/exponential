@@ -112,8 +112,6 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
  */
 export async function getProjectGoals({ ctx, projectId }: { ctx: Context, projectId: string }) {
   const userId = ctx.session?.user?.id;
-  console.log("projectId", projectId);
-  console.log("userId", userId);
   if (!userId) throw new Error("User not authenticated");
   return await ctx.db.goal.findMany({
     where: {

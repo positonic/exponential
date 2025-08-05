@@ -87,7 +87,7 @@ function parseExpiration(expiresIn: string): number {
 }
 
 // Helper function to generate JWT for agent contexts
-function generateAgentJWT(user: { id: string; email?: string | null; name?: string | null; image?: string | null }, expiryMinutes: number = 30): string {
+function generateAgentJWT(user: { id: string; email?: string | null; name?: string | null; image?: string | null }, expiryMinutes = 30): string {
   return jwt.sign(
     {
       userId: user.id,
@@ -211,12 +211,10 @@ export const mastraRouter = createTRPCRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const { agentId, messages } = input;
-      console.log(`[mastraRouter] JSON.stringify({ messages }):`, JSON.stringify({ messages }));
       
       // Generate JWT token for agent authentication
       const agentJWT = generateAgentJWT(ctx.session.user, 30);
       
-      console.log(`[mastraRouter] Generated agent JWT for user:`, ctx.session.user.email);
       
       const res = await fetch(
         `${MASTRA_API_URL}/api/agents/${agentId}/generate`,
@@ -771,12 +769,6 @@ export const mastraRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      console.log('🎯 [MASTRA DEBUG] getMeetingTranscriptions called');
-      console.log('🎯 [MASTRA DEBUG] Session user:', {
-        id: ctx.session.user.id,
-        email: ctx.session.user.email,
-        sessionExpires: ctx.session.expires,
-      });
       // Build where clause for TranscriptionSession query
       const whereClause: any = {
         userId: userId, // Ensure user can only access their own transcriptions
@@ -802,12 +794,11 @@ export const mastraRouter = createTRPCRouter({
         if (input.endDate) whereClause.createdAt.lte = new Date(input.endDate);
       }
 
-      // Note: participants and meetingType are not in schema, so we ignore those filters
-
-      const transcriptions = await ctx.db.transcriptionSession.findMany({
+      // Get transcriptions first, then filter by participants if needed
+      let transcriptions = await ctx.db.transcriptionSession.findMany({
         where: whereClause,
         orderBy: { createdAt: 'desc' }, // Use createdAt instead of meetingDate
-        take: input.limit,
+        take: input.participants ? 50 : input.limit, // Get more if we need to filter by participants
         select: {
           id: true,
           title: true,
@@ -817,6 +808,26 @@ export const mastraRouter = createTRPCRouter({
           summary: true,
         }
       });
+
+      // Filter by participants if specified
+      if (input.participants && input.participants.length > 0) {
+        transcriptions = transcriptions.filter(t => {
+          const title = (t.title || "").toLowerCase();
+          const transcription = (t.transcription || "").toLowerCase();
+          const summary = (t.summary || "").toLowerCase();
+          
+          // Check if any of the specified participants appear in title, transcription, or summary
+          return input.participants!.some(participant => {
+            const participantLower = participant.toLowerCase();
+            return title.includes(participantLower) || 
+                   transcription.includes(participantLower) ||
+                   summary.includes(participantLower);
+          });
+        });
+        
+        // Limit after filtering
+        transcriptions = transcriptions.slice(0, input.limit);
+      }
 
       return {
         transcriptions: transcriptions.map(t => ({
@@ -883,7 +894,7 @@ export const mastraRouter = createTRPCRouter({
       // Enhanced semantic search using OpenAI embeddings
       try {
         // Create embedding for the query
-        const queryEmbedding = await openai.embeddings.create({
+        await openai.embeddings.create({
           model: 'text-embedding-3-small',
           input: input.query,
         });
@@ -1039,7 +1050,7 @@ function determineContextType(content: string): 'decision' | 'action_item' | 'de
   return 'discussion';
 }
 
-async function extractInsightsFromTranscriptions(transcriptions: any[], insightTypes?: string[], openaiClient?: OpenAI) {
+async function extractInsightsFromTranscriptions(transcriptions: any[], _insightTypes?: string[], openaiClient?: OpenAI) {
   const insights = {
     decisions: [] as any[],
     actionItems: [] as any[],
@@ -1241,7 +1252,7 @@ function extractDueDate(sentence: string): string | undefined {
         if (!isNaN(parsed.getTime())) {
           return parsed.toISOString();
         }
-      } catch (e) {
+      } catch {
         // Ignore parsing errors
       }
     }

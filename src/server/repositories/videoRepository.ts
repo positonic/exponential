@@ -17,11 +17,6 @@ export class VideoRepository {
   }
 
   async saveSummary(videoId: string | undefined, content: string, summaryType: string, videoUrl?: string) {
-    
-    console.log("saveSummary: videoId: ", videoId)
-    console.log("saveSummary: content: ", content)
-    console.log("saveSummary: summaryType: ", summaryType)
-    console.log("saveSummary: videoUrl: ", videoUrl)
     // Validate input parameters based on summary type
     if (summaryType === 'description') {
       if (!videoUrl) {

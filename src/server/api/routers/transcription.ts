@@ -12,12 +12,6 @@ import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
 
-// Helper to print the store nicely
-const logStore = () => {
-  console.log("\n🎙️ ================== Transcription Store ==================");
-  console.log(JSON.stringify(transcriptionStore, null, 2));
-  console.log("🎙️ =====================================================\n");
-};
 
 // Middleware to check API key
 const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
@@ -30,14 +24,12 @@ const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
     });
   }
 
-  console.log("AA apiKey", apiKey);
   // Find the verification token and associated user
   const verificationToken = await ctx.db.verificationToken.findFirst({
     where: {
       token: apiKey,
     },
   });
-  console.log("AA verificationToken", verificationToken);
 
   if (!verificationToken) {
     throw new TRPCError({
@@ -84,8 +76,6 @@ export const transcriptionRouter = createTRPCRouter({
 
       // Keep in-memory store for debugging
       transcriptionStore[session.id] = [];
-      console.log("\n🎙️ New session started:", session.id);
-      logStore();
 
       return {
         id: session.id,

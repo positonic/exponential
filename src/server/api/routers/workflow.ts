@@ -29,9 +29,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
       select: { notionProjectId: true, name: true },
     });
     notionProjectId = project?.notionProjectId;
-    console.log(`🔍 Pulling tasks for project: ${project?.name} (Notion Project ID: ${notionProjectId || 'Not set'})`);
   } else {
-    console.log('🔍 Pulling all tasks (no project filter)');
   }
 
   // Initialize Notion service
@@ -43,7 +41,6 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
     notionProjectId
   );
   
-  console.log(`Found ${notionPages.length} pages in Notion database`);
 
   // Create actions for each task
   let itemsCreated = 0;
@@ -101,14 +98,11 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             });
             
             itemsUpdated++;
-            console.log(`Updated action ${existingAction.id} from Notion page ${task.notionId}`);
           } else {
             itemsSkipped++;
-            console.log(`Skipped unchanged action ${existingAction.id} from Notion page ${task.notionId}`);
           }
         } else {
           // Sync record exists but action was deleted locally - recreate it
-          console.log(`Found orphaned sync record for Notion page ${task.notionId}, recreating action`);
           
           // Delete the orphaned sync record
           await ctx.db.actionSync.delete({
@@ -147,7 +141,6 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
         });
 
         itemsCreated++;
-        console.log(`✅ Created new action "${newAction.name}" (${newAction.id}) from Notion page ${task.notionId}`);
       }
     } catch (taskError) {
       console.error(`Error processing Notion page ${page.id}:`, taskError);
@@ -188,18 +181,11 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
           data: { status: 'deleted_remotely' },
         });
         
-        console.log(`Marked action ${syncRecord.actionId} as DELETED (removed from Notion)`);
         itemsUpdated++;
       }
     }
   }
 
-  console.log(`📊 Pull sync completed:`, {
-    itemsCreated,
-    itemsUpdated,
-    itemsSkipped,
-    totalProcessed: notionPages.length,
-  });
 
   // Update the run with success
   await ctx.db.workflowRun.update({
@@ -281,7 +267,6 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
   // If specific action IDs are provided, filter by them
   if (actionIds && actionIds.length > 0) {
     actionsQuery.id = { in: actionIds };
-    console.log('🔍 DEBUG: Filtering Notion sync by specific action IDs:', actionIds);
   } else {
     // Apply source filtering (only when not using specific IDs)
     if (config.source === 'fireflies') {
@@ -318,11 +303,8 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
     },
   });
 
-  console.log(`Found ${actions.length} actions to sync to Notion`);
-  console.log(`🔧 Overwrite mode: ${overwriteMode ? 'YES - Exponential is source of truth' : 'NO - Standard push'}`);
 
-  // 🔧 IMPORTANT: Check for deletions before pushing to avoid showing stale sync status
-  console.log('🔍 Checking for tasks deleted from Notion before pushing...');
+  // Check for deletions before pushing to avoid showing stale sync status
   
   // Get all ActionSync records for this project to check if they still exist in Notion
   const existingSyncs = await ctx.db.actionSync.findMany({
@@ -338,7 +320,6 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
   });
 
   if (existingSyncs.length > 0) {
-    console.log(`🔍 Found ${existingSyncs.length} previously synced tasks to validate...`);
     
     // Get current pages from Notion to check what still exists
     const currentNotionPages = await notionService.getAllPagesFromDatabase(config.databaseId);
@@ -347,7 +328,6 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
     // Check each synced task to see if it still exists in Notion
     for (const syncRecord of existingSyncs) {
       if (!currentPageIds.includes(syncRecord.externalId)) {
-        console.log(`🗑️ Task "${syncRecord.action.name}" was deleted from Notion - updating status`);
         await ctx.db.actionSync.update({
           where: { id: syncRecord.id },
           data: { status: 'deleted_remotely' },
@@ -366,7 +346,6 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
 
   // In overwrite mode, delete all Notion tasks that don't exist in our local actions
   if (overwriteMode) {
-    console.log('🗑️ Overwrite mode: Checking for Notion tasks to delete...');
     
     // Get all pages from Notion for this project
     const allNotionPages = await notionService.getAllPagesFromDatabase(
@@ -395,7 +374,6 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
     for (const notionPage of allNotionPages) {
       if (!localActionNotionIds.has(notionPage.id)) {
         try {
-          console.log(`🗑️ Deleting Notion page ${notionPage.id} (not in local actions)`);
           // Archive the page in Notion (safer than hard delete)
           await notionService.archivePage(notionPage.id);
           itemsDeleted++;
@@ -406,7 +384,6 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
     }
     
     if (itemsDeleted > 0) {
-      console.log(`🗑️ Deleted ${itemsDeleted} Notion pages that don't exist locally`);
     }
   }
 
@@ -451,16 +428,9 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
         },
       });
 
-      console.log(`🔍 Debug - Action "${action.name}" (${action.id}):`, {
-        hasExistingSync: !!existingSync,
-        syncStatus: existingSync?.status,
-        externalId: existingSync?.externalId,
-        syncedAt: existingSync?.syncedAt
-      });
 
       if (existingSync) {
         if (existingSync.status === 'deleted_remotely') {
-          console.log(`🗑️ Skipping action ${action.id} - was deleted from Notion (page: ${existingSync.externalId})`);
           itemsAlreadySynced++;
           itemsSkipped++;
           skippedReasons.push(`"${action.name}" - Deleted from Notion (cannot recreate)`);
@@ -468,7 +438,6 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
         } else if (existingSync.status === 'synced') {
           if (overwriteMode) {
             // In overwrite mode, update the existing page
-            console.log(`🔄 Overwrite mode: Updating existing Notion page for action ${action.id}`);
             
             try {
               // Update the existing Notion page
@@ -478,7 +447,6 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
               });
               
               itemsUpdated++;
-              console.log(`✅ Updated Notion page ${existingSync.externalId} in overwrite mode`);
             } catch (error) {
               console.error(`Failed to update Notion page ${existingSync.externalId}:`, error);
               itemsFailedToSync++;
@@ -487,14 +455,12 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
             }
             continue;
           } else {
-            console.log(`✅ Skipping action ${action.id} - already synced to Notion (page: ${existingSync.externalId})`);
             itemsAlreadySynced++;
             itemsSkipped++;
             skippedReasons.push(`"${action.name}" - Already synced to Notion`);
             continue;
           }
         } else if (existingSync.status === 'failed') {
-          console.log(`⚠️ Retrying failed sync for action ${action.id} (previous failure with page: ${existingSync.externalId})`);
           // Allow the sync to proceed for failed items
         }
       }
@@ -506,9 +472,6 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
         select: { notionProjectId: true },
       }) : null;
 
-      console.log('🔍 Debug: action.project:', action.project?.id);
-      console.log('🔍 Debug: fetched project:', project);
-      console.log('🔍 Debug: notionProjectId:', project?.notionProjectId);
 
       // Create page in Notion database
       const createdPage = await notionService.createPage({
@@ -531,7 +494,6 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
 
       itemsCreated++;
 
-      console.log(`Created Notion page: ${createdPage.title} (ID: ${createdPage.id}) and ActionSync record`);
 
     } catch (error) {
       console.error(`Failed to create Notion page for action ${action.id}:`, error);
@@ -861,12 +823,10 @@ export const workflowRouter = createTRPCRouter({
           });
 
           const mondayProjectIds = mondayProjects.map(p => p.id);
-          console.log('🔍 DEBUG: Monday-configured project IDs:', mondayProjectIds);
 
           // If specific action IDs are provided, filter by them
           if (input.actionIds && input.actionIds.length > 0) {
             actionsQuery.id = { in: input.actionIds };
-            console.log('🔍 DEBUG: Filtering by specific action IDs:', input.actionIds);
           } else {
             // If source is specified, filter accordingly (only when not using specific IDs)
             if (config.source === 'fireflies') {
@@ -876,7 +836,6 @@ export const workflowRouter = createTRPCRouter({
             }
             // If source is 'all' or not specified, include all actions
             
-            console.log('🔍 DEBUG: Config source:', config.source, 'Will find actions with transcriptionSessionId constraint:', !!actionsQuery.transcriptionSessionId);
 
             // Only search for actions from projects that are configured for Monday.com
             if (mondayProjectIds.length > 0) {
@@ -887,9 +846,6 @@ export const workflowRouter = createTRPCRouter({
             }
           }
 
-          console.log('🔍 DEBUG: Workflow config:', config);
-          console.log('🔍 DEBUG: Actions query:', actionsQuery);
-          console.log('🔍 DEBUG: User ID:', ctx.session.user.id);
 
           // Debug: Check all actions for this project regardless of source
           const allProjectActions = await ctx.db.action.findMany({
@@ -903,14 +859,6 @@ export const workflowRouter = createTRPCRouter({
               transcriptionSession: true,
             },
           });
-          console.log('🔍 DEBUG: ALL project actions (regardless of source):', allProjectActions.length);
-          console.log('🔍 DEBUG: ALL project actions:', allProjectActions.map(a => ({
-            id: a.id,
-            name: a.name,
-            projectId: a.projectId,
-            hasTranscriptionSession: !!a.transcriptionSessionId,
-            source: a.transcriptionSessionId ? 'fireflies' : 'manual'
-          })));
 
           // Note: Actions don't have createdAt field, so we'll get recent actions by ID
           // In practice, you might want to add a createdAt field to the Action model
@@ -925,20 +873,10 @@ export const workflowRouter = createTRPCRouter({
             take: 50, // Limit to avoid processing too many at once
           });
 
-          console.log('🔍 DEBUG: Total actions found:', actions.length);
-          console.log('🔍 DEBUG: Actions:', actions.map(a => ({
-            id: a.id,
-            name: a.name,
-            projectId: a.projectId,
-            projectName: a.project?.name,
-            taskManagementTool: a.project?.taskManagementTool,
-            hasTranscriptionSession: !!a.transcriptionSessionId
-          })));
 
           // Since we already filtered by Monday-configured projects in the query, 
           // all returned actions should be Monday-compatible
           const mondayCompatibleActions = actions;
-          console.log('🔍 DEBUG: Monday-compatible actions:', mondayCompatibleActions.length);
 
           let itemsCreated = 0;
           let itemsSkipped = 0;
@@ -956,23 +894,15 @@ export const workflowRouter = createTRPCRouter({
                 },
               });
 
-              console.log(`🔍 Debug - Monday.com Action "${action.name}" (${action.id}):`, {
-                hasExistingSync: !!existingSync,
-                syncStatus: existingSync?.status,
-                externalId: existingSync?.externalId,
-                syncedAt: existingSync?.syncedAt
-              });
 
               if (existingSync) {
                 if (existingSync.status === 'synced') {
-                  console.log(`✅ Skipping action ${action.id} - already synced to Monday.com (item: ${existingSync.externalId})`);
-                  itemsAlreadySynced++;
+                    itemsAlreadySynced++;
                   itemsSkipped++;
                   skippedReasons.push(`"${action.name}" - Already synced to Monday.com`);
                   continue;
                 } else if (existingSync.status === 'failed') {
-                  console.log(`⚠️ Retrying failed sync for action ${action.id} (previous failure with item: ${existingSync.externalId})`);
-                  // Allow the sync to proceed for failed items
+                    // Allow the sync to proceed for failed items
                 }
               }
 
@@ -1030,7 +960,6 @@ export const workflowRouter = createTRPCRouter({
 
               itemsCreated++;
 
-              console.log(`✅ Created Monday.com item: ${createdItem.name} (ID: ${createdItem.id}) and ActionSync record`);
 
             } catch (error) {
               console.error(`Failed to create Monday.com item for action ${action.id}:`, error);
@@ -1398,7 +1327,6 @@ export const workflowRouter = createTRPCRouter({
         const pullWorkflow = workflows[0]; // Use the first active workflow
 
         if (pullWorkflow) {
-          console.log(`🔄 Smart sync: Running pull sync first (strategy: ${syncStrategy})`);
           
           // Run the existing pull sync logic
           const pullRunResult = await ctx.db.workflowRun.create({
@@ -1435,7 +1363,6 @@ export const workflowRouter = createTRPCRouter({
       );
 
       if (pushWorkflow) {
-        console.log(`🔄 Smart sync: Running push sync`);
         
         const pushRunResult = await ctx.db.workflowRun.create({
           data: {

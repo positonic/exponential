@@ -7,7 +7,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import { Notifications } from '@mantine/notifications';
 import { ThemeProvider } from '~/providers/ThemeProvider';
-import { themes, type ValidDomain } from '~/config/themes';
+import { themes/*, type ValidDomain*/ } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { mantineThemes } from '~/config/themes';
 import { ModalsProvider } from '@mantine/modals';

@@ -10,9 +10,6 @@ const addVideoSchema = z.object({
 export const gmTool = () => tool(
   async (input): Promise<string> => {
     try {
-      console.log('gmTool input is ', input);
-      
-      
       return `Successfully Hit the GM Tool`;
     } catch (error) {
       console.error('Error adding video:', error);

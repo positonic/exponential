@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { PRIORITY_VALUES, type Priority } from "~/types/priority";
+import { PRIORITY_VALUES } from "~/types/priority";
 
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure.query(async ({ ctx }) => {

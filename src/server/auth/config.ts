@@ -92,12 +92,6 @@ export const authConfig = {
       return token;
     },
     signIn: async ({ user, account, profile }) => {
-      console.log('SignIn Attempt:', {
-        user,
-        account,
-        profile,
-        provider: account?.provider
-      });
       // Allow sign in if the user doesn't exist yet
       if (!user.email) {
         return true;

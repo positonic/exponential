@@ -3,7 +3,7 @@
 import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
-import { IconLayoutKanban, IconList, IconCalendarEvent, IconUpload, IconDownload, IconSettings, IconChevronDown, IconChevronUp } from "@tabler/icons-react";
+import { IconLayoutKanban, IconList/*, IconCalendarEvent*/, IconUpload, IconDownload, IconSettings, IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Switch, Tooltip, Badge } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
@@ -43,7 +43,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
   // Get available workflows
   const { data: workflows = [] } = api.workflow.list.useQuery();
-  const utils = api.useUtils();
+  // const utils = api.useUtils();
 
   // Bulk delete mutation
   const bulkDeleteMutation = api.action.bulkDelete.useMutation({

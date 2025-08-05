@@ -243,17 +243,9 @@ export class FirefliesSyncService {
             where: { sessionId: transcript.id }
           });
 
-          console.log(`🔄 Processing transcript ${transcript.id} with title: "${transcript.title}"`);
-          console.log(`📊 Summary data:`, transcript.summary);
           
           const processedData = FirefliesService.processTranscription(transcript);
           
-          console.log(`📋 Processed data summary:`, {
-            hasActionItems: processedData?.actionItems?.length > 0,
-            actionItemsCount: processedData?.actionItems?.length || 0,
-            hasSummary: !!processedData?.summary,
-            hasTranscriptText: !!processedData?.transcriptText
-          });
           
           const sessionData = {
             title: transcript.title || `Fireflies Meeting ${transcript.id}`,
@@ -287,34 +279,22 @@ export class FirefliesSyncService {
           }
 
           // 5. Process action items if available
-          console.log(`🔍 Processing transcript ${transcript.id}: Found ${processedData?.actionItems?.length || 0} action items`);
-          
           if (processedData && processedData.actionItems.length > 0) {
             try {
-              console.log(`🎯 Creating processors for user ${userId}, transcription ${transcriptionSession.id}`);
-              
               const processors = await ActionProcessorFactory.createProcessors(
                 userId, 
                 undefined, // projectId - not specified at sync level
                 transcriptionSession.id
               );
               
-              console.log(`📝 Found ${processors.length} processors: ${processors.map(p => p.name).join(', ')}`);
-              
               for (const processor of processors) {
-                console.log(`⚡ Processing ${processedData.actionItems.length} actions with ${processor.name}`);
                 const actionResult = await processor.processActionItems(processedData.actionItems);
-                console.log(`✅ ${processor.name} created ${actionResult.processedCount} actions`);
                 totalActionsCreated += actionResult.processedCount;
               }
             } catch (actionError) {
-              console.error(`❌ Failed to process action items for ${transcript.id}:`, actionError);
+              console.error(`Failed to process action items for ${transcript.id}:`, actionError);
               // Continue processing other transcripts
             }
-          } else if (processedData) {
-            console.log(`ℹ️ No action items found in transcript ${transcript.id}`);
-          } else {
-            console.log(`⚠️ No processed data for transcript ${transcript.id}`);
           }
 
         } catch (sessionError) {

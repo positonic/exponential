@@ -1,6 +1,6 @@
 'use client';
 
-import { Paper, Stack, Button, Group, Text } from "@mantine/core";
+import { Paper/*, Stack*/, Button, Group, Text } from "@mantine/core";
 import { useLocalStorage } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useEditor } from '@tiptap/react';

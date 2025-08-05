@@ -316,7 +316,7 @@ export default function IntegrationsClient() {
         appId: integrationDetails.appId || '',
       });
     }
-  }, [integrationDetails]);
+  }, [integrationDetails, editForm]);
 
   const handleCreateIntegration = async (values: CreateIntegrationForm) => {
     // Special handling for Slack - use createSlackIntegration with manual credentials

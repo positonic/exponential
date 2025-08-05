@@ -5,19 +5,17 @@ import {
   Title,
   Text,
   Stack,
-  TextInput,
   Checkbox,
-  Textarea,
   Group,
   Button,
   Accordion,
   List,
   Loader,
 } from "@mantine/core";
-import { IconBulb, IconWriting, IconStars, IconList, IconSettings, IconArrowRight } from "@tabler/icons-react";
+import { IconSettings } from "@tabler/icons-react";
 import { notifications } from '@mantine/notifications';
 import { useState, useEffect, useMemo, useCallback, memo } from 'react';
-import { RichTextEditor, Link } from '@mantine/tiptap';
+import { Link } from '@mantine/tiptap';
 import { useEditor } from '@tiptap/react';
 import Highlight from '@tiptap/extension-highlight';
 import StarterKit from '@tiptap/starter-kit';
@@ -28,20 +26,12 @@ import SubScript from '@tiptap/extension-subscript';
 import '@mantine/tiptap/styles.css';
 import { api } from "~/trpc/react";
 import { WindDownRoutineForm } from './WindDownRoutineForm';
-import { startOfDay } from 'date-fns';
-
 // Import section components
-import { GratitudeSection } from './sections/GratitudeSection';
 import { JournalSection } from './sections/JournalSection';
 import { OutcomeSection } from './sections/OutcomeSection';
 import { ExerciseSection } from './sections/ExerciseSection';
 import { NotToDoSection } from './sections/NotToDoSection';
 import { ConfigurationSection } from './sections/ConfigurationSection';
-import { WhatWentWellSection } from './sections/WhatWentWellSection';
-import { EnergyReflectionSection } from './sections/EnergyReflectionSection';
-import { GratitudeOnlySection } from './sections/GratitudeOnlySection';
-import { LearningGrowthSection } from './sections/LearningGrowthSection';
-import { ChallengesSection } from './sections/ChallengesSection';
 
 interface StartupRoutineState {
   intention: string;
@@ -128,7 +118,7 @@ export function StartupRoutineForm() {
     if (!dayData && !isDayLoading && !createUserDay.isPending) {
       createUserDay.mutate({ date: today });
     }
-  }, [dayData, isDayLoading, createUserDay.isPending, createUserDay.mutate, today]);
+  }, [dayData, isDayLoading, createUserDay.isPending, createUserDay, today]);
 
   // Use a more controlled effect that only runs once on mount and when day data changes
   useEffect(() => {

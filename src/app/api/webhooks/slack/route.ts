@@ -90,13 +90,6 @@ function verifySlackSignature(payload: string, timestamp: string, signature: str
       .update(baseString, 'utf8')
       .digest('hex')}`;
     
-    console.log('🔐 Signature verification:', {
-      providedSignature: signature.substring(0, 20) + '...',
-      computedSignature: computedSignature.substring(0, 20) + '...',
-      signingSecretLength: signingSecret.length,
-      payloadLength: payload.length,
-      timestamp
-    });
     
     // Constant-time comparison
     return signature === computedSignature;
@@ -213,12 +206,6 @@ export async function POST(request: NextRequest) {
     const timestamp = request.headers.get('x-slack-request-timestamp');
     const signature = request.headers.get('x-slack-signature');
     
-    console.log('🤖 Slack webhook received:', {
-      signature: signature ? 'present' : 'missing',
-      timestamp: timestamp ? 'present' : 'missing',
-      bodyLength: body.length,
-      contentType: request.headers.get('content-type')
-    });
 
     // Handle different content types
     let payload: SlackEventPayload | SlackSlashCommandPayload | SlackInteractivePayload;
@@ -249,8 +236,7 @@ export async function POST(request: NextRequest) {
 
     // Handle URL verification for Event API
     if ('type' in payload && payload.type === 'url_verification') {
-      console.log('🔗 Slack URL verification challenge received');
-      return NextResponse.json({ challenge: payload.challenge });
+        return NextResponse.json({ challenge: payload.challenge });
     }
 
     // Get team ID and app ID from different payload types
@@ -276,7 +262,6 @@ export async function POST(request: NextRequest) {
       appId = payload.app_id;
     }
     
-    console.log('📱 Slack identifiers:', { teamId, appId });
 
     // Find the integration for this team and app
     const integrationData = await findSlackIntegrationByTeam(teamId, appId);
@@ -288,13 +273,6 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    console.log('🔍 Found integration:', {
-      teamId,
-      hasSigningSecret: !!integrationData.credentials.SIGNING_SECRET,
-      credentialKeys: Object.keys(integrationData.credentials),
-      signingSecretFirst4: integrationData.credentials.SIGNING_SECRET?.substring(0, 4),
-      signingSecretLast4: integrationData.credentials.SIGNING_SECRET?.substring(integrationData.credentials.SIGNING_SECRET.length - 4)
-    });
 
     // Verify signature if we have signing secret
     if (timestamp && signature && integrationData.credentials.SIGNING_SECRET) {
@@ -306,14 +284,8 @@ export async function POST(request: NextRequest) {
           { status: 401 }
         );
       }
-      console.log('✅ Slack signature verified');
     }
 
-    console.log('✅ Slack webhook verified for user:', {
-      userId: integrationData.user?.id,
-      userEmail: integrationData.user?.email,
-      teamId: teamId
-    });
 
     // Route to appropriate handler based on payload type
     let response;
@@ -327,7 +299,6 @@ export async function POST(request: NextRequest) {
       // Interactive component
       response = await handleInteractiveComponent(payload, integrationData);
     } else {
-      console.log('📝 Unhandled Slack payload type');
       response = { success: true, message: 'Received but not processed' };
     }
 
@@ -346,17 +317,11 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
   const { event } = payload;
   const { user, integration } = integrationData;
 
-  console.log('🤖 Processing Slack event:', {
-    eventType: event.type,
-    userId: event.user,
-    channel: event.channel
-  });
 
   switch (event.type) {
     case 'message':
       // Only process non-bot messages that mention the bot or are DMs
       if (!event.bot_id && (event.text?.includes(`<@${integration.data?.bot_user_id}>`) || event.channel?.startsWith('D'))) {
-        console.log(`💬 Processing message - Channel: ${event.channel}, Is DM: ${event.channel?.startsWith('D')}, Text: "${event.text?.substring(0, 50)}..."`);
         return await handleBotMention(event, user, integrationData);
       }
       break;
@@ -365,7 +330,6 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
       return await handleBotMention(event, user, integrationData);
     
     default:
-      console.log(`📝 Unhandled event type: ${event.type}`);
   }
 
   return { success: true, message: 'Event processed' };
@@ -375,12 +339,6 @@ async function handleSlashCommand(payload: SlackSlashCommandPayload, integration
   const { command, text, user_id, channel_id, response_url } = payload;
   const { user } = integrationData;
 
-  console.log('⚡ Processing slash command:', {
-    command,
-    text,
-    userId: user_id,
-    channel: channel_id
-  });
 
   try {
     switch (command) {
@@ -423,11 +381,6 @@ async function handleInteractiveComponent(payload: SlackInteractivePayload, inte
   const { type, actions, user: slackUser } = payload;
   const { user } = integrationData;
 
-  console.log('🎛️ Processing interactive component:', {
-    type,
-    actionCount: actions?.length || 0,
-    userId: slackUser.id
-  });
 
   if (type === 'block_actions' && actions) {
     for (const action of actions) {
@@ -453,10 +406,8 @@ async function chatWithPaddy(message: string, user: any): Promise<string> {
       throw new Error('MASTRA_API_URL not configured');
     }
 
-    console.log(`🤖 [Paddy] Starting chat with message: "${message.substring(0, 50)}..."`);
 
     // Get available agents with timeout
-    console.log('📡 [Paddy] Fetching agents from Mastra...');
     const agentsController = new AbortController();
     const agentsTimeout = setTimeout(() => agentsController.abort(), 10000); // 10s timeout
     
@@ -469,12 +420,9 @@ async function chatWithPaddy(message: string, user: any): Promise<string> {
       throw new Error(`Failed to fetch agents: ${agentsResponse.status}`);
     }
     const agentsData = await agentsResponse.json();
-    console.log(`📋 [Paddy] Found ${Object.keys(agentsData).length} agents`);
 
     // Choose the best agent for this message
-    console.log('🎯 [Paddy] Selecting best agent...');
     const agentId = await chooseAgentForMessage(message, agentsData);
-    console.log(`✨ [Paddy] Selected agent: ${agentId}`);
 
     // Generate system context for the agent
     const systemContext = `You are Paddy, a helpful project manager assistant integrated with Slack. 
@@ -492,7 +440,6 @@ Keep responses concise and friendly, suitable for Slack chat. Use Slack formatti
 IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
 
     // Call the selected agent with timeout
-    console.log('🚀 [Paddy] Calling agent...');
     const generateController = new AbortController();
     const generateTimeout = setTimeout(() => generateController.abort(), 25000); // 25s timeout
     
@@ -510,7 +457,6 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
     clearTimeout(generateTimeout);
 
     const responseTime = Date.now() - startTime;
-    console.log(`⏱️ [Paddy] Agent response took ${responseTime}ms`);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -521,7 +467,6 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
     const result = await response.json();
     const finalResponse = result.text || 'Sorry, I had trouble understanding that. Can you try rephrasing?';
     
-    console.log(`✅ [Paddy] Success! Response length: ${finalResponse.length} chars`);
     return finalResponse;
 
   } catch (error) {
@@ -580,7 +525,6 @@ async function chooseAgentForMessage(message: string, agentsData: any): Promise<
 
 async function handleDeferredPaddyResponse(message: string, user: any, responseUrl: string) {
   try {
-    console.log(`🕐 [Deferred] Starting deferred response for: "${message.substring(0, 50)}..."`);
     
     const paddyResponse = await chatWithPaddy(message, user);
     
@@ -594,7 +538,6 @@ async function handleDeferredPaddyResponse(message: string, user: any, responseU
       })
     });
     
-    console.log(`✅ [Deferred] Successfully sent deferred response`);
   } catch (error) {
     console.error('❌ [Deferred] Error in deferred Paddy response:', error);
     
@@ -615,7 +558,6 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
   const cleanText = text.replace(/<@[A-Z0-9]+>/g, '').trim();
   const isDM = event.channel?.startsWith('D');
 
-  console.log(`🗣️ ${isDM ? 'DM' : 'Mention'} with text:`, cleanText);
 
   // For DMs, if no text or just greeting, send welcome message
   if (isDM && (!cleanText || cleanText.toLowerCase().match(/^(hi|hello|hey|sup|yo)$/))) {
@@ -735,16 +677,9 @@ You can also mention me (@Exponential) in any channel to chat with Paddy!`
 
 async function createActionFromSlack(title: string, user: any, channelId: string, integrationData: any) {
   try {
-    console.log('🔍 Creating action from Slack:', {
-      title,
-      userId: user.id,
-      userEmail: user.email,
-      userName: user.name
-    });
 
     // Get action processors for this user
     const processors = await ActionProcessorFactory.createProcessors(user.id);
-    console.log(`📦 Found ${processors.length} processors for user ${user.id}`);
     
     const actionItem = {
       text: title,
@@ -754,15 +689,7 @@ async function createActionFromSlack(title: string, user: any, channelId: string
 
     let totalCreated = 0;
     for (const processor of processors) {
-      console.log(`🔧 Processing with ${processor.name} (${processor.type})`);
       const result = await processor.processActionItems([actionItem]);
-      console.log(`📝 Processor result:`, {
-        processorName: processor.name,
-        success: result.success,
-        processedCount: result.processedCount,
-        errors: result.errors,
-        createdItems: result.createdItems
-      });
       totalCreated += result.processedCount;
     }
 
@@ -773,7 +700,6 @@ async function createActionFromSlack(title: string, user: any, channelId: string
       integrationData
     );
 
-    console.log(`✅ Created ${totalCreated} actions from Slack for user ${user.id}`);
   } catch (error) {
     console.error('❌ Error creating action from Slack:', error);
     await sendSlackResponse(

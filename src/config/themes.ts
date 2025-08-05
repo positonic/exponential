@@ -1,4 +1,3 @@
-import { type MantineTheme } from '@mantine/core';
 import { createTheme } from '@mantine/core';
 export type ValidDomain = 'forceflow.com' | 'exponential.im';
 

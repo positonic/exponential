@@ -1,5 +1,12 @@
 import "~/styles/globals.css";
 import { GeistSans } from "geist/font/sans";
+import { Orbitron } from 'next/font/google';
+
+const orbitron = Orbitron({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800', '900'],
+  display: 'swap',
+});
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
 import { MantineProvider } from '@mantine/core';
@@ -30,11 +37,8 @@ export default async function HomeLayout({
   const mantineTheme = mantineThemes[domain];
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full scroll-smooth`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.className} h-full scroll-smooth`}>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400..900&display=swap" rel="stylesheet" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

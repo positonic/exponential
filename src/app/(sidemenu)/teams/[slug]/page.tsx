@@ -26,7 +26,7 @@ export default async function TeamDetailPage({ params }: TeamDetailPageProps) {
         currentUserId={session.user.id}
       />
     );
-  } catch (error) {
+  } catch (_error) {
     // Team not found or access denied
     redirect('/teams');
   }

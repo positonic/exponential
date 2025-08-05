@@ -14,7 +14,7 @@ import {
 import { IconMoonStars, IconBrain, IconHeart, IconBolt } from "@tabler/icons-react";
 import { useLocalStorage } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { WhatWentWellSection } from './sections/WhatWentWellSection';
 import { EnergyReflectionSection } from './sections/EnergyReflectionSection';
 import { LearningGrowthSection } from './sections/LearningGrowthSection';
@@ -83,14 +83,8 @@ export function WindDownRoutineForm({ dayId, date }: WindDownRoutineProps) {
   const [causes, setCauses] = useState(todayEntry.causes);
   const [solutions, setSolutions] = useState(todayEntry.solutions);
 
-  // Autosave functionality
-  useEffect(() => {
-    const autosaveInterval = setInterval(saveEntry, 30000); // Autosave every 30 seconds
-    return () => clearInterval(autosaveInterval);
-  }, [wentWell, energized, drained, gratitude, didMeditate, loggedFood, learnings, mistakes, causes, solutions]);
-
   // Save entry
-  const saveEntry = () => {
+  const saveEntry = useCallback(() => {
     const updatedEntry: DailyEntry = {
       date: todayString,
       wentWell,
@@ -115,7 +109,13 @@ export function WindDownRoutineForm({ dayId, date }: WindDownRoutineProps) {
       message: 'Your evening reflection has been saved',
       color: 'blue',
     });
-  };
+  }, [todayString, wentWell, energized, drained, gratitude, didMeditate, loggedFood, learnings, mistakes, causes, solutions, setDailyEntries]);
+
+  // Autosave functionality
+  useEffect(() => {
+    const autosaveInterval = setInterval(saveEntry, 30000); // Autosave every 30 seconds
+    return () => clearInterval(autosaveInterval);
+  }, [saveEntry]);
 
   return (
     <Stack gap="xl">
