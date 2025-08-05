@@ -5,7 +5,7 @@ import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { api } from "~/trpc/react";
 
 export default function Goals() {
-  const { data: goals, isLoading } = api.goal.getAllMyGoals.useQuery(undefined, {
+  const { data: goals } = api.goal.getAllMyGoals.useQuery(undefined, {
     refetchOnWindowFocus: true,
     staleTime: 0,
   });

@@ -297,7 +297,7 @@ export default function IntegrationsClient() {
     },
     validate: {
       name: (value) => value.trim().length === 0 ? 'Integration name is required' : null,
-      appId: (value, values) => {
+      appId: (value, _values) => {
         // For Slack integrations, APP_ID should be required
         if (integrationDetails?.provider === 'slack' && (!value || value.trim().length === 0)) {
           return 'App ID is required for Slack integrations';

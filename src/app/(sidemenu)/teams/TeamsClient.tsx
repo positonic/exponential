@@ -27,8 +27,8 @@ import {
   IconSettings, 
   IconUserPlus,
   IconDots,
-  IconTrash,
-  IconEdit,
+  // IconTrash,
+  // IconEdit,
   IconCrown,
   IconShield,
   IconUser,
@@ -63,7 +63,7 @@ export default function TeamsClient({ currentUserId }: TeamsClientProps) {
 
   // API calls
   const { data: teams = [], refetch } = api.team.list.useQuery();
-  const utils = api.useUtils();
+  // const utils = api.useUtils();
 
   // Create team mutation
   const createTeam = api.team.create.useMutation({

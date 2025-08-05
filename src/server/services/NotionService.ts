@@ -193,7 +193,7 @@ export class NotionService {
 
       console.log('✅ Notion page created successfully:', {
         id: response.id,
-        url: response.url,
+        url: (response as any).url || '',
         title: params.title,
       });
 

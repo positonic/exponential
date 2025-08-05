@@ -40,6 +40,7 @@ interface CreateTokenForm {
   name: string;
   expiresIn: string;
   description?: string;
+  type: 'hex' | 'jwt';
 }
 
 export default function TokensPage() {
@@ -97,6 +98,7 @@ export default function TokensPage() {
       name: '',
       expiresIn: '24h',
       description: '',
+      type: 'hex',
     },
     validate: {
       name: (value) => value.trim().length === 0 ? 'API key name is required' : null,
@@ -107,6 +109,7 @@ export default function TokensPage() {
     await generateToken.mutateAsync({
       name: values.name,
       expiresIn: values.expiresIn,
+      type: values.type,
     });
   };
 
@@ -160,6 +163,7 @@ export default function TokensPage() {
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Name</Table.Th>
+                  <Table.Th>Type</Table.Th>
                   <Table.Th>Expires</Table.Th>
                   <Table.Th>Status</Table.Th>
                   <Table.Th>Actions</Table.Th>
@@ -173,6 +177,14 @@ export default function TokensPage() {
                         <IconKey size={16} />
                         <Text fw={500}>{token.name}</Text>
                       </Group>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge 
+                        color={token.type === 'jwt' ? 'blue' : 'gray'}
+                        variant="light"
+                      >
+                        {token.type === 'jwt' ? 'JWT' : 'Hex'}
+                      </Badge>
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm">{formatDate(token.expiresAt)}</Text>
@@ -234,6 +246,15 @@ export default function TokensPage() {
                   />
 
                   <Select
+                    label="Token Type"
+                    data={[
+                      { value: 'hex', label: 'Hex Key (32 chars) - For webhooks like Fireflies' },
+                      { value: 'jwt', label: 'JWT Token - For API authentication with Mastra' },
+                    ]}
+                    {...form.getInputProps('type')}
+                  />
+
+                  <Select
                     label="Expires In"
                     data={[
                       { value: '1h', label: '1 hour' },
@@ -257,7 +278,10 @@ export default function TokensPage() {
                     title="Important"
                     color="blue"
                   >
-                    API keys are 32 characters and perfect for webhooks (like Fireflies). Copy your key after creation - you won&apos;t be able to see it again.
+                    {form.values.type === 'hex' 
+                      ? 'Hex keys are 32 characters and perfect for webhooks (like Fireflies). Copy your key after creation - you won\'t be able to see it again.'
+                      : 'JWT tokens are used for API authentication with Mastra agents. They are signed with your AUTH_SECRET and include user information.'
+                    }
                   </Alert>
 
                   <Group justify="flex-end">
@@ -276,14 +300,19 @@ export default function TokensPage() {
                 <>
                   <Alert 
                     icon={<IconCheck size={16} />}
-                    title="API Key Generated Successfully"
+                    title="Token Generated Successfully"
                     color="green"
                   >
-                    Your 32-character API key has been generated. Perfect for webhook secrets! Copy it now and store it securely.
+                    {generateToken.data?.type === 'jwt' 
+                      ? 'Your JWT token has been generated. Use this for API authentication with Mastra agents.'
+                      : 'Your 32-character hex key has been generated. Perfect for webhook secrets!'
+                    } Copy it now and store it securely.
                   </Alert>
 
                   <div>
-                    <Text size="sm" fw={500} mb="xs">Your API Key (32 characters):</Text>
+                    <Text size="sm" fw={500} mb="xs">
+                      Your {generateToken.data?.type === 'jwt' ? 'JWT Token' : 'API Key (32 characters)'}:
+                    </Text>
                     <Paper withBorder p="sm" bg="gray.0">
                       <Group justify="space-between" wrap="nowrap">
                         <Code 

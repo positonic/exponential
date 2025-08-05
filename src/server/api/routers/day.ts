@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   createTRPCRouter,
   protectedProcedure,
-  publicProcedure,
 } from "~/server/api/trpc";
 
 import { getUserDays, createUserDay, getDayByDate } from "~/server/services/dayService";

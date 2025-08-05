@@ -3,8 +3,8 @@
 import { Container, Title, Timeline, Text, Card, ThemeIcon, Badge, Stack } from "@mantine/core";
 import { 
   IconCheck, 
-  IconProgressCheck,
-  IconLock,
+  // IconProgressCheck,
+  // IconLock,
   IconBrain,
   IconCalendarStats,
   IconUsers,
@@ -99,6 +99,7 @@ const roadmapData: RoadmapItem[] = [
   }
 ];
 
+/*
 const getStatusIcon = (status: RoadmapItem["status"]) => {
   switch (status) {
     case "completed":
@@ -109,6 +110,7 @@ const getStatusIcon = (status: RoadmapItem["status"]) => {
       return IconLock;
   }
 };
+*/
 
 const getStatusColor = (status: RoadmapItem["status"]) => {
   switch (status) {

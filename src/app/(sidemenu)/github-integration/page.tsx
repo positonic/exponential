@@ -19,7 +19,6 @@ import {
 } from '@mantine/core';
 import { IconBrandGithub, IconAlertCircle, IconCheck } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { TRPCClientError } from '@trpc/client';
 import { DEFAULT_SETTINGS } from '~/server/services/githubService';
 
 interface CreatedIssue {

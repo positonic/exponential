@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
-// import jwt from "jsonwebtoken"; // Not needed for short API keys
+import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
 // OpenAI client for embeddings
@@ -224,6 +224,7 @@ export const mastraRouter = createTRPCRouter({
     .input(z.object({
       name: z.string().optional().default('Mastra Agent Key'),
       expiresIn: z.string().optional().default('24h'), // 24h, 7d, 30d, etc.
+      type: z.enum(['hex', 'jwt']).optional().default('hex'), // Token type
     }))
     .mutation(async ({ ctx, input }) => {
       // Calculate expiration based on input
@@ -232,27 +233,61 @@ export const mastraRouter = createTRPCRouter({
       const expiresAt = new Date(now.getTime() + expirationMs);
 
       try {
-        // Generate a secure 32-character API key (perfect for webhooks)
-        const apiKey = crypto.randomBytes(16).toString('hex'); // 32 characters
+        let apiKey: string;
         const tokenId = crypto.randomUUID(); // Unique identifier for tracking
 
-        // Store API key and metadata in VerificationToken table
-        await ctx.db.verificationToken.create({
-          data: {
-            identifier: `api-key:${input.name}`,
-            token: apiKey, // Store the actual API key for validation
-            expires: expiresAt,
+        if (input.type === 'jwt') {
+          // Generate JWT token for API authentication
+          const payload = {
             userId: ctx.session.user.id,
-          }
-        });
+            sub: ctx.session.user.id,
+            email: ctx.session.user.email,
+            name: ctx.session.user.name,
+            iat: Math.floor(Date.now() / 1000),
+            exp: Math.floor(expiresAt.getTime() / 1000),
+            jti: tokenId,
+            tokenType: 'api-token',
+            tokenName: input.name,
+            picture: ctx.session.user.image,
+            aud: 'mastra-agents',
+            iss: 'todo-app'
+          };
+
+          // Sign JWT with AUTH_SECRET
+          apiKey = jwt.sign(payload, process.env.AUTH_SECRET ?? '');
+          
+          // For JWT tokens, store the tokenId (jti) in the database, not the full JWT
+          await ctx.db.verificationToken.create({
+            data: {
+              identifier: `jwt-token:${input.name}`,
+              token: tokenId, // Store the JWT ID for revocation
+              expires: expiresAt,
+              userId: ctx.session.user.id,
+            }
+          });
+        } else {
+          // Generate a secure 32-character hex key (perfect for webhooks like Fireflies)
+          apiKey = crypto.randomBytes(16).toString('hex'); // 32 characters
+          
+          // Store hex API key and metadata in VerificationToken table
+          await ctx.db.verificationToken.create({
+            data: {
+              identifier: `api-key:${input.name}`,
+              token: apiKey, // Store the actual API key for validation
+              expires: expiresAt,
+              userId: ctx.session.user.id,
+            }
+          });
+        }
 
         return { 
-          token: apiKey, // Return the 32-character API key
-          tokenId: tokenId, // For UI tracking (not stored in DB)
+          token: apiKey, // Return either hex key or JWT
+          tokenId: tokenId, // For UI tracking
           expiresAt: expiresAt.toISOString(),
           expiresIn: input.expiresIn,
           name: input.name,
           userId: ctx.session.user.id,
+          type: input.type, // Return the token type
         };
       } catch (error) {
         console.error('API token generation failed:', error);
@@ -271,15 +306,17 @@ export const mastraRouter = createTRPCRouter({
       expiresAt: z.string(),
       expiresIn: z.string(),
       userId: z.string(),
+      type: z.enum(['hex', 'jwt']).optional(),
     })))
     .query(async ({ ctx }) => {
-      // Query VerificationToken table for API keys
+      // Query VerificationToken table for API keys and JWT tokens
       const tokens = await ctx.db.verificationToken.findMany({
         where: {
           userId: ctx.session.user.id,
-          identifier: {
-            startsWith: 'api-key:'
-          }
+          OR: [
+            { identifier: { startsWith: 'api-key:' } },
+            { identifier: { startsWith: 'jwt-token:' } }
+          ]
         },
         orderBy: {
           expires: 'desc'
@@ -288,7 +325,8 @@ export const mastraRouter = createTRPCRouter({
 
       // Transform the data to match the expected output format
       return tokens.map(token => {
-        const name = token.identifier.replace('api-key:', '');
+        const isJWT = token.identifier.startsWith('jwt-token:');
+        const name = token.identifier.replace(/^(api-key:|jwt-token:)/, '');
         const now = new Date();
         const expiresAt = token.expires;
         const timeUntilExpiry = expiresAt.getTime() - now.getTime();
@@ -306,11 +344,12 @@ export const mastraRouter = createTRPCRouter({
         }
 
         return {
-          tokenId: token.token, // This is the actual API key (32 chars)
+          tokenId: token.token, // For hex: actual key, for JWT: the jti
           name: name,
           expiresAt: token.expires.toISOString(),
           expiresIn: expiresIn,
           userId: token.userId,
+          type: isJWT ? 'jwt' : 'hex', // Add token type
         };
       });
     }),
@@ -326,9 +365,10 @@ export const mastraRouter = createTRPCRouter({
         where: {
           token: input.tokenId,
           userId: ctx.session.user.id, // Ensure user can only delete their own keys
-          identifier: {
-            startsWith: 'api-key:'
-          }
+          OR: [
+            { identifier: { startsWith: 'api-key:' } },
+            { identifier: { startsWith: 'jwt-token:' } }
+          ]
         }
       });
 
@@ -342,12 +382,93 @@ export const mastraRouter = createTRPCRouter({
       return { success: true };
     }),
 
+  // Debug endpoint to inspect JWT tokens
+  debugToken: publicProcedure
+    .input(z.object({
+      token: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      console.log('🔍 [DEBUG TOKEN] debugToken endpoint called');
+      
+      // Get token from input or authorization header
+      let token = input.token;
+      if (!token) {
+        const authHeader = ctx.headers.get('authorization');
+        if (authHeader?.startsWith('Bearer ')) {
+          token = authHeader.substring(7);
+        }
+      }
+      
+      if (!token) {
+        return {
+          error: 'No token provided',
+          hint: 'Pass token in input or Authorization header',
+        };
+      }
+      
+      try {
+        // Try to decode without verification first
+        const decoded = jwt.decode(token) as any;
+        const now = Math.floor(Date.now() / 1000);
+        
+        // Try to verify
+        let verificationResult = 'NOT_VERIFIED';
+        let verificationError = null;
+        try {
+          jwt.verify(token, process.env.AUTH_SECRET ?? '');
+          verificationResult = 'VALID';
+        } catch (err) {
+          verificationError = err instanceof Error ? err.message : 'Unknown error';
+          verificationResult = 'INVALID';
+        }
+        
+        return {
+          tokenInfo: {
+            length: token.length,
+            preview: token.substring(0, 50) + '...',
+            lastChars: '...' + token.slice(-20),
+          },
+          decoded: decoded ? {
+            header: jwt.decode(token, { complete: true })?.header,
+            payload: decoded,
+            userId: decoded.userId || decoded.sub,
+            email: decoded.email,
+            exp: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : null,
+            iat: decoded.iat ? new Date(decoded.iat * 1000).toISOString() : null,
+            isExpired: decoded.exp ? decoded.exp < now : null,
+            secondsUntilExpiry: decoded.exp ? decoded.exp - now : null,
+          } : null,
+          verification: {
+            result: verificationResult,
+            error: verificationError,
+            authSecretPresent: !!process.env.AUTH_SECRET,
+          },
+          serverTime: {
+            iso: new Date().toISOString(),
+            timestamp: now,
+          },
+        };
+      } catch (error) {
+        return {
+          error: 'Failed to decode token',
+          details: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
+    }),
+
   // Project Manager Agent API Endpoints
   projectContext: protectedProcedure
     .input(z.object({
       projectId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      console.log('🎯 [MASTRA DEBUG] projectContext called');
+      console.log('🎯 [MASTRA DEBUG] Session user:', {
+        id: ctx.session.user.id,
+        email: ctx.session.user.email,
+        sessionExpires: ctx.session.expires,
+      });
+      
       // Use authenticated user's ID from session
       const userId = ctx.session.user.id;
       
@@ -433,6 +554,13 @@ export const mastraRouter = createTRPCRouter({
       status: z.enum(['ACTIVE', 'COMPLETED', 'CANCELLED']).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      console.log('🎯 [MASTRA DEBUG] projectActions called');
+      console.log('🎯 [MASTRA DEBUG] Session user:', {
+        id: ctx.session.user.id,
+        email: ctx.session.user.email,
+        sessionExpires: ctx.session.expires,
+      });
+      
       // Use authenticated user's ID from session
       const userId = ctx.session.user.id;
       
@@ -605,7 +733,12 @@ export const mastraRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-
+      console.log('🎯 [MASTRA DEBUG] getMeetingTranscriptions called');
+      console.log('🎯 [MASTRA DEBUG] Session user:', {
+        id: ctx.session.user.id,
+        email: ctx.session.user.email,
+        sessionExpires: ctx.session.expires,
+      });
       // Build where clause for TranscriptionSession query
       const whereClause: any = {
         userId: userId, // Ensure user can only access their own transcriptions

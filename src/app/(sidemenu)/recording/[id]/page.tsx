@@ -1,16 +1,13 @@
 'use client';
 
 import { api } from "~/trpc/react";
-import { useRouter } from "next/navigation";
+// import { useRouter } from "next/navigation";
 import { 
   Paper, 
   Title, 
   Text,
   Skeleton,
-  Button,
   Group,
-  Table,
-  Badge,
   Image,
   SimpleGrid,
 } from '@mantine/core';
@@ -27,7 +24,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     id: id 
   });
   
-  const router = useRouter();
+  // const router = useRouter();
 
  
 

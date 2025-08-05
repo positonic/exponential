@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Container, Title, Text, Stack, Paper, Group, Button, Textarea, Card, Badge, ThemeIcon, ActionIcon, Loader } from '@mantine/core';
+import { Container, Title, Text, Stack, Paper, Group, Button, Textarea, Card, Badge, ThemeIcon, Loader } from '@mantine/core';
 import { IconSparkles, IconArrowRight, IconCheck, IconRocket, IconUsers, IconTrendingUp, IconMessageCircle, IconWand, IconEye } from '@tabler/icons-react';
 
 interface ChatMessage {

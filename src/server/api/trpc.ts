@@ -44,10 +44,13 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       console.log('🔍 [AUTH DEBUG] JWT token length:', token.length);
-      console.log('🔍 [AUTH DEBUG] JWT token preview:', token.substring(0, 50) + '...');
+      console.log('🔍 [AUTH DEBUG] JWT token last 20 chars:', '...' + token.slice(-20));
+      console.log('🔍 [AUTH DEBUG] Full JWT token:', token); // Full token for debugging
       
       try {
+        console.log('🔍 [AUTH DEBUG] Current server time:', new Date().toISOString());
         console.log('🔍 [AUTH DEBUG] Attempting JWT verification with AUTH_SECRET...');
+        
         // Verify the JWT token
         const decoded = jwt.verify(token, process.env.AUTH_SECRET ?? '') as {
           userId?: string;   // Legacy format
@@ -57,15 +60,31 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           picture?: string;
           tokenType?: string;
           exp?: number;
+          iat?: number;
+          jti?: string;
         };
 
+        const now = Math.floor(Date.now() / 1000);
+        const isExpired = decoded.exp ? decoded.exp < now : false;
+        
         console.log('🔍 [AUTH DEBUG] JWT decoded successfully:', {
           userId: decoded.userId,
           sub: decoded.sub,
           email: decoded.email,
           tokenType: decoded.tokenType,
-          exp: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'No expiry'
+          jti: decoded.jti,
+          iat: decoded.iat ? new Date(decoded.iat * 1000).toISOString() : 'No issued time',
+          exp: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'No expiry',
+          expTimestamp: decoded.exp,
+          currentTimestamp: now,
+          secondsUntilExpiry: decoded.exp ? decoded.exp - now : 'N/A',
         });
+        
+        if (isExpired) {
+          console.log('⚠️ [AUTH DEBUG] WARNING: TOKEN SHOULD BE EXPIRED!');
+          console.log('⚠️ [AUTH DEBUG] Token exp:', decoded.exp, 'Current time:', now);
+          console.log('⚠️ [AUTH DEBUG] But JWT verification passed somehow!');
+        }
 
         // Support both legacy and new token formats
         const userId = decoded.userId || decoded.sub;
@@ -118,7 +137,14 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
     }
   }
 
-  console.log('🔍 [AUTH DEBUG] Returning context with session:', session?.user ? 'Session present' : 'No session');
+  // Add final session debug info
+  if (session?.user) {
+    console.log('🔍 [AUTH DEBUG] Final session source:', 
+      session.user.id === (await auth())?.user?.id ? 'NextAuth session' : 'JWT session'
+    );
+  }
+  
+  console.log('🔍 [AUTH DEBUG] Returning context with session:', session?.user ? `Session present (user: ${session.user.email})` : 'No session');
   return {
     db,
     session,

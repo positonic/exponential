@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Container, Title, Text, Stack, Paper, Group, Button, Textarea, Card, Badge, ThemeIcon, Rating, Select, Checkbox, Alert } from '@mantine/core';
-import { IconMessageCircle, IconBulb, IconHeart, IconStar, IconAlertCircle, IconCheck } from '@tabler/icons-react';
+import { Container, Title, Text, Stack, Paper, Group, Button, Textarea, Card, ThemeIcon, Rating, Select, Checkbox, Alert } from '@mantine/core';
+import { IconMessageCircle, IconBulb, IconHeart, IconStar, IconCheck } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 
 interface FeedbackForm {

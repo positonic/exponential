@@ -39,7 +39,7 @@ export const githubRouter = createTRPCRouter({
         owner: z.string().default(githubService.DEFAULT_SETTINGS.owner),
       })
     )
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       // Initialize GitHub client
       const octokit = githubService.initGithubClient(process.env.GITHUB_TOKEN || "");
       
@@ -62,7 +62,7 @@ export const githubRouter = createTRPCRouter({
         owner: z.string().default(githubService.DEFAULT_SETTINGS.owner),
       })
     )
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       // Initialize GitHub client
       const octokit = githubService.initGithubClient(process.env.GITHUB_TOKEN || "");
       

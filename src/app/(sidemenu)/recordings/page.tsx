@@ -14,6 +14,7 @@ import {
 import { useRouter } from 'next/navigation';
 
 
+/*
 const meetingSummaryPrompt = `
   [Meeting Topic or Title]
 [Meeting Date]
@@ -49,6 +50,7 @@ The goal is to make this usable for project tracking (e.g. in GitHub or Notion).
 
 
 `;
+*/
 
 function SessionsList() {
   const { data: sessions, isLoading } = api.transcription.getSessions.useQuery();

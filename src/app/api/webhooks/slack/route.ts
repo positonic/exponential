@@ -2,7 +2,6 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
 import { db } from '~/server/db';
 import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
-import { NotificationServiceFactory } from '~/server/services/notifications/NotificationServiceFactory';
 
 // Slack Event API payload types
 interface SlackEventPayload {
