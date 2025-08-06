@@ -25,11 +25,6 @@ const avatar: avatarSettings = {
 const Demo: React.FC = () => {
   const [showDottedFace, setShowDottedFace] = useState(true);
 
-  const onStart = () => {
-    console.log("Setting setshowDottedface to false...");
-    setShowDottedFace(false);
-  };
-
   const onClose = () => {
     console.log("Setting setshowDottedface to true...");
     setShowDottedFace(true);
@@ -46,7 +41,6 @@ const Demo: React.FC = () => {
             openai_model={avatar.openai_model}
             simli_faceid={avatar.simli_faceid}
             initialPrompt={avatar.initialPrompt}
-            onStart={onStart}
             onClose={onClose}
             showDottedFace={showDottedFace}
           />
