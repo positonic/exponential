@@ -202,7 +202,11 @@ async function auditSlackMappings() {
 }
 
 // Run the audit if this script is executed directly
-if (import.meta.main) {
+// Check if running directly with Bun or Node.js
+const isMainModule = typeof require !== 'undefined' && require.main === module ||
+                    typeof import.meta !== 'undefined' && (import.meta as any).main;
+
+if (isMainModule) {
   auditSlackMappings().catch(error => {
     console.error('Fatal error:', error);
     process.exit(1);

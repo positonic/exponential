@@ -157,7 +157,11 @@ async function cleanupUnauthorizedMappings() {
 }
 
 // Run the cleanup
-if (import.meta.main) {
+// Check if running directly with Bun or Node.js
+const isMainModule = typeof require !== 'undefined' && require.main === module ||
+                    typeof import.meta !== 'undefined' && (import.meta as any).main;
+
+if (isMainModule) {
   cleanupUnauthorizedMappings()
     .then(() => {
       console.log('\n✅ Cleanup analysis completed successfully');

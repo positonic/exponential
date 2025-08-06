@@ -25,6 +25,9 @@ async function testConnection() {
   }
 }
 
-if (import.meta.main) {
+// Check if running directly with Bun or Node.js
+if (typeof require !== 'undefined' && require.main === module) {
+  testConnection();
+} else if (typeof import.meta !== 'undefined' && (import.meta as any).main) {
   testConnection();
 }

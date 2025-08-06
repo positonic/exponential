@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { signIn, useSession } from 'next-auth/react';
 import { api } from '~/trpc/react';
@@ -24,7 +24,10 @@ import {
   IconUser
 } from '@tabler/icons-react';
 
-export default function SlackConnectPage() {
+// Force dynamic rendering for this page
+export const dynamic = 'force-dynamic';
+
+function SlackConnectContent() {
   const searchParams = useSearchParams();
   const { data: session, status } = useSession();
   const [registrationStep, setRegistrationStep] = useState<'loading' | 'login' | 'connecting' | 'success' | 'error'>('loading');
@@ -187,5 +190,22 @@ export default function SlackConnectPage() {
         </Stack>
       </Paper>
     </Container>
+  );
+}
+
+export default function SlackConnectPage() {
+  return (
+    <Suspense fallback={
+      <Container size="sm" py="xl">
+        <Paper shadow="md" p="xl" radius="md">
+          <Stack gap="lg" align="center">
+            <Loader size="md" />
+            <Text ta="center" c="dimmed">Loading...</Text>
+          </Stack>
+        </Paper>
+      </Container>
+    }>
+      <SlackConnectContent />
+    </Suspense>
   );
 }
