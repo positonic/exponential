@@ -45,6 +45,11 @@ const createEpicSchema = z.object({
 });
 
 export const createGithubTools = (ctx: any, projectSettings?: githubService.GitHubProjectSettings) => {
+  // SECURITY CHECK: Ensure user is authenticated for all GitHub operations
+  if (!ctx?.session?.user?.id) {
+    throw new Error('Unauthorized: Authentication required to access GitHub tools');
+  }
+
   const settings = projectSettings || githubService.DEFAULT_SETTINGS;
   
   // Initialize the GitHub client with the token from environment

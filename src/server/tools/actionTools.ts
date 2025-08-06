@@ -37,6 +37,11 @@ const retrieveActionsSchema = z.object({
 });
 
 export const createActionTools = (ctx: any) => {
+  // Validate authenticated context exists for all action tools
+  if (!ctx?.session?.user?.id) {
+    throw new Error('Unauthorized: Authentication required to access action tools');
+  }
+
   const createActionTool = tool(
     async (input): Promise<string> => {
       try {
@@ -82,11 +87,15 @@ export const createActionTools = (ctx: any) => {
   const readActionTool = tool(
     async (input): Promise<string> => {
       try {
-        const action = await ctx.db.action.findUnique({
-          where: { id: input.id },
+        // SECURITY: Only allow users to read their own actions
+        const action = await ctx.db.action.findFirst({
+          where: { 
+            id: input.id,
+            createdById: ctx.session.user.id
+          },
         });
         if (!action) {
-          throw new Error("Action not found");
+          throw new Error("Action not found or access denied");
         }
         return JSON.stringify(action, null, 2);
       } catch (error) {
@@ -106,8 +115,12 @@ export const createActionTools = (ctx: any) => {
       try {
         console.log('Update status action input is ', input);
         console.log('IN updateActionTool');
+        // SECURITY: Only allow users to update their own actions
         const action = await ctx.db.action.update({
-          where: { id: input.id },
+          where: { 
+            id: input.id,
+            createdById: ctx.session.user.id
+          },
           data: {
             ...(input.status && { status: input.status }),
           },
@@ -128,8 +141,12 @@ export const createActionTools = (ctx: any) => {
   const deleteActionTool = tool(
     async (input): Promise<string> => {
       try {
+        // SECURITY: Only allow users to delete their own actions
         await ctx.db.action.delete({
-          where: { id: input.id },
+          where: { 
+            id: input.id,
+            createdById: ctx.session.user.id
+          },
         });
         return `Successfully deleted action with ID: ${input.id}`;
       } catch (error) {

@@ -353,14 +353,16 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
   }
 
   // Find the authenticated user for this Slack user
-  let authenticatedUser = installerUser; // Default fallback
+  let authenticatedUser = installerUser; // Default fallback for when slackUserId is missing
   if (slackUserId) {
     const resolvedUser = await findTeamMemberFromSlackUser(integration, slackUserId, slackUsername);
     if (resolvedUser) {
       authenticatedUser = resolvedUser;
       console.log(`🔐 [Auth] Resolved Slack user ${slackUserId} to system user ${authenticatedUser.name}`);
     } else {
-      console.warn(`⚠️ Could not resolve Slack user ${slackUserId}, using integration installer`);
+      // SECURITY: Reject unauthorized users instead of falling back to installer
+      console.warn(`🚨 [Security] Access denied for Slack user ${slackUserId} - not authorized`);
+      authenticatedUser = null;
     }
   }
 
@@ -369,6 +371,17 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
       // Only process non-bot DMs (avoid duplicate processing with app_mention)
       if (!event.bot_id && event.channel?.startsWith('D')) {
         console.log(`💬 [Slack] Processing DM from user ${slackUserId}`);
+        
+        // Check authorization before processing
+        if (!authenticatedUser) {
+          await sendSlackResponse(
+            "🚨 Access denied. You are not authorized to use this system. Please contact your team administrator to be added.",
+            event.channel,
+            integrationData
+          );
+          return { success: true, message: 'Unauthorized user denied' };
+        }
+        
         return await handleBotMention(event, authenticatedUser, integrationData);
       }
       break;
@@ -376,6 +389,18 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
     case 'app_mention':
       // Handle channel mentions only
       console.log(`🏷️ [Slack] Processing app mention from user ${slackUserId}`);
+      
+      // Check authorization before processing
+      if (!authenticatedUser) {
+        await sendSlackResponse(
+          "🚨 Access denied. You are not authorized to use this system. Please contact your team administrator to be added.",
+          event.channel!,
+          integrationData,
+          event.thread_ts
+        );
+        return { success: true, message: 'Unauthorized user denied' };
+      }
+      
       return await handleBotMention(event, authenticatedUser, integrationData);
     
     default:
@@ -525,11 +550,19 @@ async function findTeamMemberFromSlackUser(
         include: { user: true }
       });
 
-      // Try to match by username or email containing username
-      const matchedMember = teamMembers.find(tm => 
-        tm.user.email?.toLowerCase().includes(slackUsername.toLowerCase()) ||
-        tm.user.name?.toLowerCase() === slackUsername.toLowerCase()
-      );
+      // Try to match by exact username or email starting with username
+      // SECURITY: Use more precise matching to prevent false positives
+      const matchedMember = teamMembers.find(tm => {
+        const userEmail = tm.user.email?.toLowerCase() || '';
+        const userName = tm.user.name?.toLowerCase() || '';
+        const slackUserLower = slackUsername.toLowerCase();
+        
+        // Exact name match OR email starts with username followed by @ or .
+        return userName === slackUserLower || 
+               userEmail === `${slackUserLower}@${userEmail.split('@')[1]}` ||
+               userEmail.startsWith(`${slackUserLower}.`) ||
+               userEmail.startsWith(`${slackUserLower}@`);
+      });
 
       if (matchedMember) {
         // Create mapping for future use
@@ -538,12 +571,17 @@ async function findTeamMemberFromSlackUser(
       }
     }
 
-    // Fallback: if no team and no mapping, use integration installer
-    if (integration.user) {
-      await createSlackUserMapping(integration.id, slackUserId, integration.user.id);
-      return integration.user;
-    }
+    // SECURITY: Do NOT fall back to integration installer - this creates identity substitution vulnerability
+    // Log the unauthorized access attempt for security monitoring
+    console.error(`🚨 [SECURITY ALERT] Unauthorized Slack access attempt:`, {
+      slackUserId,
+      slackUsername, 
+      integrationId: integration.id,
+      teamId: integration.team?.id || 'no-team',
+      timestamp: new Date().toISOString()
+    });
 
+    // Return null to reject unauthorized access
     return null;
   } catch (error) {
     console.error('Error finding team member from Slack user:', error);

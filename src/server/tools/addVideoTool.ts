@@ -9,6 +9,11 @@ const addVideoSchema = z.object({
 
 export const createAddVideoTool = (ctx: any) => tool(
   async (input): Promise<string> => {
+    // SECURITY CHECK: Ensure user is authenticated
+    if (!ctx?.session?.user?.id) {
+      throw new Error('Unauthorized: Authentication required to add videos');
+    }
+
     try {
       const slug = getVideoIdFromYoutubeUrl(input.videoUrl);
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
