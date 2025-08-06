@@ -88,6 +88,9 @@ function parseExpiration(expiresIn: string): number {
 
 // Helper function to generate JWT for agent contexts
 function generateAgentJWT(user: { id: string; email?: string | null; name?: string | null; image?: string | null }, expiryMinutes = 30): string {
+  // Security fix deployment timestamp - invalidates all JWTs issued before this fix
+  const securityFixTimestamp = Math.floor(new Date('2025-08-06T15:45:00Z').getTime() / 1000);
+  
   return jwt.sign(
     {
       userId: user.id,
@@ -97,10 +100,12 @@ function generateAgentJWT(user: { id: string; email?: string | null; name?: stri
       picture: user.image,
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + (60 * expiryMinutes),
+      nbf: securityFixTimestamp, // Not valid before security fix deployment
       jti: crypto.randomUUID(),
       tokenType: 'agent-context',
       aud: 'mastra-agents',
-      iss: 'todo-app'
+      iss: 'todo-app',
+      securityVersion: 1 // Version to track security fixes
     },
     process.env.AUTH_SECRET ?? ''
   );

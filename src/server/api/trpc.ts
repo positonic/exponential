@@ -50,8 +50,21 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           tokenType?: string;
           exp?: number;
           iat?: number;
+          nbf?: number;      // Not before timestamp
           jti?: string;
+          securityVersion?: number;
         };
+
+        // Additional security validation for post-fix JWTs
+        const securityFixTimestamp = Math.floor(new Date('2025-08-06T15:45:00Z').getTime() / 1000);
+        
+        if (decoded.nbf && decoded.nbf < securityFixTimestamp) {
+          throw new Error('JWT issued before security fix - token invalidated');
+        }
+        
+        if (decoded.securityVersion && decoded.securityVersion < 1) {
+          throw new Error('JWT security version too old - token invalidated');
+        }
 
         // Support both legacy and new token formats
         const userId = decoded.userId || decoded.sub;
