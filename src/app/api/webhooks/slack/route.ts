@@ -5,6 +5,20 @@ import { ActionProcessorFactory } from '~/server/services/processors/ActionProce
 import { createCallerFactory } from '~/server/api/trpc';
 import { appRouter } from '~/server/api/root';
 
+// Event deduplication cache
+const processedEvents = new Map<string, number>();
+const EVENT_CACHE_TTL = 60000; // 1 minute
+
+// Clean up old events periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [eventId, timestamp] of processedEvents.entries()) {
+    if (now - timestamp > EVENT_CACHE_TTL) {
+      processedEvents.delete(eventId);
+    }
+  }
+}, EVENT_CACHE_TTL);
+
 // Slack Event API payload types
 interface SlackEventPayload {
   token: string;
@@ -316,8 +330,18 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleSlackEvent(payload: SlackEventPayload, integrationData: any) {
-  const { event } = payload;
+  const { event, event_id } = payload;
   const { user: installerUser, integration } = integrationData;
+  
+  // Check for duplicate event
+  if (event_id) {
+    if (processedEvents.has(event_id)) {
+      console.log(`⚠️ Duplicate event detected: ${event_id}, skipping`);
+      return { success: true, message: 'Duplicate event skipped' };
+    }
+    // Mark this event as processed
+    processedEvents.set(event_id, Date.now());
+  }
 
   // Resolve the actual Slack user who sent the message
   const slackUserId = event.user;
@@ -663,6 +687,14 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
   const text = event.text || '';
   const cleanText = text.replace(/<@[A-Z0-9]+>/g, '').trim();
   const isDM = event.channel?.startsWith('D');
+  
+  // Create a unique key for this message to prevent duplicate processing
+  const messageKey = `${event.channel}-${event.ts}`;
+  if (processedEvents.has(messageKey)) {
+    console.log(`⚠️ Duplicate message detected: ${messageKey}, skipping`);
+    return { success: true };
+  }
+  processedEvents.set(messageKey, Date.now());
 
 
   // For DMs, if no text or just greeting, send welcome message
@@ -686,15 +718,7 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
   }
 
   try {
-    // Send immediate "thinking" response
-    await sendSlackResponse(
-      '🤖 Paddy is thinking... I\'ll respond shortly!',
-      event.channel!,
-      integrationData,
-      event.thread_ts
-    );
-    
-    // Process in background
+    // Process the request and respond directly (no "thinking" message)
     const response = await chatWithPaddyUsingTRPC(cleanText, user);
     
     await sendSlackResponse(
