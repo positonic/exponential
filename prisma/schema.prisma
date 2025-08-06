@@ -56,6 +56,7 @@ model User {
   assignedActions       Action[]               @relation("AssignedActions")
   goals                 Goal[]
   integrations          Integration[]
+  integrationMappings   IntegrationUserMapping[] // User mappings across integrations
   notes                 Note[]
   outcomes              Outcome[]
   posts                 Post[]
@@ -367,6 +368,7 @@ model Integration {
   user                  User?                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   team                  Team?                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
   credentials           IntegrationCredential[]
+  userMappings          IntegrationUserMapping[] // User mappings for this integration
   transcriptionSessions TranscriptionSession[] // Transcriptions created by this integration
   workflows             Workflow[] // Workflows using this integration
   slackChannelConfigs   SlackChannelConfig[] // Slack channel configurations using this integration
@@ -387,6 +389,23 @@ model IntegrationCredential {
   integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@index([integrationId])
+}
+
+model IntegrationUserMapping {
+  id              String      @id @default(cuid())
+  integrationId   String
+  externalUserId  String      // Slack user ID (U1234567890), GitHub user ID, etc.
+  userId          String      // Your system user ID  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  integration     Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([integrationId, externalUserId])
+  @@index([integrationId])
+  @@index([userId])
+  @@index([externalUserId])
 }
 
 model Workflow {

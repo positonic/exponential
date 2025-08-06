@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
 import { db } from '~/server/db';
 import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
+import { createCallerFactory } from '~/server/api/trpc';
+import { appRouter } from '~/server/api/root';
 
 // Slack Event API payload types
 interface SlackEventPayload {
@@ -315,19 +317,39 @@ export async function POST(request: NextRequest) {
 
 async function handleSlackEvent(payload: SlackEventPayload, integrationData: any) {
   const { event } = payload;
-  const { user, integration } = integrationData;
+  const { user: installerUser, integration } = integrationData;
 
+  // Resolve the actual Slack user who sent the message
+  const slackUserId = event.user;
+  const slackUsername = 'Unknown'; // Slack doesn't always provide username in events
+  
+  if (!slackUserId) {
+    console.warn('⚠️ No Slack user ID in event, using integration installer');
+    // Use installer as fallback
+  }
+
+  // Find the authenticated user for this Slack user
+  let authenticatedUser = installerUser; // Default fallback
+  if (slackUserId) {
+    const resolvedUser = await findTeamMemberFromSlackUser(integration, slackUserId, slackUsername);
+    if (resolvedUser) {
+      authenticatedUser = resolvedUser;
+      console.log(`🔐 [Auth] Resolved Slack user ${slackUserId} to system user ${authenticatedUser.name}`);
+    } else {
+      console.warn(`⚠️ Could not resolve Slack user ${slackUserId}, using integration installer`);
+    }
+  }
 
   switch (event.type) {
     case 'message':
       // Only process non-bot messages that mention the bot or are DMs
       if (!event.bot_id && (event.text?.includes(`<@${integration.data?.bot_user_id}>`) || event.channel?.startsWith('D'))) {
-        return await handleBotMention(event, user, integrationData);
+        return await handleBotMention(event, authenticatedUser, integrationData);
       }
       break;
     
     case 'app_mention':
-      return await handleBotMention(event, user, integrationData);
+      return await handleBotMention(event, authenticatedUser, integrationData);
     
     default:
   }
@@ -336,21 +358,34 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
 }
 
 async function handleSlashCommand(payload: SlackSlashCommandPayload, integrationData: any) {
-  const { command, text, user_id, channel_id, response_url } = payload;
-  const { user } = integrationData;
+  const { command, text, user_id, user_name, channel_id, response_url } = payload;
+  const { user: installerUser, integration } = integrationData;
 
+  // Resolve the actual Slack user who sent the slash command
+  const slackUserId = user_id;
+  const slackUsername = user_name || 'Unknown';
+  
+  // Find the authenticated user for this Slack user
+  let authenticatedUser = installerUser; // Default fallback
+  const resolvedUser = await findTeamMemberFromSlackUser(integration, slackUserId, slackUsername);
+  if (resolvedUser) {
+    authenticatedUser = resolvedUser;
+    console.log(`🔐 [Auth] Resolved Slack user ${slackUserId} (${slackUsername}) to system user ${authenticatedUser.name}`);
+  } else {
+    console.warn(`⚠️ Could not resolve Slack user ${slackUserId} (${slackUsername}), using integration installer`);
+  }
 
   try {
     switch (command) {
       case '/expo':
       case '/exponential':
-        return await handleExpoCommand(text, user, response_url, channel_id, integrationData);
+        return await handleExpoCommand(text, authenticatedUser, response_url, channel_id, integrationData);
       
       case '/paddy':
       case '/p':
         // Direct shorthand for chatting with Paddy
         if (text.trim()) {
-          void handleDeferredPaddyResponse(text, user, response_url);
+          void handleDeferredPaddyResponse(text, authenticatedUser, response_url);
           return {
             response_type: 'ephemeral',
             text: '🤖 Paddy is thinking... I\'ll respond shortly!'
@@ -397,34 +432,147 @@ async function handleInteractiveComponent(payload: SlackInteractivePayload, inte
   return { success: true };
 }
 
-async function chatWithPaddy(message: string, user: any): Promise<string> {
+async function findUserFromSlackIntegration(
+  integrationId: string,
+  slackUserId: string
+): Promise<any | null> {
+  try {
+    // Look for existing mapping
+    const userMapping = await db.integrationUserMapping.findFirst({
+      where: {
+        integrationId,
+        externalUserId: slackUserId
+      },
+      include: {
+        user: true
+      }
+    });
+    
+    if (userMapping) {
+      return userMapping.user;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error finding user from Slack integration:', error);
+    return null;
+  }
+}
+
+async function createSlackUserMapping(
+  integrationId: string,
+  slackUserId: string,
+  systemUserId: string
+): Promise<boolean> {
+  try {
+    await db.integrationUserMapping.create({
+      data: {
+        integrationId,
+        externalUserId: slackUserId,
+        userId: systemUserId
+      }
+    });
+    return true;
+  } catch (error) {
+    console.error('Error creating Slack user mapping:', error);
+    return false;
+  }
+}
+
+async function findTeamMemberFromSlackUser(
+  integration: any,
+  slackUserId: string,
+  slackUsername: string
+): Promise<any | null> {
+  try {
+    // First, try to find existing mapping
+    const mappedUser = await findUserFromSlackIntegration(integration.id, slackUserId);
+    if (mappedUser) {
+      return mappedUser;
+    }
+
+    // If no mapping exists and integration has a team, try to match by email/username
+    if (integration.team) {
+      const teamMembers = await db.teamUser.findMany({
+        where: { teamId: integration.team.id },
+        include: { user: true }
+      });
+
+      // Try to match by username or email containing username
+      const matchedMember = teamMembers.find(tm => 
+        tm.user.email?.toLowerCase().includes(slackUsername.toLowerCase()) ||
+        tm.user.name?.toLowerCase() === slackUsername.toLowerCase()
+      );
+
+      if (matchedMember) {
+        // Create mapping for future use
+        await createSlackUserMapping(integration.id, slackUserId, matchedMember.user.id);
+        return matchedMember.user;
+      }
+    }
+
+    // Fallback: if no team and no mapping, use integration installer
+    if (integration.user) {
+      await createSlackUserMapping(integration.id, slackUserId, integration.user.id);
+      return integration.user;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error finding team member from Slack user:', error);
+    return null;
+  }
+}
+
+async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<string> {
   const startTime = Date.now();
   
   try {
-    const MASTRA_API_URL = process.env.MASTRA_API_URL;
-    if (!MASTRA_API_URL) {
-      throw new Error('MASTRA_API_URL not configured');
-    }
+    console.log(`🤖 [Paddy] Starting chat with user ${user.name} (${user.id})`);
 
+    // Create mock session for server-side tRPC call
+    const mockSession = {
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        image: user.image,
+      },
+      expires: new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
+    };
 
-    // Get available agents with timeout
-    const agentsController = new AbortController();
-    const agentsTimeout = setTimeout(() => agentsController.abort(), 10000); // 10s timeout
-    
-    const agentsResponse = await fetch(`${MASTRA_API_URL}/api/agents`, {
-      signal: agentsController.signal
+    // Create server-side tRPC caller with authentication context
+    const createCaller = createCallerFactory(appRouter);
+    const caller = createCaller({
+      db,
+      session: mockSession,
+      headers: new Headers() // Mock headers for server-side call
     });
-    clearTimeout(agentsTimeout);
+
+    // Get available agents
+    const mastraAgents = await caller.mastra.getMastraAgents();
+    console.log(`🔍 [Paddy] Found ${mastraAgents.length} available agents`);
+
+    // Find Paddy agent or fallback
+    let targetAgentId: string;
+    const paddyAgent = mastraAgents.find(agent => 
+      agent.name.toLowerCase().includes('paddy') || 
+      agent.name.toLowerCase().includes('project manager')
+    );
     
-    if (!agentsResponse.ok) {
-      throw new Error(`Failed to fetch agents: ${agentsResponse.status}`);
+    if (paddyAgent) {
+      targetAgentId = paddyAgent.id;
+      console.log(`🎯 [Paddy] Using Paddy agent: ${paddyAgent.name}`);
+    } else if (mastraAgents.length > 0) {
+      // Use agent selection if Paddy not found
+      const { agentId } = await caller.mastra.chooseAgent({ message });
+      targetAgentId = agentId;
+      console.log(`🎯 [Paddy] AI selected agent: ${agentId}`);
+    } else {
+      throw new Error('No agents available');
     }
-    const agentsData = await agentsResponse.json();
 
-    // Choose the best agent for this message
-    const agentId = await chooseAgentForMessage(message, agentsData);
-
-    // Generate system context for the agent
+    // Generate system context for Slack interaction
     const systemContext = `You are Paddy, a helpful project manager assistant integrated with Slack. 
 The user is ${user.name || 'User'} (ID: ${user.id}).
 Current date: ${new Date().toISOString().split('T')[0]}
@@ -434,38 +582,28 @@ You can help with:
 - Discussing projects and priorities  
 - General productivity and project management advice
 - Answering questions about their work
+- Accessing meeting transcriptions and project data
 
 Keep responses concise and friendly, suitable for Slack chat. Use Slack formatting when helpful (like *bold* or _italic_).
 
 IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
 
-    // Call the selected agent with timeout
-    const generateController = new AbortController();
-    const generateTimeout = setTimeout(() => generateController.abort(), 25000); // 25s timeout
-    
-    const response = await fetch(`${MASTRA_API_URL}/api/agents/${agentId}/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [
-          { role: 'system', content: systemContext },
-          { role: 'user', content: message }
-        ]
-      }),
-      signal: generateController.signal
+    // Call agent through authenticated tRPC
+    console.log(`🚀 [Paddy] Calling agent ${targetAgentId} with message: "${message.substring(0, 50)}..."`);
+    const result = await caller.mastra.callAgent({
+      agentId: targetAgentId,
+      messages: [
+        { role: 'system', content: systemContext },
+        { role: 'user', content: message }
+      ]
     });
-    clearTimeout(generateTimeout);
 
     const responseTime = Date.now() - startTime;
+    console.log(`✅ [Paddy] Got response in ${responseTime}ms from ${result.agentName}`);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ [Paddy] Agent call failed: ${response.status} - ${errorText}`);
-      throw new Error(`Agent call failed: ${response.status} - ${errorText}`);
-    }
-
-    const result = await response.json();
-    const finalResponse = result.text || 'Sorry, I had trouble understanding that. Can you try rephrasing?';
+    const finalResponse = typeof result.response === 'string' 
+      ? result.response 
+      : 'Sorry, I had trouble understanding that. Can you try rephrasing?';
     
     return finalResponse;
 
@@ -474,59 +612,24 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
     console.error(`❌ [Paddy] Error after ${totalTime}ms:`, error);
     
     if (error instanceof Error) {
-      if (error.name === 'AbortError') {
-        return 'Sorry, that request took too long to process. Please try a simpler question or try again later.';
-      }
-      if (error.message.includes('timeout')) {
+      if (error.message.toLowerCase().includes('timeout')) {
         return 'The request timed out. Please try asking something simpler or try again in a moment.';
+      }
+      if (error.message.toLowerCase().includes('unauthorized')) {
+        return 'I had trouble accessing some features. Please try a simpler question.';
       }
     }
     
-    throw error;
+    return 'Sorry, I encountered an error. Please try a simpler question or try again later.';
   }
 }
 
-async function chooseAgentForMessage(message: string, agentsData: any): Promise<string> {
-  try {
-    // Simple agent selection logic - you can enhance this
-    // For now, try to find "Paddy" agent or use the first available agent
-    const agentEntries = Object.entries(agentsData);
-    
-    // Look for Paddy first
-    const paddyAgent = agentEntries.find(([id, agent]: [string, any]) => 
-      agent.name.toLowerCase().includes('paddy')
-    );
-    
-    if (paddyAgent) {
-      return paddyAgent[0];
-    }
-    
-    // Look for project manager agent
-    const pmAgent = agentEntries.find(([id, agent]: [string, any]) => 
-      agent.name.toLowerCase().includes('project') || 
-      agent.instructions?.toLowerCase().includes('project')
-    );
-    
-    if (pmAgent) {
-      return pmAgent[0];
-    }
-    
-    // Fallback to first agent
-    if (agentEntries.length > 0) {
-      return agentEntries[0]![0];
-    }
-    
-    throw new Error('No agents available');
-  } catch (error) {
-    console.error('Error choosing agent:', error);
-    throw error;
-  }
-}
 
 async function handleDeferredPaddyResponse(message: string, user: any, responseUrl: string) {
   try {
+    console.log(`🔄 [Deferred] Processing message from ${user.name}: "${message.substring(0, 50)}..."`);
     
-    const paddyResponse = await chatWithPaddy(message, user);
+    const paddyResponse = await chatWithPaddyUsingTRPC(message, user);
     
     // Send the response back to Slack using the response_url
     await fetch(responseUrl, {
@@ -589,7 +692,7 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
     );
     
     // Process in background
-    const response = await chatWithPaddy(cleanText, user);
+    const response = await chatWithPaddyUsingTRPC(cleanText, user);
     
     await sendSlackResponse(
       response,
