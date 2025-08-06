@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 
@@ -1198,6 +1198,241 @@ export const integrationRouter = createTRPCRouter({
           }
         }
       }
+
+      return { success: true };
+    }),
+
+  // SLACK REGISTRATION ENDPOINTS
+
+  // Validate a Slack registration token (public - no auth required)
+  validateSlackRegistrationToken: publicProcedure
+    .input(z.object({
+      token: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      if (!input.token || input.token.length < 10) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Invalid token format'
+        });
+      }
+
+      const registrationToken = await ctx.db.slackRegistrationToken.findUnique({
+        where: { token: input.token },
+        include: {
+          integration: {
+            include: {
+              team: true
+            }
+          }
+        }
+      });
+
+      if (!registrationToken) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Registration token not found'
+        });
+      }
+
+      // Check if token is expired
+      if (registrationToken.expiresAt < new Date()) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Registration token has expired'
+        });
+      }
+
+      // Check if token has already been used
+      if (registrationToken.usedAt) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Registration token has already been used'
+        });
+      }
+
+      return {
+        slackUserId: registrationToken.slackUserId,
+        integrationId: registrationToken.integrationId,
+        teamName: registrationToken.integration.team?.name || null,
+        teamId: registrationToken.teamId,
+        expiresAt: registrationToken.expiresAt.toISOString(),
+      };
+    }),
+
+  // Complete Slack registration (requires authentication)
+  completeSlackRegistration: protectedProcedure
+    .input(z.object({
+      token: z.string(),
+      userId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Verify the provided userId matches the session
+      if (input.userId !== userId) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'User ID mismatch'
+        });
+      }
+
+      const registrationToken = await ctx.db.slackRegistrationToken.findUnique({
+        where: { token: input.token },
+        include: {
+          integration: {
+            include: {
+              team: {
+                include: {
+                  members: {
+                    where: {
+                      userId: userId
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!registrationToken) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Registration token not found'
+        });
+      }
+
+      // Check if token is expired
+      if (registrationToken.expiresAt < new Date()) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Registration token has expired'
+        });
+      }
+
+      // Check if token has already been used
+      if (registrationToken.usedAt) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Registration token has already been used'
+        });
+      }
+
+      // Verify user is a team member (if integration has a team)
+      if (registrationToken.integration.team) {
+        const isTeamMember = registrationToken.integration.team.members.length > 0;
+        if (!isTeamMember) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You must be a team member to connect this Slack integration'
+          });
+        }
+      }
+
+      // Check if this Slack user is already mapped to someone else
+      const existingMapping = await ctx.db.integrationUserMapping.findFirst({
+        where: {
+          integrationId: registrationToken.integrationId,
+          externalUserId: registrationToken.slackUserId
+        }
+      });
+
+      if (existingMapping) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'This Slack account is already connected to another user'
+        });
+      }
+
+      // Perform the registration in a transaction
+      const result = await ctx.db.$transaction(async (tx) => {
+        // Mark the token as used
+        await tx.slackRegistrationToken.update({
+          where: { id: registrationToken.id },
+          data: {
+            usedAt: new Date(),
+            usedByUserId: userId
+          }
+        });
+
+        // Create the user mapping
+        const mapping = await tx.integrationUserMapping.create({
+          data: {
+            integrationId: registrationToken.integrationId,
+            externalUserId: registrationToken.slackUserId,
+            userId: userId
+          }
+        });
+
+        return mapping;
+      });
+
+      console.log(`✅ [Slack Registration] User ${ctx.session.user.email} connected Slack ${registrationToken.slackUserId}`);
+
+      return {
+        success: true,
+        slackUserId: registrationToken.slackUserId,
+        mappingId: result.id
+      };
+    }),
+
+  // Get user's Slack connections (for settings page)
+  getUserSlackConnections: protectedProcedure
+    .query(async ({ ctx }) => {
+      const connections = await ctx.db.integrationUserMapping.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          integration: {
+            provider: 'slack'
+          }
+        },
+        include: {
+          integration: {
+            include: {
+              team: true
+            }
+          }
+        }
+      });
+
+      return connections.map(conn => ({
+        id: conn.id,
+        slackUserId: conn.externalUserId,
+        teamName: conn.integration.team?.name || 'Personal',
+        connectedAt: conn.createdAt,
+        integrationName: conn.integration.name
+      }));
+    }),
+
+  // Disconnect Slack account
+  disconnectSlack: protectedProcedure
+    .input(z.object({
+      mappingId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const mapping = await ctx.db.integrationUserMapping.findFirst({
+        where: {
+          id: input.mappingId,
+          userId: ctx.session.user.id, // Ensure user owns this mapping
+          integration: {
+            provider: 'slack'
+          }
+        }
+      });
+
+      if (!mapping) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Slack connection not found'
+        });
+      }
+
+      await ctx.db.integrationUserMapping.delete({
+        where: { id: mapping.id }
+      });
+
+      console.log(`🔌 [Slack Disconnect] User ${ctx.session.user.email} disconnected Slack ${mapping.externalUserId}`);
 
       return { success: true };
     }),

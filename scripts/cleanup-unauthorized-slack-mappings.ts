@@ -9,6 +9,10 @@
  * Always backup the database before running this script.
  */
 
+// Load environment variables
+import { loadEnvConfig } from '@next/env';
+loadEnvConfig(process.cwd());
+
 import { PrismaClient } from '@prisma/client';
 
 const db = new PrismaClient();
@@ -153,7 +157,7 @@ async function cleanupUnauthorizedMappings() {
 }
 
 // Run the cleanup
-if (require.main === module) {
+if (import.meta.main) {
   cleanupUnauthorizedMappings()
     .then(() => {
       console.log('\n✅ Cleanup analysis completed successfully');

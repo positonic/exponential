@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { createHmac } from 'crypto';
+import { createHmac, randomBytes } from 'crypto';
 import { db } from '~/server/db';
 import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
 import { createCallerFactory } from '~/server/api/trpc';
@@ -216,6 +216,70 @@ async function findSlackIntegrationByTeam(teamId: string, appId?: string) {
   }
 }
 
+async function createSlackRegistrationToken(
+  slackUserId: string, 
+  integrationId: string, 
+  teamId?: string
+): Promise<string> {
+  try {
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    await db.slackRegistrationToken.create({
+      data: {
+        token,
+        slackUserId,
+        integrationId,
+        teamId,
+        expiresAt
+      }
+    });
+
+    return token;
+  } catch (error) {
+    console.error('Error creating registration token:', error);
+    throw error;
+  }
+}
+
+async function sendAccessDeniedWithRegistration(
+  slackUserId: string,
+  channel: string,
+  integrationData: any,
+  threadTs?: string
+) {
+  try {
+    const registrationToken = await createSlackRegistrationToken(
+      slackUserId,
+      integrationData.integration.id,
+      integrationData.team?.id
+    );
+
+    const registrationUrl = `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/auth/slack-connect?token=${registrationToken}`;
+    
+    const message = `🚨 **Access denied** - You are not authorized to use this system.\n\n` +
+      `To connect your Slack account to Exponential, please:\n` +
+      `1. Click here: ${registrationUrl}\n` +
+      `2. Sign in to your Exponential account\n` +
+      `3. Complete the connection process\n\n` +
+      `*This link expires in 24 hours. Contact your team administrator if you need help.*`;
+
+    await sendSlackResponse(message, channel, integrationData, threadTs);
+
+    console.log(`🔗 [Registration] Created registration link for Slack user ${slackUserId}: ${registrationUrl}`);
+  } catch (error) {
+    console.error('Error creating registration link:', error);
+    
+    // Fallback to basic message if registration fails
+    await sendSlackResponse(
+      "🚨 Access denied. You are not authorized to use this system. Please contact your team administrator to be added.",
+      channel,
+      integrationData,
+      threadTs
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text();
@@ -374,11 +438,19 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
         
         // Check authorization before processing
         if (!authenticatedUser) {
-          await sendSlackResponse(
-            "🚨 Access denied. You are not authorized to use this system. Please contact your team administrator to be added.",
-            event.channel,
-            integrationData
-          );
+          if (slackUserId) {
+            await sendAccessDeniedWithRegistration(
+              slackUserId,
+              event.channel,
+              integrationData
+            );
+          } else {
+            await sendSlackResponse(
+              "🚨 Access denied. You are not authorized to use this system. Please contact your team administrator to be added.",
+              event.channel,
+              integrationData
+            );
+          }
           return { success: true, message: 'Unauthorized user denied' };
         }
         
@@ -392,12 +464,21 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
       
       // Check authorization before processing
       if (!authenticatedUser) {
-        await sendSlackResponse(
-          "🚨 Access denied. You are not authorized to use this system. Please contact your team administrator to be added.",
-          event.channel!,
-          integrationData,
-          event.thread_ts
-        );
+        if (slackUserId) {
+          await sendAccessDeniedWithRegistration(
+            slackUserId,
+            event.channel!,
+            integrationData,
+            event.thread_ts
+          );
+        } else {
+          await sendSlackResponse(
+            "🚨 Access denied. You are not authorized to use this system. Please contact your team administrator to be added.",
+            event.channel!,
+            integrationData,
+            event.thread_ts
+          );
+        }
         return { success: true, message: 'Unauthorized user denied' };
       }
       

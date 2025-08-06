@@ -57,6 +57,7 @@ model User {
   goals                 Goal[]
   integrations          Integration[]
   integrationMappings   IntegrationUserMapping[] // User mappings across integrations
+  slackRegistrations    SlackRegistrationToken[] // Slack registration tokens used by this user
   notes                 Note[]
   outcomes              Outcome[]
   posts                 Post[]
@@ -277,6 +278,7 @@ model Team {
   actions      Action[]
   integrations Integration[]
   slackConfig  SlackChannelConfig?
+  slackRegistrationTokens SlackRegistrationToken[] // Registration tokens for this team
 
   @@index([slug])
 }
@@ -372,6 +374,7 @@ model Integration {
   transcriptionSessions TranscriptionSession[] // Transcriptions created by this integration
   workflows             Workflow[] // Workflows using this integration
   slackChannelConfigs   SlackChannelConfig[] // Slack channel configurations using this integration
+  slackRegistrationTokens SlackRegistrationToken[] // Registration tokens for this integration
 
   @@index([userId])
   @@index([teamId])
@@ -505,4 +508,26 @@ model ActionSync {
   @@index([provider, externalId])
   @@index([provider])
   @@index([actionId])
+}
+
+model SlackRegistrationToken {
+  id            String    @id @default(cuid())
+  token         String    @unique // Secure random token for the registration link
+  slackUserId   String    // The Slack user ID trying to register (U1234567890)
+  integrationId String    // Which Slack integration this is for
+  teamId        String?   // Optional: limit to specific team
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime  // Token expiration (24 hours)
+  usedAt        DateTime? // When the token was used (null = not used yet)
+  usedByUserId  String?   // Which system user completed the registration
+  
+  // Relations
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  team        Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  usedByUser  User?       @relation(fields: [usedByUserId], references: [id], onDelete: SetNull)
+  
+  @@index([token])
+  @@index([slackUserId])
+  @@index([integrationId])
+  @@index([expiresAt])
 }
