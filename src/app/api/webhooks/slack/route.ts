@@ -674,8 +674,6 @@ async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<strin
   const startTime = Date.now();
   
   try {
-    console.log(`🤖 [Paddy] Starting chat with user ${user.name} (${user.id})`);
-
     // Create mock session for server-side tRPC call
     const mockSession = {
       user: {
@@ -697,7 +695,6 @@ async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<strin
 
     // Get available agents
     const mastraAgents = await caller.mastra.getMastraAgents();
-    console.log(`🔍 [Paddy] Found ${mastraAgents.length} available agents`);
 
     // Find Paddy agent or fallback
     let targetAgentId: string;
@@ -708,12 +705,10 @@ async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<strin
     
     if (paddyAgent) {
       targetAgentId = paddyAgent.id;
-      console.log(`🎯 [Paddy] Using Paddy agent: ${paddyAgent.name}`);
     } else if (mastraAgents.length > 0) {
       // Use agent selection if Paddy not found
       const { agentId } = await caller.mastra.chooseAgent({ message });
       targetAgentId = agentId;
-      console.log(`🎯 [Paddy] AI selected agent: ${agentId}`);
     } else {
       throw new Error('No agents available');
     }
@@ -735,7 +730,6 @@ Keep responses concise and friendly, suitable for Slack chat. Use Slack formatti
 IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
 
     // Call agent through authenticated tRPC
-    console.log(`🚀 [Paddy] Calling agent ${targetAgentId} with message: "${message.substring(0, 50)}..."`);
     const result = await caller.mastra.callAgent({
       agentId: targetAgentId,
       messages: [
@@ -743,9 +737,6 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
         { role: 'user', content: message }
       ]
     });
-
-    const responseTime = Date.now() - startTime;
-    console.log(`✅ [Paddy] Got response in ${responseTime}ms from ${result.agentName}`);
 
     const finalResponse = typeof result.response === 'string' 
       ? result.response 
@@ -773,8 +764,6 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
 
 async function handleDeferredPaddyResponse(message: string, user: any, responseUrl: string) {
   try {
-    console.log(`🔄 [Deferred] Processing message from ${user.name}: "${message.substring(0, 50)}..."`);
-    
     const paddyResponse = await chatWithPaddyUsingTRPC(message, user);
     
     // Send the response back to Slack using the response_url

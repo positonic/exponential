@@ -11,6 +11,7 @@ import { themes } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { mantineThemes } from '~/config/themes';
 import { ModalsProvider } from '@mantine/modals';
+import { SessionProvider } from "next-auth/react";
 
 const domain = getThemeDomain();
 
@@ -33,12 +34,14 @@ export default async function AuthLayout({
       <body className="h-full w-full overflow-x-hidden">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
-            <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
-              <ModalsProvider>
-                <Notifications position="top-right" />
-                {children}
-              </ModalsProvider>
-            </MantineProvider>
+            <SessionProvider>
+              <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
+                <ModalsProvider>
+                  <Notifications position="top-right" />
+                  {children}
+                </ModalsProvider>
+              </MantineProvider>
+            </SessionProvider>
           </TRPCReactProvider>
         </ThemeProvider>
       </body>

@@ -123,7 +123,6 @@ export const mastraRouter = createTRPCRouter({
 
         // console.log("Mastra API data from client:", agentsData);
         // Use direct fetch instead of mastraClient
-        console.log("Mastra API URL:", mastraApiUrl);
         const response = await fetch(mastraApiUrl);
         
         if (!response.ok) {
@@ -132,7 +131,6 @@ export const mastraRouter = createTRPCRouter({
         }
 
         const agentsData = await response.json();
-        console.log("Mastra API data from direct fetch:", agentsData);
         
         // Check if the response is an object and not empty
         if (typeof agentsData !== 'object' || agentsData === null || Object.keys(agentsData).length === 0) {
@@ -239,9 +237,7 @@ export const mastraRouter = createTRPCRouter({
           }),
         }
       );
-      console.log(`[mastraRouter] Mastra generate response status:`, res.status);
       const text = await res.text();
-      console.log(`[mastraRouter] Mastra generate response text (first 500 chars):`, text.substring(0, 500));
       
       if (!res.ok) {
         console.error(`[mastraRouter] Mastra generate failed with status ${res.status}: ${text}`);
@@ -250,13 +246,6 @@ export const mastraRouter = createTRPCRouter({
 
       try {
         const responseData = JSON.parse(text);
-        console.log(`[mastraRouter] Parsed response structure:`, {
-          keys: Object.keys(responseData),
-          hasText: 'text' in responseData,
-          hasToolCalls: 'toolCalls' in responseData,
-          hasToolResults: 'toolResults' in responseData,
-          textLength: responseData.text?.length || 0
-        });
 
         // Handle different response structures from Mastra
         let finalResponse = '';
@@ -270,7 +259,6 @@ export const mastraRouter = createTRPCRouter({
         } else {
           // If response contains tool results, format them nicely
           if (responseData.toolResults && Array.isArray(responseData.toolResults)) {
-            console.log(`[mastraRouter] Tool results found:`, responseData.toolResults.length);
             finalResponse = responseData.toolResults
               .map((result: any) => result.content || result.text || JSON.stringify(result))
               .join('\n\n');
