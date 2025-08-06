@@ -24,7 +24,7 @@ export class SlackActionProcessor extends ActionProcessor {
       this.slackService = new SlackNotificationService({
         userId: this.config.userId,
         integrationId: this.config.integrationId,
-        channel: this.config.additionalConfig?.defaultChannel || '#general'
+        channel: this.config.additionalConfig?.channel || this.config.additionalConfig?.defaultChannel || '#general'
       });
 
       return this.slackService;
@@ -71,15 +71,28 @@ export class SlackActionProcessor extends ActionProcessor {
 
       const truncationNote = actionItems.length > 10 ? `\n\n_... and ${actionItems.length - 10} more action items_` : '';
 
+      // Get project/team info for context
+      let contextInfo = '';
+      if (this.config.projectId) {
+        const project = await db.project.findUnique({
+          where: { id: this.config.projectId },
+          select: { name: true, team: { select: { name: true } } }
+        });
+        if (project) {
+          contextInfo = `\n_Project: ${project.name}${project.team ? ` (${project.team.name})` : ''}_`;
+        }
+      }
+
       const notificationPayload = {
         title: '📋 New Action Items from Meeting',
-        message: `Found ${actionItems.length} action item${actionItems.length === 1 ? '' : 's'}:\n\n${actionItemsList}${truncationNote}`,
+        message: `Found ${actionItems.length} action item${actionItems.length === 1 ? '' : 's'}:\n\n${actionItemsList}${truncationNote}${contextInfo}`,
         priority: 'normal' as const,
         metadata: {
           actionCount: actionItems.length,
           source: 'meeting_transcript',
           transcriptionId: this.config.transcriptionId,
-          projectId: this.config.projectId
+          projectId: this.config.projectId,
+          channel: this.config.additionalConfig?.channel
         }
       };
 

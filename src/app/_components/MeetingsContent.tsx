@@ -31,6 +31,7 @@ import {
   IconDotsVertical,
   IconFolder,
   IconTrash,
+  IconBrandSlack,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 // import { ActionList } from "./ActionList";
@@ -74,14 +75,44 @@ export function MeetingsContent() {
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const utils = api.useUtils();
   
-  const assignProjectMutation = api.transcription.assignProject.useMutation({
+  const sendSlackNotificationMutation = api.transcription.sendSlackNotification.useMutation({
     onSuccess: () => {
+      notifications.show({
+        title: 'Slack Notification Sent',
+        message: 'Meeting summary has been sent to the configured Slack channel',
+        color: 'green',
+      });
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to send Slack notification',
+        color: 'red',
+      });
+    },
+  });
+  
+  const assignProjectMutation = api.transcription.associateWithProject.useMutation({
+    onSuccess: (result) => {
       // Refetch transcriptions to update the UI
       void utils.transcription.getAllTranscriptions.invalidate();
+      
+      const message = result.processed 
+        ? `Project assigned and ${result.processed.actionsCreated} actions created${result.processed.slackNotificationSent ? '. Slack notification sent.' : '.'}`
+        : 'Project assigned successfully';
+        
       notifications.show({
-        title: 'Project Assigned',
-        message: 'Transcription and its actions have been assigned to the project',
+        title: 'Success',
+        message,
         color: 'green',
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to assign project',
+        color: 'red',
       });
     },
   });
@@ -183,9 +214,18 @@ export function MeetingsContent() {
   };
 
   const handleProjectAssignment = (transcriptionId: string, projectId: string | null) => {
-    assignProjectMutation.mutate({ transcriptionId, projectId });
+    if (projectId) {
+      assignProjectMutation.mutate({ 
+        transcriptionId, 
+        projectId,
+        autoProcess: true
+      });
+    }
   };
 
+  const handleSlackNotification = (transcriptionId: string) => {
+    sendSlackNotificationMutation.mutate({ transcriptionId });
+  };
 
   const handleSyncToIntegration = (session: any) => {
     if (!session.project || !session.project.taskManagementTool || session.project.taskManagementTool === 'internal') {
@@ -605,6 +645,30 @@ export function MeetingsContent() {
                                                session.project.taskManagementTool === 'notion' ? 'Notion' : 
                                                session.project.taskManagementTool}
                                     </Button>
+                                  )}
+                                  
+                                  {/* Slack Notification Button */}
+                                  {session.project && session.processedAt && !session.slackNotificationAt && (
+                                    <Button
+                                      size="xs"
+                                      variant="outline"
+                                      color="blue"
+                                      loading={sendSlackNotificationMutation.isPending}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void handleSlackNotification(session.id);
+                                      }}
+                                      leftSection={<IconBrandSlack size={12} />}
+                                    >
+                                      Send to Slack
+                                    </Button>
+                                  )}
+                                  
+                                  {/* Slack notification sent indicator */}
+                                  {session.slackNotificationAt && (
+                                    <Badge variant="light" color="green" size="xs">
+                                      Slack sent
+                                    </Badge>
                                   )}
                                   
                                   {/* Success Messages for Sync */}

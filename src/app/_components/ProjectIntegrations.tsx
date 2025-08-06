@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Stack,
   Title,
@@ -29,6 +29,7 @@ import {
   IconAlertCircle,
   IconPlus,
   IconExternalLink,
+  IconBrandSlack,
 } from "@tabler/icons-react";
 import { useDisclosure } from "@mantine/hooks";
 import { useForm } from "@mantine/form";
@@ -43,6 +44,7 @@ interface ProjectIntegrationsProps {
     taskManagementTool?: string | null;
     taskManagementConfig?: any;
     notionProjectId?: string | null;
+    teamId?: string | null;
   };
 }
 
@@ -86,11 +88,25 @@ const availableIntegrations = [
 export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const [expandedIntegrations, setExpandedIntegrations] = useState<Set<string>>(new Set());
   const [newIntegrationModalOpened, { open: openNewIntegrationModal, close: closeNewIntegrationModal }] = useDisclosure(false);
+  const [selectedSlackIntegration, setSelectedSlackIntegration] = useState<string>('');
+  const [selectedSlackChannel, setSelectedSlackChannel] = useState<string>('');
+  const [slackConfigExpanded, setSlackConfigExpanded] = useState(false);
 
   // Get available workflows for this project
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const { data: integrations = [] } = api.integration.listIntegrations.useQuery();
   const utils = api.useUtils();
+  
+  // Slack-specific data
+  const slackIntegrations = integrations?.filter(integration => integration.provider === 'slack') || [];
+  const { data: slackChannelConfig } = api.slack.getChannelConfig.useQuery(
+    { projectId: project.id },
+    { enabled: !!project.id }
+  );
+  const { data: availableChannels = [] } = api.slack.getAvailableChannels.useQuery(
+    { integrationId: selectedSlackIntegration },
+    { enabled: !!selectedSlackIntegration }
+  );
 
   // Update task management mutation
   const updateTaskManagement = api.project.updateTaskManagement.useMutation({
@@ -107,6 +123,45 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to configure integration',
+        color: 'red',
+      });
+    },
+  });
+
+  // Slack configuration mutations
+  const configureSlackChannelMutation = api.slack.configureChannel.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Slack Channel Configured',
+        message: 'Slack notifications for this project have been configured successfully.',
+        color: 'green',
+      });
+      void utils.slack.getChannelConfig.invalidate({ projectId: project.id });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to configure Slack channel.',
+        color: 'red',
+      });
+    },
+  });
+
+  const removeSlackConfigMutation = api.slack.removeChannelConfig.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Slack Configuration Removed',
+        message: 'Slack notifications for this project have been disabled.',
+        color: 'green',
+      });
+      setSelectedSlackIntegration('');
+      setSelectedSlackChannel('');
+      void utils.slack.getChannelConfig.invalidate({ projectId: project.id });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to remove Slack configuration.',
         color: 'red',
       });
     },
@@ -134,6 +189,43 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
       }
       return newSet;
     });
+  };
+
+  // Effect to populate Slack form when config loads
+  useEffect(() => {
+    if (slackChannelConfig) {
+      setSelectedSlackIntegration(slackChannelConfig.integration.id);
+      setSelectedSlackChannel(slackChannelConfig.slackChannel);
+    }
+  }, [slackChannelConfig]);
+
+  // Slack configuration handlers
+  const handleConfigureSlackChannel = () => {
+    if (!selectedSlackIntegration || !selectedSlackChannel || selectedSlackChannel === 'custom') {
+      notifications.show({
+        title: 'Error',
+        message: 'Please select a Slack integration and provide a valid channel name.',
+        color: 'red',
+      });
+      return;
+    }
+
+    // Ensure channel starts with #
+    const channelName = selectedSlackChannel.startsWith('#') 
+      ? selectedSlackChannel 
+      : `#${selectedSlackChannel}`;
+
+    configureSlackChannelMutation.mutate({
+      integrationId: selectedSlackIntegration,
+      channel: channelName,
+      projectId: project.id,
+    });
+  };
+
+  const handleRemoveSlackConfig = () => {
+    if (slackChannelConfig) {
+      removeSlackConfigMutation.mutate({ configId: slackChannelConfig.id });
+    }
   };
 
   // Get configured integrations for this project
@@ -455,6 +547,177 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
             </Alert>
           </Stack>
         ) : null}
+
+        {/* Slack Notifications Section */}
+        {slackIntegrations.length > 0 && (
+          <Stack gap="sm">
+            <Text size="sm" fw={500} c="dimmed">Slack Notifications</Text>
+            <Card shadow="sm" padding="md" radius="md" withBorder>
+              <Stack gap="md">
+                {/* Main Row */}
+                <Group justify="space-between" align="center" wrap="nowrap">
+                  <Group align="center" gap="md" style={{ flex: 1 }}>
+                    <ThemeIcon size="lg" variant="light" color="blue" radius="md">
+                      <IconBrandSlack size={24} />
+                    </ThemeIcon>
+                    <div style={{ flex: 1 }}>
+                      <Group gap="xs" align="center">
+                        <Text fw={600} size="md">
+                          Slack Channel Notifications
+                        </Text>
+                        {slackChannelConfig && (
+                          <Badge color="green" variant="light" size="sm">
+                            <Group gap={4}>
+                              <IconCheck size={12} />
+                              Configured
+                            </Group>
+                          </Badge>
+                        )}
+                      </Group>
+                      <Text size="sm" c="dimmed" mt={2}>
+                        Send meeting summaries and action items to a Slack channel when transcriptions are processed.
+                      </Text>
+                    </div>
+                  </Group>
+                  
+                  {/* Action Button */}
+                  <ActionIcon
+                    variant="subtle"
+                    onClick={() => setSlackConfigExpanded(!slackConfigExpanded)}
+                    aria-label={slackConfigExpanded ? 'Collapse Slack settings' : 'Expand Slack settings'}
+                  >
+                    {slackConfigExpanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                  </ActionIcon>
+                </Group>
+
+                {/* Expandable Configuration */}
+                <Collapse in={slackConfigExpanded}>
+                  <Stack gap="md" pt="sm">
+                    {/* Current Configuration Display */}
+                    {slackChannelConfig && (
+                      <Alert 
+                        icon={<IconCheck size={16} />}
+                        title="Configuration Active"
+                        color="green"
+                        variant="light"
+                      >
+                        <Text size="sm">
+                          Meeting summaries will be sent to <strong>{slackChannelConfig.slackChannel}</strong> in the <strong>{slackChannelConfig.integration.name}</strong> workspace.
+                        </Text>
+                        {project.teamId && (
+                          <Text size="xs" c="dimmed" mt="xs">
+                            This overrides the team&apos;s default Slack channel (if configured).
+                          </Text>
+                        )}
+                      </Alert>
+                    )}
+
+                    {/* Configuration Form */}
+                    <Paper p="md" radius="sm" className="bg-gray-50 dark:bg-gray-800/50">
+                      <Stack gap="md">
+                        <Text size="sm" fw={500}>
+                          {slackChannelConfig ? 'Update Configuration' : 'Configure Slack Channel'}
+                        </Text>
+                        
+                        <Select
+                          label="Slack Workspace"
+                          placeholder="Select a Slack integration"
+                          value={selectedSlackIntegration}
+                          onChange={(value) => setSelectedSlackIntegration(value || '')}
+                          data={slackIntegrations.map(integration => ({
+                            value: integration.id,
+                            label: integration.name
+                          }))}
+                          required
+                        />
+
+                        {selectedSlackIntegration && (
+                          <Stack gap="xs">
+                            <Select
+                              label="Slack Channel"
+                              placeholder="Select a channel or type custom"
+                              value={selectedSlackChannel}
+                              onChange={(value) => setSelectedSlackChannel(value || '')}
+                              data={[
+                                ...availableChannels.map(channel => ({
+                                  value: channel.name,
+                                  label: `${channel.name} (${channel.type})`
+                                })),
+                                { value: 'custom', label: '🔧 Enter custom channel name' }
+                              ]}
+                              searchable
+                              required
+                            />
+                            
+                            {selectedSlackChannel === 'custom' && (
+                              <TextInput
+                                label="Custom Channel Name"
+                                placeholder="#my-custom-channel"
+                                value={selectedSlackChannel !== 'custom' ? selectedSlackChannel : ''}
+                                onChange={(e) => setSelectedSlackChannel(e.target.value)}
+                                description="Enter the full channel name including # (e.g., #my-private-channel)"
+                              />
+                            )}
+                            
+                            <Text size="xs" c="dimmed">
+                              💡 <strong>Can't see your channel?</strong> Make sure the bot is added to private channels by typing <code>/invite @YourBotName</code> in the channel.
+                            </Text>
+                          </Stack>
+                        )}
+
+                        <Group>
+                          <Button
+                            size="sm"
+                            onClick={handleConfigureSlackChannel}
+                            loading={configureSlackChannelMutation.isPending}
+                            disabled={!selectedSlackIntegration || !selectedSlackChannel || selectedSlackChannel === 'custom'}
+                          >
+                            {slackChannelConfig ? 'Update Channel' : 'Configure Channel'}
+                          </Button>
+                          
+                          {slackChannelConfig && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              color="red"
+                              onClick={handleRemoveSlackConfig}
+                              loading={removeSlackConfigMutation.isPending}
+                            >
+                              Remove Configuration
+                            </Button>
+                          )}
+                        </Group>
+                      </Stack>
+                    </Paper>
+                  </Stack>
+                </Collapse>
+              </Stack>
+            </Card>
+          </Stack>
+        )}
+
+        {slackIntegrations.length === 0 && (
+          <Alert 
+            icon={<IconAlertCircle size={16} />}
+            title="Slack Integration Required"
+            color="blue"
+            variant="light"
+          >
+            <Text size="sm">
+              To configure Slack notifications for this project, you need to set up a Slack integration first.
+            </Text>
+            <Button
+              component={Link}
+              href="/integrations"
+              size="sm"
+              variant="light"
+              mt="sm"
+              leftSection={<IconExternalLink size={14} />}
+            >
+              Set up Slack Integration
+            </Button>
+          </Alert>
+        )}
 
         {/* New Integration Button - only show if no task sync integration is configured */}
         {!configuredIntegrations.length && (

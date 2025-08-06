@@ -306,59 +306,18 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       console.log(`✅ Created new transcription session: ${sessionId}`);
     }
 
-    // 5. Process action items if available
-    const actionResults: any[] = [];
-    if (processedData && processedData.actionItems.length > 0) {
-      try {
-        console.log(`🎯 Processing ${processedData.actionItems.length} action items`);
-        
-        // Get action processors for this user with transcription context
-        const processors = await ActionProcessorFactory.createProcessors(
-          user.id, 
-          undefined, // projectId - not specified at webhook level
-          transcriptionSession.id
-        );
-        
-        for (const processor of processors) {
-          const result = await processor.processActionItems(processedData.actionItems);
-          actionResults.push({
-            processor: processor.name,
-            ...result
-          });
-          console.log(`✅ ${processor.name}: Created ${result.processedCount} actions`);
-        }
-      } catch (actionError) {
-        console.error('❌ Failed to process action items:', actionError);
-        // Don't throw - continue with notifications even if action processing fails
+    // 5. Skip action processing from webhook
+    // Actions will be processed when user manually associates with a project
+    console.log(`📌 Transcription saved. Awaiting project association for processing ${processedData?.actionItems.length || 0} action items`);
+    
+    // Mark as unprocessed
+    await db.transcriptionSession.update({
+      where: { id: transcriptionSession.id },
+      data: { 
+        processedAt: null,
+        slackNotificationAt: null
       }
-    }
-
-    // 6. Send notifications
-    if (processedData) {
-      try {
-        const totalActionsCreated = actionResults.reduce((sum, result) => sum + result.processedCount, 0);
-        const notificationMessage = FirefliesService.generateNotificationSummary(
-          processedData.summary,
-          totalActionsCreated
-        );
-
-        const notificationResults = await NotificationServiceFactory.sendToAll(user.id, {
-          title: `📋 Meeting Summary: ${title}`,
-          message: notificationMessage,
-          priority: 'normal',
-          metadata: {
-            meetingId,
-            actionItemsCount: processedData.actionItems.length,
-            actionsCreated: totalActionsCreated,
-          }
-        });
-
-        console.log(`📢 Sent notifications:`, notificationResults);
-      } catch (notificationError) {
-        console.error('❌ Failed to send notifications:', notificationError);
-        // Don't throw - the main processing was successful
-      }
-    }
+    });
 
     console.log('✅ Transcription completion handled successfully');
   } catch (error) {

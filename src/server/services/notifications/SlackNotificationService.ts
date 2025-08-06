@@ -299,8 +299,8 @@ export class SlackNotificationService extends NotificationService {
         return [];
       }
 
-      // Get channels
-      const channelsResponse = await fetch('https://slack.com/api/conversations.list?types=public_channel,private_channel', {
+      // Get channels - include more types and only channels the bot can access
+      const channelsResponse = await fetch('https://slack.com/api/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=1000', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -311,12 +311,15 @@ export class SlackNotificationService extends NotificationService {
 
       if (channelsData.ok && channelsData.channels) {
         for (const channel of channelsData.channels as SlackChannel[]) {
+          // Only include channels where the bot is a member or public channels
           channels.push({
             id: channel.id,
             name: `#${channel.name}`,
-            type: channel.is_channel ? 'channel' : channel.is_group ? 'group' : 'im',
+            type: channel.is_channel ? 'public' : channel.is_group ? 'private' : 'im',
           });
         }
+      } else {
+        console.error('Failed to fetch Slack channels:', channelsData.error);
       }
 
       // Get DMs/Users (optional, can be heavy)

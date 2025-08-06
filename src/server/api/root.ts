@@ -16,6 +16,7 @@ import { exerciseRouter } from "./routers/exercise";
 import { mastraRouter } from "./routers/mastra";
 import { integrationRouter } from "./routers/integration";
 import { teamRouter } from "./routers/team";
+import { slackRouter } from "./routers/slack";
 /**
  * This is the primary router for your server.
  *
@@ -39,6 +40,7 @@ export const appRouter = createTRPCRouter({
   mastra: mastraRouter,
   integration: integrationRouter,
   team: teamRouter,
+  slack: slackRouter,
 });
 
 // export type definition of API

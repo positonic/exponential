@@ -135,8 +135,8 @@ model Project {
   slug                  String                 @unique
   description           String?
   taskManagementTool    String?                @default("internal") // 'internal', 'monday', 'notion', etc.
-  taskManagementConfig  Json?                  // Tool-specific configuration
-  notionProjectId       String?                // ID of the associated Notion Projects database record
+  taskManagementConfig  Json? // Tool-specific configuration
+  notionProjectId       String? // ID of the associated Notion Projects database record
   actions               Action[]
   createdBy             User                   @relation(fields: [createdById], references: [id])
   team                  Team?                  @relation(fields: [teamId], references: [id])
@@ -145,6 +145,7 @@ model Project {
   goals                 Goal[]                 @relation("GoalProjects")
   outcomes              Outcome[]              @relation("ProjectOutcomes")
   workflows             Workflow[]
+  slackConfig           SlackChannelConfig?
 
   @@index([name])
   @@index([status])
@@ -262,32 +263,33 @@ model ProjectMember {
 }
 
 model Team {
-  id          String        @id @default(cuid())
+  id          String   @id @default(cuid())
   name        String
-  slug        String        @unique
+  slug        String   @unique
   description String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
   // Relations
   members      TeamUser[]
   projects     Project[]
   actions      Action[]
   integrations Integration[]
-  
+  slackConfig  SlackChannelConfig?
+
   @@index([slug])
 }
 
 model TeamUser {
-  id        String   @id @default(cuid())
-  userId    String
-  teamId    String
-  role      String   @default("member") // owner, admin, member
-  joinedAt  DateTime @default(now())
-  
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
+  id       String   @id @default(cuid())
+  userId   String
+  teamId   String
+  role     String   @default("member") // owner, admin, member
+  joinedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
   @@unique([userId, teamId])
   @@index([userId])
   @@index([teamId])
@@ -324,10 +326,12 @@ model TranscriptionSession {
   projectId           String?
   description         String?
   title               String?
-  summary             String?      // JSON string containing Fireflies summary data
-  sourceIntegrationId String?      // Track which integration created this transcription
+  summary             String? // JSON string containing Fireflies summary data
+  sourceIntegrationId String? // Track which integration created this transcription
+  processedAt         DateTime? // Track when actions were processed
+  slackNotificationAt DateTime? // Track when Slack was notified
   screenshots         Screenshot[]
-  actions             Action[]     // Actions created from this transcription
+  actions             Action[] // Actions created from this transcription
   project             Project?     @relation(fields: [projectId], references: [id])
   user                User?        @relation(fields: [userId], references: [id])
   sourceIntegration   Integration? @relation(fields: [sourceIntegrationId], references: [id], onDelete: SetNull)
@@ -348,22 +352,23 @@ model Screenshot {
 }
 
 model Integration {
-  id                    String                    @id @default(cuid())
+  id                    String                  @id @default(cuid())
   name                  String
-  type                  String                    // 'API_KEY', 'OAUTH', 'WEBHOOK', etc.
-  provider              String                    // 'fireflies', 'github', 'slack', 'notion', etc.
-  status                String                    @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'EXPIRED'
+  type                  String // 'API_KEY', 'OAUTH', 'WEBHOOK', etc.
+  provider              String // 'fireflies', 'github', 'slack', 'notion', etc.
+  status                String                  @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'EXPIRED'
   description           String?
-  lastSyncAt            DateTime?                 // Last time transcripts were synced from this integration
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
+  lastSyncAt            DateTime? // Last time transcripts were synced from this integration
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
   userId                String?
   teamId                String?
-  user                  User?                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team                  Team?                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user                  User?                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team                  Team?                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
   credentials           IntegrationCredential[]
-  transcriptionSessions TranscriptionSession[]    // Transcriptions created by this integration
-  workflows             Workflow[]                // Workflows using this integration
+  transcriptionSessions TranscriptionSession[] // Transcriptions created by this integration
+  workflows             Workflow[] // Workflows using this integration
+  slackChannelConfigs   SlackChannelConfig[] // Slack channel configurations using this integration
 
   @@index([userId])
   @@index([teamId])
@@ -372,9 +377,9 @@ model Integration {
 
 model IntegrationCredential {
   id            String      @id @default(cuid())
-  key           String      // The actual API key or credential
-  keyType       String      // 'API_KEY', 'ACCESS_TOKEN', 'REFRESH_TOKEN', 'SECRET'
-  expiresAt     DateTime?   // For tokens that expire
+  key           String // The actual API key or credential
+  keyType       String // 'API_KEY', 'ACCESS_TOKEN', 'REFRESH_TOKEN', 'SECRET'
+  expiresAt     DateTime? // For tokens that expire
   isEncrypted   Boolean     @default(true)
   createdAt     DateTime    @default(now())
   integrationId String
@@ -384,32 +389,32 @@ model IntegrationCredential {
 }
 
 model Workflow {
-  id            String        @id @default(cuid())
+  id            String @id @default(cuid())
   name          String
-  type          String        // 'NOTION_SYNC', 'SLACK_ACTIONS', etc.
-  provider      String        // 'notion', 'slack', etc.
-  status        String        @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'ERROR'
-  syncDirection String        // 'push', 'pull', 'bidirectional'
-  syncFrequency String        // 'manual', 'hourly', 'daily', 'weekly'
-  
+  type          String // 'NOTION_SYNC', 'SLACK_ACTIONS', etc.
+  provider      String // 'notion', 'slack', etc.
+  status        String @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'ERROR'
+  syncDirection String // 'push', 'pull', 'bidirectional'
+  syncFrequency String // 'manual', 'hourly', 'daily', 'weekly'
+
   // Configuration specific to the workflow type
-  config        Json          // JSON blob for flexible configuration (database ID, field mappings, etc.)
-  
+  config Json // JSON blob for flexible configuration (database ID, field mappings, etc.)
+
   // Relationships
   integrationId String
   userId        String
-  projectId     String?       // Optional: associate with a specific project
-  
+  projectId     String? // Optional: associate with a specific project
+
   // Timestamps
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  lastRunAt     DateTime?     // When the workflow was last executed
-  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  lastRunAt DateTime? // When the workflow was last executed
+
   // Relations
-  integration   Integration   @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project       Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  runs          WorkflowRun[]
+  integration Integration   @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  runs        WorkflowRun[]
 
   @@index([userId])
   @@index([integrationId])
@@ -418,40 +423,64 @@ model Workflow {
 }
 
 model WorkflowRun {
-  id         String    @id @default(cuid())
-  workflowId String
-  status     String    // 'RUNNING', 'SUCCESS', 'FAILED'
-  startedAt  DateTime  @default(now())
+  id          String    @id @default(cuid())
+  workflowId  String
+  status      String // 'RUNNING', 'SUCCESS', 'FAILED'
+  startedAt   DateTime  @default(now())
   completedAt DateTime?
-  
+
   // Results and metadata
   itemsProcessed Int     @default(0)
   itemsCreated   Int     @default(0)
   itemsUpdated   Int     @default(0)
   itemsSkipped   Int     @default(0)
   errorMessage   String?
-  metadata       Json?   // Additional data about the run
-  
+  metadata       Json? // Additional data about the run
+
   // Relations
-  workflow       Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
   @@index([workflowId])
   @@index([status])
   @@index([startedAt])
 }
 
+model SlackChannelConfig {
+  id           String  @id @default(cuid())
+  slackChannel String // #channel-name or channel ID
+  isActive     Boolean @default(true)
+
+  // Relations - only one should be set
+  projectId String? @unique
+  teamId    String? @unique
+
+  // Integration link
+  integrationId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project     Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team        Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([teamId])
+  @@index([integrationId])
+}
+
 model ActionSync {
   id         String   @id @default(cuid())
   actionId   String
-  provider   String   // 'notion', 'monday', 'asana', etc.
-  externalId String   // The ID in the external system (e.g., Notion page ID)
+  provider   String // 'notion', 'monday', 'asana', etc.
+  externalId String // The ID in the external system (e.g., Notion page ID)
   syncedAt   DateTime @default(now())
   updatedAt  DateTime @updatedAt
   status     String   @default("synced") // 'synced', 'failed', 'needs_update'
-  
+
   // Relations
-  action     Action   @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  
+  action Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
   @@unique([actionId, provider]) // One sync record per action per provider
   @@index([provider, externalId])
   @@index([provider])

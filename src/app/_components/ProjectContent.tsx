@@ -405,7 +405,7 @@ export function ProjectContent({
       >
         <div className="space-y-6">
           <ProjectDetails project={project} />
-          <ProjectIntegrations project={project} />
+          <ProjectIntegrations project={{ ...project, teamId: project.teamId }} />
           <Team projectId={projectId} />
         </div>
       </Drawer>

@@ -278,24 +278,18 @@ export class FirefliesSyncService {
             result.newTranscripts++;
           }
 
-          // 5. Process action items if available
-          if (processedData && processedData.actionItems.length > 0) {
-            try {
-              const processors = await ActionProcessorFactory.createProcessors(
-                userId, 
-                undefined, // projectId - not specified at sync level
-                transcriptionSession.id
-              );
-              
-              for (const processor of processors) {
-                const actionResult = await processor.processActionItems(processedData.actionItems);
-                totalActionsCreated += actionResult.processedCount;
-              }
-            } catch (actionError) {
-              console.error(`Failed to process action items for ${transcript.id}:`, actionError);
-              // Continue processing other transcripts
+          // 5. Skip action processing during bulk sync
+          // Actions will be processed when user manually associates with a project
+          console.log(`📌 Skipping action processing for ${transcript.id} - awaiting project association`);
+          
+          // Mark as unprocessed
+          await db.transcriptionSession.update({
+            where: { id: transcriptionSession.id },
+            data: { 
+              processedAt: null,
+              slackNotificationAt: null
             }
-          }
+          });
 
         } catch (sessionError) {
           console.error(`Failed to process transcript ${transcript.id}:`, sessionError);
@@ -313,25 +307,9 @@ export class FirefliesSyncService {
 
       result.success = true;
 
-      // 7. Send notification summary
-      if (result.newTranscripts > 0 || result.updatedTranscripts > 0) {
-        try {
-          await NotificationServiceFactory.sendToAll(userId, {
-            title: `📋 Fireflies Sync Complete`,
-            message: `Synced ${result.newTranscripts} new and ${result.updatedTranscripts} updated meetings from ${integration.name}. Created ${result.actionsCreated} action items.`,
-            priority: 'normal',
-            metadata: {
-              integrationName: integration.name,
-              newTranscripts: result.newTranscripts,
-              updatedTranscripts: result.updatedTranscripts,
-              actionsCreated: result.actionsCreated,
-            }
-          });
-        } catch (notificationError) {
-          console.error('Failed to send sync notification:', notificationError);
-          // Don't fail the whole sync for notification issues
-        }
-      }
+      // 7. Don't send Slack notifications during bulk sync
+      // Notifications will be sent after project association
+      console.log(`✅ Fireflies sync complete. ${result.newTranscripts} new transcriptions ready for project association.`);
 
     } catch (error) {
       console.error('Error in bulk sync:', error);

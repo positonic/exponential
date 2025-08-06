@@ -3,6 +3,7 @@ import { InternalActionProcessor } from './InternalActionProcessor';
 import { SlackActionProcessor } from './SlackActionProcessor';
 import { MondayActionProcessor, type MondayProcessorConfig } from './MondayActionProcessor';
 import { db } from '~/server/db';
+import { SlackChannelResolver } from '../SlackChannelResolver';
 
 export type ActionProcessorType = 'internal' | 'notion' | 'asana' | 'slack' | 'monday';
 
@@ -14,15 +15,33 @@ export interface ProcessorPreferences {
 
 export class ActionProcessorFactory {
   /**
-   * Create processors based on user configuration
+   * Create processors based on user configuration and project/team context
    */
   static async createProcessors(
     userId: string, 
     projectId?: string,
-    transcriptionId?: string
+    transcriptionId?: string,
+    teamId?: string
   ): Promise<ActionProcessor[]> {
     const processors: ActionProcessor[] = [];
     
+    // Always include internal processor as fallback
+    const internalConfig: ActionProcessorConfig = {
+      userId,
+      projectId,
+      transcriptionId,
+    };
+    processors.push(new InternalActionProcessor(internalConfig));
+
+    // Get project's team if not provided
+    if (projectId && !teamId) {
+      const project = await db.project.findUnique({
+        where: { id: projectId },
+        select: { teamId: true }
+      });
+      teamId = project?.teamId ?? undefined;
+    }
+
     // Get user's processor preferences from integrations
     const userIntegrations = await db.integration.findMany({
       where: {
@@ -37,49 +56,74 @@ export class ActionProcessorFactory {
       }
     });
 
-    // Always include internal processor as fallback
-    const internalConfig: ActionProcessorConfig = {
-      userId,
-      projectId,
-      transcriptionId,
-    };
-    processors.push(new InternalActionProcessor(internalConfig));
-
     // Add external processors based on integrations
     for (const integration of userIntegrations) {
-      const config: ActionProcessorConfig = {
-        userId,
-        projectId,
-        integrationId: integration.id,
-        transcriptionId,
-        additionalConfig: {
-          name: integration.name,
-          description: integration.description,
-          credentials: integration.credentials
+      // For Slack, check if there's a channel configured for this project/team
+      if (integration.provider === 'slack') {
+        const channelConfig = await SlackChannelResolver.resolveChannel(
+          projectId,
+          teamId,
+          integration.id
+        );
+        
+        // Skip if no channel is configured for this project/team
+        if (!channelConfig.channel) {
+          console.log(`⚠️ Skipping Slack processor - no channel configured for project ${projectId} or team ${teamId}`);
+          continue;
         }
-      };
+        
+        // Only use the integration that has the channel config
+        if (channelConfig.integrationId !== integration.id) {
+          continue;
+        }
 
-      switch (integration.provider) {
-        case 'notion':
-          // TODO: Implement NotionActionProcessor
-          // processors.push(new NotionActionProcessor(config));
-          break;
-        case 'asana':
-          // TODO: Implement AsanaActionProcessor  
-          // processors.push(new AsanaActionProcessor(config));
-          break;
-        case 'slack':
-          processors.push(new SlackActionProcessor(config));
-          break;
-        case 'monday':
-          // For Monday.com, we need basic board configuration
-          // This would typically come from workflow configuration
-          const mondayConfig: MondayProcessorConfig = {
-            boardId: config.additionalConfig?.boardId || 'default-board-id',
-            columnMappings: config.additionalConfig?.columnMappings || {},
-          };
-          processors.push(new MondayActionProcessor(config, mondayConfig));
-          break;
+        const config: ActionProcessorConfig = {
+          userId,
+          projectId,
+          integrationId: integration.id,
+          transcriptionId,
+          additionalConfig: {
+            name: integration.name,
+            description: integration.description,
+            credentials: integration.credentials,
+            channel: channelConfig.channel
+          }
+        };
+        
+        processors.push(new SlackActionProcessor(config));
+      } else {
+        // Non-Slack processors
+        const config: ActionProcessorConfig = {
+          userId,
+          projectId,
+          integrationId: integration.id,
+          transcriptionId,
+          additionalConfig: {
+            name: integration.name,
+            description: integration.description,
+            credentials: integration.credentials
+          }
+        };
+
+        switch (integration.provider) {
+          case 'notion':
+            // TODO: Implement NotionActionProcessor
+            // processors.push(new NotionActionProcessor(config));
+            break;
+          case 'asana':
+            // TODO: Implement AsanaActionProcessor  
+            // processors.push(new AsanaActionProcessor(config));
+            break;
+          case 'monday':
+            // For Monday.com, we need basic board configuration
+            // This would typically come from workflow configuration
+            const mondayConfig: MondayProcessorConfig = {
+              boardId: config.additionalConfig?.boardId || 'default-board-id',
+              columnMappings: config.additionalConfig?.columnMappings || {},
+            };
+            processors.push(new MondayActionProcessor(config, mondayConfig));
+            break;
+        }
       }
     }
 

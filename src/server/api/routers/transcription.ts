@@ -8,6 +8,7 @@ import { TRPCError } from "@trpc/server";
 //import { getSetups } from "~/server/services/videoService";
 import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
+import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
@@ -241,6 +242,9 @@ export const transcriptionRouter = createTRPCRouter({
 
   getAllTranscriptions: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.transcriptionSession.findMany({
+      where: {
+        userId: ctx.session.user.id,
+      },
       orderBy: {
         createdAt: "desc",
       },
@@ -476,5 +480,67 @@ export const transcriptionRouter = createTRPCRouter({
       });
 
       return { count: result.count };
+    }),
+
+  associateWithProject: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        projectId: z.string(),
+        autoProcess: z.boolean().optional().default(true),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const result = await TranscriptionProcessingService.associateWithProject(
+        input.transcriptionId,
+        input.projectId,
+        ctx.session.user.id,
+        input.autoProcess
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.error || "Failed to associate transcription with project",
+        });
+      }
+
+      return result;
+    }),
+
+  processTranscription: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await TranscriptionProcessingService.processTranscription(
+        input.transcriptionId,
+        ctx.session.user.id
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.errors.join(", ") || "Failed to process transcription",
+        });
+      }
+
+      return result;
+    }),
+
+  sendSlackNotification: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await TranscriptionProcessingService.sendSlackNotification(
+        input.transcriptionId,
+        ctx.session.user.id
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.error || "Failed to send Slack notification",
+        });
+      }
+
+      return result;
     }),
 });

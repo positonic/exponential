@@ -1,0 +1,283 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import {
+  Card,
+  Title,
+  Text,
+  Select,
+  Button,
+  Group,
+  Stack,
+  Switch,
+  Alert,
+  Loader,
+  Badge,
+  TextInput,
+} from "@mantine/core";
+import {
+  IconBrandSlack,
+  IconAlertCircle,
+  IconCheck,
+} from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
+import { api } from "~/trpc/react";
+
+interface SlackChannelSettingsProps {
+  project?: {
+    id: string;
+    name: string;
+    teamId?: string | null;
+  };
+  team?: {
+    id: string;
+    name: string;
+  };
+}
+
+interface SlackChannelConfig {
+  id: string;
+  slackChannel: string;
+  isActive: boolean;
+  integration: {
+    id: string;
+    name: string;
+  };
+}
+
+export function SlackChannelSettings({ project, team }: SlackChannelSettingsProps) {
+  const [selectedIntegration, setSelectedIntegration] = useState<string>('');
+  const [selectedChannel, setSelectedChannel] = useState<string>('');
+  const [isActive, setIsActive] = useState<boolean>(true);
+  const [availableChannels, setAvailableChannels] = useState<Array<{ value: string; label: string }>>([]);
+  const [config, setConfig] = useState<SlackChannelConfig | null>(null);
+  
+  const entityId = project?.id || team?.id;
+  const entityName = project?.name || team?.name;
+  const isProject = !!project;
+  
+  // Get user's Slack integrations
+  const { data: allIntegrations, isLoading: loadingIntegrations } = api.integration.listIntegrations.useQuery();
+  const integrations = allIntegrations?.filter(integration => integration.provider === 'slack');
+  
+  // Get existing config
+  const { data: existingConfig, refetch: refetchConfig } = api.slack.getChannelConfig.useQuery(
+    isProject 
+      ? { projectId: entityId! }
+      : { teamId: entityId! },
+    { enabled: !!entityId }
+  );
+
+  // Get available channels for selected integration
+  const { data: channels, isLoading: loadingChannels } = api.slack.getAvailableChannels.useQuery(
+    { integrationId: selectedIntegration },
+    { enabled: !!selectedIntegration }
+  );
+
+  // Mutations
+  const configureChannelMutation = api.slack.configureChannel.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Success',
+        message: 'Slack channel configuration updated successfully',
+        color: 'green',
+      });
+      void refetchConfig();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to update Slack configuration',
+        color: 'red',
+      });
+    },
+  });
+
+  const removeConfigMutation = api.slack.removeChannelConfig.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Success',
+        message: 'Slack channel configuration removed',
+        color: 'green',
+      });
+      setConfig(null);
+      setSelectedIntegration('');
+      setSelectedChannel('');
+      void refetchConfig();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to remove Slack configuration',
+        color: 'red',
+      });
+    },
+  });
+
+  // Update form when existing config loads
+  useEffect(() => {
+    if (existingConfig) {
+      setConfig(existingConfig);
+      setSelectedIntegration(existingConfig.integration.id);
+      setSelectedChannel(existingConfig.slackChannel);
+      setIsActive(existingConfig.isActive);
+    }
+  }, [existingConfig]);
+
+  // Update available channels when channels data loads
+  useEffect(() => {
+    if (channels) {
+      setAvailableChannels(
+        channels.map(channel => ({
+          value: channel.name,
+          label: `${channel.name} (${channel.type})`
+        }))
+      );
+    }
+  }, [channels]);
+
+  const handleSave = () => {
+    if (!selectedIntegration || !selectedChannel) {
+      notifications.show({
+        title: 'Error',
+        message: 'Please select both an integration and a channel',
+        color: 'red',
+      });
+      return;
+    }
+
+    configureChannelMutation.mutate({
+      integrationId: selectedIntegration,
+      channel: selectedChannel,
+      isActive,
+      ...(isProject ? { projectId: entityId! } : { teamId: entityId! })
+    });
+  };
+
+  const handleRemove = () => {
+    if (config) {
+      removeConfigMutation.mutate({ configId: config.id });
+    }
+  };
+
+  if (loadingIntegrations) {
+    return (
+      <Card>
+        <Group>
+          <Loader size="sm" />
+          <Text>Loading Slack integrations...</Text>
+        </Group>
+      </Card>
+    );
+  }
+
+  if (!integrations || integrations.length === 0) {
+    return (
+      <Card>
+        <Group mb="md">
+          <IconBrandSlack size={24} />
+          <Title order={4}>Slack Notifications</Title>
+        </Group>
+        <Alert icon={<IconAlertCircle size={16} />} color="orange">
+          No Slack integrations found. Please set up a Slack integration first to configure notifications for this {isProject ? 'project' : 'team'}.
+        </Alert>
+      </Card>
+    );
+  }
+
+  const integrationOptions = integrations?.map((integration: any) => ({
+    value: integration.id,
+    label: integration.name
+  })) || [];
+
+  return (
+    <Card>
+      <Group mb="md">
+        <IconBrandSlack size={24} />
+        <Title order={4}>Slack Notifications</Title>
+        {config && (
+          <Badge color="green" variant="light">
+            <Group gap={4}>
+              <IconCheck size={12} />
+              Configured
+            </Group>
+          </Badge>
+        )}
+      </Group>
+
+      <Text size="sm" c="dimmed" mb="lg">
+        Configure where Slack notifications for this {isProject ? 'project' : 'team'} should be sent.
+        {isProject && project?.teamId && (
+          <Text size="xs" c="dimmed" mt="xs">
+            If not configured, notifications will use the team&apos;s default channel.
+          </Text>
+        )}
+      </Text>
+
+      <Stack>
+        <Switch
+          label={`Enable Slack notifications for ${entityName}`}
+          checked={isActive}
+          onChange={(event) => setIsActive(event.currentTarget.checked)}
+        />
+
+        {isActive && (
+          <>
+            <Select
+              label="Slack Integration"
+              placeholder="Select a Slack workspace"
+              value={selectedIntegration}
+              onChange={(value) => setSelectedIntegration(value || '')}
+              data={integrationOptions}
+              required
+            />
+
+            {selectedIntegration && (
+              <Select
+                label="Channel"
+                placeholder={loadingChannels ? "Loading channels..." : "Select a channel"}
+                value={selectedChannel}
+                onChange={(value) => setSelectedChannel(value || '')}
+                data={availableChannels}
+                searchable
+                disabled={loadingChannels}
+                required
+              />
+            )}
+
+            {selectedChannel && !selectedChannel.startsWith('#') && (
+              <TextInput
+                label="Custom Channel"
+                placeholder="#custom-channel"
+                value={selectedChannel}
+                onChange={(event) => setSelectedChannel(event.currentTarget.value)}
+                description="You can also enter a custom channel name"
+              />
+            )}
+          </>
+        )}
+
+        <Group mt="md">
+          <Button
+            onClick={handleSave}
+            loading={configureChannelMutation.isPending}
+            disabled={!isActive || !selectedIntegration || !selectedChannel}
+          >
+            {config ? 'Update Configuration' : 'Save Configuration'}
+          </Button>
+          
+          {config && (
+            <Button
+              variant="outline"
+              color="red"
+              onClick={handleRemove}
+              loading={removeConfigMutation.isPending}
+            >
+              Remove Configuration
+            </Button>
+          )}
+        </Group>
+      </Stack>
+    </Card>
+  );
+}

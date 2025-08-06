@@ -229,28 +229,62 @@ export const mastraRouter = createTRPCRouter({
               authToken: agentJWT,
               userId: ctx.session.user.id,
               userEmail: ctx.session.user.email,
-              todoAppBaseUrl: process.env.NEXTAUTH_URL || 'http://localhost:3000'
+              todoAppBaseUrl: process.env.TODO_APP_BASE_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000'
             }
           }),
         }
       );
-      console.log(`[mastraRouter] Mastra generate response:`, res);
+      console.log(`[mastraRouter] Mastra generate response status:`, res.status);
       const text = await res.text();
-      console.log(`[mastraRouter] Mastra generate response text:`, text);
+      console.log(`[mastraRouter] Mastra generate response text (first 500 chars):`, text.substring(0, 500));
+      
       if (!res.ok) {
         console.error(`[mastraRouter] Mastra generate failed with status ${res.status}: ${text}`);
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Mastra generate failed (${res.status}): ${text}` });
       }
-      let data;
-      const textData = JSON.parse(text);
+
       try {
-        data = { response: textData.text, agentName: agentId }
-      } catch {
-        // Response is not JSON, return raw text
+        const responseData = JSON.parse(text);
+        console.log(`[mastraRouter] Parsed response structure:`, {
+          keys: Object.keys(responseData),
+          hasText: 'text' in responseData,
+          hasToolCalls: 'toolCalls' in responseData,
+          hasToolResults: 'toolResults' in responseData,
+          textLength: responseData.text?.length || 0
+        });
+
+        // Handle different response structures from Mastra
+        let finalResponse = '';
+        
+        if (responseData.text) {
+          finalResponse = responseData.text;
+        } else if (responseData.content) {
+          finalResponse = responseData.content;
+        } else if (typeof responseData === 'string') {
+          finalResponse = responseData;
+        } else {
+          // If response contains tool results, format them nicely
+          if (responseData.toolResults && Array.isArray(responseData.toolResults)) {
+            console.log(`[mastraRouter] Tool results found:`, responseData.toolResults.length);
+            finalResponse = responseData.toolResults
+              .map((result: any) => result.content || result.text || JSON.stringify(result))
+              .join('\n\n');
+          } else {
+            finalResponse = JSON.stringify(responseData);
+          }
+        }
+
+        return { 
+          response: finalResponse, 
+          agentName: agentId,
+          toolCalls: responseData.toolCalls || [],
+          toolResults: responseData.toolResults || []
+        };
+      } catch (parseError) {
+        console.error(`[mastraRouter] Failed to parse JSON response:`, parseError);
+        // Return raw text if JSON parsing fails
         return { response: text, agentName: agentId };
       }
-      const responseText = typeof data === 'object' && 'response' in data ? data.response : text;
-      return { response: responseText, agentName: agentId };
     }),
 
   // API Key Generation for Mastra Agents and Webhooks (32 characters)
