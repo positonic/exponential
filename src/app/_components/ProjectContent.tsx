@@ -6,7 +6,7 @@ import ProjectDetails from "./ProjectDetails";
 //import Chat from "./Chat";
 import ManyChat from "./ManyChat";
 import { Team } from "./Team";
-import { Plan } from "./Plan";
+// import { Plan } from "./Plan";
 import { GoalsTable } from "./GoalsTable";
 import { OutcomesTable } from "./OutcomesTable";
 import { OutcomeTimeline } from "./OutcomeTimeline";
@@ -28,7 +28,7 @@ import { api } from "~/trpc/react";
 import {
   IconLayoutKanban,
   IconSettings,
-  IconClipboardList,
+  // IconClipboardList,
   IconTargetArrow,
   IconActivity,
   IconClock,

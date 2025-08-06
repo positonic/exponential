@@ -9,11 +9,11 @@ interface SlackChannel {
   is_im: boolean;
 }
 
-interface SlackUser {
-  id: string;
-  name: string;
-  real_name: string;
-}
+// interface SlackUser {
+//   id: string;
+//   name: string;
+//   real_name: string;
+// }
 
 export class SlackNotificationService extends NotificationService {
   name = 'Slack';
@@ -132,7 +132,7 @@ export class SlackNotificationService extends NotificationService {
     return message;
   }
 
-  private createSlackBlocks(payload: NotificationPayload, message: string): any[] {
+  private createSlackBlocks(payload: NotificationPayload, _message: string): any[] {
     const blocks: any[] = [];
     
     // Header section with title and emoji

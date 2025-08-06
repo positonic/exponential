@@ -3,13 +3,6 @@
 import { Paper, Avatar, Text, Group, Button } from '@mantine/core';
 import { api } from "~/trpc/react";
 
-interface TeamMember {
-  id: string;
-  name: string;
-  role: string;
-  responsibilities: string[];
-  avatarUrl?: string;
-}
 
 export function Team({ projectId }: { projectId: string }) {
   // This would need a corresponding API endpoint to fetch team members

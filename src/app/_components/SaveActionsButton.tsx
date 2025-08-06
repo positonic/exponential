@@ -1,9 +1,6 @@
-import { api } from "~/trpc/react";
-import { notifications } from "@mantine/notifications";
 import { Button } from "@mantine/core";
 
 export default function SaveActionsButton() {
-  const createSetupsMutation = () => console.log("save actions");
   //   const createSetupsMutation = api.transcription.saveActionsFromTranscription.useMutation({
   //   onSuccess: () => {
   //     notifications.show({

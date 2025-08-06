@@ -120,12 +120,12 @@ export class VideoRepository {
     });
   }
 
-  async getUserVideo(userId: string, videoId: string) {
+  async getUserVideo(_userId: string, _videoId: string) {
     // UserVideo model removed - functionality disabled
     return null;
   }
 
-  async createUserVideo(userId: string, videoId: string) {
+  async createUserVideo(_userId: string, _videoId: string) {
     // UserVideo model removed - functionality disabled
     return null;
   }

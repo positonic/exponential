@@ -413,7 +413,7 @@ async function handleSlashCommand(payload: SlackSlashCommandPayload, integration
 }
 
 async function handleInteractiveComponent(payload: SlackInteractivePayload, integrationData: any) {
-  const { type, actions, user: slackUser } = payload;
+  const { type, actions } = payload;
   const { user } = integrationData;
 
 
@@ -435,7 +435,7 @@ async function handleInteractiveComponent(payload: SlackInteractivePayload, inte
 async function findUserFromSlackIntegration(
   integrationId: string,
   slackUserId: string
-): Promise<any | null> {
+): Promise<any> {
   try {
     // Look for existing mapping
     const userMapping = await db.integrationUserMapping.findFirst({
@@ -483,7 +483,7 @@ async function findTeamMemberFromSlackUser(
   integration: any,
   slackUserId: string,
   slackUsername: string
-): Promise<any | null> {
+): Promise<any> {
   try {
     // First, try to find existing mapping
     const mappedUser = await findUserFromSlackIntegration(integration.id, slackUserId);
@@ -790,10 +790,10 @@ async function createActionFromSlack(title: string, user: any, channelId: string
       context: 'Created from Slack',
     };
 
-    let totalCreated = 0;
+    // let totalCreated = 0;
     for (const processor of processors) {
-      const result = await processor.processActionItems([actionItem]);
-      totalCreated += result.processedCount;
+      await processor.processActionItems([actionItem]);
+      // totalCreated += result.processedCount;
     }
 
     // Send confirmation back to Slack
@@ -813,7 +813,7 @@ async function createActionFromSlack(title: string, user: any, channelId: string
   }
 }
 
-async function listUserActions(user: any, responseUrl: string) {
+async function listUserActions(user: any, _responseUrl: string) {
   try {
     // Get user's pending actions
     const actions = await db.action.findMany({
@@ -853,7 +853,7 @@ async function listUserActions(user: any, responseUrl: string) {
   }
 }
 
-async function listUserProjects(user: any, responseUrl: string) {
+async function listUserProjects(user: any, _responseUrl: string) {
   try {
     // Get user's projects
     const projects = await db.project.findMany({

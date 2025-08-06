@@ -848,17 +848,17 @@ export const workflowRouter = createTRPCRouter({
 
 
           // Debug: Check all actions for this project regardless of source
-          const allProjectActions = await ctx.db.action.findMany({
-            where: {
-              createdById: ctx.session.user.id,
-              status: 'ACTIVE',
-              projectId: { in: mondayProjectIds }
-            },
-            include: {
-              project: true,
-              transcriptionSession: true,
-            },
-          });
+          // const allProjectActions = await ctx.db.action.findMany({
+          //   where: {
+          //     createdById: ctx.session.user.id,
+          //     status: 'ACTIVE',
+          //     projectId: { in: mondayProjectIds }
+          //   },
+          //   include: {
+          //     project: true,
+          //     transcriptionSession: true,
+          //   },
+          // });
 
           // Note: Actions don't have createdAt field, so we'll get recent actions by ID
           // In practice, you might want to add a createdAt field to the Action model

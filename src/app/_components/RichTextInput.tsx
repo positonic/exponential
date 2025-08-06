@@ -30,7 +30,7 @@ const stripParagraphTags = (html: string) => {
 };
 
 export const RichTextInput = forwardRef<HTMLDivElement, RichTextInputProps>(
-  ({ value, onChange, placeholder, styles, ...props }, ref) => {
+  ({ value, onChange, placeholder, styles }, ref) => {
     const editor = useEditor({
       extensions: [
         Document,

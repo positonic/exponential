@@ -17,7 +17,6 @@ interface SimliOpenAIProps {
   openai_voice: "alloy"|"ash"|"ballad"|"coral"|"echo"|"sage"|"shimmer"|"verse";
   openai_model: string;
   initialPrompt: string;
-  onStart: () => void;
   onClose: () => void;
   showDottedFace: boolean;
 }
@@ -29,7 +28,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   openai_voice,
   openai_model,
   initialPrompt,
-  onStart,
   onClose,
   showDottedFace,
 }) => {
@@ -304,55 +302,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     }
   }, [initializeOpenAIClient]);
 
-  /**
-   * Downsamples audio data from one sample rate to another using linear interpolation
-   * and anti-aliasing filter.
-   *
-   * @param audioData - Input audio data as Int16Array
-   * @param inputSampleRate - Original sampling rate in Hz
-   * @param outputSampleRate - Target sampling rate in Hz
-   * @returns Downsampled audio data as Int16Array
-   */
-  const downsampleAudio = (
-    audioData: Int16Array,
-    inputSampleRate: number,
-    outputSampleRate: number
-  ): Int16Array => {
-    if (inputSampleRate === outputSampleRate) {
-      return audioData;
-    }
-
-    if (inputSampleRate < outputSampleRate) {
-      throw new Error("Upsampling is not supported");
-    }
-
-    // Apply low-pass filter to prevent aliasing
-    const filteredData = applyLowPassFilter(
-      audioData,
-      outputSampleRate * 0.45,
-      inputSampleRate
-    );
-
-    const ratio = inputSampleRate / outputSampleRate;
-    const newLength = Math.floor(audioData.length / ratio);
-    const result = new Int16Array(newLength);
-
-    for (let i = 0; i < newLength; i++) {
-      const position = i * ratio;
-      const index = Math.floor(position);
-      const fraction = position - index;
-
-      if (index + 1 < filteredData.length) {
-        const a = filteredData[index]!;
-        const b = filteredData[index + 1]!;
-        result[i] = Math.round(a + fraction * (b - a));
-      } else {
-        result[i] = filteredData[index]!;
-      }
-    }
-
-    return result;
-  };
 
   /**
    * Handles interruptions in the conversation flow.

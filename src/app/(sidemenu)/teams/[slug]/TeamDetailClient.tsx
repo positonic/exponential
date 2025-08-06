@@ -45,7 +45,7 @@ import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+// import { useRouter } from 'next/navigation';
 import { AddProjectToTeamModal } from '~/app/_components/AddProjectToTeamModal';
 import { AssignProjectToTeamModal } from '~/app/_components/AssignProjectToTeamModal';
 

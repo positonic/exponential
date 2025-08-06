@@ -1,7 +1,7 @@
 'use client';
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+// import Link from "next/link";
+// import { usePathname } from "next/navigation";
 import { api } from "~/trpc/react";
 import { NavLink } from "./NavLinks";
 type Priority = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
@@ -14,7 +14,7 @@ const priorityOrder: Record<Priority, number> = {
 };
 
 export function ProjectList() {
-  const pathname = usePathname();
+  // const pathname = usePathname();
   const { data: projects } = api.project.getAll.useQuery({
     include: {
       actions: true,
@@ -35,7 +35,7 @@ export function ProjectList() {
     <div className="mt-1 space-y-1">
       {sortedProjects.filter((project) => project.status === "ACTIVE").map((project) => {
         const projectPath = `/projects/${project.slug}-${project.id}`;
-        const isActive = pathname === projectPath;
+        // const isActive = pathname === projectPath;
 
         return (
           <NavLink

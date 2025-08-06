@@ -3,7 +3,7 @@ import Sidebar from "./Sidebar";
 import Header from "./Header";
 import { auth } from "~/server/auth";
 import { ThemeWrapper } from "./ThemeWrapper";
-import { type ValidDomain, themes } from "~/config/themes";
+import { type ValidDomain } from "~/config/themes";
 
 export default async function Layout({ children, domain, showSidebar = true }: PropsWithChildren<{ domain: ValidDomain, showSidebar?: boolean }>) {
   const session = await auth();

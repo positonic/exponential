@@ -197,7 +197,7 @@ export const slackRouter = createTRPCRouter({
 
         const channels = await slackService.getAvailableChannels();
         return channels;
-      } catch (error) {
+      } catch {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to fetch channels from Slack",

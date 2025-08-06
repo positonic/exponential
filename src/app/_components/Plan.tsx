@@ -1,6 +1,6 @@
 'use client';
 
-import { Stack, Title, Text, Checkbox, Group, Button, Paper } from '@mantine/core';
+import { Stack, Title, Text, Group, Button, Paper } from '@mantine/core';
 import { IconDownload } from '@tabler/icons-react';
 import { api } from "~/trpc/react";
 // Styles moved to inline styles since @mantine/styles is deprecated in v7
@@ -29,20 +29,20 @@ interface Action {
   createdById: string;
 }
 
-interface Project {
-  id: string;
-  name: string;
-  description: string | null;
-  goals: Goal[];
-  outcomes: Array<{
-    type: string | null;
-    description: string;
-    id: string;
-    dueDate: Date | null;
-    userId: string;
-  }>;
-  actions: Action[];
-}
+// interface Project {
+//   id: string;
+//   name: string;
+//   description: string | null;
+//   goals: Goal[];
+//   outcomes: Array<{
+//     type: string | null;
+//     description: string;
+//     id: string;
+//     dueDate: Date | null;
+//     userId: string;
+//   }>;
+//   actions: Action[];
+// }
 
 export function Plan({ projectId }: PlanProps) {
   const { data: project } = api.project.getById.useQuery({ id: projectId });

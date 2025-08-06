@@ -1,6 +1,6 @@
 'use client';
 
-import { Paper, Title, Text, Stack, Textarea, Group, Button } from "@mantine/core";
+import { Paper, Title, Stack, Textarea, Group, Button } from "@mantine/core";
 import { IconGrowth } from "@tabler/icons-react";
 import { memo, useState, useEffect } from 'react';
 import { api } from "~/trpc/react";

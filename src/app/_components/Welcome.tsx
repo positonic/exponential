@@ -1,7 +1,7 @@
 'use client';
 
 import Link from "next/link";
-import { Button, Title, Text, Container, Stack } from '@mantine/core';
+import { Button, Text, Container, Stack } from '@mantine/core';
 import { useTheme } from '~/providers/ThemeProvider';
 import { LogoDisplay } from './layout/LogoDisplay';
 

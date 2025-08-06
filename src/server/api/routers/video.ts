@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { OpenAIEmbeddings } from "@langchain/openai";
-import { summarizeTranscription, describeAndSave, summarizeAndSaveSummary, getSetups } from "~/server/services/videoService";
+import { describeAndSave, summarizeAndSaveSummary, getSetups } from "~/server/services/videoService";
 import {
   createTRPCRouter,
   protectedProcedure,

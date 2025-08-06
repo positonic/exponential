@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { Timeline, Text, Paper, Box } from '@mantine/core';
+import { Timeline, Text, Box } from '@mantine/core';
 import { api } from '~/trpc/react';
 import { format, startOfDay, isBefore } from 'date-fns';
 import { IconCalendarEvent, IconClock } from '@tabler/icons-react';

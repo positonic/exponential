@@ -5,13 +5,12 @@ import {
   Title,
   Text,
   Stack,
-  Textarea,
   Group,
   Button,
   Checkbox,
   Divider,
 } from "@mantine/core";
-import { IconMoonStars, IconBrain, IconHeart, IconBolt } from "@tabler/icons-react";
+// import { IconMoonStars, IconBrain, IconHeart, IconBolt } from "@tabler/icons-react";
 import { useLocalStorage } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useState, useEffect, useCallback } from 'react';
@@ -72,16 +71,16 @@ export function WindDownRoutineForm({ dayId, date }: WindDownRoutineProps) {
   const todayEntry = dailyEntries[todayString] ?? createEmptyEntry(todayString);
 
   // Form state
-  const [wentWell, setWentWell] = useState(todayEntry.wentWell);
-  const [energized, setEnergized] = useState(todayEntry.energized);
-  const [drained, setDrained] = useState(todayEntry.drained);
-  const [gratitude, setGratitude] = useState(todayEntry.gratitude);
+  const [wentWell] = useState(todayEntry.wentWell);
+  const [energized] = useState(todayEntry.energized);
+  const [drained] = useState(todayEntry.drained);
+  const [gratitude] = useState(todayEntry.gratitude);
   const [didMeditate, setDidMeditate] = useState(todayEntry.didMeditate);
   const [loggedFood, setLoggedFood] = useState(todayEntry.loggedFood);
-  const [learnings, setLearnings] = useState(todayEntry.learnings);
-  const [mistakes, setMistakes] = useState(todayEntry.mistakes);
-  const [causes, setCauses] = useState(todayEntry.causes);
-  const [solutions, setSolutions] = useState(todayEntry.solutions);
+  const [learnings] = useState(todayEntry.learnings);
+  const [mistakes] = useState(todayEntry.mistakes);
+  const [causes] = useState(todayEntry.causes);
+  const [solutions] = useState(todayEntry.solutions);
 
   // Save entry
   const saveEntry = useCallback(() => {

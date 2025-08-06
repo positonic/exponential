@@ -1,6 +1,6 @@
 // ProductRoadmapSection.tsx
 import React from "react";
-import { Container, Title, Text } from "@mantine/core";
+import { Title, Text } from "@mantine/core";
 import { IconClock } from "@tabler/icons-react";
 
 interface RoadmapItemProps {
@@ -9,7 +9,7 @@ interface RoadmapItemProps {
 
 const RoadmapItem: React.FC<RoadmapItemProps & { children: React.ReactNode }> = ({
   title,
-  children
+  children: _children
 }) => (
   <div className="flex items-start gap-3 mb-6">
     <IconClock size={20} className="text-[#8896c5] mt-0.5 flex-shrink-0" />

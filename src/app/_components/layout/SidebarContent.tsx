@@ -7,7 +7,7 @@ import { GoalList } from "./GoalList";
 import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
-import Link from "next/link";
+// import Link from "next/link";
 
 export function SidebarContent() {
   return (

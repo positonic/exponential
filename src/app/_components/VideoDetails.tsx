@@ -2,18 +2,11 @@
 
 import {
   Button,
-  Paper,
-  Title,
-  Text,
   Group,
-  Badge,
-  Table,
-  Checkbox,
-  Select,
 } from "@mantine/core";
 import { useState } from "react";
 import { api } from "~/trpc/react";
-import type { TranscriptionSetups } from "~/types/transcription";
+// import type { TranscriptionSetups } from "~/types/transcription";
 import type { Video } from "~/types/video";
 import type { Caption } from "~/utils/vttParser";
 import { getVideoIdFromYoutubeUrl } from "~/utils/youtube";
@@ -34,38 +27,28 @@ export function VideoDetails({
   videoUrl,
   video,
 }: VideoDetailsProps) {
-  const [creatingSetups, setCreatingSetups] = useState(false);
   const [creatingDescription, setCreatingDescription] = useState(false);
   const [creatingSummary, setCreatingSummary] = useState(false);
   const [summary, setSummary] = useState<string | null>(video.summary ?? null);
   const [description, setDescription] = useState<string | null>(video.description ?? null);
-  const [setups, setSetups] = useState<TranscriptionSetups | null>(null);
-  const [selectedSetups, setSelectedSetups] = useState<string[]>([]);
-  const [summaryType, setSummaryType] = useState<
-    "basic" | "trade-setups" | "description"
-  >("basic");
 
   const videoId = getVideoIdFromYoutubeUrl(videoUrl);
   if (!videoId) {
     throw new Error("Invalid YouTube URL");
   }
 
-  const handleGetSetups = () => {
-    setCreatingSetups(true);
-    setupsMutation.mutate({ transcription, summaryType: "trade-setups" });
-  };
 
-  const setupsMutation = api.video.getSetups.useMutation({
-    onSuccess: (setups) => {
-      console.log("createDescriptionMutation onSuccess", summary);
-      setSetups(setups);
-      setCreatingSetups(false);
-    },
-    onError: (error) => {
-      console.error("Error generating summary:", error);
-      setCreatingSetups(false);
-    },
-  });
+  // const setupsMutation = api.video.getSetups.useMutation({
+  //   onSuccess: (setups) => {
+  //     console.log("createDescriptionMutation onSuccess", summary);
+  //     setSetups(setups);
+  //     setCreatingSetups(false);
+  //   },
+  //   onError: (error) => {
+  //     console.error("Error generating summary:", error);
+  //     setCreatingSetups(false);
+  //   },
+  // });
 
   // Description:
   const createDescriptionMutation = api.video.describeTranscription.useMutation({

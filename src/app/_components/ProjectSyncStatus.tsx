@@ -3,20 +3,15 @@
 import { useState, useEffect } from "react";
 import {
   Card,
-  Title,
   Text,
   Badge,
   Group,
   Stack,
   Alert,
-  Button,
-  ActionIcon,
   Collapse,
 } from "@mantine/core";
 import {
   IconInfoCircle,
-  IconSettings,
-  IconRefresh,
   IconClock,
   IconCloudUpload,
   IconCloudDownload,
@@ -36,10 +31,10 @@ interface ProjectSyncStatusProps {
   onToggle: () => void;
 }
 
-export function ProjectSyncStatus({ project, opened, onToggle }: ProjectSyncStatusProps) {
+export function ProjectSyncStatus({ project, opened }: ProjectSyncStatusProps) {
   const [notionProjectName, setNotionProjectName] = useState<string | null>(null);
   const { data: workflows = [] } = api.workflow.list.useQuery();
-  const { data: workflowRuns = [] } = api.workflow.list.useQuery();
+  // const { data: workflowRuns = [] } = api.workflow.list.useQuery();
 
   // Get config and derived values
   const config = project.taskManagementConfig as {
@@ -72,10 +67,6 @@ export function ProjectSyncStatus({ project, opened, onToggle }: ProjectSyncStat
     return null;
   }
 
-  // Get recent workflow runs for this project
-  const recentRuns = workflowRuns
-    .filter(w => w.provider === project.taskManagementTool)
-    .slice(0, 3);
 
   const getStrategyInfo = () => {
     switch (syncStrategy) {

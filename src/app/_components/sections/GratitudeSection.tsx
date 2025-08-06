@@ -3,10 +3,7 @@
 import { Stack, Divider } from "@mantine/core";
 import { memo } from 'react';
 import { WhatWentWellSection } from './WhatWentWellSection';
-import { EnergyReflectionSection } from './EnergyReflectionSection';
 import { GratitudeOnlySection } from './GratitudeOnlySection';
-import { LearningGrowthSection } from './LearningGrowthSection';
-import { ChallengesSection } from './ChallengesSection';
 
 interface GratitudeSectionProps {
   dayId?: string;

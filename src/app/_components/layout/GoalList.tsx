@@ -1,12 +1,12 @@
 'use client';
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+// import Link from "next/link";
+// import { usePathname } from "next/navigation";
 import { api } from "~/trpc/react";
 import { NavLink } from "./NavLinks";
 import { IconTarget, IconNumber } from "@tabler/icons-react";
 export function GoalList() {
-  const pathname = usePathname();
+  // const pathname = usePathname();
   const { data: goals } = api.goal.getAllMyGoals.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 30 * 1000, // Consider data stale after 30 seconds

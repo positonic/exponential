@@ -91,7 +91,7 @@ export const authConfig = {
       }
       return token;
     },
-    signIn: async ({ user, account, profile }) => {
+    signIn: async ({ user }) => {
       // Allow sign in if the user doesn't exist yet
       if (!user.email) {
         return true;
@@ -129,7 +129,7 @@ export const authConfig = {
      * @param baseUrl - The base URL of the application.
      * @returns The URL to redirect to.
      */
-    redirect: async ({ url, baseUrl }) => {
+    redirect: async () => {
       // Always redirect to the home page after successful sign-in
       // This serves as the onboarding/welcome page for new users
       return "/home"; // Use relative path

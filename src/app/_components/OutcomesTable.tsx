@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Table, Text, Paper, ActionIcon, Tabs, Checkbox } from "@mantine/core";
-import { api } from "~/trpc/react";
+// import { api } from "~/trpc/react";
 import { format, isBefore, startOfDay } from "date-fns";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { IconEdit } from '@tabler/icons-react';

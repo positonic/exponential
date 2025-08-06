@@ -2,7 +2,7 @@ import { type Context } from "~/server/auth/types";
 import { startOfDay, endOfDay, startOfWeek, endOfWeek } from "date-fns";
 
 export async function getUserDays({ ctx }: { ctx: Context }) {
-  const userId = ctx.session?.user?.id;
+  // const userId = ctx.session?.user?.id;
   return await ctx.db.day.findMany({
     where: {
       // UserDay model removed - show all days for now

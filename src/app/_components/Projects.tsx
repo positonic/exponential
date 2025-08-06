@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
-import { Select, Card, Text } from "@mantine/core";
+import { Select } from "@mantine/core";
 import { slugify } from "~/utils/slugify";
 import { IconEdit, IconTrash } from "@tabler/icons-react";
 

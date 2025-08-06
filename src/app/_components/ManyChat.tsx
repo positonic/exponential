@@ -161,7 +161,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       const newMessages = generateInitialMessages(projectData, projectActions);
       setMessages(newMessages);
     }
-  }, [projectData, projectActions, initialMessages]); // Removed generateInitialMessages from deps
+  }, [projectData, projectActions, initialMessages, generateInitialMessages, messages.length]); // Added missing deps
   
   // Parse agent mentions from input
   const parseAgentMention = (text: string): { agentId: string | null; cleanMessage: string } => {

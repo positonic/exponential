@@ -1,6 +1,6 @@
 // ValuePropositionSection.tsx
 import React from "react";
-import { Container, Title, Text } from "@mantine/core";
+import { Title, Text } from "@mantine/core";
 import { IconRocket, IconUsers, IconCode } from "@tabler/icons-react";
 
 interface FeatureDetailCardProps {

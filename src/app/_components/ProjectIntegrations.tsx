@@ -17,7 +17,6 @@ import {
   Modal,
   Select,
   TextInput,
-  Textarea,
 } from "@mantine/core";
 import {
   IconSettings,
@@ -542,7 +541,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
               </Text>
               <Text size="sm" mt="xs">
                 To switch to a different task sync integration, you&apos;ll need to remove the current one first 
-                by changing the task management tool to &ldquo;Internal&rdquo; in the integration settings.
+                by changing the task management tool to &quot;Internal&quot; in the integration settings.
               </Text>
             </Alert>
           </Stack>
@@ -660,7 +659,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                             )}
                             
                             <Text size="xs" c="dimmed">
-                              💡 <strong>Can't see your channel?</strong> Make sure the bot is added to private channels by typing <code>/invite @YourBotName</code> in the channel.
+                              💡 <strong>Can&apos;t see your channel?</strong> Make sure the bot is added to private channels by typing <code>/invite @YourBotName</code> in the channel.
                             </Text>
                           </Stack>
                         )}

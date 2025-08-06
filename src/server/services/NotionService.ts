@@ -39,7 +39,7 @@ export class NotionService {
 
   async testConnection(): Promise<{ success: boolean; error?: string }> {
     try {
-      const response = await this.client.users.me({});
+      await this.client.users.me({});
       return { success: true };
     } catch (error) {
       console.error('Notion connection test failed:', error);

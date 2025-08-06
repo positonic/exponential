@@ -54,7 +54,7 @@ export class TranscriptionProcessingService {
 
       // 3. Check if already processed
       if (transcription.processedAt) {
-        console.log(`⚠️ Transcription ${transcriptionId} already processed at ${transcription.processedAt}`);
+        console.log(`⚠️ Transcription ${transcriptionId} already processed at`, transcription.processedAt);
         result.success = true;
         return result;
       }
@@ -147,7 +147,7 @@ export class TranscriptionProcessingService {
 
       // 3. Check if already sent
       if (transcription.slackNotificationAt) {
-        console.log(`⚠️ Slack notification already sent for ${transcriptionId} at ${transcription.slackNotificationAt}`);
+        console.log(`⚠️ Slack notification already sent for ${transcriptionId} at`, transcription.slackNotificationAt);
         return { success: true };
       }
 

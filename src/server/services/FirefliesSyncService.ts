@@ -1,7 +1,7 @@
 import { db } from '~/server/db';
 import { FirefliesService, type FirefliesTranscript } from './FirefliesService';
-import { ActionProcessorFactory } from './processors/ActionProcessorFactory';
-import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
+// import { ActionProcessorFactory } from './processors/ActionProcessorFactory';
+// import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
 
 interface FirefliesSyncResult {
   success: boolean;
@@ -87,7 +87,7 @@ export class FirefliesSyncService {
     try {
       const sinceDate = new Date();
       sinceDate.setDate(sinceDate.getDate() - sinceDays);
-      const sinceISOString = sinceDate.toISOString();
+      // const sinceISOString = sinceDate.toISOString();
 
       // Use the correct Fireflies API schema - remove date_created field that doesn't exist
       const query = `
@@ -234,7 +234,7 @@ export class FirefliesSyncService {
       result.totalProcessed = recentTranscripts.length;
 
       // 4. Process each transcript
-      let totalActionsCreated = 0;
+      const totalActionsCreated = 0;
       
       for (const transcript of recentTranscripts) {
         try {
