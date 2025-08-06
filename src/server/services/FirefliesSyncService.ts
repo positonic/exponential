@@ -256,7 +256,14 @@ export class FirefliesSyncService {
 
           let transcriptionSession;
           if (existingSession) {
-            // Update existing
+            // Skip updating archived transcriptions
+            if (existingSession.archivedAt) {
+              console.log(`📁 Skipping archived transcription ${transcript.id}`);
+              result.skippedTranscripts++;
+              continue;
+            }
+            
+            // Update existing non-archived
             transcriptionSession = await db.transcriptionSession.update({
               where: { sessionId: transcript.id },
               data: {

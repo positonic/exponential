@@ -330,6 +330,7 @@ model TranscriptionSession {
   sourceIntegrationId String? // Track which integration created this transcription
   processedAt         DateTime? // Track when actions were processed
   slackNotificationAt DateTime? // Track when Slack was notified
+  archivedAt          DateTime? // Track when transcription was archived
   screenshots         Screenshot[]
   actions             Action[] // Actions created from this transcription
   project             Project?     @relation(fields: [projectId], references: [id])

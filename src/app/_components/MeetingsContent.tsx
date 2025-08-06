@@ -32,6 +32,8 @@ import {
   IconFolder,
   IconTrash,
   IconBrandSlack,
+  IconArchive,
+  IconArchiveOff,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 // import { ActionList } from "./ActionList";
@@ -71,6 +73,12 @@ export function MeetingsContent() {
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery();
+  const { data: archivedTranscriptions, isLoading: isLoadingArchived } = api.transcription.getAllTranscriptions.useQuery(
+    { includeArchived: true },
+    {
+      select: (data) => data.filter(t => t.archivedAt), // Only get archived ones
+    }
+  );
   const { data: projects } = api.project.getAll.useQuery();
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const utils = api.useUtils();
@@ -153,6 +161,62 @@ export function MeetingsContent() {
       notifications.show({
         title: 'Bulk Delete Failed',
         message: error.message || 'Failed to delete transcriptions',
+        color: 'red',
+      });
+    },
+  });
+
+  const archiveTranscriptionMutation = api.transcription.archiveTranscription.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Meeting Archived',
+        message: 'Meeting has been moved to archive',
+        color: 'green',
+      });
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Archive Failed',
+        message: error.message || 'Failed to archive meeting',
+        color: 'red',
+      });
+    },
+  });
+
+  const unarchiveTranscriptionMutation = api.transcription.unarchiveTranscription.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Meeting Unarchived',
+        message: 'Meeting has been restored from archive',
+        color: 'green',
+      });
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Unarchive Failed',
+        message: error.message || 'Failed to unarchive meeting',
+        color: 'red',
+      });
+    },
+  });
+
+  const bulkArchiveMutation = api.transcription.bulkArchiveTranscriptions.useMutation({
+    onSuccess: (data) => {
+      notifications.show({
+        title: 'Bulk Archive Complete',
+        message: `Archived ${data.count} meetings`,
+        color: 'green',
+      });
+      // Clear selections and refresh data
+      setSelectedTranscriptionIds(new Set());
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Bulk Archive Failed',
+        message: error.message || 'Failed to archive meetings',
         color: 'red',
       });
     },
@@ -298,6 +362,22 @@ export function MeetingsContent() {
       ids: Array.from(selectedTranscriptionIds),
     });
     setDeleteModalOpened(false);
+  };
+
+  const handleArchiveTranscription = (transcriptionId: string) => {
+    archiveTranscriptionMutation.mutate({ id: transcriptionId });
+  };
+
+  const handleUnarchiveTranscription = (transcriptionId: string) => {
+    unarchiveTranscriptionMutation.mutate({ id: transcriptionId });
+  };
+
+  const handleBulkArchive = async () => {
+    if (selectedTranscriptionIds.size === 0) return;
+    
+    await bulkArchiveMutation.mutateAsync({
+      ids: Array.from(selectedTranscriptionIds),
+    });
   };
 
   const getFilteredTranscriptions = () => {
@@ -489,6 +569,13 @@ export function MeetingsContent() {
                             </Menu.Item>
                             <Menu.Divider />
                             <Menu.Item
+                              leftSection={<IconArchive size={14} />}
+                              onClick={() => void handleBulkArchive()}
+                            >
+                              Archive Meetings
+                            </Menu.Item>
+                            <Menu.Divider />
+                            <Menu.Item
                               color="red"
                               leftSection={<IconTrash size={14} />}
                               onClick={() => setDeleteModalOpened(true)}
@@ -572,22 +659,62 @@ export function MeetingsContent() {
                                   </Group>
                                 </Stack>
                                 
-                                <Select
-                                  placeholder="Assign to project"
-                                  value={session.projectId || ''}
-                                  onChange={(value) => void handleProjectAssignment(session.id, value)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onFocus={(e) => e.stopPropagation()}
-                                  data={[
-                                    { value: "", label: "No project" },
-                                    ...(projects?.map((p) => ({
-                                      value: p.id,
-                                      label: p.name,
-                                    })) || []),
-                                  ]}
-                                  size="sm"
-                                  style={{ minWidth: 200 }}
-                                />
+                                <Group gap="xs">
+                                  <Select
+                                    placeholder="Assign to project"
+                                    value={session.projectId || ''}
+                                    onChange={(value) => void handleProjectAssignment(session.id, value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onFocus={(e) => e.stopPropagation()}
+                                    data={[
+                                      { value: "", label: "No project" },
+                                      ...(projects?.map((p) => ({
+                                        value: p.id,
+                                        label: p.name,
+                                      })) || []),
+                                    ]}
+                                    size="sm"
+                                    style={{ minWidth: 200 }}
+                                  />
+                                  
+                                  {/* Individual Meeting Actions Menu */}
+                                  <Menu shadow="md">
+                                    <Menu.Target>
+                                      <Button
+                                        size="sm"
+                                        variant="subtle"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <IconDotsVertical size={16} />
+                                      </Button>
+                                    </Menu.Target>
+
+                                    <Menu.Dropdown>
+                                      <Menu.Item
+                                        leftSection={<IconArchive size={14} />}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleArchiveTranscription(session.id);
+                                        }}
+                                      >
+                                        Archive Meeting
+                                      </Menu.Item>
+                                      <Menu.Divider />
+                                      <Menu.Item
+                                        color="red"
+                                        leftSection={<IconTrash size={14} />}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (confirm('Are you sure you want to delete this meeting?')) {
+                                            bulkDeleteMutation.mutate({ ids: [session.id] });
+                                          }
+                                        }}
+                                      >
+                                        Delete Meeting
+                                      </Menu.Item>
+                                    </Menu.Dropdown>
+                                  </Menu>
+                                </Group>
                               </Group>
                             </div>
                           </Group>
@@ -733,15 +860,139 @@ export function MeetingsContent() {
             </Tabs.Panel>
 
             <Tabs.Panel value="archive">
-              <Paper
-                p="md"
-                radius="sm"
-                className="mx-auto w-full max-w-3xl bg-[#262626]"
-              >
-                <Text size="sm" c="dimmed" ta="center" py="xl">
-                  No archived meetings.
-                </Text>
-              </Paper>
+              <Stack gap="md">
+                <Group justify="space-between" align="center">
+                  <Title order={4}>Archived Meetings</Title>
+                  <Text size="sm" c="dimmed">
+                    {archivedTranscriptions?.length || 0} archived meetings
+                  </Text>
+                </Group>
+
+                {isLoadingArchived ? (
+                  <div>Loading archived meetings...</div>
+                ) : archivedTranscriptions && archivedTranscriptions.length > 0 ? (
+                  <Stack gap="lg">
+                    {archivedTranscriptions.map((session) => (
+                      <Card
+                        key={session.id}
+                        withBorder
+                        shadow="sm"
+                        radius="md"
+                        className="hover:shadow-md transition-shadow cursor-pointer opacity-75"
+                        onClick={() => handleTranscriptionClick(session)}
+                      >
+                        <Stack gap="md">
+                          {/* Meeting Header */}
+                          <Group justify="space-between" align="flex-start" wrap="nowrap">
+                            <div style={{ flex: 1 }}>
+                              <Group justify="space-between" align="flex-start" wrap="nowrap">
+                                <Stack gap="xs" style={{ flex: 1 }}>
+                                  <Group gap="sm" wrap="nowrap">
+                                    <Text size="lg" fw={600} lineClamp={1} c="dimmed">
+                                      {session.title || `Meeting ${session.sessionId}`}
+                                    </Text>
+                                    <Group gap="xs">
+                                      <Badge variant="outline" color="gray" size="sm">
+                                        Archived
+                                      </Badge>
+                                      {session.sourceIntegration && (
+                                        <Badge variant="dot" color="teal" size="sm">
+                                          {session.sourceIntegration.provider}
+                                        </Badge>
+                                      )}
+                                    </Group>
+                                  </Group>
+                                  
+                                  <Group gap="md" c="dimmed">
+                                    <Text size="sm">
+                                      Archived: {new Date(session.archivedAt!).toLocaleDateString('en-US', {
+                                        weekday: 'short',
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric',
+                                      })}
+                                    </Text>
+                                    <Text size="sm">
+                                      Original: {new Date(session.createdAt).toLocaleDateString('en-US', {
+                                        weekday: 'short',
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric',
+                                      })}
+                                    </Text>
+                                  </Group>
+                                </Stack>
+                                
+                                {/* Unarchive Button */}
+                                <Button
+                                  size="sm"
+                                  variant="light"
+                                  color="blue"
+                                  leftSection={<IconArchiveOff size={14} />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUnarchiveTranscription(session.id);
+                                  }}
+                                  loading={unarchiveTranscriptionMutation.isPending}
+                                >
+                                  Restore
+                                </Button>
+                              </Group>
+                            </div>
+                          </Group>
+
+                          {/* Project Badge */}
+                          {session.project && (
+                            <Group>
+                              <Badge variant="light" color="gray" size="md" leftSection="📁">
+                                {session.project.name}
+                              </Badge>
+                            </Group>
+                          )}
+
+                          {/* Meeting Preview */}
+                          {session.transcription && (
+                            <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800 opacity-75">
+                              <TranscriptionRenderer
+                                transcription={session.transcription}
+                                provider={session.sourceIntegration?.provider}
+                                isPreview={true}
+                                maxLines={2}
+                              />
+                            </Paper>
+                          )}
+
+                          {/* Actions Summary */}
+                          {session.actions && session.actions.length > 0 && (
+                            <Paper p="sm" radius="sm" withBorder className="opacity-75">
+                              <Group justify="space-between" align="center">
+                                <Group gap="xs">
+                                  <Text size="sm" fw={500} c="dimmed">
+                                    Action Items:
+                                  </Text>
+                                  <Badge variant="outline" color="gray" size="sm">
+                                    {session.actions.length}
+                                  </Badge>
+                                </Group>
+                              </Group>
+                            </Paper>
+                          )}
+                        </Stack>
+                      </Card>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Paper p="xl" radius="md" className="text-center">
+                    <Stack gap="md" align="center">
+                      <IconArchive size={48} opacity={0.3} />
+                      <Text size="lg" c="dimmed">No archived meetings</Text>
+                      <Text size="sm" c="dimmed">
+                        Meetings you archive will appear here
+                      </Text>
+                    </Stack>
+                  </Paper>
+                )}
+              </Stack>
             </Tabs.Panel>
           </Stack>
         </Tabs>

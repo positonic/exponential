@@ -240,14 +240,27 @@ export const transcriptionRouter = createTRPCRouter({
       return updated;
     }),
 
-  getAllTranscriptions: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db.transcriptionSession.findMany({
-      where: {
+  getAllTranscriptions: protectedProcedure
+    .input(
+      z.object({
+        includeArchived: z.boolean().optional().default(false),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const whereClause: any = {
         userId: ctx.session.user.id,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
+      };
+      
+      // Exclude archived by default unless explicitly requested
+      if (!input?.includeArchived) {
+        whereClause.archivedAt = null;
+      }
+
+      return ctx.db.transcriptionSession.findMany({
+        where: whereClause,
+        orderBy: {
+          createdAt: "desc",
+        },
       include: {
         project: {
           select: {
@@ -542,5 +555,91 @@ export const transcriptionRouter = createTRPCRouter({
       }
 
       return result;
+    }),
+
+  archiveTranscription: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify the transcription belongs to the user
+      const transcription = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+      });
+
+      if (!transcription) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (transcription.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to archive this transcription",
+        });
+      }
+
+      // Archive the transcription
+      await ctx.db.transcriptionSession.update({
+        where: { id: input.id },
+        data: { 
+          archivedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      return { success: true };
+    }),
+
+  unarchiveTranscription: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify the transcription belongs to the user
+      const transcription = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+      });
+
+      if (!transcription) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (transcription.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN", 
+          message: "Not authorized to unarchive this transcription",
+        });
+      }
+
+      // Unarchive the transcription
+      await ctx.db.transcriptionSession.update({
+        where: { id: input.id },
+        data: { 
+          archivedAt: null,
+          updatedAt: new Date(),
+        },
+      });
+
+      return { success: true };
+    }),
+
+  bulkArchiveTranscriptions: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      // Archive only transcriptions that belong to the current user
+      const result = await ctx.db.transcriptionSession.updateMany({
+        where: {
+          id: { in: input.ids },
+          userId: ctx.session.user.id, // Ensure user only archives their own transcriptions
+        },
+        data: {
+          archivedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      return { count: result.count };
     }),
 });
