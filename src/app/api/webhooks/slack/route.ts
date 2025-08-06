@@ -342,13 +342,16 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
 
   switch (event.type) {
     case 'message':
-      // Only process non-bot messages that mention the bot or are DMs
-      if (!event.bot_id && (event.text?.includes(`<@${integration.data?.bot_user_id}>`) || event.channel?.startsWith('D'))) {
+      // Only process non-bot DMs (avoid duplicate processing with app_mention)
+      if (!event.bot_id && event.channel?.startsWith('D')) {
+        console.log(`💬 [Slack] Processing DM from user ${slackUserId}`);
         return await handleBotMention(event, authenticatedUser, integrationData);
       }
       break;
     
     case 'app_mention':
+      // Handle channel mentions only
+      console.log(`🏷️ [Slack] Processing app mention from user ${slackUserId}`);
       return await handleBotMention(event, authenticatedUser, integrationData);
     
     default:
