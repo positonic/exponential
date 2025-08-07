@@ -411,6 +411,19 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
     console.log(`📝 [Event] Processing event ${event_id} for user ${event.user}`);
   }
 
+  // CROSS-EVENT DEDUPLICATION: Prevent same message from being processed via different event types
+  // Create a content-based key that's the same regardless of event type (message.im vs app_mention)
+  if (event.channel && event.ts && event.user) {
+    const contentKey = `msg-${event.channel}-${event.ts}-${event.user}`;
+    if (processedEvents.has(contentKey)) {
+      console.log(`⚠️ Cross-event duplicate detected: ${contentKey} (event_id: ${event_id}), skipping`);
+      return { success: true, message: 'Cross-event duplicate skipped' };
+    }
+    // Mark this content as processed to prevent duplicate responses
+    processedEvents.set(contentKey, Date.now());
+    console.log(`📝 [Content] Processing message ${contentKey} via ${event.type}`);
+  }
+
   // Resolve the actual Slack user who sent the message
   const slackUserId = event.user;
   const slackUsername = 'Unknown'; // Slack doesn't always provide username in events

@@ -50,6 +50,8 @@
             "request_url": "https://09ae28ca9f8a.ngrok-free.app/api/webhooks/slack",
             "bot_events": [
                 "app_home_opened",
+                "app_mention",
+                "message.channels",
                 "message.im"
             ]
         },
