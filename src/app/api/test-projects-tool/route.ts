@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import type { NextRequest } from 'next/server';
 import jwt from "jsonwebtoken";
 
 export async function GET(request: NextRequest) {
@@ -24,16 +24,20 @@ export async function GET(request: NextRequest) {
     runtimeContext.set('authToken', token);
 
     // Import and call the tool directly
-    const { getAllProjectsTool } = await import('/Users/james/code/mastra/src/mastra/tools/index.ts');
+    const { getAllProjectsTool } = await import('/Users/james/code/mastra/src/mastra/tools/index');
     
     console.log('🔧 [TEST] Tool imported successfully');
 
-    // Call the tool directly
+    // Call the tool directly  
+    if (!getAllProjectsTool?.execute) {
+      throw new Error('getAllProjectsTool.execute is not available');
+    }
+
     const result = await getAllProjectsTool.execute({
       input: {}, // No input needed
       context: {},
       runtimeContext
-    });
+    } as any);
 
     console.log('🎉 [TEST] Tool executed successfully:', {
       projectCount: result.total,

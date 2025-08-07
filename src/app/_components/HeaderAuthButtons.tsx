@@ -3,7 +3,6 @@
 import React from 'react';
 import { type Session } from 'next-auth'; // Assuming Session type is available
 import { GetStartedButton } from './GetStartedButton';
-import { TodayButton } from './TodayButton';
 import { TodayLinkButton } from './TodayLinkButton';
 interface HeaderAuthButtonsProps {
   session: Session | null;
