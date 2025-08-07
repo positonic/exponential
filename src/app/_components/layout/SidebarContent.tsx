@@ -4,7 +4,7 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconMessage } from "@tabler/icons-react";
+import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 // import Link from "next/link";
@@ -91,8 +91,8 @@ export function SidebarContent() {
               <NavLink href="/integrations" icon={IconPlug}>
                 Connect Services
               </NavLink>
-              <NavLink href="/slack-messages" icon={IconMessage}>
-                Slack Messages
+              <NavLink href="/ai-history" icon={IconBrain}>
+                AI History
               </NavLink>
               <NavLink href="/tokens" icon={IconKey}>
                 API Access

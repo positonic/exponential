@@ -324,6 +324,7 @@ export const integrationRouter = createTRPCRouter({
       description: z.string().optional(),
       apiKey: z.string().min(1),
       teamId: z.string().optional(),
+      allowTeamMemberAccess: z.boolean().optional().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
       // If teamId is provided, verify user is a member of the team
@@ -377,6 +378,7 @@ export const integrationRouter = createTRPCRouter({
             description: input.description,
             userId: input.teamId ? null : ctx.session.user.id, // Personal if no team
             teamId: input.teamId || null, // Team if provided
+            allowTeamMemberAccess: input.allowTeamMemberAccess,
           },
         });
 
@@ -422,6 +424,7 @@ export const integrationRouter = createTRPCRouter({
       teamName: z.string().optional(), // Make optional - we'll get it from the token
       appTeamId: z.string().optional(), // Optional team ID for the app (our internal teams)
       appId: z.string().optional(), // Slack app ID for distinguishing multiple apps
+      allowTeamMemberAccess: z.boolean().optional().default(false), // Allow team members to access this integration
     }))
     .mutation(async ({ ctx, input }) => {
       // If appTeamId is provided, verify user is a member of the team
@@ -473,6 +476,7 @@ export const integrationRouter = createTRPCRouter({
             description: input.description || `Slack integration for ${teamName}`,
             userId: input.appTeamId ? null : ctx.session.user.id, // Personal if no app team
             teamId: input.appTeamId || null, // App team if provided
+            allowTeamMemberAccess: input.allowTeamMemberAccess,
           },
         });
 
@@ -1091,6 +1095,7 @@ export const integrationRouter = createTRPCRouter({
         teamName: integration.team?.name || null,
         credentials,
         appId: appIdCredential?.key || '', // Safe to return APP_ID
+        allowTeamMemberAccess: integration.allowTeamMemberAccess,
       };
     }),
 
@@ -1102,6 +1107,8 @@ export const integrationRouter = createTRPCRouter({
       description: z.string().optional(),
       // Slack-specific updates
       appId: z.string().optional(),
+      // Team access control
+      allowTeamMemberAccess: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       // Get user's team memberships
@@ -1160,6 +1167,7 @@ export const integrationRouter = createTRPCRouter({
       const updateData: any = {};
       if (input.name !== undefined) updateData.name = input.name;
       if (input.description !== undefined) updateData.description = input.description;
+      if (input.allowTeamMemberAccess !== undefined) updateData.allowTeamMemberAccess = input.allowTeamMemberAccess;
 
       if (Object.keys(updateData).length > 0) {
         await ctx.db.integration.update({

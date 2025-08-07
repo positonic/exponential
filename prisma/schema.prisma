@@ -59,6 +59,7 @@ model User {
   integrationMappings   IntegrationUserMapping[] // User mappings across integrations
   slackRegistrations    SlackRegistrationToken[] // Slack registration tokens used by this user
   slackMessageHistory   SlackMessageHistory[] // Slack messages sent by this user
+  aiInteractionHistory  AiInteractionHistory[] // AI interactions by this user
   notes                 Note[]
   outcomes              Outcome[]
   posts                 Post[]
@@ -155,6 +156,7 @@ model Project {
   outcomes              Outcome[]              @relation("ProjectOutcomes")
   workflows             Workflow[]
   slackConfig           SlackChannelConfig?
+  aiInteractionHistory  AiInteractionHistory[] // AI interactions related to this project
 
   @@index([name])
   @@index([status])
@@ -643,4 +645,68 @@ model SlackMessageHistory {
   @@index([createdAt])
   @@index([channelType])
   @@index([messageType])
+}
+
+model AiInteractionHistory {
+  id String @id @default(cuid())
+
+  // Source Information (Platform-agnostic)
+  platform String // "slack", "manychat", "api", "webhook", "direct"
+  sourceId String? // Platform-specific ID (Slack channel, chat session, etc.)
+
+  // User Context
+  systemUserId   String? // Authenticated user ID
+  externalUserId String? // Platform-specific user ID (Slack user, etc.)
+  userName       String? // Display name for quick reference
+
+  // Message Content
+  userMessage  String // Original user input
+  cleanMessage String? // Processed/cleaned message
+  aiResponse   String // AI agent response
+
+  // AI Context
+  agentId   String? // Mastra agent ID
+  agentName String? // Human-readable agent name
+  model     String? // AI model used (GPT-4, Claude, etc.)
+
+  // Interaction Metadata
+  conversationId String? // Group related messages
+  messageType    String? // "question", "command", "request", "followup"
+  intent         String? // Classified intent ("list_goals", "create_task", etc.)
+  category       String? // "goals", "projects", "actions", "general"
+
+  // Performance & Quality
+  responseTime    Int? // Response time in ms
+  tokenUsage      Json? // Token consumption details {prompt: 100, completion: 50, total: 150}
+  hadError        Boolean @default(false)
+  errorMessage    String? // Error details if any
+  confidenceScore Float? // AI confidence rating (0.0 to 1.0)
+
+  // Context & Results
+  projectId    String? // Associated project
+  actionsTaken Json? // Actions performed by AI [{action: "create_task", result: "success"}]
+  toolsUsed    String[] // Tools/functions called ["createAction", "retrieveActions"]
+
+  // Additional metadata
+  userAgent String? // Browser/client information
+  ipAddress String? // For security/analytics (hashed)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+
+  // Relations
+  user    User?    @relation(fields: [systemUserId], references: [id], onDelete: SetNull)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  // Indexes for common queries
+  @@index([systemUserId])
+  @@index([platform])
+  @@index([agentId])
+  @@index([conversationId])
+  @@index([category])
+  @@index([intent])
+  @@index([projectId])
+  @@index([createdAt])
+  @@index([platform, systemUserId])
+  @@index([conversationId, createdAt])
 }

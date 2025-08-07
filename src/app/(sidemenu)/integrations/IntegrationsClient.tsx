@@ -18,7 +18,8 @@ import {
   Select,
   Textarea,
   Alert,
-  LoadingOverlay
+  LoadingOverlay,
+  Checkbox
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { 
@@ -46,6 +47,7 @@ interface CreateIntegrationForm {
   provider: string;
   apiKey: string;
   description?: string;
+  allowTeamMemberAccess?: boolean;
   // Slack-specific fields
   botToken?: string;
   signingSecret?: string;
@@ -57,6 +59,7 @@ interface CreateIntegrationForm {
 interface EditIntegrationForm {
   name: string;
   description?: string;
+  allowTeamMemberAccess?: boolean;
   // Slack-specific fields for editing
   appId?: string;
 }
@@ -257,6 +260,7 @@ export default function IntegrationsClient() {
       provider: 'fireflies',
       apiKey: '',
       description: '',
+      allowTeamMemberAccess: false,
       botToken: '',
       signingSecret: '',
       teamId: '',
@@ -297,6 +301,7 @@ export default function IntegrationsClient() {
     initialValues: {
       name: '',
       description: '',
+      allowTeamMemberAccess: false,
       appId: '',
     },
     validate: {
@@ -317,10 +322,12 @@ export default function IntegrationsClient() {
       editForm.setValues({
         name: integrationDetails.name,
         description: integrationDetails.description || '',
+        allowTeamMemberAccess: integrationDetails.allowTeamMemberAccess || false,
         appId: integrationDetails.appId || '',
       });
     }
-  }, [integrationDetails, editForm]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [integrationDetails]); // editForm is stable from useForm hook
 
   const handleCreateIntegration = async (values: CreateIntegrationForm) => {
     // Special handling for Slack - use createSlackIntegration with manual credentials
@@ -333,6 +340,7 @@ export default function IntegrationsClient() {
         slackTeamId: values.teamId || undefined,
         teamName: values.teamName || undefined,
         appId: values.appId || undefined,
+        allowTeamMemberAccess: values.allowTeamMemberAccess || false,
       });
       return;
     }
@@ -342,6 +350,7 @@ export default function IntegrationsClient() {
       provider: values.provider as 'fireflies' | 'github' | 'slack' | 'notion' | 'webhook',
       apiKey: values.apiKey,
       description: values.description,
+      allowTeamMemberAccess: values.allowTeamMemberAccess || false,
     });
   };
 
@@ -353,6 +362,7 @@ export default function IntegrationsClient() {
       name: values.name,
       description: values.description,
       appId: values.appId,
+      allowTeamMemberAccess: values.allowTeamMemberAccess,
     });
   };
 
@@ -641,6 +651,12 @@ export default function IntegrationsClient() {
                 minRows={2}
               />
 
+              <Checkbox
+                label="Allow all team members to use this integration"
+                description="Team members will automatically have access to configure this integration in their projects"
+                {...form.getInputProps('allowTeamMemberAccess', { type: 'checkbox' })}
+              />
+
               {form.values.provider === 'fireflies' && (
                 <Alert 
                   icon={<IconAlertCircle size={16} />}
@@ -705,6 +721,12 @@ export default function IntegrationsClient() {
                   placeholder="What will this integration be used for?"
                   {...editForm.getInputProps('description')}
                   minRows={2}
+                />
+
+                <Checkbox
+                  label="Allow all team members to use this integration"
+                  description="Team members will automatically have access to configure this integration in their projects"
+                  {...editForm.getInputProps('allowTeamMemberAccess', { type: 'checkbox' })}
                 />
 
                 {integrationDetails.provider === 'slack' && (

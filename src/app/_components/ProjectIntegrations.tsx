@@ -93,18 +93,22 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
 
   // Get available workflows for this project
   const { data: workflows = [] } = api.workflow.list.useQuery();
-  const { data: integrations = [] } = api.integration.listIntegrations.useQuery();
+  const { data: allAccessibleIntegrations = [] } = api.integrationPermission.getAccessibleIntegrations.useQuery({});
+  const { data: slackIntegrations = [] } = api.integrationPermission.getAccessibleIntegrations.useQuery({
+    provider: 'slack'
+  });
   const utils = api.useUtils();
-  
-  // Slack-specific data
-  const slackIntegrations = integrations?.filter(integration => integration.provider === 'slack') || [];
   const { data: slackChannelConfig } = api.slack.getChannelConfig.useQuery(
     { projectId: project.id },
     { enabled: !!project.id }
   );
+  // Get available channels for selected integration (only if user owns the integration)
+  const selectedIntegrationData = slackIntegrations?.find(i => i.id === selectedSlackIntegration);
+  const canFetchChannels = selectedIntegrationData?.accessType === 'owned';
+  
   const { data: availableChannels = [] } = api.slack.getAvailableChannels.useQuery(
     { integrationId: selectedSlackIntegration },
-    { enabled: !!selectedSlackIntegration }
+    { enabled: !!selectedSlackIntegration && canFetchChannels }
   );
 
   // Update task management mutation
@@ -200,7 +204,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
 
   // Slack configuration handlers
   const handleConfigureSlackChannel = () => {
-    if (!selectedSlackIntegration || !selectedSlackChannel || selectedSlackChannel === 'custom') {
+    if (!selectedSlackIntegration || !selectedSlackChannel || (selectedSlackChannel === 'custom' && canFetchChannels)) {
       notifications.show({
         title: 'Error',
         message: 'Please select a Slack integration and provide a valid channel name.',
@@ -414,7 +418,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
             <Text size="sm" fw={500} c="dimmed">Available Task Sync Integrations</Text>
             {availableForSetup.map((integration) => {
               const isExpanded = expandedIntegrations.has(integration.id);
-              const hasActiveIntegration = integrations.some(int => 
+              const hasActiveIntegration = allAccessibleIntegrations.some(int => 
                 int.provider === integration.id && int.status === 'ACTIVE'
               );
               const hasWorkflows = workflows.some(w => w.provider === integration.id);
@@ -625,30 +629,45 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                           onChange={(value) => setSelectedSlackIntegration(value || '')}
                           data={slackIntegrations.map(integration => ({
                             value: integration.id,
-                            label: integration.name
+                            label: `${integration.name} (${integration.accessType})`
                           }))}
                           required
                         />
 
                         {selectedSlackIntegration && (
                           <Stack gap="xs">
-                            <Select
-                              label="Slack Channel"
-                              placeholder="Select a channel or type custom"
-                              value={selectedSlackChannel}
-                              onChange={(value) => setSelectedSlackChannel(value || '')}
-                              data={[
-                                ...availableChannels.map(channel => ({
-                                  value: channel.name,
-                                  label: `${channel.name} (${channel.type})`
-                                })),
-                                { value: 'custom', label: '🔧 Enter custom channel name' }
-                              ]}
-                              searchable
-                              required
-                            />
+                            {canFetchChannels ? (
+                              <Select
+                                label="Slack Channel"
+                                placeholder="Select a channel or type custom"
+                                value={selectedSlackChannel}
+                                onChange={(value) => setSelectedSlackChannel(value || '')}
+                                data={[
+                                  ...availableChannels.map(channel => ({
+                                    value: channel.name,
+                                    label: `${channel.name} (${channel.type})`
+                                  })),
+                                  { value: 'custom', label: '🔧 Enter custom channel name' }
+                                ]}
+                                searchable
+                                required
+                              />
+                            ) : (
+                              <TextInput
+                                label="Channel Name"
+                                placeholder="#general"
+                                value={selectedSlackChannel}
+                                onChange={(e) => setSelectedSlackChannel(e.target.value)}
+                                description={
+                                  selectedIntegrationData?.accessType === 'shared' || selectedIntegrationData?.accessType === 'team'
+                                    ? `Enter the channel name for ${selectedIntegrationData.name}. You have ${selectedIntegrationData.accessType} access to this integration.`
+                                    : "Enter the Slack channel name (e.g., #general)"
+                                }
+                                required
+                              />
+                            )}
                             
-                            {selectedSlackChannel === 'custom' && (
+                            {selectedSlackChannel === 'custom' && canFetchChannels && (
                               <TextInput
                                 label="Custom Channel Name"
                                 placeholder="#my-custom-channel"
@@ -657,10 +676,27 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                                 description="Enter the full channel name including # (e.g., #my-private-channel)"
                               />
                             )}
+
+                            {selectedIntegrationData && selectedIntegrationData.accessType !== 'owned' && (
+                              <Alert 
+                                icon={<IconAlertCircle size={16} />}
+                                color="blue"
+                                variant="light"
+                              >
+                                <Text size="sm">
+                                  You have <strong>{selectedIntegrationData.accessType}</strong> access to this integration.
+                                  {selectedIntegrationData.grantedBy && (
+                                    <> Shared by <strong>{selectedIntegrationData.grantedBy.name || selectedIntegrationData.grantedBy.email}</strong>.</>
+                                  )}
+                                </Text>
+                              </Alert>
+                            )}
                             
-                            <Text size="xs" c="dimmed">
-                              💡 <strong>Can&apos;t see your channel?</strong> Make sure the bot is added to private channels by typing <code>/invite @YourBotName</code> in the channel.
-                            </Text>
+                            {canFetchChannels && (
+                              <Text size="xs" c="dimmed">
+                                💡 <strong>Can&apos;t see your channel?</strong> Make sure the bot is added to private channels by typing <code>/invite @YourBotName</code> in the channel.
+                              </Text>
+                            )}
                           </Stack>
                         )}
 
@@ -669,7 +705,11 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                             size="sm"
                             onClick={handleConfigureSlackChannel}
                             loading={configureSlackChannelMutation.isPending}
-                            disabled={!selectedSlackIntegration || !selectedSlackChannel || selectedSlackChannel === 'custom'}
+                            disabled={
+                              !selectedSlackIntegration || 
+                              !selectedSlackChannel || 
+                              (selectedSlackChannel === 'custom' && canFetchChannels)
+                            }
                           >
                             {slackChannelConfig ? 'Update Channel' : 'Configure Channel'}
                           </Button>

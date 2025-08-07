@@ -114,12 +114,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const [showAgentDropdown, setShowAgentDropdown] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
+  const [conversationId, setConversationId] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const transcribeAudio = api.tools.transcribe.useMutation();
   const callAgent = api.mastra.callAgent.useMutation();
   const chooseAgent = api.mastra.chooseAgent.useMutation();
+  const logInteraction = api.aiInteraction.logInteraction.useMutation();
+  const startConversation = api.aiInteraction.startConversation.useMutation();
   
   // Fetch project context when projectId is provided
   const { data: projectData } = api.project.getById.useQuery(
@@ -142,6 +145,29 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       }
     );
   console.log("mastraAgents is ", mastraAgents);
+  
+  // Initialize conversation ID when component mounts
+  useEffect(() => {
+    const initConversation = async () => {
+      try {
+        const result = await startConversation.mutateAsync({
+          platform: "manychat",
+          projectId: projectId,
+        });
+        setConversationId(result.conversationId);
+      } catch (error) {
+        console.error("Failed to start conversation:", error);
+        // Generate a fallback conversation ID
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substring(2, 15);
+        setConversationId(`conv_fallback_${timestamp}_${random}`);
+      }
+    };
+    
+    if (!conversationId) {
+      initConversation();
+    }
+  }, [projectId, startConversation, conversationId]);
   
   // Update messages when project data is loaded - but only if messages are still initial
   useEffect(() => {
@@ -359,8 +385,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     setInput('');
     setShowAgentDropdown(false);
 
+    let targetAgentId: string | undefined;
+    
     try {
-      let targetAgentId: string;
       
       // Security audit logging for agent calls
       console.log('🔒 [SECURITY AUDIT] Agent call initiated:', {
@@ -396,6 +423,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         }
       }
       
+      const startTime = Date.now();
+      
       const result = await callAgent.mutateAsync({
         agentId: targetAgentId,
         messages: [
@@ -404,14 +433,44 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         ],
       });
 
+      const responseTime = Date.now() - startTime;
+      const aiResponseText = typeof result.response === 'string' 
+        ? result.response 
+        : JSON.stringify(result.response);
+
       const aiResponse: Message = {
         type: 'ai', 
         agentName: result.agentName || 'Agent',
-        content: typeof result.response === 'string' 
-          ? result.response 
-          : JSON.stringify(result.response)
+        content: aiResponseText
       };
       setMessages(prev => [...prev, aiResponse]);
+
+      // Log the successful interaction
+      try {
+        await logInteraction.mutateAsync({
+          platform: "manychat",
+          conversationId: conversationId || undefined,
+          userMessage: input,
+          cleanMessage: messageToSend !== input ? messageToSend : undefined,
+          aiResponse: aiResponseText,
+          agentId: targetAgentId,
+          agentName: result.agentName || undefined,
+          model: "mastra-agents",
+          messageType: mentionedAgentId ? "command" : "question",
+          responseTime,
+          projectId: projectId || undefined,
+          toolsUsed: result.toolCalls?.map((tool: any) => tool.name || tool.function?.name).filter(Boolean) || [],
+          actionsTaken: result.toolResults?.map((result: any) => ({
+            action: result.name || "unknown",
+            result: result.success ? "success" : "error",
+            data: result.content || result.text,
+          })) || [],
+          hadError: false,
+        });
+      } catch (logError) {
+        console.warn("Failed to log AI interaction:", logError);
+        // Don't throw error to avoid breaking the chat flow
+      }
 
     } catch (error) {
       console.error('Chat error:', error);
@@ -450,6 +509,25 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           timestamp: new Date().toISOString(),
           userAgent: navigator.userAgent
         });
+
+        // Log the failed interaction
+        try {
+          await logInteraction.mutateAsync({
+            platform: "manychat",
+            conversationId: conversationId || undefined,
+            userMessage: input,
+            cleanMessage: messageToSend !== input ? messageToSend : undefined,
+            aiResponse: errorMessage,
+            agentId: targetAgentId,
+            model: "mastra-agents",
+            messageType: mentionedAgentId ? "command" : "question",
+            projectId: projectId || undefined,
+            hadError: true,
+            errorMessage: error.message,
+          });
+        } catch (logError) {
+          console.warn("Failed to log error interaction:", logError);
+        }
       }
       
       setMessages(prev => [...prev, { 
