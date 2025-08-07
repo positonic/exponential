@@ -48,6 +48,7 @@ import Link from 'next/link';
 // import { useRouter } from 'next/navigation';
 import { AddProjectToTeamModal } from '~/app/_components/AddProjectToTeamModal';
 import { AssignProjectToTeamModal } from '~/app/_components/AssignProjectToTeamModal';
+import { EditTeamModal } from '~/app/_components/EditTeamModal';
 
 interface AddMemberForm {
   email: string;
@@ -187,12 +188,18 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
           </Group>
           
           {isOwnerOrAdmin && (
-            <Button
-              leftSection={<IconUserPlus size={16} />}
-              onClick={openAddMemberModal}
-            >
-              Add Member
-            </Button>
+            <Group>
+              <EditTeamModal 
+                team={team}
+                onTeamUpdated={() => void refetch()}
+              />
+              <Button
+                leftSection={<IconUserPlus size={16} />}
+                onClick={openAddMemberModal}
+              >
+                Add Member
+              </Button>
+            </Group>
           )}
         </Group>
 

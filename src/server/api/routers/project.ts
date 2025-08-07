@@ -315,6 +315,14 @@ export const projectRouter = createTRPCRouter({
           goals: true,
           outcomes: true,
           actions: true,
+          team: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              description: true,
+            },
+          },
           transcriptionSessions: {
             include: {
               sourceIntegration: {

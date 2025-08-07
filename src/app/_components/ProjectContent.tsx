@@ -34,6 +34,7 @@ import {
   IconClock,
   IconMicrophone,
   IconMessageCircle,
+  IconX,
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
@@ -41,6 +42,7 @@ import { ProjectIntegrations } from "./ProjectIntegrations";
 import { ProjectSyncStatus } from "./ProjectSyncStatus";
 import { ProjectSyncConfiguration } from "./ProjectSyncConfiguration";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
+import Link from "next/link";
 
 type TabValue =
   | "tasks"
@@ -398,16 +400,85 @@ export function ProjectContent({
       <Drawer
         opened={settingsDrawerOpened}
         onClose={() => setSettingsDrawerOpened(false)}
-        title="Project Settings"
         position="right"
         size="lg"
         trapFocus={false}
         lockScroll={false}
         withOverlay={false}
+        styles={{
+          header: { display: 'none' },
+          body: { padding: 0 },
+          content: { backgroundColor: 'var(--mantine-color-dark-7)' }
+        }}
       >
-        <div className="space-y-6">
+        <Stack gap="xl" p="lg" h="100vh" style={{ overflowY: 'auto' }}>
+          {/* Custom Header with Close Button */}
+          <Group justify="space-between" align="center" pb="sm" style={{ borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
+            <div>
+              <Text size="lg" fw={600} c="bright">
+                {project.name}
+              </Text>
+              <Text size="sm" c="dimmed">
+                Project Configuration
+              </Text>
+            </div>
+            <ActionIcon
+              variant="subtle"
+              size="lg"
+              onClick={() => setSettingsDrawerOpened(false)}
+              c="dimmed"
+            >
+              <IconX size={20} />
+            </ActionIcon>
+          </Group>
+
+          {/* Team Section */}
+          {project.team && (
+            <Stack gap="xs">
+              <Group gap="xs" align="center">
+                <IconTargetArrow size={16} color="var(--mantine-color-blue-4)" />
+                <Text size="sm" fw={600} c="blue.4">
+                  TEAM
+                </Text>
+              </Group>
+              <Card 
+                withBorder 
+                p="lg" 
+                radius="lg" 
+                className="bg-gradient-to-br from-blue-500/15 via-indigo-500/10 to-purple-500/15 border-blue-500/30 hover:border-blue-400/50 transition-all duration-200 hover:shadow-lg"
+              >
+                <Group justify="space-between" align="flex-start">
+                  <Stack gap="xs" style={{ flex: 1 }}>
+                    <Text size="xl" fw={700} c="bright" className="bg-gradient-to-r from-blue-300 to-indigo-300 bg-clip-text text-transparent">
+                      {project.team.name}
+                    </Text>
+                    <Text size="sm" c="dimmed" lineClamp={2}>
+                      {project.team.description || 'Collaborate with your team on this project'}
+                    </Text>
+                  </Stack>
+                  <Button
+                    variant="gradient"
+                    gradient={{ from: 'blue', to: 'indigo', deg: 45 }}
+                    size="sm"
+                    component={Link}
+                    href={`/teams/${project.team.slug}`}
+                    leftSection={<IconTargetArrow size={14} />}
+                    className="shrink-0"
+                  >
+                    View Team
+                  </Button>
+                </Group>
+              </Card>
+            </Stack>
+          )}
+
+          {/* Project Details */}
           <ProjectDetails project={project} />
+          
+          {/* Project Integrations */}
           <ProjectIntegrations project={{ ...project, teamId: project.teamId }} />
+          
+          {/* Project Sync Configuration */}
           {project && (
             <ProjectSyncConfiguration
               project={{
@@ -420,8 +491,10 @@ export function ProjectContent({
               onSelectionChange={setSelectedActionIds}
             />
           )}
+          
+          {/* Team Members */}
           <Team projectId={projectId} />
-        </div>
+        </Stack>
       </Drawer>
     </>
   );
