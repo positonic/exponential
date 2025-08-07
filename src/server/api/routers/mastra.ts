@@ -519,6 +519,66 @@ export const mastraRouter = createTRPCRouter({
       }
     }),
 
+  // Get all user goals across all projects
+  getAllGoals: protectedProcedure
+    .query(async ({ ctx }) => {
+      console.log('🎯 [MASTRA DEBUG] getAllGoals called');
+      
+      const userId = ctx.session.user.id;
+      
+      const goals = await ctx.db.goal.findMany({
+        where: { userId },
+        include: {
+          lifeDomain: true,
+          projects: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+            }
+          },
+          outcomes: {
+            select: {
+              id: true,
+              description: true,
+              type: true,
+              dueDate: true,
+            }
+          }
+        },
+        orderBy: [
+          { lifeDomainId: 'asc' },
+          { title: 'asc' }
+        ]
+      });
+
+      return {
+        goals: goals.map(goal => ({
+          id: goal.id,
+          title: goal.title,
+          description: goal.description,
+          dueDate: goal.dueDate?.toISOString(),
+          lifeDomain: {
+            id: goal.lifeDomain.id,
+            title: goal.lifeDomain.title,
+            description: goal.lifeDomain.description,
+          },
+          projects: goal.projects.map(project => ({
+            id: project.id,
+            name: project.name,
+            status: project.status,
+          })),
+          outcomes: goal.outcomes.map(outcome => ({
+            id: outcome.id,
+            description: outcome.description,
+            type: outcome.type ?? 'daily',
+            dueDate: outcome.dueDate?.toISOString(),
+          })),
+        })),
+        total: goals.length,
+      };
+    }),
+
   // Project Manager Agent API Endpoints
   projectContext: protectedProcedure
     .input(z.object({
