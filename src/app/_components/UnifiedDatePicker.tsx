@@ -8,15 +8,30 @@ import {
 import { DatePicker } from '@mantine/dates';
 import {
   IconCalendar,
+  IconX,
   IconClock,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useState } from "react";
 
-interface BulkDatePickerProps {
-  onDateSelected: (date: Date | null) => void;
-  selectedCount: number;
+interface UnifiedDatePickerProps {
+  // Core functionality
+  value: Date | null;
+  onChange: (date: Date | null) => void;
+  
+  // Display modes
+  mode?: 'single' | 'bulk';
+  
+  // Bulk mode specific
+  selectedCount?: number;
+  
+  // Customization
+  triggerText?: string; // For bulk: "Reschedule Selected", for single: auto-generate from date
   disabled?: boolean;
+  notificationContext?: string; // "task", "bulk actions", etc.
+  
+  // Legacy support
+  onClear?: () => void; // For backwards compatibility
 }
 
 // Helper functions
@@ -52,33 +67,71 @@ const quickOptions = [
   { label: "No Date", date: null, icon: "⭕", color: "#6b7280" },
 ];
 
-export function BulkDatePicker({ onDateSelected, selectedCount, disabled = false }: BulkDatePickerProps) {
+export function UnifiedDatePicker({ 
+  value,
+  onChange,
+  mode = 'single',
+  selectedCount = 1,
+  triggerText,
+  disabled = false,
+  notificationContext = 'task',
+  onClear
+}: UnifiedDatePickerProps) {
   const [opened, setOpened] = useState(false);
   const [calendarDate, setCalendarDate] = useState<Date | null>(null);
+  
+  const isToday = value?.toDateString() === new Date().toDateString();
+  const isBulkMode = mode === 'bulk';
 
   const handleDateSelect = (date: Date | null) => {
-    onDateSelected(date);
+    onChange(date);
     setOpened(false);
     
-    if (date) {
-      notifications.show({
-        title: "Bulk Reschedule",
-        message: `${selectedCount} action${selectedCount !== 1 ? 's' : ''} will be rescheduled to ${date.toLocaleDateString(
-          "en-US",
-          {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-          },
-        )}`,
-        color: "blue",
-        withBorder: true,
-      });
+    // Call legacy onClear callback if provided and date is null
+    if (!date && onClear) {
+      onClear();
+    }
+    
+    // Show appropriate notifications based on mode
+    if (isBulkMode) {
+      if (date) {
+        notifications.show({
+          title: "Bulk Reschedule",
+          message: `${selectedCount} ${notificationContext}${selectedCount !== 1 ? 's' : ''} will be rescheduled to ${date.toLocaleDateString(
+            "en-US",
+            {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            },
+          )}`,
+          color: "blue",
+          withBorder: true,
+        });
+      } else {
+        notifications.show({
+          title: "Date Removed",
+          message: `Due date will be removed from ${selectedCount} ${notificationContext}${selectedCount !== 1 ? 's' : ''}`,
+          color: "gray",
+          withBorder: true,
+        });
+      }
     } else {
+      // Single mode notifications
       notifications.show({
-        title: "Date Removed",
-        message: `Due date will be removed from ${selectedCount} action${selectedCount !== 1 ? 's' : ''}`,
-        color: "gray",
+        title: "Date Updated",
+        message: date
+          ? `${notificationContext.charAt(0).toUpperCase() + notificationContext.slice(1)} scheduled for ${date.toLocaleDateString(
+              "en-US",
+              {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+              },
+            )}`
+          : `Date removed from ${notificationContext}`,
+        color: date ? "blue" : "gray",
+        icon: date ? "📅" : "⭕",
         withBorder: true,
       });
     }
@@ -88,6 +141,54 @@ export function BulkDatePicker({ onDateSelected, selectedCount, disabled = false
     if (date) {
       handleDateSelect(date);
     }
+  };
+
+  // Generate trigger button content based on mode
+  const getTriggerContent = () => {
+    if (isBulkMode || triggerText) {
+      // Bulk mode or custom text
+      return (
+        <Group gap="xs">
+          <IconCalendar size={16} />
+          <Text size="sm">{triggerText || "Reschedule Selected"}</Text>
+        </Group>
+      );
+    }
+
+    // Single mode - show selected date
+    if (!value) {
+      return (
+        <Group gap="xs">
+          <IconCalendar size={16} />
+          <Text size="sm">Date</Text>
+        </Group>
+      );
+    }
+
+    if (isToday) {
+      return (
+        <Group gap="xs">
+          <IconCalendar size={16} style={{ color: "#22c55e" }} />
+          <Text size="sm" c="#22c55e">
+            Today
+          </Text>
+          {onClear && <IconX size={14} />}
+        </Group>
+      );
+    }
+
+    return (
+      <Group gap="xs">
+        <IconCalendar size={16} />
+        <Text size="sm">
+          {value.toLocaleDateString("en-US", {
+            day: "numeric",
+            month: "short",
+          })}
+        </Text>
+        {onClear && <IconX size={14} />}
+      </Group>
+    );
   };
 
   return (
@@ -102,12 +203,17 @@ export function BulkDatePicker({ onDateSelected, selectedCount, disabled = false
         <UnstyledButton
           onClick={() => setOpened((o) => !o)}
           disabled={disabled}
-          className={`rounded px-3 py-1.5 ${disabled ? 'bg-gray-700 cursor-not-allowed opacity-50' : 'bg-dark-700 hover:bg-dark-600'} flex items-center transition-colors`}
+          className={`rounded px-3 py-1.5 ${
+            disabled 
+              ? 'bg-gray-700 cursor-not-allowed opacity-50' 
+              : isBulkMode 
+                ? 'bg-dark-700 hover:bg-dark-600'
+                : !value 
+                  ? "bg-dark-700 hover:bg-dark-600" 
+                  : "bg-dark-800 hover:bg-dark-600"
+          } flex items-center transition-colors`}
         >
-          <Group gap="xs">
-            <IconCalendar size={16} />
-            <Text size="sm">Reschedule Selected</Text>
-          </Group>
+          {getTriggerContent()}
         </UnstyledButton>
       </Popover.Target>
       

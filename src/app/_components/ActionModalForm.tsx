@@ -1,7 +1,7 @@
 import { Textarea, Button, Group, Select } from '@mantine/core';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import { api } from "~/trpc/react";
-import DateWidget from './DateWidget';
+import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { RichTextInput } from './RichTextInput';
 
 interface ActionModalFormProps {
@@ -101,9 +101,11 @@ export function ActionModalForm({
           }}
         />
         {setDueDate && (
-          <DateWidget 
-            date={dueDate ?? null}
-            setDueDate={setDueDate}
+          <UnifiedDatePicker 
+            value={dueDate ?? null}
+            onChange={setDueDate}
+            mode="single"
+            notificationContext="task"
             onClear={() => setDueDate(null)}
           />
         )}

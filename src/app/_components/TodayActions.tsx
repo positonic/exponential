@@ -56,9 +56,12 @@ export function TodayActions() {
           completedCount++;
           // Show final notification when all are done
           if (completedCount === totalCount) {
+            const message = date 
+              ? `Successfully rescheduled ${totalCount} action${totalCount !== 1 ? 's' : ''} to ${date.toDateString()}`
+              : `Successfully removed due date from ${totalCount} action${totalCount !== 1 ? 's' : ''}`;
             notifications.show({
-              title: 'Bulk Reschedule Complete',
-              message: `Successfully rescheduled ${totalCount} action${totalCount !== 1 ? 's' : ''} to ${date.toDateString()}`,
+              title: date ? 'Bulk Reschedule Complete' : 'Due Date Removed',
+              message,
               color: 'green',
             });
             void todayActions.refetch();

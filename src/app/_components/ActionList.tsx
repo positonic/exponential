@@ -1,6 +1,6 @@
 import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button } from '@mantine/core';
 import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit } from '@tabler/icons-react';
-import { BulkDatePicker } from './BulkDatePicker';
+import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
 import { useState } from "react";
@@ -484,11 +484,15 @@ export function ActionList({
                     </Group>
                     {selectedOverdueActionIds.size > 0 && (
                       <Group gap="xs">
-                        <BulkDatePicker
-                          onDateSelected={(date) => {
+                        <UnifiedDatePicker
+                          value={null}
+                          onChange={(date) => {
                             handleOverdueBulkReschedule(date);
                           }}
+                          mode="bulk"
                           selectedCount={selectedOverdueActionIds.size}
+                          triggerText="Reschedule Selected"
+                          notificationContext="action"
                           disabled={selectedOverdueActionIds.size === 0}
                         />
                         <Button
