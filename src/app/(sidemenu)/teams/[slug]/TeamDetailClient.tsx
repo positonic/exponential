@@ -350,7 +350,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                           variant="light"
                           size="xs"
                           component={Link}
-                          href={`/projects/${project.slug}`}
+                          href={`/projects/${project.slug}-${project.id}`}
                         >
                           View
                         </Button>
