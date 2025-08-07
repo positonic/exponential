@@ -597,8 +597,7 @@ export function MeetingsContent() {
                         withBorder
                         shadow="sm"
                         radius="md"
-                        className="hover:shadow-md transition-shadow cursor-pointer"
-                        onClick={() => handleTranscriptionClick(session)}
+                        className="hover:shadow-md transition-shadow"
                       >
                         <Stack gap="md">
                           {/* Meeting Header */}
@@ -664,8 +663,6 @@ export function MeetingsContent() {
                                     placeholder="Assign to project"
                                     value={session.projectId || ''}
                                     onChange={(value) => void handleProjectAssignment(session.id, value)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    onFocus={(e) => e.stopPropagation()}
                                     data={[
                                       { value: "", label: "No project" },
                                       ...(projects?.map((p) => ({
@@ -677,13 +674,22 @@ export function MeetingsContent() {
                                     style={{ minWidth: 200 }}
                                   />
                                   
+                                  {/* View Details Button */}
+                                  <Button
+                                    size="sm"
+                                    variant="light"
+                                    color="blue"
+                                    onClick={() => handleTranscriptionClick(session)}
+                                  >
+                                    View Details
+                                  </Button>
+                                  
                                   {/* Individual Meeting Actions Menu */}
                                   <Menu shadow="md">
                                     <Menu.Target>
                                       <Button
                                         size="sm"
                                         variant="subtle"
-                                        onClick={(e) => e.stopPropagation()}
                                       >
                                         <IconDotsVertical size={16} />
                                       </Button>
@@ -692,10 +698,7 @@ export function MeetingsContent() {
                                     <Menu.Dropdown>
                                       <Menu.Item
                                         leftSection={<IconArchive size={14} />}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleArchiveTranscription(session.id);
-                                        }}
+                                        onClick={() => handleArchiveTranscription(session.id)}
                                       >
                                         Archive Meeting
                                       </Menu.Item>
@@ -703,8 +706,7 @@ export function MeetingsContent() {
                                       <Menu.Item
                                         color="red"
                                         leftSection={<IconTrash size={14} />}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
+                                        onClick={() => {
                                           if (confirm('Are you sure you want to delete this meeting?')) {
                                             bulkDeleteMutation.mutate({ ids: [session.id] });
                                           }
@@ -878,8 +880,7 @@ export function MeetingsContent() {
                         withBorder
                         shadow="sm"
                         radius="md"
-                        className="hover:shadow-md transition-shadow cursor-pointer opacity-75"
-                        onClick={() => handleTranscriptionClick(session)}
+                        className="hover:shadow-md transition-shadow opacity-75"
                       >
                         <Stack gap="md">
                           {/* Meeting Header */}
@@ -923,20 +924,29 @@ export function MeetingsContent() {
                                   </Group>
                                 </Stack>
                                 
-                                {/* Unarchive Button */}
-                                <Button
-                                  size="sm"
-                                  variant="light"
-                                  color="blue"
-                                  leftSection={<IconArchiveOff size={14} />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleUnarchiveTranscription(session.id);
-                                  }}
-                                  loading={unarchiveTranscriptionMutation.isPending}
-                                >
-                                  Restore
-                                </Button>
+                                <Group gap="xs">
+                                  {/* View Details Button */}
+                                  <Button
+                                    size="sm"
+                                    variant="light"
+                                    color="gray"
+                                    onClick={() => handleTranscriptionClick(session)}
+                                  >
+                                    View Details
+                                  </Button>
+                                  
+                                  {/* Unarchive Button */}
+                                  <Button
+                                    size="sm"
+                                    variant="light"
+                                    color="blue"
+                                    leftSection={<IconArchiveOff size={14} />}
+                                    onClick={() => handleUnarchiveTranscription(session.id)}
+                                    loading={unarchiveTranscriptionMutation.isPending}
+                                  >
+                                    Restore
+                                  </Button>
+                                </Group>
                               </Group>
                             </div>
                           </Group>
