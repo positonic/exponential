@@ -804,6 +804,12 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
   }
   processedEvents.set(messageKey, Date.now());
 
+  // SECURITY: Double-check that user is authenticated before processing any commands
+  // This prevents welcome messages from showing to unauthorized users
+  if (!user || !user.id) {
+    console.error('🚨 [Security] handleBotMention called without authenticated user');
+    return { success: true, message: 'No authenticated user' };
+  }
 
   // For DMs, if no text or just greeting, send welcome message
   if (isDM && (!cleanText || cleanText.toLowerCase().match(/^(hi|hello|hey|sup|yo)$/))) {
