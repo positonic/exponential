@@ -8,19 +8,165 @@ import { appRouter } from '~/server/api/root';
 // Slack API client
 const SLACK_API_BASE = 'https://slack.com/api';
 
-// Event deduplication cache
-const processedEvents = new Map<string, number>();
-const EVENT_CACHE_TTL = 60000; // 1 minute
+// Event deduplication - using database for serverless persistence
+const EVENT_CACHE_TTL = 300000; // 5 minutes
 
-// Clean up old events periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [eventId, timestamp] of processedEvents.entries()) {
-    if (now - timestamp > EVENT_CACHE_TTL) {
-      processedEvents.delete(eventId);
+async function isEventProcessed(eventKey: string): Promise<boolean> {
+  try {
+    // Check if event was processed in last 5 minutes using database
+    const cutoff = new Date(Date.now() - EVENT_CACHE_TTL);
+    const existing = await db.slackEvent.findFirst({
+      where: {
+        eventKey,
+        processedAt: {
+          gte: cutoff
+        }
+      }
+    });
+    return !!existing;
+  } catch (error) {
+    console.error('Error checking event deduplication:', error);
+    return false; // If DB fails, allow processing to prevent blocking
+  }
+}
+
+async function markEventProcessed(eventKey: string): Promise<void> {
+  try {
+    await db.slackEvent.create({
+      data: {
+        eventKey,
+        processedAt: new Date()
+      }
+    });
+    
+    // Trigger cleanup of old events (fire and forget)
+    void cleanupOldEvents();
+  } catch (error) {
+    // Ignore duplicate key errors (race condition)
+    if (!(error as Error).message?.includes('Unique constraint')) {
+      console.error('Error marking event as processed:', error);
     }
   }
-}, EVENT_CACHE_TTL);
+}
+
+async function cleanupOldEvents(): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - EVENT_CACHE_TTL);
+    const deleted = await db.slackEvent.deleteMany({
+      where: {
+        processedAt: {
+          lt: cutoff
+        }
+      }
+    });
+    
+    if (deleted.count > 0) {
+      console.log(`🧹 Cleaned up ${deleted.count} old Slack events`);
+    }
+  } catch (error) {
+    console.error('Error cleaning up old events:', error);
+  }
+}
+
+interface MessageLogData {
+  slackEventId?: string;
+  channelId: string;
+  channelType: string;
+  timestamp: string;
+  slackUserId: string;
+  systemUserId?: string;
+  userName?: string;
+  rawMessage: string;
+  cleanMessage: string;
+  messageType?: string;
+  agentUsed?: string;
+  responseTime?: number;
+  hadError?: boolean;
+  errorMessage?: string;
+  category?: string;
+  intent?: string;
+}
+
+async function logMessageHistory(data: MessageLogData): Promise<void> {
+  try {
+    await db.slackMessageHistory.create({
+      data: {
+        slackEventId: data.slackEventId,
+        channelId: data.channelId,
+        channelType: data.channelType,
+        timestamp: data.timestamp,
+        slackUserId: data.slackUserId,
+        systemUserId: data.systemUserId,
+        userName: data.userName,
+        rawMessage: data.rawMessage,
+        cleanMessage: data.cleanMessage,
+        messageType: data.messageType,
+        agentUsed: data.agentUsed,
+        responseTime: data.responseTime,
+        hadError: data.hadError || false,
+        errorMessage: data.errorMessage,
+        category: data.category,
+        intent: data.intent,
+      }
+    });
+  } catch (error) {
+    console.error('Error logging message history:', error);
+  }
+}
+
+function categorizeMessage(message: string): { category: string; intent: string; messageType: string } {
+  const lowerMessage = message.toLowerCase().trim();
+  
+  // Goal-related
+  if (lowerMessage.includes('goal') || lowerMessage.includes('objective')) {
+    if (lowerMessage.includes('what') || lowerMessage.includes('list') || lowerMessage.includes('show')) {
+      return { category: 'goals', intent: 'list_goals', messageType: 'question' };
+    }
+    if (lowerMessage.includes('create') || lowerMessage.includes('add') || lowerMessage.includes('new')) {
+      return { category: 'goals', intent: 'create_goal', messageType: 'command' };
+    }
+    return { category: 'goals', intent: 'general_goals', messageType: 'question' };
+  }
+  
+  // Project-related
+  if (lowerMessage.includes('project')) {
+    if (lowerMessage.includes('status') || lowerMessage.includes('progress')) {
+      return { category: 'projects', intent: 'project_status', messageType: 'question' };
+    }
+    if (lowerMessage.includes('list') || lowerMessage.includes('show')) {
+      return { category: 'projects', intent: 'list_projects', messageType: 'question' };
+    }
+    return { category: 'projects', intent: 'general_projects', messageType: 'question' };
+  }
+  
+  // Action/Task-related
+  if (lowerMessage.includes('task') || lowerMessage.includes('action') || lowerMessage.includes('todo')) {
+    if (lowerMessage.includes('create') || lowerMessage.includes('add') || lowerMessage.includes('new')) {
+      return { category: 'actions', intent: 'create_task', messageType: 'command' };
+    }
+    if (lowerMessage.includes('list') || lowerMessage.includes('show') || lowerMessage.includes('what')) {
+      return { category: 'actions', intent: 'list_tasks', messageType: 'question' };
+    }
+    return { category: 'actions', intent: 'general_tasks', messageType: 'question' };
+  }
+  
+  // Status checks
+  if (lowerMessage.includes('status') || lowerMessage.includes('progress') || lowerMessage.includes('update')) {
+    return { category: 'general', intent: 'status_check', messageType: 'question' };
+  }
+  
+  // Help/General
+  if (lowerMessage.includes('help') || lowerMessage.includes('how') || lowerMessage.includes('what can')) {
+    return { category: 'general', intent: 'help_request', messageType: 'question' };
+  }
+  
+  // Greetings
+  if (lowerMessage.match(/^(hi|hello|hey|sup|yo)$/)) {
+    return { category: 'general', intent: 'greeting', messageType: 'social' };
+  }
+  
+  return { category: 'general', intent: 'unknown', messageType: 'question' };
+}
 
 // Slack Event API payload types
 interface SlackEventPayload {
@@ -400,14 +546,14 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
   const { event, event_id } = payload;
   const { user: installerUser, integration } = integrationData;
   
-  // Check for duplicate event and mark as processing atomically
+  // Check for duplicate event using persistent database deduplication
   if (event_id) {
-    if (processedEvents.has(event_id)) {
+    if (await isEventProcessed(`event-${event_id}`)) {
       console.log(`⚠️ Duplicate event detected: ${event_id}, skipping`);
       return { success: true, message: 'Duplicate event skipped' };
     }
     // Mark this event as processed IMMEDIATELY to prevent race conditions
-    processedEvents.set(event_id, Date.now());
+    await markEventProcessed(`event-${event_id}`);
     console.log(`📝 [Event] Processing event ${event_id} for user ${event.user}`);
   }
 
@@ -415,12 +561,12 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
   // Create a content-based key that's the same regardless of event type (message.im vs app_mention)
   if (event.channel && event.ts && event.user) {
     const contentKey = `msg-${event.channel}-${event.ts}-${event.user}`;
-    if (processedEvents.has(contentKey)) {
+    if (await isEventProcessed(contentKey)) {
       console.log(`⚠️ Cross-event duplicate detected: ${contentKey} (event_id: ${event_id}), skipping`);
       return { success: true, message: 'Cross-event duplicate skipped' };
     }
     // Mark this content as processed to prevent duplicate responses
-    processedEvents.set(contentKey, Date.now());
+    await markEventProcessed(contentKey);
     console.log(`📝 [Content] Processing message ${contentKey} via ${event.type}`);
   }
 
@@ -820,13 +966,13 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
   
   // Create a unique key for this message to prevent duplicate processing
   // Include user ID to prevent cross-user conflicts
-  const messageKey = `${event.channel}-${event.ts}-${user.id}`;
-  if (processedEvents.has(messageKey)) {
+  const messageKey = `botmention-${event.channel}-${event.ts}-${user.id}`;
+  if (await isEventProcessed(messageKey)) {
     console.log(`⚠️ Duplicate message detected: ${messageKey}, skipping`);
     return { success: true };
   }
   // Mark as processed IMMEDIATELY to prevent race conditions
-  processedEvents.set(messageKey, Date.now());
+  await markEventProcessed(messageKey);
   console.log(`📝 [Message] Processing message ${messageKey} for user ${user.id}`);
 
   // SECURITY: Double-check that user is authenticated before processing any commands
@@ -836,6 +982,48 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
     return { success: true, message: 'No authenticated user' };
   }
 
+  // Log message history for analytics (fire and forget)
+  const channelType = isDM ? 'DM' : (event.channel?.startsWith('G') ? 'group' : 'channel');
+  const categorization = categorizeMessage(cleanText);
+  const startTime = Date.now();
+  
+  void logMessageHistory({
+    slackEventId: event.event_id,
+    channelId: event.channel || 'unknown',
+    channelType,
+    timestamp: event.ts || Date.now().toString(),
+    slackUserId: event.user || 'unknown',
+    systemUserId: user.id,
+    userName: user.name,
+    rawMessage: text,
+    cleanMessage: cleanText,
+    messageType: categorization.messageType,
+    category: categorization.category,
+    intent: categorization.intent,
+  });
+  
+  const logMessageCompletion = (agentUsed?: string, hadError = false, errorMessage?: string) => {
+    const responseTime = Date.now() - startTime;
+    void logMessageHistory({
+      slackEventId: event.event_id,
+      channelId: event.channel || 'unknown',
+      channelType,
+      timestamp: event.ts || Date.now().toString(),
+      slackUserId: event.user || 'unknown',
+      systemUserId: user.id,
+      userName: user.name,
+      rawMessage: text,
+      cleanMessage: cleanText,
+      messageType: categorization.messageType,
+      category: categorization.category,
+      intent: categorization.intent,
+      agentUsed,
+      responseTime,
+      hadError,
+      errorMessage,
+    });
+  };
+
   // For DMs, if no text or just greeting, send welcome message
   if (isDM && (!cleanText || cleanText.toLowerCase().match(/^(hi|hello|hey|sup|yo)$/))) {
     await sendSlackResponse(
@@ -844,6 +1032,7 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
       integrationData,
       event.thread_ts
     );
+    logMessageCompletion('welcome');
     return { success: true };
   }
 
@@ -852,6 +1041,7 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
     const actionTitle = cleanText.replace(/create action|add task/i, '').trim();
     if (actionTitle) {
       await createActionFromSlack(actionTitle, user, event.channel!, integrationData);
+      logMessageCompletion('action_creator');
       return { success: true };
     }
   }
@@ -866,8 +1056,11 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
       integrationData,
       event.thread_ts
     );
+    logMessageCompletion('paddy');
   } catch (error) {
     console.error('Error chatting with Paddy:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
     // Send error response
     await sendSlackResponse(
       'Sorry, I encountered an error. Please try a simpler question or try again later.',
@@ -875,6 +1068,7 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
       integrationData,
       event.thread_ts
     );
+    logMessageCompletion('paddy', true, errorMessage);
   }
 
   return { success: true };
