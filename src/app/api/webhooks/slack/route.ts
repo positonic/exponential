@@ -443,7 +443,22 @@ export async function POST(request: NextRequest) {
     
     if (contentType.includes('application/json')) {
       // Event API or other JSON payloads
-      payload = JSON.parse(body);
+      if (!body || body.trim() === '') {
+        console.error('❌ Empty JSON body received');
+        return new Response('Invalid JSON payload', { status: 400 });
+      }
+      
+      try {
+        payload = JSON.parse(body);
+      } catch (error) {
+        console.error('❌ JSON parse error:', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          body: body.substring(0, 100) + '...',
+          contentType,
+          bodyLength: body.length
+        });
+        return new Response('Invalid JSON payload', { status: 400 });
+      }
     } else if (contentType.includes('application/x-www-form-urlencoded')) {
       // Slash commands or interactive components
       const formData = new URLSearchParams(body);
@@ -930,10 +945,62 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
   }
 }
 
+/**
+ * Format AI responses for better Slack presentation
+ */
+function formatResponseForSlack(response: string): string {
+  // Convert markdown-style formatting to Slack formatting
+  let formatted = response
+    // Convert **bold** to *bold* for Slack
+    .replace(/\*\*(.*?)\*\*/g, '*$1*')
+    // Convert _italic_ to _italic_ (already correct for Slack)
+    .replace(/_(.*?)_/g, '_$1_')
+    // Convert `code` to `code` (already correct for Slack)
+    .replace(/`([^`]+)`/g, '`$1`')
+    // Convert numbered lists to better formatting
+    .replace(/^(\d+)\.\s*\*\*(.*?)\*\*/gm, '$1. *$2*')
+    // Ensure proper spacing around sections
+    .replace(/\n\s*-\s*\*\*(.*?)\*\*/g, '\n   • *$1*')
+    // Clean up extra asterisks that might remain
+    .replace(/\*\*\*/g, '*')
+    // Add emoji for better visual appeal
+    .replace(/^Here are your current goals:/m, '🎯 *Your Current Goals:*')
+    .replace(/Life Domain:/g, '📂 Life Domain:')
+    .replace(/Due Date:/g, '📅 Due Date:')
+    .replace(/Project:/g, '📋 Project:')
+    .replace(/Priority:/g, '⚡ Priority:')
+    .replace(/Status:/g, '🔄 Status:')
+    // Format goal entries better
+    .replace(/^(\d+)\.\s*\*(.*?)\*/gm, '$1. 🎯 *$2*')
+    // Clean up multiple line breaks
+    .replace(/\n{3,}/g, '\n\n')
+    // Add spacing around list items for readability
+    .replace(/^(\d+\.\s*🎯.*?)$/gm, '\n$1')
+    .trim();
+
+  // Add helpful footer for goals
+  if (formatted.includes('Your Current Goals')) {
+    formatted += '\n\n💬 _Want to discuss a specific goal or set new ones? Just ask!_';
+  }
+  
+  // Add helpful footer for projects
+  if (formatted.includes('project') || formatted.includes('Project')) {
+    formatted += '\n\n💬 _Need help with a specific project? Just let me know!_';
+  }
+
+  // Add helpful footer for actions/tasks
+  if (formatted.includes('action') || formatted.includes('task') || formatted.includes('todo')) {
+    formatted += '\n\n💬 _Want to add, update, or discuss any tasks? I\'m here to help!_';
+  }
+
+  return formatted;
+}
+
 
 async function handleDeferredPaddyResponse(message: string, user: any, responseUrl: string) {
   try {
     const paddyResponse = await chatWithPaddyUsingTRPC(message, user);
+    const formattedResponse = formatResponseForSlack(paddyResponse);
     
     // Send the response back to Slack using the response_url
     await fetch(responseUrl, {
@@ -941,7 +1008,7 @@ async function handleDeferredPaddyResponse(message: string, user: any, responseU
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         response_type: 'in_channel',
-        text: paddyResponse
+        text: formattedResponse
       })
     });
     
@@ -1027,8 +1094,22 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
 
   // For DMs, if no text or just greeting, send welcome message
   if (isDM && (!cleanText || cleanText.toLowerCase().match(/^(hi|hello|hey|sup|yo)$/))) {
+    const welcomeMessage = `👋 *Hello! I'm Paddy, your AI project manager.*
+
+You can chat with me naturally here - no commands needed!
+
+🎯 *Try asking me things like:*
+• "What should I work on today?"
+• "What goals do I have?"
+• "Help me prioritize my tasks"
+• "Create a task to review the marketing proposal"
+• "What projects am I working on?"
+• "Show me my upcoming deadlines"
+
+💬 _Just type your question and I'll help you stay organized and productive!_`;
+    
     await sendSlackResponse(
-      'Hello! I\'m Paddy, your AI project manager. You can chat with me naturally here - no commands needed! \n\nTry asking me things like:\n• "What should I work on today?"\n• "What goals do I have?"\n• "Help me prioritize my tasks"\n• "Create a task to review the marketing proposal"',
+      welcomeMessage,
       event.channel!,
       integrationData,
       event.thread_ts
@@ -1050,9 +1131,10 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
   try {
     // Process the request and respond directly (no "thinking" message)
     const response = await chatWithPaddyUsingTRPC(cleanText, user);
+    const formattedResponse = formatResponseForSlack(response);
     
     await sendSlackResponse(
-      response,
+      formattedResponse,
       event.channel!,
       integrationData,
       event.thread_ts

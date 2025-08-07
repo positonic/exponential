@@ -13,7 +13,8 @@ export function HeaderAuthButtons({ session }: HeaderAuthButtonsProps) {
   return (
     <>
       {session ? (
-        <><TodayButton />
+        <>
+        {/* <TodayButton /> */}
         <TodayLinkButton />
         </>
       ) : (
