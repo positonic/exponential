@@ -5,6 +5,9 @@ import { ActionProcessorFactory } from '~/server/services/processors/ActionProce
 import { createCallerFactory } from '~/server/api/trpc';
 import { appRouter } from '~/server/api/root';
 
+// Slack API client
+const SLACK_API_BASE = 'https://slack.com/api';
+
 // Event deduplication cache
 const processedEvents = new Map<string, number>();
 const EVENT_CACHE_TTL = 60000; // 1 minute
@@ -397,14 +400,15 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
   const { event, event_id } = payload;
   const { user: installerUser, integration } = integrationData;
   
-  // Check for duplicate event
+  // Check for duplicate event and mark as processing atomically
   if (event_id) {
     if (processedEvents.has(event_id)) {
       console.log(`⚠️ Duplicate event detected: ${event_id}, skipping`);
       return { success: true, message: 'Duplicate event skipped' };
     }
-    // Mark this event as processed
+    // Mark this event as processed IMMEDIATELY to prevent race conditions
     processedEvents.set(event_id, Date.now());
+    console.log(`📝 [Event] Processing event ${event_id} for user ${event.user}`);
   }
 
   // Resolve the actual Slack user who sent the message
@@ -431,6 +435,11 @@ async function handleSlackEvent(payload: SlackEventPayload, integrationData: any
   }
 
   switch (event.type) {
+    case 'app_home_opened':
+      console.log(`🏠 [Slack] Processing app home opened for user ${slackUserId}`);
+      await handleAppHomeOpened(event, authenticatedUser, integrationData);
+      break;
+    
     case 'message':
       // Only process non-bot DMs (avoid duplicate processing with app_mention)
       if (!event.bot_id && event.channel?.startsWith('D')) {
@@ -797,12 +806,15 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
   const isDM = event.channel?.startsWith('D');
   
   // Create a unique key for this message to prevent duplicate processing
-  const messageKey = `${event.channel}-${event.ts}`;
+  // Include user ID to prevent cross-user conflicts
+  const messageKey = `${event.channel}-${event.ts}-${user.id}`;
   if (processedEvents.has(messageKey)) {
     console.log(`⚠️ Duplicate message detected: ${messageKey}, skipping`);
     return { success: true };
   }
+  // Mark as processed IMMEDIATELY to prevent race conditions
   processedEvents.set(messageKey, Date.now());
+  console.log(`📝 [Message] Processing message ${messageKey} for user ${user.id}`);
 
   // SECURITY: Double-check that user is authenticated before processing any commands
   // This prevents welcome messages from showing to unauthorized users
@@ -1130,6 +1142,88 @@ async function sendSlackResponse(text: string, channel: string, integrationData:
   } catch (error) {
     console.error('Error sending Slack response:', error);
   }
+}
+
+async function publishHomeTabView(userId: string, integrationData: any, view: any) {
+  try {
+    const botToken = integrationData.credentials.BOT_TOKEN;
+    if (!botToken) {
+      console.error('No bot token available for home tab view');
+      return;
+    }
+
+    const response = await fetch(`${SLACK_API_BASE}/views.publish`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${botToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        view: view
+      }),
+    });
+
+    const result = await response.json();
+    if (!result.ok) {
+      console.error('Error publishing home tab view:', result.error);
+    } else {
+      console.log(`✅ Home tab view published for user ${userId}`);
+    }
+  } catch (error) {
+    console.error('Error publishing home tab view:', error);
+  }
+}
+
+async function handleAppHomeOpened(event: SlackEvent, user: any, integrationData: any) {
+  const userId = event.user;
+  if (!userId) {
+    console.error('No user ID in app_home_opened event');
+    return;
+  }
+
+  // Create a simple "Hello World" home tab view
+  const homeView = {
+    type: 'home',
+    blocks: [
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: 'Hello World! 👋',
+          emoji: true
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: 'Welcome to your Exponential Slack app home tab!'
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: 'You can use the following commands:\n• `/expo help` - Show available commands\n• `/paddy` - Chat with Paddy AI\n• `/expo list` - List your actions'
+        }
+      },
+      {
+        type: 'divider'
+      },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: '💡 Tip: Try messaging me directly or using slash commands to get started!'
+          }
+        ]
+      }
+    ]
+  };
+
+  await publishHomeTabView(userId, integrationData, homeView);
 }
 
 // Handle GET for webhook verification

@@ -59,11 +59,8 @@
         "event_subscriptions": {
             "request_url": "https://exponential.im/api/webhooks/slack",
             "bot_events": [
-                "app_mention",
-                "message.channels",
-                "message.groups",
-                "message.im",
-                "message.mpim"
+                "app_home_opened",
+                "message.im"
             ]
         },
         "interactivity": {
