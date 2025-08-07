@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { SlackChannelResolver } from "~/server/services/SlackChannelResolver";
+import { IntegrationPermissionService } from "~/server/services/IntegrationPermissionService";
 import { SlackNotificationService } from "~/server/services/notifications/SlackNotificationService";
 
 export const slackRouter = createTRPCRouter({
@@ -70,11 +71,28 @@ export const slackRouter = createTRPCRouter({
         });
       }
 
-      // Verify user owns the integration
+      // Check if user has permission to configure channels for this integration
+      const hasPermission = await IntegrationPermissionService.hasPermission(
+        ctx.session.user.id,
+        input.integrationId,
+        'CONFIGURE_CHANNELS',
+        {
+          projectId: input.projectId,
+          teamId: input.teamId
+        }
+      );
+
+      if (!hasPermission) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to configure channels for this integration",
+        });
+      }
+
+      // Get the integration to ensure it exists and is active
       const integration = await ctx.db.integration.findFirst({
         where: {
           id: input.integrationId,
-          userId: ctx.session.user.id,
           provider: "slack",
           status: "ACTIVE",
         },
@@ -83,7 +101,7 @@ export const slackRouter = createTRPCRouter({
       if (!integration) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "Integration not found or not accessible",
+          message: "Integration not found or inactive",
         });
       }
 
@@ -105,6 +123,7 @@ export const slackRouter = createTRPCRouter({
       const config = await SlackChannelResolver.configureChannel(
         input.integrationId,
         input.channel,
+        ctx.session.user.id,
         input.projectId,
         input.teamId
       );
@@ -270,5 +289,87 @@ export const slackRouter = createTRPCRouter({
         } : null,
       })),
     }));
+  }),
+
+  getMessageHistory: protectedProcedure
+    .input(
+      z.object({
+        limit: z.number().min(1).max(100).default(20),
+        cursor: z.string().nullish(),
+        channelId: z.string().optional(),
+        category: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const where = {
+        systemUserId: ctx.session.user.id,
+        ...(input.channelId && { channelId: input.channelId }),
+        ...(input.category && { category: input.category }),
+      };
+
+      const messages = await ctx.db.slackMessageHistory.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: input.limit + 1,
+        cursor: input.cursor ? { id: input.cursor } : undefined,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      let nextCursor: typeof input.cursor | undefined = undefined;
+      if (messages.length > input.limit) {
+        const nextItem = messages.pop();
+        nextCursor = nextItem!.id;
+      }
+
+      return {
+        messages,
+        nextCursor,
+      };
+    }),
+
+  getMessageStats: protectedProcedure.query(async ({ ctx }) => {
+    const totalMessages = await ctx.db.slackMessageHistory.count({
+      where: { systemUserId: ctx.session.user.id },
+    });
+
+    const categoryCounts = await ctx.db.slackMessageHistory.groupBy({
+      by: ["category"],
+      where: { systemUserId: ctx.session.user.id },
+      _count: { category: true },
+    });
+
+    const channelCounts = await ctx.db.slackMessageHistory.groupBy({
+      by: ["channelType"],
+      where: { systemUserId: ctx.session.user.id },
+      _count: { channelType: true },
+    });
+
+    const errorCount = await ctx.db.slackMessageHistory.count({
+      where: { 
+        systemUserId: ctx.session.user.id,
+        hadError: true,
+      },
+    });
+
+    return {
+      totalMessages,
+      categoryBreakdown: categoryCounts.map(c => ({
+        category: c.category || "unknown",
+        count: c._count.category,
+      })),
+      channelBreakdown: channelCounts.map(c => ({
+        channelType: c.channelType,
+        count: c._count.channelType,
+      })),
+      errorCount,
+    };
   }),
 });
