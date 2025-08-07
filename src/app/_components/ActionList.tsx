@@ -1,5 +1,6 @@
-import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck } from '@tabler/icons-react';
+import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button } from '@mantine/core';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit } from '@tabler/icons-react';
+import { BulkDatePicker } from './BulkDatePicker';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
 import { useState } from "react";
@@ -119,17 +120,25 @@ export function ActionList({
   actions,
   selectedActionIds = new Set(),
   onSelectionChange,
-  showCheckboxes = true
+  showCheckboxes = true,
+  enableBulkEditForOverdue = false,
+  onOverdueBulkAction,
+  onOverdueBulkReschedule
 }: { 
   viewName: string, 
   actions: Action[],
   selectedActionIds?: Set<string>,
   onSelectionChange?: (ids: Set<string>) => void,
-  showCheckboxes?: boolean
+  showCheckboxes?: boolean,
+  enableBulkEditForOverdue?: boolean,
+  onOverdueBulkAction?: (action: 'delete', actionIds: string[]) => void,
+  onOverdueBulkReschedule?: (date: Date | null, actionIds: string[]) => void
 }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
   const [editModalOpened, setEditModalOpened] = useState(false);
+  const [bulkEditOverdueMode, setBulkEditOverdueMode] = useState(false);
+  const [selectedOverdueActionIds, setSelectedOverdueActionIds] = useState<Set<string>>(new Set());
   const utils = api.useUtils();
   
   const updateAction = api.action.update.useMutation({
@@ -267,6 +276,31 @@ export function ActionList({
   })();
   // --- End Filtering Logic ---
 
+  // Helper functions for overdue bulk operations
+  const handleSelectAllOverdue = () => {
+    setSelectedOverdueActionIds(new Set(overdueActions.map(action => action.id)));
+  };
+
+  const handleSelectNoneOverdue = () => {
+    setSelectedOverdueActionIds(new Set());
+  };
+
+  const handleOverdueBulkDelete = () => {
+    if (selectedOverdueActionIds.size === 0 || !onOverdueBulkAction) return;
+    
+    if (window.confirm(`Are you sure you want to delete ${selectedOverdueActionIds.size} overdue actions?`)) {
+      onOverdueBulkAction('delete', Array.from(selectedOverdueActionIds));
+      setSelectedOverdueActionIds(new Set());
+    }
+  };
+
+  const handleOverdueBulkReschedule = (date: Date | null) => {
+    if (selectedOverdueActionIds.size === 0 || !onOverdueBulkReschedule) return;
+    
+    onOverdueBulkReschedule(date, Array.from(selectedOverdueActionIds));
+    setSelectedOverdueActionIds(new Set());
+  };
+
   // Helper to render a single action item (used for both lists)
   const renderActionItem = (action: Action, isOverdue: boolean) => (
     <Paper
@@ -283,15 +317,16 @@ export function ActionList({
       onClick={(e) => {
         // Only open modal if we didn't click the checkbox
         if (!(e.target as HTMLElement).closest('.checkbox-wrapper') && 
-            !(e.target as HTMLElement).closest('.bulk-checkbox-wrapper')) {
+            !(e.target as HTMLElement).closest('.bulk-checkbox-wrapper') &&
+            !(e.target as HTMLElement).closest('.overdue-bulk-checkbox-wrapper')) {
           handleActionClick(action);
         }
       }}
     >
       <Group justify="space-between" align="center" wrap="nowrap">
         <Group gap="md" wrap="nowrap" className="min-w-0 flex-1">
-          {/* Bulk selection checkbox */}
-          {onSelectionChange && showCheckboxes && (
+          {/* Bulk selection checkbox for regular actions */}
+          {onSelectionChange && showCheckboxes && !isOverdue && (
             <div className="bulk-checkbox-wrapper">
               <Checkbox
                 size="sm"
@@ -304,6 +339,25 @@ export function ActionList({
                     newSelected.delete(action.id);
                   }
                   onSelectionChange(newSelected);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+          {/* Bulk selection checkbox for overdue actions when bulk edit is enabled */}
+          {isOverdue && bulkEditOverdueMode && enableBulkEditForOverdue && (
+            <div className="overdue-bulk-checkbox-wrapper">
+              <Checkbox
+                size="sm"
+                checked={selectedOverdueActionIds.has(action.id)}
+                onChange={(event) => {
+                  const newSelected = new Set(selectedOverdueActionIds);
+                  if (event.currentTarget.checked) {
+                    newSelected.add(action.id);
+                  } else {
+                    newSelected.delete(action.id);
+                  }
+                  setSelectedOverdueActionIds(newSelected);
                 }}
                 onClick={(e) => e.stopPropagation()}
               />
@@ -372,13 +426,85 @@ export function ActionList({
         >
           <Accordion.Item value="overdue" className="border-none">
             <Accordion.Control className="hover:bg-[#252525]">
-                <Group justify="space-between">
-                    <Text fw={500}>Overdue</Text>
-                    {/* Optional: Add Reschedule button logic here */}
-                    <Text size="sm" c="red">Reschedule</Text> 
+                <Group justify="space-between" wrap="nowrap">
+                    <Group gap="xs">
+                      <Text fw={500}>Overdue</Text>
+                      <Badge variant="filled" color="red" size="sm">
+                        {overdueActions.length}
+                      </Badge>
+                    </Group>
+                    <Group gap="xs">
+                      {/* Show bulk edit toggle for overdue actions */}
+                      {enableBulkEditForOverdue && (
+                        <Button
+                          size="xs"
+                          variant={bulkEditOverdueMode ? "filled" : "light"}
+                          color={bulkEditOverdueMode ? "blue" : "gray"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setBulkEditOverdueMode(!bulkEditOverdueMode);
+                            if (bulkEditOverdueMode) {
+                              setSelectedOverdueActionIds(new Set());
+                            }
+                          }}
+                          leftSection={<IconEdit size={12} />}
+                        >
+                          {bulkEditOverdueMode ? 'Exit' : 'Bulk edit'}
+                        </Button>
+                      )}
+                      <Text size="sm" c="red" onClick={(e) => e.stopPropagation()}>Reschedule</Text> 
+                    </Group>
                 </Group>
             </Accordion.Control>
             <Accordion.Panel p={0}>
+              {/* Bulk actions for overdue items */}
+              {bulkEditOverdueMode && enableBulkEditForOverdue && (
+                <Paper p="md" mb="md" className="bg-[#2a2a2a] border-b border-gray-700">
+                  <Group justify="space-between" align="center">
+                    <Group gap="md">
+                      <Button
+                        size="xs"
+                        variant="light"
+                        onClick={handleSelectAllOverdue}
+                      >
+                        Select All
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="light"
+                        onClick={handleSelectNoneOverdue}
+                      >
+                        Select None
+                      </Button>
+                      {selectedOverdueActionIds.size > 0 && (
+                        <Badge variant="filled" color="blue">
+                          {selectedOverdueActionIds.size} selected
+                        </Badge>
+                      )}
+                    </Group>
+                    {selectedOverdueActionIds.size > 0 && (
+                      <Group gap="xs">
+                        <BulkDatePicker
+                          onDateSelected={(date) => {
+                            handleOverdueBulkReschedule(date);
+                          }}
+                          selectedCount={selectedOverdueActionIds.size}
+                          disabled={selectedOverdueActionIds.size === 0}
+                        />
+                        <Button
+                          size="xs"
+                          variant="filled"
+                          color="red"
+                          onClick={handleOverdueBulkDelete}
+                          leftSection={<IconTrash size={12} />}
+                        >
+                          Delete Selected
+                        </Button>
+                      </Group>
+                    )}
+                  </Group>
+                </Paper>
+              )}
               {overdueActions.map(action => renderActionItem(action, true))}
             </Accordion.Panel>
           </Accordion.Item>

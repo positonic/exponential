@@ -72,9 +72,26 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           throw new Error('Invalid token: missing user identifier');
         }
 
+        console.log('🔐 [JWT DEBUG] Token decoded successfully', {
+          userId: userId,
+          userEmail: decoded.email,
+          tokenType: decoded.tokenType,
+          issuedAt: decoded.iat ? new Date(decoded.iat * 1000).toISOString() : 'not set',
+          expiresAt: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'not set',
+          securityVersion: decoded.securityVersion
+        });
+
         // Find the user
         const user = await db.user.findUnique({
           where: { id: userId }
+        });
+
+        console.log('👤 [USER LOOKUP] Database user lookup', {
+          userId: userId,
+          userFound: !!user,
+          userEmail: user?.email || 'not found',
+          userName: user?.name || 'not found',
+          userCreatedAt: user?.createdAt?.toISOString() || 'not found'
         });
 
         if (user) {

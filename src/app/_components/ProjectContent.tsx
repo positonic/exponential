@@ -39,6 +39,7 @@ import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { ProjectIntegrations } from "./ProjectIntegrations";
 import { ProjectSyncStatus } from "./ProjectSyncStatus";
+import { ProjectSyncConfiguration } from "./ProjectSyncConfiguration";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 
 type TabValue =
@@ -63,9 +64,11 @@ export function ProjectContent({
   const [settingsDrawerOpened, setSettingsDrawerOpened] = useState(false);
   const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
   const [syncStatusOpened, setSyncStatusOpened] = useState(false);
+  const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
   const { data: project, isLoading } = api.project.getById.useQuery({
     id: projectId,
   });
+  const { data: projectActions } = api.action.getProjectActions.useQuery({ projectId });
   const goalsQuery = api.goal.getProjectGoals.useQuery({ projectId });
   const outcomesQuery = api.outcome.getProjectOutcomes.useQuery({ projectId });
 
@@ -180,7 +183,6 @@ export function ProjectContent({
                   defaultView="list"
                   projectId={projectId}
                   displayAlignment={false}
-                  onToggleSyncStatus={() => setSyncStatusOpened(!syncStatusOpened)}
                 />
               </Stack>
             </Tabs.Panel>
@@ -406,6 +408,18 @@ export function ProjectContent({
         <div className="space-y-6">
           <ProjectDetails project={project} />
           <ProjectIntegrations project={{ ...project, teamId: project.teamId }} />
+          {project && (
+            <ProjectSyncConfiguration
+              project={{
+                id: project.id,
+                taskManagementTool: project.taskManagementTool,
+                taskManagementConfig: project.taskManagementConfig,
+              }}
+              actions={projectActions || []}
+              selectedActionIds={selectedActionIds}
+              onSelectionChange={setSelectedActionIds}
+            />
+          )}
           <Team projectId={projectId} />
         </div>
       </Drawer>

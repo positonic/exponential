@@ -88,7 +88,16 @@ export const projectRouter = createTRPCRouter({
       }).optional()
     }).optional())
     .query(async ({ ctx, input }) => {
-      return ctx.db.project.findMany({
+      console.log('🔍 [PROJECT.GETALL DEBUG] Query started', {
+        timestamp: new Date().toISOString(),
+        userId: ctx.session.user.id,
+        userEmail: ctx.session.user.email,
+        userName: ctx.session.user.name,
+        sessionExpires: ctx.session.expires,
+        includeActions: input?.include?.actions ?? false
+      });
+
+      const projects = await ctx.db.project.findMany({
         where: {
           createdById: ctx.session.user.id,
         },
@@ -101,6 +110,32 @@ export const projectRouter = createTRPCRouter({
           outcomes: true
         }
       });
+
+      console.log('📊 [PROJECT.GETALL RESULT] Query completed', {
+        projectCount: projects.length,
+        userIdQueried: ctx.session.user.id,
+        projectIds: projects.map(p => p.id),
+        projectNames: projects.map(p => p.name),
+        sampleProject: projects[0] ? {
+          id: projects[0].id,
+          name: projects[0].name,
+          createdById: projects[0].createdById,
+          status: projects[0].status,
+          goalsCount: projects[0].goals?.length || 0,
+          actionsCount: projects[0].actions?.length || 0,
+          outcomesCount: projects[0].outcomes?.length || 0
+        } : 'No projects found'
+      });
+
+      // Also check if there are ANY projects in the database for debugging
+      const totalProjectsInDb = await ctx.db.project.count();
+      console.log('📈 [PROJECT.GETALL CONTEXT] Database context', {
+        totalProjectsInDatabase: totalProjectsInDb,
+        userSpecificProjects: projects.length,
+        userHasProjects: projects.length > 0
+      });
+
+      return projects;
     }),
 
   create: protectedProcedure
