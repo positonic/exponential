@@ -193,6 +193,7 @@ interface SlackEvent {
   command?: string;
   response_url?: string;
   trigger_id?: string;
+  event_id?: string; // Available on some event types for deduplication
 }
 
 // Slack Interactive Components payload
