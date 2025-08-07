@@ -545,18 +545,33 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const renderAgentAvatars = () => {
     if (isLoadingAgents) {
       return (
-        <Group wrap="nowrap">
-          <Skeleton height={36} circle />
-          <Skeleton height={36} circle />
-          <Skeleton height={36} circle />
-        </Group>
+        <div className="flex gap-3">
+          <div className="flex items-center gap-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-700 to-slate-600 animate-pulse"></div>
+            ))}
+          </div>
+          <div className="flex items-center text-xs text-gray-400 animate-pulse">
+            Loading agents...
+          </div>
+        </div>
       );
     }
     if (agentsError) {
-      return <Text size="xs" c="red">Error loading agents</Text>;
+      return (
+        <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+          <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+          <Text size="xs" c="red.4">Error loading agents</Text>
+        </div>
+      );
     }
     if (!mastraAgents || mastraAgents.length === 0) {
-      return <Text size="xs" c="dimmed">No agents available</Text>;
+      return (
+        <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+          <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
+          <Text size="xs" c="amber.4">No agents available</Text>
+        </div>
+      );
     }
 
     // Filter agents by name or instructions
@@ -568,226 +583,433 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       const instructionsMatch = instr?.toLowerCase().includes(term) ?? false;
       return nameMatch || instructionsMatch;
     });
+    
     if (filteredAgents.length === 0) {
-      return <Text size="xs" c="dimmed">No agents match &quot;{agentFilter}&quot;</Text>;
+      return (
+        <div className="flex items-center gap-2 p-3 bg-gray-500/10 border border-gray-500/20 rounded-lg">
+          <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+          <Text size="xs" c="dimmed">No agents match "{agentFilter}"</Text>
+        </div>
+      );
     }
 
     return (
-      <Group wrap="nowrap" style={{ gap: '0.5rem' }}>
-        {filteredAgents.map(agent => (
-          <Tooltip key={agent.id} label={agent.name} position="bottom" withArrow>
-            <Avatar 
-              size="md" 
-              radius="xl"
+      <div className="flex flex-wrap gap-3 py-2">
+        {filteredAgents.map((agent, index) => (
+          <Tooltip 
+            key={agent.id} 
+            label={
+              <div className="p-2">
+                <div className="font-semibold text-sm">{agent.name}</div>
+                <div className="text-xs opacity-75 mt-1">
+                  {(agent as any).instructions ? 
+                    (agent as any).instructions.slice(0, 100) + '...' : 
+                    'AI Agent'
+                  }
+                </div>
+              </div>
+            } 
+            position="bottom" 
+            withArrow
+            styles={{
+              tooltip: {
+                backgroundColor: 'rgba(17, 24, 39, 0.95)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(75, 85, 99, 0.3)',
+                maxWidth: '200px'
+              }
+            }}
+          >
+            <div 
+              className="relative group cursor-pointer transform transition-all duration-300 hover:scale-110"
+              style={{ animationDelay: `${index * 50}ms` }}
             >
-              {getInitials(agent.name)}
-            </Avatar>
+              <Avatar 
+                size="md" 
+                radius="xl"
+                className="ring-2 ring-gray-600/30 transition-all duration-300 group-hover:ring-blue-400/50 group-hover:shadow-lg group-hover:shadow-blue-500/25"
+                styles={{
+                  root: {
+                    background: `linear-gradient(135deg, 
+                      ${index % 4 === 0 ? '#1e40af, #3b82f6, #60a5fa' : 
+                        index % 4 === 1 ? '#7c3aed, #a855f7, #c084fc' :
+                        index % 4 === 2 ? '#dc2626, #ef4444, #f87171' :
+                        '#059669, #10b981, #34d399'})`,
+                  }
+                }}
+              >
+                {getInitials(agent.name)}
+              </Avatar>
+              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 rounded-full ring-1 ring-slate-900 opacity-90"></div>
+              <div className="absolute inset-0 rounded-full bg-gradient-to-t from-transparent to-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            </div>
           </Tooltip>
         ))}
-      </Group>
+        
+        {/* Agent Count Badge */}
+        <div className="flex items-center ml-2">
+          <div className="px-2 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full">
+            <Text size="xs" fw={600} c="blue.3">
+              {filteredAgents.length} online
+            </Text>
+          </div>
+        </div>
+      </div>
     );
   };
 
   return (
     <div className="relative flex flex-col h-full">
-      {/* Agent discovery/filter input and avatar list */}
-      <Box p="xs" mb="xs" style={{ borderBottom: '1px solid var(--mantine-color-dark-4)' }}>
-        <Text size="sm" fw={500} mb="xs">Available Agents</Text>
+      {/* Enhanced Agent Discovery Header */}
+      <div className="bg-gradient-to-r from-slate-800/80 via-gray-800/60 to-slate-800/80 backdrop-blur-sm border-b border-gray-600/30 p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+          <Text size="sm" fw={600} className="bg-gradient-to-r from-blue-300 to-indigo-300 bg-clip-text text-transparent">
+            Available Agents
+          </Text>
+        </div>
         <TextInput
-          placeholder="Filter agents by name or skill..."
-          size="xs"
+          placeholder="🔍 Filter agents by name or skill..."
+          size="sm"
           value={agentFilter}
           onChange={e => setAgentFilter(e.currentTarget.value)}
-          mb="xs"
+          mb="sm"
+          styles={{
+            input: {
+              backgroundColor: 'rgba(31, 41, 55, 0.8)',
+              border: '1px solid rgba(75, 85, 99, 0.5)',
+              color: '#F3F4F6',
+              '&:focus': {
+                borderColor: '#60A5FA',
+                boxShadow: '0 0 0 3px rgba(96, 165, 250, 0.1)'
+              },
+              '&::placeholder': {
+                color: '#9CA3AF'
+              }
+            }
+          }}
         />
-        {renderAgentAvatars()}
-      </Box>
+        <div className="space-y-3">
+          <div className="overflow-x-auto">
+            {renderAgentAvatars()}
+          </div>
+          
+          {/* Enhanced Agent List */}
+          {mastraAgents && mastraAgents.length > 0 && (
+            <div className="space-y-2 max-h-32 overflow-y-auto">
+              {mastraAgents
+                .filter(agent => {
+                  const term = agentFilter.trim().toLowerCase();
+                  if (!term) return true;
+                  const nameMatch = agent.name.toLowerCase().includes(term);
+                  const instr = (agent as any).instructions as string | undefined;
+                  const instructionsMatch = instr?.toLowerCase().includes(term) ?? false;
+                  return nameMatch || instructionsMatch;
+                })
+                .map((agent, index) => (
+                  <div 
+                    key={agent.id}
+                    className="flex items-center gap-3 p-2 rounded-lg bg-slate-800/40 border border-gray-600/20 transition-all duration-200 hover:bg-slate-700/50 hover:border-blue-500/30 group"
+                    style={{ animationDelay: `${index * 30}ms` }}
+                  >
+                    <div className="relative">
+                      <Avatar 
+                        size="xs" 
+                        radius="xl"
+                        className="ring-1 ring-gray-600/30 group-hover:ring-blue-400/50 transition-all duration-200"
+                        styles={{
+                          root: {
+                            background: `linear-gradient(135deg, 
+                              ${index % 4 === 0 ? '#1e40af, #3b82f6' : 
+                                index % 4 === 1 ? '#7c3aed, #a855f7' :
+                                index % 4 === 2 ? '#dc2626, #ef4444' :
+                                '#059669, #10b981'})`,
+                          }
+                        }}
+                      >
+                        {getInitials(agent.name)}
+                      </Avatar>
+                      <div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-green-400 rounded-full ring-1 ring-slate-800"></div>
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Text size="xs" fw={600} className="text-gray-200 group-hover:text-blue-300 transition-colors">
+                          {agent.name}
+                        </Text>
+                        <div className="px-1.5 py-0.5 bg-green-500/20 border border-green-500/30 rounded text-xs font-medium text-green-400">
+                          online
+                        </div>
+                      </div>
+                      <Text size="xs" c="dimmed" className="truncate mt-0.5">
+                        {(agent as any).instructions ? 
+                          (agent as any).instructions.slice(0, 60) + '...' : 
+                          'AI Agent ready to assist'
+                        }
+                      </Text>
+                    </div>
+                    
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Text size="xs" c="blue.4" fw={500}>
+                        @{agent.name.toLowerCase()}
+                      </Text>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      </div>
       
       {buttons && buttons.length > 0 && (
-        <Group justify="flex-end" p="md" pt={0}>
-          {buttons}
-        </Group>
+        <div className="px-4 py-2 border-b border-gray-700/30">
+          <Group justify="flex-end">
+            {buttons}
+          </Group>
+        </div>
       )}
       
-      {/* Messages area - now uses flex-1 to fill remaining space */}
-      <div className="flex-1 h-full overflow-hidden">
-        <ScrollArea className="h-full" viewportRef={viewport} p="sm">
-          {messages.filter(message => message.type !== 'system').map((message, index) => (
-            <Box
-              key={index}
-              mb="md"
-              style={{
-                display: 'flex',
-                justifyContent: message.type === 'human' ? 'flex-end' : 'flex-start',
-              }}
-            >
-              {message.type === 'ai' ? (
-                <Group align="flex-start" gap="xs" style={{ maxWidth: '85%' }}>
-                  <Tooltip label={message.agentName || 'Agent'} position="left" withArrow>
-                    <Avatar 
-                      size="md" 
-                      radius="xl" 
-                      alt={message.agentName || 'AI'}
-                    >
-                      {getInitials(message.agentName || 'AI')}
-                    </Avatar>
-                  </Tooltip>
-                  <Paper
-                    p="sm"
-                    radius="lg"
-                    style={{
-                      backgroundColor: '#2C2E33',
-                      textAlign: 'left',
-                      flex: 1,
-                    }}
-                  >
-                    <div
-                      style={{
-                        color: '#C1C2C5',
-                        whiteSpace: 'pre-wrap',
-                        fontSize: '14px',
+      {/* Enhanced Messages Area */}
+      <div className="flex-1 h-full overflow-hidden relative">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-900/20 to-transparent pointer-events-none"></div>
+        <ScrollArea className="h-full" viewportRef={viewport} p="lg" scrollbars="y">
+          <div className="space-y-6">
+            {messages.filter(message => message.type !== 'system').map((message, index) => (
+              <div
+                key={index}
+                className={`flex ${message.type === 'human' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-3 duration-500`}
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                {message.type === 'ai' ? (
+                  <div className="flex items-start gap-3 max-w-[85%] group">
+                    <Tooltip 
+                      label={message.agentName || 'Agent'} 
+                      position="left" 
+                      withArrow
+                      styles={{
+                        tooltip: {
+                          backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                          backdropFilter: 'blur(8px)',
+                          border: '1px solid rgba(75, 85, 99, 0.3)'
+                        }
                       }}
                     >
-                      {renderMessageContent(message.content, message.type)}
+                      <div className="relative">
+                        <Avatar 
+                          size="md" 
+                          radius="xl" 
+                          alt={message.agentName || 'AI'}
+                          className="ring-2 ring-blue-500/20 transition-all duration-300 group-hover:ring-blue-400/40 group-hover:scale-105"
+                          styles={{
+                            root: {
+                              background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #60a5fa 100%)',
+                            }
+                          }}
+                        >
+                          {getInitials(message.agentName || 'AI')}
+                        </Avatar>
+                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400 rounded-full ring-2 ring-slate-900"></div>
+                      </div>
+                    </Tooltip>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Text size="xs" fw={500} c="blue.3">
+                          {message.agentName || 'Agent'}
+                        </Text>
+                        <div className="w-1 h-1 bg-gray-500 rounded-full"></div>
+                        <Text size="xs" c="dimmed">
+                          just now
+                        </Text>
+                      </div>
+                      <Paper
+                        p="md"
+                        radius="xl"
+                        className="bg-gradient-to-br from-slate-800/80 to-gray-800/60 backdrop-blur-sm border border-gray-600/30 shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01]"
+                      >
+                        <div
+                          className="text-gray-100 whitespace-pre-wrap text-sm leading-relaxed"
+                        >
+                          {renderMessageContent(message.content, message.type)}
+                        </div>
+                      </Paper>
                     </div>
-                  </Paper>
-                </Group>
-              ) : (
-                <Group align="flex-start" gap="xs" style={{ maxWidth: '85%' }}>
-                  <Paper
-                    p="sm"
-                    radius="lg"
-                    style={{
-                      backgroundColor: '#228be6',
-                      textAlign: 'right',
-                    }}
-                  >
-                    <div
-                      style={{
-                        color: 'white',
-                        whiteSpace: 'pre-wrap',
-                        fontSize: '14px',
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-3 max-w-[85%] group">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-end gap-2 mb-1">
+                        <Text size="xs" c="dimmed">
+                          just now
+                        </Text>
+                        <div className="w-1 h-1 bg-gray-500 rounded-full"></div>
+                        <Text size="xs" fw={500} c="gray.3">
+                          You
+                        </Text>
+                      </div>
+                      <Paper
+                        p="md"
+                        radius="xl"
+                        className="bg-gradient-to-br from-blue-600 to-indigo-600 shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01] ml-auto"
+                      >
+                        <div className="text-white whitespace-pre-wrap text-sm leading-relaxed">
+                          {renderMessageContent(message.content, message.type)}
+                        </div>
+                      </Paper>
+                    </div>
+                    <Tooltip 
+                      label="You" 
+                      position="right" 
+                      withArrow
+                      styles={{
+                        tooltip: {
+                          backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                          backdropFilter: 'blur(8px)',
+                          border: '1px solid rgba(75, 85, 99, 0.3)'
+                        }
                       }}
                     >
-                      {renderMessageContent(message.content, message.type)}
-                    </div>
-                  </Paper>
-                  <Tooltip label="User" position="right" withArrow>
-                    <Avatar 
-                      size="md" 
-                      radius="xl" 
-                      alt="User"
-                    >
-                      {getInitials('User')}
-                    </Avatar>
-                  </Tooltip>
-                </Group>
-              )}
-            </Box>
-          ))}
+                      <div className="relative">
+                        <Avatar 
+                          size="md" 
+                          radius="xl" 
+                          alt="User"
+                          className="ring-2 ring-indigo-500/20 transition-all duration-300 group-hover:ring-indigo-400/40 group-hover:scale-105"
+                          styles={{
+                            root: {
+                              background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%)',
+                            }
+                          }}
+                        >
+                          {getInitials('User')}
+                        </Avatar>
+                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400 rounded-full ring-2 ring-slate-900"></div>
+                      </div>
+                    </Tooltip>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </ScrollArea>
       </div>
       
-      {/* Fixed input at bottom - now uses flex-shrink-0 to prevent shrinking */}
-      <div className="flex-shrink-0 bg-[#1a1b1e] border-t border-gray-600 p-4">
+      {/* Enhanced Input Area */}
+      <div className="flex-shrink-0 bg-gradient-to-r from-slate-800/90 via-gray-800/80 to-slate-800/90 backdrop-blur-lg border-t border-gray-600/30 p-4">
         <form onSubmit={handleSubmit}>
-          <Group align="flex-end">
-            <div style={{ flex: 1, position: 'relative' }}>
-              <TextInput
-                ref={inputRef}
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                placeholder="Type your message... (Paddy will respond, or use @agent to mention others)"
-                radius="sm"
-                size="lg"
-                styles={{
-                  input: {
-                    backgroundColor: '#2C2E33',
-                    color: '#C1C2C5',
-                    '&::placeholder': {
-                      color: '#5C5F66'
-                    }
+          <div className="relative">
+            <TextInput
+              ref={inputRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder="💬 Type your message... (Paddy will respond, or use @agent to mention others)"
+              radius="xl"
+              size="lg"
+              styles={{
+                input: {
+                  backgroundColor: 'rgba(17, 24, 39, 0.8)',
+                  border: '1px solid rgba(75, 85, 99, 0.4)',
+                  color: '#F3F4F6',
+                  paddingRight: '120px',
+                  fontSize: '14px',
+                  transition: 'all 0.3s ease',
+                  '&:focus': {
+                    borderColor: '#60A5FA',
+                    boxShadow: '0 0 0 4px rgba(96, 165, 250, 0.15)',
+                    backgroundColor: 'rgba(17, 24, 39, 0.95)'
+                  },
+                  '&::placeholder': {
+                    color: '#9CA3AF'
                   }
-                }}
-                rightSectionWidth={100}
-                rightSection={
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <ActionIcon
-                    onClick={handleMicClick}
-                    variant="subtle"
-                    color={isRecording ? "red" : "gray"}
-                    className={isRecording ? "animate-pulse" : ""}
-                    size="sm"
-                  >
-                    {isRecording ? (
-                      <IconMicrophoneOff size={16} />
-                    ) : (
-                      <IconMicrophone size={16} />
-                    )}
-                  </ActionIcon>
-                  <Button 
-                    type="submit" 
-                    radius="sm"
-                    size="sm"
-                    variant="filled"
-                  >
-                    <IconSend size={16} />
-                  </Button>
-                </div>
-              }
-              />
-              
-              {/* Agent autocomplete dropdown */}
-              {showAgentDropdown && (
-                <Paper
-                  ref={dropdownRef}
-                  style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: 0,
-                    right: 0,
-                    marginBottom: '4px',
-                    backgroundColor: '#2C2E33',
-                    border: '1px solid #444',
-                    borderRadius: '4px',
-                    maxHeight: '200px',
-                    overflowY: 'auto',
-                    zIndex: 1000
-                  }}
-                  p="xs"
-                >
+                }
+              }}
+            />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+              <ActionIcon
+                onClick={handleMicClick}
+                variant={isRecording ? "filled" : "subtle"}
+                color={isRecording ? "red" : "blue"}
+                size="lg"
+                radius="xl"
+                className={`transition-all duration-300 hover:scale-110 ${isRecording ? "animate-pulse shadow-lg shadow-red-500/25" : "hover:bg-blue-500/10"}`}
+              >
+                {isRecording ? (
+                  <IconMicrophoneOff size={18} />
+                ) : (
+                  <IconMicrophone size={18} />
+                )}
+              </ActionIcon>
+              <Button 
+                type="submit" 
+                radius="xl"
+                size="md"
+                variant="gradient"
+                gradient={{ from: 'blue', to: 'indigo', deg: 45 }}
+                className="transition-all duration-300 hover:scale-105 shadow-lg shadow-blue-500/25"
+                disabled={!input.trim() && !isRecording}
+              >
+                <IconSend size={16} />
+              </Button>
+            </div>
+            
+            {/* Enhanced Agent Autocomplete Dropdown */}
+            {showAgentDropdown && (
+              <Paper
+                ref={dropdownRef}
+                className="absolute bottom-full left-0 right-0 mb-2 bg-slate-800/95 backdrop-blur-lg border border-gray-600/40 rounded-xl shadow-2xl shadow-black/50 overflow-hidden animate-in slide-in-from-bottom-2 duration-200"
+                style={{ zIndex: 1000 }}
+              >
+                <div className="max-h-48 overflow-y-auto">
                   {getFilteredAgentsForMention(input, cursorPosition).map((agent, index) => (
                     <div
                       key={agent.id}
                       onClick={() => selectAgent(agent)}
                       onMouseEnter={() => setSelectedAgentIndex(index)}
-                      style={{
-                        padding: '8px',
-                        cursor: 'pointer',
-                        borderRadius: '4px',
-                        color: '#C1C2C5',
-                        backgroundColor: index === selectedAgentIndex ? '#404040' : 'transparent'
-                      }}
+                      className={`flex items-center gap-3 p-3 cursor-pointer transition-all duration-200 ${
+                        index === selectedAgentIndex 
+                          ? 'bg-blue-500/20 border-l-2 border-blue-400' 
+                          : 'hover:bg-gray-700/40'
+                      }`}
                     >
-                      <Group gap="xs">
-                        <Avatar size="sm" radius="xl">
-                          {getInitials(agent.name)}
-                        </Avatar>
-                        <Text size="sm">@{agent.name}</Text>
-                      </Group>
+                      <Avatar size="sm" radius="xl" className="ring-1 ring-gray-600/50">
+                        {getInitials(agent.name)}
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <Text size="sm" fw={500} className="text-gray-200">
+                          @{agent.name}
+                        </Text>
+                      </div>
+                      {index === selectedAgentIndex && (
+                        <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                      )}
                     </div>
                   ))}
                   {getFilteredAgentsForMention(input, cursorPosition).length === 0 && (
-                    <Text size="sm" c="dimmed" p="sm">
-                      No agents found
-                    </Text>
+                    <div className="p-4 text-center">
+                      <Text size="sm" c="dimmed">
+                        🔍 No agents found matching your search
+                      </Text>
+                    </div>
                   )}
-                </Paper>
-              )}
-            </div>
-          </Group>
+                </div>
+              </Paper>
+            )}
+          </div>
         </form>
+        
+        {/* Typing Indicator Area */}
+        <div className="mt-2 h-4 flex items-center">
+          {(callAgent.isPending || chooseAgent.isPending) && (
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <div className="flex gap-1">
+                <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              </div>
+              <Text size="xs" c="dimmed">AI is thinking...</Text>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -62,8 +62,7 @@ export function ProjectContent({
 }) {
   const [activeTab, setActiveTab] = useState<TabValue>("tasks");
   const [drawerOpened, setDrawerOpened] = useState(false);
-  const [chatDrawerOpened, setChatDrawerOpened] = useState(false);
-  const [settingsDrawerOpened, setSettingsDrawerOpened] = useState(false);
+  const [activeDrawer, setActiveDrawer] = useState<'chat' | 'settings' | null>(null);
   const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
   const [syncStatusOpened, setSyncStatusOpened] = useState(false);
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
@@ -112,18 +111,32 @@ export function ProjectContent({
           </div>
           <Group gap="xs">
             <ActionIcon
-              variant="filled"
+              variant={activeDrawer === 'chat' ? 'gradient' : 'filled'}
+              gradient={activeDrawer === 'chat' ? { from: 'blue', to: 'indigo', deg: 45 } : undefined}
               size="lg"
-              onClick={() => setChatDrawerOpened(true)}
-              title="Open Project Chat"
+              onClick={() => setActiveDrawer(activeDrawer === 'chat' ? null : 'chat')}
+              title={activeDrawer === 'chat' ? 'Close Project Chat' : 'Open Project Chat'}
+              className={activeDrawer === 'chat' ? 'shadow-lg scale-105' : 'hover:scale-105'}
+              style={{
+                transition: 'all 0.2s ease',
+                transform: activeDrawer === 'chat' ? 'scale(1.05)' : 'scale(1)',
+                boxShadow: activeDrawer === 'chat' ? '0 4px 12px rgba(59, 130, 246, 0.3)' : undefined,
+              }}
             >
               <IconMessageCircle size={20} />
             </ActionIcon>
             <ActionIcon
-              variant="filled"
+              variant={activeDrawer === 'settings' ? 'gradient' : 'filled'}
+              gradient={activeDrawer === 'settings' ? { from: 'gray', to: 'dark', deg: 45 } : undefined}
               size="lg"
-              onClick={() => setSettingsDrawerOpened(true)}
-              title="Project Settings"
+              onClick={() => setActiveDrawer(activeDrawer === 'settings' ? null : 'settings')}
+              title={activeDrawer === 'settings' ? 'Close Project Settings' : 'Open Project Settings'}
+              className={activeDrawer === 'settings' ? 'shadow-lg scale-105' : 'hover:scale-105'}
+              style={{
+                transition: 'all 0.2s ease',
+                transform: activeDrawer === 'settings' ? 'scale(1.05)' : 'scale(1)',
+                boxShadow: activeDrawer === 'settings' ? '0 4px 12px rgba(107, 114, 128, 0.3)' : undefined,
+              }}
             >
               <IconSettings size={20} />
             </ActionIcon>
@@ -375,31 +388,52 @@ export function ProjectContent({
 
       {/* Project Chat Drawer */}
       <Drawer.Root
-        opened={chatDrawerOpened}
-        onClose={() => setChatDrawerOpened(false)}
+        opened={activeDrawer === 'chat'}
+        onClose={() => setActiveDrawer(null)}
         position="right"
         size="lg"
         trapFocus={false}
         lockScroll={false}
       >
-        <Drawer.Content style={{ height: "100vh" }}>
-          <Drawer.Header>
-            <Drawer.Title>Project Chat</Drawer.Title>
-            <Drawer.CloseButton />
-          </Drawer.Header>
-          <Drawer.Body style={{ height: "calc(100vh - 60px)", padding: 0 }}>
-            {/* 60px is the default header height, adjust if needed */}
-            <div className="flex h-full flex-col">
+        <Drawer.Content 
+          style={{ 
+            height: "100vh",
+            backgroundColor: 'transparent'
+          }}
+        >
+          <div className="flex h-full flex-col bg-gradient-to-b from-slate-900 via-gray-900 to-slate-900">
+            {/* Custom Header integrated with ManyChat design */}
+            <div className="bg-gradient-to-r from-slate-800/90 via-gray-800/80 to-slate-800/90 backdrop-blur-lg border-b border-gray-600/30 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                  <Text size="lg" fw={600} className="bg-gradient-to-r from-blue-300 to-indigo-300 bg-clip-text text-transparent">
+                    Project Chat
+                  </Text>
+                </div>
+                <ActionIcon
+                  variant="subtle"
+                  size="lg"
+                  onClick={() => setActiveDrawer(null)}
+                  c="dimmed"
+                  className="hover:bg-gray-700/50 transition-colors"
+                >
+                  <IconX size={20} />
+                </ActionIcon>
+              </div>
+            </div>
+            
+            <div className="flex-1 h-full overflow-hidden">
               <ManyChat projectId={projectId} />
             </div>
-          </Drawer.Body>
+          </div>
         </Drawer.Content>
       </Drawer.Root>
 
       {/* Project Settings Drawer */}
       <Drawer
-        opened={settingsDrawerOpened}
-        onClose={() => setSettingsDrawerOpened(false)}
+        opened={activeDrawer === 'settings'}
+        onClose={() => setActiveDrawer(null)}
         position="right"
         size="lg"
         trapFocus={false}
@@ -425,7 +459,7 @@ export function ProjectContent({
             <ActionIcon
               variant="subtle"
               size="lg"
-              onClick={() => setSettingsDrawerOpened(false)}
+              onClick={() => setActiveDrawer(null)}
               c="dimmed"
             >
               <IconX size={20} />
