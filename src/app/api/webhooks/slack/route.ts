@@ -1245,4 +1245,4 @@ export async function GET() {
     message: 'Slack webhook endpoint is active',
     timestamp: new Date().toISOString()
   });
-}
+}// Force deployment Thu Aug  7 11:26:15 CEST 2025
