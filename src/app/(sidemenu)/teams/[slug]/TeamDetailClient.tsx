@@ -49,6 +49,7 @@ import Link from 'next/link';
 import { AddProjectToTeamModal } from '~/app/_components/AddProjectToTeamModal';
 import { AssignProjectToTeamModal } from '~/app/_components/AssignProjectToTeamModal';
 import { EditTeamModal } from '~/app/_components/EditTeamModal';
+import { AddExistingIntegrationModal } from '~/app/_components/AddExistingIntegrationModal';
 
 interface AddMemberForm {
   email: string;
@@ -63,6 +64,7 @@ interface TeamDetailClientProps {
 export default function TeamDetailClient({ team: initialTeam, currentUserId }: TeamDetailClientProps) {
   // const router = useRouter();
   const [addMemberModalOpened, { open: openAddMemberModal, close: closeAddMemberModal }] = useDisclosure(false);
+  const [addIntegrationModalOpened, { open: openAddIntegrationModal, close: closeAddIntegrationModal }] = useDisclosure(false);
 
   // Get fresh team data
   const { data: team = initialTeam, refetch } = api.team.getBySlug.useQuery(
@@ -374,7 +376,30 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
           <Tabs.Panel value="integrations" pt="md">
             <Card withBorder>
               <Stack gap="md">
-                <Title order={3}>Team Integrations</Title>
+                <Group justify="space-between">
+                  <Title order={3}>Team Integrations</Title>
+                  {isOwnerOrAdmin && (
+                    <Group>
+                      <Button
+                        size="sm"
+                        variant="light"
+                        leftSection={<IconPlus size={16} />}
+                        onClick={openAddIntegrationModal}
+                      >
+                        Add Existing Integration
+                      </Button>
+                      <Button
+                        size="sm"
+                        leftSection={<IconPlus size={16} />}
+                        component={Link}
+                        href="/integrations"
+                      >
+                        Add New Integration
+                      </Button>
+                    </Group>
+                  )}
+                </Group>
+                
                 {team.integrations && team.integrations.length > 0 ? (
                   <Stack gap="sm">
                     {team.integrations.map((integration: any) => (
@@ -445,6 +470,14 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
             </Stack>
           </form>
         </Modal>
+
+        {/* Add Existing Integration Modal */}
+        <AddExistingIntegrationModal
+          opened={addIntegrationModalOpened}
+          onClose={closeAddIntegrationModal}
+          teamId={team.id}
+          onIntegrationAdded={() => void refetch()}
+        />
       </Stack>
     </Container>
   );

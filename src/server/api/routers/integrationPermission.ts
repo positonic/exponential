@@ -272,5 +272,120 @@ export const integrationPermissionRouter = createTRPCRouter({
       }
 
       return suggestions;
+    }),
+
+  /**
+   * Get integrations from all team members that could be added to the team
+   */
+  getTeamMemberIntegrations: protectedProcedure
+    .input(z.object({
+      teamId: z.string()
+    }))
+    .query(async ({ ctx, input }) => {
+      // First verify user is team member
+      const teamMember = await ctx.db.teamUser.findFirst({
+        where: {
+          teamId: input.teamId,
+          userId: ctx.session.user.id
+        }
+      });
+
+      if (!teamMember) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this team"
+        });
+      }
+
+      // Get all team members
+      const teamMembers = await ctx.db.teamUser.findMany({
+        where: { teamId: input.teamId },
+        select: { userId: true }
+      });
+
+      const memberIds = teamMembers.map(tm => tm.userId);
+
+      // Get all integrations from team members that aren't already added to the team
+      const availableIntegrations = await ctx.db.integration.findMany({
+        where: {
+          userId: { in: memberIds },
+          status: 'ACTIVE',
+          // Only include integrations not assigned to any team (personal integrations)
+          teamId: null
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      return availableIntegrations;
+    }),
+
+  /**
+   * Add existing integrations to a team
+   */
+  addIntegrationsToTeam: protectedProcedure
+    .input(z.object({
+      teamId: z.string(),
+      integrationIds: z.array(z.string())
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // First verify user is team admin/owner
+      const teamMember = await ctx.db.teamUser.findFirst({
+        where: {
+          teamId: input.teamId,
+          userId: ctx.session.user.id,
+          role: { in: ['admin', 'owner'] }
+        }
+      });
+
+      if (!teamMember) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You must be a team admin or owner to add integrations"
+        });
+      }
+
+      // Verify all integrations belong to team members
+      const teamMembers = await ctx.db.teamUser.findMany({
+        where: { teamId: input.teamId },
+        select: { userId: true }
+      });
+
+      const memberIds = teamMembers.map(tm => tm.userId);
+
+      const integrations = await ctx.db.integration.findMany({
+        where: {
+          id: { in: input.integrationIds },
+          userId: { in: memberIds },
+          status: 'ACTIVE'
+        }
+      });
+
+      if (integrations.length !== input.integrationIds.length) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Some integrations are not available or don't belong to team members"
+        });
+      }
+
+      // Add integrations to the team by updating their teamId
+      await ctx.db.integration.updateMany({
+        where: {
+          id: { in: input.integrationIds }
+        },
+        data: {
+          teamId: input.teamId
+        }
+      });
+
+      return { success: true, addedCount: integrations.length };
     })
 });

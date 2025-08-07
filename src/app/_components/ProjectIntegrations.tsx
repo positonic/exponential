@@ -17,6 +17,7 @@ import {
   Modal,
   Select,
   TextInput,
+  Loader,
 } from "@mantine/core";
 import {
   IconSettings,
@@ -94,7 +95,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   // Get available workflows for this project
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const { data: allAccessibleIntegrations = [] } = api.integrationPermission.getAccessibleIntegrations.useQuery({});
-  const { data: slackIntegrations = [] } = api.integrationPermission.getAccessibleIntegrations.useQuery({
+  const { data: slackIntegrations = [], isLoading: isLoadingSlackIntegrations } = api.integrationPermission.getAccessibleIntegrations.useQuery({
     provider: 'slack'
   });
   const utils = api.useUtils();
@@ -735,7 +736,14 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
           </Stack>
         )}
 
-        {slackIntegrations.length === 0 && (
+        {isLoadingSlackIntegrations ? (
+          <Card shadow="sm" padding="md" radius="md" withBorder>
+            <Group>
+              <Loader size="sm" />
+              <Text size="sm" c="dimmed">Loading Slack integrations...</Text>
+            </Group>
+          </Card>
+        ) : slackIntegrations.length === 0 ? (
           <Alert 
             icon={<IconAlertCircle size={16} />}
             title="Slack Integration Required"
@@ -756,7 +764,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
               Set up Slack Integration
             </Button>
           </Alert>
-        )}
+        ) : null}
 
         {/* New Integration Button - only show if no task sync integration is configured */}
         {!configuredIntegrations.length && (
