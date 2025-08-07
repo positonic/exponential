@@ -117,12 +117,12 @@ export function AssignProjectToTeamModal({ children, teamId, onProjectsAssigned 
             {unassignedProjects && unassignedProjects.length > 0 ? (
               <Stack gap="sm">
                 {unassignedProjects.map((project) => (
-                  <Card key={project.id} withBorder p="sm" style={{ cursor: 'pointer' }}>
-                    <Group justify="space-between" onClick={() => handleProjectToggle(project.id)}>
-                      <Group>
+                  <Card key={project.id} withBorder p="sm">
+                    <Group justify="space-between">
+                      <Group style={{ cursor: 'pointer' }} onClick={() => handleProjectToggle(project.id)}>
                         <Checkbox
                           checked={selectedProjects.includes(project.id)}
-                          onChange={() => handleProjectToggle(project.id)}
+                          readOnly
                         />
                         <div>
                           <Text fw={500}>{project.name}</Text>
