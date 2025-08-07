@@ -1,0 +1,61 @@
+{
+    "display_information": {
+        "name": "Patrick",
+        "description": "Patrick is a an AI assistant who can help you with your daily work"
+    },
+    "features": {
+        "app_home": {
+            "home_tab_enabled": true,
+            "messages_tab_enabled": false,
+            "messages_tab_read_only_enabled": false
+        },
+        "bot_user": {
+            "display_name": "Patrick",
+            "always_online": true
+        },
+        "slash_commands": [
+            {
+                "command": "/expo",
+                "url": "https://exponential.im/api/webhooks/slack",
+                "description": "List actions / tasks",
+                "should_escape": false
+            }
+        ]
+    },
+    "oauth_config": {
+        "redirect_urls": [
+            "https://exponential.im/api/auth/slack/callback"
+        ],
+        "scopes": {
+            "bot": [
+                "app_mentions:read",
+                "channels:history",
+                "channels:read",
+                "commands",
+                "chat:write",
+                "chat:write.customize",
+                "chat:write.public",
+                "groups:read",
+                "users:read",
+                "reactions:read",
+                "reactions:write",
+                "im:write",
+                "team:read",
+                "im:history"
+            ]
+        }
+    },
+    "settings": {
+        "event_subscriptions": {
+            "request_url": "https://exponential.im/api/webhooks/slack",
+            "bot_events": [
+                "app_mention",
+                "message.channels",
+                "message.im"
+            ]
+        },
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": false,
+        "token_rotation_enabled": false
+    }
+}
