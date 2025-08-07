@@ -40,7 +40,7 @@ export default function SlackMessagesPage() {
       }
     );
 
-  const { data: stats, isLoading: statsLoading } = api.slack.getMessageStats.useQuery();
+  const { data: stats } = api.slack.getMessageStats.useQuery();
 
   const allMessages = messageHistory?.pages.flatMap((page) => page.messages) ?? [];
 

@@ -1,4 +1,5 @@
 import { type PrismaClient } from "@prisma/client";
+import { createHash } from "node:crypto";
 
 export interface AiInteractionData {
   // Source Information (Required)
@@ -115,14 +116,14 @@ export class AiInteractionLogger {
 
           // Performance & Quality
           responseTime: data.responseTime,
-          tokenUsage: data.tokenUsage ? JSON.stringify(data.tokenUsage) : null,
+          tokenUsage: data.tokenUsage ? JSON.stringify(data.tokenUsage) : undefined,
           hadError: data.hadError ?? false,
           errorMessage: data.errorMessage,
           confidenceScore: data.confidenceScore,
 
           // Context & Results
           projectId: data.projectId,
-          actionsTaken: data.actionsTaken ? JSON.stringify(data.actionsTaken) : null,
+          actionsTaken: data.actionsTaken ? JSON.stringify(data.actionsTaken) : undefined,
           toolsUsed: data.toolsUsed ?? [],
 
           // Additional metadata
@@ -366,8 +367,7 @@ export class AiInteractionLogger {
     if (!ip) return undefined;
     
     // Simple hash for privacy - in production, use a proper crypto hash
-    const crypto = require("crypto");
-    return crypto.createHash("sha256").update(ip).digest("hex").substring(0, 16);
+    return createHash("sha256").update(ip).digest("hex").substring(0, 16);
   }
 
   /**

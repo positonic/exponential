@@ -9,7 +9,6 @@ import {
   Group,
   Stack,
   Alert,
-  Loader,
   Badge,
   Select,
   Checkbox,
@@ -23,8 +22,6 @@ import {
   IconTrash,
   IconUsers,
   IconAlertCircle,
-  IconCheck,
-  IconX,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";

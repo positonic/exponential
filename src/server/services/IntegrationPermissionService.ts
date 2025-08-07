@@ -1,5 +1,5 @@
 import { db } from '~/server/db';
-import { type Integration, type User, type Team, type IntegrationPermission } from '@prisma/client';
+import { type Integration, type User, type IntegrationPermission } from '@prisma/client';
 
 export type PermissionType = 'CONFIGURE_CHANNELS' | 'VIEW_INTEGRATION' | 'USE_IN_WORKFLOWS';
 export type PermissionScope = 'global' | 'team' | 'project';

@@ -70,7 +70,7 @@ export const integrationPermissionRouter = createTRPCRouter({
           ctx.session.user.id,
           input.provider
         );
-      } catch (error) {
+      } catch {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to fetch accessible integrations"
@@ -98,7 +98,7 @@ export const integrationPermissionRouter = createTRPCRouter({
           input.permission,
           input.context
         );
-      } catch (error) {
+      } catch {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to check permission"

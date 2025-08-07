@@ -1,6 +1,6 @@
 'use client';
 
-import { Paper, Text, Badge, Group, Stack, Card } from '@mantine/core';
+import { Text, Badge, Group, Stack, Card } from '@mantine/core';
 import { CreateProjectModal } from './CreateProjectModal';
 import { type RouterOutputs } from "~/trpc/react";
 import { IconFileText, IconFlag, IconTrendingUp } from '@tabler/icons-react';

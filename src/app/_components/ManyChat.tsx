@@ -14,8 +14,7 @@ import {
   Text,
   Box,
   ActionIcon,
-  Tooltip,
-  Skeleton
+  Tooltip
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
 
@@ -165,7 +164,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     };
     
     if (!conversationId) {
-      initConversation();
+      void initConversation();
     }
   }, [projectId, startConversation, conversationId]);
   
@@ -666,7 +665,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       return (
         <div className="flex items-center gap-2 p-3 bg-gray-500/10 border border-gray-500/20 rounded-lg">
           <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-          <Text size="xs" c="dimmed">No agents match "{agentFilter}"</Text>
+          <Text size="xs" c="dimmed">No agents match &quot;{agentFilter}&quot;</Text>
         </div>
       );
     }

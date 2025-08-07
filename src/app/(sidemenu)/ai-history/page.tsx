@@ -65,7 +65,7 @@ export default function AiHistoryPage() {
       }
     );
 
-  const { data: stats, isLoading: statsLoading } = api.aiInteraction.getInteractionStats.useQuery({
+  const { data: stats } = api.aiInteraction.getInteractionStats.useQuery({
     ...(selectedPlatform && { platform: selectedPlatform as any }),
     ...(selectedProject && { projectId: selectedProject }),
   });
@@ -407,7 +407,7 @@ export default function AiHistoryPage() {
           {selectedInteraction && (
             <Stack gap="md">
               {/* Metadata */}
-              <Group gap="sm" wrap>
+              <Group gap="sm" wrap="wrap">
                 <Badge color={platformColors[selectedInteraction.platform] || "gray"}>
                   {platformIcons[selectedInteraction.platform]}
                   <span style={{ marginLeft: "4px", textTransform: "capitalize" }}>
@@ -446,7 +446,7 @@ export default function AiHistoryPage() {
               <div>
                 <Text fw={500} mb="sm">AI Response</Text>
                 <Paper p="sm" bg="var(--mantine-color-gray-light)">
-                  <ScrollArea.Autosize maxHeight={300}>
+                  <ScrollArea.Autosize mah={300}>
                     <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
                       {selectedInteraction.aiResponse}
                     </Text>

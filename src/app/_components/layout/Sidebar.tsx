@@ -39,17 +39,19 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
       )}
 
       <aside className={`
-        w-screen sm:w-64 border-r border-gray-800 p-4 flex flex-col 
+        w-screen sm:w-64 border-r border-gray-700/50 p-4 flex flex-col 
         max-h-screen sm:h-screen overflow-y-auto sm:overflow-y-visible
-        bg-[#262626]
+        bg-gradient-to-b from-[#262626] via-[#242424] to-[#1f1f1f]
+        backdrop-blur-xl
         fixed sm:static inset-y-0 left-0 z-[95]
-        transform transition-transform duration-200 ease-in-out
+        transform transition-transform duration-300 ease-in-out
         ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%]'}
+        shadow-2xl shadow-black/20
         `}>
         
         <nav className="flex-grow space-y-6 mt-12 lg:mt-0">
           {/* Header with logo and close button - make it sticky */}
-          <div className="sticky top-0 bg-[#262626] -mt-4 -mx-4 px-4 py-4 mb-4 flex items-center justify-between">
+          <div className="sticky top-0 bg-gradient-to-r from-[#262626] to-[#242424] -mt-4 -mx-4 px-4 py-4 mb-6 flex items-center justify-between border-b border-gray-700/30 backdrop-blur-sm">
             <LogoDisplay 
               theme={theme} 
               href="/" 
@@ -60,9 +62,9 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
             {/* Close button */}
             <button
               onClick={() => setIsMenuOpen(false)}
-              className="p-2 rounded-lg hover:bg-gray-700 transition-colors"
+              className="p-2 rounded-lg hover:bg-gray-700/60 hover:shadow-lg transition-all duration-200 hover:scale-105"
             >
-              <IconX size={20} className="text-gray-400 hover:text-gray-200" />
+              <IconX size={20} className="text-gray-400 hover:text-gray-200 transition-colors duration-200" />
             </button>
           </div>
           
@@ -73,18 +75,18 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           <SidebarContent />
         </nav>
 
-        <div className="flex flex-col gap-2 border-t border-gray-800 pt-4">
+        <div className="flex flex-col gap-2 border-t border-gray-700/50 pt-4 mt-6">
           <Link
             href="https://github.com/positonic/ai-todo"
             onClick={() => setIsMenuOpen(false)}
-            className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-800 active:bg-gray-700 sm:active:bg-transparent"
+            className="flex w-full items-center rounded-xl px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-700/40 hover:text-gray-300 transition-all duration-200 hover:shadow-md"
           >
             <GithubIcon className="h-6 w-6" />
           </Link>
           <Link
             href={session ? "/api/auth/signout" : "/use-the-force"}
             onClick={() => setIsMenuOpen(false)}
-            className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-800 active:bg-gray-700 sm:active:bg-transparent"
+            className="flex w-full items-center rounded-xl px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-700/40 hover:text-gray-300 transition-all duration-200 hover:shadow-md"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

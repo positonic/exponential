@@ -25,10 +25,8 @@ import {
   IconUsers,
   IconShield,
   IconAlertCircle,
-  IconInfoCircle,
   IconBolt,
-  IconArrowRight,
-  IconClipboard
+  IconArrowRight
 } from "@tabler/icons-react";
 import { motion } from "framer-motion";
 import { CodeHighlight } from '@mantine/code-highlight';

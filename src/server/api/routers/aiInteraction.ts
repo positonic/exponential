@@ -259,14 +259,6 @@ export const aiInteractionRouter = createTRPCRouter({
           projectId: { not: null },
         },
         _count: { projectId: true },
-        include: {
-          project: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
       }),
     ]);
 
