@@ -46,19 +46,19 @@ model Session {
 }
 
 model User {
-  id                    String                 @id @default(cuid())
+  id                    String                   @id @default(cuid())
   name                  String?
-  email                 String?                @unique
+  email                 String?                  @unique
   emailVerified         DateTime?
   image                 String?
   accounts              Account[]
   actions               Action[]
-  assignedActions       Action[]               @relation("AssignedActions")
+  assignedActions       Action[]                 @relation("AssignedActions")
   goals                 Goal[]
   integrations          Integration[]
   integrationMappings   IntegrationUserMapping[] // User mappings across integrations
   slackRegistrations    SlackRegistrationToken[] // Slack registration tokens used by this user
-  slackMessageHistory   SlackMessageHistory[]  // Slack messages sent by this user
+  slackMessageHistory   SlackMessageHistory[] // Slack messages sent by this user
   notes                 Note[]
   outcomes              Outcome[]
   posts                 Post[]
@@ -70,6 +70,12 @@ model User {
   exercises             UserExercise[]
   verificationTokens    VerificationToken[]
   workflows             Workflow[]
+
+  // Integration permission relations
+  permissionsGrantedTo    IntegrationPermission[] @relation("PermissionGrantedTo")
+  permissionsGrantedBy    IntegrationPermission[] @relation("PermissionGrantedBy")
+  permissionsRevokedBy    IntegrationPermission[] @relation("PermissionRevokedBy")
+  slackChannelsConfigured SlackChannelConfig[] // Slack channels configured by this user
 }
 
 model VerificationToken {
@@ -274,12 +280,13 @@ model Team {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  members      TeamUser[]
-  projects     Project[]
-  actions      Action[]
-  integrations Integration[]
-  slackConfig  SlackChannelConfig?
+  members                 TeamUser[]
+  projects                Project[]
+  actions                 Action[]
+  integrations            Integration[]
+  slackConfig             SlackChannelConfig?
   slackRegistrationTokens SlackRegistrationToken[] // Registration tokens for this team
+  integrationPermissions  IntegrationPermission[] // Permissions granted to this team
 
   @@index([slug])
 }
@@ -357,25 +364,27 @@ model Screenshot {
 }
 
 model Integration {
-  id                    String                  @id @default(cuid())
-  name                  String
-  type                  String // 'API_KEY', 'OAUTH', 'WEBHOOK', etc.
-  provider              String // 'fireflies', 'github', 'slack', 'notion', etc.
-  status                String                  @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'EXPIRED'
-  description           String?
-  lastSyncAt            DateTime? // Last time transcripts were synced from this integration
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
-  userId                String?
-  teamId                String?
-  user                  User?                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team                  Team?                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  credentials           IntegrationCredential[]
-  userMappings          IntegrationUserMapping[] // User mappings for this integration
-  transcriptionSessions TranscriptionSession[] // Transcriptions created by this integration
-  workflows             Workflow[] // Workflows using this integration
-  slackChannelConfigs   SlackChannelConfig[] // Slack channel configurations using this integration
+  id                      String                   @id @default(cuid())
+  name                    String
+  type                    String // 'API_KEY', 'OAUTH', 'WEBHOOK', etc.
+  provider                String // 'fireflies', 'github', 'slack', 'notion', etc.
+  status                  String                   @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'EXPIRED'
+  description             String?
+  lastSyncAt              DateTime? // Last time transcripts were synced from this integration
+  allowTeamMemberAccess   Boolean                  @default(false) // Auto-share with team members
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  userId                  String?
+  teamId                  String?
+  user                    User?                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team                    Team?                    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  credentials             IntegrationCredential[]
+  userMappings            IntegrationUserMapping[] // User mappings for this integration
+  transcriptionSessions   TranscriptionSession[] // Transcriptions created by this integration
+  workflows               Workflow[] // Workflows using this integration
+  slackChannelConfigs     SlackChannelConfig[] // Slack channel configurations using this integration
   slackRegistrationTokens SlackRegistrationToken[] // Registration tokens for this integration
+  permissions             IntegrationPermission[] // Permissions granted for this integration
 
   @@index([userId])
   @@index([teamId])
@@ -396,16 +405,16 @@ model IntegrationCredential {
 }
 
 model IntegrationUserMapping {
-  id              String      @id @default(cuid())
-  integrationId   String
-  externalUserId  String      // Slack user ID (U1234567890), GitHub user ID, etc.
-  userId          String      // Your system user ID  
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  
-  integration     Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id             String   @id @default(cuid())
+  integrationId  String
+  externalUserId String // Slack user ID (U1234567890), GitHub user ID, etc.
+  userId         String // Your system user ID  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([integrationId, externalUserId])
   @@index([integrationId])
   @@index([userId])
@@ -481,16 +490,66 @@ model SlackChannelConfig {
   // Integration link
   integrationId String
 
+  // Track who configured this channel (for audit purposes)
+  configuredByUserId String
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  project     Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  team        Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  project      Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team         Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  integration  Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  configuredBy User        @relation(fields: [configuredByUserId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([teamId])
   @@index([integrationId])
+  @@index([configuredByUserId])
+}
+
+model IntegrationPermission {
+  id String @id @default(cuid())
+
+  // Integration being shared
+  integrationId String
+
+  // Who is being granted access
+  grantedToUserId String? // Individual user access
+  grantedToTeamId String? // Team-wide access (all team members get access)
+
+  // Who granted this permission
+  grantedByUserId String
+
+  // Permission details
+  permissions   String[] // ['CONFIGURE_CHANNELS', 'VIEW_INTEGRATION', 'USE_IN_WORKFLOWS']
+  scope         String // 'global', 'team', 'project'
+  scopeEntityId String? // projectId or teamId when scope is project/team-specific
+
+  // Optional constraints
+  expiresAt DateTime? // Permission expiration
+  isActive  Boolean   @default(true)
+
+  // Audit trail
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  revokedAt       DateTime?
+  revokedByUserId String?
+
+  // Relations
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  grantedToUser User?       @relation("PermissionGrantedTo", fields: [grantedToUserId], references: [id], onDelete: Cascade)
+  grantedToTeam Team?       @relation(fields: [grantedToTeamId], references: [id], onDelete: Cascade)
+  grantedBy     User        @relation("PermissionGrantedBy", fields: [grantedByUserId], references: [id], onDelete: Cascade)
+  revokedBy     User?       @relation("PermissionRevokedBy", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+
+  // Note: Ensure either user or team is specified in application logic (not both)
+
+  // Constraints
+  @@index([integrationId])
+  @@index([grantedToUserId])
+  @@index([grantedToTeamId])
+  @@index([grantedByUserId])
+  @@index([scope, scopeEntityId])
 }
 
 model ActionSync {
@@ -514,19 +573,19 @@ model ActionSync {
 model SlackRegistrationToken {
   id            String    @id @default(cuid())
   token         String    @unique // Secure random token for the registration link
-  slackUserId   String    // The Slack user ID trying to register (U1234567890)
-  integrationId String    // Which Slack integration this is for
-  teamId        String?   // Optional: limit to specific team
+  slackUserId   String // The Slack user ID trying to register (U1234567890)
+  integrationId String // Which Slack integration this is for
+  teamId        String? // Optional: limit to specific team
   createdAt     DateTime  @default(now())
-  expiresAt     DateTime  // Token expiration (24 hours)
+  expiresAt     DateTime // Token expiration (24 hours)
   usedAt        DateTime? // When the token was used (null = not used yet)
-  usedByUserId  String?   // Which system user completed the registration
-  
+  usedByUserId  String? // Which system user completed the registration
+
   // Relations
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
   team        Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
   usedByUser  User?       @relation(fields: [usedByUserId], references: [id], onDelete: SetNull)
-  
+
   @@index([token])
   @@index([slackUserId])
   @@index([integrationId])
@@ -537,46 +596,46 @@ model SlackEvent {
   id          String   @id @default(cuid())
   eventKey    String   @unique // Event ID or content-based key for deduplication
   processedAt DateTime @default(now()) // When this event was processed
-  
+
   @@index([eventKey])
   @@index([processedAt])
 }
 
 model SlackMessageHistory {
-  id            String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Message Metadata
-  slackEventId  String?  // Original Slack event ID
-  channelId     String   // Slack channel ID
-  channelType   String   // "DM", "channel", "group"
-  timestamp     String   // Slack timestamp (ts field)
-  
+  slackEventId String? // Original Slack event ID
+  channelId    String // Slack channel ID
+  channelType  String // "DM", "channel", "group"
+  timestamp    String // Slack timestamp (ts field)
+
   // User Context
-  slackUserId   String   // Slack user ID
-  systemUserId  String?  // Your system user ID (if authenticated)
-  userName      String?  // Display name for quick reference
-  
+  slackUserId  String // Slack user ID
+  systemUserId String? // Your system user ID (if authenticated)
+  userName     String? // Display name for quick reference
+
   // Message Content & Intent
-  rawMessage    String   // Original message text
-  cleanMessage  String   // Message with @mentions stripped
-  messageType   String?  // "question", "command", "request", etc.
-  
+  rawMessage   String // Original message text
+  cleanMessage String // Message with @mentions stripped
+  messageType  String? // "question", "command", "request", etc.
+
   // AI Response Context
-  agentUsed     String?  // Which Mastra agent handled it
-  responseTime  Int?     // How long AI took to respond (ms)
-  hadError      Boolean  @default(false)
-  errorMessage  String?  // Error details if any
-  
+  agentUsed    String? // Which Mastra agent handled it
+  responseTime Int? // How long AI took to respond (ms)
+  hadError     Boolean @default(false)
+  errorMessage String? // Error details if any
+
   // Feature Categorization (for prioritization)
-  category      String?  // "goals", "projects", "actions", "general"
-  intent        String?  // "list_goals", "create_task", "status_check"
-  
+  category String? // "goals", "projects", "actions", "general"
+  intent   String? // "list_goals", "create_task", "status_check"
+
   // Timestamps
-  createdAt     DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+
   // Relations
-  user          User?    @relation(fields: [systemUserId], references: [id], onDelete: SetNull)
-  
+  user User? @relation(fields: [systemUserId], references: [id], onDelete: SetNull)
+
   @@index([slackUserId])
   @@index([systemUserId])
   @@index([category])

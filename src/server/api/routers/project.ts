@@ -99,7 +99,20 @@ export const projectRouter = createTRPCRouter({
 
       const projects = await ctx.db.project.findMany({
         where: {
-          createdById: ctx.session.user.id,
+          OR: [
+            // User is the project creator
+            { createdById: ctx.session.user.id },
+            // User is a member of the project's team
+            {
+              team: {
+                members: {
+                  some: {
+                    userId: ctx.session.user.id
+                  }
+                }
+              }
+            }
+          ]
         },
         orderBy: {
           createdAt: "desc",
@@ -286,8 +299,26 @@ export const projectRouter = createTRPCRouter({
     .query(async ({ ctx }) => {
       return ctx.db.project.findMany({
         where: {
-          createdById: ctx.session.user.id,
-          teamId: null,
+          AND: [
+            {
+              OR: [
+                // User is the project creator
+                { createdById: ctx.session.user.id },
+                // User is a member of the project's team (for already assigned projects)
+                {
+                  team: {
+                    members: {
+                      some: {
+                        userId: ctx.session.user.id
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            // Project is not assigned to any team
+            { teamId: null }
+          ]
         },
         orderBy: {
           name: "asc",
@@ -306,10 +337,23 @@ export const projectRouter = createTRPCRouter({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.project.findUnique({
+      return ctx.db.project.findFirst({
         where: { 
           id: input.id,
-          createdById: ctx.session.user.id // 🔒 Security fix: Only return user's own projects
+          OR: [
+            // User is the project creator
+            { createdById: ctx.session.user.id },
+            // User is a member of the project's team
+            {
+              team: {
+                members: {
+                  some: {
+                    userId: ctx.session.user.id
+                  }
+                }
+              }
+            }
+          ]
         },
         include: {
           goals: true,

@@ -146,6 +146,7 @@ export class SlackChannelResolver {
   static async configureChannel(
     integrationId: string,
     channel: string,
+    configuredByUserId: string,
     projectId?: string,
     teamId?: string
   ) {
@@ -166,6 +167,7 @@ export class SlackChannelResolver {
         data: {
           slackChannel: channel,
           integrationId,
+          configuredByUserId,
           isActive: true,
           updatedAt: new Date()
         }
@@ -176,6 +178,7 @@ export class SlackChannelResolver {
         data: {
           slackChannel: channel,
           integrationId,
+          configuredByUserId,
           projectId,
           teamId,
           isActive: true

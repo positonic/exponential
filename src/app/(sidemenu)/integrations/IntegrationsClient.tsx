@@ -31,13 +31,15 @@ import {
   IconBrandFirebase,
   IconBrandSlack,
   IconRefresh,
-  IconEdit
+  IconEdit,
+  IconShare
 } from '@tabler/icons-react';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { IntegrationPermissionManager } from '~/app/_components/IntegrationPermissionManager';
 
 interface CreateIntegrationForm {
   name: string;
@@ -71,9 +73,11 @@ const PROVIDER_OPTIONS = [
 export default function IntegrationsClient() {
   const [opened, { open, close }] = useDisclosure(false);
   const [editModalOpened, { open: openEditModal, close: closeEditModal }] = useDisclosure(false);
+  const [permissionsModalOpened, { open: openPermissionsModal, close: closePermissionsModal }] = useDisclosure(false);
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [refreshingIntegration, setRefreshingIntegration] = useState<string | null>(null);
   const [editingIntegration, setEditingIntegration] = useState<any>(null);
+  const [permissionsIntegration, setPermissionsIntegration] = useState<any>(null);
   const searchParams = useSearchParams();
 
   // Handle success/error messages from URL parameters (e.g., from Slack OAuth callback)
@@ -357,6 +361,11 @@ export default function IntegrationsClient() {
     openEditModal();
   };
 
+  const openPermissionsModalForIntegration = (integration: any) => {
+    setPermissionsIntegration(integration);
+    openPermissionsModal();
+  };
+
   const handleTestConnection = async (integrationId: string) => {
     setTestingConnection(integrationId);
     await testConnection.mutateAsync({ integrationId });
@@ -468,6 +477,16 @@ export default function IntegrationsClient() {
                             onClick={() => openEditModalForIntegration(integration)}
                           >
                             <IconEdit size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Manage permissions">
+                          <ActionIcon 
+                            color="purple" 
+                            variant="light"
+                            size="sm"
+                            onClick={() => openPermissionsModalForIntegration(integration)}
+                          >
+                            <IconShare size={14} />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Test connection">
@@ -738,6 +757,25 @@ export default function IntegrationsClient() {
                 </Group>
               </Stack>
             </form>
+          )}
+        </Modal>
+
+        {/* Permissions Modal */}
+        <Modal 
+          opened={permissionsModalOpened} 
+          onClose={() => {
+            closePermissionsModal();
+            setPermissionsIntegration(null);
+          }}
+          title="Manage Integration Permissions"
+          size="lg"
+        >
+          {permissionsIntegration && (
+            <IntegrationPermissionManager
+              integrationId={permissionsIntegration.id}
+              integrationName={permissionsIntegration.name}
+              isOwner={true} // For now, assume user is owner since they can see it in their list
+            />
           )}
         </Modal>
       </Stack>

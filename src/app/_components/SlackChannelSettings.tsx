@@ -56,9 +56,10 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
   const entityName = project?.name || team?.name;
   const isProject = !!project;
   
-  // Get user's Slack integrations
-  const { data: allIntegrations, isLoading: loadingIntegrations } = api.integration.listIntegrations.useQuery();
-  const integrations = allIntegrations?.filter(integration => integration.provider === 'slack');
+  // Get user's accessible Slack integrations
+  const { data: integrations, isLoading: loadingIntegrations } = api.integrationPermission.getAccessibleIntegrations.useQuery({
+    provider: 'slack'
+  });
   
   // Get existing config
   const { data: existingConfig, refetch: refetchConfig } = api.slack.getChannelConfig.useQuery(
@@ -68,10 +69,23 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
     { enabled: !!entityId }
   );
 
-  // Get available channels for selected integration
+  // Check if user has permission to view channels for selected integration
+  const { data: hasChannelPermission } = api.integrationPermission.hasPermission.useQuery(
+    {
+      integrationId: selectedIntegration,
+      permission: 'CONFIGURE_CHANNELS',
+      context: isProject ? { projectId: entityId } : { teamId: entityId }
+    },
+    { enabled: !!selectedIntegration && !!entityId }
+  );
+
+  // Get available channels for selected integration (only if user owns or has been granted access)
+  const selectedIntegrationData = integrations?.find(i => i.id === selectedIntegration);
+  const canFetchChannels = selectedIntegrationData?.accessType === 'owned';
+  
   const { data: channels, isLoading: loadingChannels } = api.slack.getAvailableChannels.useQuery(
     { integrationId: selectedIntegration },
-    { enabled: !!selectedIntegration }
+    { enabled: !!selectedIntegration && canFetchChannels }
   );
 
   // Mutations
@@ -146,9 +160,24 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
       return;
     }
 
+    if (!hasChannelPermission) {
+      notifications.show({
+        title: 'Permission Error',
+        message: 'You do not have permission to configure channels for this integration',
+        color: 'red',
+      });
+      return;
+    }
+
+    // Ensure channel starts with #
+    let channel = selectedChannel;
+    if (!channel.startsWith('#')) {
+      channel = `#${channel}`;
+    }
+
     configureChannelMutation.mutate({
       integrationId: selectedIntegration,
-      channel: selectedChannel,
+      channel,
       isActive,
       ...(isProject ? { projectId: entityId! } : { teamId: entityId! })
     });
@@ -185,9 +214,9 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
     );
   }
 
-  const integrationOptions = integrations?.map((integration: any) => ({
+  const integrationOptions = integrations?.map((integration) => ({
     value: integration.id,
-    label: integration.name
+    label: `${integration.name} (${integration.accessType})`
   })) || [];
 
   return (
@@ -233,26 +262,50 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
             />
 
             {selectedIntegration && (
-              <Select
-                label="Channel"
-                placeholder={loadingChannels ? "Loading channels..." : "Select a channel"}
-                value={selectedChannel}
-                onChange={(value) => setSelectedChannel(value || '')}
-                data={availableChannels}
-                searchable
-                disabled={loadingChannels}
-                required
-              />
+              <>
+                {canFetchChannels ? (
+                  <Select
+                    label="Channel"
+                    placeholder={loadingChannels ? "Loading channels..." : "Select a channel"}
+                    value={selectedChannel}
+                    onChange={(value) => setSelectedChannel(value || '')}
+                    data={availableChannels}
+                    searchable
+                    disabled={loadingChannels}
+                    required
+                  />
+                ) : (
+                  <TextInput
+                    label="Channel Name"
+                    placeholder="#general"
+                    value={selectedChannel}
+                    onChange={(event) => setSelectedChannel(event.currentTarget.value)}
+                    description={
+                      selectedIntegrationData?.accessType === 'shared' || selectedIntegrationData?.accessType === 'team'
+                        ? `Enter the channel name for ${selectedIntegrationData.name}. You have ${selectedIntegrationData.accessType} access to this integration.`
+                        : "Enter the Slack channel name (e.g., #general)"
+                    }
+                    required
+                  />
+                )}
+
+                {selectedIntegrationData && selectedIntegrationData.accessType !== 'owned' && (
+                  <Alert icon={<IconAlertCircle size={16} />} color="blue">
+                    <Text size="sm">
+                      You have <strong>{selectedIntegrationData.accessType}</strong> access to this integration.
+                      {selectedIntegrationData.grantedBy && (
+                        <> Shared by <strong>{selectedIntegrationData.grantedBy.name || selectedIntegrationData.grantedBy.email}</strong>.</>
+                      )}
+                    </Text>
+                  </Alert>
+                )}
+              </>
             )}
 
-            {selectedChannel && !selectedChannel.startsWith('#') && (
-              <TextInput
-                label="Custom Channel"
-                placeholder="#custom-channel"
-                value={selectedChannel}
-                onChange={(event) => setSelectedChannel(event.currentTarget.value)}
-                description="You can also enter a custom channel name"
-              />
+            {selectedChannel && !selectedChannel.startsWith('#') && selectedChannel.length > 0 && (
+              <Alert icon={<IconAlertCircle size={16} />} color="orange">
+                Channel names should start with # (e.g., #general)
+              </Alert>
             )}
           </>
         )}
@@ -261,7 +314,12 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
           <Button
             onClick={handleSave}
             loading={configureChannelMutation.isPending}
-            disabled={!isActive || !selectedIntegration || !selectedChannel}
+            disabled={
+              !isActive || 
+              !selectedIntegration || 
+              !selectedChannel || 
+              hasChannelPermission === false
+            }
           >
             {config ? 'Update Configuration' : 'Save Configuration'}
           </Button>

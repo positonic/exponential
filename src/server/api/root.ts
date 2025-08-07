@@ -15,6 +15,7 @@ import { noteRouter } from "./routers/note";
 import { exerciseRouter } from "./routers/exercise";
 import { mastraRouter } from "./routers/mastra";
 import { integrationRouter } from "./routers/integration";
+import { integrationPermissionRouter } from "./routers/integrationPermission";
 import { teamRouter } from "./routers/team";
 import { slackRouter } from "./routers/slack";
 /**
@@ -39,6 +40,7 @@ export const appRouter = createTRPCRouter({
   exercise: exerciseRouter,
   mastra: mastraRouter,
   integration: integrationRouter,
+  integrationPermission: integrationPermissionRouter,
   team: teamRouter,
   slack: slackRouter,
 });
