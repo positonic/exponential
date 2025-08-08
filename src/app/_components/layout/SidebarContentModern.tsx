@@ -11,14 +11,14 @@ import { VideoCount } from "./VideoCount";
 
 export function ModernSidebarContent() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-0.5">
       <Accordion 
         defaultValue="projects" 
         classNames={{
-          root: 'bg-transparent space-y-3',
+          root: 'bg-transparent space-y-0.5',
           item: 'border border-gray-800 rounded-lg transition-all duration-200 hover:border-gray-700',
-          control: 'hover:bg-transparent text-gray-300 font-medium transition-all duration-200 py-4',
-          panel: 'pt-2 pb-3 px-1'
+          control: 'hover:bg-transparent text-gray-300 font-medium transition-all duration-200 py-1',
+          panel: 'pt-0.5 pb-1 px-1'
         }}
       >
         <Accordion.Item value="projects">
