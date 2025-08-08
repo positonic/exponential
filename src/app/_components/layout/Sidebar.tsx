@@ -3,9 +3,6 @@
 import Link from "next/link";
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
-import { ModernNavLinks } from "./NavLinksModern";
-import { ModernSidebarContent } from "./SidebarContentModern";
-import { NavigationStyleToggle } from "./NavigationStyleToggle";
 import { IconMenu2, IconX } from "@tabler/icons-react";
 import { useState } from 'react';
 import { themes, type ValidDomain } from "~/config/themes";
@@ -13,7 +10,6 @@ import { LogoDisplay } from "./LogoDisplay";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
   const [isMenuOpen, setIsMenuOpen] = useState(true); // Default to open on desktop
-  const [isModernNav, setIsModernNav] = useState(false); // Navigation style state
   const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
   console.log('domain', domain);
   if (!session?.user) {
@@ -71,14 +67,13 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           </div>
           
           <div className="space-y-2">
-            {isModernNav ? <ModernNavLinks /> : <NavLinks />}
+            <NavLinks />
           </div>
 
-          {isModernNav ? <ModernSidebarContent /> : <SidebarContent />}
+          <SidebarContent />
         </nav>
 
         <div className="flex flex-col gap-2 border-t border-gray-800 pt-4 mt-6">
-          <NavigationStyleToggle onToggle={setIsModernNav} />
           <Link
             href="https://github.com/positonic/ai-todo"
             onClick={() => setIsMenuOpen(false)}

@@ -13,6 +13,15 @@ const priorityOrder: Record<Priority, number> = {
   NONE: 3,
 };
 
+const getPriorityDot = (priority: Priority) => {
+  switch (priority) {
+    case 'HIGH': return 'bg-red-500';
+    case 'MEDIUM': return 'bg-yellow-500';
+    case 'LOW': return 'bg-green-500';
+    default: return 'bg-gray-400';
+  }
+};
+
 export function ProjectList() {
   // const pathname = usePathname();
   const { data: projects } = api.project.getAll.useQuery({
@@ -32,29 +41,33 @@ export function ProjectList() {
   });
 
   return (
-    <div className="mt-1 space-y-1">
+    <div className="mt-2 space-y-1">
       {sortedProjects.filter((project) => project.status === "ACTIVE").map((project) => {
         const projectPath = `/projects/${project.slug}-${project.id}`;
-        // const isActive = pathname === projectPath;
+        const activeActionsCount = project.actions.filter(
+          (action) => action.status !== "COMPLETED",
+        )?.length || 0;
+        const priority = project.priority as Priority || 'NONE';
 
         return (
           <NavLink
             key={project.id}
             href={projectPath}
-            
+            count={activeActionsCount > 0 ? activeActionsCount : undefined}
           >
-            <span className="mr-2 text-gray-500">#</span>
-            <span>{project.name}</span>
-            <span className="ml-auto text-gray-500">
-              {
-                project.actions.filter(
-                  (action) => action.status !== "COMPLETED",
-                )?.length
-              }
-            </span>
+            <div className="flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full ${getPriorityDot(priority)}`} />
+              <span className="truncate">{project.name}</span>
+            </div>
           </NavLink>
         );
       })}
+      
+      {sortedProjects.filter((project) => project.status === "ACTIVE").length === 0 && (
+        <div className="text-center py-4 px-3">
+          <div className="text-xs text-gray-500">No active projects</div>
+        </div>
+      )}
     </div>
   );
 }

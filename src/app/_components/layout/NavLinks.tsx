@@ -13,7 +13,7 @@ import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { UpcomingCount } from "./UpcomingCount";
 
-// Create a reusable NavLink component
+// Reusable NavLink component
 export function NavLink({ href, icon: Icon, children, count }: { 
   href: string; 
   icon?: React.ComponentType<any>;
@@ -21,39 +21,54 @@ export function NavLink({ href, icon: Icon, children, count }: {
   count?: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const isActive = pathname === href;
+  
   return (
     <Link
       href={href}
-      className={`group flex items-center rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-gray-800 ${
-        pathname === href ? 'bg-red-900/30' : ''
+      className={`group relative flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+        isActive 
+          ? 'bg-gray-800/50 text-white' 
+          : 'text-gray-400 hover:bg-gray-800/30 hover:text-gray-200'
       }`}
     >
-      {Icon && <Icon className="mr-3 h-5 w-5" />}
-      {children}
-      {count && <span className="ml-auto text-gray-500">{count}</span>}
+      {isActive && (
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-blue-500 rounded-r-full" />
+      )}
+      {Icon && (
+        <Icon className={`mr-3 h-4 w-4 transition-colors duration-200 ${
+          isActive ? 'text-blue-500' : 'text-gray-500 group-hover:text-gray-400'
+        }`} />
+      )}
+      <span className="flex-1">{children}</span>
+      {count && (
+        <span className={`ml-2 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 ${
+          isActive 
+            ? 'bg-blue-500/20 text-blue-400' 
+            : 'bg-gray-700/50 text-gray-300 group-hover:bg-gray-700/70'
+        }`}>
+          {count}
+        </span>
+      )}
     </Link>
   );
 }
 
 export function NavLinks() {
   return (
-    <>
+    <div className="space-y-1 px-2">
       <NavLink href="/home" icon={IconHome}>
         Home
       </NavLink>
-      <NavLink href="/inbox" icon={IconInbox}>
+      <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>
         Inbox
-        <InboxCount />
       </NavLink>
-      <NavLink href="/today" icon={IconCalendarEvent}>
+      <NavLink href="/today" icon={IconCalendarEvent} count={<TodayCount />}>
         Today
-        <TodayCount />
       </NavLink>
-      <NavLink href="/upcoming" icon={IconCalendarTime}>
+      <NavLink href="/upcoming" icon={IconCalendarTime} count={<UpcomingCount />}>
         Upcoming
-        <UpcomingCount />
       </NavLink>
-      
-    </>
+    </div>
   );
 }

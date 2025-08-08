@@ -4,20 +4,30 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain } from "@tabler/icons-react";
+import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 // import Link from "next/link";
 
 export function SidebarContent() {
   return (
-    <div>
-      <Accordion defaultValue="projects">
+    <div className="space-y-0.5">
+      <Accordion 
+        defaultValue="projects" 
+        classNames={{
+          root: 'bg-transparent space-y-0.5',
+          item: 'border border-gray-800 rounded-lg transition-all duration-200 hover:border-gray-700',
+          control: 'hover:bg-transparent text-gray-300 font-medium transition-all duration-200 py-1',
+          panel: 'pt-0.5 pb-1 px-1'
+        }}
+      >
         <Accordion.Item value="projects">
           <Accordion.Control>
-            <div className="flex items-center justify-between text-gray-400 hover:text-gray-300">
-              <span className="text-sm font-medium">Projects</span>
-              <div className="flex items-center gap-2"></div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <IconDeviceProjector size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-300">Projects</span>
+              </div>
             </div>
           </Accordion.Control>
           <Accordion.Panel>
@@ -29,11 +39,14 @@ export function SidebarContent() {
             <AddProjectButton />
           </Accordion.Panel>
         </Accordion.Item>
+        
         <Accordion.Item value="goals">
           <Accordion.Control>
-            <div className="flex items-center justify-between text-gray-400 hover:text-gray-300">
-              <span className="text-sm font-medium">Alignment</span>
-              <div className="flex items-center gap-2"></div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <IconTarget size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-300">Alignment</span>
+              </div>
             </div>
           </Accordion.Control>
           <Accordion.Panel>
@@ -43,9 +56,11 @@ export function SidebarContent() {
 
         <Accordion.Item value="teams">
           <Accordion.Control>
-            <div className="flex items-center justify-between text-gray-400 hover:text-gray-300">
-              <span className="text-sm font-medium">Teams</span>
-              <div className="flex items-center gap-2"></div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <IconUsers size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-300">Teams</span>
+              </div>
             </div>
           </Accordion.Control>
           <Accordion.Panel>
@@ -57,18 +72,21 @@ export function SidebarContent() {
 
         <Accordion.Item value="Tools">
           <Accordion.Control>
-            <span className="text-sm font-medium text-gray-400 hover:text-gray-300">
-              Tools
-            </span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <IconKey size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-300">Tools</span>
+              </div>
+            </div>
           </Accordion.Control>
           <Accordion.Panel>
             <div className="space-y-1">
-              {/* <NavLink href="/startup-routine" icon={IconSunrise}>
+              {/* <ModernNavLink href="/startup-routine" icon={IconSunrise}>
                 Startup Routine
-              </NavLink>
-              <NavLink href="/wind-down" icon={IconMoonStars}>
+              </ModernNavLink>
+              <ModernNavLink href="/wind-down" icon={IconMoonStars}>
                 Wind Down
-              </NavLink> */}
+              </ModernNavLink> */}
               <NavLink href="/days" icon={IconCalendarEvent}>
                 Days
               </NavLink>
