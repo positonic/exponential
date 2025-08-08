@@ -13,21 +13,12 @@ const priorityOrder: Record<Priority, number> = {
   NONE: 3,
 };
 
-const getPriorityColor = (priority: Priority) => {
-  switch (priority) {
-    case 'HIGH': return 'from-red-500 to-orange-500';
-    case 'MEDIUM': return 'from-yellow-500 to-amber-500';
-    case 'LOW': return 'from-green-500 to-emerald-500';
-    default: return 'from-gray-500 to-gray-600';
-  }
-};
-
 const getPriorityDot = (priority: Priority) => {
   switch (priority) {
-    case 'HIGH': return 'bg-red-400 shadow-red-400/50';
-    case 'MEDIUM': return 'bg-yellow-400 shadow-yellow-400/50';
-    case 'LOW': return 'bg-green-400 shadow-green-400/50';
-    default: return 'bg-gray-400 shadow-gray-400/30';
+    case 'HIGH': return 'bg-red-500';
+    case 'MEDIUM': return 'bg-yellow-500';
+    case 'LOW': return 'bg-green-500';
+    default: return 'bg-gray-400';
   }
 };
 
@@ -50,7 +41,7 @@ export function ModernProjectList() {
   });
 
   return (
-    <div className="mt-3 space-y-2 px-2">
+    <div className="mt-2 space-y-1">
       {sortedProjects.filter((project) => project.status === "ACTIVE").map((project) => {
         const projectPath = `/projects/${project.slug}-${project.id}`;
         const activeActionsCount = project.actions.filter(
@@ -59,27 +50,22 @@ export function ModernProjectList() {
         const priority = project.priority as Priority || 'NONE';
 
         return (
-          <div key={project.id} className="group relative">
-            <ModernNavLink
-              href={projectPath}
-              count={activeActionsCount > 0 ? activeActionsCount : undefined}
-            >
-              <div className="flex items-center gap-3 flex-1">
-                <div className="relative flex items-center">
-                  <div className={`w-2 h-2 rounded-full ${getPriorityDot(priority)} shadow-sm`} />
-                  <div className={`absolute inset-0 w-2 h-2 rounded-full bg-gradient-to-r ${getPriorityColor(priority)} opacity-20 blur-sm`} />
-                </div>
-                <span className="font-medium truncate">{project.name}</span>
-              </div>
-            </ModernNavLink>
-          </div>
+          <ModernNavLink
+            key={project.id}
+            href={projectPath}
+            count={activeActionsCount > 0 ? activeActionsCount : undefined}
+          >
+            <div className="flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full ${getPriorityDot(priority)}`} />
+              <span className="truncate">{project.name}</span>
+            </div>
+          </ModernNavLink>
         );
       })}
       
       {sortedProjects.filter((project) => project.status === "ACTIVE").length === 0 && (
-        <div className="text-center py-6 text-gray-500">
-          <div className="text-sm">No active projects</div>
-          <div className="text-xs mt-1 opacity-75">Create your first project to get started</div>
+        <div className="text-center py-4 px-3">
+          <div className="text-xs text-gray-500">No active projects</div>
         </div>
       )}
     </div>

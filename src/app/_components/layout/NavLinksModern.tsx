@@ -13,7 +13,7 @@ import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { UpcomingCount } from "./UpcomingCount";
 
-// Modern reusable NavLink component
+// Modern reusable NavLink component with refined design
 export function ModernNavLink({ href, icon: Icon, children, count }: { 
   href: string; 
   icon?: React.ComponentType<any>;
@@ -26,26 +26,26 @@ export function ModernNavLink({ href, icon: Icon, children, count }: {
   return (
     <Link
       href={href}
-      className={`group relative flex items-center rounded-xl px-4 py-3 text-sm font-medium transition-all duration-300 ${
+      className={`group relative flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
         isActive 
-          ? 'bg-gradient-to-r from-blue-600/20 to-purple-600/20 text-white border border-blue-500/30 shadow-lg shadow-blue-500/10' 
-          : 'text-gray-300 hover:bg-gradient-to-r hover:from-gray-700/60 hover:to-gray-800/40 hover:text-white hover:shadow-md'
+          ? 'bg-gray-800/50 text-white' 
+          : 'text-gray-400 hover:bg-gray-800/30 hover:text-gray-200'
       }`}
     >
       {isActive && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-gradient-to-b from-blue-400 to-purple-500 rounded-r-full" />
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-blue-500 rounded-r-full" />
       )}
       {Icon && (
-        <Icon className={`mr-3 h-5 w-5 transition-all duration-300 ${
-          isActive ? 'text-blue-400 scale-110' : 'text-gray-400 group-hover:text-gray-300 group-hover:scale-105'
+        <Icon className={`mr-3 h-4 w-4 transition-colors duration-200 ${
+          isActive ? 'text-blue-500' : 'text-gray-500 group-hover:text-gray-400'
         }`} />
       )}
       <span className="flex-1">{children}</span>
       {count && (
-        <span className={`ml-2 px-2 py-1 rounded-full text-xs font-semibold transition-all duration-300 ${
+        <span className={`ml-2 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 ${
           isActive 
-            ? 'bg-blue-500/20 text-blue-300 border border-blue-400/30' 
-            : 'bg-gray-700/60 text-gray-400 group-hover:bg-gray-600/80 group-hover:text-gray-300'
+            ? 'bg-blue-500/20 text-blue-400' 
+            : 'bg-gray-700/50 text-gray-300 group-hover:bg-gray-700/70'
         }`}>
           {count}
         </span>
@@ -56,7 +56,7 @@ export function ModernNavLink({ href, icon: Icon, children, count }: {
 
 export function ModernNavLinks() {
   return (
-    <div className="space-y-2 px-2">
+    <div className="space-y-1 px-2">
       <ModernNavLink href="/home" icon={IconHome}>
         Home
       </ModernNavLink>
