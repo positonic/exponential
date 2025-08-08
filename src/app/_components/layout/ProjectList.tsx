@@ -45,8 +45,8 @@ export function ProjectList() {
             href={projectPath}
             count={activeActionsCount > 0 ? activeActionsCount : undefined}
           >
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">#</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-gray-500 flex-shrink-0">#</span>
               <span className="truncate">{project.name}</span>
             </div>
           </NavLink>

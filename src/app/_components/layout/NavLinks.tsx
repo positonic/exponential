@@ -40,9 +40,9 @@ export function NavLink({ href, icon: Icon, children, count }: {
           isActive ? 'text-blue-500' : 'text-gray-500 group-hover:text-gray-400'
         }`} />
       )}
-      <span className="flex-1">{children}</span>
+      <span className="flex-1 min-w-0 truncate">{children}</span>
       {count && (
-        <span className={`ml-2 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 ${
+        <span className={`ml-auto pl-2 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 flex-shrink-0 ${
           isActive 
             ? 'bg-blue-500/20 text-blue-400' 
             : 'bg-gray-700/50 text-gray-300 group-hover:bg-gray-700/70'
