@@ -39,7 +39,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
       )}
 
       <aside className={`
-        w-screen sm:w-64 border-r border-gray-800 p-4 flex flex-col 
+        w-screen sm:w-64 border-r border-gray-800 flex flex-col 
         max-h-screen sm:h-screen overflow-y-auto sm:overflow-y-visible
         bg-[#262626]
         fixed sm:static inset-y-0 left-0 z-[95]
@@ -47,25 +47,25 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%]'}
         `}>
         
-        <nav className="flex-grow space-y-6 mt-12 lg:mt-0">
-          {/* Header with logo and close button - make it sticky */}
-          <div className="sticky top-0 bg-[#262626] -mt-4 -mx-4 px-4 py-4 mb-4 flex items-center justify-between">
-            <LogoDisplay 
-              theme={theme} 
-              href="/" 
-              onClick={() => setIsMenuOpen(false)}
-              className="text"
-            />
-            
-            {/* Close button */}
-            <button
-              onClick={() => setIsMenuOpen(false)}
-              className="p-2 rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              <IconX size={20} className="text-gray-400 hover:text-gray-200" />
-            </button>
-          </div>
+        {/* Header with logo and close button - uses margin instead of padding */}
+        <div className="sticky top-0 bg-[#262626] px-4 py-4 flex items-center justify-between border-b border-gray-800/50 mt-12 lg:mt-0">
+          <LogoDisplay 
+            theme={theme} 
+            href="/" 
+            onClick={() => setIsMenuOpen(false)}
+            className="text"
+          />
           
+          {/* Close button */}
+          <button
+            onClick={() => setIsMenuOpen(false)}
+            className="p-2 rounded-lg hover:bg-gray-700 transition-colors"
+          >
+            <IconX size={20} className="text-gray-400 hover:text-gray-200" />
+          </button>
+        </div>
+        
+        <nav className="flex-grow px-1 py-4 space-y-6">
           <div className="space-y-2">
             <NavLinks />
           </div>
@@ -73,7 +73,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           <SidebarContent />
         </nav>
 
-        <div className="flex flex-col gap-2 border-t border-gray-800 pt-4 mt-6">
+        <div className="flex flex-col gap-2 border-t border-gray-800 pt-4 px-4 pb-4">
           <Link
             href="https://github.com/positonic/ai-todo"
             onClick={() => setIsMenuOpen(false)}

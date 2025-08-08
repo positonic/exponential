@@ -56,7 +56,7 @@ export function NavLink({ href, icon: Icon, children, count }: {
 
 export function NavLinks() {
   return (
-    <div className="space-y-1 px-2">
+    <div className="space-y-1">
       <NavLink href="/home" icon={IconHome}>
         Home
       </NavLink>

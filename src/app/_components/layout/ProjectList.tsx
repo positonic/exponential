@@ -13,15 +13,6 @@ const priorityOrder: Record<Priority, number> = {
   NONE: 3,
 };
 
-const getPriorityDot = (priority: Priority) => {
-  switch (priority) {
-    case 'HIGH': return 'bg-red-500';
-    case 'MEDIUM': return 'bg-yellow-500';
-    case 'LOW': return 'bg-green-500';
-    default: return 'bg-gray-400';
-  }
-};
-
 export function ProjectList() {
   // const pathname = usePathname();
   const { data: projects } = api.project.getAll.useQuery({
@@ -47,7 +38,6 @@ export function ProjectList() {
         const activeActionsCount = project.actions.filter(
           (action) => action.status !== "COMPLETED",
         )?.length || 0;
-        const priority = project.priority as Priority || 'NONE';
 
         return (
           <NavLink
@@ -56,7 +46,7 @@ export function ProjectList() {
             count={activeActionsCount > 0 ? activeActionsCount : undefined}
           >
             <div className="flex items-center gap-2">
-              <div className={`w-1.5 h-1.5 rounded-full ${getPriorityDot(priority)}`} />
+              <span className="text-gray-500">#</span>
               <span className="truncate">{project.name}</span>
             </div>
           </NavLink>
