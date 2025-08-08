@@ -19,7 +19,7 @@ interface ActionsProps {
   displayAlignment?: boolean;
 }
 
-export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = true }: ActionsProps) {
+export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
 
   // Conditionally fetch actions based on projectId
