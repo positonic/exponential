@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
+import { ModernNavLinks } from "./NavLinksModern";
+import { ModernSidebarContent } from "./SidebarContentModern";
+import { NavigationStyleToggle } from "./NavigationStyleToggle";
 import { IconMenu2, IconX } from "@tabler/icons-react";
 import { useState } from 'react';
 import { themes, type ValidDomain } from "~/config/themes";
@@ -10,6 +13,7 @@ import { LogoDisplay } from "./LogoDisplay";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
   const [isMenuOpen, setIsMenuOpen] = useState(true); // Default to open on desktop
+  const [isModernNav, setIsModernNav] = useState(false); // Navigation style state
   const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
   console.log('domain', domain);
   if (!session?.user) {
@@ -39,19 +43,21 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
       )}
 
       <aside className={`
-        w-screen sm:w-64 border-r border-gray-700/50 p-4 flex flex-col 
+        w-screen sm:w-64 border-r ${isModernNav ? 'border-gray-700/50' : 'border-gray-800'} p-4 flex flex-col 
         max-h-screen sm:h-screen overflow-y-auto sm:overflow-y-visible
-        bg-gradient-to-b from-[#262626] via-[#242424] to-[#1f1f1f]
-        backdrop-blur-xl
+        ${isModernNav 
+          ? 'bg-gradient-to-b from-[#262626] via-[#242424] to-[#1f1f1f] backdrop-blur-xl shadow-2xl shadow-black/20' 
+          : 'bg-[#262626]'}
         fixed sm:static inset-y-0 left-0 z-[95]
-        transform transition-transform duration-300 ease-in-out
+        transform transition-all duration-300 ease-in-out
         ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%]'}
-        shadow-2xl shadow-black/20
         `}>
         
         <nav className="flex-grow space-y-6 mt-12 lg:mt-0">
           {/* Header with logo and close button - make it sticky */}
-          <div className="sticky top-0 bg-gradient-to-r from-[#262626] to-[#242424] -mt-4 -mx-4 px-4 py-4 mb-6 flex items-center justify-between border-b border-gray-700/30 backdrop-blur-sm">
+          <div className={`sticky top-0 ${isModernNav 
+            ? 'bg-gradient-to-r from-[#262626] to-[#242424] border-b border-gray-700/30 backdrop-blur-sm mb-6' 
+            : 'bg-[#262626] mb-4'} -mt-4 -mx-4 px-4 py-4 flex items-center justify-between`}>
             <LogoDisplay 
               theme={theme} 
               href="/" 
@@ -62,31 +68,44 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
             {/* Close button */}
             <button
               onClick={() => setIsMenuOpen(false)}
-              className="p-2 rounded-lg hover:bg-gray-700/60 hover:shadow-lg transition-all duration-200 hover:scale-105"
+              className={`p-2 rounded-lg transition-all duration-200 ${
+                isModernNav 
+                  ? 'hover:bg-gray-700/60 hover:shadow-lg hover:scale-105' 
+                  : 'hover:bg-gray-700'
+              }`}
             >
               <IconX size={20} className="text-gray-400 hover:text-gray-200 transition-colors duration-200" />
             </button>
           </div>
           
           <div className="space-y-2">
-            <NavLinks />
+            {isModernNav ? <ModernNavLinks /> : <NavLinks />}
           </div>
 
-          <SidebarContent />
+          {isModernNav ? <ModernSidebarContent /> : <SidebarContent />}
         </nav>
 
-        <div className="flex flex-col gap-2 border-t border-gray-700/50 pt-4 mt-6">
+        <div className={`flex flex-col gap-2 border-t ${isModernNav ? 'border-gray-700/50' : 'border-gray-800'} pt-4 mt-6`}>
+          <NavigationStyleToggle onToggle={setIsModernNav} />
           <Link
             href="https://github.com/positonic/ai-todo"
             onClick={() => setIsMenuOpen(false)}
-            className="flex w-full items-center rounded-xl px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-700/40 hover:text-gray-300 transition-all duration-200 hover:shadow-md"
+            className={`flex w-full items-center rounded-xl px-3 py-3 sm:py-2 text-gray-400 transition-all duration-200 ${
+              isModernNav 
+                ? 'hover:bg-gray-700/40 hover:text-gray-300 hover:shadow-md' 
+                : 'hover:bg-gray-800 active:bg-gray-700 sm:active:bg-transparent'
+            }`}
           >
             <GithubIcon className="h-6 w-6" />
           </Link>
           <Link
             href={session ? "/api/auth/signout" : "/use-the-force"}
             onClick={() => setIsMenuOpen(false)}
-            className="flex w-full items-center rounded-xl px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-700/40 hover:text-gray-300 transition-all duration-200 hover:shadow-md"
+            className={`flex w-full items-center rounded-xl px-3 py-3 sm:py-2 text-gray-400 transition-all duration-200 ${
+              isModernNav 
+                ? 'hover:bg-gray-700/40 hover:text-gray-300 hover:shadow-md' 
+                : 'hover:bg-gray-800 active:bg-gray-700 sm:active:bg-transparent'
+            }`}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -120,4 +139,3 @@ function GithubIcon(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
-

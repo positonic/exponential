@@ -13,32 +13,6 @@ const priorityOrder: Record<Priority, number> = {
   NONE: 3,
 };
 
-const getPriorityDot = (priority: Priority) => {
-  switch (priority) {
-    case 'HIGH':
-      return 'bg-red-500';
-    case 'MEDIUM':
-      return 'bg-yellow-500';
-    case 'LOW':
-      return 'bg-green-500';
-    default:
-      return 'bg-gray-400';
-  }
-};
-
-const getPriorityColor = (priority: Priority) => {
-  switch (priority) {
-    case 'HIGH':
-      return 'from-red-400 to-red-600';
-    case 'MEDIUM':
-      return 'from-yellow-400 to-yellow-600';
-    case 'LOW':
-      return 'from-green-400 to-green-600';
-    default:
-      return 'from-gray-300 to-gray-500';
-  }
-};
-
 export function ProjectList() {
   // const pathname = usePathname();
   const { data: projects } = api.project.getAll.useQuery({
@@ -58,38 +32,29 @@ export function ProjectList() {
   });
 
   return (
-    <div className="mt-3 space-y-2 px-2">
+    <div className="mt-1 space-y-1">
       {sortedProjects.filter((project) => project.status === "ACTIVE").map((project) => {
         const projectPath = `/projects/${project.slug}-${project.id}`;
-        const activeActionsCount = project.actions.filter(
-          (action) => action.status !== "COMPLETED",
-        )?.length || 0;
-        const priority = project.priority as Priority || 'NONE';
+        // const isActive = pathname === projectPath;
 
         return (
-          <div key={project.id} className="group relative">
-            <NavLink
-              href={projectPath}
-              count={activeActionsCount > 0 ? activeActionsCount : undefined}
-            >
-              <div className="flex items-center gap-3 flex-1">
-                <div className="relative flex items-center">
-                  <div className={`w-2 h-2 rounded-full ${getPriorityDot(priority)} shadow-sm`} />
-                  <div className={`absolute inset-0 w-2 h-2 rounded-full bg-gradient-to-r ${getPriorityColor(priority)} opacity-20 blur-sm`} />
-                </div>
-                <span className="font-medium truncate">{project.name}</span>
-              </div>
-            </NavLink>
-          </div>
+          <NavLink
+            key={project.id}
+            href={projectPath}
+            
+          >
+            <span className="mr-2 text-gray-500">#</span>
+            <span>{project.name}</span>
+            <span className="ml-auto text-gray-500">
+              {
+                project.actions.filter(
+                  (action) => action.status !== "COMPLETED",
+                )?.length
+              }
+            </span>
+          </NavLink>
         );
       })}
-      
-      {sortedProjects.filter((project) => project.status === "ACTIVE").length === 0 && (
-        <div className="text-center py-6 text-gray-500">
-          <div className="text-sm">No active projects</div>
-          <div className="text-xs mt-1 opacity-75">Create your first project to get started</div>
-        </div>
-      )}
     </div>
   );
-} 
+}
