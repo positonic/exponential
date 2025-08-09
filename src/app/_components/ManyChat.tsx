@@ -573,10 +573,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
             h2: ({children}) => <Text size="lg" fw={600} mb="sm">{children}</Text>,
             h3: ({children}) => <Text size="md" fw={500} mb="xs">{children}</Text>,
             h4: ({children}) => <Text size="sm" fw={500} mb="xs">{children}</Text>,
-            p: ({children}) => <Text size="sm" mb="xs">{children}</Text>,
+            p: ({children}) => <Text size="sm" mb={2}>{children}</Text>,
             strong: ({children}) => <Text component="span" fw={600}>{children}</Text>,
-            ul: ({children}) => <Box component="ul" ml="md" mb="xs">{children}</Box>,
-            ol: ({children}) => <Box component="ol" ml="md" mb="xs">{children}</Box>,
+            ul: ({children}) => <Box component="ul" ml="md" mb={2}>{children}</Box>,
+            ol: ({children}) => <Box component="ol" ml="md" mb={2}>{children}</Box>,
             li: ({children}) => <Text component="li" size="sm">{children}</Text>,
             code: ({children}) => (
               <Text 

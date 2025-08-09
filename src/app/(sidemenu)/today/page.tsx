@@ -4,6 +4,7 @@ import { Actions } from "~/app/_components/Actions";
 import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
 import { TodayButton } from "../../_components/TodayButton";
+import { GoogleCalendarConnect } from "../../_components/GoogleCalendarConnect";
 import { api } from "~/trpc/server";
 import { startOfDay, format } from "date-fns";
 import Link from "next/link";
@@ -27,6 +28,7 @@ async function ActionsWrapper() {
   // Declare todayRecord in the outer scope
   let todayRecord = null; // Or provide a more specific type if known, e.g., Awaited<ReturnType<typeof api.day.getByDate>> | null
   let todayExists = false;
+  let calendarConnected = false;
 
   // Only check for today's record if user is authenticated
   if (session?.user) {
@@ -37,12 +39,19 @@ async function ActionsWrapper() {
     todayRecord = await api.day.getByDate({ date: today });
     console.log("todayRecord", todayRecord);
     todayExists = !!todayRecord;
+
+    // Check calendar connection status
+    const calendarStatus = await api.calendar.getConnectionStatus();
+    calendarConnected = calendarStatus.isConnected;
   }
   
   return session?.user ? (
     <>
       <Actions viewName="today" />
       <div className="w-full max-w-3xl mx-auto">
+        <div className="mb-4">
+          <GoogleCalendarConnect isConnected={calendarConnected} />
+        </div>
         {!todayExists && <TodayButton />}
         {/* Now todayRecord is accessible here and we use the formatted date for the link */}
         {todayExists && todayRecord && todayRecord.date && (

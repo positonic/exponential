@@ -1,0 +1,194 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Setup Google Calendar API and OAuth Credentials",
+        "description": "Configure Google Calendar API and OAuth 2.0 credentials for integration.",
+        "details": "Create a Google API project and set up OAuth 2.0 credentials. Configure the consent screen and obtain client ID and secret for the application.",
+        "testStrategy": "Verify OAuth credentials by initiating a test OAuth flow and ensuring successful authentication.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Google API Project",
+            "description": "Set up a new project in the Google Cloud Console to enable Google Calendar API.",
+            "dependencies": [],
+            "details": "Log in to the Google Cloud Console. Navigate to the 'Select a project' dropdown and click 'New Project'. Enter a project name and select an organization if applicable. Click 'Create' to set up the project.",
+            "status": "done",
+            "testStrategy": "Verify the project creation by checking the project list in the Google Cloud Console."
+          },
+          {
+            "id": 2,
+            "title": "Enable Google Calendar API",
+            "description": "Enable the Google Calendar API for the newly created project.",
+            "dependencies": [],
+            "details": "In the Google Cloud Console, select the created project. Navigate to 'APIs & Services' > 'Library'. Search for 'Google Calendar API' and click on it. Click 'Enable' to activate the API for your project.",
+            "status": "done",
+            "testStrategy": "Confirm the API is enabled by checking the 'Enabled APIs & Services' section."
+          },
+          {
+            "id": 3,
+            "title": "Configure OAuth Consent Screen",
+            "description": "Set up the OAuth consent screen for the application to define how it will appear to users.",
+            "dependencies": [],
+            "details": "In the Google Cloud Console, go to 'APIs & Services' > 'OAuth consent screen'. Choose 'External' for user type if the app is for public use. Fill out the required fields such as App name, User support email, and Developer contact information. Save the changes.\n<info added on 2025-08-08T09:53:26.516Z>\nConfirmed that the OAuth 2.0 Authorization Code Flow is the correct approach for multi-user calendar integration. Each user will authenticate with their own Google account and grant calendar permissions. Proceed with configuring the OAuth consent screen accordingly.\n</info added on 2025-08-08T09:53:26.516Z>",
+            "status": "done",
+            "testStrategy": "Ensure the consent screen is configured by reviewing the summary page after saving."
+          },
+          {
+            "id": 4,
+            "title": "Create OAuth 2.0 Credentials",
+            "description": "Generate OAuth 2.0 credentials to allow the application to access Google Calendar API on behalf of users.",
+            "dependencies": [],
+            "details": "Navigate to 'APIs & Services' > 'Credentials' in the Google Cloud Console. Click 'Create Credentials' and select 'OAuth client ID'. Choose 'Web application' as the application type. Enter a name and configure the authorized redirect URIs. Click 'Create' to obtain the client ID and secret.",
+            "status": "done",
+            "testStrategy": "Verify the credentials by checking the 'Credentials' page for the newly created client ID and secret."
+          },
+          {
+            "id": 5,
+            "title": "Test OAuth Flow",
+            "description": "Initiate a test OAuth flow to ensure the credentials are correctly set up and the application can authenticate users.",
+            "dependencies": [],
+            "details": "Develop a simple test application or script that uses the client ID and secret to initiate an OAuth flow. Redirect users to Google's OAuth consent screen and handle the callback to exchange the authorization code for an access token.\n<info added on 2025-08-08T10:08:29.632Z>\nCreate a separate OAuth flow on the /today page with a \"Connect\" button that requests calendar-specific scopes. Ensure the flow prompts users for permissions related to calendar access and integrates seamlessly with the existing authentication process.\n</info added on 2025-08-08T10:08:29.632Z>",
+            "status": "done",
+            "testStrategy": "Perform the OAuth flow and verify successful authentication by checking for a valid access token and user information retrieval."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Design Database Schema for Calendar Integration",
+        "description": "Create database tables for storing calendar integration and event data.",
+        "details": "Implement the provided SQL schema for 'calendar_integrations' and 'calendar_events' tables. Ensure proper indexing and foreign key constraints.",
+        "testStrategy": "Run database migration scripts and verify the creation of tables with correct schema.",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "Implement OAuth Flow Endpoints",
+        "description": "Develop backend endpoints to handle Google OAuth flow for calendar integration.",
+        "details": "Create endpoints: GET /api/calendar/auth/google, POST /api/calendar/auth/callback. Use OAuth libraries to manage token exchange and storage.",
+        "testStrategy": "Test OAuth flow by simulating user authentication and verifying token storage in the database.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "Build Calendar Event Fetching Service",
+        "description": "Develop a service to fetch calendar events from Google API.",
+        "details": "Implement a service that uses Google API client libraries to fetch events. Handle pagination and store events in the database.",
+        "testStrategy": "Unit test the service with mock API responses to ensure correct data fetching and storage.",
+        "priority": "high",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Create Calendar Drawer Component",
+        "description": "Develop a frontend component for displaying calendar events in a drawer.",
+        "details": "Build a responsive calendar drawer component using existing UI frameworks. Ensure it slides in from the right side of the /today page.",
+        "testStrategy": "Perform UI testing to ensure the drawer component displays correctly on various screen sizes.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "Implement Calendar Toggle Button",
+        "description": "Add a toggle button to the /today page to open the calendar drawer.",
+        "details": "Place a toggle button in the header of the /today page. Ensure it triggers the opening and closing of the calendar drawer component.",
+        "testStrategy": "Test the toggle functionality to ensure it correctly opens and closes the calendar drawer.",
+        "priority": "medium",
+        "dependencies": [
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Develop Day View Calendar Component",
+        "description": "Create a day view component to display calendar events in hourly slots.",
+        "details": "Implement a day view similar to Google Calendar's, showing events with titles, times, and durations. Use existing UI patterns for consistency.",
+        "testStrategy": "Validate the component by comparing event display with actual Google Calendar data for accuracy.",
+        "priority": "medium",
+        "dependencies": [
+          4,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Implement Error Handling and Loading States",
+        "description": "Add error handling and loading states for calendar data fetching.",
+        "details": "Implement UI states for loading and error scenarios. Ensure graceful degradation when API calls fail or are slow.",
+        "testStrategy": "Simulate API failures and slow responses to test the robustness of error handling and loading states.",
+        "priority": "medium",
+        "dependencies": [
+          4,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Optimize Performance with Caching Layer",
+        "description": "Implement a caching layer to reduce API calls and improve performance.",
+        "details": "Use in-memory caching to store calendar events for 15-30 minutes. Ensure cache invalidation and refresh mechanisms are in place.",
+        "testStrategy": "Measure API call reduction and verify cache hit rates during testing.",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "Conduct Comprehensive Testing and User Feedback",
+        "description": "Perform end-to-end testing and gather user feedback for the calendar integration.",
+        "details": "Conduct unit, integration, and E2E tests. Collect user feedback through surveys and usability testing sessions.",
+        "testStrategy": "Analyze test results and user feedback to identify areas for improvement before final deployment.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "status": "pending",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2025-08-08T09:34:08.466Z",
+      "updated": "2025-08-08T10:10:38.832Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

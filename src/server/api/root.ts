@@ -19,6 +19,7 @@ import { integrationPermissionRouter } from "./routers/integrationPermission";
 import { teamRouter } from "./routers/team";
 import { slackRouter } from "./routers/slack";
 import { aiInteractionRouter } from "./routers/aiInteraction";
+import { calendarRouter } from "./routers/calendar";
 /**
  * This is the primary router for your server.
  *
@@ -45,6 +46,7 @@ export const appRouter = createTRPCRouter({
   team: teamRouter,
   slack: slackRouter,
   aiInteraction: aiInteractionRouter,
+  calendar: calendarRouter,
 });
 
 // export type definition of API

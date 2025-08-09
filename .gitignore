@@ -50,3 +50,25 @@ yarn-error.log*
 .qodo
 
 content.md
+
+# PRD documents (product requirements - keep local only)
+/prd-docs/
+
+# Logs
+logs
+dev-debug.log
+# Dependency directories
+node_modules/
+# Environment variables
+# Editor directories and files
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# OS specific
+
+# Task files
+# tasks.json
+# tasks/ 

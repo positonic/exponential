@@ -419,13 +419,31 @@ export function ActionList({
       {overdueActions.length > 0 && (
         <Accordion 
           defaultValue="overdue" 
-          variant="filled" 
           radius="md" 
-          className="mb-4 bg-[#1E1E1E]"
+          className="mb-4"
           chevronPosition="left"
+          styles={{
+            root: {
+              backgroundColor: '#1E1E1E',
+            },
+            item: {
+              backgroundColor: '#1E1E1E',
+              borderColor: '#373A40',
+            },
+            control: {
+              backgroundColor: '#1E1E1E',
+              color: '#C1C2C5',
+              '&:hover': {
+                backgroundColor: '#252525',
+              }
+            },
+            panel: {
+              backgroundColor: '#1E1E1E',
+            }
+          }}
         >
           <Accordion.Item value="overdue" className="border-none">
-            <Accordion.Control className="hover:bg-[#252525]">
+            <Accordion.Control>
                 <Group justify="space-between" wrap="nowrap">
                     <Group gap="xs">
                       <Text fw={500}>Overdue</Text>
@@ -436,10 +454,7 @@ export function ActionList({
                     <Group gap="xs">
                       {/* Show bulk edit toggle for overdue actions */}
                       {enableBulkEditForOverdue && (
-                        <Button
-                          size="xs"
-                          variant={bulkEditOverdueMode ? "filled" : "light"}
-                          color={bulkEditOverdueMode ? "blue" : "gray"}
+                        <div 
                           onClick={(e) => {
                             e.stopPropagation();
                             setBulkEditOverdueMode(!bulkEditOverdueMode);
@@ -447,10 +462,16 @@ export function ActionList({
                               setSelectedOverdueActionIds(new Set());
                             }
                           }}
-                          leftSection={<IconEdit size={12} />}
                         >
-                          {bulkEditOverdueMode ? 'Exit' : 'Bulk edit'}
-                        </Button>
+                          <Button
+                            size="xs"
+                            variant={bulkEditOverdueMode ? "filled" : "light"}
+                            color={bulkEditOverdueMode ? "blue" : "gray"}
+                            leftSection={<IconEdit size={12} />}
+                          >
+                            {bulkEditOverdueMode ? 'Exit' : 'Bulk edit'}
+                          </Button>
+                        </div>
                       )}
                       <Text size="sm" c="red" onClick={(e) => e.stopPropagation()}>Reschedule</Text> 
                     </Group>
