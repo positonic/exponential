@@ -61,15 +61,34 @@
       {
         "id": 2,
         "title": "Design Database Schema for Calendar Integration",
-        "description": "Create database tables for storing calendar integration and event data.",
-        "details": "Implement the provided SQL schema for 'calendar_integrations' and 'calendar_events' tables. Ensure proper indexing and foreign key constraints.",
-        "testStrategy": "Run database migration scripts and verify the creation of tables with correct schema.",
-        "priority": "medium",
+        "description": "Evaluate the need for additional database schema for calendar integration.",
+        "status": "done",
         "dependencies": [
           1
         ],
-        "status": "pending",
-        "subtasks": []
+        "priority": "medium",
+        "details": "Assess whether the existing NextAuth Account table is sufficient for storing Google Calendar OAuth tokens and if fetching events directly from the Google Calendar API meets current requirements. If additional schema is necessary, implement the provided SQL schema for 'calendar_integrations' and 'calendar_events' tables, ensuring proper indexing and foreign key constraints.",
+        "testStrategy": "Review current implementation and run database migration scripts only if new tables are deemed necessary. Verify the creation of tables with correct schema if implemented.",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Evaluate Current Schema Sufficiency",
+            "description": "Analyze if the existing NextAuth Account table and direct API fetching are sufficient for current calendar integration needs.",
+            "status": "done",
+            "dependencies": [],
+            "details": "",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement Additional Schema if Necessary",
+            "description": "If additional schema is required, implement the SQL schema for 'calendar_integrations' and 'calendar_events' tables.",
+            "status": "done",
+            "dependencies": [],
+            "details": "",
+            "testStrategy": ""
+          }
+        ]
       },
       {
         "id": 3,
@@ -106,7 +125,7 @@
         "testStrategy": "Perform UI testing to ensure the drawer component displays correctly on various screen sizes.",
         "priority": "medium",
         "dependencies": [],
-        "status": "pending",
+        "status": "done",
         "subtasks": []
       },
       {
@@ -119,7 +138,7 @@
         "dependencies": [
           5
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": []
       },
       {
@@ -133,7 +152,7 @@
           4,
           5
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": []
       },
       {
@@ -147,7 +166,7 @@
           4,
           5
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": []
       },
       {
@@ -160,7 +179,7 @@
         "dependencies": [
           4
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": []
       },
       {
@@ -187,8 +206,318 @@
     ],
     "metadata": {
       "created": "2025-08-08T09:34:08.466Z",
-      "updated": "2025-08-09T10:10:27.999Z",
+      "updated": "2025-08-09T11:22:54.865Z",
       "description": "Tasks for master context"
+    }
+  },
+  "whatsapp": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Setup Project Repository",
+        "description": "Initialize the project repository for WhatsApp integration.",
+        "details": "Create a new Git repository for the WhatsApp integration project. Set up the initial project structure with directories for server, client, and shared resources. Initialize package.json for dependency management and configure ESLint and Prettier for code quality.",
+        "testStrategy": "Verify repository setup by cloning and building the project locally.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Git Repository",
+            "description": "Initialize a new Git repository for the WhatsApp integration project.",
+            "dependencies": [],
+            "details": "Use Git to create a new repository and set up the initial commit.",
+            "status": "pending",
+            "testStrategy": "Verify repository creation by cloning it to a local machine."
+          },
+          {
+            "id": 2,
+            "title": "Set Up Project Structure",
+            "description": "Organize the project with directories for server, client, and shared resources.",
+            "dependencies": [
+              "1.1"
+            ],
+            "details": "Create directories named 'server', 'client', and 'shared' in the repository.",
+            "status": "pending",
+            "testStrategy": "Check the repository to ensure the directories are correctly created."
+          },
+          {
+            "id": 3,
+            "title": "Initialize package.json",
+            "description": "Set up package.json for dependency management.",
+            "dependencies": [
+              "1.2"
+            ],
+            "details": "Use npm to initialize package.json and add necessary scripts.",
+            "status": "pending",
+            "testStrategy": "Verify package.json by installing a test package and checking node_modules."
+          },
+          {
+            "id": 4,
+            "title": "Configure ESLint",
+            "description": "Set up ESLint for code quality checks.",
+            "dependencies": [
+              "1.3"
+            ],
+            "details": "Install ESLint and create a configuration file with standard rules.",
+            "status": "pending",
+            "testStrategy": "Run ESLint on the project files to ensure no configuration errors."
+          },
+          {
+            "id": 5,
+            "title": "Configure Prettier",
+            "description": "Set up Prettier for code formatting.",
+            "dependencies": [
+              "1.4"
+            ],
+            "details": "Install Prettier and configure it to work alongside ESLint.",
+            "status": "pending",
+            "testStrategy": "Format a sample file using Prettier to ensure it applies the correct style."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Design Database Schema",
+        "description": "Extend the existing database schema to support WhatsApp integration.",
+        "details": "Implement the new database models as outlined in the PRD, including WhatsAppConfig, WhatsAppTemplate, WhatsAppMessageHistory, and WhatsAppUserMapping. Use Prisma ORM for schema management and migrations.",
+        "testStrategy": "Run database migrations and verify schema changes using Prisma Studio or a database client.",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Review PRD for WhatsApp Integration",
+            "description": "Analyze the Product Requirements Document to understand the necessary database models for WhatsApp integration.",
+            "dependencies": [],
+            "details": "Ensure all necessary fields and relationships for WhatsAppConfig, WhatsAppTemplate, WhatsAppMessageHistory, and WhatsAppUserMapping are identified.",
+            "status": "pending",
+            "testStrategy": "Verify that all required fields and relationships are documented and understood."
+          },
+          {
+            "id": 2,
+            "title": "Design Database Models",
+            "description": "Create detailed designs for the new database models required for WhatsApp integration.",
+            "dependencies": [
+              "2.1"
+            ],
+            "details": "Design models for WhatsAppConfig, WhatsAppTemplate, WhatsAppMessageHistory, and WhatsAppUserMapping using Prisma ORM.",
+            "status": "pending",
+            "testStrategy": "Review model designs to ensure they meet PRD specifications and support all required functionalities."
+          },
+          {
+            "id": 3,
+            "title": "Implement Database Models",
+            "description": "Develop the new database models using Prisma ORM.",
+            "dependencies": [
+              "2.2"
+            ],
+            "details": "Implement the models in the database schema and prepare for migration.",
+            "status": "pending",
+            "testStrategy": "Run initial tests to ensure models are correctly implemented and ready for migration."
+          },
+          {
+            "id": 4,
+            "title": "Perform Database Migrations",
+            "description": "Execute database migrations to incorporate the new models.",
+            "dependencies": [
+              "2.3"
+            ],
+            "details": "Use Prisma ORM to manage and perform migrations for the new database schema.",
+            "status": "pending",
+            "testStrategy": "Run migrations and verify schema changes using Prisma Studio or a database client."
+          },
+          {
+            "id": 5,
+            "title": "Validate Schema Changes",
+            "description": "Ensure the new database schema supports all required functionalities for WhatsApp integration.",
+            "dependencies": [
+              "2.4"
+            ],
+            "details": "Conduct thorough testing to confirm that the schema changes are correctly implemented and functional.",
+            "status": "pending",
+            "testStrategy": "Use test cases to verify that all new models and relationships function as expected in the database."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Implement WhatsApp Business Account Setup",
+        "description": "Develop the setup flow for integrating WhatsApp Business Account.",
+        "details": "Create a user interface to guide users through the WhatsApp Business Account setup, including Facebook Business Manager integration and phone number verification. Use React for the frontend and Node.js for backend API endpoints.",
+        "testStrategy": "Test the setup flow with a test WhatsApp Business Account to ensure all steps are completed successfully.",
+        "priority": "medium",
+        "dependencies": [
+          2
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "Implement OAuth Integration Flow",
+        "description": "Develop the OAuth flow for WhatsApp using Facebook Graph API.",
+        "details": "Use the Facebook Graph API to implement OAuth flow for WhatsApp. Securely store access tokens using encryption and handle token refresh and expiration automatically. Support multiple WhatsApp Business accounts per user.",
+        "testStrategy": "Perform end-to-end testing of the OAuth flow to ensure tokens are correctly issued, stored, and refreshed.",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Develop Webhook Handler for Incoming Messages",
+        "description": "Create a webhook handler to process incoming WhatsApp messages.",
+        "details": "Implement a webhook endpoint to receive and process incoming messages from WhatsApp. Verify webhook signatures for security and handle all supported message types. Use Express.js for the server setup.",
+        "testStrategy": "Simulate incoming messages using WhatsApp's sandbox environment and verify correct processing and logging.",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "Implement Outgoing Message Sending",
+        "description": "Develop functionality to send messages from the system to WhatsApp users.",
+        "details": "Create functions to send text and rich media messages to WhatsApp users. Implement message templates for business-initiated conversations and handle message delivery status tracking. Use the WhatsApp Cloud API for message sending.",
+        "testStrategy": "Send test messages to a verified WhatsApp number and verify delivery and status updates.",
+        "priority": "medium",
+        "dependencies": [
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Integrate Paddy AI Assistant",
+        "description": "Enable natural language conversations with the AI assistant via WhatsApp.",
+        "details": "Integrate the existing AI assistant 'Paddy' to handle natural language processing for WhatsApp messages. Implement context-aware responses and multi-turn conversation management.",
+        "testStrategy": "Test AI interactions by sending various queries and verifying context-aware responses.",
+        "priority": "medium",
+        "dependencies": [
+          6
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Implement User Management and Authorization",
+        "description": "Link WhatsApp phone numbers to existing user accounts and manage permissions.",
+        "details": "Develop functionality to map WhatsApp phone numbers to system users and implement secure user verification. Support team-based access controls and handle unauthorized access attempts.",
+        "testStrategy": "Verify user mapping and authorization by linking test phone numbers and checking access permissions.",
+        "priority": "medium",
+        "dependencies": [
+          7
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Develop Notification Services",
+        "description": "Implement proactive notification services for task reminders and updates via WhatsApp.",
+        "details": "Create a notification service to send task reminders, project updates, and productivity summaries to users via WhatsApp. Implement user preferences for notification scheduling.",
+        "testStrategy": "Test notification delivery by scheduling reminders and verifying receipt on a test WhatsApp account.",
+        "priority": "medium",
+        "dependencies": [
+          8
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "Manage WhatsApp Message Templates",
+        "description": "Develop an interface for managing WhatsApp message templates.",
+        "details": "Create an admin interface to manage WhatsApp message templates, including approval workflows and tracking usage metrics. Use React for the frontend and Node.js for backend API endpoints.",
+        "testStrategy": "Test template creation and approval process by submitting templates and verifying status changes.",
+        "priority": "medium",
+        "dependencies": [
+          9
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 11,
+        "title": "Implement Analytics and Monitoring",
+        "description": "Track message analytics and monitor system performance.",
+        "details": "Develop analytics features to track message volume, response times, and engagement metrics. Implement monitoring for API rate limits and webhook delivery success rates.",
+        "testStrategy": "Verify analytics data accuracy by comparing tracked metrics with actual message logs.",
+        "priority": "medium",
+        "dependencies": [
+          10
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 12,
+        "title": "Develop Admin Interfaces",
+        "description": "Create admin interfaces for managing WhatsApp integration settings.",
+        "details": "Build admin dashboards for configuring WhatsApp integration settings, managing user access, and viewing analytics reports. Use React for the frontend and Node.js for backend API endpoints.",
+        "testStrategy": "Test admin functionalities by performing configuration changes and verifying their effects.",
+        "priority": "medium",
+        "dependencies": [
+          11
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 13,
+        "title": "Conduct Performance and Security Testing",
+        "description": "Ensure the system meets performance and security requirements.",
+        "details": "Perform load testing to ensure the system can handle 10,000+ messages per day. Conduct security audits to verify compliance with WhatsApp Business Policy and encryption standards.",
+        "testStrategy": "Use tools like JMeter for load testing and OWASP ZAP for security testing to identify and resolve issues.",
+        "priority": "medium",
+        "dependencies": [
+          12
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "Prepare Documentation and Training Materials",
+        "description": "Create comprehensive documentation and training materials for the integration.",
+        "details": "Document the setup process, user guides, and API references. Develop training materials for users and administrators to facilitate adoption and usage of the WhatsApp integration.",
+        "testStrategy": "Review documentation for completeness and clarity by conducting a walkthrough with a test user group.",
+        "priority": "medium",
+        "dependencies": [
+          13
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "Launch and Monitor Production Deployment",
+        "description": "Deploy the WhatsApp integration to production and monitor its performance.",
+        "details": "Deploy the integration to the production environment. Monitor system performance, user adoption, and engagement metrics post-launch. Implement alerting for any integration failures.",
+        "testStrategy": "Monitor production logs and metrics to ensure stable operation and address any issues promptly.",
+        "priority": "medium",
+        "dependencies": [
+          14
+        ],
+        "status": "pending",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2025-08-09T10:49:20.007Z",
+      "updated": "2025-08-09T11:16:16.772Z",
+      "description": "Tasks for whatsapp context"
     }
   }
 }

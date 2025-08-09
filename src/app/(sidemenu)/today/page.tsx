@@ -1,14 +1,11 @@
 import { auth } from "~/server/auth";
 import { HydrateClient } from "~/trpc/server";
-import { Actions } from "~/app/_components/Actions";
 import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
-import { TodayButton } from "../../_components/TodayButton";
-import { GoogleCalendarConnect } from "../../_components/GoogleCalendarConnect";
-import { TodayCalendarEvents } from "../../_components/TodayCalendarEvents";
 import { api } from "~/trpc/server";
-import { startOfDay, format } from "date-fns";
-import Link from "next/link";
+import { startOfDay } from "date-fns";
+import { NavigationWrapper } from "../../_components/NavigationWrapper";
+
 export default async function Home() {
   return (
     <HydrateClient>
@@ -47,30 +44,11 @@ async function ActionsWrapper() {
   }
   
   return session?.user ? (
-    <>
-      <Actions viewName="today" />
-      <div className="w-full max-w-3xl mx-auto">
-        <div className="mb-4">
-          <GoogleCalendarConnect isConnected={calendarConnected} />
-        </div>
-        {calendarConnected && (
-          <div className="mb-6">
-            <TodayCalendarEvents />
-          </div>
-        )}
-        {!todayExists && <TodayButton />}
-        {/* Now todayRecord is accessible here and we use the formatted date for the link */}
-        {todayExists && todayRecord && todayRecord.date && (
-          <Link href={`/days/${format(todayRecord.date, 'yyyy-MM-dd')}`} className="text-blue-500">
-            Diverge, Converge, Synthesize
-          </Link>
-        )}
-        {/* <div className="mt-4">
-          <h2 className="text-2xl font-semibold mb-4 text-gray-100">Recent Days</h2>
-          <DaysTable />
-        </div> */}
-      </div>
-    </>
+    <NavigationWrapper 
+      calendarConnected={calendarConnected}
+      todayExists={todayExists}
+      todayRecord={todayRecord}
+    />
   ) : (
     <Welcome />
   );

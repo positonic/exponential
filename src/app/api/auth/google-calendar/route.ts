@@ -1,5 +1,6 @@
 import { auth } from "~/server/auth";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 
 const GOOGLE_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
@@ -13,9 +14,15 @@ export async function GET() {
     redirect("/use-the-force");
   }
 
+  // Get the host from the request headers to handle different ports
+  const headersList = headers();
+  const host = headersList.get('host') || 'localhost:3000';
+  const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+  const baseUrl = `${protocol}://${host}`;
+
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,
-    redirect_uri: `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/auth/google-calendar/callback`,
+    redirect_uri: `${baseUrl}/api/auth/google-calendar/callback`,
     response_type: "code",
     scope: GOOGLE_CALENDAR_SCOPES,
     access_type: "offline",

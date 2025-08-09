@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { db } from '~/server/db';
+import NodeCache from 'node-cache';
 
 export interface CalendarEvent {
   id: string;
@@ -25,7 +26,18 @@ export interface CalendarEvent {
   status: string;
 }
 
+// Create a cache instance with 15 minute TTL
+const calendarCache = new NodeCache({ 
+  stdTTL: 900, // 15 minutes in seconds
+  checkperiod: 120, // Check for expired keys every 2 minutes
+  useClones: false // Better performance, but be careful with mutations
+});
+
 export class GoogleCalendarService {
+  private generateCacheKey(userId: string, options: any): string {
+    const { timeMin, timeMax, calendarId, maxResults } = options;
+    return `cal:${userId}:${calendarId}:${timeMin?.getTime()}:${timeMax?.getTime()}:${maxResults}`;
+  }
   private async getCalendarClient(userId: string) {
     // Get the user's Google OAuth tokens from database
     const account = await db.account.findFirst({
@@ -114,16 +126,37 @@ export class GoogleCalendarService {
       timeMax?: Date;
       calendarId?: string;
       maxResults?: number;
+      useCache?: boolean;
     } = {}
   ): Promise<CalendarEvent[]> {
-    const calendar = await this.getCalendarClient(userId);
-
     const {
       timeMin = new Date(), // Default to now
       timeMax = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default to 7 days from now
       calendarId = 'primary',
       maxResults = 50,
+      useCache = true,
     } = options;
+
+    // Generate cache key
+    const cacheKey = this.generateCacheKey(userId, {
+      timeMin,
+      timeMax,
+      calendarId,
+      maxResults,
+    });
+
+    // Try to get from cache first
+    if (useCache) {
+      const cachedEvents = calendarCache.get<CalendarEvent[]>(cacheKey);
+      if (cachedEvents) {
+        console.log(`Calendar cache hit for user ${userId}`);
+        return cachedEvents;
+      }
+    }
+
+    console.log(`Calendar cache miss for user ${userId}, fetching from API`);
+
+    const calendar = await this.getCalendarClient(userId);
 
     try {
       const response = await calendar.events.list({
@@ -137,7 +170,7 @@ export class GoogleCalendarService {
 
       const events = response.data.items || [];
 
-      return events.map((event): CalendarEvent => ({
+      const calendarEvents: CalendarEvent[] = events.map((event): CalendarEvent => ({
         id: event.id!,
         summary: event.summary || 'No title',
         description: event.description || undefined,
@@ -160,6 +193,14 @@ export class GoogleCalendarService {
         htmlLink: event.htmlLink!,
         status: event.status!,
       }));
+
+      // Store in cache
+      if (useCache) {
+        calendarCache.set(cacheKey, calendarEvents);
+        console.log(`Cached calendar events for user ${userId}`);
+      }
+
+      return calendarEvents;
     } catch (error) {
       console.error('Failed to fetch calendar events:', error);
       throw new Error('Failed to fetch calendar events. Please try again.');
@@ -188,5 +229,40 @@ export class GoogleCalendarService {
       timeMin: now,
       timeMax: future,
     });
+  }
+
+  // Cache management methods
+  clearUserCache(userId: string): void {
+    const keys = calendarCache.keys();
+    const userKeys = keys.filter(key => key.startsWith(`cal:${userId}:`));
+    calendarCache.del(userKeys);
+    console.log(`Cleared ${userKeys.length} cache entries for user ${userId}`);
+  }
+
+  clearAllCache(): void {
+    calendarCache.flushAll();
+    console.log('Cleared all calendar cache');
+  }
+
+  getCacheStats(): { keys: number; hits: number; misses: number; ksize: number; vsize: number } {
+    return calendarCache.getStats();
+  }
+
+  // Force refresh for a specific date range
+  async refreshEvents(
+    userId: string,
+    options: {
+      timeMin?: Date;
+      timeMax?: Date;
+      calendarId?: string;
+      maxResults?: number;
+    } = {}
+  ): Promise<CalendarEvent[]> {
+    // Clear cache for this specific request first
+    const cacheKey = this.generateCacheKey(userId, options);
+    calendarCache.del(cacheKey);
+    
+    // Fetch fresh data
+    return this.getEvents(userId, { ...options, useCache: true });
   }
 }

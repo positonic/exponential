@@ -56,4 +56,29 @@ export const calendarRouter = createTRPCRouter({
       const calendarService = new GoogleCalendarService();
       return calendarService.getEvents(ctx.session.user.id, input);
     }),
+
+  refreshEvents: protectedProcedure
+    .input(z.object({
+      timeMin: z.date().optional(),
+      timeMax: z.date().optional(),
+      calendarId: z.string().default('primary'),
+      maxResults: z.number().min(1).max(100).default(50),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const calendarService = new GoogleCalendarService();
+      return calendarService.refreshEvents(ctx.session.user.id, input);
+    }),
+
+  clearCache: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const calendarService = new GoogleCalendarService();
+      calendarService.clearUserCache(ctx.session.user.id);
+      return { success: true, message: 'Calendar cache cleared' };
+    }),
+
+  getCacheStats: protectedProcedure
+    .query(async () => {
+      const calendarService = new GoogleCalendarService();
+      return calendarService.getCacheStats();
+    }),
 });

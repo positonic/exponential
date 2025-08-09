@@ -2,6 +2,7 @@ import { auth } from "~/server/auth";
 import { db } from "~/server/db";
 import { redirect } from "next/navigation";
 import { NextRequest } from "next/server";
+import { headers } from "next/headers";
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -23,6 +24,12 @@ export async function GET(request: NextRequest) {
     redirect("/today?calendar_error=invalid_request");
   }
 
+  // Get the host from the request headers to handle different ports
+  const headersList = headers();
+  const host = headersList.get('host') || 'localhost:3000';
+  const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+  const baseUrl = `${protocol}://${host}`;
+
   try {
     // Exchange authorization code for tokens
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
@@ -35,7 +42,7 @@ export async function GET(request: NextRequest) {
         client_secret: process.env.GOOGLE_CLIENT_SECRET!,
         code,
         grant_type: "authorization_code",
-        redirect_uri: `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/auth/google-calendar/callback`,
+        redirect_uri: `${baseUrl}/api/auth/google-calendar/callback`,
       }),
     });
 
