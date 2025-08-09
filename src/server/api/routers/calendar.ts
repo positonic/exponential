@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 
 export const calendarRouter = createTRPCRouter({
   getConnectionStatus: protectedProcedure.query(async ({ ctx }) => {
@@ -31,4 +32,28 @@ export const calendarRouter = createTRPCRouter({
       tokenExpired: !isTokenValid,
     };
   }),
+
+  getTodayEvents: protectedProcedure.query(async ({ ctx }) => {
+    const calendarService = new GoogleCalendarService();
+    return calendarService.getTodayEvents(ctx.session.user.id);
+  }),
+
+  getUpcomingEvents: protectedProcedure
+    .input(z.object({ days: z.number().min(1).max(30).default(7) }))
+    .query(async ({ input, ctx }) => {
+      const calendarService = new GoogleCalendarService();
+      return calendarService.getUpcomingEvents(ctx.session.user.id, input.days);
+    }),
+
+  getEvents: protectedProcedure
+    .input(z.object({
+      timeMin: z.date().optional(),
+      timeMax: z.date().optional(),
+      calendarId: z.string().default('primary'),
+      maxResults: z.number().min(1).max(100).default(50),
+    }))
+    .query(async ({ input, ctx }) => {
+      const calendarService = new GoogleCalendarService();
+      return calendarService.getEvents(ctx.session.user.id, input);
+    }),
 });

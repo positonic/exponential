@@ -5,6 +5,7 @@ import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
 import { TodayButton } from "../../_components/TodayButton";
 import { GoogleCalendarConnect } from "../../_components/GoogleCalendarConnect";
+import { TodayCalendarEvents } from "../../_components/TodayCalendarEvents";
 import { api } from "~/trpc/server";
 import { startOfDay, format } from "date-fns";
 import Link from "next/link";
@@ -52,6 +53,11 @@ async function ActionsWrapper() {
         <div className="mb-4">
           <GoogleCalendarConnect isConnected={calendarConnected} />
         </div>
+        {calendarConnected && (
+          <div className="mb-6">
+            <TodayCalendarEvents />
+          </div>
+        )}
         {!todayExists && <TodayButton />}
         {/* Now todayRecord is accessible here and we use the formatted date for the link */}
         {todayExists && todayRecord && todayRecord.date && (
