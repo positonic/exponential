@@ -842,15 +842,104 @@
       {
         "id": 11,
         "title": "Implement Analytics and Monitoring",
-        "description": "Track message analytics and monitor system performance.",
-        "details": "Develop analytics features to track message volume, response times, and engagement metrics. Implement monitoring for API rate limits and webhook delivery success rates.",
-        "testStrategy": "Verify analytics data accuracy by comparing tracked metrics with actual message logs.",
-        "priority": "medium",
+        "description": "Track message analytics and monitor system performance through a comprehensive implementation plan.",
+        "status": "pending",
         "dependencies": [
           10
         ],
-        "status": "pending",
-        "subtasks": []
+        "priority": "medium",
+        "details": "The implementation will be carried out in five phases: 1) Database Schema Enhancements: Create analytics models for message analytics, performance metrics, rate limit tracking, and webhook delivery. 2) Monitoring Infrastructure: Develop health check endpoints, worker status endpoints, and rate limit monitors. 3) Analytics Services: Implement message analytics service and performance metrics collector. 4) Dashboard Components: Build an analytics dashboard UI and a real-time monitoring panel. 5) Integration & Testing: Integrate all components and conduct thorough testing. Current state analysis shows existing features like template usage tracking, AI interaction history, security dashboard, circuit breakers, and performance optimizations. Missing components include a general analytics dashboard, message analytics aggregation, health check endpoints, worker status monitoring, rate limit tracking, webhook delivery metrics, and real-time performance monitoring.",
+        "testStrategy": "Verify analytics data accuracy by comparing tracked metrics with actual message logs. Test the functionality of monitoring endpoints and dashboard components to ensure real-time data accuracy and system performance.",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Enhance Database Schema for Analytics",
+            "description": "Create database tables and models to support message analytics, performance metrics, rate limit tracking, and webhook delivery.",
+            "dependencies": [],
+            "details": "Design and implement new tables in the database to store data related to message analytics, performance metrics, rate limit tracking, and webhook delivery. Ensure that the schema supports efficient querying and aggregation of data.",
+            "status": "pending",
+            "testStrategy": "Verify the database schema by inserting test data and running queries to ensure data integrity and performance."
+          },
+          {
+            "id": 2,
+            "title": "Develop Monitoring Endpoints",
+            "description": "Implement health check endpoints, worker status endpoints, and rate limit monitors to track system performance.",
+            "dependencies": [
+              "11.1"
+            ],
+            "details": "Create RESTful API endpoints to provide health status of the system, monitor worker statuses, and track rate limits. Use existing frameworks to implement these endpoints and ensure they are secure and performant.",
+            "status": "pending",
+            "testStrategy": "Test endpoints by simulating different system states and verifying the accuracy of the responses."
+          },
+          {
+            "id": 3,
+            "title": "Implement Message Analytics Service",
+            "description": "Develop a service to collect and process message analytics data.",
+            "dependencies": [
+              "11.1"
+            ],
+            "details": "Create a service that collects data from the database, processes it for analytics purposes, and stores the results for easy retrieval. Ensure the service can handle large volumes of data efficiently.",
+            "status": "pending",
+            "testStrategy": "Simulate message traffic and verify that the analytics service correctly processes and stores the data."
+          },
+          {
+            "id": 4,
+            "title": "Implement Performance Metrics Collector",
+            "description": "Develop a service to collect and aggregate performance metrics.",
+            "dependencies": [
+              "11.1"
+            ],
+            "details": "Create a service that collects performance data from various system components, aggregates it, and stores it for analysis. Ensure the service is scalable and can handle real-time data collection.",
+            "status": "pending",
+            "testStrategy": "Generate performance data and verify that the collector accurately aggregates and stores the metrics."
+          },
+          {
+            "id": 5,
+            "title": "Build Analytics Dashboard UI",
+            "description": "Create a user interface for displaying message analytics and performance metrics.",
+            "dependencies": [
+              "11.3",
+              "11.4"
+            ],
+            "details": "Design and implement a web-based dashboard using a front-end framework like React. The dashboard should display key analytics and performance metrics in a user-friendly manner.",
+            "status": "pending",
+            "testStrategy": "Test the dashboard with sample data to ensure it displays information correctly and is responsive."
+          },
+          {
+            "id": 6,
+            "title": "Develop Real-Time Monitoring Panel",
+            "description": "Create a real-time monitoring panel to display system health and performance.",
+            "dependencies": [
+              "11.2"
+            ],
+            "details": "Implement a real-time monitoring panel that uses WebSockets or a similar technology to display live system health and performance data. Ensure the panel updates in real-time and is easy to interpret.",
+            "status": "pending",
+            "testStrategy": "Simulate real-time data changes and verify that the panel updates accordingly."
+          },
+          {
+            "id": 7,
+            "title": "Integrate Analytics and Monitoring Components",
+            "description": "Integrate all analytics and monitoring components into the existing system.",
+            "dependencies": [
+              "11.5",
+              "11.6"
+            ],
+            "details": "Ensure all components, including the database, services, and UI, are properly integrated and communicate effectively. Address any integration issues that arise.",
+            "status": "pending",
+            "testStrategy": "Conduct end-to-end testing to ensure all components work together seamlessly and data flows correctly."
+          },
+          {
+            "id": 8,
+            "title": "Conduct Comprehensive Testing",
+            "description": "Perform thorough testing of the entire analytics and monitoring implementation.",
+            "dependencies": [
+              "11.7"
+            ],
+            "details": "Execute a comprehensive test plan that includes unit tests, integration tests, and user acceptance tests. Focus on data accuracy, system performance, and user interface functionality.",
+            "status": "pending",
+            "testStrategy": "Use automated testing tools to run tests and manually verify critical paths. Compare analytics data with actual logs to ensure accuracy."
+          }
+        ]
       },
       {
         "id": 12,
