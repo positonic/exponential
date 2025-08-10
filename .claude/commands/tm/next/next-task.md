@@ -47,6 +47,30 @@ Based on selected task:
 5. Show similar completed tasks
 6. Estimate completion time
 
+### 3.5 **Planning Phase** (Optional but Recommended)
+
+If arguments include "plan" or task complexity > 7:
+1. **Information Gathering** (No coding!)
+   - Read all relevant files based on task domain
+   - Search for similar patterns in codebase
+   - Identify files that need modification
+   - **DO NOT write any code yet**
+
+2. **Deep Investigation** (for complex tasks)
+   - Use Task tool with general-purpose agent for investigations
+   - Research best practices and edge cases
+   - Verify assumptions about the codebase
+
+3. **Create Implementation Plan**
+   - **Think hard** about the approach
+   - Break down into concrete steps
+   - Consider risks and mitigations
+   - Update task with plan using `update_task`
+
+4. **Get Approval**
+   - Present plan to user
+   - Wait for confirmation before coding
+
 ### 4. **Alternative Suggestions**
 
 Always provide options:
