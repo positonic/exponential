@@ -34,10 +34,12 @@ import {
   IconPhone,
   IconSettings,
   IconUsers,
+  IconChartBar,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { useRouter } from 'next/navigation';
 import { WhatsAppPhoneMapping } from './WhatsAppPhoneMapping';
+import { WhatsAppMonitoringDashboard } from './WhatsAppMonitoringDashboard';
 
 interface WhatsAppIntegrationSettingsProps {
   integrationId: string;
@@ -47,6 +49,7 @@ export function WhatsAppIntegrationSettings({ integrationId }: WhatsAppIntegrati
   const router = useRouter();
   const [testModalOpened, { open: openTestModal, close: closeTestModal }] = useDisclosure(false);
   const [phoneMappingOpened, { open: openPhoneMapping, close: closePhoneMapping }] = useDisclosure(false);
+  const [monitoringOpened, { open: openMonitoring, close: closeMonitoring }] = useDisclosure(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
 
   // Fetch WhatsApp config
@@ -271,6 +274,28 @@ export function WhatsAppIntegrationSettings({ integrationId }: WhatsAppIntegrati
           </Stack>
         </Card>
 
+        {/* Analytics & Monitoring */}
+        <Card withBorder>
+          <Group justify="space-between" mb="md">
+            <Group>
+              <IconChartBar size={24} />
+              <Text fw={500} size="lg">Analytics & Monitoring</Text>
+            </Group>
+            <Button
+              leftSection={<IconChartBar size={16} />}
+              variant="light"
+              onClick={openMonitoring}
+            >
+              View Dashboard
+            </Button>
+          </Group>
+          
+          <Text size="sm" c="dimmed">
+            Monitor real-time performance, message analytics, system health, and security metrics. 
+            Track message volumes, delivery rates, and user engagement patterns.
+          </Text>
+        </Card>
+
         {/* Phone Number Mapping */}
         <Card withBorder>
           <Group justify="space-between" mb="md">
@@ -394,6 +419,17 @@ export function WhatsAppIntegrationSettings({ integrationId }: WhatsAppIntegrati
         opened={phoneMappingOpened}
         onClose={closePhoneMapping}
       />
+
+      {/* Monitoring Dashboard Modal */}
+      <Modal
+        opened={monitoringOpened}
+        onClose={closeMonitoring}
+        title="WhatsApp Analytics & Monitoring"
+        size="100%"
+        fullScreen
+      >
+        <WhatsAppMonitoringDashboard integrationId={integrationId} />
+      </Modal>
     </Container>
   );
 }
