@@ -13,6 +13,8 @@ import { cacheService } from "~/server/services/whatsapp/CacheService";
 import { OptimizedQueries } from "~/server/services/whatsapp/OptimizedQueries";
 import { WhatsAppPermissionService, WhatsAppPermission } from "~/server/services/whatsapp/PermissionService";
 import { WhatsAppSecurityAuditService, SecurityEventType } from "~/server/services/whatsapp/SecurityAuditService";
+import { WhatsAppAnalyticsService } from "~/server/services/whatsapp/AnalyticsService";
+import { WhatsAppRateLimitService } from "~/server/services/whatsapp/RateLimitService";
 import type { User } from '@prisma/client';
 
 // WhatsApp webhook verification
@@ -281,6 +283,15 @@ async function processTextMessage(configId: string, message: any) {
       });
     });
 
+    // Track message analytics
+    await WhatsAppAnalyticsService.trackMessage({
+      whatsappConfigId: configId,
+      direction: 'inbound',
+      messageType: 'text',
+      status: 'received',
+      phoneNumber: message.from,
+    });
+
     // Get user mapping with caching
     const phoneMapping = await OptimizedQueries.getUserMapping(message.from, configId);
 
@@ -368,7 +379,8 @@ async function processTextMessage(configId: string, message: any) {
       return;
     }
 
-    // Route to AI assistant with circuit breaker
+    // Route to AI assistant with circuit breaker and track performance
+    const aiProcessingStart = Date.now();
     const aiResponse = await circuitBreakers.aiProcessing.execute(
       async () => processAIMessage(
         phoneMapping.user, 
@@ -377,6 +389,15 @@ async function processTextMessage(configId: string, message: any) {
         configId
       )
     );
+    const aiProcessingTime = Date.now() - aiProcessingStart;
+    
+    // Track performance metric
+    await WhatsAppAnalyticsService.trackPerformanceMetric({
+      whatsappConfigId: configId,
+      metric: 'ai_processing_time',
+      value: aiProcessingTime,
+      unit: 'ms',
+    });
     
     // Send AI response back to WhatsApp
     if (aiResponse) {
@@ -543,6 +564,34 @@ async function handleMessageStatusUpdate(value: any, configId: string, integrati
           errors: status.errors,
         },
       });
+      
+      // Track analytics for status updates
+      if (messageStatus === 'DELIVERED') {
+        await WhatsAppAnalyticsService.trackMessage({
+          whatsappConfigId: configId,
+          direction: 'outbound',
+          messageType: 'text',
+          status: 'delivered',
+          phoneNumber: status.recipient_id,
+        });
+      } else if (messageStatus === 'READ') {
+        await WhatsAppAnalyticsService.trackMessage({
+          whatsappConfigId: configId,
+          direction: 'outbound',
+          messageType: 'text',
+          status: 'read',
+          phoneNumber: status.recipient_id,
+        });
+      } else if (messageStatus === 'FAILED') {
+        await WhatsAppAnalyticsService.trackMessage({
+          whatsappConfigId: configId,
+          direction: 'outbound',
+          messageType: 'text',
+          status: 'failed',
+          phoneNumber: status.recipient_id,
+          error: status.errors?.[0]?.message || 'Unknown error',
+        });
+      }
     }
   } catch (error) {
     console.error('Error handling message status update:', error);
@@ -762,6 +811,13 @@ async function sendWhatsAppMessage(configId: string, to: string, message: string
       throw new Error('Access token not found');
     }
 
+    // Track rate limit before sending
+    await WhatsAppRateLimitService.trackRequest(
+      config.integrationId,
+      'messages',
+      'send_message'
+    );
+
     // Send message via WhatsApp API
     const response = await fetch(
       `https://graph.facebook.com/v18.0/${config.phoneNumberId}/messages`,
@@ -800,6 +856,15 @@ async function sendWhatsAppMessage(configId: string, to: string, message: string
         messageType: 'TEXT',
         content: { text: message },
         status: 'SENT',
+      });
+      
+      // Track message analytics
+      await WhatsAppAnalyticsService.trackMessage({
+        whatsappConfigId: configId,
+        direction: 'outbound',
+        messageType: 'text',
+        status: 'sent',
+        phoneNumber: to,
       });
     }
     } catch (error) {
