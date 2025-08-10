@@ -18,8 +18,16 @@ export interface QueuedMessage {
 export class MessageQueue {
   private queue: Map<string, QueuedMessage> = new Map();
   private processing = false;
+  private paused = false;
   private batchSize = 10;
   private processInterval = 100; // ms
+  private stats = {
+    processing: 0,
+    completed: 0,
+    failed: 0,
+    totalProcessingTime: 0,
+    lastProcessedAt: null as Date | null,
+  };
 
   constructor(batchSize: number = 10) {
     this.batchSize = batchSize;
@@ -55,17 +63,22 @@ export class MessageQueue {
     this.processing = true;
     
     setInterval(async () => {
-      if (this.queue.size === 0) return;
+      if (this.paused || this.queue.size === 0) return;
       
       // Get batch of messages
       const batch = Array.from(this.queue.entries())
         .slice(0, this.batchSize)
         .map(([id, msg]) => ({ id, ...msg }));
       
+      // Update processing count
+      this.stats.processing = batch.length;
+      
       // Process batch in parallel
       await Promise.all(
         batch.map(msg => this.processMessage(msg))
       );
+      
+      this.stats.processing = 0;
     }, this.processInterval);
   }
 
@@ -73,6 +86,8 @@ export class MessageQueue {
    * Process individual message
    */
   private async processMessage(queuedMsg: QueuedMessage) {
+    const startTime = Date.now();
+    
     try {
       // Remove from queue immediately to prevent reprocessing
       this.queue.delete(queuedMsg.id);
@@ -82,6 +97,11 @@ export class MessageQueue {
       console.log(`Processing queued message ${queuedMsg.id}`);
       
       queuedMsg.processedAt = new Date();
+      
+      // Update stats
+      this.stats.completed++;
+      this.stats.totalProcessingTime += Date.now() - startTime;
+      this.stats.lastProcessedAt = new Date();
     } catch (error) {
       console.error(`Failed to process message ${queuedMsg.id}:`, error);
       
@@ -91,6 +111,8 @@ export class MessageQueue {
       // Re-queue if under retry limit
       if (queuedMsg.retries < 3) {
         this.queue.set(queuedMsg.id, queuedMsg);
+      } else {
+        this.stats.failed++;
       }
     }
   }
@@ -99,13 +121,64 @@ export class MessageQueue {
    * Get queue statistics
    */
   getStats() {
+    const failedMessages = Array.from(this.queue.values())
+      .filter(msg => msg.retries >= 3);
+    
     return {
       size: this.queue.size,
+      processing: this.stats.processing,
+      completed: this.stats.completed,
+      failed: this.stats.failed + failedMessages.length,
       oldest: Array.from(this.queue.values())
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0]?.createdAt
     };
   }
+
+  /**
+   * Get throughput metrics
+   */
+  getThroughput() {
+    const avgProcessingTime = this.stats.completed > 0
+      ? this.stats.totalProcessingTime / this.stats.completed
+      : 0;
+    
+    const messagesPerMinute = this.stats.lastProcessedAt
+      ? this.stats.completed / ((Date.now() - this.stats.lastProcessedAt.getTime()) / 60000)
+      : 0;
+    
+    return {
+      messagesPerMinute: Math.round(messagesPerMinute * 100) / 100,
+      avgProcessingTime: Math.round(avgProcessingTime),
+    };
+  }
+
+  /**
+   * Pause queue processing
+   */
+  pause() {
+    this.paused = true;
+  }
+
+  /**
+   * Resume queue processing
+   */
+  resume() {
+    this.paused = false;
+  }
+
+  /**
+   * Clear failed messages from queue
+   */
+  clearFailed() {
+    const failed = Array.from(this.queue.entries())
+      .filter(([_, msg]) => msg.retries >= 3);
+    
+    failed.forEach(([id]) => this.queue.delete(id));
+    this.stats.failed = 0;
+  }
 }
 
 // Global message queue instance
-export const messageQueue = new MessageQueue(10);
+export const messageQueue = new MessageQueue(
+  parseInt(process.env.WHATSAPP_QUEUE_BATCH_SIZE || '10')
+);

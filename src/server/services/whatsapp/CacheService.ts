@@ -3,8 +3,13 @@
  * For production, consider using Redis
  */
 export class CacheService {
-  private cache: Map<string, { value: any; expiry: number }> = new Map();
+  private cache = new Map<string, { value: any; expiry: number }>();
   private readonly defaultTTL = 300000; // 5 minutes
+  private stats = {
+    hits: 0,
+    misses: 0,
+    evictions: 0,
+  };
 
   constructor() {
     // Clean up expired entries every minute
@@ -17,13 +22,19 @@ export class CacheService {
   get<T>(key: string): T | null {
     const entry = this.cache.get(key);
     
-    if (!entry) return null;
-    
-    if (Date.now() > entry.expiry) {
-      this.cache.delete(key);
+    if (!entry) {
+      this.stats.misses++;
       return null;
     }
     
+    if (Date.now() > entry.expiry) {
+      this.cache.delete(key);
+      this.stats.misses++;
+      this.stats.evictions++;
+      return null;
+    }
+    
+    this.stats.hits++;
     return entry.value as T;
   }
 
@@ -85,15 +96,50 @@ export class CacheService {
   getStats() {
     return {
       size: this.cache.size,
+      hits: this.stats.hits,
+      misses: this.stats.misses,
+      evictions: this.stats.evictions,
+      hitRate: this.stats.hits > 0 
+        ? this.stats.hits / (this.stats.hits + this.stats.misses)
+        : 0,
       keys: Array.from(this.cache.keys())
     };
   }
 }
 
+// Combined cache service with aggregate stats
+class CombinedCacheService {
+  userMappings = new CacheService();
+  whatsappConfigs = new CacheService();
+  aiModels = new CacheService();
+  conversations = new CacheService();
+
+  getStats() {
+    const services = [
+      this.userMappings,
+      this.whatsappConfigs,
+      this.aiModels,
+      this.conversations
+    ];
+
+    const totalStats = services.reduce((acc, service) => {
+      const stats = service.getStats();
+      return {
+        size: acc.size + stats.size,
+        hits: acc.hits + stats.hits,
+        misses: acc.misses + stats.misses,
+        evictions: acc.evictions + stats.evictions,
+      };
+    }, { size: 0, hits: 0, misses: 0, evictions: 0 });
+
+    return {
+      ...totalStats,
+      hitRate: totalStats.hits > 0 
+        ? totalStats.hits / (totalStats.hits + totalStats.misses)
+        : 0,
+    };
+  }
+}
+
 // Global cache instances
-export const cacheService = {
-  userMappings: new CacheService(),
-  whatsappConfigs: new CacheService(),
-  aiModels: new CacheService(),
-  conversations: new CacheService()
-};
+export const cacheService = new CombinedCacheService();
