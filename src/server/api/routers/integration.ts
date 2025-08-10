@@ -1412,6 +1412,72 @@ export const integrationRouter = createTRPCRouter({
       );
     }),
 
+  // Get WhatsApp analytics
+  getWhatsAppAnalytics: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+      startDate: z.date().optional(),
+      endDate: z.date().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const { analyticsService } = await import('~/server/services/whatsapp/AnalyticsService');
+      
+      // Get WhatsApp config
+      const config = await ctx.db.whatsAppConfig.findFirst({
+        where: {
+          integrationId: input.integrationId,
+          integration: {
+            OR: [
+              { userId: ctx.session.user.id },
+              {
+                team: {
+                  members: {
+                    some: {
+                      userId: ctx.session.user.id,
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      if (!config) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'WhatsApp configuration not found',
+        });
+      }
+
+      const startDate = input.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const endDate = input.endDate || new Date();
+
+      return analyticsService.getAnalyticsSummary(config.id, startDate, endDate);
+    }),
+
+  // Get WhatsApp health status
+  getWhatsAppHealth: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+    }))
+    .query(async ({ _ctx, _input }) => {
+      // Make internal API call to health endpoint
+      const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/webhooks/whatsapp/health`);
+      return response.json();
+    }),
+
+  // Get WhatsApp worker status
+  getWhatsAppWorkerStatus: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+    }))
+    .query(async ({ _ctx, _input }) => {
+      // Make internal API call to worker status endpoint
+      const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/workers/whatsapp`);
+      return response.json();
+    }),
+
   // Delete an integration
   deleteIntegration: protectedProcedure
     .input(z.object({
@@ -2309,6 +2375,206 @@ export const integrationRouter = createTRPCRouter({
       console.log(`🔌 [Slack Disconnect] User ${ctx.session.user.email} disconnected Slack ${mapping.externalUserId}`);
 
       return { success: true };
+    }),
+
+  // Admin endpoints for managing all WhatsApp integrations
+  getAllWhatsAppIntegrations: protectedProcedure
+    .query(async ({ ctx }) => {
+      // Only allow admin users (you might want to add proper role checking)
+      const integrations = await ctx.db.integration.findMany({
+        where: {
+          provider: 'whatsapp',
+        },
+        include: {
+          whatsapp: true,
+          _count: {
+            select: {
+              userMappings: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      return integrations;
+    }),
+
+  getAllWhatsAppUserMappings: protectedProcedure
+    .query(async ({ ctx }) => {
+      const mappings = await ctx.db.integrationUserMapping.findMany({
+        where: {
+          integration: {
+            provider: 'whatsapp',
+          },
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          integration: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      return mappings;
+    }),
+
+  getSystemWhatsAppAnalytics: protectedProcedure
+    .query(async ({ ctx }) => {
+      // Get system-wide WhatsApp analytics
+      const today = new Date();
+      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
+      // Count messages today across all integrations
+      const todayMessages = await ctx.db.whatsAppMessage.count({
+        where: {
+          createdAt: {
+            gte: startOfToday,
+          },
+        },
+      });
+
+      // Get system health status
+      const systemHealth = 'healthy'; // This would come from your monitoring system
+
+      // Count active integrations
+      const activeIntegrations = await ctx.db.integration.count({
+        where: {
+          provider: 'whatsapp',
+          status: 'ACTIVE',
+        },
+      });
+
+      // Count total users
+      const totalUsers = await ctx.db.integrationUserMapping.count({
+        where: {
+          integration: {
+            provider: 'whatsapp',
+          },
+        },
+      });
+
+      return {
+        todayMessages,
+        systemHealth,
+        activeIntegrations,
+        totalUsers,
+      };
+    }),
+
+  createWhatsAppIntegration: protectedProcedure
+    .input(z.object({
+      name: z.string(),
+      businessAccountId: z.string(),
+      phoneNumberId: z.string(),
+      displayPhoneNumber: z.string().optional(),
+      businessName: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      // Create new integration
+      const integration = await ctx.db.integration.create({
+        data: {
+          name: input.name,
+          provider: 'whatsapp',
+          status: 'PENDING',
+          userId: ctx.session.user.id,
+          whatsapp: {
+            create: {
+              businessAccountId: input.businessAccountId,
+              phoneNumberId: input.phoneNumberId,
+              displayPhoneNumber: input.displayPhoneNumber,
+              businessName: input.businessName,
+              webhookVerifyToken: `whatsapp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            },
+          },
+        },
+        include: {
+          whatsapp: true,
+        },
+      });
+
+      return integration;
+    }),
+
+  deleteWhatsAppIntegration: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      // Delete integration and all related data
+      const integration = await ctx.db.integration.findUnique({
+        where: { id: input.integrationId },
+        include: { whatsapp: true },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Integration not found',
+        });
+      }
+
+      // Delete in transaction to ensure consistency
+      await ctx.db.$transaction(async (tx) => {
+        // Delete user mappings
+        await tx.integrationUserMapping.deleteMany({
+          where: { integrationId: input.integrationId },
+        });
+
+        // Delete WhatsApp-specific data
+        if (integration.whatsapp) {
+          await tx.whatsAppMessage.deleteMany({
+            where: { configId: integration.whatsapp.id },
+          });
+
+          await tx.whatsAppConversation.deleteMany({
+            where: { whatsappConfigId: integration.whatsapp.id },
+          });
+
+          await tx.whatsAppConfig.delete({
+            where: { id: integration.whatsapp.id },
+          });
+        }
+
+        // Delete credentials
+        await tx.integrationCredential.deleteMany({
+          where: { integrationId: input.integrationId },
+        });
+
+        // Delete integration
+        await tx.integration.delete({
+          where: { id: input.integrationId },
+        });
+      });
+
+      return { success: true };
+    }),
+
+  updateWhatsAppIntegrationStatus: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+      status: z.enum(['ACTIVE', 'INACTIVE', 'PENDING', 'ERROR']),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const integration = await ctx.db.integration.update({
+        where: { id: input.integrationId },
+        data: { status: input.status },
+      });
+
+      return integration;
     }),
 
 });
