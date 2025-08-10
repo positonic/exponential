@@ -77,6 +77,7 @@ model User {
   permissionsGrantedBy    IntegrationPermission[] @relation("PermissionGrantedBy")
   permissionsRevokedBy    IntegrationPermission[] @relation("PermissionRevokedBy")
   slackChannelsConfigured SlackChannelConfig[] // Slack channels configured by this user
+  feedback                Feedback[] // User feedback submissions
 }
 
 model VerificationToken {
@@ -709,4 +710,25 @@ model AiInteractionHistory {
   @@index([createdAt])
   @@index([platform, systemUserId])
   @@index([conversationId, createdAt])
+}
+
+// User feedback model
+model Feedback {
+  id        String   @id @default(cuid())
+  userId    String
+  feature   String   // e.g., "calendar_integration", "ai_chat", etc.
+  rating    Int      // 1-5 rating
+  content   String   @db.Text
+  metadata  Json?    // Additional metadata like user agent, etc.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([userId])
+  @@index([feature])
+  @@index([createdAt])
+  @@index([feature, rating])
 }
