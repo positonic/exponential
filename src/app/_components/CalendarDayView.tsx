@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Paper, Text, Stack, ScrollArea, Tooltip } from "@mantine/core";
+import { Box, Text, Stack, Tooltip } from "@mantine/core";
 import { format, parseISO, startOfDay, isToday, isSameDay } from "date-fns";
 import { CalendarEvent } from "~/server/services/GoogleCalendarService";
 import { useMemo } from "react";
@@ -125,15 +125,15 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
 
   const getEventColor = (event: CalendarEvent) => {
     // Simple color assignment based on event status/type
-    if (event.status === 'cancelled') return 'bg-red-500/20 border-red-500/50 text-red-200';
-    if (event.status === 'tentative') return 'bg-yellow-500/20 border-yellow-500/50 text-yellow-200';
+    if (event.status === 'cancelled') return 'bg-red-900/40 border-red-700 text-red-100';
+    if (event.status === 'tentative') return 'bg-yellow-900/40 border-yellow-700 text-yellow-100';
     
-    // Default color variations
+    // Default color variations with darker backgrounds
     const colors = [
-      'bg-blue-500/20 border-blue-500/50 text-blue-200',
-      'bg-green-500/20 border-green-500/50 text-green-200',
-      'bg-purple-500/20 border-purple-500/50 text-purple-200',
-      'bg-indigo-500/20 border-indigo-500/50 text-indigo-200',
+      'bg-blue-900/40 border-blue-700 text-blue-100',
+      'bg-green-900/40 border-green-700 text-green-100',
+      'bg-purple-900/40 border-purple-700 text-purple-100',
+      'bg-indigo-900/40 border-indigo-700 text-indigo-100',
     ];
     
     const colorIndex = event.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
@@ -141,12 +141,11 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
   };
 
   return (
-    <div className={`relative ${className}`}>
-      <ScrollArea h={400} scrollbarSize={8}>
-        {/* Time grid */}
-        <div className="relative" style={{ height: 24 * HOUR_HEIGHT + 40 }}>
-          {/* Hour lines and labels */}
-          {hours.map(hour => (
+    <div className={`relative ${className} overflow-hidden`}>
+      {/* Time grid */}
+      <div className="relative" style={{ height: 24 * HOUR_HEIGHT }}>
+        {/* Hour lines and labels */}
+        {hours.map(hour => (
             <div
               key={hour}
               className="absolute w-full border-t border-gray-700/50 flex items-start"
@@ -210,8 +209,8 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
               position="right"
               withArrow
             >
-              <Paper
-                className={`absolute cursor-pointer border transition-all hover:brightness-110 ${getEventColor(event)}`}
+              <div
+                className={`absolute cursor-pointer border transition-all hover:brightness-110 p-2 rounded-md ${getEventColor(event)}`}
                 style={{
                   top: event.top,
                   left: event.left,
@@ -220,7 +219,6 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
                   zIndex: event.zIndex,
                   minHeight: '20px',
                 }}
-                p="xs"
                 onClick={() => window.open(event.htmlLink, '_blank')}
               >
                 <Stack gap={2}>
@@ -250,7 +248,7 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
                     </Text>
                   )}
                 </Stack>
-              </Paper>
+              </div>
             </Tooltip>
           ))}
 
@@ -261,7 +259,6 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
             </div>
           )}
         </div>
-      </ScrollArea>
     </div>
   );
 }
