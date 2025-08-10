@@ -33,7 +33,8 @@ import {
   IconBrandSlack,
   IconRefresh,
   IconEdit,
-  IconShare
+  IconShare,
+  IconSettings
 } from '@tabler/icons-react';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
@@ -54,6 +55,11 @@ interface CreateIntegrationForm {
   teamId?: string;
   teamName?: string;
   appId?: string;
+  // WhatsApp-specific fields
+  whatsappAccessToken?: string;
+  whatsappPhoneNumberId?: string;
+  whatsappBusinessAccountId?: string;
+  whatsappWebhookVerifyToken?: string;
 }
 
 interface EditIntegrationForm {
@@ -69,6 +75,7 @@ const PROVIDER_OPTIONS = [
   { value: 'exponential-plugin', label: 'Exponential Plugin', disabled: false },
   { value: 'github', label: 'GitHub', disabled: true },
   { value: 'slack', label: 'Slack', icon: IconBrandSlack, disabled: false },
+  { value: 'whatsapp', label: 'WhatsApp', disabled: false },
   { value: 'notion', label: 'Notion', disabled: true },
   { value: 'monday', label: 'Monday.com', disabled: false },
 ];
@@ -148,6 +155,28 @@ export default function IntegrationsClient() {
       notifications.show({
         title: 'Slack Integration Error',
         message: error.message || 'Failed to create Slack integration',
+        color: 'red',
+        icon: <IconAlertCircle size={16} />,
+      });
+    },
+  });
+
+  const createWhatsAppIntegration = api.integration.createWhatsAppIntegration.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'WhatsApp Integration Created',
+        message: 'Your WhatsApp integration has been created successfully.',
+        color: 'green',
+        icon: <IconCheck size={16} />,
+      });
+      void refetch();
+      form.reset();
+      close();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'WhatsApp Integration Error',
+        message: error.message || 'Failed to create WhatsApp integration',
         color: 'red',
         icon: <IconAlertCircle size={16} />,
       });
@@ -266,13 +295,17 @@ export default function IntegrationsClient() {
       teamId: '',
       teamName: '',
       appId: '',
+      whatsappAccessToken: '',
+      whatsappPhoneNumberId: '',
+      whatsappBusinessAccountId: '',
+      whatsappWebhookVerifyToken: '',
     },
     validate: {
       name: (value) => value.trim().length === 0 ? 'Integration name is required' : null,
       provider: (value) => value.trim().length === 0 ? 'Provider is required' : null,
       apiKey: (value, values) => {
-        // Don't require API key for Slack (uses manual credentials)
-        if (values.provider === 'slack') return null;
+        // Don't require API key for Slack or WhatsApp (uses manual credentials)
+        if (values.provider === 'slack' || values.provider === 'whatsapp') return null;
         return value.trim().length === 0 ? 'API key is required' : null;
       },
       botToken: (value, values) => {
@@ -294,6 +327,31 @@ export default function IntegrationsClient() {
         return null;
       },
       // Team ID and Team Name are now optional - will be fetched from bot token
+      // WhatsApp-specific validations
+      whatsappAccessToken: (value, values) => {
+        if (values.provider === 'whatsapp' && (!value || value.trim().length === 0)) {
+          return 'Access Token is required for WhatsApp integration';
+        }
+        return null;
+      },
+      whatsappPhoneNumberId: (value, values) => {
+        if (values.provider === 'whatsapp' && (!value || value.trim().length === 0)) {
+          return 'Phone Number ID is required for WhatsApp integration';
+        }
+        return null;
+      },
+      whatsappBusinessAccountId: (value, values) => {
+        if (values.provider === 'whatsapp' && (!value || value.trim().length === 0)) {
+          return 'Business Account ID is required for WhatsApp integration';
+        }
+        return null;
+      },
+      whatsappWebhookVerifyToken: (value, values) => {
+        if (values.provider === 'whatsapp' && (!value || value.trim().length === 0)) {
+          return 'Webhook Verify Token is required for WhatsApp integration';
+        }
+        return null;
+      },
     },
   });
 
@@ -340,6 +398,20 @@ export default function IntegrationsClient() {
         slackTeamId: values.teamId || undefined,
         teamName: values.teamName || undefined,
         appId: values.appId || undefined,
+        allowTeamMemberAccess: values.allowTeamMemberAccess || false,
+      });
+      return;
+    }
+
+    // Special handling for WhatsApp - use createWhatsAppIntegration with manual credentials
+    if (values.provider === 'whatsapp') {
+      await createWhatsAppIntegration.mutateAsync({
+        name: values.name,
+        description: values.description,
+        accessToken: values.whatsappAccessToken!,
+        phoneNumberId: values.whatsappPhoneNumberId!,
+        businessAccountId: values.whatsappBusinessAccountId!,
+        webhookVerifyToken: values.whatsappWebhookVerifyToken!,
         allowTeamMemberAccess: values.allowTeamMemberAccess || false,
       });
       return;
@@ -523,6 +595,19 @@ export default function IntegrationsClient() {
                             </ActionIcon>
                           </Tooltip>
                         )}
+                        {integration.provider === 'whatsapp' && (
+                          <Tooltip label="Manage WhatsApp settings">
+                            <ActionIcon 
+                              color="green" 
+                              variant="light"
+                              size="sm"
+                              component={Link}
+                              href={`/integrations/whatsapp/${integration.id}`}
+                            >
+                              <IconSettings size={14} />
+                            </ActionIcon>
+                          </Tooltip>
+                        )}
                         <Tooltip label="Delete integration">
                           <ActionIcon 
                             color="red" 
@@ -578,7 +663,7 @@ export default function IntegrationsClient() {
                 {...form.getInputProps('provider')}
               />
 
-              {form.values.provider !== 'slack' && (
+              {form.values.provider !== 'slack' && form.values.provider !== 'whatsapp' && (
                 <TextInput
                   label="API Key"
                   placeholder="Enter your API key"
@@ -644,6 +729,55 @@ export default function IntegrationsClient() {
                 </>
               )}
 
+              {form.values.provider === 'whatsapp' && (
+                <>
+                  <Alert 
+                    icon={<IconPlugConnected size={16} />}
+                    title="WhatsApp Business Setup Required"
+                    color="blue"
+                  >
+                    You need to set up a WhatsApp Business Account in Meta Business Manager first. Visit{' '}
+                    <Text component="a" href="https://business.facebook.com" target="_blank" style={{ textDecoration: 'underline' }}>
+                      business.facebook.com
+                    </Text>{' '}
+                    to create your app and get the required credentials below.
+                  </Alert>
+
+                  <TextInput
+                    label="Access Token"
+                    placeholder="Your WhatsApp access token"
+                    required
+                    type="password"
+                    {...form.getInputProps('whatsappAccessToken')}
+                    description="Found in Meta Business Manager > Your App > WhatsApp > API Setup"
+                  />
+
+                  <TextInput
+                    label="Phone Number ID"
+                    placeholder="1234567890123456"
+                    required
+                    {...form.getInputProps('whatsappPhoneNumberId')}
+                    description="Found in Meta Business Manager > Your App > WhatsApp > API Setup > Phone numbers"
+                  />
+
+                  <TextInput
+                    label="Business Account ID"
+                    placeholder="1234567890123456"
+                    required
+                    {...form.getInputProps('whatsappBusinessAccountId')}
+                    description="Found in Meta Business Manager > Your App > WhatsApp > API Setup"
+                  />
+
+                  <TextInput
+                    label="Webhook Verify Token"
+                    placeholder="your-custom-verify-token"
+                    required
+                    {...form.getInputProps('whatsappWebhookVerifyToken')}
+                    description="A custom token you create to verify webhook requests. You'll use this when setting up webhooks in Meta Business Manager."
+                  />
+                </>
+              )}
+
               <Textarea
                 label="Description (Optional)"
                 placeholder="What will this integration be used for?"
@@ -687,7 +821,7 @@ export default function IntegrationsClient() {
                 </Button>
                 <Button 
                   type="submit" 
-                  loading={createIntegration.isPending || createSlackIntegration.isPending}
+                  loading={createIntegration.isPending || createSlackIntegration.isPending || createWhatsAppIntegration.isPending}
                 >
                   Create Integration
                 </Button>
