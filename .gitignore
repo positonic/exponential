@@ -69,6 +69,11 @@ node_modules/
 *.sw?
 # OS specific
 
+# Package manager lock files (we use bun)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
 # Task files
 # tasks.json
 # tasks/ 
