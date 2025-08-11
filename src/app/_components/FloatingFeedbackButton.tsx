@@ -57,7 +57,6 @@ export function FloatingFeedbackButton() {
       metadata: {
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
         timestamp: new Date().toISOString(),
-        page: typeof window !== 'undefined' ? window.location.pathname : 'unknown',
       },
     });
   };
@@ -113,7 +112,7 @@ export function FloatingFeedbackButton() {
 
             <div>
               <Text size="sm" fw={500} mb="xs">
-                What's on your mind?
+                What&apos;s on your mind?
               </Text>
               <Textarea
                 placeholder="Share your thoughts, suggestions, bug reports, or feature requests..."

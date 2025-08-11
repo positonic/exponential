@@ -17,7 +17,7 @@ export async function onTaskChange(
     // Cancel old reminders if due date changed
     if (oldTask?.dueDate && oldTask.dueDate.getTime() !== task.dueDate.getTime()) {
       await notificationScheduler.cancelNotifications({
-        userId: task.userId,
+        userId: task.createdById,
         taskId: task.id,
       });
     }
@@ -25,7 +25,7 @@ export async function onTaskChange(
     // Schedule new reminders if task is not completed
     if (task.status !== 'COMPLETED') {
       await notificationScheduler.scheduleTaskReminders(
-        task.userId,
+        task.createdById,
         task.id,
         task.name,
         task.dueDate
@@ -43,7 +43,7 @@ export async function onTaskComplete(task: Action): Promise<void> {
   try {
     // Cancel any pending reminders
     await notificationScheduler.cancelNotifications({
-      userId: task.userId,
+      userId: task.createdById,
       taskId: task.id,
     });
   } catch (error) {
@@ -58,7 +58,7 @@ export async function onTaskDelete(task: Action): Promise<void> {
   try {
     // Cancel any pending reminders
     await notificationScheduler.cancelNotifications({
-      userId: task.userId,
+      userId: task.createdById,
       taskId: task.id,
     });
   } catch (error) {

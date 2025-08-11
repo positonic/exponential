@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Modal,
   Stack,
@@ -9,7 +9,6 @@ import {
   Badge,
   Group,
   Select,
-  DatePickerInput,
   ScrollArea,
   Alert,
   LoadingOverlay,
@@ -21,6 +20,7 @@ import {
   ActionIcon,
   Tooltip,
 } from '@mantine/core';
+import { DatePickerInput } from '@mantine/dates';
 import {
   IconShieldCheck,
   IconAlertTriangle,
@@ -251,7 +251,7 @@ export function WhatsAppSecurityDashboard({
                       <Table.Th>Event Type</Table.Th>
                       <Table.Th>Severity</Table.Th>
                       <Table.Th>Details</Table.Th>
-                      <Table.Th width={50}></Table.Th>
+                      <Table.Th></Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>

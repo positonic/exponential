@@ -188,7 +188,7 @@ export function WhatsAppVerification({
         >
           <Stack mt="xl">
             <Alert icon={<IconPhone size={16} />} color="blue">
-              Enter your WhatsApp phone number. We'll send you a verification code to confirm ownership.
+              Enter your WhatsApp phone number. We&apos;ll send you a verification code to confirm ownership.
             </Alert>
 
             <form onSubmit={phoneForm.onSubmit(handlePhoneSubmit)}>
@@ -217,7 +217,7 @@ export function WhatsAppVerification({
         >
           <Stack mt="xl">
             <Alert icon={<IconShieldCheck size={16} />} color="blue">
-              We've sent a 6-digit verification code to {phoneNumber}. 
+              We&apos;ve sent a 6-digit verification code to {phoneNumber}. 
               Please check your WhatsApp messages.
             </Alert>
 

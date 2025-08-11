@@ -68,8 +68,8 @@ const headerTypeOptions = [
 interface TemplateFormData {
   name: string;
   language: string;
-  category: string;
-  headerType?: string;
+  category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
+  headerType?: 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT';
   headerText?: string;
   bodyText: string;
   footerText?: string;
@@ -387,7 +387,6 @@ export function WhatsAppTemplateManager() {
                               <Tooltip 
                                 label={`Rejected: ${template.rejectionReason}`}
                                 multiline
-                                width={220}
                               >
                                 <ActionIcon
                                   size="xs"
@@ -609,7 +608,7 @@ function TemplateFormModal({
           label="Category"
           data={categoryOptions}
           value={formData.category}
-          onChange={(value) => setFormData({ ...formData, category: value || 'UTILITY' })}
+          onChange={(value) => setFormData({ ...formData, category: (value || 'UTILITY') as 'UTILITY' | 'MARKETING' | 'AUTHENTICATION' })}
           required
         />
 
@@ -617,7 +616,7 @@ function TemplateFormModal({
           label="Header Type (Optional)"
           data={headerTypeOptions}
           value={formData.headerType}
-          onChange={(value) => setFormData({ ...formData, headerType: value || undefined })}
+          onChange={(value) => setFormData({ ...formData, headerType: value as 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT' | undefined })}
           clearable
         />
 

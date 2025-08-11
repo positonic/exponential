@@ -182,7 +182,7 @@ async function checkErrorRate(): Promise<ErrorRateStatus> {
       rate: Math.round(errorRate * 1000) / 1000,
       threshold,
     };
-  } catch (_error) {
+  } catch {
     return {
       status: 'error',
       rate: 0,

@@ -25,7 +25,7 @@ export class WhatsAppPermissionService {
   /**
    * Default permissions for each role
    */
-  private static readonly DEFAULT_PERMISSIONS: Record<string, WhatsAppPermission[]> = {
+  private static readonly DEFAULT_PERMISSIONS: Record<'owner' | 'admin' | 'member', WhatsAppPermission[]> = {
     owner: [
       WhatsAppPermission.SEND_MESSAGES,
       WhatsAppPermission.RECEIVE_MESSAGES,
@@ -87,7 +87,7 @@ export class WhatsAppPermissionService {
         return false;
       }
 
-      const rolePermissions = this.DEFAULT_PERMISSIONS[member.role] || [];
+      const rolePermissions = this.DEFAULT_PERMISSIONS[member.role as 'owner' | 'admin' | 'member'] ?? [];
       return rolePermissions.includes(permission);
     }
 
@@ -130,7 +130,7 @@ export class WhatsAppPermissionService {
         return [];
       }
 
-      return this.DEFAULT_PERMISSIONS[member.role] || [];
+      return this.DEFAULT_PERMISSIONS[member.role as 'owner' | 'admin' | 'member'] ?? [];
     }
 
     return [];

@@ -148,9 +148,10 @@ export function WhatsAppRealtimeMonitor({
       // Simulate message events
       if (Math.random() > 0.7 && workerStatus?.workers.queue.queue.processing > 0) {
         const types: MessageEvent['type'][] = ['sent', 'received', 'delivered', 'read', 'failed'];
+        const randomType = types[Math.floor(Math.random() * types.length)] ?? 'sent';
         const newEvent: MessageEvent = {
           id: Date.now().toString(),
-          type: types[Math.floor(Math.random() * types.length)],
+          type: randomType,
           phoneNumber: `+1${Math.floor(Math.random() * 9000000000 + 1000000000)}`,
           timestamp: new Date(),
         };
@@ -221,8 +222,8 @@ export function WhatsAppRealtimeMonitor({
           <ActionIcon
             variant="light"
             onClick={() => {
-              refetchHealth();
-              refetchWorker();
+              void refetchHealth();
+              void refetchWorker();
             }}
           >
             <IconRefresh size={18} />

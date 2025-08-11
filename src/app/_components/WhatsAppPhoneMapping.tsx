@@ -43,13 +43,13 @@ export function WhatsAppPhoneMapping({ integrationId, opened, onClose }: WhatsAp
   );
 
   // Fetch team members for selection
-  const { data: teamData } = api.team.getMyTeams.useQuery();
-  const teamMembers = teamData?.teams.flatMap(team => 
-    team.users.map(u => ({
-      value: u.user.id,
-      label: u.user.name || u.user.email || 'Unknown',
-      image: u.user.image,
-      role: u.role,
+  const { data: teamData } = api.team.list.useQuery();
+  const teamMembers = teamData?.flatMap(team => 
+    team.members.map(m => ({
+      value: m.user.id,
+      label: m.user.name || m.user.email || 'Unknown',
+      image: m.user.image,
+      role: m.role,
     }))
   ) || [];
 
@@ -197,7 +197,7 @@ export function WhatsAppPhoneMapping({ integrationId, opened, onClose }: WhatsAp
                   <Table.Th>Phone Number</Table.Th>
                   <Table.Th>User</Table.Th>
                   <Table.Th>Role</Table.Th>
-                  <Table.Th width={50}></Table.Th>
+                  <Table.Th></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -225,11 +225,8 @@ export function WhatsAppPhoneMapping({ integrationId, opened, onClose }: WhatsAp
                       </Group>
                     </Table.Td>
                     <Table.Td>
-                      {mapping.user.role && (
-                        <Badge size="sm" variant="light">
-                          {mapping.user.role}
-                        </Badge>
-                      )}
+                      {/* Role would come from team membership, not user directly */}
+                      <Text size="sm" c="dimmed">-</Text>
                     </Table.Td>
                     <Table.Td>
                       <Tooltip label="Remove mapping">

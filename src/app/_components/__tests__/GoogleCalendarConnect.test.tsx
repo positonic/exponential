@@ -4,7 +4,7 @@ import '@testing-library/jest-dom';
 import { GoogleCalendarConnect } from '../GoogleCalendarConnect';
 
 // Mock next/navigation
-const mockPush = mock(() => {});
+const mockPush = mock(() => undefined);
 const mockUseSearchParams = mock(() => ({
   get: mock(() => null),
 }));
@@ -17,7 +17,7 @@ mock.module('next/navigation', () => ({
 }));
 
 // Mock @mantine/notifications
-const mockShow = mock(() => {});
+const mockShow = mock(() => undefined);
 mock.module('@mantine/notifications', () => ({
   notifications: {
     show: mockShow,

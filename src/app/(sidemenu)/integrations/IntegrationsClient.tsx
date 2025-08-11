@@ -407,11 +407,11 @@ export default function IntegrationsClient() {
     if (values.provider === 'whatsapp') {
       await createWhatsAppIntegration.mutateAsync({
         name: values.name,
-        description: values.description,
-        accessToken: values.whatsappAccessToken!,
         phoneNumberId: values.whatsappPhoneNumberId!,
         businessAccountId: values.whatsappBusinessAccountId!,
+        accessToken: values.whatsappAccessToken!,
         webhookVerifyToken: values.whatsappWebhookVerifyToken!,
+        description: values.description,
         allowTeamMemberAccess: values.allowTeamMemberAccess || false,
       });
       return;

@@ -82,6 +82,6 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
 // Domain-specific customizations can be merged with the base theme
 
 export const mantineThemes = {
-    'forceflow.com': mantineTheme,
-    'exponential.im': mantineTheme,
+    'forceflow.com': mantineTheme as MantineTheme,
+    'exponential.im': mantineTheme as MantineTheme,
   } satisfies Record<ValidDomain, MantineTheme>;

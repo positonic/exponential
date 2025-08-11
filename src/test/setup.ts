@@ -10,27 +10,51 @@ beforeAll(() => {
       matches: false,
       media: query,
       onchange: null,
-      addListener: () => {}, // deprecated
-      removeListener: () => {}, // deprecated
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      addListener: () => {
+        // deprecated - mock implementation
+      },
+      removeListener: () => {
+        // deprecated - mock implementation
+      },
+      addEventListener: () => {
+        // Mock implementation
+      },
+      removeEventListener: () => {
+        // Mock implementation
+      },
       dispatchEvent: () => false,
     }),
   });
 
   // Mock IntersectionObserver
   global.IntersectionObserver = class IntersectionObserver {
-    constructor() {}
-    disconnect() {}
-    observe() {}
-    unobserve() {}
+    constructor() {
+      // Mock constructor
+    }
+    disconnect() {
+      // Mock implementation
+    }
+    observe() {
+      // Mock implementation
+    }
+    unobserve() {
+      // Mock implementation
+    }
   } as any;
 
   // Mock ResizeObserver
   global.ResizeObserver = class ResizeObserver {
-    constructor() {}
-    disconnect() {}
-    observe() {}
-    unobserve() {}
+    constructor() {
+      // Mock constructor
+    }
+    disconnect() {
+      // Mock implementation
+    }
+    observe() {
+      // Mock implementation
+    }
+    unobserve() {
+      // Mock implementation
+    }
   } as any;
 });

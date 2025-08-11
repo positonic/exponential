@@ -220,7 +220,7 @@ export class GoogleCalendarService {
     });
   }
 
-  async getUpcomingEvents(userId: string, days: number = 7): Promise<CalendarEvent[]> {
+  async getUpcomingEvents(userId: string, days = 7): Promise<CalendarEvent[]> {
     const now = new Date();
     const future = new Date();
     future.setDate(future.getDate() + days);

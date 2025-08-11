@@ -3,7 +3,9 @@ import { db } from "~/server/db";
 export class WhatsAppNotificationService {
   private static instance: WhatsAppNotificationService;
 
-  constructor() {}
+  private constructor() {
+    // Private constructor for singleton pattern
+  }
 
   static getInstance(): WhatsAppNotificationService {
     if (!WhatsAppNotificationService.instance) {

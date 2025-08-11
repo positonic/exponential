@@ -54,7 +54,7 @@ function TodayCalendarEventsContent() {
 
   const handleRetry = () => {
     setRetryCount(prev => prev + 1);
-    refetch();
+    void refetch();
   };
 
   if (isLoading || isRefetching) {
@@ -66,7 +66,7 @@ function TodayCalendarEventsContent() {
     return (
       <Alert icon={<IconWifiOff size={16} />} color="orange" variant="light">
         <Group justify="space-between">
-          <Text size="sm">You're offline. Calendar events may be outdated.</Text>
+          <Text size="sm">You&apos;re offline. Calendar events may be outdated.</Text>
           <Button size="xs" variant="light" onClick={handleRetry} disabled={!isOnline}>
             Retry
           </Button>
@@ -155,7 +155,7 @@ function TodayCalendarEventsContent() {
     <Stack gap="xs">
       <Group gap="xs">
         <IconCalendar size={16} className="text-blue-400" />
-        <Text size="sm" fw={500} c="C1C2C5">Today's Calendar ({events.length})</Text>
+        <Text size="sm" fw={500} c="C1C2C5">Today&apos;s Calendar ({events.length})</Text>
       </Group>
       
       {events.map((event) => (

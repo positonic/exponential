@@ -21,9 +21,12 @@ export class OptimizedQueries {
             id: true,
             phoneNumberId: true,
             businessAccountId: true,
-            integrationId: true,
+            webhookVerifyToken: true,
             displayPhoneNumber: true,
-            businessName: true
+            businessName: true,
+            integrationId: true,
+            createdAt: true,
+            updatedAt: true
           }
         });
       },
@@ -57,7 +60,9 @@ export class OptimizedQueries {
               select: {
                 id: true,
                 name: true,
-                email: true
+                email: true,
+                emailVerified: true,
+                image: true
               }
             }
           }

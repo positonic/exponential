@@ -145,7 +145,7 @@ export function WhatsAppTeamConversations({
                 <Table.Th>Role</Table.Th>
                 <Table.Th>Messages</Table.Th>
                 <Table.Th>Last Activity</Table.Th>
-                <Table.Th width={50}></Table.Th>
+                <Table.Th></Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>

@@ -7,17 +7,15 @@ import {
   Switch,
   Select,
   MultiSelect,
-  TimeInput,
-  Text,
   Group,
   Button,
   Card,
   Title,
   Alert,
   LoadingOverlay,
-  NumberInput,
   Divider,
 } from '@mantine/core';
+import { TimeInput } from '@mantine/dates';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import {
@@ -78,8 +76,8 @@ export function NotificationPreferences({ opened, onClose }: NotificationPrefere
   );
 
   // Get available integrations
-  const { data: integrations } = api.integration.list.useQuery(
-    { provider: 'whatsapp' },
+  const { data: integrations } = api.integration.listIntegrations.useQuery(
+    undefined,
     { enabled: opened }
   );
 
@@ -163,7 +161,6 @@ export function NotificationPreferences({ opened, onClose }: NotificationPrefere
               <Switch
                 label="Enable Notifications"
                 description="Master switch for all notifications"
-                leftSection={form.values.enabled ? <IconBell size={16} /> : <IconBellOff size={16} />}
                 {...form.getInputProps('enabled', { type: 'checkbox' })}
               />
 
@@ -173,7 +170,7 @@ export function NotificationPreferences({ opened, onClose }: NotificationPrefere
                 description="Choose which WhatsApp number to send from"
                 data={[
                   { value: '', label: 'Use default' },
-                  ...(integrations?.integrations.map(i => ({
+                  ...(integrations?.map(i => ({
                     value: i.id,
                     label: i.name,
                   })) || []),

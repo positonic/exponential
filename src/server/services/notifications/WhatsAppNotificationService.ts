@@ -1,12 +1,6 @@
 import { NotificationService, type NotificationPayload, type NotificationResult, type NotificationConfig } from './NotificationService';
 import { db } from '~/server/db';
-import { TRPCError } from '@trpc/server';
 
-interface WhatsAppContact {
-  phoneNumber: string;
-  name?: string;
-  userId?: string;
-}
 
 interface WhatsAppMessageResponse {
   messaging_product: string;
@@ -152,7 +146,7 @@ export class WhatsAppNotificationService extends NotificationService {
               // Store the message (using the same pattern as incoming messages)
               console.log('Storing outbound WhatsApp message:', {
                 configId: whatsappConfig.id,
-                messageId: response.messages[0].id,
+                messageId: response.messages?.[0]?.id || 'unknown',
                 phoneNumber: phoneNumber,
                 direction: 'OUTBOUND',
                 messageType: 'TEXT',
@@ -448,7 +442,7 @@ export class WhatsAppNotificationService extends NotificationService {
   /**
    * Direct method to send a notification without going through the full notification flow
    */
-  async sendNotification(
+  async sendDirectNotification(
     whatsappConfigId: string,
     phoneNumber: string,
     title: string,

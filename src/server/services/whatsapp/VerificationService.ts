@@ -1,4 +1,3 @@
-import { db } from '~/server/db';
 import { TRPCError } from '@trpc/server';
 import crypto from 'crypto';
 
@@ -154,7 +153,7 @@ export class WhatsAppVerificationService {
   /**
    * Format verification message
    */
-  static formatVerificationMessage(code: string, appName: string = 'Task Manager'): string {
+  static formatVerificationMessage(code: string, appName = 'Task Manager'): string {
     return `Your ${appName} verification code is: ${code}\n\nThis code will expire in ${this.CODE_EXPIRY_MINUTES} minutes. Do not share this code with anyone.`;
   }
 
@@ -162,8 +161,8 @@ export class WhatsAppVerificationService {
    * Create a secure phone verification link
    */
   static async createVerificationLink(
-    userId: string,
-    integrationId: string
+    _userId: string,
+    _integrationId: string
   ): Promise<{ token: string; expiresAt: Date }> {
     // Generate secure token
     const token = crypto.randomBytes(32).toString('hex');

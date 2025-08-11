@@ -526,4 +526,5 @@ export const mantineTheme = createTheme({
   respectReducedMotion: true,
   cursorType: 'pointer',
   defaultRadius: 'sm',
+  focusRing: 'auto',
 });

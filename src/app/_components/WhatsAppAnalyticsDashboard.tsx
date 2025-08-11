@@ -13,7 +13,6 @@ import {
   LoadingOverlay,
   Badge,
   ActionIcon,
-  Tooltip,
   Paper,
   RingProgress,
   Center,
@@ -21,7 +20,6 @@ import {
 import {
   IconRefresh,
   IconTrendingUp,
-  IconTrendingDown,
   IconMessages,
   IconUsers,
   IconClock,
@@ -31,8 +29,19 @@ import {
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { formatDistanceToNow } from 'date-fns';
-// Charts will be implemented with a simpler approach for now
-// TODO: Add proper chart library integration
+import { DatePickerInput } from '@mantine/dates';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  LineChart,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip as ChartTooltip,
+  Legend,
+  Area,
+  Line,
+} from 'recharts';
 
 interface WhatsAppAnalyticsDashboardProps {
   integrationId: string;
@@ -46,7 +55,7 @@ export function WhatsAppAnalyticsDashboard({ integrationId }: WhatsAppAnalyticsD
   const [refreshInterval, setRefreshInterval] = useState<string>('30000'); // 30 seconds
 
   // Get WhatsApp config
-  const { data: config } = api.whatsapp.getConfig.useQuery(
+  const { data: _config } = api.whatsapp.getConfig.useQuery(
     { integrationId },
     { enabled: !!integrationId }
   );
@@ -95,7 +104,7 @@ export function WhatsAppAnalyticsDashboard({ integrationId }: WhatsAppAnalyticsD
     : 0;
 
   // Prepare chart data
-  const hourlyData = analytics?.hourlyData.map(h => ({
+  const hourlyData = analytics?.hourlyData.map((h: any) => ({
     time: `${h.date.toLocaleDateString()} ${h.hour}:00`,
     received: h.messagesReceived,
     sent: h.messagesSent,
@@ -103,7 +112,7 @@ export function WhatsAppAnalyticsDashboard({ integrationId }: WhatsAppAnalyticsD
     failed: h.messagesFailed,
   })) || [];
 
-  const performanceData = analytics?.hourlyData.map(h => ({
+  const performanceData = analytics?.hourlyData.map((h: any) => ({
     time: `${h.date.toLocaleDateString()} ${h.hour}:00`,
     avgResponseTime: h.avgResponseTime,
     errorRate: h.errorRate ? h.errorRate * 100 : 0,
@@ -204,7 +213,6 @@ export function WhatsAppAnalyticsDashboard({ integrationId }: WhatsAppAnalyticsD
             value={workerStatus?.performance.cacheMetrics.hitRate * 100 || 0}
             color="teal"
             size="lg"
-            label={`${Math.round(workerStatus?.performance.cacheMetrics.hitRate * 100 || 0)}%`}
           />
         </Card>
 
@@ -219,7 +227,6 @@ export function WhatsAppAnalyticsDashboard({ integrationId }: WhatsAppAnalyticsD
             value={errorRate}
             color={errorRate > 5 ? 'red' : errorRate > 2 ? 'yellow' : 'green'}
             size="lg"
-            label={`${errorRate.toFixed(2)}%`}
           />
         </Card>
       </SimpleGrid>
@@ -243,7 +250,6 @@ export function WhatsAppAnalyticsDashboard({ integrationId }: WhatsAppAnalyticsD
               value={deliveryRate}
               color="blue"
               size="sm"
-              label={`${deliveryRate.toFixed(1)}% delivered`}
             />
           </Stack>
         </Card>
@@ -305,7 +311,7 @@ export function WhatsAppAnalyticsDashboard({ integrationId }: WhatsAppAnalyticsD
             {analytics?.averages.avgResponseTime?.toFixed(0) || '0'} ms
           </Text>
           <Text size="xs" c="dimmed">
-            Max: {analytics?.hourlyData.reduce((max, h) => 
+            Max: {analytics?.hourlyData.reduce((max: number, h: any) => 
               Math.max(max, h.maxResponseTime || 0), 0
             ).toFixed(0)} ms
           </Text>

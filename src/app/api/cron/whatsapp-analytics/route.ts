@@ -7,7 +7,8 @@ import { db } from '~/server/db';
 export async function GET(_request: NextRequest) {
   try {
     // Verify the request is authorized (add your own auth logic here)
-    const authHeader = headers().get('authorization');
+    const headersList = await headers();
+    const authHeader = headersList.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
     
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
@@ -33,6 +34,7 @@ export async function GET(_request: NextRequest) {
     console.log(`Found ${configs.length} active WhatsApp configurations`);
 
     const results = [];
+    const analyticsService = new WhatsAppAnalyticsService();
     
     // Aggregate analytics for each configuration
     for (const config of configs) {
@@ -40,16 +42,16 @@ export async function GET(_request: NextRequest) {
         console.log(`Aggregating analytics for ${config.businessName || config.phoneNumberId}`);
         
         // Aggregate hourly data for the past hour
-        const hourlyResult = await WhatsAppAnalyticsService.aggregateHourlyData(config.id);
+        const now = new Date();
+        const currentHour = now.getHours();
+        const previousHour = currentHour === 0 ? 23 : currentHour - 1;
+        const dateToProcess = currentHour === 0 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
         
-        // Check and alert on rate limits
-        const rateLimitAlerts = await WhatsAppAnalyticsService.checkRateLimitAlerts(config.id);
+        await analyticsService.aggregateHourlyAnalytics(config.id, dateToProcess, previousHour);
         
         results.push({
           configId: config.id,
           businessName: config.businessName,
-          hourlyData: hourlyResult,
-          rateLimitAlerts: rateLimitAlerts,
           status: 'success'
         });
       } catch (error) {

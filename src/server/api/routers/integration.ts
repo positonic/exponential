@@ -758,7 +758,7 @@ export const integrationRouter = createTRPCRouter({
       content: z.any(),
       status: z.string(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       // For now, we'll just log the message
       // In a real implementation, you'd store this in a WhatsAppMessageHistory table
       console.log('Storing WhatsApp message:', input);
@@ -778,7 +778,7 @@ export const integrationRouter = createTRPCRouter({
         errors: z.any().optional(),
       }).optional(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       // Log the status update
       console.log('Updating WhatsApp message status:', input);
       
@@ -810,7 +810,7 @@ export const integrationRouter = createTRPCRouter({
                 { teamId: { not: null } },
                 {
                   team: {
-                    users: {
+                    members: {
                       some: {
                         userId: ctx.session.user.id,
                       },
@@ -918,7 +918,7 @@ export const integrationRouter = createTRPCRouter({
                 { teamId: { not: null } },
                 {
                   team: {
-                    users: {
+                    members: {
                       some: {
                         userId: ctx.session.user.id,
                       },
@@ -1003,7 +1003,7 @@ export const integrationRouter = createTRPCRouter({
                 { teamId: { not: null } },
                 {
                   team: {
-                    users: {
+                    members: {
                       some: {
                         userId: ctx.session.user.id,
                       },
@@ -1072,7 +1072,7 @@ export const integrationRouter = createTRPCRouter({
                   { teamId: { not: null } },
                   {
                     team: {
-                      users: {
+                      members: {
                         some: {
                           userId: ctx.session.user.id,
                         },
@@ -1181,7 +1181,7 @@ export const integrationRouter = createTRPCRouter({
                 { teamId: { not: null } },
                 {
                   team: {
-                    users: {
+                    members: {
                       some: {
                         userId: ctx.session.user.id,
                         role: { in: ['owner', 'admin'] }, // Only admins can view security events
@@ -1238,7 +1238,7 @@ export const integrationRouter = createTRPCRouter({
                 { teamId: { not: null } },
                 {
                   team: {
-                    users: {
+                    members: {
                       some: {
                         userId: ctx.session.user.id,
                         role: { in: ['owner', 'admin'] },
@@ -1294,7 +1294,7 @@ export const integrationRouter = createTRPCRouter({
                 { teamId: { not: null } },
                 {
                   team: {
-                    users: {
+                    members: {
                       some: {
                         userId: ctx.session.user.id,
                       },
@@ -1326,7 +1326,7 @@ export const integrationRouter = createTRPCRouter({
 
       // Send code via WhatsApp
       try {
-        const message = WhatsAppVerificationService.formatVerificationMessage(code);
+        const _message = WhatsAppVerificationService.formatVerificationMessage(code);
         
         // TODO: Actually send the message via WhatsApp
         // For now, we'll return the code in development
@@ -1344,7 +1344,7 @@ export const integrationRouter = createTRPCRouter({
         // await sendWhatsAppMessage(integration.whatsappConfig.id, input.phoneNumber, message);
         
         return { success: true, message: 'Verification code sent to your WhatsApp' };
-      } catch (error) {
+      } catch {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Failed to send verification code',
@@ -1461,7 +1461,7 @@ export const integrationRouter = createTRPCRouter({
     .input(z.object({
       integrationId: z.string(),
     }))
-    .query(async ({ _ctx, _input }) => {
+    .query(async () => {
       // Make internal API call to health endpoint
       const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/webhooks/whatsapp/health`);
       return response.json();
@@ -1472,7 +1472,7 @@ export const integrationRouter = createTRPCRouter({
     .input(z.object({
       integrationId: z.string(),
     }))
-    .query(async ({ _ctx, _input }) => {
+    .query(async () => {
       // Make internal API call to worker status endpoint
       const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/workers/whatsapp`);
       return response.json();
@@ -2386,7 +2386,7 @@ export const integrationRouter = createTRPCRouter({
           provider: 'whatsapp',
         },
         include: {
-          whatsapp: true,
+          whatsappConfig: true,
           _count: {
             select: {
               userMappings: true,
@@ -2439,9 +2439,11 @@ export const integrationRouter = createTRPCRouter({
       const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       
       // Count messages today across all integrations
-      const todayMessages = await ctx.db.whatsAppMessage.count({
+      // TODO: Implement proper message counting once WhatsAppMessage model is added
+      // For now, we'll count conversations updated today as a proxy
+      const todayMessages = await ctx.db.whatsAppConversation.count({
         where: {
-          createdAt: {
+          lastMessageAt: {
             gte: startOfToday,
           },
         },
@@ -2475,7 +2477,7 @@ export const integrationRouter = createTRPCRouter({
       };
     }),
 
-  createWhatsAppIntegration: protectedProcedure
+  adminCreateWhatsAppIntegration: protectedProcedure
     .input(z.object({
       name: z.string(),
       businessAccountId: z.string(),
@@ -2488,10 +2490,11 @@ export const integrationRouter = createTRPCRouter({
       const integration = await ctx.db.integration.create({
         data: {
           name: input.name,
+          type: 'API_KEY',
           provider: 'whatsapp',
           status: 'PENDING',
           userId: ctx.session.user.id,
-          whatsapp: {
+          whatsappConfig: {
             create: {
               businessAccountId: input.businessAccountId,
               phoneNumberId: input.phoneNumberId,
@@ -2502,7 +2505,7 @@ export const integrationRouter = createTRPCRouter({
           },
         },
         include: {
-          whatsapp: true,
+          whatsappConfig: true,
         },
       });
 
@@ -2517,7 +2520,7 @@ export const integrationRouter = createTRPCRouter({
       // Delete integration and all related data
       const integration = await ctx.db.integration.findUnique({
         where: { id: input.integrationId },
-        include: { whatsapp: true },
+        include: { whatsappConfig: true },
       });
 
       if (!integration) {
@@ -2535,17 +2538,14 @@ export const integrationRouter = createTRPCRouter({
         });
 
         // Delete WhatsApp-specific data
-        if (integration.whatsapp) {
-          await tx.whatsAppMessage.deleteMany({
-            where: { configId: integration.whatsapp.id },
-          });
-
+        if (integration.whatsappConfig) {
+          // Note: No whatsAppMessage table exists, messages are stored in conversations
           await tx.whatsAppConversation.deleteMany({
-            where: { whatsappConfigId: integration.whatsapp.id },
+            where: { whatsappConfigId: integration.whatsappConfig.id },
           });
 
           await tx.whatsAppConfig.delete({
-            where: { id: integration.whatsapp.id },
+            where: { id: integration.whatsappConfig.id },
           });
         }
 

@@ -67,7 +67,7 @@ export const whatsappRouter = createTRPCRouter({
                 { teamId: { not: null } },
                 {
                   team: {
-                    users: {
+                    members: {
                       some: {
                         userId: ctx.session.user.id,
                       },
@@ -171,7 +171,7 @@ export const whatsappRouter = createTRPCRouter({
                 { teamId: { not: null } },
                 {
                   team: {
-                    users: {
+                    members: {
                       some: {
                         userId: ctx.session.user.id,
                       },
@@ -647,7 +647,7 @@ export const whatsappRouter = createTRPCRouter({
       }
 
       // Send test message
-      const whatsappService = new WhatsAppNotificationService();
+      const whatsappService = WhatsAppNotificationService.getInstance();
       const result = await whatsappService.sendTemplate(
         template.whatsappConfig.integrationId,
         phoneMapping.externalUserId,
@@ -809,11 +809,12 @@ export const whatsappRouter = createTRPCRouter({
           aiResponse: 'Template approved successfully',
           intent: 'template_approval',
           category: 'admin',
-          metadata: {
+          actionsTaken: [{
+            action: 'approve_template',
             templateId: template.id,
             templateName: template.name,
-            action: 'approve',
-          },
+            result: 'success',
+          }],
         },
       });
 
@@ -873,12 +874,13 @@ export const whatsappRouter = createTRPCRouter({
           aiResponse: `Template rejected. Reason: ${input.reason}`,
           intent: 'template_rejection',
           category: 'admin',
-          metadata: {
+          actionsTaken: [{
+            action: 'reject_template',
             templateId: template.id,
             templateName: template.name,
-            action: 'reject',
             reason: input.reason,
-          },
+            result: 'success',
+          }],
         },
       });
 
@@ -1021,8 +1023,8 @@ async function checkTemplateAdminPermission(userId: string): Promise<boolean> {
 
   // User is admin if they own a team or have explicit template admin permissions
   return (
-    user?.teams.length > 0 || 
-    user?.permissionsGrantedTo.length > 0 ||
+    (user?.teams?.length ?? 0) > 0 || 
+    (user?.permissionsGrantedTo?.length ?? 0) > 0 ||
     // For development, you might want to allow certain email addresses
     user?.email?.includes('@admin.') === true
   );

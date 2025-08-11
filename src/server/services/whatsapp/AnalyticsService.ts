@@ -44,8 +44,14 @@ export class WhatsAppAnalyticsService {
 
       // Calculate aggregated values
       const analytics: MessageAnalytics = {
-        ...messageMetrics,
-        ...conversationMetrics,
+        messagesReceived: messageMetrics.messagesReceived ?? 0,
+        messagesSent: messageMetrics.messagesSent ?? 0,
+        messagesDelivered: messageMetrics.messagesDelivered ?? 0,
+        messagesRead: messageMetrics.messagesRead ?? 0,
+        messagesFailed: messageMetrics.messagesFailed ?? 0,
+        uniqueUsers: messageMetrics.uniqueUsers ?? new Set<string>(),
+        responseTimes: messageMetrics.responseTimes ?? [],
+        conversationLengths: conversationMetrics.conversationLengths ?? [],
         errors: errorMetrics.count,
       };
 
@@ -149,7 +155,7 @@ export class WhatsAppAnalyticsService {
     whatsappConfigId: string,
     startTime: Date,
     endTime: Date
-  ) {
+  ): Promise<{ conversationLengths: number[]; totalConversations: number }> {
     const conversations = await db.whatsAppConversation.findMany({
       where: {
         whatsappConfigId,

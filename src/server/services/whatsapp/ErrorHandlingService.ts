@@ -1,4 +1,3 @@
-import { TRPCError } from '@trpc/server';
 import { db } from '~/server/db';
 
 export enum WhatsAppErrorType {
@@ -31,7 +30,19 @@ export class WhatsAppErrorHandlingService {
   private static readonly ERROR_LOG_RETENTION_DAYS = 30;
 
   // Fallback messages for different error scenarios
-  private static readonly FALLBACK_MESSAGES = {
+  private static readonly FALLBACK_MESSAGES: Record<WhatsAppErrorType | 'DEFAULT', string> = {
+    [WhatsAppErrorType.WEBHOOK_VERIFICATION_FAILED]: 
+      "Unable to verify webhook. Please check your configuration.",
+    [WhatsAppErrorType.INVALID_SIGNATURE]: 
+      "Invalid message signature. Please ensure your webhook is properly configured.",
+    [WhatsAppErrorType.MISSING_PHONE_NUMBER]: 
+      "Phone number not found. Please ensure you're messaging from a registered number.",
+    [WhatsAppErrorType.CONFIG_NOT_FOUND]: 
+      "WhatsApp configuration not found. Please contact your administrator.",
+    [WhatsAppErrorType.CREDENTIAL_NOT_FOUND]: 
+      "Authentication credentials not found. Please check your integration settings.",
+    [WhatsAppErrorType.MESSAGE_SEND_FAILED]: 
+      "Failed to send message. Please try again later.",
     [WhatsAppErrorType.AI_PROCESSING_FAILED]: 
       "I'm having trouble understanding your message right now. Please try again in a moment.",
     [WhatsAppErrorType.MESSAGE_PROCESSING_FAILED]: 
@@ -83,7 +94,7 @@ export class WhatsAppErrorHandlingService {
    * Get appropriate fallback message for error type
    */
   static getFallbackMessage(errorType: WhatsAppErrorType): string {
-    return this.FALLBACK_MESSAGES[errorType] || this.FALLBACK_MESSAGES.DEFAULT;
+    return this.FALLBACK_MESSAGES[errorType] ?? this.FALLBACK_MESSAGES.DEFAULT;
   }
 
   /**
@@ -216,7 +227,7 @@ export class WhatsAppErrorHandlingService {
    */
   static createErrorResponse(
     errorType: WhatsAppErrorType,
-    originalError: Error | unknown,
+    originalError: Error,
     context: {
       phoneNumber?: string;
       userId?: string;

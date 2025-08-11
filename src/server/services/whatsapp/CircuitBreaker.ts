@@ -3,15 +3,15 @@
  * Prevents cascading failures by temporarily blocking calls to failing services
  */
 export class CircuitBreaker {
-  private failureCount: number = 0;
-  private lastFailureTime: number = 0;
+  private failureCount = 0;
+  private lastFailureTime = 0;
   private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
   
   constructor(
     private readonly name: string,
-    private readonly threshold: number = 5,
-    private readonly timeout: number = 60000, // 1 minute
-    private readonly resetTimeout: number = 30000 // 30 seconds
+    private readonly threshold = 5,
+    private readonly timeout = 60000, // 1 minute
+    private readonly resetTimeout = 30000 // 30 seconds
   ) {}
 
   async execute<T>(fn: () => Promise<T>): Promise<T> {

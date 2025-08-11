@@ -2,7 +2,7 @@
 
 import { Box, Text, Stack, Tooltip } from "@mantine/core";
 import { format, parseISO, startOfDay, isToday, isSameDay } from "date-fns";
-import { CalendarEvent } from "~/server/services/GoogleCalendarService";
+import { type CalendarEvent } from "~/server/services/GoogleCalendarService";
 import { useMemo } from "react";
 
 interface CalendarDayViewProps {
@@ -77,8 +77,7 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
     sortedEvents.forEach(event => {
       // Find a column where this event doesn't overlap with the last event
       let placed = false;
-      for (let i = 0; i < columns.length; i++) {
-        const column = columns[i]!;
+      for (const column of columns) {
         const lastEvent = column[column.length - 1];
         
         if (!lastEvent || (event.top >= lastEvent.top + lastEvent.height)) {

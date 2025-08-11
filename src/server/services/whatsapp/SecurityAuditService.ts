@@ -1,5 +1,5 @@
 import { db } from '~/server/db';
-import type { Prisma } from '@prisma/client';
+import { type Prisma } from '@prisma/client';
 
 export enum SecurityEventType {
   // Authentication events
@@ -113,17 +113,24 @@ export class WhatsAppSecurityAuditService {
     integrationId: string
   ): Promise<void> {
     try {
-      // Store as integration activity
-      await db.integrationActivity.create({
+      // Store as AI interaction history for audit purposes
+      await db.aiInteractionHistory.create({
         data: {
-          integrationId,
-          type: 'SECURITY_EVENT',
-          metadata: {
-            eventType: event.eventType,
+          platform: 'whatsapp_security',
+          systemUserId: event.metadata.userId || 'system',
+          externalUserId: event.metadata.phoneNumber || 'unknown',
+          sourceId: integrationId,
+          userMessage: `Security Event: ${event.eventType}`,
+          aiResponse: `Severity: ${event.severity}${event.metadata.reason ? `. Reason: ${event.metadata.reason}` : ''}`,
+          intent: event.eventType,
+          category: 'security_audit',
+          hadError: event.severity === 'critical',
+          actionsTaken: [{
+            type: 'security_event',
             severity: event.severity,
-            ...event.metadata,
-          } as Prisma.JsonObject,
-          status: event.severity === 'critical' ? 'ERROR' : 'WARNING',
+            metadata: event.metadata as unknown as Prisma.JsonObject,
+          }] as unknown as Prisma.JsonValue[],
+          createdAt: event.timestamp,
         },
       });
     } catch (error) {
@@ -226,10 +233,11 @@ export class WhatsAppSecurityAuditService {
       limit?: number;
     } = {}
   ): Promise<SecurityEvent[]> {
-    const activities = await db.integrationActivity.findMany({
+    const activities = await db.aiInteractionHistory.findMany({
       where: {
-        integrationId,
-        type: 'SECURITY_EVENT',
+        platform: 'whatsapp_security',
+        sourceId: integrationId,
+        category: 'security_audit',
         ...(options.startDate && {
           createdAt: {
             gte: options.startDate,
@@ -243,15 +251,15 @@ export class WhatsAppSecurityAuditService {
 
     return activities
       .map(activity => {
-        const metadata = activity.metadata as any;
-        if (!metadata?.eventType) return null;
+        const actionTaken = (activity.actionsTaken as any[])?.[0];
+        if (!actionTaken || !activity.intent) return null;
 
         const event: SecurityEvent = {
           id: activity.id,
-          eventType: metadata.eventType,
-          severity: metadata.severity || 'medium',
+          eventType: activity.intent as SecurityEventType,
+          severity: actionTaken.severity || 'medium',
           timestamp: activity.createdAt,
-          metadata,
+          metadata: actionTaken.metadata || {},
           resolved: false,
         };
 

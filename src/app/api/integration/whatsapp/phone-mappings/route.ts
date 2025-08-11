@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     const existingMapping = await db.integrationUserMapping.findFirst({
       where: {
         integrationId,
-        phoneNumber,
+        externalUserId: phoneNumber,
         NOT: { userId },
       },
     });
@@ -134,28 +134,18 @@ export async function POST(request: NextRequest) {
     // Create or update mapping
     const mapping = await db.integrationUserMapping.upsert({
       where: {
-        integrationId_userId: {
+        integrationId_externalUserId: {
           integrationId,
-          userId,
+          externalUserId: phoneNumber,
         },
       },
       update: {
-        phoneNumber,
-        externalUserId: phoneNumber,
-        metadata: {
-          updatedBy: session.user.id,
-          updatedAt: new Date().toISOString(),
-        },
+        userId,
       },
       create: {
         integrationId,
         userId,
-        phoneNumber,
         externalUserId: phoneNumber,
-        metadata: {
-          createdBy: session.user.id,
-          createdAt: new Date().toISOString(),
-        },
       },
       include: {
         user: {
@@ -210,13 +200,24 @@ export async function DELETE(request: NextRequest) {
       return new NextResponse('Forbidden', { status: 403 });
     }
 
-    // Delete the mapping
+    // Find and delete the mapping
+    const mapping = await db.integrationUserMapping.findFirst({
+      where: {
+        integrationId,
+        userId,
+      },
+    });
+
+    if (!mapping) {
+      return NextResponse.json(
+        { error: 'Mapping not found' },
+        { status: 404 }
+      );
+    }
+
     await db.integrationUserMapping.delete({
       where: {
-        integrationId_userId: {
-          integrationId,
-          userId,
-        },
+        id: mapping.id,
       },
     });
 

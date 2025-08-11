@@ -22,7 +22,7 @@ async function testHealthEndpoint() {
       return false;
     }
   } catch (error) {
-    console.log('❌ Health endpoint error:', error.message);
+    console.log('❌ Health endpoint error:', error instanceof Error ? error.message : String(error));
     return false;
   }
 }
@@ -40,7 +40,7 @@ async function testWorkerEndpoint() {
       return false;
     }
   } catch (error) {
-    console.log('❌ Worker endpoint error:', error.message);
+    console.log('❌ Worker endpoint error:', error instanceof Error ? error.message : String(error));
     return false;
   }
 }
@@ -60,7 +60,7 @@ async function testAnalyticsEndpoint() {
       return false;
     }
   } catch (error) {
-    console.log('❌ Analytics endpoint error:', error.message);
+    console.log('❌ Analytics endpoint error:', error instanceof Error ? error.message : String(error));
     return false;
   }
 }

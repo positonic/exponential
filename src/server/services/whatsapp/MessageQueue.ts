@@ -1,5 +1,3 @@
-import { db } from '~/server/db';
-import type { Prisma } from '@prisma/client';
 
 export interface QueuedMessage {
   id: string;
@@ -16,7 +14,7 @@ export interface QueuedMessage {
  * In production, consider using Redis or RabbitMQ
  */
 export class MessageQueue {
-  private queue: Map<string, QueuedMessage> = new Map();
+  private queue = new Map<string, QueuedMessage>();
   private processing = false;
   private paused = false;
   private batchSize = 10;
@@ -29,9 +27,9 @@ export class MessageQueue {
     lastProcessedAt: null as Date | null,
   };
 
-  constructor(batchSize: number = 10) {
+  constructor(batchSize = 10) {
     this.batchSize = batchSize;
-    this.startProcessing();
+    void this.startProcessing();
   }
 
   /**
@@ -62,23 +60,23 @@ export class MessageQueue {
     
     this.processing = true;
     
-    setInterval(async () => {
+    setInterval(() => {
       if (this.paused || this.queue.size === 0) return;
       
       // Get batch of messages
       const batch = Array.from(this.queue.entries())
         .slice(0, this.batchSize)
-        .map(([id, msg]) => ({ id, ...msg }));
+        .map(([id, msg]) => ({ ...msg, id }));
       
       // Update processing count
       this.stats.processing = batch.length;
       
       // Process batch in parallel
-      await Promise.all(
+      void Promise.all(
         batch.map(msg => this.processMessage(msg))
-      );
-      
-      this.stats.processing = 0;
+      ).then(() => {
+        this.stats.processing = 0;
+      });
     }, this.processInterval);
   }
 

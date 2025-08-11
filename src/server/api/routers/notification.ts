@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { notificationScheduler } from "~/server/services/notifications/init";
 
 export const notificationRouter = createTRPCRouter({
   // Get user notification preferences
@@ -222,8 +221,8 @@ export const notificationRouter = createTRPCRouter({
         },
       });
 
-      // Process immediately
-      await notificationScheduler.processScheduledNotifications();
+      // The notification will be processed by the scheduler on its next run
+      // Since processScheduledNotifications is private, we can't trigger it manually
 
       return {
         success: true,

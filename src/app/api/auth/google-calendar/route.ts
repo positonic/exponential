@@ -15,7 +15,7 @@ export async function GET() {
   }
 
   // Get the host from the request headers to handle different ports
-  const headersList = headers();
+  const headersList = await headers();
   const host = headersList.get('host') || 'localhost:3000';
   const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
   const baseUrl = `${protocol}://${host}`;

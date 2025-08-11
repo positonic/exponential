@@ -113,7 +113,7 @@ export function WhatsAppTemplateApprovalManager() {
     return (
       <Card withBorder>
         <Alert icon={<IconShieldCheck size={16} />} title="Access Denied" color="red">
-          You don't have permission to access the template approval system. 
+          You don&apos;t have permission to access the template approval system. 
           Only administrators can approve or reject WhatsApp message templates.
         </Alert>
       </Card>
@@ -475,7 +475,7 @@ export function WhatsAppTemplateApprovalManager() {
         <LoadingOverlay visible={rejectTemplate.isPending} />
         <Stack gap="md">
           <Alert icon={<IconAlertCircle size={16} />} color="red">
-            You are about to reject the template "{selectedTemplate?.name}". 
+            You are about to reject the template &quot;{selectedTemplate?.name}&quot;. 
             Please provide a clear reason for the rejection to help the user improve their template.
           </Alert>
 
