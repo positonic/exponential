@@ -57,16 +57,13 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
             className="text"
           />
           
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            {/* Close button */}
-            <button
-              onClick={() => setIsMenuOpen(false)}
-              className="p-2 rounded-lg hover:bg-surface-hover transition-colors"
-            >
-              <IconX size={20} className="text-text-secondary hover:text-text-primary" />
-            </button>
-          </div>
+          {/* Close button */}
+          <button
+            onClick={() => setIsMenuOpen(false)}
+            className="p-2 rounded-lg hover:bg-surface-hover transition-colors"
+          >
+            <IconX size={20} className="text-text-secondary hover:text-text-primary" />
+          </button>
         </div>
         
         <nav className="flex-grow px-1 py-4 space-y-6">
@@ -85,6 +82,9 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           >
             <GithubIcon className="h-6 w-6" />
           </Link>
+          <div className="px-3 py-2">
+            <ThemeToggle />
+          </div>
           <Link
             href={session ? "/api/auth/signout" : "/use-the-force"}
             onClick={() => setIsMenuOpen(false)}
