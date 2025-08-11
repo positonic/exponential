@@ -186,6 +186,40 @@ Required environment variables:
 - Efficient database queries with proper indexing
 - Image optimization with Next.js Image component
 
+## Styling Architecture
+
+The application uses a comprehensive styling system with light/dark mode support. Key points:
+
+### Color System
+- **Never hard-code colors** - Always use CSS variables or Tailwind classes
+- All colors defined in `/src/styles/colors.ts` as design tokens
+- CSS variables in `/src/styles/globals.css` for theme switching
+- Tailwind configured to use CSS variables for consistency
+
+### Component Styling
+- Mantine components use theme configuration from `/src/styles/mantineTheme.ts`
+- Tailwind for layout and utilities with semantic class names
+- No inline styles with hardcoded colors
+
+### Common Patterns
+```tsx
+// ✅ Correct
+<div className="bg-background-primary text-text-primary border-border-primary">
+<Button variant="filled" color="brand">
+
+// ❌ Wrong
+<div className="bg-[#1a1b1e] text-[#C1C2C5] border-[#373A40]">
+<Button styles={{ root: { backgroundColor: '#339af0' } }}>
+```
+
+### Quick Reference
+- Backgrounds: `bg-background-primary`, `bg-surface-secondary`
+- Text: `text-text-primary`, `text-text-secondary`, `text-text-muted`
+- Borders: `border-border-primary`, `border-border-focus`
+- Interactive: `bg-brand-primary`, `hover:bg-surface-hover`
+
+**See `/docs/styling-architecture.md` for complete styling guidelines.**
+
 Always ensure code follows the project's ESLint rules and TypeScript configuration. Run `npm run check` before committing changes to maintain code quality.
 
 ## Debugging & Logs
