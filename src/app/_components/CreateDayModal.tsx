@@ -69,8 +69,8 @@ export function CreateDayModal({ children }: CreateDayModalProps) {
           header: { display: 'none' },
           body: { padding: 0 },
           content: {
-            backgroundColor: '#262626',
-            color: '#C1C2C5',
+            backgroundColor: 'var(--color-bg-elevated)',
+            color: 'var(--color-text-primary)',
           }
         }}
       >
@@ -92,12 +92,12 @@ export function CreateDayModal({ children }: CreateDayModalProps) {
             mt="md"
             styles={{
               input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
               },
               label: {
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
               },
             }}
           />
@@ -111,17 +111,17 @@ export function CreateDayModal({ children }: CreateDayModalProps) {
             mt="md"
             styles={{
               input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
               },
               label: {
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
               },
               dropdown: {
-                backgroundColor: '#262626',
-                borderColor: '#373A40',
-                color: '#C1C2C5',
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+                color: 'var(--color-text-primary)',
               },
             }}
           />

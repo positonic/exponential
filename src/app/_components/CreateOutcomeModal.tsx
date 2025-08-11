@@ -229,8 +229,8 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
           header: { display: 'none' },
           body: { padding: 0 },
           content: {
-            backgroundColor: '#262626',
-            color: '#C1C2C5',
+            backgroundColor: 'var(--color-bg-elevated)',
+            color: 'var(--color-text-primary)',
           }
         }}
       >
@@ -248,9 +248,9 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
             styles={{
               input: {
                 fontSize: '24px',
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
                 '&::placeholder': {
-                  color: '#C1C2C5',
+                  color: 'var(--color-text-primary)',
                 },
               },
             }}
@@ -265,17 +265,17 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
             mt="md"
             styles={{
               input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
               },
               label: {
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
               },
               dropdown: {
-                backgroundColor: '#262626',
-                borderColor: '#373A40',
-                color: '#C1C2C5',
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+                color: 'var(--color-text-primary)',
               },
             }}
           />
@@ -289,17 +289,17 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
             mt="md"
             styles={{
               input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
               },
               label: {
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
               },
               dropdown: {
-                backgroundColor: '#262626',
-                borderColor: '#373A40',
-                color: '#C1C2C5',
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+                color: 'var(--color-text-primary)',
               },
             }}
           />
@@ -313,29 +313,29 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
             highlightToday={true}
             styles={{
               input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
               },
               label: {
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
               },
               
               calendarHeader: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
               },
               monthCell: {
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
               },
               month: {
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
               },
               weekday: {
                 color: '#909296',
               },
               day: {
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
               },
             }}
           />

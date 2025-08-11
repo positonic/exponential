@@ -54,7 +54,7 @@ export function ActionModalForm({
         styles={{
           input: {
             fontSize: '24px',
-            color: '#C1C2C5',
+            color: 'var(--color-text-primary)',
           },
           wrapper: {
             width: '100%',
@@ -69,9 +69,9 @@ export function ActionModalForm({
         onChange={(e) => setDescription(e.target.value)}
         styles={{
           input: {
-            color: '#909296',
+            color: 'var(--color-text-secondary)',
             '&::placeholder': {
-              color: '#909296',
+              color: 'var(--color-text-muted)',
             },
           },
           wrapper: {
@@ -89,14 +89,14 @@ export function ActionModalForm({
           className="w-full sm:w-auto"
           styles={{
             input: {
-              backgroundColor: '#262626',
-              color: '#C1C2C5',
-              borderColor: '#373A40',
+              backgroundColor: 'var(--color-surface-secondary)',
+              color: 'var(--color-text-primary)',
+              borderColor: 'var(--color-border-primary)',
             },
             dropdown: {
-              backgroundColor: '#262626',
-              borderColor: '#373A40',
-              color: '#C1C2C5',
+              backgroundColor: 'var(--color-surface-secondary)',
+              borderColor: 'var(--color-border-primary)',
+              color: 'var(--color-text-primary)',
             },
           }}
         />
@@ -111,7 +111,7 @@ export function ActionModalForm({
         )}
       </Group>
 
-      <div className="border-t border-gray-800 p-4 mt-4">
+      <div className="border-t border-border-primary p-4 mt-4">
         <Group justify="space-between">
           <Select
             placeholder="Select a project (optional)"
@@ -122,7 +122,7 @@ export function ActionModalForm({
             data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
             styles={{
               input: {
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
               },
             }}
           />

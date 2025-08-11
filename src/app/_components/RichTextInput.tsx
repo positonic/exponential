@@ -101,7 +101,7 @@ export const RichTextInput = forwardRef<HTMLDivElement, RichTextInputProps>(
             content: {
               backgroundColor: 'transparent',
               fontSize: '24px',
-              color: '#C1C2C5',
+              color: 'var(--color-text-primary)',
               padding: 0,
               '& p': {
                 margin: 0,

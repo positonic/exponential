@@ -231,13 +231,13 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
                     radius="lg"
                     style={{
                       maxWidth: '70%',
-                      backgroundColor: message.type === 'human' ? '#228be6' : '#2C2E33',  // Darker background for AI messages
+                      backgroundColor: message.type === 'human' ? 'var(--color-brand-primary)' : 'var(--color-surface-secondary)',  // Theme-aware backgrounds
                     }}
                   >
                     <Text
                       size="sm"
                       style={{
-                        color: message.type === 'human' ? 'white' : '#C1C2C5',  // Light gray text for AI messages
+                        color: message.type === 'human' ? 'var(--color-text-inverse)' : 'var(--color-text-primary)',  // Theme-aware text colors
                         whiteSpace: 'pre-wrap',
                       }}
                     >
@@ -268,10 +268,10 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
                 size="lg"
                 styles={{
                   input: {
-                    backgroundColor: '#2C2E33',
-                    color: '#C1C2C5',
+                    backgroundColor: 'var(--color-surface-secondary)',
+                    color: 'var(--color-text-primary)',
                     '&::placeholder': {
-                      color: '#5C5F66'
+                      color: 'var(--color-text-muted)'
                     }
                   }
                 }}

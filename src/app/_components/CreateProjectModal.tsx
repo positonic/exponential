@@ -62,8 +62,8 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
           header: { display: 'none' },
           body: { padding: 0 },
           content: {
-            backgroundColor: '#262626',
-            color: '#C1C2C5',
+            backgroundColor: 'var(--color-bg-elevated)',
+            color: 'var(--color-text-primary)',
           }
         }}
       >
@@ -103,9 +103,9 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             styles={{
               input: {
                 fontSize: '24px',
-                color: '#C1C2C5',
+                color: 'var(--color-text-primary)',
                 '&::placeholder': {
-                  color: '#C1C2C5',
+                  color: 'var(--color-text-muted)',
                 },
               },
             }}
@@ -118,9 +118,9 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             mt="md"
             styles={{
               input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
               },
             }}
           />
@@ -137,14 +137,14 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             mt="md"
             styles={{
               input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
               },
               dropdown: {
-                backgroundColor: '#262626',
-                borderColor: '#373A40',
-                color: '#C1C2C5',
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+                color: 'var(--color-text-primary)',
               },
             }}
           />
@@ -162,14 +162,14 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             mt="md"
             styles={{
               input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
               },
               dropdown: {
-                backgroundColor: '#262626',
-                borderColor: '#373A40',
-                color: '#C1C2C5',
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+                color: 'var(--color-text-primary)',
               },
             }}
           />
@@ -184,9 +184,9 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             searchable={true}
             styles={{
               input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
               },
             }}
           />
@@ -201,9 +201,9 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             mt="md"
             styles={{
               input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
               },
             }}
           />

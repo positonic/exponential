@@ -209,8 +209,8 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
           header: { display: 'none' },
           body: { padding: 0 },
           content: {
-            backgroundColor: '#262626',
-            color: '#C1C2C5',
+            backgroundColor: 'var(--color-bg-elevated)',
+            color: 'var(--color-text-primary)',
           },
           inner: {
             padding: '16px',
