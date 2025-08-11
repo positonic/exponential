@@ -1,0 +1,22 @@
+{
+  "extends": ["stylelint-config-standard"],
+  "rules": {
+    "color-no-hex": [true, {
+      "message": "Hex colors are forbidden. Use CSS variables (e.g., var(--color-text-primary))"
+    }],
+    "color-named": ["never", {
+      "message": "Named colors are forbidden. Use CSS variables from docs/styling-architecture.md"
+    }],
+    "declaration-property-value-disallowed-list": {
+      "background-color": ["/^(?!var\\()/"],
+      "color": ["/^(?!var\\()/"],
+      "border-color": ["/^(?!var\\()/"]
+    },
+    "comment-word-disallowed-list": [
+      ["TODO", "FIXME"], 
+      {
+        "message": "Use proper issue tracking instead of TODO comments"
+      }
+    ]
+  }
+}

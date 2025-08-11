@@ -45,6 +45,18 @@ const config = {
           "attributes": false
         }
       }
+    ],
+    // Custom rules to enforce styling guidelines
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "Literal[value=/^#[0-9A-Fa-f]{3,8}$/]",
+        "message": "Hardcoded hex colors are not allowed. Use CSS variables or Tailwind classes from docs/styling-architecture.md"
+      },
+      {
+        "selector": "TemplateElement[value.raw=/\\b(bg|text|border)-\\[#[0-9A-Fa-f]{3,8}\\]/]",
+        "message": "Hardcoded Tailwind colors are not allowed. Use semantic color classes from docs/styling-architecture.md"
+      }
     ]
   }
 }

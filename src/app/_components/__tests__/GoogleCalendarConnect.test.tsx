@@ -1,7 +1,53 @@
-import { test, expect, describe, beforeEach, mock } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
-import '@testing-library/jest-dom';
+import { test, expect, describe, beforeEach, afterEach, mock } from 'bun:test';
+import { render, screen, fireEvent, cleanup } from '~/test/test-utils';
 import { GoogleCalendarConnect } from '../GoogleCalendarConnect';
+
+// Add custom matchers for DOM testing
+const customMatchers = {
+  toBeInTheDocument(received: any) {
+    const pass = received && document.body.contains(received);
+    return {
+      pass,
+      message: () => pass 
+        ? `expected element not to be in the document`
+        : `expected element to be in the document`,
+    };
+  },
+  toBeDisabled(received: HTMLElement) {
+    const pass = received.hasAttribute('disabled') || received.getAttribute('aria-disabled') === 'true';
+    return {
+      pass,
+      message: () => pass
+        ? `expected element not to be disabled`
+        : `expected element to be disabled`,
+    };
+  },
+  toHaveAttribute(received: HTMLElement, name: string, value?: string) {
+    const hasAttribute = received.hasAttribute(name);
+    const attributeValue = received.getAttribute(name);
+    const pass = value !== undefined 
+      ? hasAttribute && attributeValue === value
+      : hasAttribute;
+    
+    return {
+      pass,
+      message: () => pass
+        ? `expected element not to have attribute "${name}"${value !== undefined ? ` with value "${value}"` : ''}`
+        : `expected element to have attribute "${name}"${value !== undefined ? ` with value "${value}"` : ''}`,
+    };
+  },
+};
+
+// Type augmentation for Bun's expect
+declare module "bun:test" {
+  interface Matchers<T> {
+    toBeInTheDocument(): void;
+    toBeDisabled(): void;
+    toHaveAttribute(name: string, value?: string): void;
+  }
+}
+
+expect.extend(customMatchers);
 
 // Mock next/navigation
 const mockPush = mock(() => undefined);
@@ -32,6 +78,11 @@ describe('GoogleCalendarConnect', () => {
     mockUseSearchParams.mockImplementation(() => ({
       get: mock(() => null),
     }));
+  });
+  
+  afterEach(() => {
+    // Clean up DOM after each test
+    cleanup();
   });
 
   describe('when calendar is not connected', () => {

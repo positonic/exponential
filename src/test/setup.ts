@@ -1,5 +1,11 @@
-import { beforeAll } from 'bun:test';
-import '@testing-library/jest-dom';
+// Note: @testing-library/jest-dom is not compatible with Bun test runner
+// We'll need to use Bun's built-in matchers or create custom ones
+
+import { beforeAll, afterAll } from 'bun:test';
+import { GlobalRegistrator } from '@happy-dom/global-registrator';
+
+// Register Happy DOM before all tests
+GlobalRegistrator.register();
 
 // Setup DOM environment for testing
 beforeAll(() => {
@@ -57,4 +63,9 @@ beforeAll(() => {
       // Mock implementation
     }
   } as any;
+});
+
+// Cleanup after all tests
+afterAll(() => {
+  GlobalRegistrator.unregister();
 });

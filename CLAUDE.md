@@ -186,15 +186,21 @@ Required environment variables:
 - Efficient database queries with proper indexing
 - Image optimization with Next.js Image component
 
-## Styling Architecture
+## 🚨 CRITICAL: Styling Architecture 🚨
+
+**MANDATORY: Read `/docs/styling-architecture.md` before writing ANY styling code!**
 
 The application uses a comprehensive styling system with light/dark mode support. Key points:
 
 ### Color System
-- **Never hard-code colors** - Always use CSS variables or Tailwind classes
+- **🔴 NEVER hard-code colors** - Always use CSS variables or Tailwind classes
+- **🔴 FORBIDDEN**: `#262626`, `#C1C2C5`, `#373A40`, `#1a1b1e`, etc.
+- **✅ REQUIRED**: Use semantic names from the guidelines
 - All colors defined in `/src/styles/colors.ts` as design tokens
 - CSS variables in `/src/styles/globals.css` for theme switching
 - Tailwind configured to use CSS variables for consistency
+
+### ESLint will FAIL your build if you use hardcoded colors!
 
 ### Component Styling
 - Mantine components use theme configuration from `/src/styles/mantineTheme.ts`
