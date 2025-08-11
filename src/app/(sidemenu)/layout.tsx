@@ -10,16 +10,17 @@ const orbitron = Orbitron({
 });
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
-import { MantineProvider } from '@mantine/core';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
-import { Notifications } from '@mantine/notifications';
+import '@mantine/dates/styles.css';
 import { ThemeProvider } from '~/providers/ThemeProvider';
 import { themes } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
-import { mantineThemes } from '~/config/themes';
-import { ModalsProvider } from '@mantine/modals';
 import { Analytics } from '@vercel/analytics/next';
+import { FloatingFeedbackButton } from '~/app/_components/FloatingFeedbackButton';
+import { ColorSchemeScript } from '~/app/_components/layout/ColorSchemeScript';
+import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
+import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvider';
 
 const domain = getThemeDomain();
 
@@ -36,24 +37,23 @@ export default async function RootLayout({
 }) {
   const domain = getThemeDomain();
 
-  const mantineTheme = mantineThemes[domain];
-
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.className} h-full`}>
+    <html lang="en" className={`${GeistSans.variable} ${orbitron.className} h-full`}>
       <head>
+        <ColorSchemeScript />
       </head>
-      <body className={`h-full ${themes[domain].colors.background.main}`}>
+      <body className="h-full bg-background-primary">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
-            <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
-              <ModalsProvider>
-                <Notifications position="top-right" zIndex={2000} />
+            <MantineRootProvider>
+              <ColorSchemeProvider>
                 <Layout domain={domain}>
                   {children}
                   <Analytics />
                 </Layout>
-              </ModalsProvider>
-            </MantineProvider>
+                <FloatingFeedbackButton />
+              </ColorSchemeProvider>
+            </MantineRootProvider>
           </TRPCReactProvider>
         </ThemeProvider>
       </body>

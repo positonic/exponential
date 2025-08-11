@@ -1,3 +1,125 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* Light theme colors (default) */
+  :root {
+    /* Background colors */
+    --color-bg-primary: #ffffff;
+    --color-bg-secondary: #f8f9fa;
+    --color-bg-tertiary: #e9ecef;
+    --color-bg-elevated: #ffffff;
+    --color-bg-overlay: rgba(0, 0, 0, 0.5);
+
+    /* Surface colors */
+    --color-surface-primary: #ffffff;
+    --color-surface-secondary: #f8f9fa;
+    --color-surface-tertiary: #e9ecef;
+    --color-surface-hover: #e9ecef;
+    --color-surface-active: #dee2e6;
+
+    /* Text colors */
+    --color-text-primary: #212529;
+    --color-text-secondary: #495057;
+    --color-text-muted: #6c757d;
+    --color-text-disabled: #adb5bd;
+    --color-text-inverse: #ffffff;
+
+    /* Border colors */
+    --color-border-primary: #dee2e6;
+    --color-border-secondary: #e9ecef;
+    --color-border-tertiary: #f1f3f5;
+    --color-border-focus: #339af0;
+
+    /* Brand colors */
+    --color-brand-primary: #339af0;
+    --color-brand-primary-hover: #228be6;
+    --color-brand-primary-active: #1c7ed6;
+    --color-brand-secondary: #868e96;
+    --color-brand-success: #40c057;
+    --color-brand-warning: #fab005;
+    --color-brand-error: #fa5252;
+    --color-brand-info: #339af0;
+  }
+
+  /* Dark theme colors */
+  [data-mantine-color-scheme="dark"] {
+    /* Background colors */
+    --color-bg-primary: #1a1b1e;
+    --color-bg-secondary: #25262b;
+    --color-bg-tertiary: #2c2e33;
+    --color-bg-elevated: #25262b;
+    --color-bg-overlay: rgba(0, 0, 0, 0.7);
+
+    /* Surface colors */
+    --color-surface-primary: #25262b;
+    --color-surface-secondary: #2c2e33;
+    --color-surface-tertiary: #373a40;
+    --color-surface-hover: #373a40;
+    --color-surface-active: #495057;
+
+    /* Text colors */
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #c1c2c5;
+    --color-text-muted: #909296;
+    --color-text-disabled: #5c5f66;
+    --color-text-inverse: #1a1b1e;
+
+    /* Border colors */
+    --color-border-primary: #373a40;
+    --color-border-secondary: #2c2e33;
+    --color-border-tertiary: #25262b;
+    --color-border-focus: #339af0;
+
+    /* Brand colors */
+    --color-brand-primary: #339af0;
+    --color-brand-primary-hover: #4dabf7;
+    --color-brand-primary-active: #228be6;
+    --color-brand-secondary: #adb5bd;
+    --color-brand-success: #51cf66;
+    --color-brand-warning: #ffd43b;
+    --color-brand-error: #ff6b6b;
+    --color-brand-info: #4dabf7;
+  }
+
+  /* Also support Tailwind's dark mode class */
+  .dark {
+    /* Background colors */
+    --color-bg-primary: #1a1b1e;
+    --color-bg-secondary: #25262b;
+    --color-bg-tertiary: #2c2e33;
+    --color-bg-elevated: #25262b;
+    --color-bg-overlay: rgba(0, 0, 0, 0.7);
+
+    /* Surface colors */
+    --color-surface-primary: #25262b;
+    --color-surface-secondary: #2c2e33;
+    --color-surface-tertiary: #373a40;
+    --color-surface-hover: #373a40;
+    --color-surface-active: #495057;
+
+    /* Text colors */
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #c1c2c5;
+    --color-text-muted: #909296;
+    --color-text-disabled: #5c5f66;
+    --color-text-inverse: #1a1b1e;
+
+    /* Border colors */
+    --color-border-primary: #373a40;
+    --color-border-secondary: #2c2e33;
+    --color-border-tertiary: #25262b;
+    --color-border-focus: #339af0;
+
+    /* Brand colors */
+    --color-brand-primary: #339af0;
+    --color-brand-primary-hover: #4dabf7;
+    --color-brand-primary-active: #228be6;
+    --color-brand-secondary: #adb5bd;
+    --color-brand-success: #51cf66;
+    --color-brand-warning: #ffd43b;
+    --color-brand-error: #ff6b6b;
+    --color-brand-info: #4dabf7;
+  }
+}

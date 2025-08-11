@@ -1,4 +1,5 @@
-import { createTheme } from '@mantine/core';
+import type { MantineTheme } from '@mantine/core';
+import { mantineTheme } from '~/styles/mantineTheme';
 export type ValidDomain = 'forceflow.com' | 'exponential.im';
 
 export type ThemeConfig = {
@@ -78,21 +79,9 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
   }
 };
 
+// Domain-specific customizations can be merged with the base theme
+
 export const mantineThemes = {
-    'forceflow.com': createTheme({
-      colors: {
-        blue: ['#e6f2ff', '#cce5ff', '#99caff', '#66b0ff', '#3395ff', '#007fff', '#0066cc', '#004d99', '#003366', '#001a33'],
-        dark: ['#C1C2C5', '#A6A7AB', '#909296', '#5C5F66', '#373A40', '#2C2E33', '#25262B', '#262626', '#141517', '#101113'],
-      },
-      primaryColor: 'blue',
-      primaryShade: 6,
-    }),
-    'exponential.im': createTheme({
-        colors: {
-            blue: ['#e6f2ff', '#cce5ff', '#99caff', '#66b0ff', '#3395ff', '#007fff', '#0066cc', '#004d99', '#003366', '#001a33'],
-            dark: ['#C1C2C5', '#A6A7AB', '#909296', '#5C5F66', '#373A40', '#2C2E33', '#25262B', '#262626', '#141517', '#101113'],
-          },
-      primaryColor: 'blue',
-      primaryShade: 6,
-    }),
-  } satisfies Record<ValidDomain, ReturnType<typeof createTheme>>;
+    'forceflow.com': mantineTheme,
+    'exponential.im': mantineTheme,
+  } satisfies Record<ValidDomain, MantineTheme>;

@@ -5,7 +5,6 @@ import { format } from "date-fns";
 import { GoogleCalendarConnect } from "./GoogleCalendarConnect";
 import { TodayPageCalendar } from "./TodayPageCalendar";
 import { TodayButton } from "./TodayButton";
-import { CalendarFeedback } from "./CalendarFeedback";
 
 interface PageHeaderProps {
   calendarConnected: boolean;
@@ -41,7 +40,6 @@ export function PageHeader({ calendarConnected, todayExists }: PageHeaderProps) 
         <Group gap="sm" wrap="nowrap">
           <GoogleCalendarConnect isConnected={calendarConnected} />
           <TodayPageCalendar isConnected={calendarConnected} />
-          {calendarConnected && <CalendarFeedback />}
           {!todayExists && <TodayButton />}
         </Group>
       </Group>

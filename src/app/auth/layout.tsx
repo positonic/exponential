@@ -5,6 +5,7 @@ import { TRPCReactProvider } from "~/trpc/react";
 import { MantineProvider } from '@mantine/core';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
+import '@mantine/dates/styles.css';
 import { Notifications } from '@mantine/notifications';
 import { ThemeProvider } from '~/providers/ThemeProvider';
 import { themes } from '~/config/themes';
@@ -30,12 +31,12 @@ export default async function AuthLayout({
   const mantineTheme = mantineThemes[domain];
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full scroll-smooth`}>
+    <html lang="en" className={`${GeistSans.variable} h-full scroll-smooth`}>
       <body className="h-full w-full overflow-x-hidden">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
             <SessionProvider>
-              <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
+              <MantineProvider theme={mantineTheme}>
                 <ModalsProvider>
                   <Notifications position="top-right" />
                   {children}

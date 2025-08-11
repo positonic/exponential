@@ -7,6 +7,7 @@ import { IconMenu2, IconX } from "@tabler/icons-react";
 import { useState } from 'react';
 import { themes, type ValidDomain } from "~/config/themes";
 import { LogoDisplay } from "./LogoDisplay";
+import { ThemeToggle } from "../ThemeToggle";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
   const [isMenuOpen, setIsMenuOpen] = useState(true); // Default to open on desktop
@@ -22,12 +23,12 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
       <button
         onClick={() => setIsMenuOpen(!isMenuOpen)}
         className={`
-          fixed top-4 left-4 z-[100] p-2 rounded-lg bg-[#262626]
+          fixed top-4 left-4 z-[100] p-2 rounded-lg bg-surface-secondary
           transition-transform duration-200
           ${isMenuOpen ? 'translate-x-[-100%]' : 'translate-x-0'}
         `}
       >
-        <IconMenu2 size={24} className="text-gray-400" />
+        <IconMenu2 size={24} className="text-text-secondary" />
       </button>
 
       {/* Backdrop for mobile */}
@@ -39,16 +40,16 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
       )}
 
       <aside className={`
-        w-screen sm:w-64 border-r border-gray-800 flex flex-col 
+        w-screen sm:w-64 border-r border-border-primary flex flex-col 
         max-h-screen sm:h-screen overflow-y-auto sm:overflow-y-visible
-        bg-[#262626]
+        bg-background-secondary
         fixed sm:static inset-y-0 left-0 z-[95]
         transform transition-all duration-300 ease-in-out
         ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%]'}
         `}>
         
         {/* Header with logo and close button - uses margin instead of padding */}
-        <div className="sticky top-0 bg-[#262626] px-4 py-4 flex items-center justify-between border-b border-gray-800/50 mt-12 lg:mt-0">
+        <div className="sticky top-0 bg-background-secondary px-4 py-4 flex items-center justify-between border-b border-border-primary mt-12 lg:mt-0">
           <LogoDisplay 
             theme={theme} 
             href="/" 
@@ -56,13 +57,16 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
             className="text"
           />
           
-          {/* Close button */}
-          <button
-            onClick={() => setIsMenuOpen(false)}
-            className="p-2 rounded-lg hover:bg-gray-700 transition-colors"
-          >
-            <IconX size={20} className="text-gray-400 hover:text-gray-200" />
-          </button>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            {/* Close button */}
+            <button
+              onClick={() => setIsMenuOpen(false)}
+              className="p-2 rounded-lg hover:bg-surface-hover transition-colors"
+            >
+              <IconX size={20} className="text-text-secondary hover:text-text-primary" />
+            </button>
+          </div>
         </div>
         
         <nav className="flex-grow px-1 py-4 space-y-6">

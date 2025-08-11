@@ -205,25 +205,25 @@ export function UnifiedDatePicker({
           disabled={disabled}
           className={`rounded px-3 py-1.5 ${
             disabled 
-              ? 'bg-gray-700 cursor-not-allowed opacity-50' 
+              ? 'bg-surface-tertiary cursor-not-allowed opacity-50' 
               : isBulkMode 
-                ? 'bg-dark-700 hover:bg-dark-600'
+                ? 'bg-surface-secondary hover:bg-surface-hover'
                 : !value 
-                  ? "bg-dark-700 hover:bg-dark-600" 
-                  : "bg-dark-800 hover:bg-dark-600"
+                  ? "bg-surface-secondary hover:bg-surface-hover" 
+                  : "bg-surface-tertiary hover:bg-surface-hover"
           } flex items-center transition-colors`}
         >
           {getTriggerContent()}
         </UnstyledButton>
       </Popover.Target>
       
-      <Popover.Dropdown bg="#1a1b1e" p={0}>
+      <Popover.Dropdown p={0}>
         <Stack gap="xs" p="md">
           {quickOptions.map((option) => (
             <UnstyledButton
               key={option.label}
               onClick={() => handleDateSelect(option.date)}
-              className="flex items-center justify-between rounded p-2 hover:bg-[#25262b]"
+              className="flex items-center justify-between rounded p-2 hover:bg-surface-hover"
             >
               <Group gap="sm">
                 <Text size="lg" style={{ color: option.color }}>
@@ -243,7 +243,7 @@ export function UnifiedDatePicker({
             </UnstyledButton>
           ))}
 
-          <div className="mt-2 border-t border-[#2C2E33] pt-2">
+          <div className="mt-2 border-t border-border-primary pt-2">
             <DatePicker
               value={calendarDate}
               onChange={(date) => {
@@ -253,44 +253,9 @@ export function UnifiedDatePicker({
                 }
               }}
               size="sm"
-              styles={{
-                calendarHeader: {
-                  backgroundColor: 'transparent',
-                  color: '#C1C2C5',
-                },
-                calendarHeaderControl: {
-                  color: '#C1C2C5',
-                  '&:hover': {
-                    backgroundColor: '#25262b',
-                  },
-                },
-                calendarHeaderLevel: {
-                  color: '#C1C2C5',
-                  '&:hover': {
-                    backgroundColor: '#25262b',
-                  },
-                },
-                day: {
-                  color: '#C1C2C5',
-                  '&:hover': {
-                    backgroundColor: '#25262b',
-                  },
-                  '&[data-selected]': {
-                    backgroundColor: '#228be6',
-                    color: 'white',
-                  },
-                  '&[data-today]': {
-                    backgroundColor: '#22c55e',
-                    color: 'white',
-                  },
-                },
-                weekday: {
-                  color: '#909296',
-                },
-              }}
             />
 
-            <UnstyledButton className="mt-2 flex w-full items-center justify-center gap-2 border-t border-[#2C2E33] p-3 hover:bg-[#25262b]">
+            <UnstyledButton className="mt-2 flex w-full items-center justify-center gap-2 border-t border-border-primary p-3 hover:bg-surface-hover">
               <IconClock size={16} />
               <Text>Time</Text>
             </UnstyledButton>

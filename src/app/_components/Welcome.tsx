@@ -6,7 +6,7 @@ import { useTheme } from '~/providers/ThemeProvider';
 import { LogoDisplay } from './layout/LogoDisplay';
 
 export function Welcome() {
-  const theme = useTheme();
+  const { theme } = useTheme();
 
   return (
     <Container size="md" className="h-screen flex items-center justify-center">

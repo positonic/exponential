@@ -5,7 +5,6 @@ import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { DateInput } from '@mantine/dates';
-import '@mantine/dates/styles.css';
 
 interface CreateOutcomeModalProps {
   children?: React.ReactNode;

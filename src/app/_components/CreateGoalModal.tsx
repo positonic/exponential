@@ -146,10 +146,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
         styles={{
           header: { display: 'none' },
           body: { padding: 0 },
-          content: {
-            backgroundColor: '#262626',
-            color: '#C1C2C5',
-          }
         }}
       >
         <form
@@ -186,10 +182,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             styles={{
               input: {
                 fontSize: '24px',
-                color: '#C1C2C5',
-                '&::placeholder': {
-                  color: '#C1C2C5',
-                },
               },
             }}
           />
@@ -199,13 +191,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             mt="md"
-            styles={{
-              input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
-              },
-            }}
           />
 
           <Select
@@ -215,21 +200,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             onChange={(value) => setLifeDomainId(value ? parseInt(value) : null)}
             required
             mt="md"
-            styles={{
-              input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
-              },
-              label: {
-                color: '#C1C2C5',
-              },
-              dropdown: {
-                backgroundColor: '#262626',
-                borderColor: '#373A40',
-                color: '#C1C2C5',
-              },
-            }}
           />
           
           <DateInput
@@ -238,41 +208,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             label="Due date (optional)"
             placeholder="Pick a date"
             mt="md"
-            styles={{
-              input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
-              },
-              label: {
-                color: '#C1C2C5',
-              },
-              calendarHeader: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-              },
-              monthCell: {
-                color: '#C1C2C5',
-              },
-              month: {
-                color: '#C1C2C5',
-              },
-              weekday: {
-                color: '#909296',
-              },
-              day: {
-                color: '#C1C2C5',
-                '&[data-selected="true"]': {
-                  backgroundColor: '#1971c2',
-                },
-                '&[data-in-range="true"]': {
-                  backgroundColor: '#1971c2',
-                },
-                '&:hover': {
-                  backgroundColor: '#373A40',
-                },
-              },
-            }}
           />
 
           <Select
@@ -282,21 +217,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             value={selectedProjectId}
             onChange={(value) => setSelectedProjectId(value ?? undefined)}
             mt="md"
-            styles={{
-              input: {
-                backgroundColor: '#262626',
-                color: '#C1C2C5',
-                borderColor: '#373A40',
-              },
-              label: {
-                color: '#C1C2C5',
-              },
-              dropdown: {
-                backgroundColor: '#262626',
-                borderColor: '#373A40',
-                color: '#C1C2C5',
-              },
-            }}
           />
 
           <Group justify="flex-end" mt="xl">

@@ -59,10 +59,23 @@ export function GoogleCalendarConnect({ isConnected = false }: GoogleCalendarCon
   if (isConnected) {
     return (
       <Button
-        variant="light"
-        color="green"
+        variant="subtle"
+        color="gray"
         leftSection={<IconCheck size={16} />}
         disabled
+        styles={{
+          root: {
+            color: 'rgba(134, 239, 172, 0.8)',
+            backgroundColor: 'rgba(134, 239, 172, 0.1)',
+            border: '1px solid rgba(134, 239, 172, 0.2)',
+            '&:disabled': {
+              backgroundColor: 'rgba(134, 239, 172, 0.1)',
+              border: '1px solid rgba(134, 239, 172, 0.2)',
+              color: 'rgba(134, 239, 172, 0.8)',
+              opacity: 1,
+            }
+          }
+        }}
       >
         Calendar Connected
       </Button>
@@ -74,8 +87,18 @@ export function GoogleCalendarConnect({ isConnected = false }: GoogleCalendarCon
       onClick={handleConnect}
       loading={loading}
       leftSection={<IconCalendar size={16} />}
-      variant="outline"
-      color="blue"
+      variant="subtle"
+      styles={{
+        root: {
+          color: 'rgba(147, 197, 253, 0.9)',
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          border: '1px solid rgba(59, 130, 246, 0.2)',
+          '&:hover': {
+            backgroundColor: 'rgba(59, 130, 246, 0.15)',
+            border: '1px solid rgba(59, 130, 246, 0.3)',
+          }
+        }
+      }}
     >
       Connect Google Calendar
     </Button>
