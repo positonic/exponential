@@ -1,8 +1,9 @@
 import { type NotificationService, type NotificationConfig } from './NotificationService';
 import { SlackNotificationService } from './SlackNotificationService';
+import { WhatsAppNotificationService } from './WhatsAppNotificationService';
 import { db } from '~/server/db';
 
-export type NotificationServiceType = 'slack' | 'email' | 'discord';
+export type NotificationServiceType = 'slack' | 'email' | 'discord' | 'whatsapp';
 
 export class NotificationServiceFactory {
   /**
@@ -17,7 +18,7 @@ export class NotificationServiceFactory {
         userId,
         status: 'ACTIVE',
         provider: {
-          in: ['slack', 'discord', 'email']
+          in: ['slack', 'discord', 'email', 'whatsapp']
         }
       },
       include: {
@@ -55,6 +56,8 @@ export class NotificationServiceFactory {
     switch (type) {
       case 'slack':
         return new SlackNotificationService(config);
+      case 'whatsapp':
+        return new WhatsAppNotificationService(config);
       case 'email':
         // TODO: Implement EmailNotificationService
         return null;
@@ -80,7 +83,7 @@ export class NotificationServiceFactory {
         userId,
         status: 'ACTIVE',
         provider: {
-          in: ['slack', 'discord', 'email']
+          in: ['slack', 'discord', 'email', 'whatsapp']
         }
       }
     });
@@ -92,6 +95,12 @@ export class NotificationServiceFactory {
         type: 'slack',
         name: 'Slack',
         available: availableIntegrations.includes('slack'),
+        requiresIntegration: true,
+      },
+      {
+        type: 'whatsapp',
+        name: 'WhatsApp',
+        available: availableIntegrations.includes('whatsapp'),
         requiresIntegration: true,
       },
       {

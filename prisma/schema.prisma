@@ -71,6 +71,7 @@ model User {
   exercises             UserExercise[]
   verificationTokens    VerificationToken[]
   workflows             Workflow[]
+  whatsappConversations WhatsAppConversation[] // WhatsApp conversations for this user
 
   // Integration permission relations
   permissionsGrantedTo    IntegrationPermission[] @relation("PermissionGrantedTo")
@@ -78,6 +79,10 @@ model User {
   permissionsRevokedBy    IntegrationPermission[] @relation("PermissionRevokedBy")
   slackChannelsConfigured SlackChannelConfig[] // Slack channels configured by this user
   feedback                Feedback[] // User feedback submissions
+
+  // Notification relations
+  notificationPreferences NotificationPreference?
+  scheduledNotifications  ScheduledNotification[]
 }
 
 model VerificationToken {
@@ -388,6 +393,11 @@ model Integration {
   slackChannelConfigs     SlackChannelConfig[] // Slack channel configurations using this integration
   slackRegistrationTokens SlackRegistrationToken[] // Registration tokens for this integration
   permissions             IntegrationPermission[] // Permissions granted for this integration
+  whatsappConfig          WhatsAppConfig? // WhatsApp configuration for this integration
+
+  // Notification relations
+  notificationPreferences NotificationPreference[]
+  scheduledNotifications  ScheduledNotification[]
 
   @@index([userId])
   @@index([teamId])
@@ -731,4 +741,332 @@ model Feedback {
   @@index([feature])
   @@index([createdAt])
   @@index([feature, rating])
+}
+
+model WhatsAppConfig {
+  id                 String  @id @default(cuid())
+  phoneNumberId      String // WhatsApp phone number ID
+  businessAccountId  String // WhatsApp Business Account ID
+  webhookVerifyToken String // Token for webhook verification
+  displayPhoneNumber String? // Human-readable phone number
+  businessName       String? // Business display name
+
+  // Link to the generic Integration model
+  integrationId String      @unique
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  // Message templates for this WhatsApp account
+  templates WhatsAppTemplate[]
+
+  // Conversations for this WhatsApp account
+  conversations WhatsAppConversation[]
+
+  // Analytics and monitoring relations
+  messageAnalytics   WhatsAppMessageAnalytics[]
+  performanceMetrics WhatsAppPerformanceMetrics[]
+  rateLimitTracking  WhatsAppRateLimitTracking[]
+  webhookDeliveries  WhatsAppWebhookDelivery[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([integrationId])
+}
+
+model WhatsAppTemplate {
+  id       String @id @default(cuid())
+  name     String // Template name as registered with WhatsApp
+  language String // Template language code (e.g., "en_US")
+  status   String // "APPROVED", "PENDING", "REJECTED"
+  category String // "UTILITY", "MARKETING", "AUTHENTICATION"
+
+  // Template content
+  headerType String? // "TEXT", "IMAGE", "VIDEO", "DOCUMENT"
+  headerText String? // Header text if headerType is TEXT
+  bodyText   String // Main message body with variables {{1}}, {{2}}, etc.
+  footerText String? // Optional footer text
+
+  // Button configuration (stored as JSON for flexibility)
+  buttons Json? // Array of button objects
+
+  // WhatsApp metadata
+  whatsappTemplateId String? // ID assigned by WhatsApp
+  rejectionReason    String? // Reason if template was rejected
+
+  // Link to WhatsApp config
+  whatsappConfigId String
+  whatsappConfig   WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+
+  // Usage tracking
+  usageMetrics WhatsAppTemplateUsage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([whatsappConfigId, name])
+  @@index([whatsappConfigId])
+  @@index([status])
+}
+
+model WhatsAppConversation {
+  id          String  @id @default(cuid())
+  phoneNumber String // WhatsApp phone number (external user ID)
+  userId      String? // Optional: linked user ID
+  user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Conversation data
+  messages      Json // Array of conversation messages
+  lastMessageAt DateTime @default(now())
+  messageCount  Int      @default(0)
+
+  // Link to WhatsApp config
+  whatsappConfigId String
+  whatsappConfig   WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([phoneNumber, whatsappConfigId])
+  @@index([phoneNumber])
+  @@index([userId])
+  @@index([lastMessageAt])
+}
+
+model NotificationPreference {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Integration settings
+  integrationId String? // Optional: specific integration to use
+  integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+
+  // Notification types
+  taskReminders  Boolean @default(true)
+  projectUpdates Boolean @default(true)
+  dailySummary   Boolean @default(true)
+  weeklySummary  Boolean @default(false)
+
+  // Timing preferences
+  timezone         String  @default("UTC")
+  dailySummaryTime String? @default("09:00") // HH:mm format
+  weeklyDayOfWeek  Int?    @default(1) // 1 = Monday, 7 = Sunday
+
+  // Task reminder settings
+  reminderMinutesBefore Int[] @default([15, 60, 1440]) // 15 min, 1 hour, 1 day
+
+  // Quiet hours
+  quietHoursEnabled Boolean @default(false)
+  quietHoursStart   String? // HH:mm format
+  quietHoursEnd     String? // HH:mm format
+
+  // Metadata
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId])
+  @@index([userId])
+  @@index([enabled])
+}
+
+model ScheduledNotification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Notification details
+  type   String // "task_reminder", "project_update", "daily_summary", "weekly_summary"
+  status String @default("pending") // "pending", "sent", "failed", "cancelled"
+
+  // Scheduling
+  scheduledFor DateTime // When to send the notification
+  sentAt       DateTime? // When it was actually sent
+
+  // Content
+  title    String
+  message  String
+  metadata Json? // Additional data (taskId, projectId, etc.)
+
+  // Delivery
+  integrationId  String? // Which integration to use
+  integration    Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  recipientPhone String? // WhatsApp phone number
+
+  // Error tracking
+  attempts  Int     @default(0)
+  lastError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([scheduledFor])
+  @@index([status])
+  @@index([type])
+  @@index([userId, scheduledFor])
+}
+
+model WhatsAppTemplateUsage {
+  id         String           @id @default(cuid())
+  templateId String
+  template   WhatsAppTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  // Usage tracking
+  usedAt         DateTime @default(now())
+  usedBy         String? // User ID who triggered the usage
+  recipientPhone String // Phone number message was sent to
+  messageId      String? // WhatsApp message ID
+
+  // Performance metrics
+  delivered   Boolean   @default(false)
+  read        Boolean   @default(false)
+  deliveredAt DateTime?
+  readAt      DateTime?
+
+  // Variables used
+  variables Json? // Variables substituted in the template
+
+  // Status
+  status       String  @default("sent") // "sent", "delivered", "read", "failed"
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([templateId])
+  @@index([usedAt])
+  @@index([status])
+}
+
+model WhatsAppMessageAnalytics {
+  id               String   @id @default(cuid())
+  whatsappConfigId String
+  date             DateTime @db.Date
+  hour             Int // 0-23
+
+  // Volume metrics
+  messagesReceived  Int @default(0)
+  messagesSent      Int @default(0)
+  messagesDelivered Int @default(0)
+  messagesRead      Int @default(0)
+  messagesFailed    Int @default(0)
+  uniqueUsers       Int @default(0)
+
+  // Performance metrics
+  avgResponseTime Float? // in milliseconds
+  maxResponseTime Float?
+  minResponseTime Float?
+
+  // Engagement metrics
+  avgMessagesPerUser    Float?
+  avgConversationLength Float? // in minutes
+  totalConversations    Int    @default(0)
+
+  // Error metrics
+  errorCount Int    @default(0)
+  errorRate  Float? // percentage
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  whatsappConfig WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([whatsappConfigId, date, hour])
+  @@index([whatsappConfigId, date])
+  @@index([date])
+}
+
+model WhatsAppPerformanceMetrics {
+  id               String   @id @default(cuid())
+  whatsappConfigId String
+  timestamp        DateTime @default(now())
+
+  // API metrics
+  apiCallsCount   Int    @default(0)
+  apiSuccessCount Int    @default(0)
+  apiErrorCount   Int    @default(0)
+  avgApiLatency   Float? // in milliseconds
+  maxApiLatency   Float?
+
+  // Webhook metrics
+  webhooksReceived  Int    @default(0)
+  webhooksProcessed Int    @default(0)
+  webhooksFailed    Int    @default(0)
+  avgWebhookLatency Float? // in milliseconds
+
+  // System metrics
+  queueSize           Int    @default(0)
+  queueBacklog        Int    @default(0)
+  cacheHitRate        Float? // percentage
+  circuitBreakerTrips Int    @default(0)
+
+  // Resource usage
+  memoryUsage Float? // in MB
+  cpuUsage    Float? // percentage
+
+  whatsappConfig WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+
+  @@index([whatsappConfigId, timestamp])
+  @@index([timestamp])
+}
+
+model WhatsAppRateLimitTracking {
+  id               String @id @default(cuid())
+  whatsappConfigId String
+  endpoint         String // API endpoint being tracked
+
+  // Rate limit info
+  limitType      String // "per_second", "per_minute", "per_hour", "per_day"
+  limitValue     Int // Maximum allowed
+  currentUsage   Int    @default(0)
+  remainingQuota Int
+
+  // Reset info
+  resetsAt    DateTime
+  windowStart DateTime
+
+  // Alerts
+  warningThreshold  Float     @default(0.8) // Alert at 80% usage
+  criticalThreshold Float     @default(0.95) // Critical at 95% usage
+  lastAlertAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  whatsappConfig WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([whatsappConfigId, endpoint, limitType])
+  @@index([whatsappConfigId])
+  @@index([resetsAt])
+}
+
+model WhatsAppWebhookDelivery {
+  id               String @id @default(cuid())
+  whatsappConfigId String
+  webhookId        String @unique // Unique webhook event ID
+
+  // Delivery info
+  eventType   String // "message", "status", "template_update", etc.
+  payload     Json // Full webhook payload
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  // Processing status
+  status        String    @default("pending") // "pending", "processing", "completed", "failed"
+  attempts      Int       @default(0)
+  lastAttemptAt DateTime?
+
+  // Performance
+  processingTime Float? // in milliseconds
+  queueTime      Float? // time spent in queue
+
+  // Error tracking
+  errorMessage String?
+  errorStack   String?
+
+  whatsappConfig WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+
+  @@index([whatsappConfigId, status])
+  @@index([receivedAt])
+  @@index([webhookId])
 }

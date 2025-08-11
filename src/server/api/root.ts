@@ -21,6 +21,8 @@ import { slackRouter } from "./routers/slack";
 import { aiInteractionRouter } from "./routers/aiInteraction";
 import { calendarRouter } from "./routers/calendar";
 import { feedbackRouter } from "./routers/feedback";
+import { whatsappRouter } from "./routers/whatsapp";
+import { notificationRouter } from "./routers/notification";
 /**
  * This is the primary router for your server.
  *
@@ -49,6 +51,8 @@ export const appRouter = createTRPCRouter({
   aiInteraction: aiInteractionRouter,
   calendar: calendarRouter,
   feedback: feedbackRouter,
+  whatsapp: whatsappRouter,
+  notification: notificationRouter,
 });
 
 // export type definition of API
