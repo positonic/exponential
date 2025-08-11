@@ -78,7 +78,7 @@ export const JournalSection = memo(({
   }, [journalContent, editor]);
   
   return (
-    <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+    <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
       <Stack gap="md">
         <Group>
           <IconWriting className="text-green-500" size={24} />
@@ -93,17 +93,17 @@ export const JournalSection = memo(({
           editor={editor}
           styles={{
             root: {
-              border: '1px solid #373A40',
-              backgroundColor: '#1E1E1E',
+              border: '1px solid var(--color-border-primary)',
+              backgroundColor: 'var(--color-bg-primary)',
             },
             toolbar: {
-              backgroundColor: '#262626',
+              backgroundColor: 'var(--color-bg-secondary)',
               border: 'none',
-              borderBottom: '1px solid #373A40',
+              borderBottom: '1px solid var(--color-border-primary)',
             },
             content: {
-              backgroundColor: '#1E1E1E',
-              color: '#C1C2C5',
+              backgroundColor: 'var(--color-bg-primary)',
+              color: 'var(--color-text-primary)',
               '& .ProseMirror': {
                 padding: '16px',
                 minHeight: '300px',

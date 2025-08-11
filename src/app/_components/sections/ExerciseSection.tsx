@@ -40,7 +40,7 @@ export const ExerciseSection = memo(({
   isDisabled
 }: ExerciseSectionProps) => {
   return (
-    <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+    <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
       <Stack gap="md">
         <Group>
           <IconList className="text-blue-500" size={24} />
@@ -53,7 +53,7 @@ export const ExerciseSection = memo(({
           value={exercise}
           onChange={(e) => setExercise(e.target.value)}
           size="md"
-          className="bg-[#262626]"
+          className="bg-surface-secondary"
           rightSectionWidth={42}
           rightSection="🏃‍♂️"
         />

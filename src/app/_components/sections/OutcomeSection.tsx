@@ -18,7 +18,7 @@ export const OutcomeSection = memo(({
   isLoading
 }: OutcomeSectionProps) => {
   return (
-    <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+    <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
       <Stack gap="md">
       <Group justify="space-between">
           {/* <Group>
@@ -45,7 +45,7 @@ export const OutcomeSection = memo(({
             value={newOutcome}
             onChange={(e) => setNewOutcome(e.target.value)}
             size="md"
-            className="flex-grow bg-[#262626]"
+            className="flex-grow bg-surface-secondary"
             onKeyDown={(e) => {
               if (
                 e.key === 'Enter' &&

@@ -21,7 +21,7 @@ export const NotToDoSection = memo(({
   toggleCompletion
 }: NotToDoSectionProps) => {
   return (
-    <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+    <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
       <Stack gap="md">
         <Title order={2} className="text-2xl">Not-to-Do List</Title>
         <Text c="dimmed">Things to avoid for a better day</Text>
@@ -31,7 +31,7 @@ export const NotToDoSection = memo(({
             value={newNotToDo}
             onChange={(e) => setNewNotToDo(e.target.value)}
             size="md"
-            className="flex-grow bg-[#262626]"
+            className="flex-grow bg-surface-secondary"
           />
           <Button onClick={addNotToDo}>Add</Button>
         </Group>

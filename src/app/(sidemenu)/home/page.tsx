@@ -40,7 +40,7 @@ export default async function HomePage() {
             shadow="sm"
             p="lg"
             radius="md"
-            className="h-full bg-[#262626] border border-gray-800 hover:border-gray-700 transition-colors"
+            className="h-full bg-surface-secondary border border-border-primary hover:border-border-secondary transition-colors"
           >
             <ThemeIcon size={50} radius="md" variant="light" color="blue" className="mb-4">
               <IconCheckbox size={30} />
@@ -78,7 +78,7 @@ export default async function HomePage() {
             shadow="sm"
             p="lg"
             radius="md"
-            className="h-full bg-[#262626] border border-gray-800 hover:border-gray-700 transition-colors"
+            className="h-full bg-surface-secondary border border-border-primary hover:border-border-secondary transition-colors"
           >
             <ThemeIcon size={50} radius="md" variant="light" color="green" className="mb-4">
               <IconFolder size={30} />
@@ -113,7 +113,7 @@ export default async function HomePage() {
             shadow="sm"
             p="lg"
             radius="md"
-            className="h-full bg-[#262626] border border-gray-800 hover:border-gray-700 transition-colors"
+            className="h-full bg-surface-secondary border border-border-primary hover:border-border-secondary transition-colors"
           >
             <ThemeIcon size={50} radius="md" variant="light" color="violet" className="mb-4">
               <IconPlugConnected size={30} />
@@ -126,7 +126,7 @@ export default async function HomePage() {
               create action items from your meetings and browsing.
             </Text>
             <Stack gap="sm">
-              <Paper p="sm" radius="sm" className="bg-[#1E1E1E]">
+              <Paper p="sm" radius="sm" className="bg-background-secondary">
                 <Group gap="sm">
                   <ThemeIcon size={30} variant="filled" color="orange">
                     <IconMicrophone size={18} />
@@ -137,7 +137,7 @@ export default async function HomePage() {
                   </div>
                 </Group>
               </Paper>
-              <Paper p="sm" radius="sm" className="bg-[#1E1E1E]">
+              <Paper p="sm" radius="sm" className="bg-background-secondary">
                 <Group gap="sm">
                   <ThemeIcon size={30} variant="filled" color="blue">
                     <IconBrowserCheck size={18} />
@@ -182,7 +182,7 @@ export default async function HomePage() {
               and create action items automatically.
             </Text>
             <Stack gap="sm">
-              <Paper p="sm" radius="sm" className="bg-[#1E1E1E]">
+              <Paper p="sm" radius="sm" className="bg-background-secondary">
                 <Group gap="sm">
                   <ThemeIcon size={30} variant="filled" color="orange">
                     <IconMicrophone size={18} />
@@ -193,7 +193,7 @@ export default async function HomePage() {
                   </div>
                 </Group>
               </Paper>
-              <Paper p="sm" radius="sm" className="bg-[#1E1E1E]">
+              <Paper p="sm" radius="sm" className="bg-background-secondary">
                 <Group gap="sm">
                   <ThemeIcon size={30} variant="filled" color="violet">
                     <IconBrandSlack size={18} />
@@ -222,7 +222,7 @@ export default async function HomePage() {
           shadow="sm"
           p="lg"
           radius="md"
-          className="bg-[#262626] border border-gray-800"
+          className="bg-surface-secondary border border-border-primary"
         >
           <Title order={3} size="h4" className="mb-4">
             More Powerful Features
@@ -280,7 +280,7 @@ export default async function HomePage() {
           shadow="sm"
           p="lg"
           radius="md"
-          className="bg-gradient-to-r from-blue-900/20 to-violet-900/20 border border-blue-800/30"
+          className="bg-gradient-to-r from-brand-primary/20 to-violet-900/20 border border-brand-primary/30"
         >
           <Title order={3} size="h4" className="mb-3">
             Ready to Get Started?

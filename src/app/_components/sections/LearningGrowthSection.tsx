@@ -89,7 +89,7 @@ export const LearningGrowthSection = memo(({
   };
 
   return (
-    <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+    <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
       <Stack gap="md">
         <Group>
           <IconGrowth className="text-green-500" size={24} />
@@ -103,7 +103,7 @@ export const LearningGrowthSection = memo(({
           onChange={(e) => setLearningGrowth(e.target.value)}
           minRows={3}
           size="md"
-          className="bg-[#262626]"
+          className="bg-surface-secondary"
         />
         <SaveButton 
           onClick={saveLearningGrowth} 

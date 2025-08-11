@@ -8,7 +8,7 @@ import type { PropsWithChildren } from 'react';
 
 export function MantineRootProvider({ children }: PropsWithChildren) {
   return (
-    <MantineProvider theme={mantineTheme}>
+    <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
       <ModalsProvider>
         <Notifications position="top-right" zIndex={2000} />
         {children}

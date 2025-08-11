@@ -89,7 +89,7 @@ export const WhatWentWellSection = memo(({
   };
 
   return (
-    <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+    <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
       <Stack gap="md">
         <Group>
           <IconBulb className="text-blue-500" size={24} />
@@ -103,7 +103,7 @@ export const WhatWentWellSection = memo(({
           onChange={(e) => setWentWell(e.target.value)}
           minRows={3}
           size="md"
-          className="bg-[#262626]"
+          className="bg-surface-secondary"
         />
         <SaveButton 
           onClick={saveWentWell} 

@@ -30,11 +30,11 @@ export default async function HomeLayout({
   const mantineTheme = mantineThemes[domain];
 
   return (
-    <html lang="en" className={`${GeistSans.variable} h-full`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full`}>
       <body className="h-full w-full overflow-x-hidden">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
-            <MantineProvider theme={mantineTheme}>
+            <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
               <ModalsProvider>
                 <Notifications position="top-right" />
                 {children}

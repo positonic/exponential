@@ -39,7 +39,7 @@ export default async function HomeLayout({
   const mantineTheme = mantineThemes[domain];
 
   return (
-    <html lang="en" className={`${GeistSans.variable} ${orbitron.className} h-full scroll-smooth`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.className} h-full scroll-smooth`}>
       <head>
         <script
           type="application/ld+json"
@@ -76,7 +76,7 @@ export default async function HomeLayout({
       <body className="h-full w-full overflow-x-hidden">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
-            <MantineProvider theme={mantineTheme}>
+            <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
               <ModalsProvider>
                 <Notifications position="top-right" />
                 {children}

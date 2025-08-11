@@ -89,7 +89,7 @@ export const GratitudeOnlySection = memo(({
   };
 
   return (
-    <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+    <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
       <Stack gap="md">
         <Group>
           <IconStars className="text-purple-500" size={24} />
@@ -103,7 +103,7 @@ export const GratitudeOnlySection = memo(({
           onChange={(e) => setGratitude(e.target.value)}
           minRows={3}
           size="md"
-          className="bg-[#262626]"
+          className="bg-surface-secondary"
         />
         <SaveButton 
           onClick={saveGratitude} 

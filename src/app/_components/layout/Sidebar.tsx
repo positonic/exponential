@@ -74,11 +74,11 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           <SidebarContent />
         </nav>
 
-        <div className="flex flex-col gap-2 border-t border-gray-800 pt-4 px-4 pb-4">
+        <div className="flex flex-col gap-2 border-t border-border-primary pt-4 px-4 pb-4">
           <Link
             href="https://github.com/positonic/ai-todo"
             onClick={() => setIsMenuOpen(false)}
-            className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-800 active:bg-gray-700 sm:active:bg-transparent"
+            className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-text-secondary hover:bg-surface-hover active:bg-surface-active sm:active:bg-transparent"
           >
             <GithubIcon className="h-6 w-6" />
           </Link>
@@ -88,7 +88,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           <Link
             href={session ? "/api/auth/signout" : "/use-the-force"}
             onClick={() => setIsMenuOpen(false)}
-            className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-gray-400 hover:bg-gray-800 active:bg-gray-700 sm:active:bg-transparent"
+            className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-text-secondary hover:bg-surface-hover active:bg-surface-active sm:active:bg-transparent"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

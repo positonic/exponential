@@ -37,8 +37,8 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
       primary: 'from-blue-400 to-purple-600',
       secondary: 'from-blue-500 to-purple-600',
       background: {
-        main: 'bg-[#1E1E1E]',
-        secondary: 'bg-[#262626]'
+        main: 'bg-background-primary',
+        secondary: 'bg-background-secondary'
       },
       text: {
         primary: 'text-white',
@@ -61,8 +61,8 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
         primary: 'from-blue-400 to-purple-600',
         secondary: 'from-blue-500 to-purple-600',
         background: {
-          main: 'bg-[#1E1E1E]',
-          secondary: 'bg-[#262626]'
+          main: 'bg-background-primary',
+          secondary: 'bg-background-secondary'
         },
         text: {
           primary: 'text-white',

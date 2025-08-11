@@ -74,22 +74,22 @@ export function JournalForm() {
   };
 
   return (
-    <Paper shadow="sm" radius="md" className="bg-[#262626]">
+    <Paper shadow="sm" radius="md" className="bg-surface-secondary">
       <RichTextEditor 
         editor={editor}
         styles={{
           root: {
-            border: '1px solid #373A40',
-            backgroundColor: '#1E1E1E',
+            border: '1px solid var(--color-border-primary)',
+            backgroundColor: 'var(--color-bg-primary)',
           },
           toolbar: {
-            backgroundColor: '#262626',
+            backgroundColor: 'var(--color-bg-secondary)',
             border: 'none',
-            borderBottom: '1px solid #373A40',
+            borderBottom: '1px solid var(--color-border-primary)',
           },
           content: {
-            backgroundColor: '#1E1E1E',
-            color: '#C1C2C5',
+            backgroundColor: 'var(--color-bg-primary)',
+            color: 'var(--color-text-primary)',
             '& .ProseMirror': {
               padding: '16px',
               minHeight: '500px',
@@ -145,7 +145,7 @@ export function JournalForm() {
         <RichTextEditor.Content />
       </RichTextEditor>
 
-      <Group justify="space-between" className="sticky bottom-0 bg-[#1E1E1E] p-4 rounded-b-lg shadow-lg">
+      <Group justify="space-between" className="sticky bottom-0 bg-background-primary p-4 rounded-b-lg shadow-lg">
         <Text size="sm" c="dimmed">
           Last saved: {new Date(todayEntry.timestamp).toLocaleTimeString()}
         </Text>

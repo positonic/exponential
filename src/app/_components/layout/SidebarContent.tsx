@@ -16,8 +16,8 @@ export function SidebarContent() {
         defaultValue="projects" 
         classNames={{
           root: 'bg-transparent space-y-0.5',
-          item: 'border border-gray-800 rounded-lg transition-all duration-200 hover:border-gray-700',
-          control: 'hover:bg-transparent text-gray-300 font-medium transition-all duration-200 py-1',
+          item: 'border border-border-primary rounded-lg transition-all duration-200 hover:border-border-secondary',
+          control: 'hover:bg-transparent text-text-primary font-medium transition-all duration-200 py-1',
           panel: 'pt-0.5 pb-1 px-1'
         }}
       >
@@ -25,8 +25,8 @@ export function SidebarContent() {
           <Accordion.Control>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <IconDeviceProjector size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-300">Projects</span>
+                <IconDeviceProjector size={16} className="text-text-muted" />
+                <span className="text-sm font-medium text-text-primary">Projects</span>
               </div>
             </div>
           </Accordion.Control>
@@ -44,8 +44,8 @@ export function SidebarContent() {
           <Accordion.Control>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <IconTarget size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-300">Alignment</span>
+                <IconTarget size={16} className="text-text-muted" />
+                <span className="text-sm font-medium text-text-primary">Alignment</span>
               </div>
             </div>
           </Accordion.Control>
@@ -58,8 +58,8 @@ export function SidebarContent() {
           <Accordion.Control>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <IconUsers size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-300">Teams</span>
+                <IconUsers size={16} className="text-text-muted" />
+                <span className="text-sm font-medium text-text-primary">Teams</span>
               </div>
             </div>
           </Accordion.Control>
@@ -74,8 +74,8 @@ export function SidebarContent() {
           <Accordion.Control>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <IconKey size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-300">Tools</span>
+                <IconKey size={16} className="text-text-muted" />
+                <span className="text-sm font-medium text-text-primary">Tools</span>
               </div>
             </div>
           </Accordion.Control>

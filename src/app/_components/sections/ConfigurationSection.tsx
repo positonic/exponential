@@ -25,7 +25,7 @@ export const ConfigurationSection = memo(({
   setDoQuestions
 }: ConfigurationSectionProps) => {
   return (
-    <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+    <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
       <Stack gap="md">
         <Text c="dimmed" size="sm" className="italic">
           Customize your startup routine by enabling or disabling sections to match your needs.

@@ -187,7 +187,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       )}
 
       {isAlignmentMode && (
-        <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-[#262626] border border-blue-900/30">
+        <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-surface-secondary border border-border-primary">
           <Stack gap="md">
           <Group>
             <Title order={2} className="text-2xl">
@@ -210,7 +210,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
                   }}
                   projectId={projectId}
                   trigger={
-                    <Paper p="sm" className="bg-[#1E1E1E] cursor-pointer hover:bg-[#2C2C2C] transition-colors">
+                    <Paper p="sm" className="bg-surface-primary cursor-pointer hover:bg-surface-hover transition-colors">
                       <Text>{outcome.description}</Text>
                     </Paper>
                   }
@@ -228,7 +228,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       )}
 
       {isAlignmentMode && (
-        <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-[#262626] border border-indigo-900/30">
+        <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-surface-secondary border border-border-primary">
           <Stack gap="md">
             <Title order={2} className="text-xl bg-gradient-to-r from-indigo-500 to-violet-500 bg-clip-text text-transparent">
               What would make this week great?
@@ -246,7 +246,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
                   }}
                   projectId={projectId}
                   trigger={
-                    <Paper p="sm" className="bg-[#1E1E1E] cursor-pointer hover:bg-[#2C2C2C] transition-colors">
+                    <Paper p="sm" className="bg-surface-primary cursor-pointer hover:bg-surface-hover transition-colors">
                       <Group justify="space-between">
                         <Text>{outcome.description}</Text>
                         <Text size="sm" c="dimmed">
@@ -268,7 +268,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         </Paper>
       )}
       {isAlignmentMode && (
-        <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-[#262626] border border-indigo-900/30">
+        <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-surface-secondary border border-border-primary">
            <CreateGoalModal projectId={projectId}>
               <Button 
                 variant="filled" 

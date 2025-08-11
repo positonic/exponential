@@ -159,7 +159,7 @@ export function WindDownRoutineForm({ dayId, date }: WindDownRoutineProps) {
         </Stack>
       </Paper>
 
-      <Group justify="space-between" className="sticky bottom-0 bg-[#1E1E1E] p-4 rounded-t-lg shadow-lg">
+      <Group justify="space-between" className="sticky bottom-0 bg-background-primary p-4 rounded-t-lg shadow-lg">
         <Text size="sm" c="dimmed">
           Last saved: {new Date().toLocaleTimeString()}
         </Text>

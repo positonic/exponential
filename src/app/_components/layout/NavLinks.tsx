@@ -28,8 +28,8 @@ export function NavLink({ href, icon: Icon, children, count }: {
       href={href}
       className={`group relative flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
         isActive 
-          ? 'bg-gray-800/50 text-white' 
-          : 'text-gray-400 hover:bg-gray-800/30 hover:text-gray-200'
+          ? 'bg-surface-secondary text-text-primary' 
+          : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
       }`}
     >
       {isActive && (
@@ -37,7 +37,7 @@ export function NavLink({ href, icon: Icon, children, count }: {
       )}
       {Icon && (
         <Icon className={`mr-3 h-4 w-4 transition-colors duration-200 ${
-          isActive ? 'text-blue-500' : 'text-gray-500 group-hover:text-gray-400'
+          isActive ? 'text-blue-500' : 'text-text-muted group-hover:text-text-secondary'
         }`} />
       )}
       <span className="flex-1 min-w-0 truncate">{children}</span>
@@ -45,7 +45,7 @@ export function NavLink({ href, icon: Icon, children, count }: {
         <span className={`ml-auto pl-2 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 flex-shrink-0 ${
           isActive 
             ? 'bg-blue-500/20 text-blue-400' 
-            : 'bg-gray-700/50 text-gray-300 group-hover:bg-gray-700/70'
+            : 'bg-surface-tertiary text-text-secondary group-hover:bg-surface-hover'
         }`}>
           {count}
         </span>

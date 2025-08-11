@@ -38,7 +38,7 @@ export default async function RootLayout({
   const domain = getThemeDomain();
 
   return (
-    <html lang="en" className={`${GeistSans.variable} ${orbitron.className} h-full`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.className} h-full`}>
       <head>
         <ColorSchemeScript />
       </head>

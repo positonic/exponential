@@ -510,7 +510,7 @@ export function StartupRoutineForm() {
                 )}
 
                 {/* Consider Section - Axioms */}
-                {doConsider && <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+                {doConsider && <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
                   <Stack gap="md">
                     <Title order={2} className="text-2xl">Consider</Title>
                     <Text size="lg" fw={500} className="text-purple-400">
@@ -538,7 +538,7 @@ export function StartupRoutineForm() {
                 </Paper>}
 
                 {/* Important Questions */}
-                {doQuestions && <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+                {doQuestions && <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
                   <Stack gap="md">
                     <Title order={2} className="text-2xl">Important questions</Title>
                     <Text c="dimmed">You want to consider daily</Text>
@@ -564,7 +564,7 @@ export function StartupRoutineForm() {
                 </Paper>}
 
                 {/* Mindset Section */}
-                {doMindset && <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+                {doMindset && <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
                   <Stack gap="md">
                     <Title order={2} className="text-2xl">Mindset</Title>
                     <Text c="dimmed">At least 2 minutes</Text>
@@ -601,7 +601,7 @@ export function StartupRoutineForm() {
             </Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Paper shadow="sm" p="lg" radius="md" className="bg-[#262626] border border-yellow-900/30">
+            <Paper shadow="sm" p="lg" radius="md" className="bg-surface-secondary border border-yellow-900/30">
               <Stack gap="md">
                 <Text c="dimmed" size="sm" className="italic">
                   Expand your thinking—generate ideas freely without judgment. Let your mind explore possibilities and capture all thoughts, whether they seem practical or not.
@@ -634,7 +634,7 @@ export function StartupRoutineForm() {
             </Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Paper shadow="sm" p="lg" radius="md" className="bg-[#262626] border border-green-900/30">
+            <Paper shadow="sm" p="lg" radius="md" className="bg-surface-secondary border border-green-900/30">
               <Stack gap="md">
                 <Text c="dimmed" size="sm" className="italic">
                   End your day mindfully—reflect, plan, and prepare for restful sleep.
@@ -651,7 +651,7 @@ export function StartupRoutineForm() {
             <IconSettings size={24} className="text-white" />
           </Accordion.Control>
           <Accordion.Panel>
-            <Paper shadow="sm" p="lg" radius="md" className="bg-[#262626] border border-purple-900/30">
+            <Paper shadow="sm" p="lg" radius="md" className="bg-surface-secondary border border-purple-900/30">
               <ConfigurationSection
                 doMindset={doMindset}
                 setDoMindset={setDoMindset}
@@ -667,7 +667,7 @@ export function StartupRoutineForm() {
         </Accordion.Item>
       </Accordion>
 
-      <Group justify="space-between" className="sticky bottom-0 bg-[#1E1E1E] p-4 rounded-t-lg shadow-lg">
+      <Group justify="space-between" className="sticky bottom-0 bg-background-primary p-4 rounded-t-lg shadow-lg">
         <Text size="sm" c="dimmed" component="div">
           {isDayLoading || !dayData ? (
             <Group gap="xs"><Loader size="xs" />Creating day record...</Group>

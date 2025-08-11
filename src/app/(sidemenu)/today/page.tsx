@@ -9,7 +9,7 @@ import { NavigationWrapper } from "../../_components/NavigationWrapper";
 export default async function Home() {
   return (
     <HydrateClient>
-      <main className="flex h-full flex-col items-center justify-start text-white">
+      <main className="flex h-full flex-col items-center justify-start text-text-primary">
         <div className="container flex flex-col items-stretch justify-start gap-4 px-4 py-8">
           <Suspense fallback={<div>Loading...</div>}>
             <ActionsWrapper />

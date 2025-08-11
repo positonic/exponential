@@ -126,9 +126,9 @@ function TodayCalendarEventsContent() {
 
   if (!events || events.length === 0) {
     return (
-      <Paper p="md" className="bg-[#1E1E1E]">
+      <Paper p="md" className="bg-surface-primary">
         <Group>
-          <IconCalendar size={16} className="text-gray-400" />
+          <IconCalendar size={16} className="text-text-muted" />
           <Text size="sm" c="dimmed">No calendar events today</Text>
         </Group>
       </Paper>
@@ -155,14 +155,14 @@ function TodayCalendarEventsContent() {
     <Stack gap="xs">
       <Group gap="xs">
         <IconCalendar size={16} className="text-blue-400" />
-        <Text size="sm" fw={500} c="C1C2C5">Today&apos;s Calendar ({events.length})</Text>
+        <Text size="sm" fw={500} className="text-text-secondary">Today&apos;s Calendar ({events.length})</Text>
       </Group>
       
       {events.map((event) => (
         <Paper
           key={event.id}
           p="sm"
-          className="bg-[#252525] border border-gray-700 hover:bg-[#2a2a2a] transition-colors"
+          className="bg-surface-secondary border border-border-primary hover:bg-surface-hover transition-colors"
         >
           <Stack gap={4}>
             <Group justify="space-between" wrap="nowrap">
@@ -178,7 +178,7 @@ function TodayCalendarEventsContent() {
             
             <Group gap="md" wrap="nowrap">
               <Group gap={4}>
-                <IconClock size={12} className="text-gray-400" />
+                <IconClock size={12} className="text-text-muted" />
                 <Text size="xs" c="dimmed">
                   {formatEventTime(event)}
                 </Text>
@@ -186,7 +186,7 @@ function TodayCalendarEventsContent() {
               
               {event.location && (
                 <Group gap={4}>
-                  <IconMapPin size={12} className="text-gray-400" />
+                  <IconMapPin size={12} className="text-text-muted" />
                   <Text size="xs" c="dimmed" className="truncate max-w-[200px]">
                     {event.location}
                   </Text>

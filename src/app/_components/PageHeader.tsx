@@ -16,22 +16,17 @@ export function PageHeader({ calendarConnected, todayExists }: PageHeaderProps) 
 
   return (
     <Paper 
-      className="w-full max-w-3xl mx-auto mb-6"
+      className="w-full max-w-3xl mx-auto mb-6 bg-surface-primary border border-border-primary"
       p="lg"
       radius="md"
-      style={{
-        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(147, 51, 234, 0.08) 100%)',
-        border: '1px solid rgba(59, 130, 246, 0.2)',
-        backdropFilter: 'blur(10px)'
-      }}
     >
       <Group justify="space-between" align="center" wrap="nowrap">
         {/* Left side: Page title and date */}
         <div>
-          <Title order={2} size="h3" className="text-gray-100">
+          <Title order={2} size="h3" className="text-text-primary">
             Today
           </Title>
-          <Text size="sm" className="text-gray-400">
+          <Text size="sm" className="text-text-secondary">
             {format(today, "EEEE, MMMM d, yyyy")}
           </Text>
         </div>

@@ -306,14 +306,11 @@ export function ActionList({
     <Paper
       key={action.id}
       py="sm"
+      className="transition-all hover:shadow-md cursor-pointer mb-3 border-b border-border-primary rounded-none"
       style={{
         background: 'transparent',
-        borderColor: '#373A40', 
-        borderWidth: '0 0 1px 0', 
-        borderRadius: 0, 
         marginBottom: '0',
       }}
-      className="transition-all hover:shadow-md cursor-pointer mb-3"
       onClick={(e) => {
         // Only open modal if we didn't click the checkbox
         if (!(e.target as HTMLElement).closest('.checkbox-wrapper') && 
@@ -396,7 +393,7 @@ export function ActionList({
             <HTMLContent html={action.name} />
             <Group gap="xs" align="center" className="mt-1">
               {action.dueDate && (
-                <Group gap={4} align="center" className={`text-xs ${isOverdue ? 'text-red-500' : 'text-gray-500'}`}>
+                <Group gap={4} align="center" className={`text-xs ${isOverdue ? 'text-red-500' : 'text-text-muted'}`}>
                   <IconCalendar size={12} />
                   <span>{formatDate(action.dueDate)}</span>
                 </Group>
@@ -422,24 +419,11 @@ export function ActionList({
           radius="md" 
           className="mb-4"
           chevronPosition="left"
-          styles={{
-            root: {
-              backgroundColor: '#1E1E1E',
-            },
-            item: {
-              backgroundColor: '#1E1E1E',
-              borderColor: '#373A40',
-            },
-            control: {
-              backgroundColor: '#1E1E1E',
-              color: '#C1C2C5',
-              '&:hover': {
-                backgroundColor: '#252525',
-              }
-            },
-            panel: {
-              backgroundColor: '#1E1E1E',
-            }
+          classNames={{
+            root: 'bg-surface-secondary',
+            item: 'bg-surface-secondary border-border-primary',
+            control: 'bg-surface-secondary text-text-primary hover:bg-surface-hover',
+            panel: 'bg-surface-secondary'
           }}
         >
           <Accordion.Item value="overdue" className="border-none">
@@ -480,7 +464,7 @@ export function ActionList({
             <Accordion.Panel p={0}>
               {/* Bulk actions for overdue items */}
               {bulkEditOverdueMode && enableBulkEditForOverdue && (
-                <Paper p="md" mb="md" className="bg-[#2a2a2a] border-b border-gray-700">
+                <Paper p="md" mb="md" className="bg-surface-secondary border-b border-border-primary">
                   <Group justify="space-between" align="center">
                     <Group gap="md">
                       <Button
@@ -542,7 +526,7 @@ export function ActionList({
         {/* <h2 className="text-xl font-semibold capitalize">{viewName.startsWith('project-') ? viewName.split('-')[1] : viewName} View</h2>  */}
         <button
           onClick={() => setFilter(filter === "ACTIVE" ? "COMPLETED" : "ACTIVE")}
-          className="text-sm text-gray-400 hover:text-gray-300 transition-colors"
+          className="text-sm text-text-secondary hover:text-text-primary transition-colors"
         >
           Show: {filter === "ACTIVE" ? "Active" : "Completed"}
         </button>

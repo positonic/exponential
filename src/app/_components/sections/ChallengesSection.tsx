@@ -173,7 +173,7 @@ export const ChallengesSection = memo(({
   };
 
   return (
-    <Paper shadow="sm" p="md" radius="md" className="bg-[#1E1E1E]">
+    <Paper shadow="sm" p="md" radius="md" className="bg-surface-primary">
       <Stack gap="md">
         <Group>
           <IconMountain className="text-amber-500" size={24} />
@@ -189,7 +189,7 @@ export const ChallengesSection = memo(({
           onChange={(e) => setChallenges(e.target.value)}
           minRows={3}
           size="md"
-          className="bg-[#262626]"
+          className="bg-surface-secondary"
         />
         <SaveButton 
           onClick={saveChallenges} 
@@ -208,7 +208,7 @@ export const ChallengesSection = memo(({
           onChange={(e) => setMistakes(e.target.value)}
           minRows={3}
           size="md"
-          className="bg-[#262626]"
+          className="bg-surface-secondary"
         />
         <SaveButton 
           onClick={saveMistakes} 
@@ -225,7 +225,7 @@ export const ChallengesSection = memo(({
           onChange={(e) => setCauses(e.target.value)}
           minRows={3}
           size="md"
-          className="bg-[#262626]"
+          className="bg-surface-secondary"
         />
         <SaveButton 
           onClick={saveCauses} 
@@ -242,7 +242,7 @@ export const ChallengesSection = memo(({
           onChange={(e) => setSolutions(e.target.value)}
           minRows={3}
           size="md"
-          className="bg-[#262626]"
+          className="bg-surface-secondary"
         />
         <SaveButton 
           onClick={saveSolutions} 
