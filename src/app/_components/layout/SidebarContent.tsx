@@ -16,9 +16,19 @@ export function SidebarContent() {
         defaultValue="projects" 
         classNames={{
           root: 'bg-transparent space-y-0.5',
-          item: 'border border-border-primary rounded-lg transition-all duration-200 hover:border-border-secondary',
+          item: 'rounded-lg transition-all duration-200',
           control: 'hover:bg-transparent text-text-primary font-medium transition-all duration-200 py-1',
           panel: 'pt-0.5 pb-1 px-1'
+        }}
+        styles={{
+          item: {
+            borderBottom: 'none',
+            borderTop: 'none',
+            border: 'none'
+          },
+          content: {
+            borderTop: 'none'
+          }
         }}
       >
         <Accordion.Item value="projects">
