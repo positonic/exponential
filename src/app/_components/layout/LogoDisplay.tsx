@@ -27,15 +27,15 @@ export function LogoDisplay({ theme, href, onClick, className }: LogoDisplayProp
       className="mr-2 object-contain" // Margin and contain object fit
     />
   ) : (
-    <span className="text-xl text-white mr-2">{theme.logo}</span> 
+    <span className="text-xl mr-2">{theme.logo}</span> 
   );
 
   const content = (
     <>
       {logoElement} {/* Render the conditional logo element */}
-      {/* Text with Orbitron font, white color, and size controlled by className */}
+      {/* Text with Orbitron font, theme-aware color, and size controlled by className */}
       <span 
-        className={`font-bold text-white ${className || 'text-xl'}`.trim()} 
+        className={`font-bold text-text-primary ${className || 'text-xl'}`.trim()} 
         style={{ fontFamily: theme.fontFamily }}
       >
         {theme.name}
