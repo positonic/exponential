@@ -5,7 +5,6 @@ import {
   Container, 
   Title, 
   Text, 
-  Paper, 
   Button, 
   Stack, 
   Group,
@@ -14,22 +13,29 @@ import {
   Grid,
   Select,
   TextInput,
-  Checkbox,
   SimpleGrid,
   Textarea,
   Box,
   Progress,
-  Anchor
+  Anchor,
+  ThemeIcon
 } from '@mantine/core';
 import { 
   IconBriefcase, 
   IconHome, 
-  IconUser, 
-  IconTools, 
-  IconFolder,
   IconCheck,
   IconArrowRight,
-  IconArrowLeft
+  IconBrandSlack,
+  IconBrandDiscord,
+  IconBrandGithub,
+  IconBrandFigma,
+  IconBrandNotion,
+  IconCalendar,
+  IconCode,
+  IconPalette,
+  IconMail,
+  IconNotes,
+  IconTargetArrow
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
@@ -61,13 +67,41 @@ const predefinedRoles = [
 ];
 
 const toolCategories = {
-  'Productivity': ['Notion', 'Obsidian', 'Roam Research'],
-  'Communication': ['Slack', 'Discord', 'Microsoft Teams'],
-  'Project Management': ['Asana', 'Trello', 'Jira', 'Monday.com'],
-  'Development': ['GitHub', 'GitLab', 'Linear'],
-  'Calendar': ['Google Calendar', 'Outlook', 'Apple Calendar'],
-  'Note-taking': ['Evernote', 'OneNote', 'Apple Notes'],
-  'Design': ['Figma', 'Adobe Creative Suite']
+  'Productivity': [
+    { name: 'Notion', icon: IconBrandNotion, color: 'gray' },
+    { name: 'Obsidian', icon: IconNotes, color: 'violet' },
+    { name: 'Roam Research', icon: IconTargetArrow, color: 'blue' }
+  ],
+  'Communication': [
+    { name: 'Slack', icon: IconBrandSlack, color: 'green' },
+    { name: 'Discord', icon: IconBrandDiscord, color: 'indigo' },
+    { name: 'Microsoft Teams', icon: IconMail, color: 'blue' }
+  ],
+  'Project Management': [
+    { name: 'Asana', icon: IconTargetArrow, color: 'red' },
+    { name: 'Trello', icon: IconTargetArrow, color: 'blue' },
+    { name: 'Jira', icon: IconCode, color: 'blue' },
+    { name: 'Monday.com', icon: IconTargetArrow, color: 'orange' }
+  ],
+  'Development': [
+    { name: 'GitHub', icon: IconBrandGithub, color: 'dark' },
+    { name: 'GitLab', icon: IconCode, color: 'orange' },
+    { name: 'Linear', icon: IconTargetArrow, color: 'gray' }
+  ],
+  'Calendar': [
+    { name: 'Google Calendar', icon: IconCalendar, color: 'blue' },
+    { name: 'Outlook', icon: IconCalendar, color: 'blue' },
+    { name: 'Apple Calendar', icon: IconCalendar, color: 'gray' }
+  ],
+  'Note-taking': [
+    { name: 'Evernote', icon: IconNotes, color: 'green' },
+    { name: 'OneNote', icon: IconNotes, color: 'blue' },
+    { name: 'Apple Notes', icon: IconNotes, color: 'yellow' }
+  ],
+  'Design': [
+    { name: 'Figma', icon: IconBrandFigma, color: 'pink' },
+    { name: 'Adobe Creative Suite', icon: IconPalette, color: 'red' }
+  ]
 };
 
 export default function OnboardingPageComponent({userName}: {userName: string}) {
@@ -272,7 +306,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
             Welcome to Exponential, {userName}! 👋
           </Title>
           <Text size="lg" className="text-text-secondary max-w-2xl mx-auto">
-            Let's get you set up in just a few quick steps. This will help us personalize your experience.
+            Let&apos;s get you set up in just a few quick steps. This will help us personalize your experience.
           </Text>
         </div>
 
@@ -353,7 +387,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
             <Stack gap="lg">
               <div className="text-center">
                 <Title order={2} className="text-2xl font-semibold mb-2">
-                  What's your role?
+                  What&apos;s your role?
                 </Title>
                 <Text className="text-text-secondary">
                   This helps us suggest relevant features and workflows.
@@ -413,7 +447,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
                   What tools do you use?
                 </Title>
                 <Text className="text-text-secondary">
-                  Select all that apply. We'll help you integrate them later.
+                  Select all that apply. We&apos;ll help you integrate them later.
                 </Text>
               </div>
 
@@ -423,15 +457,36 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
                     <Title order={4} className="text-lg font-medium mb-2">
                       {category}
                     </Title>
-                    <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="xs">
+                    <SimpleGrid cols={{ base: 2, sm: 3, md: 4 }} spacing="md">
                       {tools.map(tool => (
-                        <Checkbox
-                          key={tool}
-                          label={tool}
-                          checked={data.selectedTools.includes(tool)}
-                          onChange={() => toggleTool(tool)}
-                          size="sm"
-                        />
+                        <Card
+                          key={tool.name}
+                          shadow="sm"
+                          radius="md"
+                          padding="md"
+                          className={`cursor-pointer transition-all border-2 relative ${
+                            data.selectedTools.includes(tool.name)
+                              ? 'border-brand bg-surface-secondary'
+                              : 'border-border-primary hover:border-border-focus'
+                          }`}
+                          onClick={() => toggleTool(tool.name)}
+                        >
+                          {/* Check mark overlay */}
+                          {data.selectedTools.includes(tool.name) && (
+                            <div className="absolute -top-1 -right-1 bg-brand text-text-inverse rounded-full p-1 z-10">
+                              <IconCheck size={12} />
+                            </div>
+                          )}
+                          
+                          <Stack align="center" gap="xs">
+                            <ThemeIcon size={40} radius="md" variant="light" color={tool.color}>
+                              <tool.icon size={20} />
+                            </ThemeIcon>
+                            <Text size="xs" fw={500} className="text-center leading-tight">
+                              {tool.name}
+                            </Text>
+                          </Stack>
+                        </Card>
                       ))}
                     </SimpleGrid>
                   </div>
@@ -466,7 +521,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
                   Create your first project
                 </Title>
                 <Text className="text-text-secondary">
-                  Let's start with a project to get you going.
+                  Let&apos;s start with a project to get you going.
                 </Text>
               </div>
 
