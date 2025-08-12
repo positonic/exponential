@@ -124,6 +124,20 @@ export const projectRouter = createTRPCRouter({
         }
       });
 
+      // Sort projects by priority (HIGH -> MEDIUM -> LOW -> NONE)
+      const priorityOrder = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE: 3 };
+      const sortedProjects = projects.sort((a, b) => {
+        const priorityA = priorityOrder[a.priority as keyof typeof priorityOrder] ?? 3;
+        const priorityB = priorityOrder[b.priority as keyof typeof priorityOrder] ?? 3;
+        
+        // If priorities are the same, sort by creation date (newer first)
+        if (priorityA === priorityB) {
+          return b.createdAt.getTime() - a.createdAt.getTime();
+        }
+        
+        return priorityA - priorityB;
+      });
+
       console.log('📊 [PROJECT.GETALL RESULT] Query completed', {
         projectCount: projects.length,
         userIdQueried: ctx.session.user.id,
@@ -148,7 +162,7 @@ export const projectRouter = createTRPCRouter({
         userHasProjects: projects.length > 0
       });
 
-      return projects;
+      return sortedProjects;
     }),
 
   create: protectedProcedure

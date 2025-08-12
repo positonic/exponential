@@ -104,8 +104,9 @@ function ProjectList({ projects }: { projects: Project[] }) {
                   styles={{
                     input: {
                       backgroundColor: `var(--mantine-color-${getStatusColor(project.status)}-light)`,
-                      color: `var(--mantine-color-${getStatusColor(project.status)}-darker)`,
+                      color: `var(--mantine-color-${getStatusColor(project.status)}-filled)`,
                       fontWeight: 500,
+                      border: 'none',
                     }
                   }}
                 />
@@ -129,8 +130,9 @@ function ProjectList({ projects }: { projects: Project[] }) {
                   styles={{
                     input: {
                       backgroundColor: `var(--mantine-color-${getPriorityColor(project.priority)}-light)`,
-                      color: `var(--mantine-color-${getPriorityColor(project.priority)}-darker)`,
+                      color: project.priority === "NONE" ? 'var(--color-text-secondary)' : `var(--mantine-color-${getPriorityColor(project.priority)}-filled)`,
                       fontWeight: 500,
+                      border: 'none',
                     }
                   }}
                 />
