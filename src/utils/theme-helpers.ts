@@ -71,7 +71,7 @@ export function isHardcodedColor(value: string): boolean {
 // Development-only warning
 if (process.env.NODE_ENV === 'development') {
   const originalCreateElement = document.createElement;
-  document.createElement = function(...args) {
+  document.createElement = function(...args: Parameters<typeof document.createElement>) {
     const element = originalCreateElement.apply(document, args);
     const originalSetAttribute = element.setAttribute;
     
