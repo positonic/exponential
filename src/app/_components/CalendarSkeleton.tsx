@@ -1,6 +1,6 @@
 "use client";
 
-import { Paper, Stack, Group, Skeleton, Box } from "@mantine/core";
+import { Paper, Stack, Group, Skeleton } from "@mantine/core";
 
 export function CalendarEventsSkeleton() {
   return (
@@ -14,7 +14,7 @@ export function CalendarEventsSkeleton() {
         <Paper
           key={index}
           p="sm"
-          className="bg-[#252525] border border-gray-700"
+          className="bg-surface-secondary border border-border-primary"
         >
           <Stack gap={4}>
             <Group justify="space-between" wrap="nowrap">
@@ -46,7 +46,7 @@ export function CalendarDayViewSkeleton() {
   const hours = Array.from({ length: 8 }, (_, i) => i); // Show first 8 hours for skeleton
   
   return (
-    <div className="relative bg-[#25262B] rounded-lg border border-gray-700 p-4">
+    <div className="relative bg-surface-secondary rounded-lg border border-border-primary p-4">
       <Stack gap="xs">
         {hours.map(hour => (
           <div key={hour} className="relative">

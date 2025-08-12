@@ -1,7 +1,7 @@
 "use client";
 
-import { Box, Text, Stack, Tooltip } from "@mantine/core";
-import { format, parseISO, startOfDay, isToday, isSameDay } from "date-fns";
+import { Text, Stack, Tooltip } from "@mantine/core";
+import { format, parseISO, isToday, isSameDay } from "date-fns";
 import { type CalendarEvent } from "~/server/services/GoogleCalendarService";
 import { useMemo } from "react";
 
@@ -25,7 +25,6 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
   const MINUTES_PER_HOUR = 60;
 
   const positionedEvents = useMemo(() => {
-    const dayStart = startOfDay(selectedDate);
     
     // Filter and process events for the selected date
     const dayEvents = events.filter(event => {
@@ -165,8 +164,6 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
                   const now = new Date();
                   const currentHour = now.getHours();
                   const currentMinutes = now.getMinutes();
-                  const currentTimeInMinutes = currentHour * 60 + currentMinutes;
-                  const currentTop = (currentTimeInMinutes / MINUTES_PER_HOUR) * HOUR_HEIGHT;
                   
                   if (hour <= currentHour && currentHour < hour + 1) {
                     return (

@@ -582,7 +582,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               <Text 
                 component="code" 
                 style={{ 
-                  backgroundColor: '#2C2E33', 
+                  backgroundColor: 'var(--color-surface-secondary)', 
                   padding: '2px 4px', 
                   borderRadius: '4px',
                   fontSize: '12px'
@@ -595,7 +595,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               <Box 
                 component="pre" 
                 style={{ 
-                  backgroundColor: '#2C2E33', 
+                  backgroundColor: 'var(--color-surface-secondary)', 
                   padding: '8px', 
                   borderRadius: '4px',
                   overflow: 'auto',
@@ -708,10 +708,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 styles={{
                   root: {
                     background: `linear-gradient(135deg, 
-                      ${index % 4 === 0 ? '#1e40af, #3b82f6, #60a5fa' : 
-                        index % 4 === 1 ? '#7c3aed, #a855f7, #c084fc' :
-                        index % 4 === 2 ? '#dc2626, #ef4444, #f87171' :
-                        '#059669, #10b981, #34d399'})`,
+                      ${index % 4 === 0 ? 'var(--color-brand-primary), var(--color-brand-info), var(--color-brand-info)' : 
+                        index % 4 === 1 ? 'var(--color-brand-primary), var(--color-brand-primary), var(--color-brand-primary)' :
+                        index % 4 === 2 ? 'var(--color-brand-error), var(--color-brand-error), var(--color-brand-error)' :
+                        'var(--color-brand-success), var(--color-brand-success), var(--color-brand-success)'})`,
                   }
                 }}
               >
@@ -755,13 +755,13 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
             input: {
               backgroundColor: 'rgba(31, 41, 55, 0.8)',
               border: '1px solid rgba(75, 85, 99, 0.5)',
-              color: '#F3F4F6',
+              color: 'var(--color-text-primary)',
               '&:focus': {
-                borderColor: '#60A5FA',
+                borderColor: 'var(--color-brand-primary)',
                 boxShadow: '0 0 0 3px rgba(96, 165, 250, 0.1)'
               },
               '&::placeholder': {
-                color: '#9CA3AF'
+                color: 'var(--color-text-muted)'
               }
             }
           }}
@@ -797,10 +797,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                         styles={{
                           root: {
                             background: `linear-gradient(135deg, 
-                              ${index % 4 === 0 ? '#1e40af, #3b82f6' : 
-                                index % 4 === 1 ? '#7c3aed, #a855f7' :
-                                index % 4 === 2 ? '#dc2626, #ef4444' :
-                                '#059669, #10b981'})`,
+                              ${index % 4 === 0 ? 'var(--color-brand-primary), var(--color-brand-info)' : 
+                                index % 4 === 1 ? 'var(--color-brand-primary), var(--color-brand-primary)' :
+                                index % 4 === 2 ? 'var(--color-brand-error), var(--color-brand-error)' :
+                                'var(--color-brand-success), var(--color-brand-success)'})`,
                           }
                         }}
                       >
@@ -879,7 +879,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                           className="ring-2 ring-blue-500/20 transition-all duration-300 group-hover:ring-blue-400/40 group-hover:scale-105"
                           styles={{
                             root: {
-                              background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #60a5fa 100%)',
+                              background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-info) 50%, var(--color-brand-info) 100%)',
                             }
                           }}
                         >
@@ -953,7 +953,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                           className="ring-2 ring-indigo-500/20 transition-all duration-300 group-hover:ring-indigo-400/40 group-hover:scale-105"
                           styles={{
                             root: {
-                              background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%)',
+                              background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary) 50%, var(--color-brand-primary) 100%)',
                             }
                           }}
                         >
@@ -986,17 +986,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 input: {
                   backgroundColor: 'rgba(17, 24, 39, 0.8)',
                   border: '1px solid rgba(75, 85, 99, 0.4)',
-                  color: '#F3F4F6',
+                  color: 'var(--color-text-primary)',
                   paddingRight: '120px',
                   fontSize: '14px',
                   transition: 'all 0.3s ease',
                   '&:focus': {
-                    borderColor: '#60A5FA',
+                    borderColor: 'var(--color-brand-primary)',
                     boxShadow: '0 0 0 4px rgba(96, 165, 250, 0.15)',
                     backgroundColor: 'rgba(17, 24, 39, 0.95)'
                   },
                   '&::placeholder': {
-                    color: '#9CA3AF'
+                    color: 'var(--color-text-muted)'
                   }
                 }
               }}

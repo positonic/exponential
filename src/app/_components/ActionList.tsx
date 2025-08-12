@@ -381,7 +381,7 @@ export function ActionList({
                     action.priority === 'Errand' ? 'var(--mantine-color-cyan-filled)' :
                     action.priority === 'Remember' ? 'var(--mantine-color-indigo-filled)' :
                     action.priority === 'Watch' ? 'var(--mantine-color-grape-filled)' :
-                    '#4A4A4A', // Slightly lighter gray for default checkbox border
+                    'var(--color-border-primary)', // Default checkbox border
                   backgroundColor: 'transparent',
                   cursor: 'pointer',
                   flexShrink: 0,

@@ -332,7 +332,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
                 color: 'var(--color-text-primary)',
               },
               weekday: {
-                color: '#909296',
+                color: 'var(--color-text-muted)',
               },
               day: {
                 color: 'var(--color-text-primary)',

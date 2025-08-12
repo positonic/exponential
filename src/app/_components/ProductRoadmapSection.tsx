@@ -12,7 +12,7 @@ const RoadmapItem: React.FC<RoadmapItemProps & { children: React.ReactNode }> = 
   children: _children
 }) => (
   <div className="flex items-start gap-3 mb-6">
-    <IconClock size={20} className="text-[#8896c5] mt-0.5 flex-shrink-0" />
+    <IconClock size={20} className="text-brand-primary mt-0.5 flex-shrink-0" />
     <div>
       <Text className="text-[rgb(203 213 225 / var(--tw-text-opacity))] text-base font-medium">
         {title}
@@ -42,20 +42,20 @@ const RoadmapPhase: React.FC<RoadmapPhaseProps> = ({
   const getStatusStyles = () => {
     switch (status) {
       case 'in-progress':
-        return { bgColor: '#10172A', textColor: '#93C5FD', label: 'In Progress' };
+        return { bgColor: 'var(--color-surface-secondary)', textColor: 'var(--color-brand-info)', label: 'In Progress' };
       case 'upcoming':
-        return { bgColor: '#10172A', textColor: '#C4B5FD', label: 'Upcoming' };
+        return { bgColor: 'var(--color-surface-secondary)', textColor: 'var(--color-brand-primary)', label: 'Upcoming' };
       case 'planned':
-        return { bgColor: '#10172A', textColor: '#CBD5E1', label: 'Planned' };
+        return { bgColor: 'var(--color-surface-secondary)', textColor: 'var(--color-text-muted)', label: 'Planned' };
       default:
-        return { bgColor: '#1F2937', textColor: '#CBD5E1', label: 'Planned' };
+        return { bgColor: 'var(--color-surface-tertiary)', textColor: 'var(--color-text-muted)', label: 'Planned' };
     }
   };
 
   const { bgColor, textColor, label } = getStatusStyles();
 
   return (
-    <div className="rounded-xl border border-[rgba(255,255,255,0.1)] bg-[#0f172a] p-8 transition-all duration-300 hover:border-[rgba(255,255,255,0.15)] hover:shadow-lg">
+    <div className="rounded-xl border border-border-primary bg-surface-secondary p-8 transition-all duration-300 hover:border-border-focus hover:shadow-lg">
       <div className="flex justify-between items-center mb-6">
         <div
           className="px-3 py-1 rounded-md text-sm font-medium"
@@ -63,7 +63,7 @@ const RoadmapPhase: React.FC<RoadmapPhaseProps> = ({
         >
           {label}
         </div>
-        <div className="flex items-center gap-2 text-[#8896c5]">
+        <div className="flex items-center gap-2 text-brand-primary">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" />
             <path d="M3 10H21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -125,10 +125,10 @@ export const ProductRoadmapSection: React.FC<ProductRoadmapSectionProps> = ({ id
   ];
 
   return (
-    <section id={id} className="w-full py-24 bg-[#0e1525]">
+    <section id={id} className="w-full py-24 bg-background-primary">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-16 text-center">
-          <Title order={2} className="text-4xl md:text-5xl font-bold mb-6" style={{ color: "#a78bfa" }}>
+          <Title order={2} className="text-4xl md:text-5xl font-bold mb-6" style={{ color: "var(--color-brand-primary)" }}>
             Product Roadmap
           </Title>
           <p className="text-gray-300 text-lg mb-8 max-w-[60%] mx-auto">

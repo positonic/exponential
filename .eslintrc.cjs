@@ -58,6 +58,12 @@ const config = {
         "message": "Hardcoded Tailwind colors are not allowed. Use semantic color classes from docs/styling-architecture.md"
       }
     ]
-  }
+  },
+  "ignorePatterns": [
+    "src/test/**/*",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "**/__tests__/**"
+  ]
 }
 module.exports = config;

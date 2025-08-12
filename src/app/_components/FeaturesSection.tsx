@@ -26,12 +26,12 @@ const FeatureCard: React.FC<FeatureCardProps> = ({
   title,
   description
 }) => (
-  <div className="rounded-xl border border-[rgba(255,255,255,0.07)] bg-[#0a1020] p-8 transition-all duration-300 hover:border-[rgba(255,255,255,0.15)] hover:shadow-md">
+  <div className="rounded-xl border border-border-primary bg-surface-secondary p-8 transition-all duration-300 hover:border-border-focus hover:shadow-md">
     <div className="mb-5" style={{ color: iconColor }}>
       {icon}
     </div>
     <h3 className="text-white text-xl font-semibold mb-3">{title}</h3>
-    <p className="text-[#94a3b8] leading-relaxed text-base">{description}</p>
+    <p className="text-text-muted leading-relaxed text-base">{description}</p>
   </div>
 );
 
@@ -40,50 +40,50 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({ id }) => {
   const features: FeatureCardProps[] = [
     {
       icon: <IconGitPullRequest size={32} stroke={1.5} />,
-      iconColor: "#c4b5fd", // Light purple
+      iconColor: "var(--color-brand-primary)", // Brand primary
       title: "Project Management",
       description: "AI-assisted tracking of tasks, milestones, and progress with GitHub integration for seamless workflow."
     },
     {
       icon: <IconUsers size={32} stroke={1.5} />,
-      iconColor: "#93c5fd", // Light blue
+      iconColor: "var(--color-brand-info)", // Brand info
       title: "Team Management",
       description: "Coordinate human and AI contributors efficiently, ensuring everyone works together harmoniously."
     },
     {
       icon: <IconCode size={32} stroke={1.5} />,
-      iconColor: "#c4b5fd", // Light purple
+      iconColor: "var(--color-brand-primary)", // Brand primary
       title: "Human/AI Coordination Layer",
       description: "Automate workflow optimization with AI agents that help manage tasks and improve productivity."
     },
     {
       icon: <IconBriefcase size={32} stroke={1.5} />,
-      iconColor: "#6ee7b7", // Light green
+      iconColor: "var(--color-brand-success)", // Brand success
       title: "Virtual Scalable Next-Gen VC",
       description: "Create a funding ecosystem for OSS projects that helps them grow from zero to one and beyond."
     },
     {
       icon: <IconChartBar size={32} stroke={1.5} />,
-      iconColor: "#fcd34d", // Light amber
+      iconColor: "var(--color-brand-warning)", // Brand warning
       title: "Fair Compensation",
       description: "Ensure contributors are rewarded based on their impact with transparent evaluation mechanisms."
     },
     {
       icon: <IconWorld size={32} stroke={1.5} />,
-      iconColor: "#fda4af", // Light red
+      iconColor: "var(--color-brand-error)", // Brand error
       title: "Self-Sovereign Software",
       description: "Enable teams to work in an autonomous, transparent, and fair ecosystem with decentralized governance."
     }
   ];
 
   return (
-    <section id={id} className="py-24 w-full bg-[#0e1525]">
+    <section id={id} className="py-24 w-full bg-background-primary">
       <Container size="lg">
         <div className="mb-16 text-center">
           <Title 
             order={2}
             className="text-4xl md:text-5xl font-bold mb-6"
-            style={{ color: "#a78bfa" }} // Specific purple color from design
+            style={{ color: "var(--color-brand-primary)" }} // Brand primary color
           >
             Key Features & Differentiators
           </Title>

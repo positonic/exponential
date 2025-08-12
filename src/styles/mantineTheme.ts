@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax */
 import { createTheme, type MantineColorsTuple } from '@mantine/core';
 
 // Create Mantine color tuples for brand colors

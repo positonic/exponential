@@ -148,9 +148,9 @@ function FeatureCard({ feature, index }: { feature: Feature; index: number }) {
       transition={{ duration: 0.5, delay: index * 0.1 }}
     >
       <Card 
-        className={`group bg-[#1a1b1e] border border-gray-800 cursor-pointer transition-all duration-300 
-          hover:border-violet-400/50 hover:shadow-lg hover:shadow-violet-500/10 
-          ${showDetails ? 'ring-1 ring-violet-400 shadow-lg shadow-violet-500/10' : ''}`}
+        className={`group bg-surface-secondary border border-border-primary cursor-pointer transition-all duration-300 
+          hover:border-brand-primary/50 hover:shadow-lg hover:shadow-brand-primary/10 
+          ${showDetails ? 'ring-1 ring-brand-primary shadow-lg shadow-brand-primary/10' : ''}`}
         padding="xl"
         onClick={handleClick}
         withBorder={false}

@@ -29,7 +29,7 @@ export function SignInButtons() {
                   color: 'rgba(156, 163, 175, 0.7)',
                 },
                 '&:focus': {
-                  borderColor: '#60A5FA',
+                  borderColor: 'var(--color-brand-primary)',
                   boxShadow: '0 0 0 1px rgba(96, 165, 250, 0.2)',
                 },
               },
@@ -65,7 +65,7 @@ export function SignInButtons() {
           className="border-gray-700/50 hover:border-gray-600 hover:bg-gray-800/50 transition-all"
           styles={{
             root: {
-              color: '#E5E7EB',
+              color: 'var(--color-text-primary)',
             },
           }}
         >
@@ -80,7 +80,7 @@ export function SignInButtons() {
           className="border-gray-700/50 hover:border-gray-600 hover:bg-gray-800/50 transition-all"
           styles={{
             root: {
-              color: '#E5E7EB',
+              color: 'var(--color-text-primary)',
             },
           }}
         >
@@ -95,7 +95,7 @@ export function SignInButtons() {
           className="border-gray-700/50 hover:border-gray-600 hover:bg-gray-800/50 transition-all"
           styles={{
             root: {
-              color: '#E5E7EB',
+              color: 'var(--color-text-primary)',
             },
           }}
         >

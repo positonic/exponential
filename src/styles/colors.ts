@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax */
 // Design System Color Tokens
 // This file defines all color values for both light and dark themes
 // These tokens are the single source of truth for colors in the application

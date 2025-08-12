@@ -7,11 +7,10 @@ import { ProductRoadmapSection } from '~/app/_components/ProductRoadmapSection';
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-[#0e1525] text-white">
+    <div className="min-h-screen bg-background-primary text-text-primary">
       {/* Navigation */}
       <header 
-        className="relative z-10 flex justify-between items-center py-6 px-8 border-b"
-        style={{ borderBottomColor: '#242b3d' }}
+        className="relative z-10 flex justify-between items-center py-6 px-8 border-b border-border-primary"
       >
         <div className="flex items-center">
           <div className="bg-purple-600 w-10 h-10 rounded-md flex items-center justify-center text-white font-bold text-xl">
@@ -77,22 +76,22 @@ export default function Home() {
               {[
                 {
                   icon: <IconCode size={36} stroke={1.5} />,
-                  iconBg: '#2F2459',
-                  iconColor: '#B794F4',
+                  iconBg: 'var(--color-surface-secondary)',
+                  iconColor: 'var(--color-brand-primary)',
                   title: 'Open-Source Sustainability',
                   description: 'Fair compensation for all contributors'
                 },
                 {
                   icon: <IconUsers size={36} stroke={1.5} />,
-                  iconBg: '#1E3A8A',
-                  iconColor: '#90CDF4',
+                  iconBg: 'var(--color-surface-secondary)',
+                  iconColor: 'var(--color-brand-info)',
                   title: 'Human-AI Collaboration',
                   description: 'Teams of humans and AIs working together'
                 },
                 {
                   icon: <IconWorld size={36} stroke={1.5} />,
-                  iconBg: '#322659',
-                  iconColor: '#D6BCFA',
+                  iconBg: 'var(--color-surface-secondary)',
+                  iconColor: 'var(--color-brand-primary)',
                   title: 'Decentralized Funding',
                   description: 'Enabling innovation through fair distribution'
                 }

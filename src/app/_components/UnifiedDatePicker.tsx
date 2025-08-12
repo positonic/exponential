@@ -50,21 +50,21 @@ const getNextWeekendDate = () => {
 };
 
 const quickOptions = [
-  { label: "Today", date: new Date(), icon: "📅", color: "#22c55e" },
+  { label: "Today", date: new Date(), icon: "📅", color: "var(--color-brand-success)" },
   {
     label: "Tomorrow",
     date: new Date(Date.now() + 86400000),
     icon: "☀️",
-    color: "#f97316",
+    color: "var(--color-brand-warning)",
   },
-  { label: "Next week", date: getNextWeekDate(), icon: "📝", color: "#a855f7" },
+  { label: "Next week", date: getNextWeekDate(), icon: "📝", color: "var(--color-brand-primary)" },
   {
     label: "Next weekend",
     date: getNextWeekendDate(),
     icon: "🛋️",
-    color: "#3b82f6",
+    color: "var(--color-brand-info)",
   },
-  { label: "No Date", date: null, icon: "⭕", color: "#6b7280" },
+  { label: "No Date", date: null, icon: "⭕", color: "var(--color-text-muted)" },
 ];
 
 export function UnifiedDatePicker({ 
@@ -168,8 +168,8 @@ export function UnifiedDatePicker({
     if (isToday) {
       return (
         <Group gap="xs">
-          <IconCalendar size={16} style={{ color: "#22c55e" }} />
-          <Text size="sm" c="#22c55e">
+          <IconCalendar size={16} style={{ color: "var(--color-brand-success)" }} />
+          <Text size="sm" style={{ color: "var(--color-brand-success)" }}>
             Today
           </Text>
           {onClear && <IconX size={14} />}

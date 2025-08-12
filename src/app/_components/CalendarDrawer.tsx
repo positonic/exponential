@@ -1,7 +1,7 @@
 "use client";
 
 import { Drawer, Text, ScrollArea, Stack, Paper, Group, Badge, ActionIcon, Button } from "@mantine/core";
-import { IconCalendar, IconClock, IconMapPin, IconX, IconExternalLink, IconList, IconCalendarTime } from "@tabler/icons-react";
+import { IconCalendar, IconClock, IconMapPin, IconExternalLink, IconList, IconCalendarTime } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { format, parseISO, startOfDay, endOfDay } from "date-fns";
 import { useState, useRef, useEffect } from "react";
@@ -113,10 +113,10 @@ function CalendarDrawerContent({ opened, onClose, selectedDate = new Date() }: C
       }
       styles={{
         content: {
-          backgroundColor: '#0a0a0a',
+          backgroundColor: 'var(--color-bg-elevated)',
         },
         header: {
-          backgroundColor: '#0a0a0a',
+          backgroundColor: 'var(--color-bg-elevated)',
           borderBottom: '1px solid var(--mantine-color-dark-6)',
           color: 'var(--mantine-color-white)',
         },

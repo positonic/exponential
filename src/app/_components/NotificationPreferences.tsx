@@ -21,10 +21,8 @@ import { notifications } from '@mantine/notifications';
 import {
   IconBell,
   IconClock,
-  IconCalendar,
   IconCheck,
   IconAlertCircle,
-  IconBellOff,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 

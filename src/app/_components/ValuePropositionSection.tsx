@@ -26,7 +26,7 @@ const FeatureDetailCard: React.FC<FeatureDetailCardProps> = ({
       {icon}
     </div>
     <h3 className="text-white text-2xl font-semibold mb-3">{title}</h3>
-    <p className="text-[#cbd5e1] leading-relaxed">{description}</p>
+    <p className="text-text-muted leading-relaxed">{description}</p>
   </div>
 );
 
@@ -47,22 +47,22 @@ export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = (
   const features = [
     {
       icon: <IconRocket size={32} stroke={1.5} />,
-      iconColor: "#fcd34d",
-      iconBgColor: "#170F24",
+      iconColor: "var(--color-brand-warning)",
+      iconBgColor: "var(--color-surface-secondary)",
       title: "Execution Acceleration",
       description: "Focus on shipping — AI guides your planning, task breakdown, and iteration."
     },
     {
       icon: <IconUsers size={32} stroke={1.5} />,
-      iconColor: "#93c5fd",
-      iconBgColor: "#0F1224",
+      iconColor: "var(--color-brand-info)",
+      iconBgColor: "var(--color-surface-secondary)",
       title: "AI Partner for Founders",
       description: "Work hand-in-hand with an intelligent assistant that helps organize your ideas and actions."
     },
     {
       icon: <IconCode size={32} stroke={1.5} />,
-      iconColor: "#6ee7b7",
-      iconBgColor: "#172033",
+      iconColor: "var(--color-brand-success)",
+      iconBgColor: "var(--color-surface-secondary)",
       title: "Seamless GitHub Integration",
       description: "Automatically syncs with your issues, milestones, and repositories."
     }
@@ -70,12 +70,12 @@ export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = (
 
   // Pass the id prop to the root section element
   return (
-    <section id={id} className="w-full py-24 bg-[#1E293B]">
+    <section id={id} className="w-full py-24 bg-background-secondary">
       <div className="max-w-[1400px] mx-auto px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
           <div className="flex flex-col justify-center">
             <div className="mb-6">
-              <span className="px-4 py-2 bg-[#1e293b] rounded-full text-[#a78bfa] text-sm font-medium">
+              <span className="px-4 py-2 bg-surface-secondary rounded-full text-brand-primary text-sm font-medium">
                 Why Use Exponential?
               </span>
             </div>
@@ -84,14 +84,14 @@ export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = (
               Your AI-Powered Product Execution Engine
             </Title>
 
-            <Text className="text-[#cbd5e1] text-xl mb-12 leading-relaxed">
+            <Text className="text-text-muted text-xl mb-12 leading-relaxed">
               Whether you&apos;re prototyping a side project or launching a startup solo, Exponential helps you stay focused, move faster, and build smarter — with the power of AI.
             </Text>
 
             <div className="space-y-3 mt-4">
               {benefits.map((benefit, index) => (
                 <div key={index} className="flex items-start mb-3">
-                  <div className="text-[#10b981] mr-3 mt-1 flex-shrink-0">
+                  <div className="text-brand-success mr-3 mt-1 flex-shrink-0">
                     <svg
                       width="20"
                       height="20"
@@ -113,7 +113,7 @@ export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = (
                       />
                     </svg>
                   </div>
-                  <span className="text-[#cbd5e1]">{benefit}</span>
+                  <span className="text-text-muted">{benefit}</span>
                 </div>
               ))}
             </div>

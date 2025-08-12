@@ -356,9 +356,9 @@ export function WhatsAppAnalyticsDashboard({ integrationId }: WhatsAppAnalyticsD
               <YAxis />
               <ChartTooltip />
               <Legend />
-              <Area type="monotone" dataKey="received" stackId="1" stroke="#82ca9d" fill="#82ca9d" />
-              <Area type="monotone" dataKey="sent" stackId="1" stroke="#8884d8" fill="#8884d8" />
-              <Area type="monotone" dataKey="failed" stackId="1" stroke="#ff7c7c" fill="#ff7c7c" />
+              <Area type="monotone" dataKey="received" stackId="1" stroke="var(--color-brand-success)" fill="var(--color-brand-success)" />
+              <Area type="monotone" dataKey="sent" stackId="1" stroke="var(--color-brand-primary)" fill="var(--color-brand-primary)" />
+              <Area type="monotone" dataKey="failed" stackId="1" stroke="var(--color-brand-error)" fill="var(--color-brand-error)" />
             </AreaChart>
           </ResponsiveContainer>
         </Paper>
@@ -377,14 +377,14 @@ export function WhatsAppAnalyticsDashboard({ integrationId }: WhatsAppAnalyticsD
                 yAxisId="left"
                 type="monotone"
                 dataKey="avgResponseTime"
-                stroke="#8884d8"
+                stroke="var(--color-brand-primary)"
                 name="Avg Response Time (ms)"
               />
               <Line
                 yAxisId="right"
                 type="monotone"
                 dataKey="errorRate"
-                stroke="#ff7c7c"
+                stroke="var(--color-brand-error)"
                 name="Error Rate (%)"
               />
             </LineChart>

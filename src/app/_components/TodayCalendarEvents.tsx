@@ -1,6 +1,6 @@
 "use client";
 
-import { Text, Paper, Group, Stack, Badge, Loader, Alert, Button } from "@mantine/core";
+import { Text, Paper, Group, Stack, Badge, Alert, Button } from "@mantine/core";
 import { IconCalendar, IconClock, IconMapPin, IconAlertCircle, IconRefresh, IconWifiOff } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { format, parseISO } from "date-fns";

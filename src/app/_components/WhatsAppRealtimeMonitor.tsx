@@ -441,7 +441,7 @@ export function WhatsAppRealtimeMonitor({
                   <Line 
                     type="monotone" 
                     dataKey="v" 
-                    stroke="#228be6" 
+                    stroke="var(--color-brand-primary)" 
                     strokeWidth={2}
                     dot={false}
                   />
@@ -459,7 +459,7 @@ export function WhatsAppRealtimeMonitor({
                   <Line 
                     type="monotone" 
                     dataKey="v" 
-                    stroke="#40c057" 
+                    stroke="var(--color-brand-success)" 
                     strokeWidth={2}
                     dot={false}
                   />
@@ -477,7 +477,7 @@ export function WhatsAppRealtimeMonitor({
                   <Line 
                     type="monotone" 
                     dataKey="v" 
-                    stroke="#fd7e14" 
+                    stroke="var(--color-brand-warning)" 
                     strokeWidth={2}
                     dot={false}
                   />
@@ -495,7 +495,7 @@ export function WhatsAppRealtimeMonitor({
                   <Line 
                     type="monotone" 
                     dataKey="v" 
-                    stroke="#fa5252" 
+                    stroke="var(--color-brand-error)" 
                     strokeWidth={2}
                     dot={false}
                   />

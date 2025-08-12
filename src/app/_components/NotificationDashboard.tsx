@@ -17,7 +17,6 @@ import {
   ThemeIcon,
   Tooltip,
   Select,
-  LoadingOverlay,
 } from '@mantine/core';
 import {
   IconBell,

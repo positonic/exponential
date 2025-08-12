@@ -17,9 +17,9 @@ export default async function Home() {
   const theme = themes[domain];
 
   return (
-    <div className="min-h-screen bg-[#0e1525] text-white">
+    <div className="min-h-screen bg-background-primary text-text-primary">
       {/* Navigation */}
-      <header className="relative z-10 flex justify-between items-center py-6 px-8 border-b" style={{ borderBottomColor: '#242b3d' }}>
+      <header className="relative z-10 flex justify-between items-center py-6 px-8 border-b border-border-primary">
         <div className="flex items-center">
           <LogoDisplay theme={theme} href="/" className="text-xl" />
         </div>
@@ -66,22 +66,22 @@ export default async function Home() {
               {[
                 {
                   icon: <IconRocket size={36} stroke={1.5} />,
-                  iconBg: '#2F2459',
-                  iconColor: '#B794F4',
+                  iconBg: 'var(--color-surface-secondary)',
+                  iconColor: 'var(--color-brand-primary)',
                   title: 'Product Execution Engine',
                   description: 'Go from idea to launch with AI-assisted planning and iteration.'
                 },
                 {
                   icon: <IconUsers size={36} stroke={1.5} />,
-                  iconBg: '#1E3A8A',
-                  iconColor: '#90CDF4',
+                  iconBg: 'var(--color-surface-secondary)',
+                  iconColor: 'var(--color-brand-info)',
                   title: "Solo Doesn't Mean Alone",
                   description: 'Work with your AI partner to build, track, and execute faster.'
                 },
                 {
                   icon: <IconCode size={36} stroke={1.5} />,
-                  iconBg: '#322659',
-                  iconColor: '#D6BCFA',
+                  iconBg: 'var(--color-surface-secondary)',
+                  iconColor: 'var(--color-brand-primary)',
                   title: 'Integrated With GitHub',
                   description: 'Sync issues, milestones, and development tasks effortlessly.'
                 }

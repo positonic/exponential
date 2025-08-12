@@ -64,16 +64,16 @@ export function mantineStyles(styles: {
 // Utility to check if a color is hardcoded
 export function isHardcodedColor(value: string): boolean {
   return /^#[0-9A-Fa-f]{3,8}$/.test(value) || 
-         /^rgb\(/.test(value) || 
-         /^rgba\(/.test(value);
+         value.startsWith('rgb(') || 
+         value.startsWith('rgba(');
 }
 
 // Development-only warning
 if (process.env.NODE_ENV === 'development') {
-  const originalCreateElement = document.createElement;
+  const originalCreateElement = document.createElement.bind(document);
   document.createElement = function(...args: Parameters<typeof document.createElement>) {
-    const element = originalCreateElement.apply(document, args);
-    const originalSetAttribute = element.setAttribute;
+    const element = originalCreateElement(...args);
+    const originalSetAttribute = element.setAttribute.bind(element);
     
     element.setAttribute = function(name: string, value: string) {
       if (name === 'style' && value.includes('#')) {

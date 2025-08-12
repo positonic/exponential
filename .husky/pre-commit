@@ -8,9 +8,10 @@ if ! bun test; then
   exit 1
 fi
 
-# Check for hardcoded colors
+# Check for hardcoded colors (excluding allowed files)
 echo "Checking for hardcoded colors..."
-if git diff --staged --name-only | grep -E '\.(tsx?|jsx?|css)$' | xargs grep -l -E '#[0-9A-Fa-f]{3,8}' 2>/dev/null; then
+ALLOWED_FILES="(colors\.ts|mantineTheme\.ts|globals\.css)"
+if git diff --staged --name-only | grep -E '\.(tsx?|jsx?|css)$' | grep -v -E "$ALLOWED_FILES" | xargs grep -l -E '(#[0-9A-Fa-f]{3}\b|#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{8}\b)' 2>/dev/null; then
   echo "❌ Error: Hardcoded hex colors found in staged files!"
   echo "Please use CSS variables or Tailwind classes instead."
   echo "See docs/styling-architecture.md for proper color usage."
