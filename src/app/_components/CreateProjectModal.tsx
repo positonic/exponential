@@ -295,7 +295,7 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
                 backgroundColor: 'var(--color-surface-secondary)',
                 borderColor: 'var(--color-border-primary)',
               },
-              item: {
+              option: {
                 // Style for dropdown items
                 '&[data-selected]': {
                   '&, &:hover': {
@@ -355,7 +355,7 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
                 backgroundColor: 'var(--color-surface-secondary)',
                 borderColor: 'var(--color-border-primary)',
               },
-              item: {
+              option: {
                 // Style for dropdown items
                 '&[data-selected]': {
                   '&, &:hover': {

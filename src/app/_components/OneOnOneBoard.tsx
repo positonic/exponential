@@ -2,23 +2,29 @@
 
 import { useState } from "react";
 import { api } from "~/trpc/react";
-import { Select, Text, Badge, Group, Progress, Title, Container, ScrollArea } from "@mantine/core";
+import { Select, Text, Group, Progress, Title, Container, ScrollArea } from "@mantine/core";
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { type RouterOutputs } from "~/trpc/react";
 import { ActionList } from "./ActionList";
+import { OutcomeMultiSelect } from "./OutcomeMultiSelect";
 
 type Project = RouterOutputs["project"]["getActiveWithDetails"][0];
 
 export function OneOnOneBoard() {
   const { data: projects, isLoading } = api.project.getActiveWithDetails.useQuery();
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [outcomeSearchValues, setOutcomeSearchValues] = useState<Record<string, string>>({});
   const utils = api.useUtils();
+  
+  // Fetch all outcomes for the dropdown
+  const { data: allOutcomes } = api.outcome.getMyOutcomes.useQuery();
   
   const updateProjectPriority = api.project.update.useMutation({
     onSuccess: () => {
       void utils.project.getActiveWithDetails.invalidate();
     },
   });
+
 
   const priorityOptions = [
     { value: "HIGH", label: "High" },
@@ -141,28 +147,22 @@ export function OneOnOneBoard() {
                       />
                     </td>
                     <td className="p-3">
-                      {project.outcomes && project.outcomes.length > 0 ? (
-                        <div className="space-y-1">
-                          {project.outcomes.map((outcome) => (
-                            <div key={outcome.id} className="flex items-center gap-2">
-                              <Badge 
-                                size="sm" 
-                                variant="light" 
-                                color="blue"
-                              >
-                                Weekly
-                              </Badge>
-                              <Text size="sm" className="text-text-primary">
-                                {outcome.description}
-                              </Text>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <Text size="sm" className="text-text-muted">
-                          No weekly outcomes
-                        </Text>
-                      )}
+                      <OutcomeMultiSelect
+                        projectId={project.id}
+                        projectName={project.name}
+                        projectStatus={project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED"}
+                        projectPriority={project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE"}
+                        currentOutcomes={project.outcomes || []}
+                        searchValue={outcomeSearchValues[project.id] || ''}
+                        onSearchChange={(value) => {
+                          setOutcomeSearchValues(prev => ({
+                            ...prev,
+                            [project.id]: value
+                          }));
+                        }}
+                        allOutcomes={allOutcomes || []}
+                        size="sm"
+                      />
                     </td>
                     <td className="p-3">
                       <Group gap="xs" align="center">

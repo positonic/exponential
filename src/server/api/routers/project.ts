@@ -321,6 +321,11 @@ export const projectRouter = createTRPCRouter({
             orderBy: {
               priority: 'asc',
             },
+            include: {
+              project: true,
+              syncs: true,
+              assignedTo: true,
+            },
           },
           outcomes: {
             where: {

@@ -7,11 +7,17 @@ import { type RouterOutputs } from "~/trpc/react";
 import { Select } from "@mantine/core";
 import { slugify } from "~/utils/slugify";
 import { IconEdit, IconTrash } from "@tabler/icons-react";
+import { OutcomeMultiSelect } from "./OutcomeMultiSelect";
 
 type Project = RouterOutputs["project"]["getAll"][0];
 
 function ProjectList({ projects }: { projects: Project[] }) {
+  const [outcomeSearchValues, setOutcomeSearchValues] = useState<Record<string, string>>({});
   const utils = api.useUtils();
+  
+  // Fetch all outcomes for the dropdown
+  const { data: allOutcomes } = api.outcome.getMyOutcomes.useQuery();
+  
   const deleteProject = api.project.delete.useMutation({
     onSuccess: () => {
       void utils.project.getAll.invalidate();
@@ -75,6 +81,7 @@ function ProjectList({ projects }: { projects: Project[] }) {
             <th className="px-4 py-2 text-left">Name</th>
             <th className="px-4 py-2 text-left">Status</th>
             <th className="px-4 py-2 text-left">Priority</th>
+            <th className="px-4 py-2 text-left">Outcomes</th>
             <th className="px-4 py-2 text-left">Actions</th>
           </tr>
         </thead>
@@ -135,6 +142,24 @@ function ProjectList({ projects }: { projects: Project[] }) {
                       border: 'none',
                     }
                   }}
+                />
+              </td>
+              <td className="px-4 py-2">
+                <OutcomeMultiSelect
+                  projectId={project.id}
+                  projectName={project.name}
+                  projectStatus={project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED"}
+                  projectPriority={project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE"}
+                  currentOutcomes={project.outcomes || []}
+                  searchValue={outcomeSearchValues[project.id] || ''}
+                  onSearchChange={(value) => {
+                    setOutcomeSearchValues(prev => ({
+                      ...prev,
+                      [project.id]: value
+                    }));
+                  }}
+                  allOutcomes={allOutcomes}
+                  size="xs"
                 />
               </td>
               <td className="px-4 py-2">

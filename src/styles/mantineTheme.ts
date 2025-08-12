@@ -512,6 +512,48 @@ const componentStyles = {
       },
     },
   },
+  
+  // MultiSelect component
+  MultiSelect: {
+    defaultProps: {
+      styles: {
+        input: {
+          backgroundColor: 'var(--color-bg-secondary)',
+          color: 'var(--color-text-primary)',
+          borderColor: 'var(--color-border-primary)',
+          '&:focus': {
+            borderColor: 'var(--color-border-focus)',
+          },
+        },
+        pill: {
+          backgroundColor: 'var(--color-surface-secondary)',
+          color: 'var(--color-text-primary)',
+          border: '1px solid var(--color-border-primary)',
+          '& .mantine-MultiSelect-defaultValueRemove': {
+            color: 'var(--color-text-secondary)',
+            '&:hover': {
+              color: 'var(--color-text-primary)',
+              backgroundColor: 'var(--color-surface-hover)',
+            },
+          },
+        },
+        dropdown: {
+          backgroundColor: 'var(--color-bg-elevated)',
+          borderColor: 'var(--color-border-primary)',
+        },
+        option: {
+          color: 'var(--color-text-primary)',
+          '&[data-selected]': {
+            backgroundColor: 'var(--color-brand-primary)',
+            color: 'var(--color-text-inverse)',
+          },
+          '&[data-hovered]': {
+            backgroundColor: 'var(--color-surface-hover)',
+          },
+        },
+      },
+    },
+  },
 };
 
 // Create theme
