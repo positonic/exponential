@@ -67,6 +67,9 @@ export function SidebarContent() {
             <NavLink href="/teams" icon={IconUsers}>
               My Teams
             </NavLink>
+            <NavLink href="/one-on-one" icon={IconUsers}>
+              One-on-One
+            </NavLink>
           </Accordion.Panel>
         </Accordion.Item>
 

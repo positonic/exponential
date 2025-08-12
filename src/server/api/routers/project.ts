@@ -295,6 +295,34 @@ export const projectRouter = createTRPCRouter({
       });
     }),
 
+  getActiveWithDetails: protectedProcedure
+    .query(async ({ ctx }) => {
+      return await ctx.db.project.findMany({
+        where: {
+          createdById: ctx.session.user.id,
+          status: "ACTIVE",
+        },
+        include: {
+          actions: {
+            orderBy: {
+              priority: 'asc',
+            },
+          },
+          outcomes: {
+            where: {
+              type: 'weekly',
+            },
+            orderBy: {
+              dueDate: 'asc',
+            },
+          },
+        },
+        orderBy: {
+          priority: 'asc',
+        },
+      });
+    }),
+
   getUnassignedProjects: protectedProcedure
     .query(async ({ ctx }) => {
       return ctx.db.project.findMany({
