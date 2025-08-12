@@ -41,15 +41,15 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
 
       <aside className={`
         w-screen sm:w-64 border-r border-border-primary flex flex-col 
-        max-h-screen sm:h-screen overflow-y-auto sm:overflow-y-visible
+        h-screen
         bg-background-secondary
         fixed sm:static inset-y-0 left-0 z-[95]
         transform transition-all duration-300 ease-in-out
         ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%]'}
         `}>
         
-        {/* Header with logo and close button - uses margin instead of padding */}
-        <div className="sticky top-0 bg-background-secondary px-4 py-4 flex items-center justify-between border-b border-border-primary mt-12 lg:mt-0">
+        {/* Header with logo and close button */}
+        <div className="flex-shrink-0 bg-background-secondary px-4 py-4 flex items-center justify-between border-b border-border-primary mt-12 lg:mt-0">
           <LogoDisplay 
             theme={theme} 
             href="/" 
@@ -66,7 +66,8 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           </button>
         </div>
         
-        <nav className="flex-grow px-1 py-4 space-y-6">
+        {/* Scrollable content area */}
+        <nav className="flex-1 overflow-y-auto px-1 py-4 space-y-6">
           <div className="space-y-2">
             <NavLinks />
           </div>
@@ -74,7 +75,8 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           <SidebarContent />
         </nav>
 
-        <div className="flex flex-col gap-2 border-t border-border-primary pt-4 px-4 pb-4">
+        {/* Fixed bottom section */}
+        <div className="flex-shrink-0 flex flex-col gap-2 border-t border-border-primary pt-4 px-4 pb-4">
           <Link
             href="https://github.com/positonic/ai-todo"
             onClick={() => setIsMenuOpen(false)}

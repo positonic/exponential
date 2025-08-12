@@ -75,7 +75,7 @@ export function OneOnOneBoard() {
 
   return (
     <Container size="xl" py="xl">
-      <Title order={2} mb="xl">One-on-One Board</Title>
+      <Title order={2} mb="xl">Weekly Review</Title>
       
       <ScrollArea>
         <table className="w-full border-collapse">
