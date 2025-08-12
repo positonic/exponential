@@ -23,6 +23,7 @@ import { calendarRouter } from "./routers/calendar";
 import { feedbackRouter } from "./routers/feedback";
 import { whatsappRouter } from "./routers/whatsapp";
 import { notificationRouter } from "./routers/notification";
+import { onboardingRouter } from "./routers/onboarding";
 /**
  * This is the primary router for your server.
  *
@@ -53,6 +54,7 @@ export const appRouter = createTRPCRouter({
   feedback: feedbackRouter,
   whatsapp: whatsappRouter,
   notification: notificationRouter,
+  onboarding: onboardingRouter,
 });
 
 // export type definition of API

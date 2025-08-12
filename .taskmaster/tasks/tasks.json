@@ -202,11 +202,159 @@
         ],
         "status": "done",
         "subtasks": []
+      },
+      {
+        "id": 11,
+        "title": "Add onboarding database schema fields",
+        "description": "Extend User table with onboarding fields (usageType, userRole, selectedTools, onboardingCompletedAt, onboardingStep)",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "details": "Schema has been successfully updated in Prisma with onboarding fields:\n- usageType: String? (for 'work' | 'personal' selection)\n- userRole: String? (role within organization for work usage)\n- selectedTools: String[] (array of selected tools/integrations)\n- onboardingCompletedAt: DateTime? (completion timestamp)\n- onboardingStep: Int @default(1) (current step in onboarding flow)\n\nNext step: User must run migration manually following CLAUDE.md guidelines:\n1. Run: npx prisma migrate dev --name add_user_onboarding_fields\n2. Run: npm run db:generate\n\nSchema changes are ready and waiting for migration execution.",
+        "testStrategy": "After user runs migration: verify migration runs successfully, check Prisma Studio shows new fields with correct types, test with seed data containing onboarding fields, verify database constraints work properly",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Request user to run database migration",
+            "description": "Ask user to manually run the migration commands to apply schema changes",
+            "status": "done",
+            "dependencies": [],
+            "details": "User needs to run: npx prisma migrate dev --name add_user_onboarding_fields && npm run db:generate",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Verify migration success",
+            "description": "Confirm migration applied successfully and Prisma client regenerated",
+            "status": "done",
+            "dependencies": [],
+            "details": "Check migration files created, verify Prisma client types updated, test database connection",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Create onboarding tRPC router with API endpoints",
+        "description": "Build tRPC router with procedures for each onboarding step (usage-type, role, tools, first-project)",
+        "details": "Create src/server/api/routers/onboarding.ts with procedures:\n- updateUsageType: Updates user's usage_type and advances step\n- updateRole: Updates user_role (conditional on work usage)\n- updateTools: Updates selected_tools array\n- completeOnboarding: Marks onboarding complete, creates first project\n- getStatus: Returns current onboarding step and data\n\nUse Zod schemas for validation, include proper error handling, follow existing tRPC patterns from other routers",
+        "testStrategy": "Unit tests for each procedure, test validation schemas, verify database updates, test step progression logic",
+        "priority": "high",
+        "dependencies": [
+          11
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 13,
+        "title": "Update authentication config to redirect new users to onboarding",
+        "description": "Modify auth callback to detect new users and redirect to onboarding flow instead of home",
+        "details": "Update src/server/auth/config.ts redirect callback:\n- Check if user has onboarding_completed_at field\n- If null, redirect to /onboarding\n- If completed, redirect to /home as current behavior\n- Add logic to detect truly new users (no previous actions/projects)\n\nMaintain existing redirect logic for existing users while routing new users through onboarding",
+        "testStrategy": "Test with new user signup, verify redirect to onboarding. Test with existing users, verify redirect to home. Test edge cases like incomplete onboarding",
+        "priority": "high",
+        "dependencies": [
+          12
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "Create onboarding page component with step 1 (Usage Type)",
+        "description": "Build /onboarding page with usage type selection (Work vs Personal) as the first step",
+        "details": "Create src/app/(sidemenu)/onboarding/page.tsx:\n- Welcome message with user's name\n- Two prominent Mantine Card components for Work/Personal\n- Use Paper, Title, Text, Button components\n- State management for selection\n- Call onboarding.updateUsageType tRPC procedure\n- Progress indicator showing step 1/4\n- Responsive design with mobile-first approach\n- Follow existing styling patterns with CSS variables",
+        "testStrategy": "Test UI responsiveness, verify tRPC calls, test validation, ensure proper navigation to next step, verify accessibility with screen readers",
+        "priority": "medium",
+        "dependencies": [
+          13
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "Implement step 2 (Role Specification) - conditional based on work selection",
+        "description": "Add role selection UI that only appears if user selected 'Work' in step 1",
+        "details": "Extend onboarding page with conditional role selection:\n- Mantine Select component with predefined roles\n- Options: Executive/C-Level, Manager/Team Lead, Project Manager, Developer/Engineer, Designer, Marketing/Sales, Operations, Consultant, Other\n- 'Other' option with TextInput for custom role\n- Skip option for users who prefer not to specify\n- Show only if usage_type is 'work'\n- Update progress indicator to 2/4\n- Call onboarding.updateRole procedure",
+        "testStrategy": "Test conditional rendering based on usage type, verify role options work correctly, test custom role input, verify skip functionality, test navigation flow",
+        "priority": "medium",
+        "dependencies": [
+          14
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 16,
+        "title": "Implement step 3 (Tool Integration Selection)",
+        "description": "Create tool selection interface with popular productivity, communication, and project management tools",
+        "details": "Add tool selection step with:\n- Grid layout using Mantine SimpleGrid\n- Checkbox components for each tool category:\n  * Productivity: Notion, Obsidian, Roam Research\n  * Communication: Slack, Discord, Microsoft Teams\n  * Project Management: Asana, Trello, Jira, Monday.com\n  * Development: GitHub, GitLab, Linear\n  * Calendar: Google Calendar, Outlook, Apple Calendar\n  * Design: Figma, Adobe Creative Suite\n- 'Other' TextInput for custom tools\n- 'Skip for now' option\n- Store selections as string array\n- Progress indicator 3/4",
+        "testStrategy": "Test multi-selection functionality, verify custom tool input, test skip option, ensure proper data format for storage, test responsive grid layout",
+        "priority": "medium",
+        "dependencies": [
+          15
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 17,
+        "title": "Implement step 4 (First Project Creation)",
+        "description": "Create project creation form as final onboarding step with templates and completion flow",
+        "details": "Build final onboarding step:\n- Project creation form with fields: name (required), description (optional), priority (default: Medium), status (default: Active)\n- Template selection:\n  * Personal Goal Tracking\n  * Work Project Management\n  * Learning & Development\n  * Start from scratch\n- Use existing project creation logic from CreateProjectModal\n- On success: call onboarding.completeOnboarding\n- Redirect to /home with success notification\n- Progress indicator 4/4",
+        "testStrategy": "Test form validation, verify template functionality, test project creation integration, verify onboarding completion, test final redirect with success message",
+        "priority": "medium",
+        "dependencies": [
+          16
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 18,
+        "title": "Add onboarding router to main tRPC router and update middleware",
+        "description": "Register the new onboarding router in the main tRPC setup and ensure proper route protection",
+        "details": "Update src/server/api/root.ts:\n- Import onboardingRouter\n- Add to router exports as 'onboarding'\n- Ensure onboarding routes are properly protected with protectedProcedure\n- Update type exports for frontend consumption\n\nVerify middleware chain works correctly for onboarding endpoints",
+        "testStrategy": "Test tRPC client can access onboarding procedures, verify authentication protection works, test type safety on frontend, verify proper error handling",
+        "priority": "medium",
+        "dependencies": [
+          12
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 19,
+        "title": "Add onboarding progress tracking and navigation logic",
+        "description": "Implement step management, progress tracking, and navigation between onboarding steps",
+        "details": "Add onboarding state management:\n- Create onboarding context or use React Query for state\n- Progress indicator component showing current step\n- Navigation between steps with Next/Back buttons\n- Step validation before proceeding\n- Resume functionality if user leaves and returns\n- Handle edge cases (direct URL access, browser back button)\n- Breadcrumb navigation showing step names\n\nUse Mantine Stepper component for visual progress indication",
+        "testStrategy": "Test navigation between all steps, verify progress persistence, test edge cases like direct URL access, verify step validation works, test resume functionality",
+        "priority": "medium",
+        "dependencies": [
+          17,
+          18
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 20,
+        "title": "Add post-onboarding home page enhancements and success messaging",
+        "description": "Update home page to show onboarding completion status and provide contextual next steps for new users",
+        "details": "Enhance home page experience for newly onboarded users:\n- Add welcome banner for recently completed onboarding\n- Personalized recommendations based on selected tools and role\n- Highlight first project created during onboarding\n- Show integration setup suggestions based on tool selections\n- Add tooltip hints for key features\n- Success notification on first visit after onboarding\n\nUse Mantine notifications and conditional rendering based on onboarding data",
+        "testStrategy": "Test personalized content shows correctly, verify recommendations match user selections, test notification timing, verify first-time user experience improvements",
+        "priority": "low",
+        "dependencies": [
+          19
+        ],
+        "status": "done",
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2025-08-08T09:34:08.466Z",
-      "updated": "2025-08-10T09:40:17.514Z",
+      "updated": "2025-08-12T14:00:25.744Z",
       "description": "Tasks for master context"
     }
   },
