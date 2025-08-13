@@ -214,20 +214,30 @@ export function OutcomeMultiSelect({
   });
 
   // Build outcome data with create option
-  const outcomeData = allOutcomes.map(outcome => ({ 
+  const allOutcomeData = allOutcomes.map(outcome => ({ 
     value: outcome.id, 
     label: outcome.description 
   }));
   
   // Add current outcomes that might not be in allOutcomes (in case of data inconsistency)
   currentOutcomes.forEach(outcome => {
-    if (!outcomeData.find(o => o.value === outcome.id)) {
-      outcomeData.push({
+    if (!allOutcomeData.find(o => o.value === outcome.id)) {
+      allOutcomeData.push({
         value: outcome.id,
         label: outcome.description
       });
     }
   });
+  
+  // Sort outcomes to show selected ones first
+  const selectedOutcomeIds = new Set(currentOutcomes.map(o => o.id));
+  const selectedOutcomes = allOutcomeData
+    .filter(o => selectedOutcomeIds.has(o.value))
+    .map(o => ({ ...o, label: `✓ ${o.label}` })); // Add checkmark to selected items
+  const unselectedOutcomes = allOutcomeData.filter(o => !selectedOutcomeIds.has(o.value));
+  
+  // Combine with selected outcomes first
+  const outcomeData = [...selectedOutcomes, ...unselectedOutcomes];
   
   // Add create option if there's a search value
   if (searchValue.trim()) {
