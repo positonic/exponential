@@ -76,4 +76,7 @@ pnpm-lock.yaml
 
 # Task files
 # tasks.json
-# tasks/ 
+# tasks/
+
+# Git worktrees (local development only)
+.worktrees/ 
