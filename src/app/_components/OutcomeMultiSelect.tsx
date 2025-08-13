@@ -44,7 +44,9 @@ export function OutcomeMultiSelect({
       
       // Optimistically update the data
       if (outcomeIds) {
-        const updatedOutcomes = allOutcomes.filter(o => outcomeIds.includes(o.id));
+        // Get the latest outcomes from cache instead of using stale prop
+        const latestAllOutcomes = utils.outcome.getMyOutcomes.getData() || [];
+        const updatedOutcomes = latestAllOutcomes.filter(o => outcomeIds.includes(o.id));
         
         utils.project.getActiveWithDetails.setData(undefined, (old) => {
           if (!old) return old;
@@ -145,8 +147,12 @@ export function OutcomeMultiSelect({
           return old.map(o => o.id === tempId ? newOutcome : o);
         });
         
-        // Update project outcomes with the real outcome
-        const updatedOutcomes = currentOutcomes.map(o => o).concat(newOutcome);
+        // Get the current project outcomes from cache (which includes temp outcome)
+        const currentProject = utils.project.getActiveWithDetails.getData()?.find(p => p.id === projectId);
+        const projectOutcomes = currentProject?.outcomes || [];
+        
+        // Replace temp outcome with real outcome
+        const updatedOutcomes = projectOutcomes.filter(o => o.id !== tempId).concat(newOutcome);
         
         utils.project.getActiveWithDetails.setData(undefined, (old) => {
           if (!old) return old;
@@ -175,11 +181,6 @@ export function OutcomeMultiSelect({
           priority: projectPriority,
           outcomeIds,
         }, {
-          onMutate: () => {
-            // Skip the default optimistic update since we've already updated the cache correctly
-            // Just return empty context to prevent the default behavior
-            return {};
-          },
           onSuccess: () => {
             // Show notification
             notifications.show({
