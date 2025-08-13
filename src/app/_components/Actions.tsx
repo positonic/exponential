@@ -3,6 +3,7 @@
 import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
+import { KanbanBoard } from './KanbanBoard';
 import { IconLayoutKanban, IconList } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
 import { useState, useEffect } from "react";
@@ -14,13 +15,14 @@ type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'li
 
 interface ActionsProps {
   viewName: string;
-  defaultView?: 'list' | 'alignment';
+  defaultView?: 'list' | 'alignment' | 'kanban';
   projectId?: string;
   displayAlignment?: boolean;
 }
 
 export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
+  const [isKanbanMode, setIsKanbanMode] = useState(defaultView === 'kanban');
 
   // Conditionally fetch actions based on projectId
   const actionsQuery = projectId
@@ -122,11 +124,12 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   console.log("outcomes are ", outcomes.data);
   useEffect(() => {
     setIsAlignmentMode(defaultView === 'alignment');
+    setIsKanbanMode(defaultView === 'kanban');
   }, [defaultView]);
 
   console.log("outcomes are ", outcomes.data);
   // Filter outcomes for today
-  const todayOutcomes = outcomes.data?.filter(outcome => {
+  const todayOutcomes = outcomes.data?.filter((outcome: any) => {
     if (!outcome.dueDate) return false;
     const dueDate = new Date(outcome.dueDate);
     const today = new Date();
@@ -138,7 +141,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   });
 
   // Filter outcomes for this week (excluding today)
-  const weeklyOutcomes = outcomes.data?.filter(outcome => {
+  const weeklyOutcomes = outcomes.data?.filter((outcome: any) => {
     if (!outcome.dueDate) return false;
     const dueDate = new Date(outcome.dueDate);
     const today = new Date();
@@ -165,26 +168,55 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
   return (
     <div className="w-full max-w-3xl mx-auto">
-      {/* Alignment View Toggle - moved to standalone button */}
-      {displayAlignment && (
-        <Paper withBorder radius="sm" mb="md" p="md">
-          <Group justify="space-between" align="center">
-            <Text size="sm" c="dimmed">
-              View Options
-            </Text>
-            <Button
-              variant="subtle"
-              size="sm"
-              onClick={() => setIsAlignmentMode(!isAlignmentMode)}
-            >
-              <Group gap="xs">
-                {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
-                {isAlignmentMode ? 'Task View' : 'Alignment View'}
-              </Group>
-            </Button>
+      {/* View Toggle Buttons */}
+      <Paper withBorder radius="sm" mb="md" p="md">
+        <Group justify="space-between" align="center">
+          <Text size="sm" c="dimmed">
+            View Options
+          </Text>
+          <Group gap="xs">
+            {/* List/Kanban toggle - only show for projects */}
+            {projectId && (
+              <>
+                <Button
+                  variant={!isKanbanMode ? "filled" : "subtle"}
+                  size="sm"
+                  onClick={() => setIsKanbanMode(false)}
+                >
+                  <Group gap="xs">
+                    <IconList size={16} />
+                    List
+                  </Group>
+                </Button>
+                <Button
+                  variant={isKanbanMode ? "filled" : "subtle"}
+                  size="sm"
+                  onClick={() => setIsKanbanMode(true)}
+                >
+                  <Group gap="xs">
+                    <IconLayoutKanban size={16} />
+                    Kanban
+                  </Group>
+                </Button>
+              </>
+            )}
+            
+            {/* Alignment toggle */}
+            {displayAlignment && (
+              <Button
+                variant="subtle"
+                size="sm"
+                onClick={() => setIsAlignmentMode(!isAlignmentMode)}
+              >
+                <Group gap="xs">
+                  {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
+                  {isAlignmentMode ? 'Task View' : 'Alignment View'}
+                </Group>
+              </Button>
+            )}
           </Group>
-        </Paper>
-      )}
+        </Group>
+      </Paper>
 
       {isAlignmentMode && (
         <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-surface-secondary border border-border-primary">
@@ -198,7 +230,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               What will make today great?
             </Title>
             <Stack gap="xs">
-              {todayOutcomes?.map((outcome) => (
+              {todayOutcomes?.map((outcome: any) => (
                 <CreateOutcomeModal
                   key={outcome.id}
                   outcome={{
@@ -234,7 +266,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               What would make this week great?
             </Title>
             <Stack gap="xs">
-              {weeklyOutcomes?.map((outcome) => (
+              {weeklyOutcomes?.map((outcome: any) => (
                 <CreateOutcomeModal
                   key={outcome.id}
                   outcome={{
@@ -291,14 +323,21 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         </Paper>
       )}
       
-      {/* Pass the fetched actions data to ActionList */}
-      <ActionList 
-        viewName={viewName} 
-        actions={actions ?? []} 
-        enableBulkEditForOverdue={!projectId} // Only enable for non-project pages
-        onOverdueBulkAction={!projectId ? handleOverdueBulkAction : undefined}
-        onOverdueBulkReschedule={!projectId ? handleOverdueBulkReschedule : undefined}
-      />
+      {/* Conditional rendering of List or Kanban view */}
+      {projectId && isKanbanMode ? (
+        <KanbanBoard 
+          projectId={projectId}
+          actions={actions ?? []} 
+        />
+      ) : (
+        <ActionList 
+          viewName={viewName} 
+          actions={actions ?? []} 
+          enableBulkEditForOverdue={!projectId} // Only enable for non-project pages
+          onOverdueBulkAction={!projectId ? handleOverdueBulkAction : undefined}
+          onOverdueBulkReschedule={!projectId ? handleOverdueBulkReschedule : undefined}
+        />
+      )}
       <div className="mt-6">
         <CreateActionModal viewName={viewName} projectId={projectId}/>
       </div>
