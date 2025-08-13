@@ -78,7 +78,7 @@ export function SidebarContent() {
               My Teams
             </NavLink>
             <NavLink href="/weekly-review" icon={IconUsers}>
-              Weekly Review
+              Weekly Project Review
             </NavLink>
           </Accordion.Panel>
         </Accordion.Item>
