@@ -284,7 +284,6 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             searchable
             clearable
             maxDropdownHeight={300}
-            nothingFound="Type to create a new goal"
             styles={{
               input: {
                 backgroundColor: 'var(--color-surface-secondary)',
@@ -343,7 +342,6 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             searchable
             clearable
             maxDropdownHeight={300}
-            nothingFound="Type to create a new outcome"
             mt="md"
             styles={{
               input: {

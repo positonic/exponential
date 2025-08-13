@@ -52,18 +52,32 @@ export function OutcomeMultiSelect({
           if (!old) return old;
           return old.map(p => 
             p.id === projectId 
-              ? { ...p, outcomes: updatedOutcomes }
+              ? { ...p, outcomes: updatedOutcomes.map(outcome => ({
+                  id: outcome.id,
+                  description: outcome.description,
+                  dueDate: outcome.dueDate,
+                  userId: null,
+                  type: outcome.type,
+                  projectId: projectId
+                })) }
               : p
-          );
+          ) as any;
         });
         
         utils.project.getAll.setData(undefined, (old) => {
           if (!old) return old;
           return old.map(p => 
             p.id === projectId 
-              ? { ...p, outcomes: updatedOutcomes }
+              ? { ...p, outcomes: updatedOutcomes.map(outcome => ({
+                  id: outcome.id,
+                  description: outcome.description,
+                  dueDate: outcome.dueDate,
+                  userId: null,
+                  type: outcome.type,
+                  projectId: projectId
+                })) }
               : p
-          );
+          ) as any;
         });
       }
       
@@ -101,6 +115,8 @@ export function OutcomeMultiSelect({
         createdById: '',
         createdAt: new Date(),
         updatedAt: new Date(),
+        goals: [],
+        projects: []
       };
       
       // Optimistically add to all outcomes
@@ -117,18 +133,32 @@ export function OutcomeMultiSelect({
         if (!old) return old;
         return old.map(p => 
           p.id === projectId 
-            ? { ...p, outcomes: newOutcomes }
+            ? { ...p, outcomes: newOutcomes.map(outcome => ({
+                id: outcome.id,
+                description: outcome.description,
+                dueDate: outcome.dueDate,
+                userId: null,
+                type: outcome.type,
+                projectId: projectId
+              })) }
             : p
-        );
+        ) as any;
       });
       
       utils.project.getAll.setData(undefined, (old) => {
         if (!old) return old;
         return old.map(p => 
           p.id === projectId 
-            ? { ...p, outcomes: newOutcomes }
+            ? { ...p, outcomes: newOutcomes.map(outcome => ({
+                id: outcome.id,
+                description: outcome.description,
+                dueDate: outcome.dueDate,
+                userId: null,
+                type: outcome.type,
+                projectId: projectId
+              })) }
             : p
-        );
+        ) as any;
       });
       
       // Clear search immediately
