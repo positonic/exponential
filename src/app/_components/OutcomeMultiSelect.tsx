@@ -78,7 +78,8 @@ export function OutcomeMultiSelect({
       }
     },
     onSettled: () => {
-      // Silently refetch in the background
+      // Default behavior - invalidate queries
+      // This can be overridden when calling the mutation
       void utils.project.getActiveWithDetails.invalidate();
       void utils.project.getAll.invalidate();
     },
@@ -131,14 +132,42 @@ export function OutcomeMultiSelect({
       // Clear search immediately
       onSearchChange('');
       
-      return { tempId, currentOutcomeIds };
+      return { tempId, currentOutcomeIds, tempOutcome };
     },
     onSuccess: (newOutcome, _variables, context) => {
-      // Update with the real outcome ID
       if (context) {
-        const outcomeIds = [...context.currentOutcomeIds, newOutcome.id];
+        // Replace temp outcome with real outcome in the cache
+        const { tempId, currentOutcomeIds } = context;
         
-        // Silently update the project with the real outcome (no notification)
+        // Update all outcomes with the real ID
+        utils.outcome.getMyOutcomes.setData(undefined, (old) => {
+          if (!old) return [newOutcome];
+          return old.map(o => o.id === tempId ? newOutcome : o);
+        });
+        
+        // Update project outcomes with the real outcome
+        const updatedOutcomes = currentOutcomes.map(o => o).concat(newOutcome);
+        
+        utils.project.getActiveWithDetails.setData(undefined, (old) => {
+          if (!old) return old;
+          return old.map(p => 
+            p.id === projectId 
+              ? { ...p, outcomes: updatedOutcomes }
+              : p
+          );
+        });
+        
+        utils.project.getAll.setData(undefined, (old) => {
+          if (!old) return old;
+          return old.map(p => 
+            p.id === projectId 
+              ? { ...p, outcomes: updatedOutcomes }
+              : p
+          );
+        });
+        
+        // Now update the project with the real outcome IDs
+        const outcomeIds = [...currentOutcomeIds, newOutcome.id];
         updateProject.mutate({
           id: projectId,
           name: projectName,
@@ -146,31 +175,41 @@ export function OutcomeMultiSelect({
           priority: projectPriority,
           outcomeIds,
         }, {
+          onMutate: () => {
+            // Skip the default optimistic update since we've already updated the cache correctly
+            // Just return empty context to prevent the default behavior
+            return {};
+          },
           onSuccess: () => {
-            // Only show one notification for the entire operation
+            // Show notification
             notifications.show({
               title: 'Outcome created',
               message: `${newOutcome.description} has been added to ${projectName}`,
               color: 'green',
             });
+          },
+          onSettled: () => {
+            // Override default onSettled to invalidate all queries once
+            void utils.outcome.getMyOutcomes.invalidate();
+            void utils.project.getActiveWithDetails.invalidate();
+            void utils.project.getAll.invalidate();
           }
         });
       }
     },
     onError: (error) => {
-      // Rollback will happen automatically through invalidation
+      // Invalidate to rollback optimistic updates
+      void utils.outcome.getMyOutcomes.invalidate();
+      void utils.project.getActiveWithDetails.invalidate();
+      void utils.project.getAll.invalidate();
+      
       notifications.show({
         title: 'Failed to create outcome',
         message: error.message,
         color: 'red',
       });
     },
-    onSettled: () => {
-      // Refetch to ensure consistency
-      void utils.outcome.getMyOutcomes.invalidate();
-      void utils.project.getActiveWithDetails.invalidate();
-      void utils.project.getAll.invalidate();
-    },
+    // Remove onSettled - we'll invalidate after project update succeeds
   });
 
   // Build outcome data with create option
