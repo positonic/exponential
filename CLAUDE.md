@@ -242,6 +242,13 @@ Always ensure code follows the project's ESLint rules and TypeScript configurati
 - `[TRPC]` - API call performance and execution logs
 - `❌ tRPC failed` - API errors and failures
 
+## Git Worktree Workflow
+For parallel feature development using git worktrees, see the comprehensive guide at `/docs/git-worktree-workflow.md`. This includes:
+- Claude Code custom commands for worktree management
+- Step-by-step instructions for feature development
+- Best practices and common gotchas
+- Example implementation (outcomes delete feature)
+
 ## Task Master AI Instructions
 **Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
 @./.taskmaster/CLAUDE.md
