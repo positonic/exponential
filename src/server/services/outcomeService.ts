@@ -86,4 +86,53 @@ export const updateOutcome = async ({ ctx, input }: { ctx: Context, input: Updat
       goals: true,
     },
   });
+};
+
+export const deleteOutcome = async ({ ctx, input }: { ctx: Context, input: { id: string } }) => {
+  if (!ctx.session?.user?.id) {
+    throw new Error("User not authenticated");
+  }
+
+  // First verify the outcome belongs to the user
+  const existingOutcome = await ctx.db.outcome.findFirst({
+    where: {
+      id: input.id,
+      userId: ctx.session.user.id,
+    },
+  });
+
+  if (!existingOutcome) {
+    throw new Error("Outcome not found or unauthorized");
+  }
+
+  return await ctx.db.outcome.delete({
+    where: {
+      id: input.id,
+    },
+  });
+};
+
+export const deleteOutcomes = async ({ ctx, input }: { ctx: Context, input: { ids: string[] } }) => {
+  if (!ctx.session?.user?.id) {
+    throw new Error("User not authenticated");
+  }
+
+  // Verify all outcomes belong to the user
+  const outcomes = await ctx.db.outcome.findMany({
+    where: {
+      id: { in: input.ids },
+      userId: ctx.session.user.id,
+    },
+  });
+
+  if (outcomes.length !== input.ids.length) {
+    throw new Error("Some outcomes not found or unauthorized");
+  }
+
+  return await ctx.db.outcome.deleteMany({
+    where: {
+      id: { in: input.ids },
+      userId: ctx.session.user.id,
+    },
+  });
 }; 
