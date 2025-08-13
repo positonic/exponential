@@ -153,7 +153,7 @@ export function OneOnOneBoard() {
                         projectName={project.name}
                         projectStatus={project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED"}
                         projectPriority={project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE"}
-                        currentOutcomes={project.outcomes || []}
+                        currentOutcomes={allOutcomes?.filter(o => project.outcomes?.some(po => po.id === o.id)) || []}
                         searchValue={outcomeSearchValues[project.id] || ''}
                         onSearchChange={(value) => {
                           setOutcomeSearchValues(prev => ({
@@ -209,7 +209,7 @@ export function OneOnOneBoard() {
       
       <div className="mt-12 p-6 bg-surface-secondary rounded-lg border border-border-primary max-w-4xl mx-auto">
         <Text size="sm" className="text-text-secondary leading-relaxed">
-          The Weekly Review originates from David Allen's "Getting Things Done" methodology, first published in 2001. 
+          The Weekly Review originates from David Allen&apos;s &quot;Getting Things Done&quot; methodology, first published in 2001. 
           In his framework, this sacred one-hour ritual serves as a weekly touchstone—a dedicated time to survey the 
           landscape of your commitments, recalibrate priorities, and identify the essential next actions for each project. 
           This augmented interpretation adapts those timeless principles to our modern collaborative context, enabling 

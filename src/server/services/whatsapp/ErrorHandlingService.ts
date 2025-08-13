@@ -132,7 +132,6 @@ export class WhatsAppErrorHandlingService {
     phoneNumber: string,
     configId: string
   ): Promise<boolean> {
-    const rateLimitKey = `whatsapp:ratelimit:${phoneNumber}`;
     const now = Date.now();
     
     // Check recent message count (in-memory for now, could use Redis)

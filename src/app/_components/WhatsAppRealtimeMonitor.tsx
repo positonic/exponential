@@ -38,7 +38,7 @@ import {
 import { api } from '~/trpc/react';
 import { formatDistanceToNow } from 'date-fns';
 import { notifications } from '@mantine/notifications';
-import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
+import { LineChart, Line, ResponsiveContainer } from 'recharts';
 
 interface WhatsAppRealtimeMonitorProps {
   integrationId: string;
@@ -69,7 +69,7 @@ export function WhatsAppRealtimeMonitor({
   const [activeConversations, setActiveConversations] = useState(0);
   const [messagesPerMinute, setMessagesPerMinute] = useState(0);
   const [alertsEnabled, setAlertsEnabled] = useState(true);
-  const [isConnected, setIsConnected] = useState(true);
+  const [isConnected] = useState(true);
   const [performanceHistory, setPerformanceHistory] = useState<{
     mpm: number[];
     responseTime: number[];
@@ -81,7 +81,6 @@ export function WhatsAppRealtimeMonitor({
     queueSize: Array(20).fill(0),
     errorRate: Array(20).fill(0),
   });
-  const eventSourceRef = useRef<EventSource | null>(null);
 
   // Get real-time data via polling (WebSocket alternative)
   const { data: health, refetch: refetchHealth } = api.integration.getWhatsAppHealth.useQuery(
@@ -365,7 +364,7 @@ export function WhatsAppRealtimeMonitor({
             </Group>
             <ScrollArea h={300}>
               <Timeline active={messageEvents.length} bulletSize={20} lineWidth={2}>
-                {messageEvents.map((event, index) => (
+                {messageEvents.map((event) => (
                   <Timeline.Item
                     key={event.id}
                     bullet={getEventIcon(event.type)}

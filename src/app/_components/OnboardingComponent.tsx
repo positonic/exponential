@@ -161,7 +161,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
         color: 'green',
         icon: <IconCheck size={16} />
       });
-    } catch (error) {
+    } catch {
       notifications.show({
         title: 'Error',
         message: 'Failed to save your selection. Please try again.',
@@ -184,7 +184,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
         color: 'green',
         icon: <IconCheck size={16} />
       });
-    } catch (error) {
+    } catch {
       notifications.show({
         title: 'Error',
         message: 'Failed to save your role. Please try again.',
@@ -200,7 +200,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
     try {
       await updateRole.mutateAsync({ userRole: undefined });
       setCurrentStep(3);
-    } catch (error) {
+    } catch {
       notifications.show({
         title: 'Error',
         message: 'Failed to skip role selection. Please try again.',
@@ -223,7 +223,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
         color: 'green',
         icon: <IconCheck size={16} />
       });
-    } catch (error) {
+    } catch {
       notifications.show({
         title: 'Error',
         message: 'Failed to save your tools. Please try again.',
@@ -266,7 +266,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
         router.push('/home');
       }, 2000);
       
-    } catch (error) {
+    } catch {
       notifications.show({
         title: 'Error',
         message: 'Failed to complete onboarding. Please try again.',

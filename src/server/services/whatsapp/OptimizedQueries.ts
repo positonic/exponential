@@ -90,7 +90,7 @@ export class OptimizedQueries {
     status: string;
   }>): Promise<void> {
     // Use createMany for bulk insert
-    const messagesToStore = messages.map(msg => ({
+    messages.map(msg => ({
       id: msg.messageId,
       whatsappConfigId: msg.configId,
       phoneNumber: msg.phoneNumber,

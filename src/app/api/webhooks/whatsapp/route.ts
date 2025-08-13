@@ -12,8 +12,6 @@ import { messageQueue } from "~/server/services/whatsapp/MessageQueue";
 import { OptimizedQueries } from "~/server/services/whatsapp/OptimizedQueries";
 import { WhatsAppPermissionService, WhatsAppPermission } from "~/server/services/whatsapp/PermissionService";
 import { WhatsAppSecurityAuditService, SecurityEventType } from "~/server/services/whatsapp/SecurityAuditService";
-import { WhatsAppAnalyticsService } from "~/server/services/whatsapp/AnalyticsService";
-import { WhatsAppRateLimitService } from "~/server/services/whatsapp/RateLimitService";
 import type { User } from '@prisma/client';
 
 // WhatsApp webhook verification
@@ -161,9 +159,9 @@ export async function POST(request: NextRequest) {
                 await handleIncomingMessage(change.value, config.id, config.integrationId);
               }
             } else if (change.field === 'message_template_status_update') {
-              await handleTemplateStatusUpdate(change.value, config.id, config.integrationId);
+              await handleTemplateStatusUpdate(change.value);
             } else if (change.field === 'statuses') {
-              await handleMessageStatusUpdate(change.value, config.id, config.integrationId);
+              await handleMessageStatusUpdate(change.value);
             }
           }
         }
@@ -379,7 +377,6 @@ async function processTextMessage(configId: string, message: any) {
     }
 
     // Route to AI assistant with circuit breaker and track performance
-    const aiProcessingStart = Date.now();
     const aiResponse = await circuitBreakers.aiProcessing.execute(
       async () => processAIMessage(
         phoneMapping.user, 
@@ -388,7 +385,6 @@ async function processTextMessage(configId: string, message: any) {
         configId
       )
     );
-    const aiProcessingTime = Date.now() - aiProcessingStart;
     
     // Track performance metric
     // TODO: Implement trackPerformanceMetric method in WhatsAppAnalyticsService
@@ -525,7 +521,7 @@ async function markMessageAsRead(integrationId: string, phoneNumberId: string, m
 }
 
 // Handle template status updates
-async function handleTemplateStatusUpdate(value: any, configId: string, integrationId: string) {
+async function handleTemplateStatusUpdate(value: any) {
   try {
     console.log('Template status update:', value);
     
@@ -536,7 +532,7 @@ async function handleTemplateStatusUpdate(value: any, configId: string, integrat
 }
 
 // Handle message status updates (delivery receipts)
-async function handleMessageStatusUpdate(value: any, configId: string, integrationId: string) {
+async function handleMessageStatusUpdate(value: any) {
   try {
     if (!value.statuses || !Array.isArray(value.statuses)) {
       return;
@@ -647,8 +643,6 @@ async function processAIMessage(user: User, message: string, phoneNumber: string
       modelKwargs: { "tool_choice": "auto" }
     });
 
-    // Get user's projects with caching
-    const projects = await OptimizedQueries.getUserProjects(user.id);
 
     // Create tools for this user
     const actionTools = createActionTools({ db, session: { user } });

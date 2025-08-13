@@ -150,7 +150,7 @@ function ProjectList({ projects }: { projects: Project[] }) {
                   projectName={project.name}
                   projectStatus={project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED"}
                   projectPriority={project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE"}
-                  currentOutcomes={project.outcomes || []}
+                  currentOutcomes={allOutcomes?.filter(o => project.outcomes?.some(po => po.id === o.id)) || []}
                   searchValue={outcomeSearchValues[project.id] || ''}
                   onSearchChange={(value) => {
                     setOutcomeSearchValues(prev => ({

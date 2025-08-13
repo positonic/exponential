@@ -1,14 +1,14 @@
 'use client';
 
-import { Container, Title, Text, Box, List, Stack, Divider, Paper, ThemeIcon, Group, Anchor, ScrollArea, Grid } from '@mantine/core';
-import { IconCheck, IconBulb, IconTarget, IconCalendar, IconRefresh, IconArrowRight } from '@tabler/icons-react';
+import { Container, Title, Text, Box, List, Stack, Divider, Paper, ThemeIcon, Group, Anchor, Grid } from '@mantine/core';
+import { IconCheck, IconBulb, IconTarget, IconCalendar, IconRefresh } from '@tabler/icons-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 
 export default function WeeklyReviewPage() {
   const [activeSection, setActiveSection] = useState('introduction');
 
-  const sections = [
+  const sections = useMemo(() => [
     { id: 'introduction', label: 'Introduction' },
     { id: 'what-is', label: 'What is the Weekly Review?' },
     { id: 'three-pillars', label: 'The Three Pillars' },
@@ -17,7 +17,7 @@ export default function WeeklyReviewPage() {
     { id: 'practical-tips', label: 'Practical Tips' },
     { id: 'benefits', label: 'Why It Works' },
     { id: 'get-started', label: 'Get Started' },
-  ];
+  ], []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -39,7 +39,7 @@ export default function WeeklyReviewPage() {
 
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [sections]);
 
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
@@ -89,7 +89,7 @@ export default function WeeklyReviewPage() {
             <Title order={1} mb="xl" className="text-text-primary">The Weekly Review: Your Strategic Productivity Ritual</Title>
             
             <Text size="lg" className="text-text-secondary mb-8 leading-relaxed">
-              In our hyperconnected world, it's easy to lose sight of the forest for the trees. The Weekly Review 
+              In our hyperconnected world, it&apos;s easy to lose sight of the forest for the trees. The Weekly Review 
               is your compass—a structured practice that transforms reactive task management into proactive strategic planning.
             </Text>
           </Box>
@@ -100,8 +100,8 @@ export default function WeeklyReviewPage() {
                 What is the Weekly Review?
               </Text>
               <Text className="text-text-secondary">
-                Born from David Allen's Getting Things Done methodology, the Weekly Review is a dedicated hour each week 
-                where you step back from the daily grind to gain perspective. It's your opportunity to ensure that your 
+                Born from David Allen&apos;s Getting Things Done methodology, the Weekly Review is a dedicated hour each week 
+                where you step back from the daily grind to gain perspective. It&apos;s your opportunity to ensure that your 
                 daily actions align with your broader objectives and that nothing important falls through the cracks.
               </Text>
             </Paper>
@@ -145,7 +145,7 @@ export default function WeeklyReviewPage() {
                   <Text fw={600} size="lg" className="text-text-primary">3. Get Creative</Text>
                 </Group>
                 <Text className="text-text-secondary pl-12">
-                  Generate new ideas and possibilities. With a clear mind and current perspective, you're positioned 
+                  Generate new ideas and possibilities. With a clear mind and current perspective, you&apos;re positioned 
                   to identify opportunities and innovative approaches to your challenges.
                 </Text>
               </Box>
@@ -216,7 +216,7 @@ export default function WeeklyReviewPage() {
               <Box>
                 <Text fw={500} mb="xs" className="text-text-primary">Iterate and Evolve</Text>
                 <Text>
-                  Your review process should grow with you. Regularly assess what's working and adjust 
+                  Your review process should grow with you. Regularly assess what&apos;s working and adjust 
                   your approach as your responsibilities and goals change.
                 </Text>
               </Box>

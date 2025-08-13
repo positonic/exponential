@@ -33,7 +33,6 @@ import {
   IconEye,
   IconShieldCheck,
   IconHistory,
-  IconMessage,
   IconUser,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
