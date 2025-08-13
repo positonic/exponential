@@ -205,6 +205,26 @@ export function OneOnOneBoard() {
           </tbody>
         </table>
       </ScrollArea>
+      
+      <div className="mt-12 p-6 bg-surface-secondary rounded-lg border border-border-primary max-w-4xl mx-auto">
+        <Text size="sm" className="text-text-secondary leading-relaxed">
+          The Weekly Review originates from David Allen's "Getting Things Done" methodology, which emerged in the 1970s. 
+          In his framework, this sacred one-hour ritual serves as a weekly touchstone—a dedicated time to survey the 
+          landscape of your commitments, recalibrate priorities, and identify the essential next actions for each project. 
+          This augmented interpretation adapts those timeless principles to our modern collaborative context, enabling 
+          teams to maintain clarity and momentum across their shared endeavors.
+        </Text>
+        <Text size="sm" className="text-text-secondary mt-3">
+          <a 
+            href="https://www.todoist.com/productivity-methods/weekly-review" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-brand-primary hover:text-brand-primary-hover underline"
+          >
+            Learn more about the Weekly Review methodology
+          </a>
+        </Text>
+      </div>
     </Container>
   );
 }
