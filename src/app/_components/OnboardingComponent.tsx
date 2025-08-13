@@ -50,7 +50,7 @@ interface OnboardingData {
   selectedTools: string[];
   projectName: string;
   projectDescription: string;
-  projectPriority: 'low' | 'medium' | 'high';
+  projectPriority: 'LOW' | 'MEDIUM' | 'HIGH';
   template?: 'personal' | 'work' | 'learning' | 'scratch';
 }
 
@@ -115,7 +115,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
     selectedTools: [],
     projectName: '',
     projectDescription: '',
-    projectPriority: 'medium'
+    projectPriority: 'MEDIUM'
   });
 
   // Get onboarding status
@@ -313,7 +313,6 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
         {/* Progress Stepper */}
         <Stepper 
           active={currentStep - 1} 
-          breakpoint="sm"
           color="brand"
           className="mb-8"
         >
@@ -548,12 +547,12 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
                   value={data.projectPriority}
                   onChange={(value) => setData(prev => ({ 
                     ...prev, 
-                    projectPriority: (value as 'low' | 'medium' | 'high') || 'medium' 
+                    projectPriority: (value as 'LOW' | 'MEDIUM' | 'HIGH') || 'MEDIUM' 
                   }))}
                   data={[
-                    { value: 'low', label: 'Low' },
-                    { value: 'medium', label: 'Medium' },
-                    { value: 'high', label: 'High' }
+                    { value: 'LOW', label: 'Low' },
+                    { value: 'MEDIUM', label: 'Medium' },
+                    { value: 'HIGH', label: 'High' }
                   ]}
                   size="md"
                 />
