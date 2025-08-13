@@ -4,7 +4,7 @@ import {
   protectedProcedure,
 } from "~/server/api/trpc";
 
-import { getMyOutcomes, createOutcome, updateOutcome } from "~/server/services/outcomeService";
+import { getMyOutcomes, createOutcome, updateOutcome, deleteOutcome, deleteOutcomes } from "~/server/services/outcomeService";
 
 const outcomeTypeEnum = z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'annual', 'life', 'problem']);
 
@@ -53,4 +53,16 @@ export const outcomeRouter = createTRPCRouter({
       projectId: z.string().optional(),
     }))
     .mutation(updateOutcome),
+
+  deleteOutcome: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+    }))
+    .mutation(deleteOutcome),
+
+  deleteOutcomes: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.string()),
+    }))
+    .mutation(deleteOutcomes),
 }); 
