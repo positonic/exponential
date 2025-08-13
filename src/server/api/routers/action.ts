@@ -29,7 +29,7 @@ export const actionRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       return ctx.db.action.findMany({
         where: {
-          createdById: ctx.session.user.id,
+          // createdById: ctx.session.user.id,
           projectId: input.projectId,
           status: {
             not: "DELETED",

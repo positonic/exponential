@@ -62,7 +62,12 @@ export class OptimizedQueries {
                 name: true,
                 email: true,
                 emailVerified: true,
-                image: true
+                image: true,
+                usageType: true,
+                userRole: true,
+                selectedTools: true,
+                onboardingCompletedAt: true,
+                onboardingStep: true
               }
             }
           }
