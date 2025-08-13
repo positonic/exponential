@@ -83,6 +83,13 @@ model User {
   // Notification relations
   notificationPreferences NotificationPreference?
   scheduledNotifications  ScheduledNotification[]
+
+  // Onboarding fields
+  usageType            String?   // 'work' | 'personal'
+  userRole             String?   // Role within organization (for work usage type)
+  selectedTools        String[]  // Array of selected tools/integrations
+  onboardingCompletedAt DateTime? // When onboarding was completed
+  onboardingStep       Int       @default(1) // Current step in onboarding flow
 }
 
 model VerificationToken {

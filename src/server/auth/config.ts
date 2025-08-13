@@ -100,9 +100,15 @@ export const authConfig = {
       // Check if a user exists with this email
       const existingUser = await db.user.findUnique({
         where: { email: user.email },
+        select: {
+          id: true,
+          onboardingCompletedAt: true,
+          projects: { take: 1 },
+          actions: { take: 1 },
+        },
       }); 
 
-      // If no user exists, allow sign in
+      // If no user exists, allow sign in (new user - will need onboarding)
       if (!existingUser) {
         return true;
       }
@@ -129,17 +135,21 @@ export const authConfig = {
      * @param baseUrl - The base URL of the application.
      * @returns The URL to redirect to.
      */
-    redirect: async () => {
-      // Always redirect to the home page after successful sign-in
-      // This serves as the onboarding/welcome page for new users
-      return "/home"; // Use relative path
-
-      // Default behavior (useful if you don't always want to force the redirect):
-      // Allows relative callback URLs
-      // if (url.startsWith("/")) return `${baseUrl}${url}`
-      // Allows callback URLs on the same origin
-      // else if (new URL(url).origin === baseUrl) return url
-      // return baseUrl // Default redirect to home page
+    redirect: async ({ url, baseUrl }) => {
+      // For non-sign-in URLs, allow normal navigation
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      if (new URL(url).origin === baseUrl) return url;
+      
+      // For sign-in redirects, check if user needs onboarding
+      try {
+        // Get user from the most recent session/token
+        // Since this runs after authentication, we need to get user by email from the sign-in context
+        // We'll rely on the session callback to handle this more reliably
+        return "/home"; // Default redirect - onboarding check happens in page components
+      } catch (error) {
+        console.error("Error in redirect callback:", error);
+        return "/home"; // Fallback to home
+      }
     },
   },
 } satisfies NextAuthConfig;

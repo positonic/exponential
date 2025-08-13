@@ -152,20 +152,20 @@ const componentStyles = {
     defaultProps: {
       styles: {
         root: {
-          '&[data-variant="filled"]': {
+          '&[dataVariant="filled"]': {
             backgroundColor: 'var(--color-brand-primary)',
             color: 'var(--color-text-inverse)',
             '&:hover': {
               backgroundColor: 'var(--color-brand-primary-hover)',
             },
           },
-          '&[data-variant="subtle"]': {
+          '&[dataVariant="subtle"]': {
             color: 'var(--color-text-secondary)',
             '&:hover': {
               backgroundColor: 'var(--color-surface-hover)',
             },
           },
-          '&[data-variant="default"]': {
+          '&[dataVariant="default"]': {
             backgroundColor: 'var(--color-surface-secondary)',
             color: 'var(--color-text-primary)',
             borderColor: 'var(--color-border-primary)',

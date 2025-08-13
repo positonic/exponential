@@ -1,4 +1,4 @@
-import { Container, Title, Text, Paper, SimpleGrid, Group, Button, Stack, List, ListItem, ThemeIcon } from '@mantine/core';
+import { Container, Title, Text, Paper, SimpleGrid, Group, Button, Stack, List, ListItem, ThemeIcon, Alert, Badge } from '@mantine/core';
 import { 
   IconCheckbox, 
   IconFolder, 
@@ -10,28 +10,186 @@ import {
   IconCalendar,
   IconChartLine,
   IconGitBranch,
-  IconBrandSlack
+  IconBrandSlack,
+  IconConfetti,
+  IconRocket
 } from '@tabler/icons-react';
 import Link from 'next/link';
 import { auth } from "~/server/auth";
+import { db } from "~/server/db";
+import { redirect } from "next/navigation";
 
 export default async function HomePage() {
   const session = await auth();
   const userName = session?.user?.name || 'there';
 
+  // Get user data including onboarding info
+  let userData = null;
+  let isNewUser = false;
+  let recentProject = null;
+
+  if (session?.user?.id) {
+    userData = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: {
+        onboardingCompletedAt: true,
+        onboardingStep: true,
+        usageType: true,
+        userRole: true,
+        selectedTools: true,
+        projects: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            name: true,
+            createdAt: true
+          }
+        }
+      },
+    });
+
+    // Redirect to onboarding if not completed
+    if (userData && !userData.onboardingCompletedAt) {
+      redirect('/onboarding');
+    }
+
+    // Check if user completed onboarding recently (within last 24 hours)
+    if (userData?.onboardingCompletedAt) {
+      const completedAt = new Date(userData.onboardingCompletedAt);
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      isNewUser = completedAt > oneDayAgo;
+      recentProject = userData.projects[0] || null;
+    }
+  }
+
   return (
     <Container size="lg" py="xl">
       <Stack gap="xl">
+        {/* New User Welcome Banner */}
+        {isNewUser && (
+          <Alert
+            icon={<IconConfetti size={20} />}
+            title="🎉 Welcome to Exponential!"
+            color="green"
+            variant="light"
+            className="border-border-primary"
+          >
+            <Stack gap="xs">
+              <Text size="sm">
+                Congratulations on completing your onboarding! You&apos;re all set up for {userData?.usageType || 'productivity'} use
+                {userData?.userRole && ` as a ${userData.userRole}`}.
+              </Text>
+              {recentProject && (
+                <Text size="sm" className="font-medium">
+                  ✅ Your first project &quot;{recentProject.name}&quot; is ready to go!
+                </Text>
+              )}
+              {userData?.selectedTools && userData.selectedTools.length > 0 && (
+                <Text size="sm">
+                  🔧 We noticed you use {userData.selectedTools.slice(0, 3).join(', ')}
+                  {userData.selectedTools.length > 3 && ` and ${userData.selectedTools.length - 3} more tools`}. 
+                  Check out our integrations to connect them!
+                </Text>
+              )}
+            </Stack>
+          </Alert>
+        )}
+
         {/* Welcome Section */}
         <div>
           <Title order={1} size="h1" className="text-4xl font-bold mb-4">
             Welcome to Exponential, {userName}! 👋
           </Title>
           <Text size="lg" c="dimmed" className="max-w-3xl">
-            Exponential is your AI-powered productivity assistant that helps you manage tasks, 
-            projects, and goals while learning from your meetings and daily activities.
+            {isNewUser ? (
+              `You're ready to boost your ${userData?.usageType || 'personal'} productivity! Explore the features below to get started.`
+            ) : (
+              'Exponential is your AI-powered productivity assistant that helps you manage tasks, projects, and goals while learning from your meetings and daily activities.'
+            )}
           </Text>
         </div>
+
+        {/* Personalized Quick Actions for New Users */}
+        {isNewUser && (
+          <Paper shadow="sm" p="lg" radius="md" className="border-border-primary bg-surface-secondary">
+            <Group justify="space-between" mb="md">
+              <Title order={3} className="flex items-center gap-2">
+                <IconRocket size={24} className="text-brand" />
+                Next Steps
+              </Title>
+              <Badge color="brand" variant="light">Personalized for you</Badge>
+            </Group>
+            <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
+              {recentProject && (
+                <Button
+                  component={Link}
+                  href={`/projects/${recentProject.id}`}
+                  variant="light"
+                  leftSection={<IconFolder size={16} />}
+                  size="sm"
+                  fullWidth
+                >
+                  Open &quot;{recentProject.name}&quot;
+                </Button>
+              )}
+              <Button
+                component={Link}
+                href="/actions/create"
+                variant="light"
+                leftSection={<IconTarget size={16} />}
+                size="sm"
+                fullWidth
+              >
+                Create Your First Action
+              </Button>
+              {userData?.selectedTools && userData.selectedTools.length > 0 && (
+                <Button
+                  component={Link}
+                  href="/settings/integrations"
+                  variant="light"
+                  leftSection={<IconPlugConnected size={16} />}
+                  size="sm"
+                  fullWidth
+                >
+                  Connect {userData.selectedTools[0]}
+                </Button>
+              )}
+              {userData?.usageType === 'work' && (
+                <Button
+                  component={Link}
+                  href="/teams"
+                  variant="light"
+                  leftSection={<IconBrandSlack size={16} />}
+                  size="sm"
+                  fullWidth
+                >
+                  Invite Your Team
+                </Button>
+              )}
+              <Button
+                component={Link}
+                href="/goals"
+                variant="light"
+                leftSection={<IconCheckbox size={16} />}
+                size="sm"
+                fullWidth
+              >
+                Set Your Goals
+              </Button>
+              <Button
+                component={Link}
+                href="/ai-chat"
+                variant="light"
+                leftSection={<IconSparkles size={16} />}
+                size="sm"
+                fullWidth
+              >
+                Chat with AI Assistant
+              </Button>
+            </SimpleGrid>
+          </Paper>
+        )}
 
         {/* Main Features Grid */}
         <SimpleGrid cols={{ base: 1, md: 2, lg: 4 }} spacing="lg">
@@ -167,7 +325,7 @@ export default async function HomePage() {
             shadow="sm"
             p="lg"
             radius="md"
-            className="h-full bg-[#262626] border border-gray-800 hover:border-gray-700 transition-colors cursor-pointer"
+            className="h-full bg-surface-secondary border-border-primary hover:border-border-focus transition-colors cursor-pointer"
             component={Link}
             href="/workflows"
           >
@@ -280,7 +438,7 @@ export default async function HomePage() {
           shadow="sm"
           p="lg"
           radius="md"
-          className="bg-gradient-to-r from-brand-primary/20 to-violet-900/20 border border-brand-primary/30"
+          className="bg-surface-secondary border-border-focus"
         >
           <Title order={3} size="h4" className="mb-3">
             Ready to Get Started?
