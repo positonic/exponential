@@ -554,6 +554,28 @@ const componentStyles = {
       },
     },
   },
+  
+  // Title component
+  Title: {
+    defaultProps: {
+      styles: {
+        root: {
+          color: 'var(--color-text-primary)',
+        },
+      },
+    },
+  },
+  
+  // Text component
+  Text: {
+    defaultProps: {
+      styles: {
+        root: {
+          color: 'var(--color-text-primary)',
+        },
+      },
+    },
+  },
 };
 
 // Create theme
