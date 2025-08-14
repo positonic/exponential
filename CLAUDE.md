@@ -152,7 +152,7 @@ src/
 ### Authentication
 - NextAuth.js v5 with JWT strategy
 - Multiple OAuth providers (Discord, Google, Notion)
-- Custom sign-in page at `/use-the-force`
+- Custom sign-in page at `/signin`
 - Session management with database adapter
 
 ### Database Schema

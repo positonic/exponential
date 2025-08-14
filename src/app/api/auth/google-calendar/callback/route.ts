@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   const session = await auth();
   
   if (!session?.user) {
-    redirect("/use-the-force");
+    redirect("/signin");
   }
 
   const { searchParams } = new URL(request.url);

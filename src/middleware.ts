@@ -41,7 +41,7 @@ export async function middleware(request: NextRequest) {
   ];
 
   // Skip authentication check for certain paths
-  const publicPaths = ['/', '/use-the-force'];
+  const publicPaths = ['/', '/signin'];
   const isPublicPath = publicPaths.some(path => pathname === path);
   
   // Check if the current path is a protected route
@@ -55,7 +55,7 @@ export async function middleware(request: NextRequest) {
     
     // If no session, redirect to login
     if (!session?.user) {
-      const loginUrl = new URL('/use-the-force', request.url);
+      const loginUrl = new URL('/signin', request.url);
       loginUrl.searchParams.set('callbackUrl', pathname);
       return NextResponse.redirect(loginUrl);
     }
@@ -76,8 +76,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - use-the-force (login page)
+     * - signin (login page)
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|use-the-force).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|signin).*)',
   ],
 }; 

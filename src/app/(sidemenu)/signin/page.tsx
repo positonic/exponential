@@ -9,16 +9,16 @@ import { SignInButtons } from "./SignInButtons";
 
 export default function SignIn() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black">
+    <div className="min-h-screen bg-gradient-to-b from-background-secondary to-background-primary">
       <Container size="sm" className="min-h-screen flex items-center justify-center py-10">
         <Stack className="w-full max-w-[460px] mx-auto">
           {/* Main Content */}
           <Stack className="text-center mb-8">
             <Title order={1} className="text-5xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-              May the Flow Be With You.
+              Welcome Back
             </Title>
             <Title order={2} className="text-xl font-normal mt-4 text-gray-400">
-              Unleash the Force of Effortless Flow
+              Sign in to your AI-powered productivity platform
             </Title>
           </Stack>
 
@@ -26,10 +26,11 @@ export default function SignIn() {
           <Paper
             p="xl"
             radius="lg"
-            className="w-full bg-gray-900/50 backdrop-blur-sm border border-gray-800/50 shadow-xl"
+            className="w-full bg-surface-secondary/50 backdrop-blur-sm border border-border-primary/50 shadow-xl"
             styles={{
               root: {
-                backgroundColor: 'rgba(17, 24, 39, 0.7)',
+                backgroundColor: 'var(--surface-secondary)',
+                opacity: 0.7,
               }
             }}
           >
@@ -37,7 +38,7 @@ export default function SignIn() {
           </Paper>
 
           {/* Footer Text */}
-          <Text size="sm" c="dimmed" ta="center" mt="sm" className="text-gray-500">
+          <Text size="sm" c="dimmed" ta="center" mt="sm" className="text-text-muted">
             By continuing, you agree to our{" "}
             <Text
               component="a"
