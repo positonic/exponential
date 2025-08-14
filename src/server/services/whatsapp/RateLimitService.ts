@@ -64,7 +64,7 @@ export class WhatsAppRateLimitService {
     whatsappConfigId: string,
     endpoint: string,
     limitType: string,
-    headerInfo?: any
+    _headerInfo?: any
   ): Promise<void> {
     const now = new Date();
     const windowStart = this.getWindowStart(now, limitType);

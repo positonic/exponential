@@ -4,7 +4,6 @@ import { TRPCError } from "@trpc/server";
 
 // Zod schemas for validation
 const UsageTypeSchema = z.enum(["work", "personal"]);
-const OnboardingStepSchema = z.number().int().min(1).max(4);
 
 export const onboardingRouter = createTRPCRouter({
   /**

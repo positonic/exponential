@@ -12,7 +12,7 @@ const defaultDifferentiators = [
   { value: "integrated", label: "Well Integrated", isDefault: true },
   { value: "secure", label: "Enterprise-Grade Security", isDefault: true },
 ];
-
+ 
 const defaultAudiences = [
   { value: "developers", label: "Developers", isDefault: true },
   { value: "designers", label: "Designers", isDefault: true },

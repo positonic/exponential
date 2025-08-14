@@ -11,7 +11,6 @@ import {
   Alert,
   Table,
   Text,
-  Badge,
   ActionIcon,
   Avatar,
   Tooltip,

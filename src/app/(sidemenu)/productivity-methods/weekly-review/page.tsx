@@ -3,12 +3,12 @@
 import { Container, Title, Text, Box, List, Stack, Divider, Paper, ThemeIcon, Group, Anchor, Grid } from '@mantine/core';
 import { IconCheck, IconBulb, IconTarget, IconCalendar, IconRefresh } from '@tabler/icons-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 
 export default function WeeklyReviewPage() {
   const [activeSection, setActiveSection] = useState('introduction');
 
-  const sections = [
+  const sections = useMemo(() => [
     { id: 'introduction', label: 'Introduction' },
     { id: 'what-is', label: 'What is the Weekly Review?' },
     { id: 'three-pillars', label: 'The Three Pillars' },
@@ -17,7 +17,7 @@ export default function WeeklyReviewPage() {
     { id: 'practical-tips', label: 'Practical Tips' },
     { id: 'benefits', label: 'Why It Works' },
     { id: 'get-started', label: 'Get Started' },
-  ];
+  ], []);
 
   useEffect(() => {
     const handleScroll = () => {

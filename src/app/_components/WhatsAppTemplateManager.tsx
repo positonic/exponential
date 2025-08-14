@@ -16,12 +16,10 @@ import {
   TextInput,
   Textarea,
   Select,
-  MultiSelect,
   JsonInput,
   LoadingOverlay,
   Tooltip,
   Tabs,
-  NumberInput,
   Alert,
   Box,
   SimpleGrid,
@@ -33,7 +31,6 @@ import {
   IconEdit,
   IconTrash,
   IconCheck,
-  IconX,
   IconClock,
   IconAlertCircle,
   IconMessage,
@@ -652,7 +649,7 @@ function TemplateFormModal({
           onChange={(value) => {
             try {
               setFormData({ ...formData, buttons: value ? JSON.parse(value) : undefined });
-            } catch (e) {
+            } catch {
               // Invalid JSON, ignore
             }
           }}

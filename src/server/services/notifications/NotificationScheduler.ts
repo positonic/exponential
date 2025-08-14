@@ -496,8 +496,7 @@ export class NotificationScheduler {
    * Generate weekly summary content
    */
   private async generateWeeklySummary(userId: string): Promise<NotificationContent> {
-    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-    const weekEnd = addDays(weekStart, 7);
+    startOfWeek(new Date(), { weekStartsOn: 1 });
 
     // Get user info
     const user = await db.user.findUnique({
@@ -520,7 +519,6 @@ export class NotificationScheduler {
 
     // Since Action model doesn't have date fields, we can only count by status
     const completedCount = tasks.filter(t => t.status === 'COMPLETED').length;
-    const activeCount = tasks.filter(t => t.status === 'ACTIVE').length;
 
     // Get active projects
     const projects = await db.project.findMany({

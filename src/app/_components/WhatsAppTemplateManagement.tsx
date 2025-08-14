@@ -14,7 +14,6 @@ import {
   IconMessage,
   IconShieldCheck,
   IconAlertCircle,
-  IconSettings,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { WhatsAppTemplateManager } from './WhatsAppTemplateManager';

@@ -1,0 +1,101 @@
+# Styling Rules - CRITICAL FOR ALL CODE
+
+## 🚨 ABSOLUTE REQUIREMENTS 🚨
+
+1. **NO HARDCODED COLORS - THE BUILD WILL FAIL**
+   - ❌ NEVER: `#123456`, `#fff`, `rgb(26, 27, 30)`, `rgba(0,0,0,0.5)`
+   - ✅ ALWAYS: `bg-background-primary`, `text-text-primary`, `var(--color-name)`
+
+2. **BEFORE ANY STYLING WORK**
+   - READ: `/docs/styling-architecture.md`
+   - CHECK: `/src/styles/colors.ts` for available tokens
+   - USE: Semantic color names from the design system
+
+3. **GIT HOOKS WILL REJECT YOUR COMMIT IF YOU USE:**
+   - Any hex color (#123456)
+   - Any RGB/RGBA function
+   - Any hardcoded color value in styles
+   - Tailwind arbitrary values with colors (e.g., bg-[#123456])
+
+## Allowed Color Sources
+
+1. **Tailwind Classes**
+   ```tsx
+   className="bg-background-primary text-text-primary border-border-primary"
+   className="hover:bg-surface-hover active:bg-surface-active"
+   ```
+
+2. **CSS Variables**
+   ```tsx
+   style={{ backgroundColor: 'var(--background-primary)' }}
+   style={{ color: 'var(--text-primary)' }}
+   ```
+
+3. **Mantine Theme**
+   ```tsx
+   <Button color="brand" variant="filled">
+   <Badge color="green">
+   ```
+
+## Common Patterns
+
+### Backgrounds
+- Primary: `bg-background-primary`
+- Secondary: `bg-surface-secondary`
+- Hover: `hover:bg-surface-hover`
+- Active: `active:bg-surface-active`
+
+### Text
+- Primary: `text-text-primary`
+- Secondary: `text-text-secondary`
+- Muted: `text-text-muted`
+- Error: `text-text-error`
+
+### Borders
+- Primary: `border-border-primary`
+- Focus: `focus:border-border-focus`
+- Error: `border-border-error`
+
+### Interactive Elements
+- Brand: `bg-brand-primary hover:bg-brand-hover`
+- Success: `bg-green-600 hover:bg-green-700`
+- Error: `bg-red-600 hover:bg-red-700`
+
+## ESLint Configuration
+
+The project enforces these rules via ESLint:
+- `no-restricted-syntax` blocks hex colors in literals
+- Template literals with hardcoded colors are blocked
+- Build process includes pre-commit hooks
+
+## Testing Your Code
+
+Before committing:
+1. Run `npm run lint` to check for color violations
+2. Run `npm run check` to ensure no build errors
+3. The pre-commit hook will do a final check
+
+## Why This Matters
+
+1. **Theme Support**: Hardcoded colors break light/dark mode
+2. **Consistency**: Design tokens ensure visual consistency
+3. **Maintainability**: Centralized color definitions
+4. **Accessibility**: Semantic colors improve contrast management
+
+## Quick Reference
+
+NEVER write:
+```tsx
+<div style={{ backgroundColor: '#1a1b1e' }}>
+<div className="text-[#C1C2C5]">
+<span style="color: rgb(193, 194, 197)">
+```
+
+ALWAYS write:
+```tsx
+<div className="bg-background-primary">
+<div className="text-text-secondary">
+<span className="text-text-muted">
+```
+
+Remember: The build WILL FAIL if you ignore these rules!

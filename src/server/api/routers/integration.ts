@@ -1326,7 +1326,7 @@ export const integrationRouter = createTRPCRouter({
 
       // Send code via WhatsApp
       try {
-        const _message = WhatsAppVerificationService.formatVerificationMessage(code);
+        WhatsAppVerificationService.formatVerificationMessage(code);
         
         // TODO: Actually send the message via WhatsApp
         // For now, we'll return the code in development
@@ -1405,7 +1405,7 @@ export const integrationRouter = createTRPCRouter({
       integrationId: z.string(),
       phoneNumber: z.string(),
     }))
-    .query(async ({ ctx, input }) => {
+    .query(async ({ input }) => {
       return WhatsAppVerificationService.getVerificationStatus(
         input.phoneNumber,
         input.integrationId

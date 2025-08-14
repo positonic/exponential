@@ -51,7 +51,7 @@ export function WhatsAppAdminDashboard() {
     api.integration.getAllWhatsAppUserMappings.useQuery();
 
   // Fetch system-wide analytics
-  const { data: systemAnalytics, isLoading: analyticsLoading, refetch: refetchAnalytics } = 
+  const { data: systemAnalytics, refetch: refetchAnalytics } = 
     api.integration.getSystemWhatsAppAnalytics.useQuery();
 
   const handleRefreshAll = () => {

@@ -12,15 +12,12 @@ import {
   TextInput,
   Select,
   ScrollArea,
-  ActionIcon,
-  Tooltip,
   Alert,
   LoadingOverlay,
 } from '@mantine/core';
 import {
   IconSearch,
   IconMessage,
-  IconEye,
   IconUsers,
   IconShieldCheck,
 } from '@tabler/icons-react';
@@ -33,20 +30,6 @@ interface WhatsAppTeamConversationsProps {
   onClose: () => void;
 }
 
-interface Conversation {
-  id: string;
-  phoneNumber: string;
-  userId: string | null;
-  lastMessageAt: Date;
-  messageCount: number;
-  user?: {
-    id: string;
-    name: string | null;
-    email: string | null;
-    image: string | null;
-    role?: string;
-  };
-}
 
 export function WhatsAppTeamConversations({ 
   integrationId, 
@@ -55,7 +38,6 @@ export function WhatsAppTeamConversations({
 }: WhatsAppTeamConversationsProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string | null>(null);
-  const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
 
   // Get user permissions
   const { data: permissions } = api.integration.getWhatsAppPermissions.useQuery(
@@ -203,15 +185,7 @@ export function WhatsAppTeamConversations({
                       </Text>
                     </Table.Td>
                     <Table.Td>
-                      <Tooltip label="View conversation">
-                        <ActionIcon
-                          variant="light"
-                          size="sm"
-                          onClick={() => setSelectedConversation(conversation.id)}
-                        >
-                          <IconEye size={14} />
-                        </ActionIcon>
-                      </Tooltip>
+                      {/* View conversation action removed */}
                     </Table.Td>
                   </Table.Tr>
                 ))

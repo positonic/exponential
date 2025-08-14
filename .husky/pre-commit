@@ -1,6 +1,3 @@
-#!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
-
 # Run tests with Bun
 echo "Running tests..."
 if ! bun test; then
@@ -11,11 +8,26 @@ fi
 # Check for hardcoded colors (excluding allowed files)
 echo "Checking for hardcoded colors..."
 ALLOWED_FILES="(colors\.ts|mantineTheme\.ts|globals\.css)"
-if git diff --staged --name-only | grep -E '\.(tsx?|jsx?|css)$' | grep -v -E "$ALLOWED_FILES" | xargs grep -l -E '(#[0-9A-Fa-f]{3}\b|#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{8}\b)' 2>/dev/null; then
-  echo "❌ Error: Hardcoded hex colors found in staged files!"
-  echo "Please use CSS variables or Tailwind classes instead."
-  echo "See docs/styling-architecture.md for proper color usage."
-  exit 1
+
+# Get staged files that match our criteria
+STAGED_FILES=$(git diff --staged --name-only | grep -E '\.(tsx?|jsx?|css)$' | grep -v -E "$ALLOWED_FILES" || true)
+
+if [ -n "$STAGED_FILES" ]; then
+  # Check each file for hardcoded colors
+  FOUND_COLORS=false
+  for file in $STAGED_FILES; do
+    if [ -f "$file" ] && grep -q -E '(#[0-9A-Fa-f]{3}\b|#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{8}\b)' "$file" 2>/dev/null; then
+      echo "❌ Hardcoded colors found in: $file"
+      FOUND_COLORS=true
+    fi
+  done
+  
+  if [ "$FOUND_COLORS" = true ]; then
+    echo "❌ Error: Hardcoded hex colors found in staged files!"
+    echo "Please use CSS variables or Tailwind classes instead."
+    echo "See docs/styling-architecture.md for proper color usage."
+    exit 1
+  fi
 fi
 
 echo "✅ No hardcoded colors found"

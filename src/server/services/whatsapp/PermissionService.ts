@@ -1,5 +1,4 @@
 import { db } from '~/server/db';
-import type { User, Team, Integration } from '@prisma/client';
 
 export enum WhatsAppPermission {
   // Basic permissions

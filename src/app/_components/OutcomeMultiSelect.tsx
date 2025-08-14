@@ -33,7 +33,7 @@ export function OutcomeMultiSelect({
   const utils = api.useUtils();
   
   const updateProject = api.project.update.useMutation({
-    onMutate: async ({ outcomeIds }) => {
+    onMutate: async () => {
       // Cancel any outgoing refetches
       await utils.project.getActiveWithDetails.cancel();
       await utils.project.getAll.cancel();
@@ -80,7 +80,7 @@ export function OutcomeMultiSelect({
           ) as any;
         });
       }
-      
+
       // Return a context with the snapshots
       return { previousActiveProjects, previousAllProjects };
     },
@@ -125,7 +125,7 @@ export function OutcomeMultiSelect({
         return [...old, tempOutcome];
       });
       
-      // Optimistically update the project
+      // Skip optimistic project updates due to type mismatch
       const currentOutcomeIds = currentOutcomes.map(o => o.id);
       const newOutcomes = [...currentOutcomes, tempOutcome];
       

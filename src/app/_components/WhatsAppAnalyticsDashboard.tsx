@@ -54,11 +54,6 @@ export function WhatsAppAnalyticsDashboard({ integrationId }: WhatsAppAnalyticsD
   ]);
   const [refreshInterval, setRefreshInterval] = useState<string>('30000'); // 30 seconds
 
-  // Get WhatsApp config
-  const { data: _config } = api.whatsapp.getConfig.useQuery(
-    { integrationId },
-    { enabled: !!integrationId }
-  );
 
   // Get analytics summary
   const { data: analytics, isLoading, refetch } = api.integration.getWhatsAppAnalytics.useQuery(
