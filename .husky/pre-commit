@@ -1,6 +1,3 @@
-#!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
-
 # Run tests with Bun
 echo "Running tests..."
 if ! bun test; then
