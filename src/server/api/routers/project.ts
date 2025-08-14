@@ -324,7 +324,9 @@ export const projectRouter = createTRPCRouter({
             include: {
               project: true,
               syncs: true,
-              assignedTo: true,
+              assignees: {
+                include: { user: { select: { id: true, name: true, email: true, image: true } } },
+              },
             },
           },
           outcomes: {

@@ -2,28 +2,30 @@
  * Utility functions for generating consistent avatar colors and initials
  */
 
-// Predefined set of nice colors that work well for avatars
+import { colorTokens } from "~/styles/colors";
+
+// Get avatar colors from design system
 const AVATAR_COLORS = [
-  '#FF6B6B', // Red
-  '#4ECDC4', // Teal
-  '#45B7D1', // Blue
-  '#96CEB4', // Green
-  '#FFEAA7', // Yellow
-  '#DDA0DD', // Plum
-  '#98D8C8', // Mint
-  '#F7DC6F', // Light Yellow
-  '#BB8FCE', // Light Purple
-  '#85C1E9', // Light Blue
-  '#F8C471', // Orange
-  '#82E0AA', // Light Green
-  '#F1948A', // Light Red
-  '#85D2F0', // Sky Blue
-  '#A9DFBF', // Pale Green
-  '#F9E79F', // Pale Yellow
-  '#D2B4DE', // Lavender
-  '#AED6F1', // Powder Blue
-  '#FADBD8', // Light Pink
-  '#D5DBDB', // Light Gray
+  colorTokens.light.avatar.red,
+  colorTokens.light.avatar.teal,
+  colorTokens.light.avatar.blue,
+  colorTokens.light.avatar.green,
+  colorTokens.light.avatar.yellow,
+  colorTokens.light.avatar.plum,
+  colorTokens.light.avatar.mint,
+  colorTokens.light.avatar.lightYellow,
+  colorTokens.light.avatar.lightPurple,
+  colorTokens.light.avatar.lightBlue,
+  colorTokens.light.avatar.orange,
+  colorTokens.light.avatar.lightGreen,
+  colorTokens.light.avatar.lightRed,
+  colorTokens.light.avatar.skyBlue,
+  colorTokens.light.avatar.paleGreen,
+  colorTokens.light.avatar.paleYellow,
+  colorTokens.light.avatar.lavender,
+  colorTokens.light.avatar.powderBlue,
+  colorTokens.light.avatar.lightPink,
+  colorTokens.light.avatar.lightGray,
 ];
 
 /**
@@ -31,7 +33,7 @@ const AVATAR_COLORS = [
  * Same string will always return the same color
  */
 export function getAvatarColor(input: string): string {
-  if (!input) return AVATAR_COLORS[0];
+  if (!input) return AVATAR_COLORS[0] as string;
   
   // Create a simple hash of the string
   let hash = 0;
@@ -43,7 +45,7 @@ export function getAvatarColor(input: string): string {
   
   // Use the hash to select a color
   const index = Math.abs(hash) % AVATAR_COLORS.length;
-  return AVATAR_COLORS[index];
+  return AVATAR_COLORS[index] as string;
 }
 
 /**
@@ -84,6 +86,6 @@ export function getTextColor(backgroundColor: string): string {
   // Calculate relative luminance
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   
-  // Return black for light colors, white for dark colors
-  return luminance > 0.5 ? '#000000' : '#FFFFFF';
+  // Return semantic colors from design system
+  return luminance > 0.5 ? colorTokens.light.text.primary : colorTokens.light.text.inverse;
 }

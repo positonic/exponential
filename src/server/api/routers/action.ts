@@ -930,7 +930,6 @@ export const actionRouter = createTRPCRouter({
       // Get the action to verify permissions
       const action = await ctx.db.action.findUnique({
         where: { id: actionId },
-        include: { project: true },
         select: { 
           id: true, 
           projectId: true, 
@@ -1028,7 +1027,7 @@ export const actionRouter = createTRPCRouter({
         },
         orderBy: [
           { kanbanStatus: 'asc' },
-          { createdAt: 'asc' }
+          // { createdAt: 'asc' }
         ],
       });
 
@@ -1046,7 +1045,7 @@ export const actionRouter = createTRPCRouter({
         select: { kanbanOrder: true }
       });
 
-      let startingOrder = maxOrder?.kanbanOrder ? maxOrder.kanbanOrder + 1 : 1;
+      const startingOrder = maxOrder?.kanbanOrder ? maxOrder.kanbanOrder + 1 : 1;
 
       // Update each action with a kanban order
       const updates = actionsWithoutOrder.map(async (action: any, index: number) => {

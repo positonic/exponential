@@ -153,7 +153,7 @@ export function OneOnOneBoard() {
                         projectName={project.name}
                         projectStatus={project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED"}
                         projectPriority={project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE"}
-                        currentOutcomes={project.outcomes?.map(outcome => ({ ...outcome, goals: [], projects: [] })) || []}
+                        currentOutcomes={project.outcomes?.map(outcome => ({ ...outcome, goals: [], projects: [], assignees: [] })) || []}
                         searchValue={outcomeSearchValues[project.id] || ''}
                         onSearchChange={(value) => {
                           setOutcomeSearchValues(prev => ({

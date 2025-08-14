@@ -12,8 +12,7 @@ import {
   ScrollArea,
   Badge,
   Loader,
-  TextInput,
-  Divider
+  TextInput
 } from "@mantine/core";
 import { IconSearch, IconRobot } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
@@ -69,10 +68,10 @@ export function AssignTaskModal({
   const assignMutation = api.action.assign.useMutation({
     onSuccess: () => {
       // Invalidate relevant queries to refresh the UI
-      utils.action.getAll.invalidate();
-      utils.action.getProjectActions.invalidate();
-      utils.action.getKanbanActions.invalidate();
-      utils.action.getToday.invalidate();
+      void utils.action.getAll.invalidate();
+      void utils.action.getProjectActions.invalidate();
+      void utils.action.getKanbanActions.invalidate();
+      void utils.action.getToday.invalidate();
       
       notifications.show({
         title: "Assignment Updated",
@@ -94,10 +93,10 @@ export function AssignTaskModal({
   const unassignMutation = api.action.unassign.useMutation({
     onSuccess: () => {
       // Invalidate relevant queries to refresh the UI
-      utils.action.getAll.invalidate();
-      utils.action.getProjectActions.invalidate();
-      utils.action.getKanbanActions.invalidate();
-      utils.action.getToday.invalidate();
+      void utils.action.getAll.invalidate();
+      void utils.action.getProjectActions.invalidate();
+      void utils.action.getKanbanActions.invalidate();
+      void utils.action.getToday.invalidate();
       
       notifications.show({
         title: "Assignment Updated",
@@ -184,7 +183,7 @@ export function AssignTaskModal({
         });
       }
 
-    } catch (error) {
+    } catch {
       // Error handled by individual mutations
     }
   };
@@ -281,7 +280,7 @@ export function AssignTaskModal({
 
               {filteredUsers.length === 0 && (
                 <Text c="dimmed" ta="center" py="xl">
-                  No users found matching "{searchTerm}"
+                  No users found matching &quot;{searchTerm}&quot;
                 </Text>
               )}
             </Stack>

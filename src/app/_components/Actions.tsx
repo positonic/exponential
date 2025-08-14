@@ -282,7 +282,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
                       <Group justify="space-between">
                         <Text>{outcome.description}</Text>
                         <Text size="sm" c="dimmed">
-                          {new Date(outcome.dueDate!).toLocaleDateString(undefined, { weekday: 'short' })}
+                          {new Date(outcome.dueDate).toLocaleDateString(undefined, { weekday: 'short' })}
                         </Text>
                       </Group>
                     </Paper>

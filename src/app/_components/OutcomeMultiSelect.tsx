@@ -110,11 +110,6 @@ export function OutcomeMultiSelect({
         description,
         type: 'weekly',
         dueDate: null,
-        completedDate: null,
-        status: 'ACTIVE',
-        createdById: '',
-        createdAt: new Date(),
-        updatedAt: new Date(),
         goals: [],
         projects: []
       };

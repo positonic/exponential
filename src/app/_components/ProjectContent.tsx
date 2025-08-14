@@ -210,7 +210,7 @@ export function ProjectContent({
               <Paper
                 p="md"
                 radius="sm"
-                className="mx-auto w-full bg-[#262626]"
+                className="mx-auto w-full bg-surface-secondary"
               >
                 <GoalsTable goals={goalsQuery.data ?? []} />
                 <CreateGoalModal projectId={projectId}>
@@ -225,7 +225,7 @@ export function ProjectContent({
               <Paper
                 p="md"
                 radius="sm"
-                className="mx-auto w-full  bg-[#262626]"
+                className="mx-auto w-full bg-surface-secondary"
               >
                 <OutcomesTable outcomes={outcomesQuery.data ?? []} />
                 <CreateOutcomeModal projectId={projectId}>
@@ -240,7 +240,7 @@ export function ProjectContent({
               <Paper
                 p="md"
                 radius="sm"
-                className="mx-auto w-full  bg-[#262626]"
+                className="mx-auto w-full bg-surface-secondary"
               >
                 <OutcomeTimeline projectId={projectId} />
               </Paper>
