@@ -42,44 +42,44 @@ export function OutcomeMultiSelect({
       const previousActiveProjects = utils.project.getActiveWithDetails.getData();
       const previousAllProjects = utils.project.getAll.getData();
       
-      // Optimistically update the data
-      if (outcomeIds) {
-        // Get the latest outcomes from cache instead of using stale prop
-        const latestAllOutcomes = utils.outcome.getMyOutcomes.getData() || [];
-        const updatedOutcomes = latestAllOutcomes.filter(o => outcomeIds.includes(o.id));
+      // // Optimistically update the data
+      // if (outcomeIds) {
+      //   // Get the latest outcomes from cache instead of using stale prop
+      //   const latestAllOutcomes = utils.outcome.getMyOutcomes.getData() || [];
+      //   const updatedOutcomes = latestAllOutcomes.filter(o => outcomeIds.includes(o.id));
         
-        utils.project.getActiveWithDetails.setData(undefined, (old) => {
-          if (!old) return old;
-          return old.map(p => 
-            p.id === projectId 
-              ? { ...p, outcomes: updatedOutcomes.map(outcome => ({
-                  id: outcome.id,
-                  description: outcome.description,
-                  dueDate: outcome.dueDate,
-                  userId: null,
-                  type: outcome.type,
-                  projectId: projectId
-                })) }
-              : p
-          ) as any;
-        });
+      //   utils.project.getActiveWithDetails.setData(undefined, (old) => {
+      //     if (!old) return old;
+      //     return old.map(p => 
+      //       p.id === projectId 
+      //         ? { ...p, outcomes: updatedOutcomes.map(outcome => ({
+      //             id: outcome.id,
+      //             description: outcome.description,
+      //             dueDate: outcome.dueDate,
+      //             userId: null,
+      //             type: outcome.type,
+      //             projectId: projectId
+      //           })) }
+      //         : p
+      //     ) as any;
+      //   });
         
-        utils.project.getAll.setData(undefined, (old) => {
-          if (!old) return old;
-          return old.map(p => 
-            p.id === projectId 
-              ? { ...p, outcomes: updatedOutcomes.map(outcome => ({
-                  id: outcome.id,
-                  description: outcome.description,
-                  dueDate: outcome.dueDate,
-                  userId: null,
-                  type: outcome.type,
-                  projectId: projectId
-                })) }
-              : p
-          ) as any;
-        });
-      }
+      //   utils.project.getAll.setData(undefined, (old) => {
+      //     if (!old) return old;
+      //     return old.map(p => 
+      //       p.id === projectId 
+      //         ? { ...p, outcomes: updatedOutcomes.map(outcome => ({
+      //             id: outcome.id,
+      //             description: outcome.description,
+      //             dueDate: outcome.dueDate,
+      //             userId: null,
+      //             type: outcome.type,
+      //             projectId: projectId
+      //           })) }
+      //         : p
+      //     ) as any;
+      //   });
+      // }
 
       // Return a context with the snapshots
       return { previousActiveProjects, previousAllProjects };
