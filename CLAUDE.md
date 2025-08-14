@@ -2,6 +2,33 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🚨🚨🚨 CRITICAL: ABSOLUTELY NO HARDCODED COLORS 🚨🚨🚨
+
+**BEFORE WRITING ANY CODE, YOU MUST UNDERSTAND THIS:**
+
+1. **NEVER USE HARDCODED HEX COLORS** like `#262626`, `#C1C2C5`, `#373A40`, `#1a1b1e`, etc.
+2. **NEVER USE RGB/RGBA COLORS** like `rgb(26, 27, 30)` or `rgba(0, 0, 0, 0.5)`
+3. **THE BUILD WILL FAIL** if you introduce ANY hardcoded color
+4. **ALWAYS READ** `/docs/styling-architecture.md` before ANY styling work
+
+### ✅ CORRECT Color Usage:
+```tsx
+// Use Tailwind classes
+<div className="bg-background-primary text-text-primary border-border-primary">
+
+// Use CSS variables
+<div style={{ backgroundColor: 'var(--background-primary)' }}>
+```
+
+### ❌ FORBIDDEN Color Usage:
+```tsx
+// NEVER do this
+<div className="bg-[#1a1b1e]" style={{ color: '#C1C2C5' }}>
+<div style={{ backgroundColor: '#262626' }}>
+```
+
+**Git pre-commit hooks will REJECT your commit if you use hardcoded colors!**
+
 ## Development Commands
 
 ### Core Development
@@ -186,21 +213,22 @@ Required environment variables:
 - Efficient database queries with proper indexing
 - Image optimization with Next.js Image component
 
-## 🚨 CRITICAL: Styling Architecture 🚨
+## Styling Architecture Details
 
-**MANDATORY: Read `/docs/styling-architecture.md` before writing ANY styling code!**
+**REMINDER: Read `/docs/styling-architecture.md` for complete styling guidelines.**
 
-The application uses a comprehensive styling system with light/dark mode support. Key points:
+The application uses a comprehensive styling system with light/dark mode support:
 
-### Color System
-- **🔴 NEVER hard-code colors** - Always use CSS variables or Tailwind classes
-- **🔴 FORBIDDEN**: `#262626`, `#C1C2C5`, `#373A40`, `#1a1b1e`, etc.
-- **✅ REQUIRED**: Use semantic names from the guidelines
+### Color System Implementation
 - All colors defined in `/src/styles/colors.ts` as design tokens
 - CSS variables in `/src/styles/globals.css` for theme switching
 - Tailwind configured to use CSS variables for consistency
+- Semantic color names for different UI elements
 
-### ESLint will FAIL your build if you use hardcoded colors!
+### Pre-commit Validation
+- Git hooks check EVERY commit for hardcoded colors
+- ESLint rules enforce color usage patterns
+- Build process will FAIL if hardcoded colors are detected
 
 ### Component Styling
 - Mantine components use theme configuration from `/src/styles/mantineTheme.ts`
@@ -252,3 +280,75 @@ For parallel feature development using git worktrees, see the comprehensive guid
 ## Task Master AI Instructions
 **Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
 @./.taskmaster/CLAUDE.md
+
+## Rule Improvement Triggers
+
+- New code patterns not covered by existing rules
+- Repeated similar implementations across files
+- Common error patterns that could be prevented
+- New libraries or tools being used consistently
+- Emerging best practices in the codebase
+
+# Analysis Process:
+- Compare new code with existing rules
+- Identify patterns that should be standardized
+- Look for references to external documentation
+- Check for consistent error handling patterns
+- Monitor test patterns and coverage
+
+# Rule Updates:
+
+- **Add New Rules When:**
+  - A new technology/pattern is used in 3+ files
+  - Common bugs could be prevented by a rule
+  - Code reviews repeatedly mention the same feedback
+  - New security or performance patterns emerge
+
+- **Modify Existing Rules When:**
+  - Better examples exist in the codebase
+  - Additional edge cases are discovered
+  - Related rules have been updated
+  - Implementation details have changed
+
+- **Example Pattern Recognition:**
+
+  ```typescript
+  // If you see repeated patterns like:
+  const data = await prisma.user.findMany({
+    select: { id: true, email: true },
+    where: { status: 'ACTIVE' }
+  });
+
+  // Consider adding to prisma rules:
+  // - Standard select fields
+  // - Common where conditions
+  // - Performance optimization patterns
+  ```
+
+- **Rule Quality Checks:**
+- Rules should be actionable and specific
+- Examples should come from actual code
+- References should be up to date
+- Patterns should be consistently enforced
+
+## Continuous Improvement:
+
+- Monitor code review comments
+- Track common development questions
+- Update rules after major refactors
+- Add links to relevant documentation
+- Cross-reference related rules
+
+## Rule Deprecation
+
+- Mark outdated patterns as deprecated
+- Remove rules that no longer apply
+- Update references to deprecated rules
+- Document migration paths for old patterns
+
+## Documentation Updates:
+
+- Keep examples synchronized with code
+- Update references to external docs
+- Maintain links between related rules
+- Document breaking changes

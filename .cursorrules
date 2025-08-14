@@ -2,6 +2,13 @@
 description: "Base rules for AI interactions across the project"
 pattern: "**/*"
 rules:
+  # 🚨 CRITICAL COLOR RULES - MUST READ FIRST 🚨
+  - NEVER use hardcoded hex colors (#123456, #fff, etc.)
+  - NEVER use RGB/RGBA colors (rgb(), rgba())
+  - ALWAYS check /docs/styling-architecture.md before ANY styling
+  - ALWAYS use Tailwind classes or CSS variables for colors
+  - Git hooks WILL REJECT commits with hardcoded colors
+  
   # Communication Style
   - Be concise and precise in explanations
   - Use consistent formatting across all responses
@@ -51,6 +58,7 @@ rules:
   - Use proper generic constraints
 
   # Reference Rules
+  @file .cursor/rules/styling.rules
   @file .cursor/rules/vercel.rules
   @file .cursor/rules/typescript.rules
   @file .cursor/rules/react.rules 
