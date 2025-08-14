@@ -169,54 +169,45 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   return (
     <div className="w-full  mx-auto">
       {/* View Toggle Buttons */}
-      <Paper withBorder radius="sm" mb="md" p="md">
-        <Group justify="space-between" align="center">
-          <Text size="sm" c="dimmed">
-            View Options
-          </Text>
-          <Group gap="xs">
-            {/* List/Kanban toggle - only show for projects */}
-            {projectId && (
-              <>
-                <Button
-                  variant={!isKanbanMode ? "filled" : "subtle"}
-                  size="sm"
-                  onClick={() => setIsKanbanMode(false)}
-                >
-                  <Group gap="xs">
-                    <IconList size={16} />
-                    List
-                  </Group>
-                </Button>
-                <Button
-                  variant={isKanbanMode ? "filled" : "subtle"}
-                  size="sm"
-                  onClick={() => setIsKanbanMode(true)}
-                >
-                  <Group gap="xs">
-                    <IconLayoutKanban size={16} />
-                    Kanban
-                  </Group>
-                </Button>
-              </>
-            )}
-            
-            {/* Alignment toggle */}
-            {displayAlignment && (
-              <Button
-                variant="subtle"
-                size="sm"
-                onClick={() => setIsAlignmentMode(!isAlignmentMode)}
-              >
-                <Group gap="xs">
-                  {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
-                  {isAlignmentMode ? 'Task View' : 'Alignment View'}
-                </Group>
-              </Button>
-            )}
-          </Group>
+      {projectId && (
+        <Group gap="xs" mb="md">
+          {/* List/Kanban toggle - only show for projects */}
+          <Button
+            variant={!isKanbanMode ? "filled" : "subtle"}
+            size="sm"
+            onClick={() => setIsKanbanMode(false)}
+          >
+            <Group gap="xs">
+              <IconList size={16} />
+              List
+            </Group>
+          </Button>
+          <Button
+            variant={isKanbanMode ? "filled" : "subtle"}
+            size="sm"
+            onClick={() => setIsKanbanMode(true)}
+          >
+            <Group gap="xs">
+              <IconLayoutKanban size={16} />
+              Kanban
+            </Group>
+          </Button>
+          
+          {/* Alignment toggle */}
+          {displayAlignment && (
+            <Button
+              variant="subtle"
+              size="sm"
+              onClick={() => setIsAlignmentMode(!isAlignmentMode)}
+            >
+              <Group gap="xs">
+                {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
+                {isAlignmentMode ? 'Task View' : 'Alignment View'}
+              </Group>
+            </Button>
+          )}
         </Group>
-      </Paper>
+      )}
 
       {isAlignmentMode && (
         <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-surface-secondary border border-border-primary">
