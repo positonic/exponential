@@ -227,6 +227,7 @@ export const actionRouter = createTRPCRouter({
         dueDate: z.date().optional(),
         priority: z.enum(PRIORITY_VALUES).optional(),
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED"]).optional(),
+        kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -852,7 +853,7 @@ export const actionRouter = createTRPCRouter({
         });
 
         // Use a transaction to update all affected tasks
-        await ctx.db.$transaction(async (tx) => {
+        await ctx.db.$transaction(async (tx: any) => {
           // First, shift all tasks down by 1
           for (const task of tasksToShift) {
             await tx.action.update({

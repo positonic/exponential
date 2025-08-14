@@ -95,7 +95,7 @@ export function ProjectContent({
   return (
     <>
       {/* Project Title and Description */}
-      <Paper className="w-full max-w-3xl pl-8" px={0} bg="transparent" mb="xl">
+      <Paper className="w-full pl-8" px={0} bg="transparent" mb="xl">
         <Group justify="space-between" align="flex-start">
           <div>
             <Title
@@ -145,7 +145,7 @@ export function ProjectContent({
       </Paper>
 
       {/* Main Content */}
-      <div className="w-full max-w-3xl">
+      <div className="w-full">
         <Tabs value={activeTab} onChange={handleTabChange}>
           <Stack gap="xl" align="stretch" justify="flex-start">
             {/* Tabs Navigation */}
@@ -210,7 +210,7 @@ export function ProjectContent({
               <Paper
                 p="md"
                 radius="sm"
-                className="mx-auto w-full max-w-3xl bg-[#262626]"
+                className="mx-auto w-full bg-[#262626]"
               >
                 <GoalsTable goals={goalsQuery.data ?? []} />
                 <CreateGoalModal projectId={projectId}>
@@ -225,7 +225,7 @@ export function ProjectContent({
               <Paper
                 p="md"
                 radius="sm"
-                className="mx-auto w-full max-w-3xl bg-[#262626]"
+                className="mx-auto w-full  bg-[#262626]"
               >
                 <OutcomesTable outcomes={outcomesQuery.data ?? []} />
                 <CreateOutcomeModal projectId={projectId}>
@@ -240,7 +240,7 @@ export function ProjectContent({
               <Paper
                 p="md"
                 radius="sm"
-                className="mx-auto w-full max-w-3xl bg-[#262626]"
+                className="mx-auto w-full  bg-[#262626]"
               >
                 <OutcomeTimeline projectId={projectId} />
               </Paper>

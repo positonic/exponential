@@ -1,11 +1,13 @@
-import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit } from '@tabler/icons-react';
+import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button, Avatar, HoverCard, ActionIcon, Menu } from '@mantine/core';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots } from '@tabler/icons-react';
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
 import { useState } from "react";
 import React from "react";
 import { EditActionModal } from "./EditActionModal";
+import { AssignTaskModal } from "./AssignTaskModal";
+import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import type { Priority } from "~/types/action";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
@@ -15,7 +17,7 @@ type Action = ActionWithSyncs | ActionWithoutSyncs;
 // Helper component to render HTML content safely
 const HTMLContent = ({ html, className }: { html: string, className?: string }) => (
   <div 
-    className={className}
+    className={className || "text-text-primary"}
     dangerouslySetInnerHTML={{ __html: html }}
     style={{ display: 'inline' }}
   />
@@ -34,7 +36,7 @@ const getSyncStatus = (action: Action) => {
   }
 
   // Check for Notion sync status
-  const notionSync = ('syncs' in action) ? action.syncs.find(sync => sync.provider === 'notion') : undefined;
+  const notionSync = ('syncs' in action) ? action.syncs.find((sync: any) => sync.provider === 'notion') : undefined;
   if (notionSync) {
     return { 
       status: notionSync.status, 
@@ -137,6 +139,8 @@ export function ActionList({
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
   const [editModalOpened, setEditModalOpened] = useState(false);
+  const [assignModalOpened, setAssignModalOpened] = useState(false);
+  const [assignSelectedAction, setAssignSelectedAction] = useState<Action | null>(null);
   const [bulkEditOverdueMode, setBulkEditOverdueMode] = useState(false);
   const [selectedOverdueActionIds, setSelectedOverdueActionIds] = useState<Set<string>>(new Set());
   const utils = api.useUtils();
@@ -173,7 +177,7 @@ export function ActionList({
       return previousState;
     },
     
-    onError: (err, variables, context) => {
+    onError: (err: any, _variables: any, context: any) => {
       if (!context) return;
       // Restore both caches on error
       utils.action.getAll.setData(undefined, context.actions);
@@ -195,11 +199,25 @@ export function ActionList({
   });
 
   const handleCheckboxChange = (actionId: string, checked: boolean) => {
+    const action = actions.find(a => a.id === actionId);
     const newStatus = checked ? "COMPLETED" : "ACTIVE";
-    updateAction.mutate({
+    
+    // Prepare the update payload
+    const updatePayload: any = {
       id: actionId,
       status: newStatus,
-    });
+    };
+    
+    // If action is in a project and we're completing it, update kanban status to DONE
+    if (action?.projectId && checked) {
+      updatePayload.kanbanStatus = "DONE";
+    }
+    // If action is in a project and we're unchecking it, revert to TODO
+    else if (action?.projectId && !checked) {
+      updatePayload.kanbanStatus = "TODO";
+    }
+    
+    updateAction.mutate(updatePayload);
   };
 
   const handleActionClick = (action: Action) => {
@@ -390,7 +408,7 @@ export function ActionList({
             />
           </div>
           <div className="truncate flex-grow">
-            <HTMLContent html={action.name} />
+            <HTMLContent html={action.name} className="text-text-primary" />
             <Group gap="xs" align="center" className="mt-1">
               {action.dueDate && (
                 <Group gap={4} align="center" className={`text-xs ${isOverdue ? 'text-red-500' : 'text-text-muted'}`}>
@@ -399,13 +417,120 @@ export function ActionList({
                 </Group>
               )}
               <SyncStatusIndicator action={action} />
+              
+              {/* Assignees */}
+              {action.assignees && action.assignees.length > 0 && (
+                <Avatar.Group spacing="xs">
+                  {action.assignees.slice(0, 2).map((assignee: any) => {
+                    const colorSeed = getColorSeed(assignee.user.name, assignee.user.email);
+                    const backgroundColor = assignee.user.image ? undefined : getAvatarColor(colorSeed);
+                    const textColor = backgroundColor ? getTextColor(backgroundColor) : 'white';
+                    const initial = getInitial(assignee.user.name, assignee.user.email);
+                    
+                    return (
+                      <HoverCard key={assignee.user.id} width={200} shadow="md">
+                        <HoverCard.Target>
+                          <Avatar
+                            size="sm"
+                            src={assignee.user.image}
+                            alt={assignee.user.name || assignee.user.email || 'User'}
+                            radius="xl"
+                            className="cursor-pointer"
+                            styles={{
+                              root: {
+                                backgroundColor: backgroundColor,
+                                color: textColor,
+                                fontWeight: 600,
+                                fontSize: '12px',
+                              }
+                            }}
+                          >
+                            {!assignee.user.image && initial}
+                          </Avatar>
+                        </HoverCard.Target>
+                      <HoverCard.Dropdown>
+                        <Group gap="sm">
+                          <Avatar
+                            src={assignee.user.image}
+                            alt={assignee.user.name || assignee.user.email || 'User'}
+                            radius="xl"
+                            styles={{
+                              root: {
+                                backgroundColor: backgroundColor,
+                                color: textColor,
+                                fontWeight: 600,
+                                fontSize: '14px',
+                              }
+                            }}
+                          >
+                            {!assignee.user.image && initial}
+                          </Avatar>
+                          <div>
+                            <Text size="sm" fw={500}>
+                              {assignee.user.name || "Unknown User"}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {assignee.user.email}
+                            </Text>
+                          </div>
+                        </Group>
+                      </HoverCard.Dropdown>
+                    </HoverCard>
+                  );
+                })}
+                  {action.assignees.length > 2 && (
+                    <Tooltip label={`${action.assignees.length - 2} more assignees`}>
+                      <Avatar 
+                        size="sm" 
+                        radius="xl" 
+                        className="cursor-pointer"
+                        color="gray"
+                        styles={{
+                          root: {
+                            backgroundColor: 'var(--mantine-color-gray-6)',
+                            color: 'white',
+                            fontWeight: 600,
+                            fontSize: '10px',
+                          }
+                        }}
+                      >
+                        +{action.assignees.length - 2}
+                      </Avatar>
+                    </Tooltip>
+                  )}
+                </Avatar.Group>
+              )}
             </Group>
           </div>
         </Group>
-        {/* Optional: Add Project/Context Info Here if needed, similar to screenshot */}
-        {/* <Text size="sm" c="dimmed" className="hidden sm:block pr-2">
-            {action.projectId ? `Project #${action.projectId}` : 'Inbox'}
-        </Text> */}        
+        
+        {/* Action Menu */}
+        <Menu shadow="md" width={150} position="bottom-end">
+          <Menu.Target>
+            <ActionIcon 
+              variant="subtle" 
+              size="sm"
+              aria-label="Open action menu"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <IconDots size={16} />
+            </ActionIcon>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item leftSection={<IconEdit size={16} />}>
+              Edit
+            </Menu.Item>
+            <Menu.Item 
+              onClick={(e) => {
+                e.stopPropagation();
+                setAssignSelectedAction(action);
+                setAssignModalOpened(true);
+              }}
+            >
+              Assign
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
       </Group>
     </Paper>
   );
@@ -545,6 +670,20 @@ export function ActionList({
           setSelectedAction(null);
         }}
       />
+      
+      {assignSelectedAction && (
+        <AssignTaskModal
+          opened={assignModalOpened}
+          onClose={() => {
+            setAssignModalOpened(false);
+            setAssignSelectedAction(null);
+          }}
+          taskId={assignSelectedAction.id}
+          taskName={assignSelectedAction.name}
+          projectId={assignSelectedAction.projectId}
+          currentAssignees={assignSelectedAction.assignees || []}
+        />
+      )}
     </>
   );
 } 

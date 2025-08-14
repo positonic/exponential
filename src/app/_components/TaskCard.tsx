@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Card, Text, Group, Badge, Avatar, Stack, ActionIcon, Menu } from "@mantine/core";
-import { IconGripVertical, IconDots, IconEdit, IconTrash, IconUser } from "@tabler/icons-react";
+import { Card, Text, Group, Badge, Avatar, Stack, ActionIcon, Menu, Tooltip, HoverCard } from "@mantine/core";
+import { IconGripVertical, IconDots, IconEdit, IconTrash } from "@tabler/icons-react";
+import { AssignTaskModal } from "./AssignTaskModal";
+import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 type ActionStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
 
 interface Task {
@@ -43,6 +46,8 @@ const priorityColors: Record<string, string> = {
 };
 
 export function TaskCard({ task, isDragging = false }: TaskCardProps) {
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  
   const {
     attributes,
     listeners,
@@ -116,7 +121,12 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               <Menu.Item leftSection={<IconEdit size={16} />}>
                 Edit
               </Menu.Item>
-              <Menu.Item leftSection={<IconUser size={16} />}>
+              <Menu.Item 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAssignModalOpen(true);
+                }}
+              >
                 Assign
               </Menu.Item>
               <Menu.Item 
@@ -177,33 +187,98 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
             )}
           </Group>
 
-          {/* Assignee avatars */}
+          {/* Assignee avatars with hover details */}
           {task.assignees.length > 0 && (
             <Avatar.Group spacing="xs">
-              {task.assignees.slice(0, 3).map((assignee, index) => (
-                <Avatar
-                  key={assignee.user.id}
-                  size="sm"
-                  src={assignee.user.image}
-                  alt={assignee.user.name || assignee.user.email || 'User'}
-                  radius="xl"
-                >
-                  {!assignee.user.image && (
-                    assignee.user.name?.charAt(0) || 
-                    assignee.user.email?.charAt(0) || 
-                    '?'
-                  )}
-                </Avatar>
-              ))}
+              {task.assignees.slice(0, 3).map((assignee) => {
+                const colorSeed = getColorSeed(assignee.user.name, assignee.user.email);
+                const backgroundColor = assignee.user.image ? undefined : getAvatarColor(colorSeed);
+                const textColor = backgroundColor ? getTextColor(backgroundColor) : 'white';
+                const initial = getInitial(assignee.user.name, assignee.user.email);
+                
+                return (
+                  <HoverCard key={assignee.user.id} width={200} shadow="md">
+                    <HoverCard.Target>
+                      <Avatar
+                        size="md"
+                        src={assignee.user.image}
+                        alt={assignee.user.name || assignee.user.email || 'User'}
+                        radius="xl"
+                        className="cursor-pointer"
+                        styles={{
+                          root: {
+                            backgroundColor: backgroundColor,
+                            color: textColor,
+                            fontWeight: 600,
+                            fontSize: '14px',
+                          }
+                        }}
+                      >
+                        {!assignee.user.image && initial}
+                      </Avatar>
+                    </HoverCard.Target>
+                  <HoverCard.Dropdown>
+                    <Group gap="sm">
+                      <Avatar
+                        src={assignee.user.image}
+                        alt={assignee.user.name || assignee.user.email || 'User'}
+                        radius="xl"
+                        styles={{
+                          root: {
+                            backgroundColor: backgroundColor,
+                            color: textColor,
+                            fontWeight: 600,
+                            fontSize: '14px',
+                          }
+                        }}
+                      >
+                        {!assignee.user.image && initial}
+                      </Avatar>
+                      <div>
+                        <Text size="sm" fw={500}>
+                          {assignee.user.name || "Unknown User"}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          {assignee.user.email}
+                        </Text>
+                      </div>
+                    </Group>
+                  </HoverCard.Dropdown>
+                </HoverCard>
+                );
+              })}
               {task.assignees.length > 3 && (
-                <Avatar size="sm" radius="xl">
-                  +{task.assignees.length - 3}
-                </Avatar>
+                <Tooltip label={`${task.assignees.length - 3} more assignees`}>
+                  <Avatar 
+                    size="md" 
+                    radius="xl" 
+                    className="cursor-pointer"
+                    color="gray"
+                    styles={{
+                      root: {
+                        backgroundColor: 'var(--mantine-color-gray-6)',
+                        color: 'white',
+                        fontWeight: 600,
+                      }
+                    }}
+                  >
+                    +{task.assignees.length - 3}
+                  </Avatar>
+                </Tooltip>
               )}
             </Avatar.Group>
           )}
         </Group>
       </Stack>
+      
+      <AssignTaskModal
+        opened={assignModalOpen}
+        onClose={() => setAssignModalOpen(false)}
+        taskId={task.id}
+        taskName={task.name}
+        projectId={task.projectId}
+        currentAssignees={task.assignees}
+      />
     </Card>
   );
 }

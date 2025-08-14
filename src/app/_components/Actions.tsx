@@ -167,7 +167,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
 
   return (
-    <div className="w-full max-w-3xl mx-auto">
+    <div className="w-full  mx-auto">
       {/* View Toggle Buttons */}
       <Paper withBorder radius="sm" mb="md" p="md">
         <Group justify="space-between" align="center">
