@@ -92,11 +92,11 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
     },
     onSuccess: (_, { actionId }) => {
       // Clear optimistic update on success
-      setOptimisticUpdates(prev => {
-        const newUpdates = { ...prev };
-        delete newUpdates[actionId];
-        return newUpdates;
-      });
+      // setOptimisticUpdates(prev => {
+      //   const newUpdates = { ...prev };
+      //   delete newUpdates[actionId];
+      //   return newUpdates;
+      // });
       notifications.show({
         title: "Status Updated",
         message: "Task status has been updated successfully",
