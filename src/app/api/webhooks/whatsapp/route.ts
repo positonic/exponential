@@ -690,7 +690,7 @@ async function processAIMessage(user: User, message: string, phoneNumber: string
         const tool = tools.find(t => t.name === toolCall.name);
         if (tool) {
           try {
-            const toolResult = await tool.invoke(toolCall.args as any);
+            const toolResult = await (tool as any).invoke(toolCall.args as any);
             toolMessages.push(new ToolMessage({
               content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult),
               tool_call_id: toolCall.id || '',

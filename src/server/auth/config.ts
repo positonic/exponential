@@ -29,8 +29,8 @@ declare module "next-auth" {
  */
 export const authConfig = {
   pages: {
-    signIn: '/use-the-force',
-    error: '/use-the-force', // Custom error page
+    signIn: '/signin',
+    error: '/signin', // Custom error page
   },
   providers: [
     DiscordProvider({

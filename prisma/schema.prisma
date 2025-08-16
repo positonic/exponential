@@ -46,50 +46,45 @@ model Session {
 }
 
 model User {
-  id                    String                   @id @default(cuid())
-  name                  String?
-  email                 String?                  @unique
-  emailVerified         DateTime?
-  image                 String?
-  accounts              Account[]
-  actions               Action[]
-  assignedActions       Action[]                 @relation("AssignedActions")
-  goals                 Goal[]
-  integrations          Integration[]
-  integrationMappings   IntegrationUserMapping[] // User mappings across integrations
-  slackRegistrations    SlackRegistrationToken[] // Slack registration tokens used by this user
-  slackMessageHistory   SlackMessageHistory[] // Slack messages sent by this user
-  aiInteractionHistory  AiInteractionHistory[] // AI interactions by this user
-  notes                 Note[]
-  outcomes              Outcome[]
-  posts                 Post[]
-  projects              Project[]
-  sessions              Session[]
-  projectMemberships    ProjectMember[]
-  teams                 TeamUser[]
-  transcriptionSessions TranscriptionSession[]
-  exercises             UserExercise[]
-  verificationTokens    VerificationToken[]
-  workflows             Workflow[]
-  whatsappConversations WhatsAppConversation[] // WhatsApp conversations for this user
-
-  // Integration permission relations
-  permissionsGrantedTo    IntegrationPermission[] @relation("PermissionGrantedTo")
-  permissionsGrantedBy    IntegrationPermission[] @relation("PermissionGrantedBy")
-  permissionsRevokedBy    IntegrationPermission[] @relation("PermissionRevokedBy")
-  slackChannelsConfigured SlackChannelConfig[] // Slack channels configured by this user
-  feedback                Feedback[] // User feedback submissions
-
-  // Notification relations
+  id                      String                   @id @default(cuid())
+  name                    String?
+  email                   String?                  @unique
+  emailVerified           DateTime?
+  image                   String?
+  onboardingCompletedAt   DateTime?
+  onboardingStep          Int                      @default(1)
+  selectedTools           String[]
+  usageType               String?
+  userRole                String?
+  accounts                Account[]
+  assignedActions         Action[]                 @relation("AssignedActions")
+  actions                 Action[]
+  actionAssignees         ActionAssignee[]         @relation("ActionAssignees")
+  aiInteractionHistory    AiInteractionHistory[]
+  feedback                Feedback[]
+  goals                   Goal[]
+  integrations            Integration[]
+  permissionsGrantedBy    IntegrationPermission[]  @relation("PermissionGrantedBy")
+  permissionsGrantedTo    IntegrationPermission[]  @relation("PermissionGrantedTo")
+  permissionsRevokedBy    IntegrationPermission[]  @relation("PermissionRevokedBy")
+  integrationMappings     IntegrationUserMapping[]
+  notes                   Note[]
   notificationPreferences NotificationPreference?
+  outcomes                Outcome[]
+  posts                   Post[]
+  projects                Project[]
+  projectMemberships      ProjectMember[]
   scheduledNotifications  ScheduledNotification[]
-
-  // Onboarding fields
-  usageType            String?   // 'work' | 'personal'
-  userRole             String?   // Role within organization (for work usage type)
-  selectedTools        String[]  // Array of selected tools/integrations
-  onboardingCompletedAt DateTime? // When onboarding was completed
-  onboardingStep       Int       @default(1) // Current step in onboarding flow
+  sessions                Session[]
+  slackChannelsConfigured SlackChannelConfig[]
+  slackMessageHistory     SlackMessageHistory[]
+  slackRegistrations      SlackRegistrationToken[]
+  teams                   TeamUser[]
+  transcriptionSessions   TranscriptionSession[]
+  exercises               UserExercise[]
+  verificationTokens      VerificationToken[]
+  whatsappConversations   WhatsAppConversation[]
+  workflows               Workflow[]
 }
 
 model VerificationToken {
@@ -112,21 +107,37 @@ model Action {
   priority               String                @default("Quick")
   projectId              String?
   createdById            String
-  teamId                 String?
   assignedToId           String?
+  teamId                 String?
   transcriptionSessionId String?
-  createdBy              User                  @relation(fields: [createdById], references: [id])
+  kanbanStatus           ActionStatus?
+  kanbanOrder            Int?
   assignedTo             User?                 @relation("AssignedActions", fields: [assignedToId], references: [id])
-  team                   Team?                 @relation(fields: [teamId], references: [id])
+  createdBy              User                  @relation(fields: [createdById], references: [id])
   project                Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id], onDelete: SetNull)
+  team                   Team?                 @relation(fields: [teamId], references: [id])
+  transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
   syncs                  ActionSync[]
+  assignees              ActionAssignee[]
 
   @@index([projectId])
   @@index([createdById])
   @@index([teamId])
   @@index([assignedToId])
   @@index([transcriptionSessionId])
+  @@index([kanbanStatus])
+}
+
+model ActionAssignee {
+  id       String @id @default(cuid())
+  actionId String
+  userId   String
+  action   Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  user     User   @relation("ActionAssignees", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, userId])
+  @@index([actionId])
+  @@index([userId])
 }
 
 model Outcome {
@@ -154,22 +165,22 @@ model Project {
   reviewDate            DateTime?
   nextActionDate        DateTime?
   createdById           String
-  teamId                String?
   slug                  String                 @unique
   description           String?
-  taskManagementTool    String?                @default("internal") // 'internal', 'monday', 'notion', etc.
-  taskManagementConfig  Json? // Tool-specific configuration
-  notionProjectId       String? // ID of the associated Notion Projects database record
+  teamId                String?
+  taskManagementConfig  Json?
+  taskManagementTool    String?                @default("internal")
+  notionProjectId       String?
   actions               Action[]
+  aiInteractionHistory  AiInteractionHistory[]
   createdBy             User                   @relation(fields: [createdById], references: [id])
   team                  Team?                  @relation(fields: [teamId], references: [id])
   projectMembers        ProjectMember[]
+  slackConfig           SlackChannelConfig?
   transcriptionSessions TranscriptionSession[]
+  workflows             Workflow[]
   goals                 Goal[]                 @relation("GoalProjects")
   outcomes              Outcome[]              @relation("ProjectOutcomes")
-  workflows             Workflow[]
-  slackConfig           SlackChannelConfig?
-  aiInteractionHistory  AiInteractionHistory[] // AI interactions related to this project
 
   @@index([name])
   @@index([status])
@@ -287,21 +298,19 @@ model ProjectMember {
 }
 
 model Team {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  members                 TeamUser[]
-  projects                Project[]
+  id                      String                   @id @default(cuid())
+  name                    String
+  slug                    String                   @unique
+  description             String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
   actions                 Action[]
   integrations            Integration[]
+  integrationPermissions  IntegrationPermission[]
+  projects                Project[]
   slackConfig             SlackChannelConfig?
-  slackRegistrationTokens SlackRegistrationToken[] // Registration tokens for this team
-  integrationPermissions  IntegrationPermission[] // Permissions granted to this team
+  slackRegistrationTokens SlackRegistrationToken[]
+  members                 TeamUser[]
 
   @@index([slug])
 }
@@ -310,11 +319,10 @@ model TeamUser {
   id       String   @id @default(cuid())
   userId   String
   teamId   String
-  role     String   @default("member") // owner, admin, member
+  role     String   @default("member")
   joinedAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, teamId])
   @@index([userId])
@@ -352,16 +360,16 @@ model TranscriptionSession {
   projectId           String?
   description         String?
   title               String?
-  summary             String? // JSON string containing Fireflies summary data
-  sourceIntegrationId String? // Track which integration created this transcription
-  processedAt         DateTime? // Track when actions were processed
-  slackNotificationAt DateTime? // Track when Slack was notified
-  archivedAt          DateTime? // Track when transcription was archived
+  summary             String?
+  processedAt         DateTime?
+  slackNotificationAt DateTime?
+  archivedAt          DateTime?
+  sourceIntegrationId String?
+  actions             Action[]
   screenshots         Screenshot[]
-  actions             Action[] // Actions created from this transcription
   project             Project?     @relation(fields: [projectId], references: [id])
+  sourceIntegration   Integration? @relation(fields: [sourceIntegrationId], references: [id])
   user                User?        @relation(fields: [userId], references: [id])
-  sourceIntegration   Integration? @relation(fields: [sourceIntegrationId], references: [id], onDelete: SetNull)
 
   @@index([sessionId])
   @@index([userId])
@@ -381,30 +389,28 @@ model Screenshot {
 model Integration {
   id                      String                   @id @default(cuid())
   name                    String
-  type                    String // 'API_KEY', 'OAUTH', 'WEBHOOK', etc.
-  provider                String // 'fireflies', 'github', 'slack', 'notion', etc.
-  status                  String                   @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'EXPIRED'
+  type                    String
+  provider                String
+  status                  String                   @default("ACTIVE")
   description             String?
-  lastSyncAt              DateTime? // Last time transcripts were synced from this integration
-  allowTeamMemberAccess   Boolean                  @default(false) // Auto-share with team members
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
   userId                  String?
   teamId                  String?
-  user                    User?                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastSyncAt              DateTime?
+  allowTeamMemberAccess   Boolean                  @default(false)
   team                    Team?                    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user                    User?                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   credentials             IntegrationCredential[]
-  userMappings            IntegrationUserMapping[] // User mappings for this integration
-  transcriptionSessions   TranscriptionSession[] // Transcriptions created by this integration
-  workflows               Workflow[] // Workflows using this integration
-  slackChannelConfigs     SlackChannelConfig[] // Slack channel configurations using this integration
-  slackRegistrationTokens SlackRegistrationToken[] // Registration tokens for this integration
-  permissions             IntegrationPermission[] // Permissions granted for this integration
-  whatsappConfig          WhatsAppConfig? // WhatsApp configuration for this integration
-
-  // Notification relations
+  permissions             IntegrationPermission[]
+  userMappings            IntegrationUserMapping[]
   notificationPreferences NotificationPreference[]
   scheduledNotifications  ScheduledNotification[]
+  slackChannelConfigs     SlackChannelConfig[]
+  slackRegistrationTokens SlackRegistrationToken[]
+  transcriptionSessions   TranscriptionSession[]
+  whatsappConfig          WhatsAppConfig?
+  workflows               Workflow[]
 
   @@index([userId])
   @@index([teamId])
@@ -413,9 +419,9 @@ model Integration {
 
 model IntegrationCredential {
   id            String      @id @default(cuid())
-  key           String // The actual API key or credential
-  keyType       String // 'API_KEY', 'ACCESS_TOKEN', 'REFRESH_TOKEN', 'SECRET'
-  expiresAt     DateTime? // For tokens that expire
+  key           String
+  keyType       String
+  expiresAt     DateTime?
   isEncrypted   Boolean     @default(true)
   createdAt     DateTime    @default(now())
   integrationId String
@@ -425,15 +431,14 @@ model IntegrationCredential {
 }
 
 model IntegrationUserMapping {
-  id             String   @id @default(cuid())
+  id             String      @id @default(cuid())
   integrationId  String
-  externalUserId String // Slack user ID (U1234567890), GitHub user ID, etc.
-  userId         String // Your system user ID  
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  externalUserId String
+  userId         String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  integration    Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([integrationId, externalUserId])
   @@index([integrationId])
@@ -442,32 +447,24 @@ model IntegrationUserMapping {
 }
 
 model Workflow {
-  id            String @id @default(cuid())
+  id            String        @id @default(cuid())
   name          String
-  type          String // 'NOTION_SYNC', 'SLACK_ACTIONS', etc.
-  provider      String // 'notion', 'slack', etc.
-  status        String @default("ACTIVE") // 'ACTIVE', 'DISABLED', 'ERROR'
-  syncDirection String // 'push', 'pull', 'bidirectional'
-  syncFrequency String // 'manual', 'hourly', 'daily', 'weekly'
-
-  // Configuration specific to the workflow type
-  config Json // JSON blob for flexible configuration (database ID, field mappings, etc.)
-
-  // Relationships
+  type          String
+  provider      String
+  status        String        @default("ACTIVE")
+  syncDirection String
+  syncFrequency String
+  config        Json
   integrationId String
   userId        String
-  projectId     String? // Optional: associate with a specific project
-
-  // Timestamps
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  lastRunAt DateTime? // When the workflow was last executed
-
-  // Relations
-  integration Integration   @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project     Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  runs        WorkflowRun[]
+  projectId     String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  lastRunAt     DateTime?
+  integration   Integration   @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  project       Project?      @relation(fields: [projectId], references: [id])
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runs          WorkflowRun[]
 
   @@index([userId])
   @@index([integrationId])
@@ -476,22 +473,18 @@ model Workflow {
 }
 
 model WorkflowRun {
-  id          String    @id @default(cuid())
-  workflowId  String
-  status      String // 'RUNNING', 'SUCCESS', 'FAILED'
-  startedAt   DateTime  @default(now())
-  completedAt DateTime?
-
-  // Results and metadata
-  itemsProcessed Int     @default(0)
-  itemsCreated   Int     @default(0)
-  itemsUpdated   Int     @default(0)
-  itemsSkipped   Int     @default(0)
+  id             String    @id @default(cuid())
+  workflowId     String
+  status         String
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  itemsProcessed Int       @default(0)
+  itemsCreated   Int       @default(0)
+  itemsUpdated   Int       @default(0)
+  itemsSkipped   Int       @default(0)
   errorMessage   String?
-  metadata       Json? // Additional data about the run
-
-  // Relations
-  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  metadata       Json?
+  workflow       Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
   @@index([workflowId])
   @@index([status])
@@ -499,27 +492,19 @@ model WorkflowRun {
 }
 
 model SlackChannelConfig {
-  id           String  @id @default(cuid())
-  slackChannel String // #channel-name or channel ID
-  isActive     Boolean @default(true)
-
-  // Relations - only one should be set
-  projectId String? @unique
-  teamId    String? @unique
-
-  // Integration link
-  integrationId String
-
-  // Track who configured this channel (for audit purposes)
+  id                 String      @id @default(cuid())
+  slackChannel       String
+  isActive           Boolean     @default(true)
+  projectId          String?     @unique
+  teamId             String?     @unique
+  integrationId      String
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
   configuredByUserId String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  project      Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  team         Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  integration  Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  configuredBy User        @relation(fields: [configuredByUserId], references: [id], onDelete: Cascade)
+  configuredBy       User        @relation(fields: [configuredByUserId], references: [id], onDelete: Cascade)
+  integration        Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  project            Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team               Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([teamId])
@@ -528,43 +513,26 @@ model SlackChannelConfig {
 }
 
 model IntegrationPermission {
-  id String @id @default(cuid())
-
-  // Integration being shared
-  integrationId String
-
-  // Who is being granted access
-  grantedToUserId String? // Individual user access
-  grantedToTeamId String? // Team-wide access (all team members get access)
-
-  // Who granted this permission
+  id              String      @id @default(cuid())
+  integrationId   String
+  grantedToUserId String?
+  grantedToTeamId String?
   grantedByUserId String
-
-  // Permission details
-  permissions   String[] // ['CONFIGURE_CHANNELS', 'VIEW_INTEGRATION', 'USE_IN_WORKFLOWS']
-  scope         String // 'global', 'team', 'project'
-  scopeEntityId String? // projectId or teamId when scope is project/team-specific
-
-  // Optional constraints
-  expiresAt DateTime? // Permission expiration
-  isActive  Boolean   @default(true)
-
-  // Audit trail
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  permissions     String[]
+  scope           String
+  scopeEntityId   String?
+  expiresAt       DateTime?
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
   revokedAt       DateTime?
   revokedByUserId String?
+  grantedBy       User        @relation("PermissionGrantedBy", fields: [grantedByUserId], references: [id], onDelete: Cascade)
+  grantedToTeam   Team?       @relation(fields: [grantedToTeamId], references: [id], onDelete: Cascade)
+  grantedToUser   User?       @relation("PermissionGrantedTo", fields: [grantedToUserId], references: [id], onDelete: Cascade)
+  integration     Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  revokedBy       User?       @relation("PermissionRevokedBy", fields: [revokedByUserId], references: [id])
 
-  // Relations
-  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  grantedToUser User?       @relation("PermissionGrantedTo", fields: [grantedToUserId], references: [id], onDelete: Cascade)
-  grantedToTeam Team?       @relation(fields: [grantedToTeamId], references: [id], onDelete: Cascade)
-  grantedBy     User        @relation("PermissionGrantedBy", fields: [grantedByUserId], references: [id], onDelete: Cascade)
-  revokedBy     User?       @relation("PermissionRevokedBy", fields: [revokedByUserId], references: [id], onDelete: SetNull)
-
-  // Note: Ensure either user or team is specified in application logic (not both)
-
-  // Constraints
   @@index([integrationId])
   @@index([grantedToUserId])
   @@index([grantedToTeamId])
@@ -575,36 +543,32 @@ model IntegrationPermission {
 model ActionSync {
   id         String   @id @default(cuid())
   actionId   String
-  provider   String // 'notion', 'monday', 'asana', etc.
-  externalId String // The ID in the external system (e.g., Notion page ID)
+  provider   String
+  externalId String
   syncedAt   DateTime @default(now())
   updatedAt  DateTime @updatedAt
-  status     String   @default("synced") // 'synced', 'failed', 'needs_update'
+  status     String   @default("synced")
+  action     Action   @relation(fields: [actionId], references: [id], onDelete: Cascade)
 
-  // Relations
-  action Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
-
-  @@unique([actionId, provider]) // One sync record per action per provider
+  @@unique([actionId, provider])
   @@index([provider, externalId])
   @@index([provider])
   @@index([actionId])
 }
 
 model SlackRegistrationToken {
-  id            String    @id @default(cuid())
-  token         String    @unique // Secure random token for the registration link
-  slackUserId   String // The Slack user ID trying to register (U1234567890)
-  integrationId String // Which Slack integration this is for
-  teamId        String? // Optional: limit to specific team
-  createdAt     DateTime  @default(now())
-  expiresAt     DateTime // Token expiration (24 hours)
-  usedAt        DateTime? // When the token was used (null = not used yet)
-  usedByUserId  String? // Which system user completed the registration
-
-  // Relations
-  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  team        Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  usedByUser  User?       @relation(fields: [usedByUserId], references: [id], onDelete: SetNull)
+  id            String      @id @default(cuid())
+  token         String      @unique
+  slackUserId   String
+  integrationId String
+  teamId        String?
+  createdAt     DateTime    @default(now())
+  expiresAt     DateTime
+  usedAt        DateTime?
+  usedByUserId  String?
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  team          Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  usedByUser    User?       @relation(fields: [usedByUserId], references: [id])
 
   @@index([token])
   @@index([slackUserId])
@@ -614,47 +578,33 @@ model SlackRegistrationToken {
 
 model SlackEvent {
   id          String   @id @default(cuid())
-  eventKey    String   @unique // Event ID or content-based key for deduplication
-  processedAt DateTime @default(now()) // When this event was processed
+  eventKey    String   @unique
+  processedAt DateTime @default(now())
 
   @@index([eventKey])
   @@index([processedAt])
 }
 
 model SlackMessageHistory {
-  id String @id @default(cuid())
-
-  // Message Metadata
-  slackEventId String? // Original Slack event ID
-  channelId    String // Slack channel ID
-  channelType  String // "DM", "channel", "group"
-  timestamp    String // Slack timestamp (ts field)
-
-  // User Context
-  slackUserId  String // Slack user ID
-  systemUserId String? // Your system user ID (if authenticated)
-  userName     String? // Display name for quick reference
-
-  // Message Content & Intent
-  rawMessage   String // Original message text
-  cleanMessage String // Message with @mentions stripped
-  messageType  String? // "question", "command", "request", etc.
-
-  // AI Response Context
-  agentUsed    String? // Which Mastra agent handled it
-  responseTime Int? // How long AI took to respond (ms)
-  hadError     Boolean @default(false)
-  errorMessage String? // Error details if any
-
-  // Feature Categorization (for prioritization)
-  category String? // "goals", "projects", "actions", "general"
-  intent   String? // "list_goals", "create_task", "status_check"
-
-  // Timestamps
-  createdAt DateTime @default(now())
-
-  // Relations
-  user User? @relation(fields: [systemUserId], references: [id], onDelete: SetNull)
+  id           String   @id @default(cuid())
+  slackEventId String?
+  channelId    String
+  channelType  String
+  timestamp    String
+  slackUserId  String
+  systemUserId String?
+  userName     String?
+  rawMessage   String
+  cleanMessage String
+  messageType  String?
+  agentUsed    String?
+  responseTime Int?
+  hadError     Boolean  @default(false)
+  errorMessage String?
+  category     String?
+  intent       String?
+  createdAt    DateTime @default(now())
+  user         User?    @relation(fields: [systemUserId], references: [id])
 
   @@index([slackUserId])
   @@index([systemUserId])
@@ -666,57 +616,36 @@ model SlackMessageHistory {
 }
 
 model AiInteractionHistory {
-  id String @id @default(cuid())
+  id              String   @id @default(cuid())
+  platform        String
+  sourceId        String?
+  systemUserId    String?
+  externalUserId  String?
+  userName        String?
+  userMessage     String
+  cleanMessage    String?
+  aiResponse      String
+  agentId         String?
+  agentName       String?
+  model           String?
+  conversationId  String?
+  messageType     String?
+  intent          String?
+  category        String?
+  responseTime    Int?
+  tokenUsage      Json?
+  hadError        Boolean  @default(false)
+  errorMessage    String?
+  confidenceScore Float?
+  projectId       String?
+  actionsTaken    Json?
+  toolsUsed       String[]
+  userAgent       String?
+  ipAddress       String?
+  createdAt       DateTime @default(now())
+  project         Project? @relation(fields: [projectId], references: [id])
+  user            User?    @relation(fields: [systemUserId], references: [id])
 
-  // Source Information (Platform-agnostic)
-  platform String // "slack", "manychat", "api", "webhook", "direct"
-  sourceId String? // Platform-specific ID (Slack channel, chat session, etc.)
-
-  // User Context
-  systemUserId   String? // Authenticated user ID
-  externalUserId String? // Platform-specific user ID (Slack user, etc.)
-  userName       String? // Display name for quick reference
-
-  // Message Content
-  userMessage  String // Original user input
-  cleanMessage String? // Processed/cleaned message
-  aiResponse   String // AI agent response
-
-  // AI Context
-  agentId   String? // Mastra agent ID
-  agentName String? // Human-readable agent name
-  model     String? // AI model used (GPT-4, Claude, etc.)
-
-  // Interaction Metadata
-  conversationId String? // Group related messages
-  messageType    String? // "question", "command", "request", "followup"
-  intent         String? // Classified intent ("list_goals", "create_task", etc.)
-  category       String? // "goals", "projects", "actions", "general"
-
-  // Performance & Quality
-  responseTime    Int? // Response time in ms
-  tokenUsage      Json? // Token consumption details {prompt: 100, completion: 50, total: 150}
-  hadError        Boolean @default(false)
-  errorMessage    String? // Error details if any
-  confidenceScore Float? // AI confidence rating (0.0 to 1.0)
-
-  // Context & Results
-  projectId    String? // Associated project
-  actionsTaken Json? // Actions performed by AI [{action: "create_task", result: "success"}]
-  toolsUsed    String[] // Tools/functions called ["createAction", "retrieveActions"]
-
-  // Additional metadata
-  userAgent String? // Browser/client information
-  ipAddress String? // For security/analytics (hashed)
-
-  // Timestamps
-  createdAt DateTime @default(now())
-
-  // Relations
-  user    User?    @relation(fields: [systemUserId], references: [id], onDelete: SetNull)
-  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-
-  // Indexes for common queries
   @@index([systemUserId])
   @@index([platform])
   @@index([agentId])
@@ -729,21 +658,17 @@ model AiInteractionHistory {
   @@index([conversationId, createdAt])
 }
 
-// User feedback model
 model Feedback {
   id        String   @id @default(cuid())
   userId    String
-  feature   String   // e.g., "calendar_integration", "ai_chat", etc.
-  rating    Int      // 1-5 rating
-  content   String   @db.Text
-  metadata  Json?    // Additional metadata like user agent, etc.
+  feature   String
+  rating    Int
+  content   String
+  metadata  Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Indexes
   @@index([userId])
   @@index([feature])
   @@index([createdAt])
@@ -751,64 +676,44 @@ model Feedback {
 }
 
 model WhatsAppConfig {
-  id                 String  @id @default(cuid())
-  phoneNumberId      String // WhatsApp phone number ID
-  businessAccountId  String // WhatsApp Business Account ID
-  webhookVerifyToken String // Token for webhook verification
-  displayPhoneNumber String? // Human-readable phone number
-  businessName       String? // Business display name
-
-  // Link to the generic Integration model
-  integrationId String      @unique
-  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-
-  // Message templates for this WhatsApp account
-  templates WhatsAppTemplate[]
-
-  // Conversations for this WhatsApp account
-  conversations WhatsAppConversation[]
-
-  // Analytics and monitoring relations
+  id                 String                       @id @default(cuid())
+  phoneNumberId      String
+  businessAccountId  String
+  webhookVerifyToken String
+  displayPhoneNumber String?
+  businessName       String?
+  integrationId      String                       @unique
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  integration        Integration                  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  conversations      WhatsAppConversation[]
   messageAnalytics   WhatsAppMessageAnalytics[]
   performanceMetrics WhatsAppPerformanceMetrics[]
   rateLimitTracking  WhatsAppRateLimitTracking[]
+  templates          WhatsAppTemplate[]
   webhookDeliveries  WhatsAppWebhookDelivery[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 
   @@index([integrationId])
 }
 
 model WhatsAppTemplate {
-  id       String @id @default(cuid())
-  name     String // Template name as registered with WhatsApp
-  language String // Template language code (e.g., "en_US")
-  status   String // "APPROVED", "PENDING", "REJECTED"
-  category String // "UTILITY", "MARKETING", "AUTHENTICATION"
-
-  // Template content
-  headerType String? // "TEXT", "IMAGE", "VIDEO", "DOCUMENT"
-  headerText String? // Header text if headerType is TEXT
-  bodyText   String // Main message body with variables {{1}}, {{2}}, etc.
-  footerText String? // Optional footer text
-
-  // Button configuration (stored as JSON for flexibility)
-  buttons Json? // Array of button objects
-
-  // WhatsApp metadata
-  whatsappTemplateId String? // ID assigned by WhatsApp
-  rejectionReason    String? // Reason if template was rejected
-
-  // Link to WhatsApp config
-  whatsappConfigId String
-  whatsappConfig   WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
-
-  // Usage tracking
-  usageMetrics WhatsAppTemplateUsage[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String                  @id @default(cuid())
+  name               String
+  language           String
+  status             String
+  category           String
+  headerType         String?
+  headerText         String?
+  bodyText           String
+  footerText         String?
+  buttons            Json?
+  whatsappTemplateId String?
+  rejectionReason    String?
+  whatsappConfigId   String
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  whatsappConfig     WhatsAppConfig          @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+  usageMetrics       WhatsAppTemplateUsage[]
 
   @@unique([whatsappConfigId, name])
   @@index([whatsappConfigId])
@@ -816,22 +721,17 @@ model WhatsAppTemplate {
 }
 
 model WhatsAppConversation {
-  id          String  @id @default(cuid())
-  phoneNumber String // WhatsApp phone number (external user ID)
-  userId      String? // Optional: linked user ID
-  user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  // Conversation data
-  messages      Json // Array of conversation messages
-  lastMessageAt DateTime @default(now())
-  messageCount  Int      @default(0)
-
-  // Link to WhatsApp config
+  id               String         @id @default(cuid())
+  phoneNumber      String
+  userId           String?
+  messages         Json
+  lastMessageAt    DateTime       @default(now())
+  messageCount     Int            @default(0)
   whatsappConfigId String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  user             User?          @relation(fields: [userId], references: [id])
   whatsappConfig   WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 
   @@unique([phoneNumber, whatsappConfigId])
   @@index([phoneNumber])
@@ -840,72 +740,48 @@ model WhatsAppConversation {
 }
 
 model NotificationPreference {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                    String       @id @default(cuid())
+  userId                String       @unique
+  integrationId         String?
+  taskReminders         Boolean      @default(true)
+  projectUpdates        Boolean      @default(true)
+  dailySummary          Boolean      @default(true)
+  weeklySummary         Boolean      @default(false)
+  timezone              String       @default("UTC")
+  dailySummaryTime      String?      @default("09:00")
+  weeklyDayOfWeek       Int?         @default(1)
+  reminderMinutesBefore Int[]        @default([15, 60, 1440])
+  quietHoursEnabled     Boolean      @default(false)
+  quietHoursStart       String?
+  quietHoursEnd         String?
+  enabled               Boolean      @default(true)
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  integration           Integration? @relation(fields: [integrationId], references: [id])
+  user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Integration settings
-  integrationId String? // Optional: specific integration to use
-  integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
-
-  // Notification types
-  taskReminders  Boolean @default(true)
-  projectUpdates Boolean @default(true)
-  dailySummary   Boolean @default(true)
-  weeklySummary  Boolean @default(false)
-
-  // Timing preferences
-  timezone         String  @default("UTC")
-  dailySummaryTime String? @default("09:00") // HH:mm format
-  weeklyDayOfWeek  Int?    @default(1) // 1 = Monday, 7 = Sunday
-
-  // Task reminder settings
-  reminderMinutesBefore Int[] @default([15, 60, 1440]) // 15 min, 1 hour, 1 day
-
-  // Quiet hours
-  quietHoursEnabled Boolean @default(false)
-  quietHoursStart   String? // HH:mm format
-  quietHoursEnd     String? // HH:mm format
-
-  // Metadata
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId])
   @@index([userId])
   @@index([enabled])
 }
 
 model ScheduledNotification {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Notification details
-  type   String // "task_reminder", "project_update", "daily_summary", "weekly_summary"
-  status String @default("pending") // "pending", "sent", "failed", "cancelled"
-
-  // Scheduling
-  scheduledFor DateTime // When to send the notification
-  sentAt       DateTime? // When it was actually sent
-
-  // Content
-  title    String
-  message  String
-  metadata Json? // Additional data (taskId, projectId, etc.)
-
-  // Delivery
-  integrationId  String? // Which integration to use
-  integration    Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
-  recipientPhone String? // WhatsApp phone number
-
-  // Error tracking
-  attempts  Int     @default(0)
-  lastError String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String       @id @default(cuid())
+  userId         String
+  type           String
+  status         String       @default("pending")
+  scheduledFor   DateTime
+  sentAt         DateTime?
+  title          String
+  message        String
+  metadata       Json?
+  integrationId  String?
+  recipientPhone String?
+  attempts       Int          @default(0)
+  lastError      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  integration    Integration? @relation(fields: [integrationId], references: [id])
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([scheduledFor])
@@ -915,30 +791,21 @@ model ScheduledNotification {
 }
 
 model WhatsAppTemplateUsage {
-  id         String           @id @default(cuid())
-  templateId String
-  template   WhatsAppTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-
-  // Usage tracking
-  usedAt         DateTime @default(now())
-  usedBy         String? // User ID who triggered the usage
-  recipientPhone String // Phone number message was sent to
-  messageId      String? // WhatsApp message ID
-
-  // Performance metrics
-  delivered   Boolean   @default(false)
-  read        Boolean   @default(false)
-  deliveredAt DateTime?
-  readAt      DateTime?
-
-  // Variables used
-  variables Json? // Variables substituted in the template
-
-  // Status
-  status       String  @default("sent") // "sent", "delivered", "read", "failed"
-  errorMessage String?
-
-  createdAt DateTime @default(now())
+  id             String           @id @default(cuid())
+  templateId     String
+  usedAt         DateTime         @default(now())
+  usedBy         String?
+  recipientPhone String
+  messageId      String?
+  delivered      Boolean          @default(false)
+  read           Boolean          @default(false)
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  variables      Json?
+  status         String           @default("sent")
+  errorMessage   String?
+  createdAt      DateTime         @default(now())
+  template       WhatsAppTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@index([templateId])
   @@index([usedAt])
@@ -946,37 +813,27 @@ model WhatsAppTemplateUsage {
 }
 
 model WhatsAppMessageAnalytics {
-  id               String   @id @default(cuid())
-  whatsappConfigId String
-  date             DateTime @db.Date
-  hour             Int // 0-23
-
-  // Volume metrics
-  messagesReceived  Int @default(0)
-  messagesSent      Int @default(0)
-  messagesDelivered Int @default(0)
-  messagesRead      Int @default(0)
-  messagesFailed    Int @default(0)
-  uniqueUsers       Int @default(0)
-
-  // Performance metrics
-  avgResponseTime Float? // in milliseconds
-  maxResponseTime Float?
-  minResponseTime Float?
-
-  // Engagement metrics
+  id                    String         @id @default(cuid())
+  whatsappConfigId      String
+  date                  DateTime       @db.Date
+  hour                  Int
+  messagesReceived      Int            @default(0)
+  messagesSent          Int            @default(0)
+  messagesDelivered     Int            @default(0)
+  messagesRead          Int            @default(0)
+  messagesFailed        Int            @default(0)
+  uniqueUsers           Int            @default(0)
+  avgResponseTime       Float?
+  maxResponseTime       Float?
+  minResponseTime       Float?
   avgMessagesPerUser    Float?
-  avgConversationLength Float? // in minutes
-  totalConversations    Int    @default(0)
-
-  // Error metrics
-  errorCount Int    @default(0)
-  errorRate  Float? // percentage
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  whatsappConfig WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+  avgConversationLength Float?
+  totalConversations    Int            @default(0)
+  errorCount            Int            @default(0)
+  errorRate             Float?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  whatsappConfig        WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
 
   @@unique([whatsappConfigId, date, hour])
   @@index([whatsappConfigId, date])
@@ -984,63 +841,46 @@ model WhatsAppMessageAnalytics {
 }
 
 model WhatsAppPerformanceMetrics {
-  id               String   @id @default(cuid())
-  whatsappConfigId String
-  timestamp        DateTime @default(now())
-
-  // API metrics
-  apiCallsCount   Int    @default(0)
-  apiSuccessCount Int    @default(0)
-  apiErrorCount   Int    @default(0)
-  avgApiLatency   Float? // in milliseconds
-  maxApiLatency   Float?
-
-  // Webhook metrics
-  webhooksReceived  Int    @default(0)
-  webhooksProcessed Int    @default(0)
-  webhooksFailed    Int    @default(0)
-  avgWebhookLatency Float? // in milliseconds
-
-  // System metrics
-  queueSize           Int    @default(0)
-  queueBacklog        Int    @default(0)
-  cacheHitRate        Float? // percentage
-  circuitBreakerTrips Int    @default(0)
-
-  // Resource usage
-  memoryUsage Float? // in MB
-  cpuUsage    Float? // percentage
-
-  whatsappConfig WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+  id                  String         @id @default(cuid())
+  whatsappConfigId    String
+  timestamp           DateTime       @default(now())
+  apiCallsCount       Int            @default(0)
+  apiSuccessCount     Int            @default(0)
+  apiErrorCount       Int            @default(0)
+  avgApiLatency       Float?
+  maxApiLatency       Float?
+  webhooksReceived    Int            @default(0)
+  webhooksProcessed   Int            @default(0)
+  webhooksFailed      Int            @default(0)
+  avgWebhookLatency   Float?
+  queueSize           Int            @default(0)
+  queueBacklog        Int            @default(0)
+  cacheHitRate        Float?
+  circuitBreakerTrips Int            @default(0)
+  memoryUsage         Float?
+  cpuUsage            Float?
+  whatsappConfig      WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
 
   @@index([whatsappConfigId, timestamp])
   @@index([timestamp])
 }
 
 model WhatsAppRateLimitTracking {
-  id               String @id @default(cuid())
-  whatsappConfigId String
-  endpoint         String // API endpoint being tracked
-
-  // Rate limit info
-  limitType      String // "per_second", "per_minute", "per_hour", "per_day"
-  limitValue     Int // Maximum allowed
-  currentUsage   Int    @default(0)
-  remainingQuota Int
-
-  // Reset info
-  resetsAt    DateTime
-  windowStart DateTime
-
-  // Alerts
-  warningThreshold  Float     @default(0.8) // Alert at 80% usage
-  criticalThreshold Float     @default(0.95) // Critical at 95% usage
+  id                String         @id @default(cuid())
+  whatsappConfigId  String
+  endpoint          String
+  limitType         String
+  limitValue        Int
+  currentUsage      Int            @default(0)
+  remainingQuota    Int
+  resetsAt          DateTime
+  windowStart       DateTime
+  warningThreshold  Float          @default(0.8)
+  criticalThreshold Float          @default(0.95)
   lastAlertAt       DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  whatsappConfig WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  whatsappConfig    WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
 
   @@unique([whatsappConfigId, endpoint, limitType])
   @@index([whatsappConfigId])
@@ -1048,32 +888,32 @@ model WhatsAppRateLimitTracking {
 }
 
 model WhatsAppWebhookDelivery {
-  id               String @id @default(cuid())
+  id               String         @id @default(cuid())
   whatsappConfigId String
-  webhookId        String @unique // Unique webhook event ID
-
-  // Delivery info
-  eventType   String // "message", "status", "template_update", etc.
-  payload     Json // Full webhook payload
-  receivedAt  DateTime  @default(now())
-  processedAt DateTime?
-
-  // Processing status
-  status        String    @default("pending") // "pending", "processing", "completed", "failed"
-  attempts      Int       @default(0)
-  lastAttemptAt DateTime?
-
-  // Performance
-  processingTime Float? // in milliseconds
-  queueTime      Float? // time spent in queue
-
-  // Error tracking
-  errorMessage String?
-  errorStack   String?
-
-  whatsappConfig WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
+  webhookId        String         @unique
+  eventType        String
+  payload          Json
+  receivedAt       DateTime       @default(now())
+  processedAt      DateTime?
+  status           String         @default("pending")
+  attempts         Int            @default(0)
+  lastAttemptAt    DateTime?
+  processingTime   Float?
+  queueTime        Float?
+  errorMessage     String?
+  errorStack       String?
+  whatsappConfig   WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id], onDelete: Cascade)
 
   @@index([whatsappConfigId, status])
   @@index([receivedAt])
   @@index([webhookId])
+}
+
+enum ActionStatus {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  CANCELLED
 }

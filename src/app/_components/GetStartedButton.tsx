@@ -11,7 +11,7 @@ interface GetStartedButtonProps {
 export function GetStartedButton({ 
   className = '', 
   showArrow = true, 
-  href = "/use-the-force",
+  href = "/signin",
   size = 'default'
 }: GetStartedButtonProps) {
   // Calculate padding and text size based on the size prop
@@ -22,10 +22,7 @@ export function GetStartedButton({
   return (
     <Link 
       href={href} 
-      className={`${sizeClasses} font-semibold rounded-md flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-purple-500/20 text-white ${className}`}
-      style={{ 
-        background: 'linear-gradient(90deg, #8B5CF6 0%, #3B82F6 100%)'
-      }}
+      className={`${sizeClasses} font-semibold rounded-md flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-purple-500/20 text-white bg-gradient-to-r from-purple-500 to-blue-500 ${className}`}
     >
       Get Started {showArrow && <span className="ml-1">→</span>}
     </Link>

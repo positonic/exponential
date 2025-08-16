@@ -6,7 +6,7 @@ export default async function IntegrationsPage() {
   const session = await auth();
 
   if (!session?.user) {
-    redirect('/use-the-force?callbackUrl=/integrations');
+    redirect('/signin?callbackUrl=/integrations');
   }
 
   return <IntegrationsClient />;

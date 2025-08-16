@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) {
       console.error('No authenticated user for Slack callback');
-      return NextResponse.redirect(new URL('/use-the-force?error=auth_required', request.url));
+      return NextResponse.redirect(new URL('/signin?error=auth_required', request.url));
     }
 
     const searchParams = request.nextUrl.searchParams;
