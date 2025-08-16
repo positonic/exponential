@@ -73,7 +73,7 @@ export function KanbanColumn({ id, title, color, tasks, dragOverTaskId }: Kanban
 
       <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
         <Stack gap="sm">
-          {tasks.map((task, index) => (
+          {tasks.map((task, _index) => (
             <div key={task.id}>
               {/* Show insertion indicator when dragging over this task */}
               {dragOverTaskId === task.id && (

@@ -11,8 +11,7 @@ import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/
 import type { Priority } from "~/types/action";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
-type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
-type Action = ActionWithSyncs | ActionWithoutSyncs;
+type Action = ActionWithSyncs;
 
 // Helper component to render HTML content safely
 const HTMLContent = ({ html, className }: { html: string, className?: string }) => (
@@ -101,7 +100,7 @@ const SyncStatusIndicator = ({ action }: { action: Action }) => {
 
   if (syncInfo.status === 'synced') {
     return (
-      <Tooltip label={`Synced to ${syncInfo.provider === 'notion' ? 'Notion' : syncInfo.provider} on ${new Date(syncInfo.syncedAt!).toLocaleDateString()}`}>
+      <Tooltip label={`Synced to ${syncInfo.provider === 'notion' ? 'Notion' : syncInfo.provider} on ${syncInfo.syncedAt ? new Date(syncInfo.syncedAt).toLocaleDateString() : 'unknown date'}`}>
         <Badge 
           size="sm" 
           color="green" 

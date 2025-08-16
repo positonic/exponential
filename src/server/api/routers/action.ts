@@ -289,6 +289,7 @@ export const actionRouter = createTRPCRouter({
       },
       include: {
         project: true,
+        syncs: true, // Include ActionSync records to show sync status
         assignees: {
           include: { user: { select: { id: true, name: true, email: true, image: true } } },
         },
