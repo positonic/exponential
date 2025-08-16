@@ -256,7 +256,8 @@ export const toolRouter = createTRPCRouter({
       try {
         const formData = new FormData();
         console.log('input.audio', input.audio);
-        formData.append('file', new Blob([await fs.promises.readFile(input.audio)]));
+        const fileBuffer = await fs.promises.readFile(input.audio);
+        formData.append('file', new Blob([new Uint8Array(fileBuffer)]));
         formData.append('language', 'english');
         formData.append('response_format', 'json');
 

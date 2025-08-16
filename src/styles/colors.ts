@@ -42,6 +42,28 @@ export const colorTokens = {
       error: '#fa5252',
       info: '#339af0',
     },
+    avatar: {
+      red: '#FF6B6B',
+      teal: '#4ECDC4',
+      blue: '#45B7D1',
+      green: '#96CEB4',
+      yellow: '#FFEAA7',
+      plum: '#DDA0DD',
+      mint: '#98D8C8',
+      lightYellow: '#F7DC6F',
+      lightPurple: '#BB8FCE',
+      lightBlue: '#85C1E9',
+      orange: '#F8C471',
+      lightGreen: '#82E0AA',
+      lightRed: '#F1948A',
+      skyBlue: '#85D2F0',
+      paleGreen: '#A9DFBF',
+      paleYellow: '#F9E79F',
+      lavender: '#D2B4DE',
+      powderBlue: '#AED6F1',
+      lightPink: '#FADBD8',
+      lightGray: '#D5DBDB',
+    },
   },
   dark: {
     background: {
@@ -80,6 +102,28 @@ export const colorTokens = {
       warning: '#ffd43b',
       error: '#ff6b6b',
       info: '#4dabf7',
+    },
+    avatar: {
+      red: '#FF6B6B',
+      teal: '#4ECDC4',
+      blue: '#45B7D1',
+      green: '#96CEB4',
+      yellow: '#FFEAA7',
+      plum: '#DDA0DD',
+      mint: '#98D8C8',
+      lightYellow: '#F7DC6F',
+      lightPurple: '#BB8FCE',
+      lightBlue: '#85C1E9',
+      orange: '#F8C471',
+      lightGreen: '#82E0AA',
+      lightRed: '#F1948A',
+      skyBlue: '#85D2F0',
+      paleGreen: '#A9DFBF',
+      paleYellow: '#F9E79F',
+      lavender: '#D2B4DE',
+      powderBlue: '#AED6F1',
+      lightPink: '#FADBD8',
+      lightGray: '#D5DBDB',
     },
   },
 } as const;
@@ -196,4 +240,5 @@ export type ColorTokenPath =
   | `surface.${keyof typeof colorTokens.light.surface}`
   | `text.${keyof typeof colorTokens.light.text}`
   | `border.${keyof typeof colorTokens.light.border}`
-  | `brand.${keyof typeof colorTokens.light.brand}`;
+  | `brand.${keyof typeof colorTokens.light.brand}`
+  | `avatar.${keyof typeof colorTokens.light.avatar}`;

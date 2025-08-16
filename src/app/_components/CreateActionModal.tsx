@@ -6,6 +6,7 @@ import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
 import { IconPlus } from '@tabler/icons-react';
+import { ActionStatus } from '@prisma/client';
 
 export function CreateActionModal({ viewName, projectId: propProjectId }: { viewName: string; projectId?: string }) {
   
@@ -58,7 +59,10 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
         transcriptionSessionId: null,
         teamId: null,
         assignedToId: null,
+        kanbanStatus: newAction.projectId ? "TODO" as ActionStatus : null, // Set kanban status for project actions
+        kanbanOrder: null, // Will be set by the server
         syncs: [], // Initialize empty syncs array for consistency with getAll type
+        assignees: [], // Initialize empty assignees array for type consistency
         project: newAction.projectId 
           ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
           : null,
@@ -111,7 +115,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
       return previousState;
     },
 
-    onError: (err, newAction, context) => {
+    onError: (err, variables, context) => {
       if (!context) return;
 
       // Restore all previous states
@@ -121,11 +125,11 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
       utils.action.getToday.setData(undefined, todayActions);
     },
 
-    onSettled: async (data, error, newAction) => {
+    onSettled: async (data, error, variables) => {
       // Invalidate queries smartly based on the new action and view context
-      const projectId = newAction.projectId;
-      const isTodayAction = newAction.dueDate && 
-                            new Date(newAction.dueDate).toDateString() === new Date().toDateString();
+      const projectId = variables.projectId;
+      const isTodayAction = variables.dueDate && 
+                            new Date(variables.dueDate).toDateString() === new Date().toDateString();
 
       console.log(`[CreateActionModal onSettled] Invalidating for view: ${viewName}, newActionId: ${data?.id ?? 'optimistic'}, projectId: ${projectId}, isToday: ${isTodayAction}`);
 
