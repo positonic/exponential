@@ -88,7 +88,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
             <ThemeToggle />
           </div>
           <Link
-            href={session ? "/api/auth/signout" : "/use-the-force"}
+            href={session ? "/api/auth/signout" : "/signin"}
             onClick={() => setIsMenuOpen(false)}
             className="flex w-full items-center rounded-lg px-3 py-3 sm:py-2 text-text-secondary hover:bg-surface-hover active:bg-surface-active sm:active:bg-transparent"
           >

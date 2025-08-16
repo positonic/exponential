@@ -23,6 +23,7 @@ interface ActionsProps {
 export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
   const [isKanbanMode, setIsKanbanMode] = useState(defaultView === 'kanban');
+  const utils = api.useUtils();
 
   // Conditionally fetch actions based on projectId
   const actionsQuery = projectId
@@ -32,45 +33,103 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const actions = actionsQuery.data; // Extract data from the chosen query
 
   // Bulk update mutation for rescheduling
-  const bulkUpdateMutation = api.action.update.useMutation();
+  const bulkUpdateMutation = api.action.update.useMutation({
+    onMutate: async ({ id, dueDate }) => {
+      // Cancel any outgoing refetches
+      await utils.action.getAll.cancel();
+      
+      // Get current data
+      const previousData = utils.action.getAll.getData();
+      
+      // Optimistically update the cache
+      if (previousData) {
+        utils.action.getAll.setData(undefined, (old) => {
+          if (!old) return [];
+          return old.map((action) =>
+            action.id === id
+              ? { ...action, dueDate: dueDate ?? null }
+              : action
+          );
+        });
+      }
+      
+      return { previousData };
+    },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousData) {
+        utils.action.getAll.setData(undefined, context.previousData);
+      }
+      notifications.show({
+        title: 'Update Failed',
+        message: `Failed to update action`,
+        color: 'red',
+      });
+    },
+    onSettled: () => {
+      // Always refetch after error or success
+      void utils.action.getAll.invalidate();
+      void utils.action.getToday.invalidate();
+    },
+  });
 
   // Handle overdue bulk reschedule (non-project pages only)
-  const handleOverdueBulkReschedule = (date: Date | null, actionIds: string[]) => {
+  const handleOverdueBulkReschedule = async (date: Date | null, actionIds: string[]) => {
     if (actionIds.length === 0) return;
     
-    // Update all selected actions one by one
-    let completedCount = 0;
     const totalCount = actionIds.length;
     
-    actionIds.forEach((actionId) => {
-      bulkUpdateMutation.mutate({
-        id: actionId,
-        dueDate: date ?? undefined
-      }, {
-        onSuccess: () => {
-          completedCount++;
-          // Show final notification when all are done
-          if (completedCount === totalCount) {
-            const message = date 
-              ? `Successfully rescheduled ${totalCount} action${totalCount !== 1 ? 's' : ''} to ${date.toDateString()}`
-              : `Successfully removed due date from ${totalCount} action${totalCount !== 1 ? 's' : ''}`;
-            notifications.show({
-              title: date ? 'Bulk Reschedule Complete' : 'Due Date Removed',
-              message,
-              color: 'green',
-            });
-            void actionsQuery.refetch();
-          }
-        },
-        onError: () => {
-          notifications.show({
-            title: 'Update Failed',
-            message: `Failed to update action ${actionId}`,
-            color: 'red',
-          });
-        }
-      });
+    // Show initial notification
+    notifications.show({
+      id: 'bulk-reschedule',
+      title: 'Rescheduling...',
+      message: `Updating ${totalCount} action${totalCount !== 1 ? 's' : ''}...`,
+      loading: true,
+      autoClose: false,
     });
+    
+    try {
+      // Execute all mutations in parallel
+      await Promise.all(
+        actionIds.map((actionId) =>
+          bulkUpdateMutation.mutateAsync({
+            id: actionId,
+            dueDate: date ?? undefined
+          })
+        )
+      );
+      
+      // Success notification
+      const message = date 
+        ? `Successfully rescheduled ${totalCount} action${totalCount !== 1 ? 's' : ''} to ${date.toDateString()}`
+        : `Successfully removed due date from ${totalCount} action${totalCount !== 1 ? 's' : ''}`;
+      
+      notifications.update({
+        id: 'bulk-reschedule',
+        title: date ? 'Bulk Reschedule Complete' : 'Due Date Removed',
+        message,
+        color: 'green',
+        loading: false,
+        autoClose: 3000,
+      });
+      
+      // Force immediate UI update
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.action.getToday.invalidate(),
+        projectId ? utils.action.getProjectActions.invalidate({ projectId }) : Promise.resolve()
+      ]);
+      
+    } catch {
+      notifications.update({
+        id: 'bulk-reschedule',
+        title: 'Bulk Update Failed',
+        message: 'Some actions could not be updated. Please try again.',
+        color: 'red',
+        loading: false,
+        autoClose: 5000,
+      });
+    }
   };
 
   // Bulk delete mutation for overdue actions (non-project pages only)
