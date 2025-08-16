@@ -60,7 +60,8 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
         projects: selectedProjectId && projects 
           ? [projects.find(p => p.id === selectedProjectId)].filter(Boolean)
           : [],
-        goals: []
+        goals: [],
+        assignees: []
       };
       console.log('🟡 Created optimistic outcome:', optimisticOutcome);
 

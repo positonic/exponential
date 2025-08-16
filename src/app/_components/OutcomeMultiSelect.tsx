@@ -42,6 +42,45 @@ export function OutcomeMultiSelect({
       const previousActiveProjects = utils.project.getActiveWithDetails.getData();
       const previousAllProjects = utils.project.getAll.getData();
       
+      // // Optimistically update the data
+      // if (outcomeIds) {
+      //   // Get the latest outcomes from cache instead of using stale prop
+      //   const latestAllOutcomes = utils.outcome.getMyOutcomes.getData() || [];
+      //   const updatedOutcomes = latestAllOutcomes.filter(o => outcomeIds.includes(o.id));
+        
+      //   utils.project.getActiveWithDetails.setData(undefined, (old) => {
+      //     if (!old) return old;
+      //     return old.map(p => 
+      //       p.id === projectId 
+      //         ? { ...p, outcomes: updatedOutcomes.map(outcome => ({
+      //             id: outcome.id,
+      //             description: outcome.description,
+      //             dueDate: outcome.dueDate,
+      //             userId: null,
+      //             type: outcome.type,
+      //             projectId: projectId
+      //           })) }
+      //         : p
+      //     ) as any;
+      //   });
+        
+      //   utils.project.getAll.setData(undefined, (old) => {
+      //     if (!old) return old;
+      //     return old.map(p => 
+      //       p.id === projectId 
+      //         ? { ...p, outcomes: updatedOutcomes.map(outcome => ({
+      //             id: outcome.id,
+      //             description: outcome.description,
+      //             dueDate: outcome.dueDate,
+      //             userId: null,
+      //             type: outcome.type,
+      //             projectId: projectId
+      //           })) }
+      //         : p
+      //     ) as any;
+      //   });
+      // }
+
       // Return a context with the snapshots
       return { previousActiveProjects, previousAllProjects };
     },
@@ -71,8 +110,8 @@ export function OutcomeMultiSelect({
         description,
         type: 'weekly',
         dueDate: null,
-        projects: [],
-        goals: []
+        goals: [],
+        projects: []
       };
       
       // Optimistically add to all outcomes
@@ -83,6 +122,39 @@ export function OutcomeMultiSelect({
       
       // Skip optimistic project updates due to type mismatch
       const currentOutcomeIds = currentOutcomes.map(o => o.id);
+      const newOutcomes = [...currentOutcomes, tempOutcome];
+      
+      utils.project.getActiveWithDetails.setData(undefined, (old) => {
+        if (!old) return old;
+        return old.map(p => 
+          p.id === projectId 
+            ? { ...p, outcomes: newOutcomes.map(outcome => ({
+                id: outcome.id,
+                description: outcome.description,
+                dueDate: outcome.dueDate,
+                userId: null,
+                type: outcome.type,
+                projectId: projectId
+              })) }
+            : p
+        ) as any;
+      });
+      
+      utils.project.getAll.setData(undefined, (old) => {
+        if (!old) return old;
+        return old.map(p => 
+          p.id === projectId 
+            ? { ...p, outcomes: newOutcomes.map(outcome => ({
+                id: outcome.id,
+                description: outcome.description,
+                dueDate: outcome.dueDate,
+                userId: null,
+                type: outcome.type,
+                projectId: projectId
+              })) }
+            : p
+        ) as any;
+      });
       
       // Clear search immediately
       onSearchChange('');
