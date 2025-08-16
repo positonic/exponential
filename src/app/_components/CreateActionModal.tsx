@@ -6,7 +6,7 @@ import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
 import { IconPlus } from '@tabler/icons-react';
-import { ActionStatus } from '@prisma/client';
+import type { ActionStatus } from '@prisma/client';
 
 export function CreateActionModal({ viewName, projectId: propProjectId }: { viewName: string; projectId?: string }) {
   

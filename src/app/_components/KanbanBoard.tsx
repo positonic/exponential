@@ -3,18 +3,15 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   DndContext,
-  DragEndEvent,
   DragOverlay,
-  DragStartEvent,
   PointerSensor,
   KeyboardSensor,
   useSensor,
   useSensors,
-  DragOverEvent,
   closestCenter,
-  rectIntersection,
 } from "@dnd-kit/core";
-import { arrayMove, SortableContext, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import type { DragEndEvent, DragStartEvent, DragOverEvent } from "@dnd-kit/core";
+import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { ScrollArea, Group, Title, Paper } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
@@ -90,7 +87,7 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
       
       return { previousActions, actionId, originalStatus: previousActions?.find((a: any) => a.id === actionId)?.kanbanStatus };
     },
-    onSuccess: (_, { actionId }) => {
+    onSuccess: (_, { actionId: _actionId }) => {
       // Clear optimistic update on success
       // setOptimisticUpdates(prev => {
       //   const newUpdates = { ...prev };
