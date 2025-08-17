@@ -14,7 +14,7 @@ export default async function TeamDetailPage({ params }: TeamDetailPageProps) {
   const { slug } = await params;
 
   if (!session?.user) {
-    redirect(`/use-the-force?callbackUrl=/teams/${slug}`);
+    redirect(`/signin?callbackUrl=/teams/${slug}`);
   }
 
   try {

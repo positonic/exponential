@@ -11,7 +11,7 @@ export async function GET() {
   const session = await auth();
   
   if (!session?.user) {
-    redirect("/use-the-force");
+    redirect("/signin");
   }
 
   // Get the host from the request headers to handle different ports

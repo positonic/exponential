@@ -3,6 +3,7 @@
 import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
+import { KanbanBoard } from './KanbanBoard';
 import { IconLayoutKanban, IconList } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
 import { useState, useEffect } from "react";
@@ -14,13 +15,15 @@ type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'li
 
 interface ActionsProps {
   viewName: string;
-  defaultView?: 'list' | 'alignment';
+  defaultView?: 'list' | 'alignment' | 'kanban';
   projectId?: string;
   displayAlignment?: boolean;
 }
 
 export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
+  const [isKanbanMode, setIsKanbanMode] = useState(defaultView === 'kanban');
+  const utils = api.useUtils();
 
   // Conditionally fetch actions based on projectId
   const actionsQuery = projectId
@@ -30,45 +33,103 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const actions = actionsQuery.data; // Extract data from the chosen query
 
   // Bulk update mutation for rescheduling
-  const bulkUpdateMutation = api.action.update.useMutation();
+  const bulkUpdateMutation = api.action.update.useMutation({
+    onMutate: async ({ id, dueDate }) => {
+      // Cancel any outgoing refetches
+      await utils.action.getAll.cancel();
+      
+      // Get current data
+      const previousData = utils.action.getAll.getData();
+      
+      // Optimistically update the cache
+      if (previousData) {
+        utils.action.getAll.setData(undefined, (old) => {
+          if (!old) return [];
+          return old.map((action) =>
+            action.id === id
+              ? { ...action, dueDate: dueDate ?? null }
+              : action
+          );
+        });
+      }
+      
+      return { previousData };
+    },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousData) {
+        utils.action.getAll.setData(undefined, context.previousData);
+      }
+      notifications.show({
+        title: 'Update Failed',
+        message: `Failed to update action`,
+        color: 'red',
+      });
+    },
+    onSettled: () => {
+      // Always refetch after error or success
+      void utils.action.getAll.invalidate();
+      void utils.action.getToday.invalidate();
+    },
+  });
 
   // Handle overdue bulk reschedule (non-project pages only)
-  const handleOverdueBulkReschedule = (date: Date | null, actionIds: string[]) => {
+  const handleOverdueBulkReschedule = async (date: Date | null, actionIds: string[]) => {
     if (actionIds.length === 0) return;
     
-    // Update all selected actions one by one
-    let completedCount = 0;
     const totalCount = actionIds.length;
     
-    actionIds.forEach((actionId) => {
-      bulkUpdateMutation.mutate({
-        id: actionId,
-        dueDate: date ?? undefined
-      }, {
-        onSuccess: () => {
-          completedCount++;
-          // Show final notification when all are done
-          if (completedCount === totalCount) {
-            const message = date 
-              ? `Successfully rescheduled ${totalCount} action${totalCount !== 1 ? 's' : ''} to ${date.toDateString()}`
-              : `Successfully removed due date from ${totalCount} action${totalCount !== 1 ? 's' : ''}`;
-            notifications.show({
-              title: date ? 'Bulk Reschedule Complete' : 'Due Date Removed',
-              message,
-              color: 'green',
-            });
-            void actionsQuery.refetch();
-          }
-        },
-        onError: () => {
-          notifications.show({
-            title: 'Update Failed',
-            message: `Failed to update action ${actionId}`,
-            color: 'red',
-          });
-        }
-      });
+    // Show initial notification
+    notifications.show({
+      id: 'bulk-reschedule',
+      title: 'Rescheduling...',
+      message: `Updating ${totalCount} action${totalCount !== 1 ? 's' : ''}...`,
+      loading: true,
+      autoClose: false,
     });
+    
+    try {
+      // Execute all mutations in parallel
+      await Promise.all(
+        actionIds.map((actionId) =>
+          bulkUpdateMutation.mutateAsync({
+            id: actionId,
+            dueDate: date ?? undefined
+          })
+        )
+      );
+      
+      // Success notification
+      const message = date 
+        ? `Successfully rescheduled ${totalCount} action${totalCount !== 1 ? 's' : ''} to ${date.toDateString()}`
+        : `Successfully removed due date from ${totalCount} action${totalCount !== 1 ? 's' : ''}`;
+      
+      notifications.update({
+        id: 'bulk-reschedule',
+        title: date ? 'Bulk Reschedule Complete' : 'Due Date Removed',
+        message,
+        color: 'green',
+        loading: false,
+        autoClose: 3000,
+      });
+      
+      // Force immediate UI update
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.action.getToday.invalidate(),
+        projectId ? utils.action.getProjectActions.invalidate({ projectId }) : Promise.resolve()
+      ]);
+      
+    } catch {
+      notifications.update({
+        id: 'bulk-reschedule',
+        title: 'Bulk Update Failed',
+        message: 'Some actions could not be updated. Please try again.',
+        color: 'red',
+        loading: false,
+        autoClose: 5000,
+      });
+    }
   };
 
   // Bulk delete mutation for overdue actions (non-project pages only)
@@ -122,11 +183,12 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   console.log("outcomes are ", outcomes.data);
   useEffect(() => {
     setIsAlignmentMode(defaultView === 'alignment');
+    setIsKanbanMode(defaultView === 'kanban');
   }, [defaultView]);
 
   console.log("outcomes are ", outcomes.data);
   // Filter outcomes for today
-  const todayOutcomes = outcomes.data?.filter(outcome => {
+  const todayOutcomes = outcomes.data?.filter((outcome: any) => {
     if (!outcome.dueDate) return false;
     const dueDate = new Date(outcome.dueDate);
     const today = new Date();
@@ -138,7 +200,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   });
 
   // Filter outcomes for this week (excluding today)
-  const weeklyOutcomes = outcomes.data?.filter(outcome => {
+  const weeklyOutcomes = outcomes.data?.filter((outcome: any) => {
     if (!outcome.dueDate) return false;
     const dueDate = new Date(outcome.dueDate);
     const today = new Date();
@@ -164,14 +226,34 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
 
   return (
-    <div className="w-full max-w-3xl mx-auto">
-      {/* Alignment View Toggle - moved to standalone button */}
-      {displayAlignment && (
-        <Paper withBorder radius="sm" mb="md" p="md">
-          <Group justify="space-between" align="center">
-            <Text size="sm" c="dimmed">
-              View Options
-            </Text>
+    <div className="w-full  mx-auto">
+      {/* View Toggle Buttons */}
+      {projectId && (
+        <Group gap="xs" mb="md">
+          {/* List/Kanban toggle - only show for projects */}
+          <Button
+            variant={!isKanbanMode ? "filled" : "subtle"}
+            size="sm"
+            onClick={() => setIsKanbanMode(false)}
+          >
+            <Group gap="xs">
+              <IconList size={16} />
+              List
+            </Group>
+          </Button>
+          <Button
+            variant={isKanbanMode ? "filled" : "subtle"}
+            size="sm"
+            onClick={() => setIsKanbanMode(true)}
+          >
+            <Group gap="xs">
+              <IconLayoutKanban size={16} />
+              Kanban
+            </Group>
+          </Button>
+          
+          {/* Alignment toggle */}
+          {displayAlignment && (
             <Button
               variant="subtle"
               size="sm"
@@ -182,8 +264,8 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
                 {isAlignmentMode ? 'Task View' : 'Alignment View'}
               </Group>
             </Button>
-          </Group>
-        </Paper>
+          )}
+        </Group>
       )}
 
       {isAlignmentMode && (
@@ -198,7 +280,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               What will make today great?
             </Title>
             <Stack gap="xs">
-              {todayOutcomes?.map((outcome) => (
+              {todayOutcomes?.map((outcome: any) => (
                 <CreateOutcomeModal
                   key={outcome.id}
                   outcome={{
@@ -234,7 +316,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               What would make this week great?
             </Title>
             <Stack gap="xs">
-              {weeklyOutcomes?.map((outcome) => (
+              {weeklyOutcomes?.map((outcome: any) => (
                 <CreateOutcomeModal
                   key={outcome.id}
                   outcome={{
@@ -250,7 +332,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
                       <Group justify="space-between">
                         <Text>{outcome.description}</Text>
                         <Text size="sm" c="dimmed">
-                          {new Date(outcome.dueDate!).toLocaleDateString(undefined, { weekday: 'short' })}
+                          {new Date(outcome.dueDate).toLocaleDateString(undefined, { weekday: 'short' })}
                         </Text>
                       </Group>
                     </Paper>
@@ -291,14 +373,21 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         </Paper>
       )}
       
-      {/* Pass the fetched actions data to ActionList */}
-      <ActionList 
-        viewName={viewName} 
-        actions={actions ?? []} 
-        enableBulkEditForOverdue={!projectId} // Only enable for non-project pages
-        onOverdueBulkAction={!projectId ? handleOverdueBulkAction : undefined}
-        onOverdueBulkReschedule={!projectId ? handleOverdueBulkReschedule : undefined}
-      />
+      {/* Conditional rendering of List or Kanban view */}
+      {projectId && isKanbanMode ? (
+        <KanbanBoard 
+          projectId={projectId}
+          actions={actions ?? []} 
+        />
+      ) : (
+        <ActionList 
+          viewName={viewName} 
+          actions={actions ?? []} 
+          enableBulkEditForOverdue={!projectId} // Only enable for non-project pages
+          onOverdueBulkAction={!projectId ? handleOverdueBulkAction : undefined}
+          onOverdueBulkReschedule={!projectId ? handleOverdueBulkReschedule : undefined}
+        />
+      )}
       <div className="mt-6">
         <CreateActionModal viewName={viewName} projectId={projectId}/>
       </div>

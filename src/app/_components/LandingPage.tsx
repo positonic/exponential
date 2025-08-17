@@ -28,7 +28,7 @@ export function LandingPage() {
           {theme.branding.heroSubtitle}
         </Text>
         <Group gap="md" justify="center" wrap="wrap">
-          <Link href="/use-the-force">
+          <Link href="/signin">
             <Button size="lg" color="blue">
               Get Started
             </Button>
@@ -124,7 +124,7 @@ export function LandingPage() {
           Join thousands of productive professionals and take control of your
           workflow today.
         </Text>
-        <Link href="/use-the-force">
+        <Link href="/signin">
           <Button size="lg" color="blue">
             Sign Up Now
           </Button>

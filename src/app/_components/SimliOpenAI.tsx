@@ -348,7 +348,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         session_token: "",
         SimliURL: "",
         enableConsoleLogs: true
-      });
+      } as any);
       
       // Fix floating promise by awaiting
       await Promise.resolve(simliClient?.start());

@@ -132,6 +132,12 @@ src/
 
 ## Development Patterns
 
+### Pull Request Validation
+- **ALWAYS use the build-tester agent** when checking if a PR is ready to merge
+- The build-tester agent will automatically run all necessary checks (build, typecheck, lint, tests)
+- DO NOT manually run `npm run typecheck`, `npm run lint`, etc. for PR validation
+- When asked about PR readiness, immediately use: `Task subagent_type="build-tester"` with the PR details
+
 ### Code Style (from .cursorrules)
 - Use TypeScript for all code with strict type checking
 - Prefer interfaces over types for object shapes
@@ -152,7 +158,7 @@ src/
 ### Authentication
 - NextAuth.js v5 with JWT strategy
 - Multiple OAuth providers (Discord, Google, Notion)
-- Custom sign-in page at `/use-the-force`
+- Custom sign-in page at `/signin`
 - Session management with database adapter
 
 ### Database Schema

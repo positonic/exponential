@@ -6,7 +6,7 @@ export default async function TeamsPage() {
   const session = await auth();
 
   if (!session?.user) {
-    redirect('/use-the-force?callbackUrl=/teams');
+    redirect('/signin?callbackUrl=/teams');
   }
 
   return <TeamsClient currentUserId={session.user.id} />;

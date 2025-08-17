@@ -17,7 +17,7 @@ export function Welcome() {
         </Text>
         <Button
           component={Link}
-          href="/use-the-force"
+          href="/signin"
           size="lg"
           radius="md"
           className={`bg-gradient-to-r ${theme.colors.secondary} hover:opacity-90 transition-all`}
