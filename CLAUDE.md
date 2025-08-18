@@ -219,6 +219,26 @@ Required environment variables:
 - Efficient database queries with proper indexing
 - Image optimization with Next.js Image component
 
+## Git Workflow & Deployment
+
+We use a hybrid git flow optimized for a small team (2 developers) that balances safety for database migrations with speed for other changes:
+
+- **`main` branch**: Production (auto-deploys via Vercel)
+- **`develop` branch**: Integration testing for database migrations (auto-deploys to staging)
+- **Smart routing**: PRs without migrations can go directly to main via fast-track
+
+### Quick Workflow Commands
+- `/smart-merge` - Intelligently route your PR based on content
+- `/fast-track` - Skip develop for safe changes (UI, docs, non-DB fixes)
+- `/check-deploy-safety` - Analyze changes and recommend merge strategy
+- `/sync-branches` - Keep develop updated with main after fast-track merges
+
+### Database Migration Safety
+- All schema changes MUST go through develop branch first
+- Test database (Railway) shared by develop and all PR previews
+- Weekly batch merge from develop to main for migrations
+- See `/docs/DEVELOPMENT_WORKFLOW.md` for complete details
+
 ## Styling Architecture Details
 
 **REMINDER: Read `/docs/styling-architecture.md` for complete styling guidelines.**
