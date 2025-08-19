@@ -303,6 +303,30 @@ For parallel feature development using git worktrees, see the comprehensive guid
 - Best practices and common gotchas
 - Example implementation (outcomes delete feature)
 
+## IDE Enhancement with Serena MCP
+
+The project uses Serena MCP server for enhanced code intelligence. See `/docs/SERENA_MCP_GUIDE.md` for details.
+
+### Automatic Serena Management
+
+**IMPORTANT**: Claude should proactively manage Serena indexing:
+
+1. **Auto-index on session start**: When starting a new Claude session, check if index is older than 7 days
+2. **Post-merge indexing**: After running `git pull` or merging branches, suggest re-indexing
+3. **Major change detection**: After creating/moving/deleting multiple files, run `/serena-index`
+4. **Performance issues**: If symbol search seems slow or inaccurate, re-index automatically
+
+### Quick Commands
+- **Re-index**: `/serena-index` - Updates the symbol cache
+- **Check age**: Look for `.serena/cache/typescript/document_symbols_cache_*.pkl` modification time
+- **Features**: Enhanced code navigation, symbol search, and contextual awareness
+
+### Serena Workflow Rules
+- If `.serena/cache/` doesn't exist → Run indexing immediately
+- If cache is older than 7 days → Suggest re-indexing
+- After `git pull` with 10+ file changes → Auto re-index
+- When user reports "can't find symbol" → Re-index and retry
+
 ## Task Master AI Instructions
 **Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
 @./.taskmaster/CLAUDE.md
