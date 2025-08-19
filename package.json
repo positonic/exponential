@@ -43,7 +43,7 @@
     "@notionhq/client": "^4.0.1",
     "@octokit/rest": "^21.1.1",
     "@openai/realtime-api-beta": "github:simliai/openai-realtime-api-beta",
-    "@prisma/client": "^5.14.0",
+    "@prisma/client": "^6.14.0",
     "@silk-wallet/silk-wallet-sdk": "^0.2.1",
     "@t3-oss/env-nextjs": "^0.10.1",
     "@tabler/icons-react": "^3.30.0",
@@ -101,7 +101,7 @@
     "postcss": "^8.4.39",
     "prettier": "^3.3.2",
     "prettier-plugin-tailwindcss": "^0.6.5",
-    "prisma": "^5.14.0",
+    "prisma": "^6.14.0",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.5.3"
   },

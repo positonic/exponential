@@ -20,12 +20,19 @@ export function OneOnOneBoard() {
   // Fetch all outcomes for the dropdown
   const { data: allOutcomes } = api.outcome.getMyOutcomes.useQuery();
   
-  const updateProjectPriority = api.project.update.useMutation({
+  const updateProject = api.project.update.useMutation({
     onSuccess: () => {
       void utils.project.getActiveWithDetails.invalidate();
     },
   });
 
+
+  const statusOptions = [
+    { value: "ACTIVE", label: "Active" },
+    { value: "ON_HOLD", label: "On Hold" },
+    { value: "COMPLETED", label: "Completed" },
+    { value: "CANCELLED", label: "Cancelled" },
+  ];
 
   const priorityOptions = [
     { value: "HIGH", label: "High" },
@@ -33,6 +40,21 @@ export function OneOnOneBoard() {
     { value: "LOW", label: "Low" },
     { value: "NONE", label: "None" },
   ];
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "ACTIVE":
+        return "green";
+      case "ON_HOLD":
+        return "yellow";
+      case "COMPLETED":
+        return "blue";
+      case "CANCELLED":
+        return "gray";
+      default:
+        return "gray";
+    }
+  };
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -90,6 +112,7 @@ export function OneOnOneBoard() {
             <tr className="border-b border-border-primary">
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '40px' }}></th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm">Project name</th>
+              <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '120px' }}>Status</th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '120px' }}>Priority</th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm">Weekly Outcomes</th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '300px' }}>Tasks (read only)</th>
@@ -123,10 +146,36 @@ export function OneOnOneBoard() {
                     </td>
                     <td className="p-3">
                       <Select
+                        value={project.status}
+                        onChange={(value) => {
+                          if (value) {
+                            updateProject.mutate({
+                              id: project.id,
+                              name: project.name,
+                              status: value as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
+                              priority: project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
+                            });
+                          }
+                        }}
+                        data={statusOptions}
+                        size="xs"
+                        variant="filled"
+                        styles={{
+                          input: {
+                            backgroundColor: `var(--mantine-color-${getStatusColor(project.status)}-light)`,
+                            color: `var(--mantine-color-${getStatusColor(project.status)}-filled)`,
+                            fontWeight: 500,
+                            border: 'none',
+                          }
+                        }}
+                      />
+                    </td>
+                    <td className="p-3">
+                      <Select
                         value={project.priority}
                         onChange={(value) => {
                           if (value) {
-                            updateProjectPriority.mutate({
+                            updateProject.mutate({
                               id: project.id,
                               name: project.name,
                               status: project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
@@ -186,7 +235,7 @@ export function OneOnOneBoard() {
                   {/* Expanded row showing tasks */}
                   {isExpanded && project.actions && project.actions.length > 0 && (
                     <tr>
-                      <td colSpan={5} className="p-0">
+                      <td colSpan={6} className="p-0">
                         <div className="bg-background-secondary border-t border-border-primary">
                           <div className="pl-12 pr-4 py-2 max-w-3xl">
                             <ActionList 
