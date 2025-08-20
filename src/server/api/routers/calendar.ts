@@ -81,4 +81,33 @@ export const calendarRouter = createTRPCRouter({
       const calendarService = new GoogleCalendarService();
       return calendarService.getCacheStats();
     }),
+
+  disconnect: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      // Remove Google OAuth tokens to disconnect calendar
+      const account = await ctx.db.account.findFirst({
+        where: {
+          userId: ctx.session.user.id,
+          provider: "google",
+        },
+      });
+
+      if (account) {
+        await ctx.db.account.update({
+          where: { id: account.id },
+          data: {
+            access_token: null,
+            refresh_token: null,
+            expires_at: null,
+            scope: null,
+          },
+        });
+      }
+
+      // Clear calendar cache for this user
+      const calendarService = new GoogleCalendarService();
+      calendarService.clearUserCache(ctx.session.user.id);
+
+      return { success: true, message: "Calendar disconnected successfully" };
+    }),
 });
