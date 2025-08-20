@@ -2,10 +2,7 @@ import { auth } from "~/server/auth";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 
-const GOOGLE_CALENDAR_SCOPES = [
-  "https://www.googleapis.com/auth/calendar.readonly",
-  "https://www.googleapis.com/auth/calendar.events",
-].join(" ");
+const GOOGLE_CALENDAR_SCOPES = "https://www.googleapis.com/auth/calendar.events";
 
 export async function GET() {
   const session = await auth();

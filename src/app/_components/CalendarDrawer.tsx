@@ -8,6 +8,7 @@ import { useState, useRef, useEffect } from "react";
 import { CalendarDayView } from "./CalendarDayView";
 import { CalendarDrawerSkeleton, CalendarDayViewSkeleton } from "./CalendarSkeleton";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { stripHtml } from "~/lib/utils";
 
 interface CalendarDrawerProps {
   opened: boolean;
@@ -298,7 +299,7 @@ function CalendarDrawerContent({ opened, onClose, selectedDate = new Date() }: C
                       {/* Event Description */}
                       {event.description && (
                         <Text size="sm" c="gray.4" mt="sm" lineClamp={3}>
-                          {event.description}
+                          {stripHtml(event.description)}
                         </Text>
                       )}
                     </Stack>

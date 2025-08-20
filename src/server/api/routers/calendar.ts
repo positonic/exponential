@@ -21,7 +21,7 @@ export const calendarRouter = createTRPCRouter({
     }
 
     // Check if the account has calendar scopes
-    const hasCalendarScope = account.scope?.includes("https://www.googleapis.com/auth/calendar") ?? false;
+    const hasCalendarScope = account.scope?.includes("https://www.googleapis.com/auth/calendar.events") ?? false;
     
     // Check if token is still valid (with some buffer)
     const isTokenValid = !account.expires_at || account.expires_at > Math.floor(Date.now() / 1000) + 300;
