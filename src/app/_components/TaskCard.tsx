@@ -5,8 +5,9 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Card, Text, Group, Badge, Avatar, Stack, ActionIcon, Menu, Tooltip, HoverCard } from "@mantine/core";
 import { IconGripVertical, IconDots, IconEdit, IconTrash } from "@tabler/icons-react";
-import { AssignTaskModal } from "./AssignTaskModal";
+import { AssignActionModal } from "./AssignActionModal";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
+import { HTMLContent } from "./HTMLContent";
 type ActionStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
 
 interface Task {
@@ -141,7 +142,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
 
         {/* Task title */}
         <Text fw={500} size="sm" lineClamp={2}>
-          {task.name}
+          <HTMLContent html={task.name} />
         </Text>
 
         {/* Task description */}
@@ -271,11 +272,11 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
         </Group>
       </Stack>
       
-      <AssignTaskModal
+      <AssignActionModal
         opened={assignModalOpen}
         onClose={() => setAssignModalOpen(false)}
-        taskId={task.id}
-        taskName={task.name}
+        actionId={task.id}
+        actionName={task.name}
         projectId={task.projectId}
         currentAssignees={task.assignees}
       />

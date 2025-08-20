@@ -18,12 +18,13 @@ import { IconSearch, IconRobot } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
+import { HTMLContent } from "./HTMLContent";
 
-interface AssignTaskModalProps {
+interface AssignActionModalProps {
   opened: boolean;
   onClose: () => void;
-  taskId: string;
-  taskName: string;
+  actionId: string;
+  actionName: string;
   projectId?: string | null;
   currentAssignees: Array<{
     user: {
@@ -43,22 +44,22 @@ interface AssignableUser {
   isAIAgent?: boolean;
 }
 
-export function AssignTaskModal({
+export function AssignActionModal({
   opened,
   onClose,
-  taskId,
-  taskName,
+  actionId,
+  actionName,
   projectId,
   currentAssignees,
-}: AssignTaskModalProps) {
+}: AssignActionModalProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
     new Set(currentAssignees.map(a => a.user.id))
   );
 
-  // Get assignable users for this task
+  // Get assignable users for this action
   const { data: assignableData, isLoading: isLoadingUsers } = api.action.getAssignableUsers.useQuery(
-    { actionId: taskId },
+    { actionId: actionId },
     { enabled: opened }
   );
 
@@ -160,7 +161,7 @@ export function AssignTaskModal({
       // Unassign removed users
       if (toUnassign.length > 0) {
         await unassignMutation.mutateAsync({
-          actionId: taskId,
+          actionId: actionId,
           userIds: toUnassign,
         });
       }
@@ -168,7 +169,7 @@ export function AssignTaskModal({
       // Assign new users
       if (toAssign.length > 0) {
         await assignMutation.mutateAsync({
-          actionId: taskId,
+          actionId: actionId,
           userIds: toAssign,
         });
       }
@@ -192,14 +193,14 @@ export function AssignTaskModal({
     <Modal
       opened={opened}
       onClose={onClose}
-      title="Assign Task"
+      title="Assign Action"
       size="md"
       centered
     >
       <Stack gap="md">
         <div>
           <Text size="sm" fw={500} mb="xs">
-            Task: {taskName}
+            Action: <HTMLContent html={actionName} className="inline" />
           </Text>
           {projectId && assignableData?.actionContext && (
             <Text size="xs" c="dimmed">

@@ -6,21 +6,13 @@ import { api } from "~/trpc/react";
 import { useState } from "react";
 import React from "react";
 import { EditActionModal } from "./EditActionModal";
-import { AssignTaskModal } from "./AssignTaskModal";
+import { AssignActionModal } from "./AssignActionModal";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
+import { HTMLContent } from "./HTMLContent";
 import type { Priority } from "~/types/action";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
 type Action = ActionWithSyncs;
-
-// Helper component to render HTML content safely
-const HTMLContent = ({ html, className }: { html: string, className?: string }) => (
-  <div 
-    className={className || "text-text-primary"}
-    dangerouslySetInnerHTML={{ __html: html }}
-    style={{ display: 'inline' }}
-  />
-);
 
 // Helper function to format date like "22 Feb"
 const formatDate = (date: Date | null | undefined): string => {
@@ -671,14 +663,14 @@ export function ActionList({
       />
       
       {assignSelectedAction && (
-        <AssignTaskModal
+        <AssignActionModal
           opened={assignModalOpened}
           onClose={() => {
             setAssignModalOpened(false);
             setAssignSelectedAction(null);
           }}
-          taskId={assignSelectedAction.id}
-          taskName={assignSelectedAction.name}
+          actionId={assignSelectedAction.id}
+          actionName={assignSelectedAction.name}
           projectId={assignSelectedAction.projectId}
           currentAssignees={assignSelectedAction.assignees || []}
         />

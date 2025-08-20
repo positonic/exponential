@@ -12,6 +12,7 @@ import { OutcomesTable } from "./OutcomesTable";
 import { OutcomeTimeline } from "./OutcomeTimeline";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { Button } from "@mantine/core";
+import { HTMLContent } from "./HTMLContent";
 import {
   Group,
   Tabs,
@@ -342,7 +343,7 @@ export function ProjectContent({
                                   <Group key={action.id} gap="xs" align="flex-start">
                                     <Text size="xs" c="dimmed" mt={2}>•</Text>
                                     <Text size="sm" lineClamp={1} style={{ flex: 1 }}>
-                                      {action.name}
+                                      <HTMLContent html={action.name} />
                                     </Text>
                                     {action.priority && (
                                       <Badge variant="outline" size="xs" color="gray">

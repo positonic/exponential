@@ -39,6 +39,7 @@ import { TranscriptionRenderer } from "./TranscriptionRenderer";
 // import { ActionList } from "./ActionList";
 import { FirefliesSyncPanel } from "./FirefliesSyncPanel";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
+import { HTMLContent } from "./HTMLContent";
 
 type TabValue = "transcriptions" | "upcoming" | "archive";
 
@@ -815,7 +816,7 @@ export function MeetingsContent() {
                                   <Group key={action.id} gap="xs" align="flex-start">
                                     <Text size="xs" c="dimmed" mt={2}>•</Text>
                                     <Text size="sm" lineClamp={1} style={{ flex: 1 }}>
-                                      {action.name}
+                                      <HTMLContent html={action.name} />
                                     </Text>
                                     {action.priority && (
                                       <Badge variant="outline" size="xs" color="gray">
@@ -853,7 +854,7 @@ export function MeetingsContent() {
               <Paper
                 p="md"
                 radius="sm"
-                className="mx-auto w-full max-w-3xl bg-[#262626]"
+                className="mx-auto w-full max-w-3xl bg-surface-secondary"
               >
                 <Text size="sm" c="dimmed" ta="center" py="xl">
                   No upcoming meetings scheduled.
