@@ -80,3 +80,6 @@ pnpm-lock.yaml
 
 # Git worktrees (local development only)
 .worktrees/ 
+
+# Serena MCP cache (regenerated automatically)
+.serena/
