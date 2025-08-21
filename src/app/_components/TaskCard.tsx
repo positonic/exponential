@@ -481,7 +481,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
 
       {/* Edit Task Modal */}
       <EditActionModal
-        action={task}
+        action={task as any}
         opened={editModalOpen}
         onClose={() => setEditModalOpen(false)}
       />
