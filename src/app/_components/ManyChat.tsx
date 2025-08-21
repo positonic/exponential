@@ -625,10 +625,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         <div className="flex gap-3">
           <div className="flex items-center gap-3">
             {[1, 2, 3].map(i => (
-              <div key={i} className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-700 to-slate-600 animate-pulse"></div>
+              <div key={i} className="w-9 h-9 rounded-full bg-surface-secondary animate-pulse"></div>
             ))}
           </div>
-          <div className="flex items-center text-xs text-gray-400 animate-pulse">
+          <div className="flex items-center text-xs text-text-muted animate-pulse">
             Loading agents...
           </div>
         </div>
@@ -636,17 +636,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
     if (agentsError) {
       return (
-        <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-          <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-          <Text size="xs" c="red.4">Error loading agents</Text>
+        <div className="flex items-center gap-2 p-3 bg-error-bg border border-error-border rounded-lg">
+          <div className="w-2 h-2 bg-brand-error rounded-full"></div>
+          <Text size="xs" c="red">Error loading agents</Text>
         </div>
       );
     }
     if (!mastraAgents || mastraAgents.length === 0) {
       return (
-        <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-          <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
-          <Text size="xs" c="amber.4">No agents available</Text>
+        <div className="flex items-center gap-2 p-3 bg-warning-bg border border-warning-border rounded-lg">
+          <div className="w-2 h-2 bg-brand-warning rounded-full"></div>
+          <Text size="xs" c="yellow">No agents available</Text>
         </div>
       );
     }
@@ -663,8 +663,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     
     if (filteredAgents.length === 0) {
       return (
-        <div className="flex items-center gap-2 p-3 bg-gray-500/10 border border-gray-500/20 rounded-lg">
-          <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+        <div className="flex items-center gap-2 p-3 bg-surface-secondary border border-border-primary rounded-lg">
+          <div className="w-2 h-2 bg-text-muted rounded-full"></div>
           <Text size="xs" c="dimmed">No agents match &quot;{agentFilter}&quot;</Text>
         </div>
       );
@@ -677,8 +677,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
             key={agent.id} 
             label={
               <div className="p-2">
-                <div className="font-semibold text-sm">{agent.name}</div>
-                <div className="text-xs opacity-75 mt-1">
+                <div className="font-semibold text-sm text-secondary">{agent.name}</div>
+                <div className="text-xs opacity-75 mt-1 text-secondary">
                   {(agent as any).instructions ? 
                     (agent as any).instructions.slice(0, 100) + '...' : 
                     'AI Agent'
@@ -690,10 +690,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
             withArrow
             styles={{
               tooltip: {
-                backgroundColor: 'rgba(17, 24, 39, 0.95)',
+                backgroundColor: 'var(--color-background-primary)',
                 backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(75, 85, 99, 0.3)',
-                maxWidth: '200px'
+                border: '1px solid var(--color-border-primary)',
+                // maxWidth: '200px'
               }
             }}
           >
@@ -704,7 +704,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               <Avatar 
                 size="md" 
                 radius="xl"
-                className="ring-2 ring-gray-600/30 transition-all duration-300 group-hover:ring-blue-400/50 group-hover:shadow-lg group-hover:shadow-blue-500/25"
+                className="ring-2 ring-border-primary transition-all duration-300 group-hover:ring-brand-primary group-hover:shadow-lg group-hover:shadow-brand-primary/25"
                 styles={{
                   root: {
                     background: `linear-gradient(135deg, 
@@ -717,7 +717,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               >
                 {getInitials(agent.name)}
               </Avatar>
-              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 rounded-full ring-1 ring-slate-900 opacity-90"></div>
+              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-brand-success rounded-full ring-1 ring-background-primary opacity-90"></div>
               <div className="absolute inset-0 rounded-full bg-gradient-to-t from-transparent to-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             </div>
           </Tooltip>
@@ -725,8 +725,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         
         {/* Agent Count Badge */}
         <div className="flex items-center ml-2">
-          <div className="px-2 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full">
-            <Text size="xs" fw={600} c="blue.3">
+          <div className="px-2 py-1 bg-brand-primary/20 border border-brand-primary/30 rounded-full">
+            <Text size="xs" fw={600} c="blue">
               {filteredAgents.length} online
             </Text>
           </div>
@@ -738,10 +738,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   return (
     <div className="relative flex flex-col h-full">
       {/* Enhanced Agent Discovery Header */}
-      <div className="bg-gradient-to-r from-slate-800/80 via-gray-800/60 to-slate-800/80 backdrop-blur-sm border-b border-gray-600/30 p-4">
+      <div className="bg-surface-secondary backdrop-blur-sm border-b border-border-primary p-4">
         <div className="flex items-center gap-3 mb-3">
-          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-          <Text size="sm" fw={600} className="bg-gradient-to-r from-blue-300 to-indigo-300 bg-clip-text text-transparent">
+          <div className="w-2 h-2 bg-brand-success rounded-full animate-pulse"></div>
+          <Text size="sm" fw={600} c="blue">
             Available Agents
           </Text>
         </div>
@@ -753,12 +753,12 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           mb="sm"
           styles={{
             input: {
-              backgroundColor: 'rgba(31, 41, 55, 0.8)',
-              border: '1px solid rgba(75, 85, 99, 0.5)',
+              backgroundColor: 'var(--color-surface-secondary)',
+              border: '1px solid var(--color-border-primary)',
               color: 'var(--color-text-primary)',
               '&:focus': {
                 borderColor: 'var(--color-brand-primary)',
-                boxShadow: '0 0 0 3px rgba(96, 165, 250, 0.1)'
+                boxShadow: '0 0 0 3px var(--color-brand-primary-opacity)'
               },
               '&::placeholder': {
                 color: 'var(--color-text-muted)'
@@ -786,14 +786,14 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 .map((agent, index) => (
                   <div 
                     key={agent.id}
-                    className="flex items-center gap-3 p-2 rounded-lg bg-slate-800/40 border border-gray-600/20 transition-all duration-200 hover:bg-slate-700/50 hover:border-blue-500/30 group"
+                    className="flex items-center gap-3 p-2 rounded-lg bg-surface-secondary border border-border-primary transition-all duration-200 hover:bg-surface-hover hover:border-brand-primary group"
                     style={{ animationDelay: `${index * 30}ms` }}
                   >
                     <div className="relative">
                       <Avatar 
                         size="xs" 
                         radius="xl"
-                        className="ring-1 ring-gray-600/30 group-hover:ring-blue-400/50 transition-all duration-200"
+                        className="ring-1 ring-border-primary group-hover:ring-brand-primary transition-all duration-200"
                         styles={{
                           root: {
                             background: `linear-gradient(135deg, 
@@ -806,15 +806,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                       >
                         {getInitials(agent.name)}
                       </Avatar>
-                      <div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-green-400 rounded-full ring-1 ring-slate-800"></div>
+                      <div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-brand-success rounded-full ring-1 ring-background-primary"></div>
                     </div>
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <Text size="xs" fw={600} className="text-gray-200 group-hover:text-blue-300 transition-colors">
+                        <Text size="xs" fw={600} className="text-text-primary group-hover:text-brand-primary transition-colors">
                           {agent.name}
                         </Text>
-                        <div className="px-1.5 py-0.5 bg-green-500/20 border border-green-500/30 rounded text-xs font-medium text-green-400">
+                        <div className="px-1.5 py-0.5 bg-brand-success/20 border border-brand-success/30 rounded text-xs font-medium text-brand-success">
                           online
                         </div>
                       </div>
@@ -827,7 +827,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                     </div>
                     
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Text size="xs" c="blue.4" fw={500}>
+                      <Text size="xs" c="blue" fw={500}>
                         @{agent.name.toLowerCase()}
                       </Text>
                     </div>
@@ -848,7 +848,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       
       {/* Enhanced Messages Area */}
       <div className="flex-1 h-full overflow-hidden relative">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-900/20 to-transparent pointer-events-none"></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background-primary/20 to-transparent pointer-events-none"></div>
         <ScrollArea className="h-full" viewportRef={viewport} p="lg" scrollbars="y">
           <div className="space-y-6">
             {messages.filter(message => message.type !== 'system').map((message, index) => (
@@ -865,9 +865,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                       withArrow
                       styles={{
                         tooltip: {
-                          backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                          backgroundColor: 'var(--color-background-primary)',
                           backdropFilter: 'blur(8px)',
-                          border: '1px solid rgba(75, 85, 99, 0.3)'
+                          border: '1px solid var(--color-border-primary)'
                         }
                       }}
                     >
@@ -876,7 +876,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                           size="md" 
                           radius="xl" 
                           alt={message.agentName || 'AI'}
-                          className="ring-2 ring-blue-500/20 transition-all duration-300 group-hover:ring-blue-400/40 group-hover:scale-105"
+                          className="ring-2 ring-brand-primary/20 transition-all duration-300 group-hover:ring-brand-primary/40 group-hover:scale-105"
                           styles={{
                             root: {
                               background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-info) 50%, var(--color-brand-info) 100%)',
@@ -885,15 +885,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                         >
                           {getInitials(message.agentName || 'AI')}
                         </Avatar>
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400 rounded-full ring-2 ring-slate-900"></div>
+                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-brand-success rounded-full ring-2 ring-background-primary"></div>
                       </div>
                     </Tooltip>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <Text size="xs" fw={500} c="blue.3">
+                        <Text size="xs" fw={500} c="blue">
                           {message.agentName || 'Agent'}
                         </Text>
-                        <div className="w-1 h-1 bg-gray-500 rounded-full"></div>
+                        <div className="w-1 h-1 bg-text-muted rounded-full"></div>
                         <Text size="xs" c="dimmed">
                           just now
                         </Text>
@@ -901,10 +901,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                       <Paper
                         p="md"
                         radius="xl"
-                        className="bg-gradient-to-br from-slate-800/80 to-gray-800/60 backdrop-blur-sm border border-gray-600/30 shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01]"
+                        className="bg-surface-secondary backdrop-blur-sm border border-border-primary shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01]"
                       >
                         <div
-                          className="text-gray-100 whitespace-pre-wrap text-sm leading-relaxed"
+                          className="text-text-primary whitespace-pre-wrap text-sm leading-relaxed"
                         >
                           {renderMessageContent(message.content, message.type)}
                         </div>
@@ -918,15 +918,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                         <Text size="xs" c="dimmed">
                           just now
                         </Text>
-                        <div className="w-1 h-1 bg-gray-500 rounded-full"></div>
-                        <Text size="xs" fw={500} c="gray.3">
+                        <div className="w-1 h-1 bg-text-muted rounded-full"></div>
+                        <Text size="xs" fw={500} c="dimmed">
                           You
                         </Text>
                       </div>
                       <Paper
                         p="md"
                         radius="xl"
-                        className="bg-gradient-to-br from-blue-600 to-indigo-600 shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01] ml-auto"
+                        className="bg-brand-primary shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01] ml-auto"
                       >
                         <div className="text-white whitespace-pre-wrap text-sm leading-relaxed">
                           {renderMessageContent(message.content, message.type)}
@@ -939,9 +939,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                       withArrow
                       styles={{
                         tooltip: {
-                          backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                          backgroundColor: 'var(--color-background-primary)',
                           backdropFilter: 'blur(8px)',
-                          border: '1px solid rgba(75, 85, 99, 0.3)'
+                          border: '1px solid var(--color-border-primary)'
                         }
                       }}
                     >
@@ -950,7 +950,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                           size="md" 
                           radius="xl" 
                           alt="User"
-                          className="ring-2 ring-indigo-500/20 transition-all duration-300 group-hover:ring-indigo-400/40 group-hover:scale-105"
+                          className="ring-2 ring-brand-primary/20 transition-all duration-300 group-hover:ring-brand-primary/40 group-hover:scale-105"
                           styles={{
                             root: {
                               background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary) 50%, var(--color-brand-primary) 100%)',
@@ -959,7 +959,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                         >
                           {getInitials('User')}
                         </Avatar>
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400 rounded-full ring-2 ring-slate-900"></div>
+                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-brand-success rounded-full ring-2 ring-background-primary"></div>
                       </div>
                     </Tooltip>
                   </div>
@@ -971,7 +971,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       </div>
       
       {/* Enhanced Input Area */}
-      <div className="flex-shrink-0 bg-gradient-to-r from-slate-800/90 via-gray-800/80 to-slate-800/90 backdrop-blur-lg border-t border-gray-600/30 p-4">
+      <div className="flex-shrink-0 bg-surface-primary backdrop-blur-lg border-t border-border-primary p-4">
         <form onSubmit={handleSubmit}>
           <div className="relative">
             <TextInput
@@ -984,16 +984,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               size="lg"
               styles={{
                 input: {
-                  backgroundColor: 'rgba(17, 24, 39, 0.8)',
-                  border: '1px solid rgba(75, 85, 99, 0.4)',
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  border: '1px solid var(--color-border-primary)',
                   color: 'var(--color-text-primary)',
                   paddingRight: '120px',
                   fontSize: '14px',
                   transition: 'all 0.3s ease',
                   '&:focus': {
                     borderColor: 'var(--color-brand-primary)',
-                    boxShadow: '0 0 0 4px rgba(96, 165, 250, 0.15)',
-                    backgroundColor: 'rgba(17, 24, 39, 0.95)'
+                    boxShadow: '0 0 0 4px var(--color-brand-primary-opacity)',
+                    backgroundColor: 'var(--color-surface-primary)'
                   },
                   '&::placeholder': {
                     color: 'var(--color-text-muted)'
@@ -1008,7 +1008,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 color={isRecording ? "red" : "blue"}
                 size="lg"
                 radius="xl"
-                className={`transition-all duration-300 hover:scale-110 ${isRecording ? "animate-pulse shadow-lg shadow-red-500/25" : "hover:bg-blue-500/10"}`}
+                className={`transition-all duration-300 hover:scale-110 ${isRecording ? "animate-pulse shadow-lg shadow-brand-error/25" : "hover:bg-brand-primary/10"}`}
               >
                 {isRecording ? (
                   <IconMicrophoneOff size={18} />
@@ -1022,7 +1022,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 size="md"
                 variant="gradient"
                 gradient={{ from: 'blue', to: 'indigo', deg: 45 }}
-                className="transition-all duration-300 hover:scale-105 shadow-lg shadow-blue-500/25"
+                className="transition-all duration-300 hover:scale-105 shadow-lg shadow-brand-primary/25"
                 disabled={!input.trim() && !isRecording}
               >
                 <IconSend size={16} />
@@ -1033,7 +1033,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
             {showAgentDropdown && (
               <Paper
                 ref={dropdownRef}
-                className="absolute bottom-full left-0 right-0 mb-2 bg-slate-800/95 backdrop-blur-lg border border-gray-600/40 rounded-xl shadow-2xl shadow-black/50 overflow-hidden animate-in slide-in-from-bottom-2 duration-200"
+                className="absolute bottom-full left-0 right-0 mb-2 bg-surface-primary backdrop-blur-lg border border-border-primary rounded-xl shadow-2xl shadow-background-primary/50 overflow-hidden animate-in slide-in-from-bottom-2 duration-200"
                 style={{ zIndex: 1000 }}
               >
                 <div className="max-h-48 overflow-y-auto">
@@ -1044,20 +1044,20 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                       onMouseEnter={() => setSelectedAgentIndex(index)}
                       className={`flex items-center gap-3 p-3 cursor-pointer transition-all duration-200 ${
                         index === selectedAgentIndex 
-                          ? 'bg-blue-500/20 border-l-2 border-blue-400' 
-                          : 'hover:bg-gray-700/40'
+                          ? 'bg-brand-primary/20 border-l-2 border-brand-primary' 
+                          : 'hover:bg-surface-hover'
                       }`}
                     >
-                      <Avatar size="sm" radius="xl" className="ring-1 ring-gray-600/50">
+                      <Avatar size="sm" radius="xl" className="ring-1 ring-border-primary">
                         {getInitials(agent.name)}
                       </Avatar>
                       <div className="flex-1 min-w-0">
-                        <Text size="sm" fw={500} className="text-gray-200">
+                        <Text size="sm" fw={500} className="text-text-primary">
                           @{agent.name}
                         </Text>
                       </div>
                       {index === selectedAgentIndex && (
-                        <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                        <div className="w-2 h-2 bg-brand-primary rounded-full animate-pulse"></div>
                       )}
                     </div>
                   ))}
@@ -1077,11 +1077,11 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         {/* Typing Indicator Area */}
         <div className="mt-2 h-4 flex items-center">
           {(callAgent.isPending || chooseAgent.isPending) && (
-            <div className="flex items-center gap-2 text-xs text-gray-400">
+            <div className="flex items-center gap-2 text-xs text-text-muted">
               <div className="flex gap-1">
-                <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                <div className="w-1 h-1 bg-brand-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                <div className="w-1 h-1 bg-brand-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                <div className="w-1 h-1 bg-brand-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
               </div>
               <Text size="xs" c="dimmed">AI is thinking...</Text>
             </div>
