@@ -928,7 +928,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                         radius="xl"
                         className="bg-brand-primary shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01] ml-auto"
                       >
-                        <div className="text-white whitespace-pre-wrap text-sm leading-relaxed">
+                        <div className="text-primary whitespace-pre-wrap text-sm leading-relaxed">
                           {renderMessageContent(message.content, message.type)}
                         </div>
                       </Paper>

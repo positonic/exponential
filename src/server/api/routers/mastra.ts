@@ -148,8 +148,15 @@ export const mastraRouter = createTRPCRouter({
           };
         });
 
+        const selectedAgents = ["projectmanageragent", "ashagent"];
+        const filteredAgents = transformedAgents.filter((a) => {
+          if(selectedAgents.includes(a.id.toLowerCase())) {
+            return a
+          }
+        })
+
         // Validate the TRANSFORMED array against the Zod schema
-        const validationResult = MastraAgentsResponseSchema.safeParse(transformedAgents);
+        const validationResult = MastraAgentsResponseSchema.safeParse(filteredAgents);
         if (!validationResult.success) {
             console.error("Transformed Mastra agent data validation failed:", validationResult.error);
             return []; // Return empty on validation failure
