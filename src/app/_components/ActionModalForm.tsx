@@ -3,6 +3,7 @@ import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { RichTextInput } from './RichTextInput';
+import { AssigneeSelector } from './AssigneeSelector';
 
 interface ActionModalFormProps {
   name: string;
@@ -15,6 +16,9 @@ interface ActionModalFormProps {
   setProjectId: (value: string | undefined) => void;
   dueDate: Date | null;
   setDueDate: (value: Date | null) => void;
+  selectedAssigneeIds: string[];
+  actionId?: string;
+  onAssigneeClick: () => void;
   onSubmit: () => void;
   onClose: () => void;
   submitLabel: string;
@@ -32,6 +36,9 @@ export function ActionModalForm({
   setProjectId,
   dueDate,
   setDueDate,
+  selectedAssigneeIds,
+  actionId,
+  onAssigneeClick,
   onSubmit,
   onClose,
   submitLabel,
@@ -107,6 +114,14 @@ export function ActionModalForm({
             mode="single"
             notificationContext="task"
             onClear={() => setDueDate(null)}
+          />
+        )}
+        {projectId && (
+          <AssigneeSelector
+            selectedAssigneeIds={selectedAssigneeIds}
+            projectId={projectId}
+            actionId={actionId}
+            onAssigneeClick={onAssigneeClick}
           />
         )}
       </Group>

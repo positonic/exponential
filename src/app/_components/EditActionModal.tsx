@@ -4,6 +4,7 @@ import { api } from "~/trpc/react";
 import { type RouterOutputs } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
+import { AssignActionModal } from './AssignActionModal';
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
 type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
@@ -21,6 +22,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
   const [projectId, setProjectId] = useState("");
   const [priority, setPriority] = useState<ActionPriority>("Quick");
   const [dueDate, setDueDate] = useState<Date | null>(null);
+  const [assignModalOpened, setAssignModalOpened] = useState(false);
 
   const utils = api.useUtils();
 
@@ -55,7 +57,18 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
     });
   };
 
+  const handleAssigneeClick = () => {
+    if (action) {
+      setAssignModalOpened(true);
+    }
+  };
+
+  // Get current assignees for edit mode
+  const currentAssignees = action && 'assignees' in action && action.assignees ? action.assignees : [];
+  const selectedAssigneeIds = currentAssignees.map(a => a.user.id);
+
   return (
+    <>
     <Modal 
       opened={opened} 
       onClose={onClose}
@@ -82,11 +95,26 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
         setProjectId={(value: string | undefined) => setProjectId(value || "")}
         dueDate={dueDate}
         setDueDate={setDueDate}
+        selectedAssigneeIds={selectedAssigneeIds}
+        actionId={action?.id}
+        onAssigneeClick={handleAssigneeClick}
         onSubmit={handleSubmit}
         onClose={onClose}
         submitLabel="Save changes"
         isSubmitting={updateAction.isPending}
       />
     </Modal>
+    
+    {action && (
+      <AssignActionModal
+        opened={assignModalOpened}
+        onClose={() => setAssignModalOpened(false)}
+        actionId={action.id}
+        actionName={action.name}
+        projectId={action.projectId}
+        currentAssignees={currentAssignees}
+      />
+    )}
+  </>
   );
 }

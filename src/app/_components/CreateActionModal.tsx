@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
+import { AssignActionModal } from './AssignActionModal';
 import { IconPlus } from '@tabler/icons-react';
 import type { ActionStatus } from '@prisma/client';
 
@@ -27,8 +28,19 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
     }
     return null;
   });
+  const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
+  const [assignModalOpened, setAssignModalOpened] = useState(false);
+  const [createdActionId, setCreatedActionId] = useState<string | null>(null);
 
   const utils = api.useUtils();
+  
+  // Assignment mutation for post-creation assignment
+  const assignMutation = api.action.assign.useMutation({
+    onError: (error) => {
+      console.error('Assignment failed:', error);
+    },
+  });
+  
   const createAction = api.action.create.useMutation({
     onMutate: async (newAction) => {
       // Cancel all related queries
@@ -158,7 +170,23 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
       console.log(`[CreateActionModal onSettled] Invalidations complete for newActionId: ${data?.id ?? 'optimistic'}`);
     },
 
-    onSuccess: () => {
+    onSuccess: async (data) => {
+      // Store the created action ID for assignment
+      setCreatedActionId(data.id);
+      
+      // If there are assignees, assign them
+      if (selectedAssigneeIds.length > 0) {
+        try {
+          await assignMutation.mutateAsync({
+            actionId: data.id,
+            userIds: selectedAssigneeIds,
+          });
+        } catch (error) {
+          console.error('Failed to assign users:', error);
+          // Continue with success flow even if assignment fails
+        }
+      }
+      
       // Reset form state
       setName("");
       setDescription("");
@@ -174,6 +202,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
         }
         return null;
       });
+      setSelectedAssigneeIds([]);
       close();
     },
   });
@@ -190,6 +219,17 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
     };
 
     createAction.mutate(actionData);
+  };
+
+  const handleAssigneeClick = () => {
+    if (createdActionId) {
+      // If action is already created, open assignment modal
+      setAssignModalOpened(true);
+    } else {
+      // For creation flow, we can't open assignment modal yet
+      // This could be expanded to show a preview modal or inline selection
+      console.log('Assignment during creation not yet implemented');
+    }
   };
 
   return (
@@ -232,12 +272,26 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
           setProjectId={setProjectId}
           dueDate={dueDate}
           setDueDate={setDueDate}
+          selectedAssigneeIds={selectedAssigneeIds}
+          actionId={createdActionId || undefined}
+          onAssigneeClick={handleAssigneeClick}
           onSubmit={handleSubmit}
           onClose={close}
           submitLabel="New action"
           isSubmitting={createAction.isPending}
         />
       </Modal>
+      
+      {createdActionId && (
+        <AssignActionModal
+          opened={assignModalOpened}
+          onClose={() => setAssignModalOpened(false)}
+          actionId={createdActionId}
+          actionName={name}
+          projectId={projectId}
+          currentAssignees={[]} // For simplicity, start with empty - could be enhanced
+        />
+      )}
     </>
   );
 } 
