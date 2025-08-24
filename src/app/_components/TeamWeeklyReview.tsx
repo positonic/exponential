@@ -2,58 +2,32 @@
 
 import { useState } from "react";
 import { api } from "~/trpc/react";
-import { Text, Group, Progress, Title, Container, ScrollArea, Badge, Avatar } from "@mantine/core";
-import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
+import { Text, Group, Progress, Title, Container, ScrollArea, Badge, Avatar, Loader, Alert } from "@mantine/core";
+import { IconChevronDown, IconChevronRight, IconAlertCircle } from "@tabler/icons-react";
 import { type RouterOutputs } from "~/trpc/react";
-import { ActionList } from "./ActionList";
 
-type TeamMember = {
-  id: string;
-  name: string;
-  role: string;
-  avatarUrl?: string;
-  responsibilities: string[];
-  actions: any[];
-  weeklyOutcomes: any[];
-};
 
 interface TeamWeeklyReviewProps {
   projectId: string;
 }
 
+// Helper function to get start of week (Monday)
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.setDate(diff));
+}
+
 export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
   const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
+  const [currentWeekStart] = useState(() => getWeekStart(new Date()));
   
-  // For now, mock data until we have the backend API
-  const mockTeamMembers: TeamMember[] = [
-    {
-      id: "1",
-      name: "Sarah Johnson",
-      role: "Lead Developer",
-      avatarUrl: undefined,
-      responsibilities: ["Backend development", "Code reviews"],
-      actions: [],
-      weeklyOutcomes: []
-    },
-    {
-      id: "2", 
-      name: "Mike Chen",
-      role: "Frontend Developer",
-      avatarUrl: undefined,
-      responsibilities: ["UI/UX implementation", "Testing"],
-      actions: [],
-      weeklyOutcomes: []
-    },
-    {
-      id: "3",
-      name: "Alex Rivera", 
-      role: "DevOps Engineer",
-      avatarUrl: undefined,
-      responsibilities: ["CI/CD", "Infrastructure"],
-      actions: [],
-      weeklyOutcomes: []
-    }
-  ];
+  // Fetch real team weekly data
+  const { data: teamWeeklyData, isLoading, error } = api.weeklyPlanning.getTeamWeeklyView.useQuery({
+    projectId,
+    weekStartDate: currentWeekStart
+  });
 
   const toggleMemberExpanded = (memberId: string) => {
     setExpandedMembers(prev => {
@@ -67,26 +41,75 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
     });
   };
 
-  const calculateMemberProgress = (member: TeamMember) => {
-    if (!member.actions || member.actions.length === 0) return 0;
-    const completedTasks = member.actions.filter(action => action.status === "DONE").length;
-    return Math.round((completedTasks / member.actions.length) * 100);
+  const formatWeekRange = (weekStart: Date) => {
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    return `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
   };
 
-  const getMemberCapacity = (member: TeamMember) => {
-    // Mock capacity calculation - in real implementation this would come from the backend
-    return Math.floor(Math.random() * 30) + 20; // 20-50 hours
-  };
+  if (isLoading) {
+    return (
+      <Container size="xl" py="xl">
+        <Title order={2} mb="xl" className="text-text-primary">
+          Weekly Team Review
+        </Title>
+        <div className="flex justify-center py-12">
+          <Loader size="lg" />
+        </div>
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container size="xl" py="xl">
+        <Title order={2} mb="xl" className="text-text-primary">
+          Weekly Team Review
+        </Title>
+        <Alert variant="light" color="red" icon={<IconAlertCircle size={16} />}>
+          <Text size="sm">
+            {error.message || "Failed to load team weekly data. Please try again."}
+          </Text>
+        </Alert>
+      </Container>
+    );
+  }
+
+  if (!teamWeeklyData?.teamMembers.length) {
+    return (
+      <Container size="xl" py="xl">
+        <Title order={2} mb="xl" className="text-text-primary">
+          Weekly Team Review
+        </Title>
+        <Alert variant="light" color="blue" icon={<IconAlertCircle size={16} />}>
+          <Text size="sm">
+            No team members found for this project. Make sure this project has a team assigned.
+          </Text>
+        </Alert>
+      </Container>
+    );
+  }
 
   return (
     <Container size="xl" py="xl">
-      <Title order={2} mb="xl" className="text-text-primary">
-        Weekly Team Review
-      </Title>
-      
-      <Text size="sm" c="dimmed" mb="lg">
-        Member-centric view: Review what each team member is working on this week
-      </Text>
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <Title order={2} className="text-text-primary">
+            Weekly Team Review
+          </Title>
+          <Text size="sm" c="dimmed">
+            Member-centric view: Review what each team member is working on this week
+          </Text>
+        </div>
+        <div className="text-right">
+          <Text size="sm" fw={500} className="text-text-primary">
+            Week of {formatWeekRange(currentWeekStart)}
+          </Text>
+          <Text size="xs" c="dimmed">
+            {teamWeeklyData.teamMembers.length} team members
+          </Text>
+        </div>
+      </div>
       
       <ScrollArea>
         <table className="w-full border-collapse">
@@ -102,17 +125,16 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
             </tr>
           </thead>
           <tbody>
-            {mockTeamMembers.map((member) => {
-              const isExpanded = expandedMembers.has(member.id);
-              const progress = calculateMemberProgress(member);
-              const capacity = getMemberCapacity(member);
+            {teamWeeklyData.teamMembers.map((member) => {
+              const isExpanded = expandedMembers.has(member.user.id);
+              const { progress } = member;
               
               return (
                 <>
-                  <tr key={member.id} className="border-b border-border-primary hover:bg-surface-hover transition-colors">
+                  <tr key={member.user.id} className="border-b border-border-primary hover:bg-surface-hover transition-colors">
                     <td className="p-3">
                       <button
-                        onClick={() => toggleMemberExpanded(member.id)}
+                        onClick={() => toggleMemberExpanded(member.user.id)}
                         className="text-text-secondary hover:text-text-primary transition-colors"
                         aria-label={isExpanded ? "Collapse" : "Expand"}
                       >
@@ -126,19 +148,19 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
                     <td className="p-3">
                       <Group gap="sm">
                         <Avatar 
-                          src={member.avatarUrl} 
-                          alt={member.name}
+                          src={member.user.image || undefined} 
+                          alt={member.user.name || "Team member"}
                           size="sm"
                           radius="xl"
                         >
-                          {member.name.split(' ').map(n => n[0]).join('')}
+                          {member.user.name?.split(' ').map(n => n[0]).join('') || '?'}
                         </Avatar>
                         <div>
                           <Text fw={500} className="text-text-primary" size="sm">
-                            {member.name}
+                            {member.user.name || member.user.email}
                           </Text>
                           <Text size="xs" c="dimmed">
-                            {member.responsibilities.join(", ")}
+                            {member.user.email}
                           </Text>
                         </div>
                       </Group>
@@ -149,14 +171,29 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
                       </Badge>
                     </td>
                     <td className="p-3">
-                      <Text size="sm" c="dimmed" fs="italic">
-                        Weekly outcomes will appear here
-                      </Text>
+                      {member.weeklyOutcomes.length > 0 ? (
+                        <div>
+                          {member.weeklyOutcomes.slice(0, 2).map((outcome) => (
+                            <Badge key={outcome.id} variant="outline" size="xs" mb={2} mr={4}>
+                              {outcome.title}
+                            </Badge>
+                          ))}
+                          {member.weeklyOutcomes.length > 2 && (
+                            <Text size="xs" c="dimmed">
+                              +{member.weeklyOutcomes.length - 2} more
+                            </Text>
+                          )}
+                        </div>
+                      ) : (
+                        <Text size="sm" c="dimmed" fs="italic">
+                          No weekly outcomes assigned
+                        </Text>
+                      )}
                     </td>
                     <td className="p-3">
                       <div>
                         <Text size="sm" fw={500} className="text-text-primary">
-                          {capacity}h
+                          {member.capacity}h
                         </Text>
                         <Text size="xs" c="dimmed">
                           this week
@@ -166,23 +203,27 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
                     <td className="p-3">
                       <Group gap="xs" align="center">
                         <Text size="sm" className="text-text-secondary">
-                          {member.actions?.filter(a => a.status === "DONE").length || 0}/{member.actions?.length || 0} completed
+                          {progress.completed}/{progress.total} completed
                         </Text>
                         <Progress 
-                          value={progress} 
+                          value={progress.percentage} 
                           size="sm" 
                           style={{ width: 80 }}
-                          color={progress === 100 ? "green" : "blue"}
+                          color={progress.percentage === 100 ? "green" : "blue"}
                           className="bg-surface-secondary"
                         />
                         <Text size="xs" className="text-text-muted">
-                          {progress}%
+                          {progress.percentage}%
                         </Text>
                       </Group>
                     </td>
                     <td className="p-3">
-                      <Badge variant="dot" color="green" size="sm">
-                        On Track
+                      <Badge 
+                        variant="dot" 
+                        color={progress.percentage >= 80 ? "green" : progress.percentage >= 50 ? "yellow" : "orange"} 
+                        size="sm"
+                      >
+                        {progress.percentage >= 80 ? "On Track" : progress.percentage >= 50 ? "Progressing" : "Behind"}
                       </Badge>
                     </td>
                   </tr>
@@ -192,15 +233,42 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
                     <tr>
                       <td colSpan={7} className="p-0">
                         <div className="bg-background-secondary border-t border-border-primary">
-                          <div className="pl-12 pr-4 py-2 max-w-5xl">
-                            <Text size="sm" fw={500} mb="sm" className="text-text-primary">
-                              {member.name}'s Tasks This Week
+                          <div className="pl-12 pr-4 py-4">
+                            <Text size="sm" fw={500} mb="md" className="text-text-primary">
+                              {member.user.name}&apos;s Tasks This Week
                             </Text>
-                            <div className="text-center py-8">
-                              <Text size="sm" c="dimmed" fs="italic">
-                                Task assignments will appear here once backend integration is complete
-                              </Text>
-                            </div>
+                            {member.actions.length > 0 ? (
+                              <div className="space-y-2">
+                                {member.actions.map((action) => (
+                                  <div key={action.id} className="flex items-center justify-between p-2 rounded bg-surface-primary border border-border-primary">
+                                    <div className="flex-1">
+                                      <Text size="sm" fw={500} className="text-text-primary">
+                                        {action.name}
+                                      </Text>
+                                      {action.dueDate && (
+                                        <Text size="xs" c="dimmed">
+                                          Due: {new Date(action.dueDate).toLocaleDateString()}
+                                        </Text>
+                                      )}
+                                    </div>
+                                    <Group gap="xs">
+                                      <Badge size="xs" variant="light" color={action.priority === 'HIGH' ? 'red' : action.priority === 'MEDIUM' ? 'orange' : 'cyan'}>
+                                        {action.priority}
+                                      </Badge>
+                                      <Badge size="xs" variant="filled" color={action.status === 'DONE' ? 'green' : action.status === 'IN_PROGRESS' ? 'blue' : 'gray'}>
+                                        {action.status}
+                                      </Badge>
+                                    </Group>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-center py-8">
+                                <Text size="sm" c="dimmed" fs="italic">
+                                  No tasks assigned for this week
+                                </Text>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>

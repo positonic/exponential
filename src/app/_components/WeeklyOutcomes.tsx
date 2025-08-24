@@ -2,72 +2,45 @@
 
 import { useState } from "react";
 import { api } from "~/trpc/react";
-import { Text, Group, Title, Container, ScrollArea, Badge, Avatar, Button, Select, MultiSelect } from "@mantine/core";
-import { IconChevronDown, IconChevronRight, IconPlus, IconCalendarWeek } from "@tabler/icons-react";
+import { Text, Group, Title, Container, ScrollArea, Badge, Button, Select, Loader, Alert } from "@mantine/core";
+import { IconChevronDown, IconChevronRight, IconPlus, IconCalendarWeek, IconAlertCircle } from "@tabler/icons-react";
+import { type RouterOutputs } from "~/trpc/react";
+import { WeeklyOutcomeModal } from "./WeeklyOutcomeModal";
 
-type WeeklyOutcome = {
-  id: string;
-  title: string;
-  description?: string;
-  status: "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED" | "BLOCKED";
-  priority: "HIGH" | "MEDIUM" | "LOW";
-  assignedTo: string[];
-  dueDate: string;
-  relatedTasks: any[];
-  progress: number;
-};
 
 interface WeeklyOutcomesProps {
   projectId: string;
 }
 
+// Helper function to get start of week (Monday)
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.setDate(diff));
+}
+
 export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
   const [expandedOutcomes, setExpandedOutcomes] = useState<Set<string>>(new Set());
-  const [currentWeekStart, setCurrentWeekStart] = useState(getWeekStart(new Date()));
+  const [currentWeekStart] = useState(() => getWeekStart(new Date()));
+  const [modalOpened, setModalOpened] = useState(false);
+  const utils = api.useUtils();
 
-  // Mock team members for assignment
-  const mockTeamMembers = [
-    { value: "1", label: "Sarah Johnson" },
-    { value: "2", label: "Mike Chen" }, 
-    { value: "3", label: "Alex Rivera" }
-  ];
+  // Get project to access teamId
+  const { data: project } = api.project.getById.useQuery({ id: projectId });
 
-  // Mock weekly outcomes data
-  const mockWeeklyOutcomes: WeeklyOutcome[] = [
-    {
-      id: "1",
-      title: "Complete user authentication system",
-      description: "Implement JWT-based authentication with password reset functionality",
-      status: "IN_PROGRESS",
-      priority: "HIGH",
-      assignedTo: ["1", "2"],
-      dueDate: "2024-01-19",
-      relatedTasks: [],
-      progress: 65
+  // Fetch real weekly outcomes data
+  const { data: weeklyOutcomesData, isLoading, error } = api.weeklyPlanning.getWeeklyOutcomes.useQuery({
+    projectId,
+    weekStartDate: currentWeekStart
+  });
+
+  // Mutations for updating outcomes
+  const updateOutcome = api.weeklyPlanning.updateWeeklyOutcome.useMutation({
+    onSuccess: () => {
+      void utils.weeklyPlanning.getWeeklyOutcomes.invalidate();
     },
-    {
-      id: "2",
-      title: "Set up CI/CD pipeline",
-      description: "Configure automated testing and deployment pipeline",
-      status: "NOT_STARTED", 
-      priority: "MEDIUM",
-      assignedTo: ["3"],
-      dueDate: "2024-01-18",
-      relatedTasks: [],
-      progress: 0
-    },
-    {
-      id: "3",
-      title: "Design review and approval",
-      description: "Complete design review sessions with stakeholders",
-      status: "COMPLETED",
-      priority: "LOW",
-      assignedTo: ["1"],
-      dueDate: "2024-01-17",
-      relatedTasks: [],
-      progress: 100
-    }
-  ];
+  });
 
   const statusOptions = [
     { value: "NOT_STARTED", label: "Not Started" },
@@ -82,12 +55,11 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
     { value: "LOW", label: "Low" },
   ];
 
-  function getWeekStart(date: Date): Date {
-    const d = new Date(date);
-    const day = d.getDay();
-    const diff = d.getDate() - day;
-    return new Date(d.setDate(diff));
-  }
+  const formatWeekRange = (weekStart: Date) => {
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    return `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  };
 
   const toggleOutcomeExpanded = (outcomeId: string) => {
     setExpandedOutcomes(prev => {
@@ -127,18 +99,33 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
     }
   };
 
-  const getAssigneeNames = (assignedTo: string[]) => {
-    return assignedTo.map(id => {
-      const member = mockTeamMembers.find(m => m.value === id);
-      return member ? member.label : "Unknown";
-    }).join(", ");
-  };
+  if (isLoading) {
+    return (
+      <Container size="xl" py="xl">
+        <Title order={2} mb="xl" className="text-text-primary">
+          Weekly Outcomes
+        </Title>
+        <div className="flex justify-center py-12">
+          <Loader size="lg" />
+        </div>
+      </Container>
+    );
+  }
 
-  const formatWeekRange = (weekStart: Date) => {
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    return `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
-  };
+  if (error) {
+    return (
+      <Container size="xl" py="xl">
+        <Title order={2} mb="xl" className="text-text-primary">
+          Weekly Outcomes
+        </Title>
+        <Alert variant="light" color="red" icon={<IconAlertCircle size={16} />}>
+          <Text size="sm">
+            {error.message || "Failed to load weekly outcomes. Please try again."}
+          </Text>
+        </Alert>
+      </Container>
+    );
+  }
 
   return (
     <Container size="xl" py="xl">
@@ -158,9 +145,21 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
               Week of {formatWeekRange(currentWeekStart)}
             </Text>
           </div>
-          <Button leftSection={<IconPlus size={16} />} variant="filled" color="blue" size="sm">
-            Add Weekly Outcome
-          </Button>
+          <div className="flex items-center gap-2">
+            <Text size="xs" c="dimmed">
+              {weeklyOutcomesData?.outcomes.length || 0} outcomes
+            </Text>
+            <Button 
+              leftSection={<IconPlus size={16} />} 
+              variant="filled" 
+              color="blue" 
+              size="sm"
+              onClick={() => setModalOpened(true)}
+              disabled={!project?.teamId}
+            >
+              Add Weekly Outcome
+            </Button>
+          </div>
         </div>
       </div>
       
@@ -178,165 +177,241 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
             </tr>
           </thead>
           <tbody>
-            {mockWeeklyOutcomes.map((outcome) => {
-              const isExpanded = expandedOutcomes.has(outcome.id);
-              
-              return (
-                <>
-                  <tr key={outcome.id} className="border-b border-border-primary hover:bg-surface-hover transition-colors">
-                    <td className="p-3">
-                      <button
-                        onClick={() => toggleOutcomeExpanded(outcome.id)}
-                        className="text-text-secondary hover:text-text-primary transition-colors"
-                        aria-label={isExpanded ? "Collapse" : "Expand"}
-                      >
-                        {isExpanded ? (
-                          <IconChevronDown size={18} />
+            {weeklyOutcomesData?.outcomes.length ? (
+              weeklyOutcomesData.outcomes.map((outcome) => {
+                const isExpanded = expandedOutcomes.has(outcome.id);
+                
+                return (
+                  <>
+                    <tr key={outcome.id} className="border-b border-border-primary hover:bg-surface-hover transition-colors">
+                      <td className="p-3">
+                        <button
+                          onClick={() => toggleOutcomeExpanded(outcome.id)}
+                          className="text-text-secondary hover:text-text-primary transition-colors"
+                          aria-label={isExpanded ? "Collapse" : "Expand"}
+                        >
+                          {isExpanded ? (
+                            <IconChevronDown size={18} />
+                          ) : (
+                            <IconChevronRight size={18} />
+                          )}
+                        </button>
+                      </td>
+                      <td className="p-3">
+                        <div>
+                          <Text fw={500} className="text-text-primary" size="sm" mb={2}>
+                            {outcome.title}
+                          </Text>
+                          {outcome.description && (
+                            <Text size="xs" c="dimmed" lineClamp={2}>
+                              {outcome.description}
+                            </Text>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex flex-wrap gap-1">
+                          {outcome.assignees.length > 0 ? (
+                            outcome.assignees.slice(0, 3).map((assignee) => (
+                              <Badge key={assignee.id} variant="light" size="xs">
+                                {assignee.name || assignee.email}
+                              </Badge>
+                            ))
+                          ) : (
+                            <Text size="xs" c="dimmed" fs="italic">
+                              No assignees
+                            </Text>
+                          )}
+                          {outcome.assignees.length > 3 && (
+                            <Badge variant="outline" size="xs">
+                              +{outcome.assignees.length - 3}
+                            </Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <Select
+                          value={outcome.priority}
+                          onChange={(value) => {
+                            if (value) {
+                              updateOutcome.mutate({
+                                id: outcome.id,
+                                priority: value as "HIGH" | "MEDIUM" | "LOW"
+                              });
+                            }
+                          }}
+                          data={priorityOptions}
+                          size="xs"
+                          variant="filled"
+                          styles={{
+                            input: {
+                              backgroundColor: `var(--mantine-color-${getPriorityColor(outcome.priority)}-light)`,
+                              color: `var(--mantine-color-${getPriorityColor(outcome.priority)}-filled)`,
+                              fontWeight: 500,
+                              border: 'none',
+                            }
+                          }}
+                        />
+                      </td>
+                      <td className="p-3">
+                        <Select
+                          value={outcome.status}
+                          onChange={(value) => {
+                            if (value) {
+                              updateOutcome.mutate({
+                                id: outcome.id,
+                                status: value as "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED" | "BLOCKED"
+                              });
+                            }
+                          }}
+                          data={statusOptions}
+                          size="xs"
+                          variant="filled"
+                          styles={{
+                            input: {
+                              backgroundColor: `var(--mantine-color-${getStatusColor(outcome.status)}-light)`,
+                              color: `var(--mantine-color-${getStatusColor(outcome.status)}-filled)`,
+                              fontWeight: 500,
+                              border: 'none',
+                            }
+                          }}
+                        />
+                      </td>
+                      <td className="p-3">
+                        {outcome.dueDate ? (
+                          <Text size="sm" className="text-text-primary">
+                            {new Date(outcome.dueDate).toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric' 
+                            })}
+                          </Text>
                         ) : (
-                          <IconChevronRight size={18} />
-                        )}
-                      </button>
-                    </td>
-                    <td className="p-3">
-                      <div>
-                        <Text fw={500} className="text-text-primary" size="sm" mb={2}>
-                          {outcome.title}
-                        </Text>
-                        {outcome.description && (
-                          <Text size="xs" c="dimmed" lineClamp={2}>
-                            {outcome.description}
+                          <Text size="sm" c="dimmed" fs="italic">
+                            No due date
                           </Text>
                         )}
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <MultiSelect
-                        data={mockTeamMembers}
-                        value={outcome.assignedTo}
-                        onChange={() => {}} // Mock - would update in real implementation
-                        placeholder="Assign members"
-                        size="xs"
-                        maxDropdownHeight={150}
-                        disabled // Mock - would be editable in real implementation
-                        styles={{
-                          input: { minHeight: '28px' }
-                        }}
-                      />
-                    </td>
-                    <td className="p-3">
-                      <Select
-                        value={outcome.priority}
-                        onChange={() => {}} // Mock - would update in real implementation
-                        data={priorityOptions}
-                        size="xs"
-                        variant="filled"
-                        disabled // Mock - would be editable in real implementation
-                        styles={{
-                          input: {
-                            backgroundColor: `var(--mantine-color-${getPriorityColor(outcome.priority)}-light)`,
-                            color: `var(--mantine-color-${getPriorityColor(outcome.priority)}-filled)`,
-                            fontWeight: 500,
-                            border: 'none',
-                          }
-                        }}
-                      />
-                    </td>
-                    <td className="p-3">
-                      <Select
-                        value={outcome.status}
-                        onChange={() => {}} // Mock - would update in real implementation
-                        data={statusOptions}
-                        size="xs"
-                        variant="filled"
-                        disabled // Mock - would be editable in real implementation
-                        styles={{
-                          input: {
-                            backgroundColor: `var(--mantine-color-${getStatusColor(outcome.status)}-light)`,
-                            color: `var(--mantine-color-${getStatusColor(outcome.status)}-filled)`,
-                            fontWeight: 500,
-                            border: 'none',
-                          }
-                        }}
-                      />
-                    </td>
-                    <td className="p-3">
-                      <Text size="sm" className="text-text-primary">
-                        {new Date(outcome.dueDate).toLocaleDateString('en-US', { 
-                          month: 'short', 
-                          day: 'numeric' 
-                        })}
-                      </Text>
-                    </td>
-                    <td className="p-3">
-                      <Group gap="xs">
-                        <Text size="sm" className="text-text-secondary">
-                          {outcome.relatedTasks.length} tasks
-                        </Text>
-                        <Badge variant="light" color="gray" size="xs">
-                          {outcome.progress}% complete
-                        </Badge>
-                      </Group>
-                    </td>
-                  </tr>
-                  
-                  {/* Expanded row showing outcome details and related tasks */}
-                  {isExpanded && (
-                    <tr>
-                      <td colSpan={7} className="p-0">
-                        <div className="bg-background-secondary border-t border-border-primary">
-                          <div className="pl-12 pr-4 py-4">
-                            <div className="grid grid-cols-2 gap-6">
-                              <div>
-                                <Text size="sm" fw={500} mb="sm" className="text-text-primary">
-                                  Outcome Details
-                                </Text>
-                                <Text size="sm" c="dimmed" mb="md">
-                                  {outcome.description || "No description provided"}
-                                </Text>
-                                <Group gap="md">
-                                  <div>
-                                    <Text size="xs" c="dimmed">Assigned to:</Text>
-                                    <Text size="sm" fw={500}>
-                                      {getAssigneeNames(outcome.assignedTo)}
-                                    </Text>
-                                  </div>
-                                  <div>
-                                    <Text size="xs" c="dimmed">Progress:</Text>
-                                    <Text size="sm" fw={500}>
-                                      {outcome.progress}% complete
-                                    </Text>
-                                  </div>
-                                </Group>
-                              </div>
-                              <div>
-                                <Text size="sm" fw={500} mb="sm" className="text-text-primary">
-                                  Related Tasks
-                                </Text>
-                                <div className="text-center py-4">
-                                  <Text size="sm" c="dimmed" fs="italic">
-                                    Related tasks will appear here once backend integration is complete
+                      </td>
+                      <td className="p-3">
+                        <Group gap="xs">
+                          <Text size="sm" className="text-text-secondary">
+                            {outcome.relatedActions.length} tasks
+                          </Text>
+                          <Badge variant="light" color="gray" size="xs">
+                            {outcome.progress}% complete
+                          </Badge>
+                        </Group>
+                      </td>
+                    </tr>
+                    
+                    {/* Expanded row showing outcome details and related tasks */}
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={7} className="p-0">
+                          <div className="bg-background-secondary border-t border-border-primary">
+                            <div className="pl-12 pr-4 py-4">
+                              <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                  <Text size="sm" fw={500} mb="sm" className="text-text-primary">
+                                    Outcome Details
                                   </Text>
+                                  <Text size="sm" c="dimmed" mb="md">
+                                    {outcome.description || "No description provided"}
+                                  </Text>
+                                  <Group gap="md">
+                                    <div>
+                                      <Text size="xs" c="dimmed">Assigned to:</Text>
+                                      <Text size="sm" fw={500}>
+                                        {outcome.assignees.length > 0 
+                                          ? outcome.assignees.map(a => a.name || a.email).join(", ")
+                                          : "No assignees"
+                                        }
+                                      </Text>
+                                    </div>
+                                    <div>
+                                      <Text size="xs" c="dimmed">Progress:</Text>
+                                      <Text size="sm" fw={500}>
+                                        {outcome.progress}% complete
+                                      </Text>
+                                    </div>
+                                  </Group>
+                                </div>
+                                <div>
+                                  <Text size="sm" fw={500} mb="sm" className="text-text-primary">
+                                    Related Tasks ({outcome.relatedActions.length})
+                                  </Text>
+                                  {outcome.relatedActions.length > 0 ? (
+                                    <div className="space-y-2">
+                                      {outcome.relatedActions.slice(0, 3).map((action) => (
+                                        <div key={action.id} className="flex items-center justify-between p-2 rounded bg-surface-primary border border-border-primary">
+                                          <Text size="sm" className="text-text-primary flex-1">
+                                            {action.name}
+                                          </Text>
+                                          <Group gap="xs">
+                                            <Badge size="xs" variant="light" color={action.priority === 'HIGH' ? 'red' : action.priority === 'MEDIUM' ? 'orange' : 'cyan'}>
+                                              {action.priority}
+                                            </Badge>
+                                            <Badge size="xs" variant="filled" color={action.status === 'DONE' ? 'green' : action.status === 'IN_PROGRESS' ? 'blue' : 'gray'}>
+                                              {action.status}
+                                            </Badge>
+                                          </Group>
+                                        </div>
+                                      ))}
+                                      {outcome.relatedActions.length > 3 && (
+                                        <Text size="xs" c="dimmed" fs="italic">
+                                          +{outcome.relatedActions.length - 3} more tasks
+                                        </Text>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="text-center py-4">
+                                      <Text size="sm" c="dimmed" fs="italic">
+                                        No related tasks
+                                      </Text>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </>
-              );
-            })}
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan={7} className="p-12 text-center">
+                  <Text size="lg" c="dimmed" mb="sm">
+                    No weekly outcomes yet
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    Create your first weekly outcome to start planning your team&apos;s week
+                  </Text>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </ScrollArea>
       
       <div className="mt-8 p-4 bg-surface-secondary rounded-lg border border-border-primary">
         <Text size="sm" className="text-text-secondary">
-          <strong>Outcome-Centric Approach:</strong> This view focuses on the team's weekly objectives and goals.
+          <strong>Outcome-Centric Approach:</strong> This view focuses on the team&apos;s weekly objectives and goals.
           Perfect for ensuring the team stays aligned on what needs to be accomplished and tracking progress toward shared outcomes.
         </Text>
       </div>
+
+      {/* Weekly Outcome Creation Modal */}
+      {project?.teamId && (
+        <WeeklyOutcomeModal
+          opened={modalOpened}
+          onClose={() => setModalOpened(false)}
+          projectId={projectId}
+          teamId={project.teamId}
+          weekStartDate={currentWeekStart}
+        />
+      )}
     </Container>
   );
 }

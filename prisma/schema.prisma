@@ -85,6 +85,9 @@ model User {
   verificationTokens      VerificationToken[]
   whatsappConversations   WhatsAppConversation[]
   workflows               Workflow[]
+  weeklyOutcomesCreated   WeeklyOutcome[]          @relation("WeeklyOutcomeCreated")
+  weeklyOutcomeAssignees  WeeklyOutcomeAssignee[]  @relation("WeeklyOutcomeAssignee")
+  teamCapacities          TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
 }
 
 model VerificationToken {
@@ -119,6 +122,7 @@ model Action {
   transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
   syncs                  ActionSync[]
   assignees              ActionAssignee[]
+  weeklyOutcomes         WeeklyOutcome[]   @relation("WeeklyOutcomeActions")
 
   @@index([projectId])
   @@index([createdById])
@@ -181,6 +185,8 @@ model Project {
   workflows             Workflow[]
   goals                 Goal[]                 @relation("GoalProjects")
   outcomes              Outcome[]              @relation("ProjectOutcomes")
+  weeklyOutcomes        WeeklyOutcome[]
+  memberCapacities      TeamMemberWeeklyCapacity[] @relation("ProjectCapacities")
 
   @@index([name])
   @@index([status])
@@ -311,6 +317,8 @@ model Team {
   slackConfig             SlackChannelConfig?
   slackRegistrationTokens SlackRegistrationToken[]
   members                 TeamUser[]
+  weeklyOutcomes          WeeklyOutcome[]
+  memberCapacities        TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacities")
 
   @@index([slug])
 }
@@ -916,4 +924,68 @@ enum ActionStatus {
   IN_REVIEW
   DONE
   CANCELLED
+}
+
+// Team Weekly Planning Models
+model WeeklyOutcome {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  weekStartDate DateTime // Start of the week (Monday)
+  status        String   @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
+  priority      String   @default("MEDIUM") // HIGH, MEDIUM, LOW
+  teamId        String
+  projectId     String
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  dueDate       DateTime? // Optional specific due date within the week
+  
+  // Relations
+  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy     User     @relation("WeeklyOutcomeCreated", fields: [createdById], references: [id])
+  assignees     WeeklyOutcomeAssignee[]
+  relatedActions Action[] @relation("WeeklyOutcomeActions")
+  
+  @@index([teamId])
+  @@index([projectId])
+  @@index([weekStartDate])
+  @@index([status])
+  @@unique([teamId, projectId, weekStartDate, title])
+}
+
+model WeeklyOutcomeAssignee {
+  id              String        @id @default(cuid())
+  weeklyOutcomeId String
+  userId          String
+  assignedAt      DateTime      @default(now())
+  
+  weeklyOutcome   WeeklyOutcome @relation(fields: [weeklyOutcomeId], references: [id], onDelete: Cascade)
+  user            User          @relation("WeeklyOutcomeAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([weeklyOutcomeId, userId])
+  @@index([weeklyOutcomeId])
+  @@index([userId])
+}
+
+model TeamMemberWeeklyCapacity {
+  id            String   @id @default(cuid())
+  userId        String
+  teamId        String
+  projectId     String?  // Optional: project-specific capacity
+  weekStartDate DateTime
+  availableHours Float   @default(40) // Default full-time capacity
+  notes         String?  // Vacation, part-time, etc.
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  user          User     @relation("TeamMemberCapacity", fields: [userId], references: [id])
+  team          Team     @relation("TeamMemberCapacities", fields: [teamId], references: [id])
+  project       Project? @relation("ProjectCapacities", fields: [projectId], references: [id])
+  
+  @@unique([userId, teamId, weekStartDate, projectId])
+  @@index([userId])
+  @@index([teamId])
+  @@index([weekStartDate])
 }
