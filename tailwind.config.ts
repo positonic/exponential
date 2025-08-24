@@ -56,6 +56,16 @@ export default {
           warning: 'var(--color-brand-warning)',
           error: 'var(--color-brand-error)',
           info: 'var(--color-brand-info)',
+          'primary-opacity': 'var(--color-brand-primary-opacity)',
+        },
+        // Error/Warning utility colors
+        error: {
+          bg: 'var(--color-error-bg)',
+          border: 'var(--color-error-border)',
+        },
+        warning: {
+          bg: 'var(--color-warning-bg)',
+          border: 'var(--color-warning-border)',
         },
       },
       backgroundColor: {

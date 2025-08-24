@@ -440,13 +440,13 @@ export function ProjectContent({
             backgroundColor: 'transparent'
           }}
         >
-          <div className="flex h-full flex-col bg-gradient-to-b from-slate-900 via-gray-900 to-slate-900">
+          <div className="flex h-full flex-col bg-primary">
             {/* Custom Header integrated with ManyChat design */}
-            <div className="bg-gradient-to-r from-slate-800/90 via-gray-800/80 to-slate-800/90 backdrop-blur-lg border-b border-gray-600/30 p-4">
+            <div className="bg-background-secondary/90 backdrop-blur-lg border-b border-border-primary/30 p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <Text size="lg" fw={600} className="bg-gradient-to-r from-blue-300 to-indigo-300 bg-clip-text text-transparent">
+                  <div className="w-2 h-2 bg-brand-success rounded-full animate-pulse"></div>
+                  <Text size="lg" fw={600} className="text-primary">
                     Project Chat
                   </Text>
                 </div>
@@ -455,7 +455,7 @@ export function ProjectContent({
                   size="lg"
                   onClick={() => setActiveDrawer(null)}
                   c="dimmed"
-                  className="hover:bg-gray-700/50 transition-colors"
+                  className="hover:bg-surface-hover/50 transition-colors"
                 >
                   <IconX size={20} />
                 </ActionIcon>
