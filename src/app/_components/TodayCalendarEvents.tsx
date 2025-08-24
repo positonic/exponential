@@ -7,6 +7,7 @@ import { format, parseISO } from "date-fns";
 import { CalendarEventsSkeleton } from "./CalendarSkeleton";
 import { useState, useEffect } from "react";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { stripHtml } from "~/lib/utils";
 
 function TodayCalendarEventsContent() {
   const [isOnline, setIsOnline] = useState(true);
@@ -196,7 +197,7 @@ function TodayCalendarEventsContent() {
             
             {event.description && (
               <Text size="xs" c="dimmed" className="line-clamp-2">
-                {event.description}
+                {stripHtml(event.description)}
               </Text>
             )}
           </Stack>

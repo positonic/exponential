@@ -1,13 +1,15 @@
 "use client";
 
 import { Drawer, Text, ScrollArea, Stack, Paper, Group, Badge, ActionIcon, Button } from "@mantine/core";
-import { IconCalendar, IconClock, IconMapPin, IconExternalLink, IconList, IconCalendarTime } from "@tabler/icons-react";
+import { IconCalendar, IconClock, IconMapPin, IconExternalLink, IconList, IconCalendarTime, IconUnlink } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { format, parseISO, startOfDay, endOfDay } from "date-fns";
 import { useState, useRef, useEffect } from "react";
 import { CalendarDayView } from "./CalendarDayView";
 import { CalendarDrawerSkeleton, CalendarDayViewSkeleton } from "./CalendarSkeleton";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { stripHtml } from "~/lib/utils";
 
 interface CalendarDrawerProps {
   opened: boolean;
@@ -18,6 +20,28 @@ interface CalendarDrawerProps {
 function CalendarDrawerContent({ opened, onClose, selectedDate = new Date() }: CalendarDrawerProps) {
   const [viewMode, setViewMode] = useState<'list' | 'dayview'>('list');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  
+  const utils = api.useUtils();
+  const disconnectCalendar = api.calendar.disconnect.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: "Calendar Disconnected",
+        message: "Your Google Calendar has been disconnected.",
+        color: "orange",
+        icon: <IconUnlink />,
+      });
+      onClose();
+      // Refresh calendar connection status
+      void utils.calendar.getConnectionStatus.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Disconnect Failed",
+        message: error.message || "Failed to disconnect calendar.",
+        color: "red",
+      });
+    },
+  });
   
   // Scroll to center on current time when day view is opened
   useEffect(() => {
@@ -298,7 +322,7 @@ function CalendarDrawerContent({ opened, onClose, selectedDate = new Date() }: C
                       {/* Event Description */}
                       {event.description && (
                         <Text size="sm" c="gray.4" mt="sm" lineClamp={3}>
-                          {event.description}
+                          {stripHtml(event.description)}
                         </Text>
                       )}
                     </Stack>
@@ -306,6 +330,21 @@ function CalendarDrawerContent({ opened, onClose, selectedDate = new Date() }: C
                 ))}
             </Stack>
           )}
+
+          {/* Disconnect Button - always show at bottom */}
+          <Paper p="md" bg="dark.7" radius="md" style={{ marginTop: 'auto' }}>
+            <Button
+              variant="subtle"
+              color="red"
+              size="sm"
+              leftSection={<IconUnlink size={16} />}
+              onClick={() => disconnectCalendar.mutate()}
+              loading={disconnectCalendar.isPending}
+              fullWidth
+            >
+              Disconnect Calendar
+            </Button>
+          </Paper>
         </Stack>
       </ScrollArea>
     </Drawer>

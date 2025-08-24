@@ -10,6 +10,7 @@ import Text from '@tiptap/extension-text';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import { isValidUrl } from '~/utils/url';
+import DOMPurify from 'dompurify';
 
 interface RichTextInputProps {
   value: string;
@@ -49,9 +50,14 @@ export const RichTextInput = forwardRef<HTMLDivElement, RichTextInputProps>(
       content: value,
       immediatelyRender: false,
       onUpdate: ({ editor }) => {
-        // Strip paragraph tags before saving
+        // Strip paragraph tags and sanitize before saving
         const html = stripParagraphTags(editor.getHTML());
-        onChange(html);
+        const sanitizedHtml = DOMPurify.sanitize(html, {
+          ALLOWED_TAGS: ['a', 'strong', 'em', 'u', 's', 'br'],
+          ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
+          ALLOW_DATA_ATTR: false,
+        });
+        onChange(sanitizedHtml);
       },
       editorProps: {
         handlePaste: (view, event: ClipboardEvent) => {

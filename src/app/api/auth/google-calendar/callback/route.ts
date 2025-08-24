@@ -31,6 +31,14 @@ export async function GET(request: NextRequest) {
   const baseUrl = `${protocol}://${host}`;
 
   try {
+    console.log("🔄 Starting token exchange...", {
+      baseUrl,
+      redirectUri: `${baseUrl}/api/auth/google-calendar/callback`,
+      hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+      hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+      codeLength: code?.length,
+    });
+
     // Exchange authorization code for tokens
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -46,8 +54,16 @@ export async function GET(request: NextRequest) {
       }),
     });
 
+    console.log("📊 Token response status:", tokenResponse.status);
+
     if (!tokenResponse.ok) {
-      throw new Error("Failed to exchange authorization code");
+      const errorText = await tokenResponse.text();
+      console.error("❌ Token exchange failed:", {
+        status: tokenResponse.status,
+        statusText: tokenResponse.statusText,
+        response: errorText,
+      });
+      throw new Error(`Failed to exchange authorization code: ${tokenResponse.status} ${errorText}`);
     }
 
     const tokens = await tokenResponse.json();
@@ -79,9 +95,20 @@ export async function GET(request: NextRequest) {
       redirect("/today?calendar_error=no_google_account");
     }
 
+    console.log("✅ Calendar tokens stored successfully!");
     redirect("/today?calendar_connected=true");
   } catch (error) {
+    // Don't catch Next.js redirect errors
+    if (error instanceof Error && error.message === 'NEXT_REDIRECT') {
+      throw error;
+    }
+    
     console.error("Calendar OAuth error:", error);
+    console.error("Error details:", {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      code: (error as any)?.code,
+      response: (error as any)?.response?.data,
+    });
     redirect("/today?calendar_error=token_exchange_failed");
   }
 }

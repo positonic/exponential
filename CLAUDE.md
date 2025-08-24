@@ -40,12 +40,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Always use bun to install packages
 
 ### Code Quality
-- `npm run lint` - Run ESLint
-- `npm run lint:fix` - Run ESLint with auto-fix
-- `npm run typecheck` - Run TypeScript type checking
-- `npm run check` - Run both linting and type checking
+
+**🚨 CRITICAL: ESLint Integration Enforcement**
+
+This project uses enhanced ESLint integration with immediate feedback and build-time enforcement:
+
+- `npm run check` - **PRIMARY**: Fast lint + typecheck validation (ALWAYS run this first)
+- `npm run lint` - Run ESLint only
+- `npm run lint:fix` - Auto-fix ESLint issues
+- `npm run typecheck` - Run TypeScript type checking only
 - `npm run format:write` - Format code with Prettier
 - `npm run format:check` - Check code formatting
+
+**MANDATORY ESLint Rules** (build will FAIL if violated):
+- Use `??` instead of `||` for nullish coalescing
+- No `any` types - use proper TypeScript types
+- All promises must be awaited or handled
+- Only await actual promises
+- Proper type imports (`import type {}`)
+- No unused variables or imports
+
+See `/docs/ESLINT_INTEGRATION.md` for complete rule details and fix patterns.
 
 ### Database Operations
 - `npx prisma migrate dev --name <migration_name>` - Create and apply a new migration (ALWAYS use this for schema changes!)
@@ -132,10 +147,16 @@ src/
 
 ## Development Patterns
 
-### Pull Request Validation
+### Pull Request Validation & ESLint Integration
 - **ALWAYS use the build-tester agent** when checking if a PR is ready to merge
-- The build-tester agent will automatically run all necessary checks (build, typecheck, lint, tests)
-- DO NOT manually run `npm run typecheck`, `npm run lint`, etc. for PR validation
+- The build-tester agent will automatically run all necessary checks with **fast validation first**:
+  - `npm run check` (fast lint + typecheck) - used for most changes
+  - `vercel build` (comprehensive) - used only for major features
+  - Tests and additional validations as needed
+- **Enhanced ESLint Integration**: Triple protection system prevents non-compliant code:
+  1. **Prevention**: Comprehensive documentation (`/docs/ESLINT_INTEGRATION.md`)
+  2. **Immediate Feedback**: Post-edit hooks run `npm run check` after file changes
+  3. **Comprehensive Validation**: Build-tester agent ensures deployment readiness
 - When asked about PR readiness, immediately use: `Task subagent_type="build-tester"` with the PR details
 
 ### Code Style (from .cursorrules)

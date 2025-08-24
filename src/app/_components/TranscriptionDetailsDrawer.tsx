@@ -17,6 +17,7 @@ import {
 } from "@mantine/core";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { notifications } from "@mantine/notifications";
+import { HTMLContent } from "./HTMLContent";
 
 interface TranscriptionDetailsDrawerProps {
   opened: boolean;
@@ -124,7 +125,7 @@ export function TranscriptionDetailsDrawer({
       <ScrollArea h="100%">
         <Stack gap="md">
           {/* Session Information */}
-          <Paper p="md" radius="sm" className="bg-[#2a2a2a]">
+          <Paper p="md" radius="sm" className="bg-surface-secondary">
             <Stack gap="sm">
               <Group justify="space-between">
                 {transcription.title && (
@@ -146,7 +147,7 @@ export function TranscriptionDetailsDrawer({
           </Paper>
 
           {transcription.project && (
-            <Paper p="md" radius="sm" className="bg-[#2a2a2a]">
+            <Paper p="md" radius="sm" className="bg-surface-secondary">
               <Stack gap="sm">
                 <Title order={5}>Assigned Project</Title>
                 <Group>
@@ -227,7 +228,7 @@ export function TranscriptionDetailsDrawer({
                             />
                             <Stack gap={4} style={{ flex: 1 }}>
                               <Text size="sm" fw={500}>
-                                {action.name}
+                                <HTMLContent html={action.name} />
                               </Text>
                               {action.description && (
                                 <Text size="xs" c="dimmed">
@@ -446,7 +447,7 @@ export function TranscriptionDetailsDrawer({
                       <Accordion.Panel>
                         <Stack gap="sm">
                           {summaryData.transcript_chapters.map((chapter: any, index: number) => (
-                            <Paper key={index} p="sm" radius="xs" className="bg-[#333333]">
+                            <Paper key={index} p="sm" radius="xs" className="bg-surface-tertiary">
                               <Text size="sm" fw={500}>
                                 {chapter.title || `Chapter ${index + 1}`}
                               </Text>
@@ -483,7 +484,7 @@ export function TranscriptionDetailsDrawer({
                         key={screenshot.id}
                         p="sm"
                         radius="xs"
-                        className="bg-[#333333]"
+                        className="bg-surface-tertiary"
                       >
                         <Group justify="space-between">
                           <Text size="sm" fw={500}>

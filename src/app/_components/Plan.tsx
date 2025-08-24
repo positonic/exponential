@@ -3,6 +3,7 @@
 import { Stack, Title, Text, Group, Button, Paper } from '@mantine/core';
 import { IconDownload } from '@tabler/icons-react';
 import { api } from "~/trpc/react";
+import { HTMLContent } from "./HTMLContent";
 // Styles moved to inline styles since @mantine/styles is deprecated in v7
 
 interface PlanProps {
@@ -95,7 +96,7 @@ export function Plan({ projectId }: PlanProps) {
           const weekActions = actionsByWeek[week] ?? [];
 
           return (
-            <Paper key={week} p="md" radius="md" style={{ border: '1px solid #e9ecef', marginBottom: '1rem' }}>
+            <Paper key={week} p="md" radius="md" withBorder className="mb-4">
               <Title order={2}>Week {week}</Title>
               
               {weekGoals.length > 0 && (
@@ -115,7 +116,7 @@ export function Plan({ projectId }: PlanProps) {
                   <Title order={3}>Tasks</Title>
                   {weekActions.map((action) => (
                     <div key={action.id}>
-                      <Text fw={500}>{action.name}</Text>
+                      <Text fw={500}><HTMLContent html={action.name} /></Text>
                       {action.description && <Text c="dimmed">{action.description}</Text>}
                     </div>
                   ))}

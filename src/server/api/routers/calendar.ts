@@ -21,7 +21,7 @@ export const calendarRouter = createTRPCRouter({
     }
 
     // Check if the account has calendar scopes
-    const hasCalendarScope = account.scope?.includes("https://www.googleapis.com/auth/calendar") ?? false;
+    const hasCalendarScope = account.scope?.includes("https://www.googleapis.com/auth/calendar.events") ?? false;
     
     // Check if token is still valid (with some buffer)
     const isTokenValid = !account.expires_at || account.expires_at > Math.floor(Date.now() / 1000) + 300;
@@ -80,5 +80,34 @@ export const calendarRouter = createTRPCRouter({
     .query(async () => {
       const calendarService = new GoogleCalendarService();
       return calendarService.getCacheStats();
+    }),
+
+  disconnect: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      // Remove Google OAuth tokens to disconnect calendar
+      const account = await ctx.db.account.findFirst({
+        where: {
+          userId: ctx.session.user.id,
+          provider: "google",
+        },
+      });
+
+      if (account) {
+        await ctx.db.account.update({
+          where: { id: account.id },
+          data: {
+            access_token: null,
+            refresh_token: null,
+            expires_at: null,
+            scope: null,
+          },
+        });
+      }
+
+      // Clear calendar cache for this user
+      const calendarService = new GoogleCalendarService();
+      calendarService.clearUserCache(ctx.session.user.id);
+
+      return { success: true, message: "Calendar disconnected successfully" };
     }),
 });

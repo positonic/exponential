@@ -12,6 +12,7 @@ import { OutcomesTable } from "./OutcomesTable";
 import { OutcomeTimeline } from "./OutcomeTimeline";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { Button } from "@mantine/core";
+import { HTMLContent } from "./HTMLContent";
 import {
   Group,
   Tabs,
@@ -35,6 +36,8 @@ import {
   IconMicrophone,
   IconMessageCircle,
   IconX,
+  IconUsers,
+  IconCalendarWeek,
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
@@ -42,6 +45,8 @@ import { ProjectIntegrations } from "./ProjectIntegrations";
 import { ProjectSyncStatus } from "./ProjectSyncStatus";
 import { ProjectSyncConfiguration } from "./ProjectSyncConfiguration";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
+import { TeamWeeklyReview } from "./TeamWeeklyReview";
+import { WeeklyOutcomes } from "./WeeklyOutcomes";
 import Link from "next/link";
 
 type TabValue =
@@ -51,7 +56,9 @@ type TabValue =
   | "outcomes"
   | "timeline"
   | "transcriptions"
-  | "workflows";
+  | "workflows"
+  | "weekly-team-review"
+  | "weekly-outcomes";
 
 export function ProjectContent({
   viewName,
@@ -177,6 +184,25 @@ export function ProjectContent({
               >
                 Plan
               </Tabs.Tab> */}
+              
+              {/* Team Weekly Planning Tabs - Only show for team projects */}
+              {project.teamId && (
+                <>
+                  <Tabs.Tab 
+                    value="weekly-team-review" 
+                    leftSection={<IconUsers size={16} />}
+                  >
+                    Weekly Team Review
+                  </Tabs.Tab>
+                  <Tabs.Tab 
+                    value="weekly-outcomes" 
+                    leftSection={<IconCalendarWeek size={16} />}
+                  >
+                    Weekly Outcomes
+                  </Tabs.Tab>
+                </>
+              )}
+              
               <Tabs.Tab
                 value="transcriptions"
                 leftSection={<IconMicrophone size={16} />}
@@ -245,6 +271,19 @@ export function ProjectContent({
                 <OutcomeTimeline projectId={projectId} />
               </Paper>
             </Tabs.Panel>
+
+            {/* Team Weekly Planning Panels - Only show for team projects */}
+            {project.teamId && (
+              <>
+                <Tabs.Panel value="weekly-team-review">
+                  <TeamWeeklyReview projectId={projectId} />
+                </Tabs.Panel>
+
+                <Tabs.Panel value="weekly-outcomes">
+                  <WeeklyOutcomes projectId={projectId} />
+                </Tabs.Panel>
+              </>
+            )}
 
             <Tabs.Panel value="transcriptions">
               <Stack gap="md">
@@ -342,7 +381,7 @@ export function ProjectContent({
                                   <Group key={action.id} gap="xs" align="flex-start">
                                     <Text size="xs" c="dimmed" mt={2}>•</Text>
                                     <Text size="sm" lineClamp={1} style={{ flex: 1 }}>
-                                      {action.name}
+                                      <HTMLContent html={action.name} />
                                     </Text>
                                     {action.priority && (
                                       <Badge variant="outline" size="xs" color="gray">

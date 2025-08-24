@@ -49,7 +49,8 @@ const getNextWeekendDate = () => {
   return date;
 };
 
-const quickOptions = [
+// Function to get fresh date options each time (fixes stale date issue when tab is kept open overnight)
+const getQuickOptions = () => [
   { label: "Today", date: new Date(), icon: "📅", color: "var(--color-brand-success)" },
   {
     label: "Tomorrow",
@@ -84,6 +85,14 @@ export function UnifiedDatePicker({
   const isBulkMode = mode === 'bulk';
 
   const handleDateSelect = (date: Date | null) => {
+    // Add debugging for date selection to verify fresh dates are being used
+    console.log('🗓️ [DATE PICKER DEBUG] Date selected:', {
+      date: date?.toISOString() || null,
+      label: date ? (date.toDateString() === new Date().toDateString() ? 'Today' : date.toDateString()) : 'No Date',
+      isFreshToday: date ? date.toDateString() === new Date().toDateString() : false,
+      timestamp: new Date().toISOString()
+    });
+    
     onChange(date);
     setOpened(false);
     
@@ -219,7 +228,7 @@ export function UnifiedDatePicker({
       
       <Popover.Dropdown p={0}>
         <Stack gap="xs" p="md">
-          {quickOptions.map((option) => (
+          {getQuickOptions().map((option) => (
             <UnstyledButton
               key={option.label}
               onClick={() => handleDateSelect(option.date)}

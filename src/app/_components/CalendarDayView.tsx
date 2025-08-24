@@ -4,6 +4,7 @@ import { Text, Stack, Tooltip } from "@mantine/core";
 import { format, parseISO, isToday, isSameDay } from "date-fns";
 import { type CalendarEvent } from "~/server/services/GoogleCalendarService";
 import { useMemo } from "react";
+import { stripHtml } from "~/lib/utils";
 
 interface CalendarDayViewProps {
   events: CalendarEvent[];
@@ -195,8 +196,12 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
                   {event.location && <Text size="xs">📍 {event.location}</Text>}
                   {event.description && (
                     <Text size="xs" className="max-w-xs">
-                      {event.description.substring(0, 100)}
-                      {event.description.length > 100 ? '...' : ''}
+                      {(() => {
+                        const cleanDescription = stripHtml(event.description);
+                        return cleanDescription.length > 100 
+                          ? `${cleanDescription.substring(0, 100)}...`
+                          : cleanDescription;
+                      })()}
                     </Text>
                   )}
                 </Stack>
