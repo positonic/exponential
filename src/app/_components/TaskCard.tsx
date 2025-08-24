@@ -5,7 +5,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Card, Text, Group, Badge, Avatar, Stack, ActionIcon, Menu, Tooltip, HoverCard, Modal, Button, Divider } from "@mantine/core";
 import { IconGripVertical, IconDots, IconEdit, IconTrash, IconArrowsMaximize } from "@tabler/icons-react";
-import { AssignTaskModal } from "./AssignTaskModal";
+import { AssignActionModal } from "./AssignActionModal";
 import { EditActionModal } from "./EditActionModal";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
@@ -39,14 +39,14 @@ interface TaskCardProps {
   isDragging?: boolean;
 }
 
-// Helper component to render HTML content safely
-const HTMLContent = ({ html, className }: { html: string, className?: string }) => (
-  <div 
-    className={className || "text-text-primary"}
-    dangerouslySetInnerHTML={{ __html: html }}
-    style={{ display: 'inline' }}
-  />
-);
+// // Helper component to render HTML content safely
+// const HTMLContent = ({ html, className }: { html: string, className?: string }) => (
+//   <div 
+//     className={className || "text-text-primary"}
+//     dangerouslySetInnerHTML={{ __html: html }}
+//     style={{ display: 'inline' }}
+//   />
+// );
 
 const priorityColors: Record<string, string> = {
   "Critical": "red",
