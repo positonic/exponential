@@ -198,7 +198,15 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           console.error(`🔧 [BULK DEBUG] Mutation ${index}/${totalCount} FAILED for action ${actionId}:`, errorMessage);
           results.push({ actionId, success: false, error: errorMessage });
           
-          // Continue with next mutation even if one fails
+          // Check if this is a connection reset error
+          if (errorMessage.includes('Server has closed the connection') || 
+              errorMessage.includes('Connection reset by peer')) {
+            console.error('🔧 [BULK DEBUG] Database connection lost - stopping bulk operation');
+            // Stop processing more actions as connection is lost
+            break;
+          }
+          
+          // Continue with next mutation for other types of errors
         }
       }
       
@@ -212,9 +220,24 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       const failedResults = results.filter(r => !r.success);
       const successfulResults = results.filter(r => r.success);
 
+      // Check if any failures were due to connection issues
+      const connectionErrors = failedResults.filter(r => 
+        r.error?.includes('Server has closed the connection') || 
+        r.error?.includes('Connection reset by peer')
+      );
+
       if (failedResults.length > 0) {
         console.error('🔧 [BULK DEBUG] Some mutations failed:', failedResults);
-        throw new Error(`${failedResults.length} out of ${totalCount} mutations failed`);
+        
+        if (connectionErrors.length > 0) {
+          throw new Error(
+            `Database connection was lost during bulk update. ` +
+            `${successfulResults.length} of ${totalCount} actions were updated successfully. ` +
+            `Please try again for the remaining ${failedResults.length} actions.`
+          );
+        } else {
+          throw new Error(`${failedResults.length} out of ${totalCount} mutations failed`);
+        }
       }
       
       // Log cache state after mutations
@@ -524,9 +547,9 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         <ActionList 
           viewName={viewName} 
           actions={actions ?? []} 
-          enableBulkEditForOverdue={!projectId} // Only enable for non-project pages
-          onOverdueBulkAction={!projectId ? handleOverdueBulkAction : undefined}
-          onOverdueBulkReschedule={!projectId ? handleOverdueBulkReschedule : undefined}
+          enableBulkEditForOverdue={true} // Enable bulk edit for all pages
+          onOverdueBulkAction={handleOverdueBulkAction}
+          onOverdueBulkReschedule={handleOverdueBulkReschedule}
         />
       )}
       <div className="mt-6">

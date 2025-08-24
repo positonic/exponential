@@ -24,6 +24,7 @@ import { feedbackRouter } from "./routers/feedback";
 import { whatsappRouter } from "./routers/whatsapp";
 import { notificationRouter } from "./routers/notification";
 import { onboardingRouter } from "./routers/onboarding";
+import { weeklyPlanningRouter } from "./routers/weeklyPlanning";
 /**
  * This is the primary router for your server.
  *
@@ -55,6 +56,7 @@ export const appRouter = createTRPCRouter({
   whatsapp: whatsappRouter,
   notification: notificationRouter,
   onboarding: onboardingRouter,
+  weeklyPlanning: weeklyPlanningRouter,
 });
 
 // export type definition of API
