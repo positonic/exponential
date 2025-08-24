@@ -6,6 +6,7 @@ import { Text, Group, Title, Container, ScrollArea, Badge, Button, Select, Loade
 import { IconChevronDown, IconChevronRight, IconPlus, IconCalendarWeek, IconAlertCircle } from "@tabler/icons-react";
 import { type RouterOutputs } from "~/trpc/react";
 import { WeeklyOutcomeModal } from "./WeeklyOutcomeModal";
+import Link from "next/link";
 
 
 interface WeeklyOutcomesProps {
@@ -399,6 +400,14 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
         <Text size="sm" className="text-text-secondary">
           <strong>Outcome-Centric Approach:</strong> This view focuses on the team&apos;s weekly objectives and goals.
           Perfect for ensuring the team stays aligned on what needs to be accomplished and tracking progress toward shared outcomes.
+        </Text>
+        <Text size="sm" className="text-text-secondary mt-3">
+          <Link 
+            href="/productivity-methods/team-weekly-planning" 
+            className="text-brand-primary hover:text-brand-primary-hover underline"
+          >
+            Learn more about the Team Weekly Planning methodology →
+          </Link>
         </Text>
       </div>
 

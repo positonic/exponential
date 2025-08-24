@@ -5,6 +5,8 @@ import { api } from "~/trpc/react";
 import { Text, Group, Progress, Title, Container, ScrollArea, Badge, Avatar, Loader, Alert } from "@mantine/core";
 import { IconChevronDown, IconChevronRight, IconAlertCircle } from "@tabler/icons-react";
 import { type RouterOutputs } from "~/trpc/react";
+import { HTMLContent } from "./HTMLContent";
+import Link from "next/link";
 
 
 interface TeamWeeklyReviewProps {
@@ -243,7 +245,7 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
                                   <div key={action.id} className="flex items-center justify-between p-2 rounded bg-surface-primary border border-border-primary">
                                     <div className="flex-1">
                                       <Text size="sm" fw={500} className="text-text-primary">
-                                        {action.name}
+                                        <HTMLContent html={action.name} className="text-text-primary" />
                                       </Text>
                                       {action.dueDate && (
                                         <Text size="xs" c="dimmed">
@@ -285,6 +287,14 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
         <Text size="sm" className="text-text-secondary">
           <strong>Member-Centric Approach:</strong> This view focuses on what each team member is working on this week.
           Perfect for team leads to understand individual workloads and identify potential bottlenecks or support needs.
+        </Text>
+        <Text size="sm" className="text-text-secondary mt-3">
+          <Link 
+            href="/productivity-methods/team-weekly-planning" 
+            className="text-brand-primary hover:text-brand-primary-hover underline"
+          >
+            Learn more about the Team Weekly Planning methodology →
+          </Link>
         </Text>
       </div>
     </Container>
