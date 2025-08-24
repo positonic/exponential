@@ -26,15 +26,24 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
 
   const utils = api.useUtils();
 
+  // Query to get fresh action data including assignees
+  const { data: freshAction } = api.action.getAll.useQuery(undefined, {
+    select: (actions) => actions?.find(a => a.id === action?.id),
+    enabled: !!action?.id && opened, // Only query when modal is open and we have an action
+  });
+
+  // Use fresh action data if available, fallback to prop
+  const currentAction = freshAction || action;
+
   useEffect(() => {
-    if (action) {
-      setName(action.name);
-      setDescription(action.description ?? "");
-      setProjectId(action.projectId ?? "");
-      setPriority(action.priority as ActionPriority);
-      setDueDate(action.dueDate ? new Date(action.dueDate) : null);
+    if (currentAction) {
+      setName(currentAction.name);
+      setDescription(currentAction.description ?? "");
+      setProjectId(currentAction.projectId ?? "");
+      setPriority(currentAction.priority as ActionPriority);
+      setDueDate(currentAction.dueDate ? new Date(currentAction.dueDate) : null);
     }
-  }, [action]);
+  }, [currentAction]);
 
   const updateAction = api.action.update.useMutation({
     onSuccess: async () => {
@@ -45,10 +54,10 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
   });
 
   const handleSubmit = () => {
-    if (!name || !action) return;
+    if (!name || !currentAction) return;
 
     updateAction.mutate({
-      id: action.id,
+      id: currentAction.id,
       name,
       description: description || undefined,
       projectId: projectId || undefined,
@@ -58,13 +67,13 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
   };
 
   const handleAssigneeClick = () => {
-    if (action) {
+    if (currentAction) {
       setAssignModalOpened(true);
     }
   };
 
   // Get current assignees for edit mode
-  const currentAssignees = action && 'assignees' in action && action.assignees ? action.assignees : [];
+  const currentAssignees = currentAction && 'assignees' in currentAction && currentAction.assignees ? currentAction.assignees : [];
   const selectedAssigneeIds = currentAssignees.map(a => a.user.id);
 
   return (
@@ -96,7 +105,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
         dueDate={dueDate}
         setDueDate={setDueDate}
         selectedAssigneeIds={selectedAssigneeIds}
-        actionId={action?.id}
+        actionId={currentAction?.id}
         onAssigneeClick={handleAssigneeClick}
         onSubmit={handleSubmit}
         onClose={onClose}
@@ -105,13 +114,13 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       />
     </Modal>
     
-    {action && (
+    {currentAction && (
       <AssignActionModal
         opened={assignModalOpened}
         onClose={() => setAssignModalOpened(false)}
-        actionId={action.id}
-        actionName={action.name}
-        projectId={action.projectId}
+        actionId={currentAction.id}
+        actionName={currentAction.name}
+        projectId={currentAction.projectId}
         currentAssignees={currentAssignees}
       />
     )}
