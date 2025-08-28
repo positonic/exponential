@@ -160,10 +160,19 @@ export function ActionList({
         );
       };
 
-      // Optimistically update cache
+      // Helper function to update action in the getToday list (without syncs)
+      const updateActionInGetTodayList = (old: ActionWithoutSyncs[] | undefined): ActionWithoutSyncs[] => {
+        if (!old) return [];
+        return old.map((action) =>
+          action.id === id 
+            ? { ...action, status: status as string } 
+            : action
+        );
+      };
+
+      // Optimistically update both caches
       utils.action.getAll.setData(undefined, updateActionInGetAllList);
-      // Note: getToday has different type structure (missing syncs), so we invalidate instead
-      void utils.action.getToday.invalidate();
+      utils.action.getToday.setData(undefined, updateActionInGetTodayList);
       
       return previousState;
     },
@@ -181,13 +190,12 @@ export function ActionList({
       if(viewName.toLowerCase() === 'today') {
         await utils.action.getToday.invalidate();
       } else if(projectId) {
-        await utils.action.getProjectActions.invalidate(); // Assuming this exists based on previous context
+        await utils.action.getProjectActions.invalidate();
       } else {
         await utils.action.getAll.invalidate();
       }
-
     },
-  });
+  });;
 
   const handleCheckboxChange = (actionId: string, checked: boolean) => {
     const action = actions.find(a => a.id === actionId);
