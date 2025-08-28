@@ -645,11 +645,10 @@ export function ActionList({
                             color={bulkEditOverdueMode ? "blue" : "gray"}
                             leftSection={<IconEdit size={12} />}
                           >
-                            {bulkEditOverdueMode ? 'Exit' : 'Bulk edit'}
+                            {bulkEditOverdueMode ? 'Exit' : 'Bulk reschedule'}
                           </Button>
                         </div>
                       )}
-                      <Text size="sm" c="red" onClick={(e) => e.stopPropagation()}>Reschedule</Text> 
                     </Group>
                 </Group>
             </Accordion.Control>
