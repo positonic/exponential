@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { api } from "~/trpc/react";
 import { Text, Group, Progress, Title, Container, ScrollArea, Badge, Avatar, Loader, Alert } from "@mantine/core";
 import { IconChevronDown, IconChevronRight, IconAlertCircle } from "@tabler/icons-react";
-import { type RouterOutputs } from "~/trpc/react";
 import { HTMLContent } from "./HTMLContent";
 import Link from "next/link";
 

@@ -4,7 +4,6 @@ import { useState } from "react";
 import { api } from "~/trpc/react";
 import { Text, Group, Title, Container, ScrollArea, Badge, Button, Select, Loader, Alert } from "@mantine/core";
 import { IconChevronDown, IconChevronRight, IconPlus, IconCalendarWeek, IconAlertCircle } from "@tabler/icons-react";
-import { type RouterOutputs } from "~/trpc/react";
 import { WeeklyOutcomeModal } from "./WeeklyOutcomeModal";
 import Link from "next/link";
 
