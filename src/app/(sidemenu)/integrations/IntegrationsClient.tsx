@@ -71,13 +71,13 @@ interface EditIntegrationForm {
 }
 
 const PROVIDER_OPTIONS = [
-  { value: 'fireflies', label: 'Fireflies.ai', icon: IconBrandFirebase, disabled: false },
-  { value: 'exponential-plugin', label: 'Exponential Plugin', disabled: false },
-  { value: 'github', label: 'GitHub', disabled: true },
-  { value: 'slack', label: 'Slack', icon: IconBrandSlack, disabled: false },
-  { value: 'whatsapp', label: 'WhatsApp', disabled: false },
-  { value: 'notion', label: 'Notion', disabled: true },
-  { value: 'monday', label: 'Monday.com', disabled: false },
+  { value: 'fireflies', label: 'Fireflies.ai', icon: IconBrandFirebase, disabled: false, oauth: false },
+  { value: 'exponential-plugin', label: 'Exponential Plugin', disabled: false, oauth: false },
+  { value: 'github', label: 'GitHub', disabled: false, oauth: true },
+  { value: 'slack', label: 'Slack', icon: IconBrandSlack, disabled: false, oauth: true },
+  { value: 'whatsapp', label: 'WhatsApp', disabled: false, oauth: false },
+  { value: 'notion', label: 'Notion', disabled: false, oauth: true },
+  { value: 'monday', label: 'Monday.com', disabled: false, oauth: false },
 ];
 
 export default function IntegrationsClient() {
@@ -484,6 +484,31 @@ export default function IntegrationsClient() {
     return option?.label || provider;
   };
 
+  const isOAuthProvider = (provider: string) => {
+    const option = PROVIDER_OPTIONS.find(p => p.value === provider);
+    return option?.oauth || false;
+  };
+
+  const handleOAuthConnect = (provider: string) => {
+    switch (provider) {
+      case 'github':
+        window.location.href = '/api/auth/github/authorize';
+        break;
+      case 'notion':
+        window.location.href = '/api/auth/notion/authorize';
+        break;
+      case 'slack':
+        window.location.href = '/api/auth/slack/authorize';
+        break;
+      default:
+        notifications.show({
+          title: 'Not Supported',
+          message: `OAuth not supported for ${provider}`,
+          color: 'red',
+        });
+    }
+  };
+
   return (
     <Container size="lg" py="xl">
       <Stack gap="lg">
@@ -663,7 +688,41 @@ export default function IntegrationsClient() {
                 {...form.getInputProps('provider')}
               />
 
-              {form.values.provider !== 'slack' && form.values.provider !== 'whatsapp' && (
+              {/* OAuth Connect Button for OAuth providers */}
+              {isOAuthProvider(form.values.provider) && (
+                <Stack gap="md">
+                  <Alert 
+                    icon={<IconPlugConnected size={16} />}
+                    title={`Connect with ${getProviderLabel(form.values.provider)}`}
+                    color="blue"
+                  >
+                    <Text size="sm" mb="md">
+                      Connect your {getProviderLabel(form.values.provider)} account using OAuth for secure authentication.
+                      This will automatically set up the integration for you.
+                    </Text>
+                    <Button 
+                      leftSection={<IconPlugConnected size={16} />}
+                      onClick={() => handleOAuthConnect(form.values.provider)}
+                      color="blue"
+                      variant="filled"
+                    >
+                      Connect with {getProviderLabel(form.values.provider)}
+                    </Button>
+                  </Alert>
+
+                  {form.values.provider === 'slack' && (
+                    <Alert color="gray" title="Alternative: Manual Setup">
+                      <Text size="sm">
+                        If you prefer manual setup or need advanced configuration, 
+                        you can continue with the manual form below instead of using OAuth.
+                      </Text>
+                    </Alert>
+                  )}
+                </Stack>
+              )}
+
+              {/* API Key input for non-OAuth providers */}
+              {!isOAuthProvider(form.values.provider) && form.values.provider !== 'slack' && form.values.provider !== 'whatsapp' && (
                 <TextInput
                   label="API Key"
                   placeholder="Enter your API key"
@@ -671,6 +730,15 @@ export default function IntegrationsClient() {
                   type="password"
                   {...form.getInputProps('apiKey')}
                 />
+              )}
+
+              {/* Manual configuration for OAuth providers (if they want to override OAuth) */}
+              {isOAuthProvider(form.values.provider) && form.values.provider !== 'github' && (
+                <>
+                  <Text size="sm" c="dimmed" ta="center" my="md">
+                    — or configure manually —
+                  </Text>
+                </>
               )}
 
               {form.values.provider === 'slack' && (
