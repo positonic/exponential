@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
     );
 
     // Parse state to get project ID if provided
-    let projectId: string | null = null;
+    let projectId: string | undefined = undefined;
     let userId: string | null = null;
     if (state) {
       try {
@@ -183,8 +183,8 @@ export async function GET(request: NextRequest) {
           : [],
         githubUser,
         projectId,
-        installationId: installation_id,
-        selectedRepository: repositories[0], // Will be selected in the UI
+        installationId: parseInt(installation_id),
+        selectedRepository: repositories[0] || null, // Will be selected in the UI
       },
     );
 
@@ -200,8 +200,8 @@ export async function GET(request: NextRequest) {
           : [],
         githubUser: {
           login: githubUser?.name,
-          url: githubUser?.url,
-          html_url: githubUser?.html_url,
+          url: githubUser?.html_url ? githubUser.html_url : "",
+          html_url: githubUser?.html_url || "",
         },
         availableRepositories: repositories.map((repo: any) => ({
           id: repo.id,

@@ -351,7 +351,7 @@ class NotionIntegrationService {
       ]);
 
       const totalItems = databases.length + pages.length;
-      let itemsProcessed = 0;
+      const itemsProcessed = 0;
 
       // Update workflow run with final status
       await db.workflowRun.update({

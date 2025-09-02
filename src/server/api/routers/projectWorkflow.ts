@@ -276,7 +276,7 @@ export const projectWorkflowRouter = createTRPCRouter({
 
       // Enrich with template information for template-based workflows
       const enrichedWorkflows = workflows.map((workflow) => {
-        const templateId = workflow.config?.templateId as string;
+        const templateId = (workflow.config as any)?.templateId as string;
         const template = templateId
           ? WORKFLOW_TEMPLATES[templateId as keyof typeof WORKFLOW_TEMPLATES]
           : null;
@@ -289,7 +289,7 @@ export const projectWorkflowRouter = createTRPCRouter({
           configuration: workflow.config,
           runs: workflow.runs.map((run) => ({
             ...run,
-            duration: run.metadata?.duration as number | undefined,
+            duration: (run.metadata as any)?.duration as number | undefined,
           })),
         };
       });
@@ -334,7 +334,7 @@ export const projectWorkflowRouter = createTRPCRouter({
       }
 
       // Find integration ID from database if template specifies integrations
-      let integrationId: string | null = null;
+      let integrationId = ""; // Default empty string for template workflows
 
       if (template.integrations && template.integrations.length > 0) {
         // Get the first integration provider from template
@@ -378,7 +378,7 @@ export const projectWorkflowRouter = createTRPCRouter({
           },
           projectId: input.projectId,
           userId: ctx.session.user.id,
-          integrationId: integrationId, // Use the found integration ID or null
+          integrationId: integrationId, // Use the found integration ID or empty string
         },
       });
 
@@ -436,7 +436,7 @@ export const projectWorkflowRouter = createTRPCRouter({
         },
       });
 
-      const templateId = workflow.config?.templateId as string;
+      const templateId = (workflow.config as any)?.templateId as string;
       const template = templateId
         ? WORKFLOW_TEMPLATES[templateId as keyof typeof WORKFLOW_TEMPLATES]
         : null;
@@ -508,7 +508,7 @@ export const projectWorkflowRouter = createTRPCRouter({
         });
       }
 
-      const templateId = workflow.config?.templateId as string;
+      const templateId = (workflow.config as any)?.templateId as string;
       const template = templateId
         ? WORKFLOW_TEMPLATES[templateId as keyof typeof WORKFLOW_TEMPLATES]
         : null;
@@ -647,9 +647,9 @@ export const projectWorkflowRouter = createTRPCRouter({
       // Add compatibility fields for UI
       return runs.map((run) => ({
         ...run,
-        duration: run.metadata?.duration as number | undefined,
-        triggerType: (run.metadata?.triggerType as string) || "manual",
-        triggeredBy: (run.metadata?.triggeredBy as string) || null,
+        duration: (run.metadata as any)?.duration as number | undefined,
+        triggerType: ((run.metadata as any)?.triggerType as string) || "manual",
+        triggeredBy: ((run.metadata as any)?.triggeredBy as string) || null,
       }));
     }),
 });

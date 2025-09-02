@@ -179,7 +179,7 @@ async function handleIssueEvent(data: any) {
               repositoryFullName,
               issueNumber: issue.number,
               issueId: issue.id,
-              error: error instanceof Error ? error.stack : error,
+              error: error instanceof Error ? error.stack : String(error),
             },
           },
         });

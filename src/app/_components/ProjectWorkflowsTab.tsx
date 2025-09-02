@@ -201,7 +201,7 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
     setConfigModalOpened(true);
   };
 
-  const handleGitHubAuth = (template: any) => {
+  const handleGitHubAuth = (_template: any) => {
     // Redirect to GitHub OAuth with project context
     const authUrl = `/api/auth/github/authorize?projectId=${projectId}`;
     window.location.href = authUrl;
@@ -805,7 +805,7 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
           <Stack gap="lg">
             <Alert icon={<IconBrandGithub size={16} />} color="blue">
               Choose which repository to connect to this project. Only
-              repositories where you've installed our GitHub App are shown.
+              repositories where you&apos;ve installed our GitHub App are shown.
             </Alert>
 
             <div>

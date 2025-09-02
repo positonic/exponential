@@ -551,10 +551,7 @@ class GitHubIntegrationService {
         where: { id: actionSync.actionId },
         data: {
           status: "ARCHIVED",
-          description: {
-            update: (existing: string) =>
-              `${existing}\n\n**Note**: Original GitHub issue was deleted.`,
-          },
+          description: `**Note**: Original GitHub issue was deleted.`,
         },
       });
 
