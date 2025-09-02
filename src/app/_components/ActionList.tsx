@@ -12,6 +12,7 @@ import { HTMLContent } from "./HTMLContent";
 import type { Priority } from "~/types/action";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
+type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
 type Action = ActionWithSyncs;
 
 // Helper function to format date like "22 Feb"

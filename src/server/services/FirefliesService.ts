@@ -22,6 +22,7 @@ export interface FirefliesSummary {
 export interface FirefliesTranscript {
   id: string;
   title: string;
+  date?: number; // Meeting timestamp in milliseconds
   sentences: Array<{
     text: string;
     speaker_name: string | null;

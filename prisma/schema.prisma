@@ -363,6 +363,7 @@ model TranscriptionSession {
   transcription       String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
+  meetingDate         DateTime?    // Actual date/time when the meeting occurred
   userId              String?
   setupId             String?
   projectId           String?

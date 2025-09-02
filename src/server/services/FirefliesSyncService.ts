@@ -89,12 +89,13 @@ export class FirefliesSyncService {
       sinceDate.setDate(sinceDate.getDate() - sinceDays);
       // const sinceISOString = sinceDate.toISOString();
 
-      // Use the correct Fireflies API schema - remove date_created field that doesn't exist
+      // Use the correct Fireflies API schema - include date field for meeting time
       const query = `
         query GetRecentTranscripts {
           transcripts(limit: 50) {
             id
             title
+            date
             sentences {
               text
               speaker_name
@@ -252,6 +253,7 @@ export class FirefliesSyncService {
             transcription: processedData.transcriptText || '',
             summary: processedData ? JSON.stringify(processedData.summary, null, 2) : null,
             sourceIntegrationId: integrationId,
+            meetingDate: transcript.date ? new Date(transcript.date) : null,
           };
 
           let transcriptionSession;
