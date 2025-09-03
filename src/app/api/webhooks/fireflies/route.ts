@@ -283,6 +283,8 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
     };
 
     let transcriptionSession;
+    let isNewSession = false;
+    
     if (existingSession) {
       // Update existing session
       transcriptionSession = await db.transcriptionSession.update({
@@ -304,9 +306,37 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
         }
       });
       console.log(`✅ Created new transcription session: ${sessionId}`);
+      isNewSession = true;
     }
 
-    // 5. Skip action processing from webhook
+    // 5. Create notification for new transcriptions
+    if (isNewSession) {
+      const actionItemCount = processedData?.actionItems.length || 0;
+      const notificationMessage = actionItemCount > 0 
+        ? `Your meeting "${title}" has been transcribed and ${actionItemCount} action items were found. Ready for review.`
+        : `Your meeting "${title}" has been transcribed and is ready for review.`;
+
+      await db.scheduledNotification.create({
+        data: {
+          userId: user.id,
+          type: 'transcription_completed',
+          title: 'New Meeting Transcription Ready',
+          message: notificationMessage,
+          status: 'pending',
+          scheduledFor: new Date(), // Show immediately
+          metadata: JSON.stringify({
+            transcriptionId: transcriptionSession.id,
+            sessionId: sessionId,
+            actionItemCount,
+            meetingTitle: title
+          })
+        }
+      });
+      
+      console.log(`🔔 Created notification for new transcription: ${title}`);
+    }
+
+    // 6. Skip action processing from webhook
     // Actions will be processed when user manually associates with a project
     console.log(`📌 Transcription saved. Awaiting project association for processing ${processedData?.actionItems.length || 0} action items`);
     

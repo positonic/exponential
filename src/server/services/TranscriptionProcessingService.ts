@@ -3,6 +3,7 @@ import { FirefliesService } from './FirefliesService';
 import { ActionProcessorFactory } from './processors/ActionProcessorFactory';
 import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
 import { SlackChannelResolver } from './SlackChannelResolver';
+import { SlackNotificationService } from './notifications/SlackNotificationService';
 
 export interface ProcessTranscriptionResult {
   success: boolean;
@@ -210,6 +211,153 @@ export class TranscriptionProcessingService {
 
     } catch (error) {
       console.error('Error sending Slack notification:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
+  static async sendSlackSummary(
+    transcriptionId: string,
+    userId: string,
+    options: {
+      channel: string;
+      includeSummary: boolean;
+      includeActions: boolean;
+    }
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // 1. Get the transcription with its project and actions
+      const transcription = await db.transcriptionSession.findUnique({
+        where: { id: transcriptionId },
+        include: {
+          project: {
+            include: { team: true }
+          }
+        }
+      });
+
+      if (!transcription) {
+        return { success: false, error: 'Transcription not found' };
+      }
+
+      // Get actions separately
+      const actions = await db.action.findMany({
+        where: { 
+          transcriptionSessionId: transcriptionId,
+          status: { not: 'COMPLETED' }
+        },
+        include: {
+          assignedTo: {
+            select: {
+              name: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      // 2. Verify user has access
+      const hasAccess = await this.verifyUserAccess(userId, transcription.projectId);
+      if (!hasAccess) {
+        return { success: false, error: 'Access denied' };
+      }
+
+      // 3. Get the integration - use the custom channel's integration
+      // Since user selected a specific channel, we need to find which integration it belongs to
+      let integrationId: string | null = null;
+
+      // First try to get integration from project/team if available
+      if (transcription.projectId || transcription.project?.teamId) {
+        const channelConfig = await SlackChannelResolver.resolveChannel(
+          transcription.projectId || undefined,
+          transcription.project?.teamId || undefined
+        );
+        integrationId = channelConfig.integrationId;
+      }
+
+      // If no integration found from project/team, get user's first active Slack integration
+      if (!integrationId) {
+        const userIntegration = await db.integration.findFirst({
+          where: {
+            userId: userId,
+            provider: "slack",
+            status: "ACTIVE",
+          },
+        });
+        integrationId = userIntegration?.id || null;
+      }
+
+      if (!integrationId) {
+        return { success: false, error: 'No Slack integration available' };
+      }
+
+      // 4. Build the message content
+      const messageParts: string[] = [];
+      
+      // Header
+      messageParts.push(`📋 *Meeting Summary: ${transcription.title || 'Untitled'}*`);
+      
+      if (transcription.project) {
+        messageParts.push(`_Project: ${transcription.project.name}${transcription.project.team ? ` (${transcription.project.team.name})` : ''}_`);
+      }
+
+      // Summary content
+      if (options.includeSummary && transcription.summary) {
+        try {
+          const summaryData = JSON.parse(transcription.summary);
+          if (summaryData.shorthand_bullet) {
+            messageParts.push('\n📝 *Detailed Breakdown:*');
+            messageParts.push(summaryData.shorthand_bullet);
+          }
+        } catch (e) {
+          console.error('Failed to parse summary for Slack message:', e);
+        }
+      }
+
+      // Actions content  
+      if (options.includeActions && actions.length > 0) {
+        messageParts.push('\n✅ *Action Items:*');
+        actions.forEach((action, index) => {
+          const assignedText = action.assignedTo ? ` (assigned to ${action.assignedTo.name || action.assignedTo.email})` : '';
+          messageParts.push(`${index + 1}. ${action.description}${assignedText}`);
+        });
+      }
+
+      const finalMessage = messageParts.join('\n');
+
+      // 5. Send directly via SlackNotificationService using specific channel and integration
+      try {
+        const slackService = new SlackNotificationService({
+          userId: userId,
+          integrationId: integrationId,
+          channel: options.channel,
+        });
+
+        const slackResult = await slackService.sendNotification({
+          title: `Meeting Summary: ${transcription.title || 'Untitled'}`,
+          message: finalMessage,
+          priority: 'normal',
+          metadata: {
+            transcriptionId,
+            projectId: transcription.projectId,
+            actionCount: actions.length
+          }
+        });
+
+        if (slackResult.success) {
+          return { success: true };
+        } else {
+          return { success: false, error: slackResult.error || 'Failed to send Slack message' };
+        }
+      } catch (error) {
+        console.error('Error sending to Slack:', error);
+        return { success: false, error: 'Failed to send Slack message' };
+      }
+
+    } catch (error) {
+      console.error('Error sending Slack summary:', error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
