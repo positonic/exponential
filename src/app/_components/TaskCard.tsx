@@ -93,7 +93,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
     const target = e.target as HTMLElement;
     if (!target.closest('[data-dnd-handle]') && !target.closest('[data-no-modal]')) {
       e.stopPropagation();
-      setExpandedModalOpen(true);
+      setEditModalOpen(true);
     }
   };
 

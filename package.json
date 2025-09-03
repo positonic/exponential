@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "next build",
-    "check": "next lint && tsc --noEmit",
+    "check": "NODE_OPTIONS=\"--max-old-space-size=4096\" next lint && tsc --noEmit",
     "db:generate": "prisma migrate dev",
     "db:migrate": "prisma migrate deploy",
     "db:push": "./scripts/prisma-safe.sh db push",
@@ -15,13 +15,13 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "postinstall": "prisma generate",
-    "lint": "next lint",
-    "lint:fix": "next lint --fix",
+    "lint": "NODE_OPTIONS=\"--max-old-space-size=4096\" next lint",
+    "lint:fix": "NODE_OPTIONS=\"--max-old-space-size=4096\" next lint --fix",
     "preview": "next build && next start",
     "start": "next start",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "NODE_OPTIONS=\"--max-old-space-size=4096\" tsc --noEmit",
     "prepare": "husky"
   },
   "dependencies": {
@@ -75,6 +75,7 @@
     "next": "^15.0.1",
     "next-auth": "5.0.0-beta.25",
     "node-cache": "^5.1.2",
+    "octokit": "^5.0.3",
     "openai": "^4.89.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

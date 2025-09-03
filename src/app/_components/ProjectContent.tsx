@@ -38,6 +38,7 @@ import {
   IconX,
   IconUsers,
   IconCalendarWeek,
+  IconGitBranch,
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
@@ -47,6 +48,7 @@ import { ProjectSyncConfiguration } from "./ProjectSyncConfiguration";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 import { TeamWeeklyReview } from "./TeamWeeklyReview";
 import { WeeklyOutcomes } from "./WeeklyOutcomes";
+import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import Link from "next/link";
 
 type TabValue =
@@ -204,6 +206,12 @@ export function ProjectContent({
               )}
               
               <Tabs.Tab
+                value="workflows"
+                leftSection={<IconGitBranch size={16} />}
+              >
+                Workflows
+              </Tabs.Tab>
+              <Tabs.Tab
                 value="transcriptions"
                 leftSection={<IconMicrophone size={16} />}
               >
@@ -269,6 +277,16 @@ export function ProjectContent({
                 className="mx-auto w-full bg-surface-secondary"
               >
                 <OutcomeTimeline projectId={projectId} />
+              </Paper>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="workflows">
+              <Paper
+                p="md"
+                radius="sm"
+                className="mx-auto w-full bg-surface-secondary"
+              >
+                <ProjectWorkflowsTab projectId={projectId} />
               </Paper>
             </Tabs.Panel>
 
