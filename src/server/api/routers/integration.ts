@@ -1,56 +1,73 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
+import {
+  createTRPCRouter,
+  protectedProcedure,
+  publicProcedure,
+} from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
 
 // Test Fireflies API connection
-async function testFirefliesConnection(apiKey: string): Promise<{ success: boolean; error?: string }> {
+async function testFirefliesConnection(
+  apiKey: string,
+): Promise<{ success: boolean; error?: string }> {
   try {
-    const response = await fetch('https://api.fireflies.ai/graphql', {
-      method: 'POST',
+    const response = await fetch("https://api.fireflies.ai/graphql", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         query: "query { user { email } }",
-        variables: {}
+        variables: {},
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Fireflies API error response:', errorText);
+      console.error("Fireflies API error response:", errorText);
       return { success: false, error: `HTTP ${response.status}: ${errorText}` };
     }
 
     const data = await response.json();
-    
+
     if (data.errors) {
-      console.error('Fireflies GraphQL errors:', data.errors);
-      return { success: false, error: data.errors[0]?.message || 'GraphQL error' };
+      console.error("Fireflies GraphQL errors:", data.errors);
+      return {
+        success: false,
+        error: data.errors[0]?.message || "GraphQL error",
+      };
     }
 
     if (!data.data?.user) {
-      return { success: false, error: 'Invalid API key - no user data returned' };
+      return {
+        success: false,
+        error: "Invalid API key - no user data returned",
+      };
     }
 
     return { success: true };
   } catch (error) {
-    console.error('Fireflies connection test error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
+    console.error("Fireflies connection test error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Connection failed",
+    };
   }
 }
 
 // Test Notion access token connection
-async function testNotionConnection(accessToken: string): Promise<{ success: boolean; error?: string; userInfo?: any }> {
+async function testNotionConnection(
+  accessToken: string,
+): Promise<{ success: boolean; error?: string; userInfo?: any }> {
   try {
-    const response = await fetch('https://api.notion.com/v1/users/me', {
-      method: 'GET',
+    const response = await fetch("https://api.notion.com/v1/users/me", {
+      method: "GET",
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Notion-Version': '2022-06-28',
+        Authorization: `Bearer ${accessToken}`,
+        "Notion-Version": "2022-06-28",
       },
     });
 
@@ -60,38 +77,43 @@ async function testNotionConnection(accessToken: string): Promise<{ success: boo
     }
 
     const data = await response.json();
-    
-    return { 
-      success: true, 
+
+    return {
+      success: true,
       userInfo: {
         id: data.id,
         name: data.name,
         avatar_url: data.avatar_url,
         type: data.type,
-        person: data.person
-      }
+        person: data.person,
+      },
     };
   } catch (error) {
-    console.error('Notion connection test error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
+    console.error("Notion connection test error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Connection failed",
+    };
   }
 }
 
 // Fetch Notion databases accessible to the integration
-async function fetchNotionDatabases(accessToken: string): Promise<{ success: boolean; error?: string; databases?: any[] }> {
+async function fetchNotionDatabases(
+  accessToken: string,
+): Promise<{ success: boolean; error?: string; databases?: any[] }> {
   try {
-    const response = await fetch('https://api.notion.com/v1/search', {
-      method: 'POST',
+    const response = await fetch("https://api.notion.com/v1/search", {
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Notion-Version': '2022-06-28',
-        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         filter: {
-          value: 'database',
-          property: 'object'
-        }
+          value: "database",
+          property: "object",
+        },
       }),
     });
 
@@ -101,47 +123,52 @@ async function fetchNotionDatabases(accessToken: string): Promise<{ success: boo
     }
 
     const data = await response.json();
-    
+
     // Fetch properties for each database
     const databasesWithProperties = await Promise.all(
       data.results.map(async (db: any) => {
         try {
           // Fetch the database schema to get properties
-          const dbResponse = await fetch(`https://api.notion.com/v1/databases/${db.id}`, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Notion-Version': '2022-06-28',
+          const dbResponse = await fetch(
+            `https://api.notion.com/v1/databases/${db.id}`,
+            {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Notion-Version": "2022-06-28",
+              },
             },
-          });
-          
+          );
+
           if (!dbResponse.ok) {
             console.error(`Failed to fetch database ${db.id} properties`);
             return {
               id: db.id,
-              title: db.title?.[0]?.plain_text || 'Untitled Database',
+              title: db.title?.[0]?.plain_text || "Untitled Database",
               url: db.url,
               properties: {},
             };
           }
-          
+
           const dbData = await dbResponse.json();
-          
+
           // Transform properties to a simpler format
           const properties: Record<string, any> = {};
           if (dbData.properties) {
-            Object.entries(dbData.properties).forEach(([key, prop]: [string, any]) => {
-              properties[key] = {
-                id: prop.id,
-                name: prop.name,
-                type: prop.type,
-              };
-            });
+            Object.entries(dbData.properties).forEach(
+              ([key, prop]: [string, any]) => {
+                properties[key] = {
+                  id: prop.id,
+                  name: prop.name,
+                  type: prop.type,
+                };
+              },
+            );
           }
-          
+
           return {
             id: db.id,
-            title: db.title?.[0]?.plain_text || 'Untitled Database',
+            title: db.title?.[0]?.plain_text || "Untitled Database",
             url: db.url,
             properties,
           };
@@ -149,30 +176,36 @@ async function fetchNotionDatabases(accessToken: string): Promise<{ success: boo
           console.error(`Error fetching database ${db.id}:`, error);
           return {
             id: db.id,
-            title: db.title?.[0]?.plain_text || 'Untitled Database',
+            title: db.title?.[0]?.plain_text || "Untitled Database",
             url: db.url,
             properties: {},
           };
         }
-      })
+      }),
     );
-    
-    return { 
-      success: true, 
-      databases: databasesWithProperties
+
+    return {
+      success: true,
+      databases: databasesWithProperties,
     };
   } catch (error) {
-    console.error('Notion databases fetch error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to fetch databases' };
+    console.error("Notion databases fetch error:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to fetch databases",
+    };
   }
 }
 
 // Test Monday.com API connection
-async function testMondayConnection(apiKey: string): Promise<{ success: boolean; error?: string; userInfo?: any }> {
+async function testMondayConnection(
+  apiKey: string,
+): Promise<{ success: boolean; error?: string; userInfo?: any }> {
   try {
     const mondayService = new MondayService(apiKey);
     const result = await mondayService.testConnection();
-    
+
     if (!result.success) {
       return { success: false, error: result.error };
     }
@@ -182,108 +215,135 @@ async function testMondayConnection(apiKey: string): Promise<{ success: boolean;
       userInfo: result.user,
     };
   } catch (error) {
-    console.error('Monday.com connection test error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
+    console.error("Monday.com connection test error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Connection failed",
+    };
   }
 }
 
 // Test Slack bot token connection
-async function testSlackConnection(botToken: string): Promise<{ success: boolean; error?: string; teamInfo?: any }> {
+async function testSlackConnection(
+  botToken: string,
+): Promise<{ success: boolean; error?: string; teamInfo?: any }> {
   try {
-    const response = await fetch('https://slack.com/api/auth.test', {
-      method: 'POST',
+    const response = await fetch("https://slack.com/api/auth.test", {
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${botToken}`,
-        'Content-Type': 'application/json',
+        Authorization: `Bearer ${botToken}`,
+        "Content-Type": "application/json",
       },
     });
 
     if (!response.ok) {
-      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      };
     }
 
     const data = await response.json();
-    
+
     if (!data.ok) {
-      return { success: false, error: data.error || 'Slack authentication failed' };
+      return {
+        success: false,
+        error: data.error || "Slack authentication failed",
+      };
     }
 
-    return { 
-      success: true, 
+    return {
+      success: true,
       teamInfo: {
         team: data.team,
         team_id: data.team_id,
         user: data.user,
         user_id: data.user_id,
-        bot_id: data.bot_id
-      }
+        bot_id: data.bot_id,
+      },
     };
   } catch (error) {
-    console.error('Slack connection test error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
+    console.error("Slack connection test error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Connection failed",
+    };
   }
 }
 
 // Test WhatsApp API connection
 async function testWhatsAppConnection(
-  accessToken: string, 
-  phoneNumberId: string
+  accessToken: string,
+  phoneNumberId: string,
 ): Promise<{ success: boolean; error?: string; phoneInfo?: any }> {
   try {
     // Test by fetching phone number details from Meta Graph API
     const response = await fetch(
       `https://graph.facebook.com/v18.0/${phoneNumberId}?fields=display_phone_number,verified_name,quality_rating`,
       {
-        method: 'GET',
+        method: "GET",
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
         },
-      }
+      },
     );
 
     if (!response.ok) {
       const errorData = await response.json();
-      return { 
-        success: false, 
-        error: errorData.error?.message || `HTTP ${response.status}: ${response.statusText}` 
+      return {
+        success: false,
+        error:
+          errorData.error?.message ||
+          `HTTP ${response.status}: ${response.statusText}`,
       };
     }
 
     const data = await response.json();
-    
-    return { 
-      success: true, 
+
+    return {
+      success: true,
       phoneInfo: {
         display_phone_number: data.display_phone_number,
         verified_name: data.verified_name,
-        quality_rating: data.quality_rating
-      }
+        quality_rating: data.quality_rating,
+      },
     };
   } catch (error) {
-    console.error('WhatsApp connection test error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
+    console.error("WhatsApp connection test error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Connection failed",
+    };
   }
 }
 
 export const integrationRouter = createTRPCRouter({
   // List all integrations for the current user and their teams
   listIntegrations: protectedProcedure
-    .input(z.object({
-      teamId: z.string().optional(),
-    }).optional())
-    .output(z.array(z.object({
-      id: z.string(),
-      name: z.string(),
-      type: z.string(),
-      provider: z.string(),
-      status: z.string(),
-      description: z.string().nullable(),
-      createdAt: z.string(),
-      updatedAt: z.string(),
-      credentialCount: z.number(),
-      scope: z.enum(['personal', 'team']),
-      teamName: z.string().nullable(),
-    })))
+    .input(
+      z
+        .object({
+          teamId: z.string().optional(),
+        })
+        .optional(),
+    )
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          type: z.string(),
+          provider: z.string(),
+          status: z.string(),
+          description: z.string().nullable(),
+          createdAt: z.string(),
+          updatedAt: z.string(),
+          credentialCount: z.number(),
+          scope: z.enum(["personal", "team"]),
+          teamName: z.string().nullable(),
+        }),
+      ),
+    )
     .query(async ({ ctx, input }) => {
       // Get user's team memberships to include team integrations
       const userTeams = await ctx.db.teamUser.findMany({
@@ -300,7 +360,7 @@ export const integrationRouter = createTRPCRouter({
         },
       });
 
-      const teamIds = userTeams.map(membership => membership.teamId);
+      const teamIds = userTeams.map((membership) => membership.teamId);
 
       // Build where clause to include personal and team integrations
       const whereClause: any = {
@@ -316,8 +376,8 @@ export const integrationRouter = createTRPCRouter({
         const isMember = teamIds.includes(input.teamId);
         if (!isMember) {
           throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'You are not a member of this team',
+            code: "FORBIDDEN",
+            message: "You are not a member of this team",
           });
         }
         whereClause.teamId = input.teamId;
@@ -339,11 +399,11 @@ export const integrationRouter = createTRPCRouter({
           },
         },
         orderBy: {
-          createdAt: 'desc',
+          createdAt: "desc",
         },
       });
 
-      return integrations.map(integration => ({
+      return integrations.map((integration) => ({
         id: integration.id,
         name: integration.name,
         type: integration.type,
@@ -353,21 +413,31 @@ export const integrationRouter = createTRPCRouter({
         createdAt: integration.createdAt.toISOString(),
         updatedAt: integration.updatedAt.toISOString(),
         credentialCount: integration.credentials.length,
-        scope: integration.teamId ? 'team' as const : 'personal' as const,
+        scope: integration.teamId ? ("team" as const) : ("personal" as const),
         teamName: integration.team?.name || null,
       }));
     }),
 
   // Create a new integration
   createIntegration: protectedProcedure
-    .input(z.object({
-      name: z.string().min(1),
-      provider: z.enum(['fireflies', 'exponential-plugin', 'github', 'slack', 'notion', 'webhook', 'monday']),
-      description: z.string().optional(),
-      apiKey: z.string().min(1),
-      teamId: z.string().optional(),
-      allowTeamMemberAccess: z.boolean().optional().default(false),
-    }))
+    .input(
+      z.object({
+        name: z.string().min(1),
+        provider: z.enum([
+          "fireflies",
+          "exponential-plugin",
+          "github",
+          "slack",
+          "notion",
+          "webhook",
+          "monday",
+        ]),
+        description: z.string().optional(),
+        apiKey: z.string().min(1),
+        teamId: z.string().optional(),
+        allowTeamMemberAccess: z.boolean().optional().default(false),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // If teamId is provided, verify user is a member of the team
       if (input.teamId) {
@@ -382,29 +452,29 @@ export const integrationRouter = createTRPCRouter({
 
         if (!teamMember) {
           throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'You are not a member of this team',
+            code: "FORBIDDEN",
+            message: "You are not a member of this team",
           });
         }
       }
 
       // Test connection for Fireflies
-      if (input.provider === 'fireflies') {
+      if (input.provider === "fireflies") {
         const testResult = await testFirefliesConnection(input.apiKey);
         if (!testResult.success) {
           throw new TRPCError({
-            code: 'BAD_REQUEST',
+            code: "BAD_REQUEST",
             message: `Fireflies connection failed: ${testResult.error}`,
           });
         }
       }
 
       // Test connection for Monday.com
-      if (input.provider === 'monday') {
+      if (input.provider === "monday") {
         const testResult = await testMondayConnection(input.apiKey);
         if (!testResult.success) {
           throw new TRPCError({
-            code: 'BAD_REQUEST',
+            code: "BAD_REQUEST",
             message: `Monday.com connection failed: ${testResult.error}`,
           });
         }
@@ -415,7 +485,7 @@ export const integrationRouter = createTRPCRouter({
         const integration = await ctx.db.integration.create({
           data: {
             name: input.name,
-            type: 'API_KEY',
+            type: "API_KEY",
             provider: input.provider,
             description: input.description,
             userId: input.teamId ? null : ctx.session.user.id, // Personal if no team
@@ -428,7 +498,7 @@ export const integrationRouter = createTRPCRouter({
         await ctx.db.integrationCredential.create({
           data: {
             key: input.apiKey,
-            keyType: 'API_KEY',
+            keyType: "API_KEY",
             isEncrypted: false, // We'll implement encryption later
             integrationId: integration.id,
           },
@@ -446,28 +516,63 @@ export const integrationRouter = createTRPCRouter({
           },
         };
       } catch (error) {
-        console.error('Integration creation failed:', error);
+        console.error("Integration creation failed:", error);
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create integration',
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create integration",
         });
       }
     }),
 
+  // List github repositories
+  listGithubRepositories: protectedProcedure
+    .input(
+      z.object({
+        integrationIds: z.array(z.string()),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const integrationCredentials =
+        await ctx.db.integrationCredential.findMany({
+          where: {
+            integrationId: {
+              in: input.integrationIds,
+            },
+          },
+        });
+
+      const githubMetadataKeys = integrationCredentials.filter((i) => {
+        if (i.keyType == "github_metadata") {
+          return i;
+        }
+      });
+
+      // Extracting metadata from stringified JSON keys
+      const githubMetadatas = githubMetadataKeys.map((i) => JSON.parse(i.key));
+
+      return {
+        repositories: [
+          ...new Set(githubMetadatas.map((i) => i.repository.fullName)),
+        ],
+      };
+    }),
+
   // Create Slack integration via OAuth
   createSlackIntegration: protectedProcedure
-    .input(z.object({
-      name: z.string().min(1),
-      description: z.string().optional(),
-      botToken: z.string().min(1),
-      userToken: z.string().optional(),
-      signingSecret: z.string().min(1),
-      slackTeamId: z.string().optional(), // Make optional - we'll get it from the token
-      teamName: z.string().optional(), // Make optional - we'll get it from the token
-      appTeamId: z.string().optional(), // Optional team ID for the app (our internal teams)
-      appId: z.string().optional(), // Slack app ID for distinguishing multiple apps
-      allowTeamMemberAccess: z.boolean().optional().default(false), // Allow team members to access this integration
-    }))
+    .input(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().optional(),
+        botToken: z.string().min(1),
+        userToken: z.string().optional(),
+        signingSecret: z.string().min(1),
+        slackTeamId: z.string().optional(), // Make optional - we'll get it from the token
+        teamName: z.string().optional(), // Make optional - we'll get it from the token
+        appTeamId: z.string().optional(), // Optional team ID for the app (our internal teams)
+        appId: z.string().optional(), // Slack app ID for distinguishing multiple apps
+        allowTeamMemberAccess: z.boolean().optional().default(false), // Allow team members to access this integration
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // If appTeamId is provided, verify user is a member of the team
       if (input.appTeamId) {
@@ -482,8 +587,8 @@ export const integrationRouter = createTRPCRouter({
 
         if (!teamMember) {
           throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'You are not a member of this team',
+            code: "FORBIDDEN",
+            message: "You are not a member of this team",
           });
         }
       }
@@ -492,19 +597,20 @@ export const integrationRouter = createTRPCRouter({
       const testResult = await testSlackConnection(input.botToken);
       if (!testResult.success) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message: `Slack connection failed: ${testResult.error}`,
         });
       }
 
       // Get team info from the token test result
       const slackTeamId = testResult.teamInfo?.team_id;
-      const teamName = testResult.teamInfo?.team || input.teamName || 'Unknown Team';
-      
+      const teamName =
+        testResult.teamInfo?.team || input.teamName || "Unknown Team";
+
       if (!slackTeamId) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Could not retrieve team ID from Slack token',
+          code: "BAD_REQUEST",
+          message: "Could not retrieve team ID from Slack token",
         });
       }
 
@@ -513,9 +619,10 @@ export const integrationRouter = createTRPCRouter({
         const integration = await ctx.db.integration.create({
           data: {
             name: input.name,
-            type: 'OAUTH',
-            provider: 'slack',
-            description: input.description || `Slack integration for ${teamName}`,
+            type: "OAUTH",
+            provider: "slack",
+            description:
+              input.description || `Slack integration for ${teamName}`,
             userId: input.appTeamId ? null : ctx.session.user.id, // Personal if no app team
             teamId: input.appTeamId || null, // App team if provided
             allowTeamMemberAccess: input.allowTeamMemberAccess,
@@ -526,19 +633,19 @@ export const integrationRouter = createTRPCRouter({
         const credentials = [
           {
             key: input.botToken,
-            keyType: 'BOT_TOKEN',
+            keyType: "BOT_TOKEN",
             isEncrypted: false,
             integrationId: integration.id,
           },
           {
             key: input.signingSecret,
-            keyType: 'SIGNING_SECRET',
+            keyType: "SIGNING_SECRET",
             isEncrypted: false,
             integrationId: integration.id,
           },
           {
             key: slackTeamId,
-            keyType: 'TEAM_ID',
+            keyType: "TEAM_ID",
             isEncrypted: false,
             integrationId: integration.id,
           },
@@ -548,7 +655,7 @@ export const integrationRouter = createTRPCRouter({
         if (input.appId) {
           credentials.push({
             key: input.appId,
-            keyType: 'APP_ID',
+            keyType: "APP_ID",
             isEncrypted: false,
             integrationId: integration.id,
           });
@@ -557,7 +664,7 @@ export const integrationRouter = createTRPCRouter({
         if (input.userToken) {
           credentials.push({
             key: input.userToken,
-            keyType: 'USER_TOKEN',
+            keyType: "USER_TOKEN",
             isEncrypted: false,
             integrationId: integration.id,
           });
@@ -580,26 +687,28 @@ export const integrationRouter = createTRPCRouter({
           },
         };
       } catch (error) {
-        console.error('Slack integration creation failed:', error);
+        console.error("Slack integration creation failed:", error);
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create Slack integration',
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create Slack integration",
         });
       }
     }),
 
   // Create WhatsApp integration
   createWhatsAppIntegration: protectedProcedure
-    .input(z.object({
-      name: z.string().min(1),
-      description: z.string().optional(),
-      accessToken: z.string().min(1),
-      phoneNumberId: z.string().min(1),
-      businessAccountId: z.string().min(1),
-      webhookVerifyToken: z.string().min(1),
-      appTeamId: z.string().optional(), // Optional team ID for the app (our internal teams)
-      allowTeamMemberAccess: z.boolean().optional().default(false), // Allow team members to access this integration
-    }))
+    .input(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().optional(),
+        accessToken: z.string().min(1),
+        phoneNumberId: z.string().min(1),
+        businessAccountId: z.string().min(1),
+        webhookVerifyToken: z.string().min(1),
+        appTeamId: z.string().optional(), // Optional team ID for the app (our internal teams)
+        allowTeamMemberAccess: z.boolean().optional().default(false), // Allow team members to access this integration
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // If appTeamId is provided, verify user is a member of the team
       if (input.appTeamId) {
@@ -614,17 +723,20 @@ export const integrationRouter = createTRPCRouter({
 
         if (!teamMember) {
           throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'You are not a member of this team',
+            code: "FORBIDDEN",
+            message: "You are not a member of this team",
           });
         }
       }
 
       // Test the WhatsApp connection
-      const testResult = await testWhatsAppConnection(input.accessToken, input.phoneNumberId);
+      const testResult = await testWhatsAppConnection(
+        input.accessToken,
+        input.phoneNumberId,
+      );
       if (!testResult.success) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message: `WhatsApp connection failed: ${testResult.error}`,
         });
       }
@@ -634,13 +746,13 @@ export const integrationRouter = createTRPCRouter({
         const integration = await ctx.db.integration.create({
           data: {
             name: input.name,
-            type: 'OAUTH',
-            provider: 'whatsapp',
+            type: "OAUTH",
+            provider: "whatsapp",
             description: input.description || `WhatsApp Business integration`,
             userId: input.appTeamId ? null : ctx.session.user.id, // Personal if no app team
             teamId: input.appTeamId || null, // App team if provided
             allowTeamMemberAccess: input.allowTeamMemberAccess,
-            status: 'ACTIVE',
+            status: "ACTIVE",
           },
         });
 
@@ -650,8 +762,10 @@ export const integrationRouter = createTRPCRouter({
             phoneNumberId: input.phoneNumberId,
             businessAccountId: input.businessAccountId,
             webhookVerifyToken: input.webhookVerifyToken,
-            displayPhoneNumber: testResult.phoneInfo?.display_phone_number || null,
-            businessName: testResult.phoneInfo?.verified_name || 'WhatsApp Business',
+            displayPhoneNumber:
+              testResult.phoneInfo?.display_phone_number || null,
+            businessName:
+              testResult.phoneInfo?.verified_name || "WhatsApp Business",
             integrationId: integration.id,
           },
         });
@@ -660,25 +774,25 @@ export const integrationRouter = createTRPCRouter({
         const credentials = [
           {
             key: input.accessToken,
-            keyType: 'ACCESS_TOKEN',
+            keyType: "ACCESS_TOKEN",
             isEncrypted: false,
             integrationId: integration.id,
           },
           {
             key: input.phoneNumberId,
-            keyType: 'PHONE_NUMBER_ID',
+            keyType: "PHONE_NUMBER_ID",
             isEncrypted: false,
             integrationId: integration.id,
           },
           {
             key: input.businessAccountId,
-            keyType: 'BUSINESS_ACCOUNT_ID',
+            keyType: "BUSINESS_ACCOUNT_ID",
             isEncrypted: false,
             integrationId: integration.id,
           },
           {
             key: input.webhookVerifyToken,
-            keyType: 'WEBHOOK_VERIFY_TOKEN',
+            keyType: "WEBHOOK_VERIFY_TOKEN",
             isEncrypted: false,
             integrationId: integration.id,
           },
@@ -700,32 +814,35 @@ export const integrationRouter = createTRPCRouter({
           },
           whatsappConfig: {
             id: whatsappConfig.id,
-            phoneNumber: whatsappConfig.displayPhoneNumber || input.phoneNumberId,
+            phoneNumber:
+              whatsappConfig.displayPhoneNumber || input.phoneNumberId,
             displayName: whatsappConfig.businessName,
             phoneNumberId: whatsappConfig.phoneNumberId,
             businessAccountId: whatsappConfig.businessAccountId,
           },
         };
       } catch (error) {
-        console.error('Failed to create WhatsApp integration:', error);
+        console.error("Failed to create WhatsApp integration:", error);
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create WhatsApp integration',
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create WhatsApp integration",
         });
       }
     }),
 
   // Get WhatsApp config by phone number ID (PUBLIC for webhook)
   getWhatsAppConfigByPhoneNumberId: publicProcedure
-    .input(z.object({
-      phoneNumberId: z.string(),
-    }))
+    .input(
+      z.object({
+        phoneNumberId: z.string(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       const config = await ctx.db.whatsAppConfig.findFirst({
         where: {
           phoneNumberId: input.phoneNumberId,
           integration: {
-            status: 'ACTIVE',
+            status: "ACTIVE",
           },
         },
         include: {
@@ -749,55 +866,65 @@ export const integrationRouter = createTRPCRouter({
 
   // Store WhatsApp message (PUBLIC for webhook)
   storeWhatsAppMessage: publicProcedure
-    .input(z.object({
-      configId: z.string(),
-      messageId: z.string(),
-      phoneNumber: z.string(),
-      direction: z.enum(['INBOUND', 'OUTBOUND']),
-      messageType: z.string(),
-      content: z.any(),
-      status: z.string(),
-    }))
+    .input(
+      z.object({
+        configId: z.string(),
+        messageId: z.string(),
+        phoneNumber: z.string(),
+        direction: z.enum(["INBOUND", "OUTBOUND"]),
+        messageType: z.string(),
+        content: z.any(),
+        status: z.string(),
+      }),
+    )
     .mutation(async ({ input }) => {
       // For now, we'll just log the message
       // In a real implementation, you'd store this in a WhatsAppMessageHistory table
-      console.log('Storing WhatsApp message:', input);
-      
+      console.log("Storing WhatsApp message:", input);
+
       // TODO: Implement actual message storage
       return { success: true };
     }),
 
   // Update WhatsApp message status (PUBLIC for webhook)
   updateWhatsAppMessageStatus: publicProcedure
-    .input(z.object({
-      messageId: z.string(),
-      status: z.string(),
-      statusDetails: z.object({
-        timestamp: z.string(),
-        recipient: z.string(),
-        errors: z.any().optional(),
-      }).optional(),
-    }))
+    .input(
+      z.object({
+        messageId: z.string(),
+        status: z.string(),
+        statusDetails: z
+          .object({
+            timestamp: z.string(),
+            recipient: z.string(),
+            errors: z.any().optional(),
+          })
+          .optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       // Log the status update
-      console.log('Updating WhatsApp message status:', input);
-      
+      console.log("Updating WhatsApp message status:", input);
+
       // TODO: Implement actual status update in database
       // In a real implementation, you'd update the message status in a WhatsAppMessageHistory table
-      
+
       return { success: true };
     }),
 
   // Map WhatsApp phone number to user
   mapWhatsAppPhoneToUser: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-      phoneNumber: z.string().regex(
-        /^\+?[1-9]\d{1,14}$/,
-        'Invalid phone number format. Use international format (e.g., +1234567890)'
-      ),
-      userId: z.string().optional(), // If not provided, uses current user
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+        phoneNumber: z
+          .string()
+          .regex(
+            /^\+?[1-9]\d{1,14}$/,
+            "Invalid phone number format. Use international format (e.g., +1234567890)",
+          ),
+        userId: z.string().optional(), // If not provided, uses current user
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Verify user has access to this integration
       const integration = await ctx.db.integration.findFirst({
@@ -825,8 +952,8 @@ export const integrationRouter = createTRPCRouter({
 
       if (!integration) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Integration not found or access denied',
+          code: "NOT_FOUND",
+          message: "Integration not found or access denied",
         });
       }
 
@@ -837,14 +964,14 @@ export const integrationRouter = createTRPCRouter({
         const targetUser = await ctx.db.user.findUnique({
           where: { id: targetUserId },
         });
-        
+
         if (!targetUser) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Target user not found',
+            code: "NOT_FOUND",
+            message: "Target user not found",
           });
         }
-        
+
         // If integration is team-based, verify target user is in the team
         if (integration.teamId) {
           const isTeamMember = await ctx.db.teamUser.findFirst({
@@ -853,11 +980,11 @@ export const integrationRouter = createTRPCRouter({
               userId: targetUserId,
             },
           });
-          
+
           if (!isTeamMember) {
             throw new TRPCError({
-              code: 'FORBIDDEN',
-              message: 'Target user is not a member of the team',
+              code: "FORBIDDEN",
+              message: "Target user is not a member of the team",
             });
           }
         }
@@ -875,8 +1002,8 @@ export const integrationRouter = createTRPCRouter({
 
       if (existingMapping && existingMapping.userId !== targetUserId) {
         throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'This phone number is already mapped to another user',
+          code: "CONFLICT",
+          message: "This phone number is already mapped to another user",
         });
       }
 
@@ -903,9 +1030,11 @@ export const integrationRouter = createTRPCRouter({
 
   // Get WhatsApp phone number mappings
   getWhatsAppPhoneMappings: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       // Verify user has access
       const integration = await ctx.db.integration.findFirst({
@@ -933,8 +1062,8 @@ export const integrationRouter = createTRPCRouter({
 
       if (!integration) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Integration not found or access denied',
+          code: "NOT_FOUND",
+          message: "Integration not found or access denied",
         });
       }
 
@@ -960,7 +1089,7 @@ export const integrationRouter = createTRPCRouter({
           where: {
             teamId: integration.teamId,
             userId: {
-              in: mappings.map(m => m.user.id),
+              in: mappings.map((m) => m.user.id),
             },
           },
           select: {
@@ -970,10 +1099,10 @@ export const integrationRouter = createTRPCRouter({
         });
 
         // Create a map for quick lookup
-        const roleMap = new Map(teamMembers.map(m => [m.userId, m.role]));
+        const roleMap = new Map(teamMembers.map((m) => [m.userId, m.role]));
 
         // Add role information to mappings
-        return mappings.map(mapping => ({
+        return mappings.map((mapping) => ({
           ...mapping,
           user: {
             ...mapping.user,
@@ -987,10 +1116,12 @@ export const integrationRouter = createTRPCRouter({
 
   // Remove WhatsApp phone number mapping
   removeWhatsAppPhoneMapping: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-      phoneNumber: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+        phoneNumber: z.string(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Verify user has access to this integration
       const integration = await ctx.db.integration.findFirst({
@@ -1018,8 +1149,8 @@ export const integrationRouter = createTRPCRouter({
 
       if (!integration) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Integration not found or access denied',
+          code: "NOT_FOUND",
+          message: "Integration not found or access denied",
         });
       }
 
@@ -1038,28 +1169,36 @@ export const integrationRouter = createTRPCRouter({
 
   // Get user's WhatsApp permissions for an integration
   getWhatsAppPermissions: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
-      const { WhatsAppPermissionService } = await import('~/server/services/whatsapp/PermissionService');
-      
+      const { WhatsAppPermissionService } = await import(
+        "~/server/services/whatsapp/PermissionService"
+      );
+
       const permissions = await WhatsAppPermissionService.getUserPermissions(
         ctx.session.user.id,
-        input.integrationId
+        input.integrationId,
       );
-      
-      return permissions.map(p => p.toString());
+
+      return permissions.map((p) => p.toString());
     }),
 
   // Get team conversations (filtered by permissions)
   getWhatsAppTeamConversations: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
-      const { WhatsAppPermissionService } = await import('~/server/services/whatsapp/PermissionService');
-      
+      const { WhatsAppPermissionService } = await import(
+        "~/server/services/whatsapp/PermissionService"
+      );
+
       // Get WhatsApp config
       const config = await ctx.db.whatsAppConfig.findFirst({
         where: {
@@ -1088,8 +1227,8 @@ export const integrationRouter = createTRPCRouter({
 
       if (!config) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'WhatsApp configuration not found or access denied',
+          code: "NOT_FOUND",
+          message: "WhatsApp configuration not found or access denied",
         });
       }
 
@@ -1109,16 +1248,17 @@ export const integrationRouter = createTRPCRouter({
           },
         },
         orderBy: {
-          lastMessageAt: 'desc',
+          lastMessageAt: "desc",
         },
       });
 
       // Filter conversations based on permissions
-      const filteredConversations = await WhatsAppPermissionService.filterConversations(
-        ctx.session.user.id,
-        input.integrationId,
-        allConversations
-      );
+      const filteredConversations =
+        await WhatsAppPermissionService.filterConversations(
+          ctx.session.user.id,
+          input.integrationId,
+          allConversations,
+        );
 
       // If team integration, add role information
       const integration = await ctx.db.integration.findUnique({
@@ -1128,7 +1268,7 @@ export const integrationRouter = createTRPCRouter({
 
       if (integration?.teamId) {
         const userIds = filteredConversations
-          .map(c => c.userId)
+          .map((c) => c.userId)
           .filter(Boolean) as string[];
 
         const teamMembers = await ctx.db.teamUser.findMany({
@@ -1142,15 +1282,17 @@ export const integrationRouter = createTRPCRouter({
           },
         });
 
-        const roleMap = new Map(teamMembers.map(m => [m.userId, m.role]));
+        const roleMap = new Map(teamMembers.map((m) => [m.userId, m.role]));
 
         return {
-          conversations: filteredConversations.map(conv => ({
+          conversations: filteredConversations.map((conv) => ({
             ...conv,
-            user: conv.user ? {
-              ...conv.user,
-              role: roleMap.get(conv.user.id),
-            } : null,
+            user: conv.user
+              ? {
+                  ...conv.user,
+                  role: roleMap.get(conv.user.id),
+                }
+              : null,
           })),
         };
       }
@@ -1160,15 +1302,17 @@ export const integrationRouter = createTRPCRouter({
 
   // Get security events for an integration
   getWhatsAppSecurityEvents: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-      eventType: z.string().optional(),
-      severity: z.string().optional(),
-      resolved: z.boolean().optional(),
-      startDate: z.date().optional(),
-      endDate: z.date().optional(),
-      limit: z.number().min(1).max(100).default(50),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+        eventType: z.string().optional(),
+        severity: z.string().optional(),
+        resolved: z.boolean().optional(),
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+        limit: z.number().min(1).max(100).default(50),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       // Verify user has access to this integration
       const hasAccess = await ctx.db.integration.findFirst({
@@ -1184,7 +1328,7 @@ export const integrationRouter = createTRPCRouter({
                     members: {
                       some: {
                         userId: ctx.session.user.id,
-                        role: { in: ['owner', 'admin'] }, // Only admins can view security events
+                        role: { in: ["owner", "admin"] }, // Only admins can view security events
                       },
                     },
                   },
@@ -1197,13 +1341,15 @@ export const integrationRouter = createTRPCRouter({
 
       if (!hasAccess) {
         throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not have permission to view security events',
+          code: "FORBIDDEN",
+          message: "You do not have permission to view security events",
         });
       }
 
-      const { WhatsAppSecurityAuditService } = await import('~/server/services/whatsapp/SecurityAuditService');
-      
+      const { WhatsAppSecurityAuditService } = await import(
+        "~/server/services/whatsapp/SecurityAuditService"
+      );
+
       const events = await WhatsAppSecurityAuditService.getSecurityEvents(
         input.integrationId,
         {
@@ -1213,7 +1359,7 @@ export const integrationRouter = createTRPCRouter({
           startDate: input.startDate,
           endDate: input.endDate,
           limit: input.limit,
-        }
+        },
       );
 
       return events;
@@ -1221,11 +1367,13 @@ export const integrationRouter = createTRPCRouter({
 
   // Get security report for an integration
   getWhatsAppSecurityReport: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-      startDate: z.date().optional(),
-      endDate: z.date().optional(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       // Verify user has admin access
       const hasAccess = await ctx.db.integration.findFirst({
@@ -1241,7 +1389,7 @@ export const integrationRouter = createTRPCRouter({
                     members: {
                       some: {
                         userId: ctx.session.user.id,
-                        role: { in: ['owner', 'admin'] },
+                        role: { in: ["owner", "admin"] },
                       },
                     },
                   },
@@ -1254,20 +1402,23 @@ export const integrationRouter = createTRPCRouter({
 
       if (!hasAccess) {
         throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not have permission to view security reports',
+          code: "FORBIDDEN",
+          message: "You do not have permission to view security reports",
         });
       }
 
-      const { WhatsAppSecurityAuditService } = await import('~/server/services/whatsapp/SecurityAuditService');
-      
-      const startDate = input.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Default to last 30 days
+      const { WhatsAppSecurityAuditService } = await import(
+        "~/server/services/whatsapp/SecurityAuditService"
+      );
+
+      const startDate =
+        input.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Default to last 30 days
       const endDate = input.endDate || new Date();
-      
+
       const report = await WhatsAppSecurityAuditService.generateSecurityReport(
         input.integrationId,
         startDate,
-        endDate
+        endDate,
       );
 
       return report;
@@ -1275,13 +1426,14 @@ export const integrationRouter = createTRPCRouter({
 
   // Request WhatsApp verification code
   requestWhatsAppVerification: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-      phoneNumber: z.string().regex(
-        /^\+?[1-9]\d{1,14}$/,
-        'Invalid phone number format'
-      ),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+        phoneNumber: z
+          .string()
+          .regex(/^\+?[1-9]\d{1,14}$/, "Invalid phone number format"),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Verify integration access
       const integration = await ctx.db.integration.findFirst({
@@ -1312,8 +1464,8 @@ export const integrationRouter = createTRPCRouter({
 
       if (!integration || !integration.whatsappConfig) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'WhatsApp integration not found',
+          code: "NOT_FOUND",
+          message: "WhatsApp integration not found",
         });
       }
 
@@ -1321,56 +1473,61 @@ export const integrationRouter = createTRPCRouter({
       const code = await WhatsAppVerificationService.createVerificationCode(
         input.phoneNumber,
         ctx.session.user.id,
-        input.integrationId
+        input.integrationId,
       );
 
       // Send code via WhatsApp
       try {
         WhatsAppVerificationService.formatVerificationMessage(code);
-        
+
         // TODO: Actually send the message via WhatsApp
         // For now, we'll return the code in development
-        if (process.env.NODE_ENV === 'development') {
+        if (process.env.NODE_ENV === "development") {
           console.log(`Verification code for ${input.phoneNumber}: ${code}`);
-          return { 
-            success: true, 
-            message: 'Verification code sent',
+          return {
+            success: true,
+            message: "Verification code sent",
             // Only include code in development
-            debugCode: code 
+            debugCode: code,
           };
         }
 
         // In production, send via WhatsApp API
         // await sendWhatsAppMessage(integration.whatsappConfig.id, input.phoneNumber, message);
-        
-        return { success: true, message: 'Verification code sent to your WhatsApp' };
+
+        return {
+          success: true,
+          message: "Verification code sent to your WhatsApp",
+        };
       } catch {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to send verification code',
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to send verification code",
         });
       }
     }),
 
   // Verify WhatsApp phone number
   verifyWhatsAppPhone: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-      phoneNumber: z.string(),
-      code: z.string().length(6),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+        phoneNumber: z.string(),
+        code: z.string().length(6),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Verify the code
       const result = await WhatsAppVerificationService.verifyCode(
         input.phoneNumber,
         input.integrationId,
-        input.code
+        input.code,
       );
 
       if (!result.valid) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: result.error || 'Invalid verification code',
+          code: "BAD_REQUEST",
+          message: result.error || "Invalid verification code",
         });
       }
 
@@ -1392,36 +1549,42 @@ export const integrationRouter = createTRPCRouter({
         },
       });
 
-      return { 
-        success: true, 
-        message: 'Phone number verified and linked successfully',
-        mapping 
+      return {
+        success: true,
+        message: "Phone number verified and linked successfully",
+        mapping,
       };
     }),
 
   // Get verification status
   getVerificationStatus: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-      phoneNumber: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+        phoneNumber: z.string(),
+      }),
+    )
     .query(async ({ input }) => {
       return WhatsAppVerificationService.getVerificationStatus(
         input.phoneNumber,
-        input.integrationId
+        input.integrationId,
       );
     }),
 
   // Get WhatsApp analytics
   getWhatsAppAnalytics: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-      startDate: z.date().optional(),
-      endDate: z.date().optional(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
-      const { analyticsService } = await import('~/server/services/whatsapp/AnalyticsService');
-      
+      const { analyticsService } = await import(
+        "~/server/services/whatsapp/AnalyticsService"
+      );
+
       // Get WhatsApp config
       const config = await ctx.db.whatsAppConfig.findFirst({
         where: {
@@ -1445,44 +1608,59 @@ export const integrationRouter = createTRPCRouter({
 
       if (!config) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'WhatsApp configuration not found',
+          code: "NOT_FOUND",
+          message: "WhatsApp configuration not found",
         });
       }
 
-      const startDate = input.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const startDate =
+        input.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const endDate = input.endDate || new Date();
 
-      return analyticsService.getAnalyticsSummary(config.id, startDate, endDate);
+      return analyticsService.getAnalyticsSummary(
+        config.id,
+        startDate,
+        endDate,
+      );
     }),
 
   // Get WhatsApp health status
   getWhatsAppHealth: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
     .query(async () => {
       // Make internal API call to health endpoint
-      const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/webhooks/whatsapp/health`);
+      const response = await fetch(
+        `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/webhooks/whatsapp/health`,
+      );
       return response.json();
     }),
 
   // Get WhatsApp worker status
   getWhatsAppWorkerStatus: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
     .query(async () => {
       // Make internal API call to worker status endpoint
-      const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/workers/whatsapp`);
+      const response = await fetch(
+        `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/workers/whatsapp`,
+      );
       return response.json();
     }),
 
   // Delete an integration
   deleteIntegration: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Get user's team memberships
       const userTeams = await ctx.db.teamUser.findMany({
@@ -1494,7 +1672,7 @@ export const integrationRouter = createTRPCRouter({
         },
       });
 
-      const teamIds = userTeams.map(membership => membership.teamId);
+      const teamIds = userTeams.map((membership) => membership.teamId);
 
       // Verify the integration belongs to the user or their teams
       const integration = await ctx.db.integration.findUnique({
@@ -1513,8 +1691,8 @@ export const integrationRouter = createTRPCRouter({
 
       if (!integration) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Integration not found or access denied',
+          code: "NOT_FOUND",
+          message: "Integration not found or access denied",
         });
       }
 
@@ -1529,10 +1707,13 @@ export const integrationRouter = createTRPCRouter({
           },
         });
 
-        if (!teamMember || (teamMember.role !== 'owner' && teamMember.role !== 'admin')) {
+        if (
+          !teamMember ||
+          (teamMember.role !== "owner" && teamMember.role !== "admin")
+        ) {
           throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'Only team owners and admins can delete team integrations',
+            code: "FORBIDDEN",
+            message: "Only team owners and admins can delete team integrations",
           });
         }
       }
@@ -1549,9 +1730,11 @@ export const integrationRouter = createTRPCRouter({
 
   // Test connection for an existing integration
   testConnection: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Get user's team memberships
       const userTeams = await ctx.db.teamUser.findMany({
@@ -1563,7 +1746,7 @@ export const integrationRouter = createTRPCRouter({
         },
       });
 
-      const teamIds = userTeams.map(membership => membership.teamId);
+      const teamIds = userTeams.map((membership) => membership.teamId);
 
       // Get the integration and its credentials
       const integration = await ctx.db.integration.findUnique({
@@ -1581,18 +1764,20 @@ export const integrationRouter = createTRPCRouter({
 
       if (!integration) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Integration not found or access denied',
+          code: "NOT_FOUND",
+          message: "Integration not found or access denied",
         });
       }
 
       // Test based on provider
-      if (integration.provider === 'fireflies') {
-        const apiKeyCredential = integration.credentials.find(c => c.keyType === 'API_KEY');
+      if (integration.provider === "fireflies") {
+        const apiKeyCredential = integration.credentials.find(
+          (c) => c.keyType === "API_KEY",
+        );
         if (!apiKeyCredential) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'No API key found for this integration',
+            code: "NOT_FOUND",
+            message: "No API key found for this integration",
           });
         }
 
@@ -1604,12 +1789,14 @@ export const integrationRouter = createTRPCRouter({
         };
       }
 
-      if (integration.provider === 'slack') {
-        const botTokenCredential = integration.credentials.find(c => c.keyType === 'BOT_TOKEN');
+      if (integration.provider === "slack") {
+        const botTokenCredential = integration.credentials.find(
+          (c) => c.keyType === "BOT_TOKEN",
+        );
         if (!botTokenCredential) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'No bot token found for this Slack integration',
+            code: "NOT_FOUND",
+            message: "No bot token found for this Slack integration",
           });
         }
 
@@ -1622,12 +1809,14 @@ export const integrationRouter = createTRPCRouter({
         };
       }
 
-      if (integration.provider === 'notion') {
-        const accessTokenCredential = integration.credentials.find(c => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY');
+      if (integration.provider === "notion") {
+        const accessTokenCredential = integration.credentials.find(
+          (c) => c.keyType === "ACCESS_TOKEN" || c.keyType === "API_KEY",
+        );
         if (!accessTokenCredential) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'No access token found for this Notion integration',
+            code: "NOT_FOUND",
+            message: "No access token found for this Notion integration",
           });
         }
 
@@ -1641,7 +1830,9 @@ export const integrationRouter = createTRPCRouter({
         }
 
         // Also fetch databases for Notion
-        const databasesResult = await fetchNotionDatabases(accessTokenCredential.key);
+        const databasesResult = await fetchNotionDatabases(
+          accessTokenCredential.key,
+        );
         return {
           success: result.success,
           error: result.error,
@@ -1651,12 +1842,14 @@ export const integrationRouter = createTRPCRouter({
         };
       }
 
-      if (integration.provider === 'monday') {
-        const apiKeyCredential = integration.credentials.find(c => c.keyType === 'API_KEY');
+      if (integration.provider === "monday") {
+        const apiKeyCredential = integration.credentials.find(
+          (c) => c.keyType === "API_KEY",
+        );
         if (!apiKeyCredential) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'No API key found for this Monday.com integration',
+            code: "NOT_FOUND",
+            message: "No API key found for this Monday.com integration",
           });
         }
 
@@ -1675,7 +1868,7 @@ export const integrationRouter = createTRPCRouter({
         try {
           boardsWithColumns = await mondayService.getBoardsWithColumns();
         } catch (error) {
-          console.error('Failed to fetch Monday.com boards:', error);
+          console.error("Failed to fetch Monday.com boards:", error);
           boardsWithColumns = [];
         }
 
@@ -1690,16 +1883,18 @@ export const integrationRouter = createTRPCRouter({
 
       return {
         success: false,
-        error: 'Connection testing not implemented for this provider',
+        error: "Connection testing not implemented for this provider",
         provider: integration.provider,
       };
     }),
 
   // Refresh Slack integration (fetch latest team info and update database)
   refreshSlackIntegration: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Get user's team memberships
       const userTeams = await ctx.db.teamUser.findMany({
@@ -1711,13 +1906,13 @@ export const integrationRouter = createTRPCRouter({
         },
       });
 
-      const teamIds = userTeams.map(membership => membership.teamId);
+      const teamIds = userTeams.map((membership) => membership.teamId);
 
       // Verify the integration belongs to the user and is Slack
       const integration = await ctx.db.integration.findUnique({
         where: {
           id: input.integrationId,
-          provider: 'slack',
+          provider: "slack",
           OR: [
             { userId: ctx.session.user.id }, // Personal integration
             ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
@@ -1730,17 +1925,19 @@ export const integrationRouter = createTRPCRouter({
 
       if (!integration) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Slack integration not found or access denied',
+          code: "NOT_FOUND",
+          message: "Slack integration not found or access denied",
         });
       }
 
       // Get the bot token
-      const botTokenCredential = integration.credentials.find(c => c.keyType === 'BOT_TOKEN');
+      const botTokenCredential = integration.credentials.find(
+        (c) => c.keyType === "BOT_TOKEN",
+      );
       if (!botTokenCredential) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'No bot token found for this Slack integration',
+          code: "BAD_REQUEST",
+          message: "No bot token found for this Slack integration",
         });
       }
 
@@ -1748,7 +1945,7 @@ export const integrationRouter = createTRPCRouter({
       const testResult = await testSlackConnection(botTokenCredential.key);
       if (!testResult.success) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message: `Slack connection failed: ${testResult.error}`,
         });
       }
@@ -1758,14 +1955,16 @@ export const integrationRouter = createTRPCRouter({
 
       if (!teamId) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Could not retrieve team ID from Slack',
+          code: "BAD_REQUEST",
+          message: "Could not retrieve team ID from Slack",
         });
       }
 
       // Update the team ID and team name in the database
-      const teamIdCredential = integration.credentials.find(c => c.keyType === 'TEAM_ID');
-      
+      const teamIdCredential = integration.credentials.find(
+        (c) => c.keyType === "TEAM_ID",
+      );
+
       if (teamIdCredential) {
         // Update existing team ID
         await ctx.db.integrationCredential.update({
@@ -1777,7 +1976,7 @@ export const integrationRouter = createTRPCRouter({
         await ctx.db.integrationCredential.create({
           data: {
             key: teamId,
-            keyType: 'TEAM_ID',
+            keyType: "TEAM_ID",
             isEncrypted: false,
             integrationId: integration.id,
           },
@@ -1802,15 +2001,17 @@ export const integrationRouter = createTRPCRouter({
 
   // Get Fireflies API key for a specific user (used by webhook handler)
   getFirefliesApiKey: protectedProcedure
-    .input(z.object({
-      userId: z.string(),
-    }))
+    .input(
+      z.object({
+        userId: z.string(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       // Verify the user is requesting their own API key or is authorized
       if (ctx.session.user.id !== input.userId) {
         throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'Access denied',
+          code: "FORBIDDEN",
+          message: "Access denied",
         });
       }
 
@@ -1824,13 +2025,13 @@ export const integrationRouter = createTRPCRouter({
         },
       });
 
-      const teamIds = userTeams.map(membership => membership.teamId);
+      const teamIds = userTeams.map((membership) => membership.teamId);
 
       // Look for personal or team Fireflies integrations
       const integration = await ctx.db.integration.findFirst({
         where: {
-          provider: 'fireflies',
-          status: 'ACTIVE',
+          provider: "fireflies",
+          status: "ACTIVE",
           OR: [
             { userId: input.userId }, // Personal integration
             ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
@@ -1839,7 +2040,7 @@ export const integrationRouter = createTRPCRouter({
         include: {
           credentials: {
             where: {
-              keyType: 'API_KEY',
+              keyType: "API_KEY",
             },
             take: 1,
           },
@@ -1854,78 +2055,84 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Get Slack OAuth URL for integration setup
-  getSlackOAuthUrl: protectedProcedure
-    .query(({ ctx }) => {
-      const clientId = process.env.SLACK_CLIENT_ID;
-      const redirectUri = process.env.SLACK_REDIRECT_URI || 'http://localhost:3000/api/auth/slack/callback';
-      
-      if (!clientId) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Slack client ID not configured',
-        });
-      }
+  getSlackOAuthUrl: protectedProcedure.query(({ ctx }) => {
+    const clientId = process.env.SLACK_CLIENT_ID;
+    const redirectUri =
+      process.env.SLACK_REDIRECT_URI ||
+      "http://localhost:3000/api/auth/slack/callback";
 
-      const scopes = [
-        'app_mentions:read',
-        'channels:history',
-        'chat:write',
-        'commands',
-        'im:history',
-        'im:read',
-        'im:write',
-        'users:read',
-        'channels:read',
-        'groups:read',
-        'mpim:read'
-      ].join(',');
+    if (!clientId) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Slack client ID not configured",
+      });
+    }
 
-      const state = ctx.session.user.id; // Use user ID as state for security
-      
-      const authUrl = `https://slack.com/oauth/v2/authorize?` +
-        `client_id=${clientId}&` +
-        `scope=${encodeURIComponent(scopes)}&` +
-        `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-        `state=${state}`;
+    const scopes = [
+      "app_mentions:read",
+      "channels:history",
+      "chat:write",
+      "commands",
+      "im:history",
+      "im:read",
+      "im:write",
+      "users:read",
+      "channels:read",
+      "groups:read",
+      "mpim:read",
+    ].join(",");
 
-      return {
-        authUrl,
-        scopes: scopes.split(','),
-      };
-    }),
+    const state = ctx.session.user.id; // Use user ID as state for security
+
+    const authUrl =
+      `https://slack.com/oauth/v2/authorize?` +
+      `client_id=${clientId}&` +
+      `scope=${encodeURIComponent(scopes)}&` +
+      `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+      `state=${state}`;
+
+    return {
+      authUrl,
+      scopes: scopes.split(","),
+    };
+  }),
 
   // Handle Slack OAuth callback
   handleSlackCallback: protectedProcedure
-    .input(z.object({
-      code: z.string(),
-      state: z.string(),
-    }))
+    .input(
+      z.object({
+        code: z.string(),
+        state: z.string(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Verify state matches user ID
       if (input.state !== ctx.session.user.id) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Invalid state parameter',
+          code: "BAD_REQUEST",
+          message: "Invalid state parameter",
         });
       }
 
       const clientId = process.env.SLACK_CLIENT_ID;
       const clientSecret = process.env.SLACK_CLIENT_SECRET;
-      const redirectUri = process.env.SLACK_REDIRECT_URI || 'http://localhost:3000/api/auth/slack/callback';
+      const redirectUri =
+        process.env.SLACK_REDIRECT_URI ||
+        "http://localhost:3000/api/auth/slack/callback";
 
       if (!clientId || !clientSecret) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Slack OAuth credentials not configured',
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Slack OAuth credentials not configured",
         });
       }
 
       try {
         // Exchange code for tokens
-        const response = await fetch('https://slack.com/api/oauth.v2.access', {
-          method: 'POST',
+        const response = await fetch("https://slack.com/api/oauth.v2.access", {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
+            "Content-Type": "application/x-www-form-urlencoded",
           },
           body: new URLSearchParams({
             client_id: clientId,
@@ -1939,8 +2146,8 @@ export const integrationRouter = createTRPCRouter({
 
         if (!data.ok) {
           throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: data.error || 'OAuth exchange failed',
+            code: "BAD_REQUEST",
+            message: data.error || "OAuth exchange failed",
           });
         }
 
@@ -1956,19 +2163,21 @@ export const integrationRouter = createTRPCRouter({
           },
         };
       } catch (error) {
-        console.error('Slack OAuth callback error:', error);
+        console.error("Slack OAuth callback error:", error);
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to exchange OAuth code',
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to exchange OAuth code",
         });
       }
     }),
 
   // Get integration details for editing
   getIntegrationDetails: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       // Get user's team memberships
       const userTeams = await ctx.db.teamUser.findMany({
@@ -1980,7 +2189,7 @@ export const integrationRouter = createTRPCRouter({
         },
       });
 
-      const teamIds = userTeams.map(membership => membership.teamId);
+      const teamIds = userTeams.map((membership) => membership.teamId);
 
       // Get the integration and its credentials
       const integration = await ctx.db.integration.findUnique({
@@ -2003,19 +2212,21 @@ export const integrationRouter = createTRPCRouter({
 
       if (!integration) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Integration not found or access denied',
+          code: "NOT_FOUND",
+          message: "Integration not found or access denied",
         });
       }
 
       // Extract credentials for safe return (don't expose sensitive values)
       const credentials: Record<string, boolean> = {};
-      integration.credentials.forEach(cred => {
+      integration.credentials.forEach((cred) => {
         credentials[cred.keyType] = true; // Just indicate presence, not actual values
       });
 
       // For APP_ID, we can return the actual value since it's not sensitive
-      const appIdCredential = integration.credentials.find(c => c.keyType === 'APP_ID');
+      const appIdCredential = integration.credentials.find(
+        (c) => c.keyType === "APP_ID",
+      );
 
       return {
         id: integration.id,
@@ -2023,25 +2234,27 @@ export const integrationRouter = createTRPCRouter({
         description: integration.description,
         provider: integration.provider,
         status: integration.status,
-        scope: integration.teamId ? 'team' as const : 'personal' as const,
+        scope: integration.teamId ? ("team" as const) : ("personal" as const),
         teamName: integration.team?.name || null,
         credentials,
-        appId: appIdCredential?.key || '', // Safe to return APP_ID
+        appId: appIdCredential?.key || "", // Safe to return APP_ID
         allowTeamMemberAccess: integration.allowTeamMemberAccess,
       };
     }),
 
   // Update integration details
   updateIntegration: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-      name: z.string().min(1).optional(),
-      description: z.string().optional(),
-      // Slack-specific updates
-      appId: z.string().optional(),
-      // Team access control
-      allowTeamMemberAccess: z.boolean().optional(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+        name: z.string().min(1).optional(),
+        description: z.string().optional(),
+        // Slack-specific updates
+        appId: z.string().optional(),
+        // Team access control
+        allowTeamMemberAccess: z.boolean().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Get user's team memberships
       const userTeams = await ctx.db.teamUser.findMany({
@@ -2053,7 +2266,7 @@ export const integrationRouter = createTRPCRouter({
         },
       });
 
-      const teamIds = userTeams.map(membership => membership.teamId);
+      const teamIds = userTeams.map((membership) => membership.teamId);
 
       // Verify the integration belongs to the user or their teams
       const integration = await ctx.db.integration.findUnique({
@@ -2071,8 +2284,8 @@ export const integrationRouter = createTRPCRouter({
 
       if (!integration) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Integration not found or access denied',
+          code: "NOT_FOUND",
+          message: "Integration not found or access denied",
         });
       }
 
@@ -2087,10 +2300,13 @@ export const integrationRouter = createTRPCRouter({
           },
         });
 
-        if (!teamMember || (teamMember.role !== 'owner' && teamMember.role !== 'admin')) {
+        if (
+          !teamMember ||
+          (teamMember.role !== "owner" && teamMember.role !== "admin")
+        ) {
           throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'Only team owners and admins can edit team integrations',
+            code: "FORBIDDEN",
+            message: "Only team owners and admins can edit team integrations",
           });
         }
       }
@@ -2098,8 +2314,10 @@ export const integrationRouter = createTRPCRouter({
       // Update integration basic info
       const updateData: any = {};
       if (input.name !== undefined) updateData.name = input.name;
-      if (input.description !== undefined) updateData.description = input.description;
-      if (input.allowTeamMemberAccess !== undefined) updateData.allowTeamMemberAccess = input.allowTeamMemberAccess;
+      if (input.description !== undefined)
+        updateData.description = input.description;
+      if (input.allowTeamMemberAccess !== undefined)
+        updateData.allowTeamMemberAccess = input.allowTeamMemberAccess;
 
       if (Object.keys(updateData).length > 0) {
         await ctx.db.integration.update({
@@ -2109,9 +2327,11 @@ export const integrationRouter = createTRPCRouter({
       }
 
       // Handle Slack-specific updates
-      if (input.appId !== undefined && integration.provider === 'slack') {
-        const existingAppIdCredential = integration.credentials.find(c => c.keyType === 'APP_ID');
-        
+      if (input.appId !== undefined && integration.provider === "slack") {
+        const existingAppIdCredential = integration.credentials.find(
+          (c) => c.keyType === "APP_ID",
+        );
+
         if (input.appId.trim().length === 0) {
           // Remove APP_ID if empty string provided
           if (existingAppIdCredential) {
@@ -2130,7 +2350,7 @@ export const integrationRouter = createTRPCRouter({
             await ctx.db.integrationCredential.create({
               data: {
                 key: input.appId,
-                keyType: 'APP_ID',
+                keyType: "APP_ID",
                 isEncrypted: false,
                 integrationId: integration.id,
               },
@@ -2146,14 +2366,16 @@ export const integrationRouter = createTRPCRouter({
 
   // Validate a Slack registration token (public - no auth required)
   validateSlackRegistrationToken: publicProcedure
-    .input(z.object({
-      token: z.string(),
-    }))
+    .input(
+      z.object({
+        token: z.string(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       if (!input.token || input.token.length < 10) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Invalid token format'
+          code: "BAD_REQUEST",
+          message: "Invalid token format",
         });
       }
 
@@ -2162,32 +2384,32 @@ export const integrationRouter = createTRPCRouter({
         include: {
           integration: {
             include: {
-              team: true
-            }
-          }
-        }
+              team: true,
+            },
+          },
+        },
       });
 
       if (!registrationToken) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Registration token not found'
+          code: "NOT_FOUND",
+          message: "Registration token not found",
         });
       }
 
       // Check if token is expired
       if (registrationToken.expiresAt < new Date()) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Registration token has expired'
+          code: "BAD_REQUEST",
+          message: "Registration token has expired",
         });
       }
 
       // Check if token has already been used
       if (registrationToken.usedAt) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Registration token has already been used'
+          code: "BAD_REQUEST",
+          message: "Registration token has already been used",
         });
       }
 
@@ -2202,18 +2424,20 @@ export const integrationRouter = createTRPCRouter({
 
   // Complete Slack registration (requires authentication)
   completeSlackRegistration: protectedProcedure
-    .input(z.object({
-      token: z.string(),
-      userId: z.string(),
-    }))
+    .input(
+      z.object({
+        token: z.string(),
+        userId: z.string(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
       // Verify the provided userId matches the session
       if (input.userId !== userId) {
         throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'User ID mismatch'
+          code: "FORBIDDEN",
+          message: "User ID mismatch",
         });
       }
 
@@ -2226,46 +2450,48 @@ export const integrationRouter = createTRPCRouter({
                 include: {
                   members: {
                     where: {
-                      userId: userId
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+                      userId: userId,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       });
 
       if (!registrationToken) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Registration token not found'
+          code: "NOT_FOUND",
+          message: "Registration token not found",
         });
       }
 
       // Check if token is expired
       if (registrationToken.expiresAt < new Date()) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Registration token has expired'
+          code: "BAD_REQUEST",
+          message: "Registration token has expired",
         });
       }
 
       // Check if token has already been used
       if (registrationToken.usedAt) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Registration token has already been used'
+          code: "BAD_REQUEST",
+          message: "Registration token has already been used",
         });
       }
 
       // Verify user is a team member (if integration has a team)
       if (registrationToken.integration.team) {
-        const isTeamMember = registrationToken.integration.team.members.length > 0;
+        const isTeamMember =
+          registrationToken.integration.team.members.length > 0;
         if (!isTeamMember) {
           throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'You must be a team member to connect this Slack integration'
+            code: "FORBIDDEN",
+            message:
+              "You must be a team member to connect this Slack integration",
           });
         }
       }
@@ -2274,14 +2500,14 @@ export const integrationRouter = createTRPCRouter({
       const existingMapping = await ctx.db.integrationUserMapping.findFirst({
         where: {
           integrationId: registrationToken.integrationId,
-          externalUserId: registrationToken.slackUserId
-        }
+          externalUserId: registrationToken.slackUserId,
+        },
       });
 
       if (existingMapping) {
         throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'This Slack account is already connected to another user'
+          code: "CONFLICT",
+          message: "This Slack account is already connected to another user",
         });
       }
 
@@ -2292,8 +2518,8 @@ export const integrationRouter = createTRPCRouter({
           where: { id: registrationToken.id },
           data: {
             usedAt: new Date(),
-            usedByUserId: userId
-          }
+            usedByUserId: userId,
+          },
         });
 
         // Create the user mapping
@@ -2301,198 +2527,206 @@ export const integrationRouter = createTRPCRouter({
           data: {
             integrationId: registrationToken.integrationId,
             externalUserId: registrationToken.slackUserId,
-            userId: userId
-          }
+            userId: userId,
+          },
         });
 
         return mapping;
       });
 
-      console.log(`✅ [Slack Registration] User ${ctx.session.user.email} connected Slack ${registrationToken.slackUserId}`);
+      console.log(
+        `✅ [Slack Registration] User ${ctx.session.user.email} connected Slack ${registrationToken.slackUserId}`,
+      );
 
       return {
         success: true,
         slackUserId: registrationToken.slackUserId,
-        mappingId: result.id
+        mappingId: result.id,
       };
     }),
 
   // Get user's Slack connections (for settings page)
-  getUserSlackConnections: protectedProcedure
-    .query(async ({ ctx }) => {
-      const connections = await ctx.db.integrationUserMapping.findMany({
-        where: {
-          userId: ctx.session.user.id,
-          integration: {
-            provider: 'slack'
-          }
+  getUserSlackConnections: protectedProcedure.query(async ({ ctx }) => {
+    const connections = await ctx.db.integrationUserMapping.findMany({
+      where: {
+        userId: ctx.session.user.id,
+        integration: {
+          provider: "slack",
         },
-        include: {
-          integration: {
-            include: {
-              team: true
-            }
-          }
-        }
-      });
+      },
+      include: {
+        integration: {
+          include: {
+            team: true,
+          },
+        },
+      },
+    });
 
-      return connections.map(conn => ({
-        id: conn.id,
-        slackUserId: conn.externalUserId,
-        teamName: conn.integration.team?.name || 'Personal',
-        connectedAt: conn.createdAt,
-        integrationName: conn.integration.name
-      }));
-    }),
+    return connections.map((conn) => ({
+      id: conn.id,
+      slackUserId: conn.externalUserId,
+      teamName: conn.integration.team?.name || "Personal",
+      connectedAt: conn.createdAt,
+      integrationName: conn.integration.name,
+    }));
+  }),
 
   // Disconnect Slack account
   disconnectSlack: protectedProcedure
-    .input(z.object({
-      mappingId: z.string(),
-    }))
+    .input(
+      z.object({
+        mappingId: z.string(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const mapping = await ctx.db.integrationUserMapping.findFirst({
         where: {
           id: input.mappingId,
           userId: ctx.session.user.id, // Ensure user owns this mapping
           integration: {
-            provider: 'slack'
-          }
-        }
+            provider: "slack",
+          },
+        },
       });
 
       if (!mapping) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Slack connection not found'
+          code: "NOT_FOUND",
+          message: "Slack connection not found",
         });
       }
 
       await ctx.db.integrationUserMapping.delete({
-        where: { id: mapping.id }
+        where: { id: mapping.id },
       });
 
-      console.log(`🔌 [Slack Disconnect] User ${ctx.session.user.email} disconnected Slack ${mapping.externalUserId}`);
+      console.log(
+        `🔌 [Slack Disconnect] User ${ctx.session.user.email} disconnected Slack ${mapping.externalUserId}`,
+      );
 
       return { success: true };
     }),
 
   // Admin endpoints for managing all WhatsApp integrations
-  getAllWhatsAppIntegrations: protectedProcedure
-    .query(async ({ ctx }) => {
-      // Only allow admin users (you might want to add proper role checking)
-      const integrations = await ctx.db.integration.findMany({
-        where: {
-          provider: 'whatsapp',
-        },
-        include: {
-          whatsappConfig: true,
-          _count: {
-            select: {
-              userMappings: true,
-            },
+  getAllWhatsAppIntegrations: protectedProcedure.query(async ({ ctx }) => {
+    // Only allow admin users (you might want to add proper role checking)
+    const integrations = await ctx.db.integration.findMany({
+      where: {
+        provider: "whatsapp",
+      },
+      include: {
+        whatsappConfig: true,
+        _count: {
+          select: {
+            userMappings: true,
           },
         },
-        orderBy: {
-          createdAt: 'desc',
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return integrations;
+  }),
+
+  getAllWhatsAppUserMappings: protectedProcedure.query(async ({ ctx }) => {
+    const mappings = await ctx.db.integrationUserMapping.findMany({
+      where: {
+        integration: {
+          provider: "whatsapp",
         },
-      });
-
-      return integrations;
-    }),
-
-  getAllWhatsAppUserMappings: protectedProcedure
-    .query(async ({ ctx }) => {
-      const mappings = await ctx.db.integrationUserMapping.findMany({
-        where: {
-          integration: {
-            provider: 'whatsapp',
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
           },
         },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-          integration: {
-            select: {
-              id: true,
-              name: true,
-            },
+        integration: {
+          select: {
+            id: true,
+            name: true,
           },
         },
-        orderBy: {
-          createdAt: 'desc',
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return mappings;
+  }),
+
+  getSystemWhatsAppAnalytics: protectedProcedure.query(async ({ ctx }) => {
+    // Get system-wide WhatsApp analytics
+    const today = new Date();
+    const startOfToday = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    );
+
+    // Count messages today across all integrations
+    // TODO: Implement proper message counting once WhatsAppMessage model is added
+    // For now, we'll count conversations updated today as a proxy
+    const todayMessages = await ctx.db.whatsAppConversation.count({
+      where: {
+        lastMessageAt: {
+          gte: startOfToday,
         },
-      });
+      },
+    });
 
-      return mappings;
-    }),
+    // Get system health status
+    const systemHealth = "healthy"; // This would come from your monitoring system
 
-  getSystemWhatsAppAnalytics: protectedProcedure
-    .query(async ({ ctx }) => {
-      // Get system-wide WhatsApp analytics
-      const today = new Date();
-      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      
-      // Count messages today across all integrations
-      // TODO: Implement proper message counting once WhatsAppMessage model is added
-      // For now, we'll count conversations updated today as a proxy
-      const todayMessages = await ctx.db.whatsAppConversation.count({
-        where: {
-          lastMessageAt: {
-            gte: startOfToday,
-          },
+    // Count active integrations
+    const activeIntegrations = await ctx.db.integration.count({
+      where: {
+        provider: "whatsapp",
+        status: "ACTIVE",
+      },
+    });
+
+    // Count total users
+    const totalUsers = await ctx.db.integrationUserMapping.count({
+      where: {
+        integration: {
+          provider: "whatsapp",
         },
-      });
+      },
+    });
 
-      // Get system health status
-      const systemHealth = 'healthy'; // This would come from your monitoring system
-
-      // Count active integrations
-      const activeIntegrations = await ctx.db.integration.count({
-        where: {
-          provider: 'whatsapp',
-          status: 'ACTIVE',
-        },
-      });
-
-      // Count total users
-      const totalUsers = await ctx.db.integrationUserMapping.count({
-        where: {
-          integration: {
-            provider: 'whatsapp',
-          },
-        },
-      });
-
-      return {
-        todayMessages,
-        systemHealth,
-        activeIntegrations,
-        totalUsers,
-      };
-    }),
+    return {
+      todayMessages,
+      systemHealth,
+      activeIntegrations,
+      totalUsers,
+    };
+  }),
 
   adminCreateWhatsAppIntegration: protectedProcedure
-    .input(z.object({
-      name: z.string(),
-      businessAccountId: z.string(),
-      phoneNumberId: z.string(),
-      displayPhoneNumber: z.string().optional(),
-      businessName: z.string().optional(),
-    }))
+    .input(
+      z.object({
+        name: z.string(),
+        businessAccountId: z.string(),
+        phoneNumberId: z.string(),
+        displayPhoneNumber: z.string().optional(),
+        businessName: z.string().optional(),
+      }),
+    )
     .mutation(async ({ input, ctx }) => {
       // Create new integration
       const integration = await ctx.db.integration.create({
         data: {
           name: input.name,
-          type: 'API_KEY',
-          provider: 'whatsapp',
-          status: 'PENDING',
+          type: "API_KEY",
+          provider: "whatsapp",
+          status: "PENDING",
           userId: ctx.session.user.id,
           whatsappConfig: {
             create: {
@@ -2513,9 +2747,11 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   deleteWhatsAppIntegration: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
     .mutation(async ({ input, ctx }) => {
       // Delete integration and all related data
       const integration = await ctx.db.integration.findUnique({
@@ -2525,8 +2761,8 @@ export const integrationRouter = createTRPCRouter({
 
       if (!integration) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Integration not found',
+          code: "NOT_FOUND",
+          message: "Integration not found",
         });
       }
 
@@ -2564,10 +2800,12 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   updateWhatsAppIntegrationStatus: protectedProcedure
-    .input(z.object({
-      integrationId: z.string(),
-      status: z.enum(['ACTIVE', 'INACTIVE', 'PENDING', 'ERROR']),
-    }))
+    .input(
+      z.object({
+        integrationId: z.string(),
+        status: z.enum(["ACTIVE", "INACTIVE", "PENDING", "ERROR"]),
+      }),
+    )
     .mutation(async ({ input, ctx }) => {
       const integration = await ctx.db.integration.update({
         where: { id: input.integrationId },
@@ -2576,5 +2814,4 @@ export const integrationRouter = createTRPCRouter({
 
       return integration;
     }),
-
 });

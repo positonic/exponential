@@ -42,6 +42,8 @@ import { api } from "~/trpc/react";
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { IntegrationPermissionManager } from '~/app/_components/IntegrationPermissionManager';
+import { ConnectedServicesGrid } from '~/app/_components/ConnectedServicesGrid';
+import { AvailableServicesGrid } from '~/app/_components/AvailableServicesGrid';
 
 interface CreateIntegrationForm {
   name: string;
@@ -71,13 +73,57 @@ interface EditIntegrationForm {
 }
 
 const PROVIDER_OPTIONS = [
-  { value: 'fireflies', label: 'Fireflies.ai', icon: IconBrandFirebase, disabled: false },
-  { value: 'exponential-plugin', label: 'Exponential Plugin', disabled: false },
-  { value: 'github', label: 'GitHub', disabled: true },
-  { value: 'slack', label: 'Slack', icon: IconBrandSlack, disabled: false },
-  { value: 'whatsapp', label: 'WhatsApp', disabled: false },
-  { value: 'notion', label: 'Notion', disabled: true },
-  { value: 'monday', label: 'Monday.com', disabled: false },
+  { 
+    value: 'fireflies', 
+    label: 'Fireflies.ai', 
+    description: 'Automatically capture and transcribe meeting notes from video calls',
+    icon: IconBrandFirebase, 
+    disabled: false, 
+    oauth: false 
+  },
+  { 
+    value: 'exponential-plugin', 
+    label: 'Exponential Plugin', 
+    description: 'Browser extension for seamless task creation from web content',
+    disabled: false, 
+    oauth: false 
+  },
+  { 
+    value: 'github', 
+    label: 'GitHub', 
+    description: 'Sync issues, pull requests, and repository activity with your projects',
+    disabled: false, 
+    oauth: true 
+  },
+  { 
+    value: 'slack', 
+    label: 'Slack', 
+    description: 'Send notifications and manage tasks directly from your Slack workspace',
+    icon: IconBrandSlack, 
+    disabled: false, 
+    oauth: true 
+  },
+  { 
+    value: 'whatsapp', 
+    label: 'WhatsApp', 
+    description: 'Receive task updates and manage workflow through WhatsApp Business',
+    disabled: false, 
+    oauth: false 
+  },
+  { 
+    value: 'notion', 
+    label: 'Notion', 
+    description: 'Sync pages, databases, and collaborate on project documentation',
+    disabled: false, 
+    oauth: true 
+  },
+  { 
+    value: 'monday', 
+    label: 'Monday.com', 
+    description: 'Sync boards, items, and project status with Monday.com workspace',
+    disabled: false, 
+    oauth: false 
+  },
 ];
 
 export default function IntegrationsClient() {
@@ -88,6 +134,8 @@ export default function IntegrationsClient() {
   const [refreshingIntegration, setRefreshingIntegration] = useState<string | null>(null);
   const [editingIntegration, setEditingIntegration] = useState<any>(null);
   const [permissionsIntegration, setPermissionsIntegration] = useState<any>(null);
+  const [selectedServiceProvider, setSelectedServiceProvider] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'details'>('grid');
   const searchParams = useSearchParams();
 
   // Handle success/error messages from URL parameters (e.g., from Slack OAuth callback)
@@ -484,162 +532,276 @@ export default function IntegrationsClient() {
     return option?.label || provider;
   };
 
+  const isOAuthProvider = (provider: string) => {
+    const option = PROVIDER_OPTIONS.find(p => p.value === provider);
+    return option?.oauth || false;
+  };
+
+  const handleOAuthConnect = (provider: string) => {
+    switch (provider) {
+      case 'github':
+        window.location.href = '/api/auth/github/authorize';
+        break;
+      case 'notion':
+        window.location.href = '/api/auth/notion/authorize';
+        break;
+      case 'slack':
+        window.location.href = '/api/auth/slack/authorize';
+        break;
+      default:
+        notifications.show({
+          title: 'Not Supported',
+          message: `OAuth not supported for ${provider}`,
+          color: 'red',
+        });
+    }
+  };
+
+  // Handler for clicking on a connected service card
+  const handleConnectedServiceClick = (integration: any) => {
+    setSelectedServiceProvider(integration.provider);
+    setViewMode('details');
+  };
+
+  // Handler for clicking on a provider (grouped services)
+  const handleProviderClick = (provider: string) => {
+    setSelectedServiceProvider(provider);
+    setViewMode('details');
+  };
+
+  // Handler for clicking on an available service card
+  const handleAvailableServiceClick = (provider: string) => {
+    // Pre-select the provider and open the add integration modal
+    form.setFieldValue('provider', provider);
+    open();
+  };
+
+  // Handler for going back to grid view
+  const handleBackToGrid = () => {
+    setViewMode('grid');
+    setSelectedServiceProvider(null);
+  };
+
+  // Filter integrations for details view
+  const filteredIntegrations = selectedServiceProvider 
+    ? integrations.filter(integration => integration.provider === selectedServiceProvider)
+    : integrations;
+
   return (
     <Container size="lg" py="xl">
-      <Stack gap="lg">
+      <Stack gap="xl">
+        {/* Header */}
         <Group justify="space-between" align="center">
           <div>
             <Title order={1} size="h2">External Service Integrations</Title>
             <Text c="dimmed" size="sm">
-              Connect Exponential TO external services (Fireflies, GitHub, etc.) using their API keys
+              Connect Exponential to external services (Fireflies, GitHub, etc.) using their API keys
             </Text>
             <Text c="blue" size="sm" mt="xs">
               💡 Need to give external apps access to YOUR Exponential data? <Link href="/tokens" style={{ textDecoration: 'underline' }}>Generate API tokens here</Link>
             </Text>
           </div>
-          <Button 
-            leftSection={<IconPlus size={16} />}
-            onClick={open}
-          >
-            Add Integration
-          </Button>
+          {viewMode === 'grid' && (
+            <Button 
+              leftSection={<IconPlus size={16} />}
+              onClick={open}
+            >
+              Add Integration
+            </Button>
+          )}
+          {viewMode === 'details' && (
+            <Group gap="sm">
+              <Button 
+                variant="light"
+                onClick={handleBackToGrid}
+              >
+                ← Back to Services
+              </Button>
+              <Button 
+                leftSection={<IconPlus size={16} />}
+                onClick={open}
+              >
+                Add Integration
+              </Button>
+            </Group>
+          )}
         </Group>
 
-        {/* Integrations Table */}
-        <Paper withBorder p="md">
-          <LoadingOverlay visible={isLoading} />
-          {!isLoading && integrations && integrations.length > 0 ? (
-            <Table striped highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Name</Table.Th>
-                  <Table.Th>Provider</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th>Created</Table.Th>
-                  <Table.Th>Actions</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {integrations.map((integration) => (
-                  <Table.Tr key={integration.id}>
-                    <Table.Td>
-                      <Group gap="xs">
-                        {getProviderIcon(integration.provider)}
-                        <div>
-                          <Text fw={500}>{integration.name}</Text>
-                          {integration.description && (
-                            <Text size="xs" c="dimmed">
-                              {integration.description}
-                            </Text>
-                          )}
-                        </div>
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{getProviderLabel(integration.provider)}</Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge 
-                        color={integration.status === 'ACTIVE' ? 'green' : 'red'}
-                        variant="light"
-                      >
-                        {integration.status}
-                      </Badge>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{formatDate(integration.createdAt)}</Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs">
-                        <Tooltip label="Edit integration">
-                          <ActionIcon 
-                            color="gray" 
+        <LoadingOverlay visible={isLoading} />
+        
+        {/* Grid View */}
+        {viewMode === 'grid' && !isLoading && (
+          <>
+            {/* Connected Services Grid */}
+            <ConnectedServicesGrid
+              integrations={integrations}
+              onServiceClick={handleConnectedServiceClick}
+              onProviderClick={handleProviderClick}
+              onTestConnection={handleTestConnection}
+              onRefresh={handleRefreshSlackIntegration}
+              onSettings={openEditModalForIntegration}
+              loadingStates={{
+                testing: testingConnection,
+                refreshing: refreshingIntegration
+              }}
+            />
+
+            {/* Available Services Grid */}
+            <AvailableServicesGrid
+              providerOptions={PROVIDER_OPTIONS}
+              connectedIntegrations={integrations}
+              onServiceClick={handleAvailableServiceClick}
+            />
+          </>
+        )}
+
+        {/* Details View (Table) */}
+        {viewMode === 'details' && !isLoading && (
+          <Paper withBorder p="md">
+            <Stack gap="md">
+              <Group justify="space-between" align="center">
+                <Title order={3}>
+                  {getProviderLabel(selectedServiceProvider || '')} Integrations
+                </Title>
+                <Text c="dimmed" size="sm">
+                  {filteredIntegrations.length} integration{filteredIntegrations.length !== 1 ? 's' : ''}
+                </Text>
+              </Group>
+
+              {filteredIntegrations.length > 0 ? (
+                <Table striped highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Name</Table.Th>
+                      <Table.Th>Status</Table.Th>
+                      <Table.Th>Created</Table.Th>
+                      <Table.Th>Actions</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {filteredIntegrations.map((integration) => (
+                      <Table.Tr key={integration.id}>
+                        <Table.Td>
+                          <Group gap="xs">
+                            {getProviderIcon(integration.provider)}
+                            <div>
+                              <Text fw={500}>{integration.name}</Text>
+                              {integration.description && (
+                                <Text size="xs" c="dimmed">
+                                  {integration.description}
+                                </Text>
+                              )}
+                            </div>
+                          </Group>
+                        </Table.Td>
+                        <Table.Td>
+                          <Badge 
+                            color={integration.status === 'ACTIVE' ? 'green' : 'red'}
                             variant="light"
-                            size="sm"
-                            onClick={() => openEditModalForIntegration(integration)}
                           >
-                            <IconEdit size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Manage permissions">
-                          <ActionIcon 
-                            color="purple" 
-                            variant="light"
-                            size="sm"
-                            onClick={() => openPermissionsModalForIntegration(integration)}
-                          >
-                            <IconShare size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Test connection">
-                          <ActionIcon 
-                            color="blue" 
-                            variant="light"
-                            size="sm"
-                            loading={testingConnection === integration.id}
-                            onClick={() => handleTestConnection(integration.id)}
-                          >
-                            <IconTestPipe size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                        {integration.provider === 'slack' && (
-                          <Tooltip label="Refresh integration (update team info)">
-                            <ActionIcon 
-                              color="green" 
-                              variant="light"
-                              size="sm"
-                              loading={refreshingIntegration === integration.id}
-                              onClick={() => handleRefreshSlackIntegration(integration.id)}
-                            >
-                              <IconRefresh size={14} />
-                            </ActionIcon>
-                          </Tooltip>
-                        )}
-                        {integration.provider === 'whatsapp' && (
-                          <Tooltip label="Manage WhatsApp settings">
-                            <ActionIcon 
-                              color="green" 
-                              variant="light"
-                              size="sm"
-                              component={Link}
-                              href={`/integrations/whatsapp/${integration.id}`}
-                            >
-                              <IconSettings size={14} />
-                            </ActionIcon>
-                          </Tooltip>
-                        )}
-                        <Tooltip label="Delete integration">
-                          <ActionIcon 
-                            color="red" 
-                            variant="light"
-                            size="sm"
-                            loading={deleteIntegration.isPending}
-                            onClick={() => deleteIntegration.mutate({ integrationId: integration.id })}
-                          >
-                            <IconTrash size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          ) : !isLoading ? (
-            <Stack align="center" py="xl">
-              <IconPlugConnected size={48} color="gray" />
-              <Text size="lg" fw={500}>No integrations found</Text>
-              <Text c="dimmed" ta="center">
-                Connect your first external service to start automating your workflow
-              </Text>
+                            {integration.status}
+                          </Badge>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{formatDate(integration.createdAt)}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Group gap="xs">
+                            <Tooltip label="Edit integration">
+                              <ActionIcon 
+                                color="gray" 
+                                variant="light"
+                                size="sm"
+                                onClick={() => openEditModalForIntegration(integration)}
+                              >
+                                <IconEdit size={14} />
+                              </ActionIcon>
+                            </Tooltip>
+                            <Tooltip label="Manage permissions">
+                              <ActionIcon 
+                                color="purple" 
+                                variant="light"
+                                size="sm"
+                                onClick={() => openPermissionsModalForIntegration(integration)}
+                              >
+                                <IconShare size={14} />
+                              </ActionIcon>
+                            </Tooltip>
+                            <Tooltip label="Test connection">
+                              <ActionIcon 
+                                color="blue" 
+                                variant="light"
+                                size="sm"
+                                loading={testingConnection === integration.id}
+                                onClick={() => handleTestConnection(integration.id)}
+                              >
+                                <IconTestPipe size={14} />
+                              </ActionIcon>
+                            </Tooltip>
+                            {integration.provider === 'slack' && (
+                              <Tooltip label="Refresh integration (update team info)">
+                                <ActionIcon 
+                                  color="green" 
+                                  variant="light"
+                                  size="sm"
+                                  loading={refreshingIntegration === integration.id}
+                                  onClick={() => handleRefreshSlackIntegration(integration.id)}
+                                >
+                                  <IconRefresh size={14} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                            {integration.provider === 'whatsapp' && (
+                              <Tooltip label="Manage WhatsApp settings">
+                                <ActionIcon 
+                                  color="green" 
+                                  variant="light"
+                                  size="sm"
+                                  component={Link}
+                                  href={`/integrations/whatsapp/${integration.id}`}
+                                >
+                                  <IconSettings size={14} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                            <Tooltip label="Delete integration">
+                              <ActionIcon 
+                                color="red" 
+                                variant="light"
+                                size="sm"
+                                loading={deleteIntegration.isPending}
+                                onClick={() => deleteIntegration.mutate({ integrationId: integration.id })}
+                              >
+                                <IconTrash size={14} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              ) : (
+                <Stack align="center" py="xl">
+                  <IconPlugConnected size={48} color="gray" />
+                  <Text size="lg" fw={500}>No {getProviderLabel(selectedServiceProvider || '')} integrations found</Text>
+                  <Text c="dimmed" ta="center">
+                    Add your first {getProviderLabel(selectedServiceProvider || '')} integration to get started
+                  </Text>
+                </Stack>
+              )}
             </Stack>
-          ) : null}
-        </Paper>
+          </Paper>
+        )}
 
         {/* Create Integration Modal */}
         <Modal 
           opened={opened} 
-          onClose={close}
+          onClose={() => {
+            close();
+            // Reset form when closing modal
+            form.reset();
+          }}
           title="Add Integration"
           size="md"
         >
@@ -660,10 +822,45 @@ export default function IntegrationsClient() {
                   disabled: option.disabled
                 }))}
                 required
+                readOnly={!!form.values.provider && form.values.provider !== 'fireflies'}
                 {...form.getInputProps('provider')}
               />
 
-              {form.values.provider !== 'slack' && form.values.provider !== 'whatsapp' && (
+              {/* OAuth Connect Button for OAuth providers */}
+              {isOAuthProvider(form.values.provider) && (
+                <Stack gap="md">
+                  <Alert 
+                    icon={<IconPlugConnected size={16} />}
+                    title={`Connect with ${getProviderLabel(form.values.provider)}`}
+                    color="blue"
+                  >
+                    <Text size="sm" mb="md">
+                      Connect your {getProviderLabel(form.values.provider)} account using OAuth for secure authentication.
+                      This will automatically set up the integration for you.
+                    </Text>
+                    <Button 
+                      leftSection={<IconPlugConnected size={16} />}
+                      onClick={() => handleOAuthConnect(form.values.provider)}
+                      color="blue"
+                      variant="filled"
+                    >
+                      Connect with {getProviderLabel(form.values.provider)}
+                    </Button>
+                  </Alert>
+
+                  {form.values.provider === 'slack' && (
+                    <Alert color="gray" title="Alternative: Manual Setup">
+                      <Text size="sm">
+                        If you prefer manual setup or need advanced configuration, 
+                        you can continue with the manual form below instead of using OAuth.
+                      </Text>
+                    </Alert>
+                  )}
+                </Stack>
+              )}
+
+              {/* API Key input for non-OAuth providers */}
+              {!isOAuthProvider(form.values.provider) && form.values.provider !== 'slack' && form.values.provider !== 'whatsapp' && (
                 <TextInput
                   label="API Key"
                   placeholder="Enter your API key"
@@ -671,6 +868,15 @@ export default function IntegrationsClient() {
                   type="password"
                   {...form.getInputProps('apiKey')}
                 />
+              )}
+
+              {/* Manual configuration for OAuth providers (if they want to override OAuth) */}
+              {isOAuthProvider(form.values.provider) && form.values.provider !== 'github' && (
+                <>
+                  <Text size="sm" c="dimmed" ta="center" my="md">
+                    — or configure manually —
+                  </Text>
+                </>
               )}
 
               {form.values.provider === 'slack' && (
@@ -816,7 +1022,10 @@ export default function IntegrationsClient() {
               )}
 
               <Group justify="flex-end">
-                <Button variant="light" onClick={close}>
+                <Button variant="light" onClick={() => {
+                  close();
+                  form.reset();
+                }}>
                   Cancel
                 </Button>
                 <Button 
