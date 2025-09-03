@@ -181,7 +181,7 @@ export const slackRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  getAvailableChannels: protectedProcedure
+  getAvailableChannelsForIntegration: protectedProcedure
     .input(z.object({ integrationId: z.string() }))
     .query(async ({ ctx, input }) => {
       // Verify user owns the integration
@@ -222,6 +222,128 @@ export const slackRouter = createTRPCRouter({
           message: "Failed to fetch channels from Slack",
         });
       }
+    }),
+  // Get available channels for a project/team context
+  getChannelsForContext: protectedProcedure
+    .input(z.object({ 
+      projectId: z.string().optional(),
+      teamId: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      if (!input.projectId && !input.teamId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST", 
+          message: "Either projectId or teamId must be provided",
+        });
+      }
+
+      // Get the channel configuration to find the integration
+      const channelConfig = await SlackChannelResolver.resolveChannel(
+        input.projectId,
+        input.teamId
+      );
+
+      if (!channelConfig.integrationId) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No Slack integration configured for this project/team",
+        });
+      }
+
+      // Verify user has access
+      const hasAccess = await SlackChannelResolver.validateUserAccess(
+        ctx.session.user.id,
+        input.projectId,
+        input.teamId
+      );
+
+      if (!hasAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Access denied",
+        });
+      }
+
+      // Get the integration
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          id: channelConfig.integrationId,
+          provider: "slack",
+          status: "ACTIVE",
+        },
+        include: {
+          credentials: {
+            where: { keyType: "BOT_TOKEN" },
+            take: 1,
+          },
+        },
+      });
+
+      if (!integration || integration.credentials.length === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Integration not found or not properly configured",
+        });
+      }
+
+      try {
+        const slackService = new SlackNotificationService({
+          userId: ctx.session.user.id,
+          integrationId: channelConfig.integrationId,
+        });
+
+        const channels = await slackService.getAvailableChannels();
+        
+        // Mark the current default channel
+        const defaultChannel = channelConfig.channel;
+        const channelsWithDefault = channels.map(channel => ({
+          ...channel,
+          isDefault: channel.id === defaultChannel || `#${channel.name}` === defaultChannel
+        }));
+
+        return channelsWithDefault;
+      } catch {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to fetch channels from Slack",
+        });
+      }
+    }),
+
+  // Get the default channel for a project/team
+  getDefaultChannel: protectedProcedure
+    .input(z.object({ 
+      projectId: z.string().optional(),
+      teamId: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      if (!input.projectId && !input.teamId) {
+        return null;
+      }
+
+      // Verify user has access
+      const hasAccess = await SlackChannelResolver.validateUserAccess(
+        ctx.session.user.id,
+        input.projectId,
+        input.teamId
+      );
+
+      if (!hasAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Access denied",
+        });
+      }
+
+      const channelConfig = await SlackChannelResolver.resolveChannel(
+        input.projectId,
+        input.teamId
+      );
+
+      return {
+        channel: channelConfig.channel,
+        integrationId: channelConfig.integrationId
+      };
     }),
 
   testChannelAccess: protectedProcedure

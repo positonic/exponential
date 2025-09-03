@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SlackSummaryModal } from './SlackSummaryModal';
 import {
   Group,
   Tabs,
@@ -67,6 +68,10 @@ export function MeetingsContent() {
   const [successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message
   const [syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
   
+  // Slack Summary Modal state
+  const [slackModalOpened, setSlackModalOpened] = useState(false);
+  const [selectedMeetingForSlack, setSelectedMeetingForSlack] = useState<any>(null);
+  
   // New state for filtering and bulk operations
   const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
@@ -84,23 +89,6 @@ export function MeetingsContent() {
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const utils = api.useUtils();
   
-  const sendSlackNotificationMutation = api.transcription.sendSlackNotification.useMutation({
-    onSuccess: () => {
-      notifications.show({
-        title: 'Slack Notification Sent',
-        message: 'Meeting summary has been sent to the configured Slack channel',
-        color: 'green',
-      });
-      void utils.transcription.getAllTranscriptions.invalidate();
-    },
-    onError: (error) => {
-      notifications.show({
-        title: 'Error',
-        message: error.message || 'Failed to send Slack notification',
-        color: 'red',
-      });
-    },
-  });
   
   const assignProjectMutation = api.transcription.associateWithProject.useMutation({
     onSuccess: (result) => {
@@ -288,8 +276,9 @@ export function MeetingsContent() {
     }
   };
 
-  const handleSlackNotification = (transcriptionId: string) => {
-    sendSlackNotificationMutation.mutate({ transcriptionId });
+  const handleSlackSummaryModal = (session: any) => {
+    setSelectedMeetingForSlack(session);
+    setSlackModalOpened(true);
   };
 
   const handleSyncToIntegration = (session: any) => {
@@ -777,20 +766,19 @@ export function MeetingsContent() {
                                     </Button>
                                   )}
                                   
-                                  {/* Slack Notification Button */}
-                                  {session.project && session.processedAt && !session.slackNotificationAt && (
+                                  {/* Slack Summary Button */}
+                                  {session.project && session.processedAt && (
                                     <Button
                                       size="xs"
                                       variant="outline"
                                       color="blue"
-                                      loading={sendSlackNotificationMutation.isPending}
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        void handleSlackNotification(session.id);
+                                        handleSlackSummaryModal(session);
                                       }}
                                       leftSection={<IconBrandSlack size={12} />}
                                     >
-                                      Send to Slack
+                                      Send Summary to Slack
                                     </Button>
                                   )}
                                   
@@ -1079,6 +1067,19 @@ export function MeetingsContent() {
           </Group>
         </Stack>
       </Modal>
+
+      {/* Slack Summary Modal */}
+      <SlackSummaryModal
+        opened={slackModalOpened}
+        onClose={() => {
+          setSlackModalOpened(false);
+          setSelectedMeetingForSlack(null);
+        }}
+        transcriptionId={selectedMeetingForSlack?.id || ''}
+        meetingTitle={selectedMeetingForSlack?.title || 'Untitled Meeting'}
+        projectId={selectedMeetingForSlack?.projectId}
+        teamId={selectedMeetingForSlack?.project?.teamId}
+      />
     </>
   );
 }
