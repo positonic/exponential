@@ -767,7 +767,7 @@ export function MeetingsContent() {
                                   )}
                                   
                                   {/* Slack Summary Button */}
-                                  {session.project && session.processedAt && (
+                                  {session.processedAt && (
                                     <Button
                                       size="xs"
                                       variant="outline"

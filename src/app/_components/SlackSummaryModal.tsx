@@ -36,7 +36,7 @@ export function SlackSummaryModal({
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
 
   // Get available Slack channels
-  const { data: channels, isLoading: channelsLoading } = api.slack.getChannelsForContext.useQuery({
+  const { data: channels, isLoading: channelsLoading } = api.slack.getChannelsForMeeting.useQuery({
     projectId: projectId || undefined,
     teamId: teamId || undefined,
   }, {
@@ -112,7 +112,18 @@ export function SlackSummaryModal({
 
         {selectedChannel && defaultChannel?.channel === selectedChannel && (
           <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
-            This is the default configured channel for this {projectId ? 'project' : 'team'}.
+            {projectId ? 
+              'This is the default configured channel for this project.' :
+              teamId ? 
+                'This is the default configured channel for this team.' :
+                'This is a default channel from your Slack integration.'
+            }
+          </Alert>
+        )}
+
+        {!projectId && !teamId && (
+          <Alert color="cyan" variant="light">
+            💡 This meeting isn&apos;t assigned to a project. Actions will appear in your personal inbox and can be assigned to projects later.
           </Alert>
         )}
 
