@@ -3,6 +3,7 @@ import { FirefliesService } from './FirefliesService';
 import { ActionProcessorFactory } from './processors/ActionProcessorFactory';
 import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
 import { SlackChannelResolver } from './SlackChannelResolver';
+import { SlackNotificationService } from './notifications/SlackNotificationService';
 
 export interface ProcessTranscriptionResult {
   success: boolean;
@@ -263,14 +264,33 @@ export class TranscriptionProcessingService {
         return { success: false, error: 'Access denied' };
       }
 
-      // 3. Get the integration for this project/team
-      const channelConfig = await SlackChannelResolver.resolveChannel(
-        transcription.projectId || undefined,
-        transcription.project?.teamId || undefined
-      );
+      // 3. Get the integration - use the custom channel's integration
+      // Since user selected a specific channel, we need to find which integration it belongs to
+      let integrationId: string | null = null;
 
-      if (!channelConfig.integrationId) {
-        return { success: false, error: 'No Slack integration configured' };
+      // First try to get integration from project/team if available
+      if (transcription.projectId || transcription.project?.teamId) {
+        const channelConfig = await SlackChannelResolver.resolveChannel(
+          transcription.projectId || undefined,
+          transcription.project?.teamId || undefined
+        );
+        integrationId = channelConfig.integrationId;
+      }
+
+      // If no integration found from project/team, get user's first active Slack integration
+      if (!integrationId) {
+        const userIntegration = await db.integration.findFirst({
+          where: {
+            userId: userId,
+            provider: "slack",
+            status: "ACTIVE",
+          },
+        });
+        integrationId = userIntegration?.id || null;
+      }
+
+      if (!integrationId) {
+        return { success: false, error: 'No Slack integration available' };
       }
 
       // 4. Build the message content
@@ -307,29 +327,34 @@ export class TranscriptionProcessingService {
 
       const finalMessage = messageParts.join('\n');
 
-      // 5. Send via NotificationServiceFactory using specific channel
-      const results = await NotificationServiceFactory.sendToAll(userId, {
-        title: `Meeting Summary: ${transcription.title || 'Untitled'}`,
-        message: finalMessage,
-        priority: 'normal',
-        metadata: {
-          transcriptionId,
-          projectId: transcription.projectId,
-          customChannel: options.channel,
-          actionCount: actions.length
+      // 5. Send directly via SlackNotificationService using specific channel and integration
+      try {
+        const slackService = new SlackNotificationService({
+          userId: userId,
+          integrationId: integrationId,
+          channel: options.channel,
+        });
+
+        const slackResult = await slackService.sendNotification({
+          title: `Meeting Summary: ${transcription.title || 'Untitled'}`,
+          message: finalMessage,
+          priority: 'normal',
+          metadata: {
+            transcriptionId,
+            projectId: transcription.projectId,
+            actionCount: actions.length
+          }
+        });
+
+        if (slackResult.success) {
+          return { success: true };
+        } else {
+          return { success: false, error: slackResult.error || 'Failed to send Slack message' };
         }
-      });
-
-      // 6. Check if Slack message was sent successfully
-      const slackResult = results.find(r => r.service.toLowerCase().includes('slack'));
-      if (slackResult?.success) {
-        return { success: true };
+      } catch (error) {
+        console.error('Error sending to Slack:', error);
+        return { success: false, error: 'Failed to send Slack message' };
       }
-
-      return { 
-        success: false, 
-        error: slackResult?.error || 'Failed to send Slack message'
-      };
 
     } catch (error) {
       console.error('Error sending Slack summary:', error);

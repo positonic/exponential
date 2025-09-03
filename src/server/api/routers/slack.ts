@@ -223,51 +223,69 @@ export const slackRouter = createTRPCRouter({
         });
       }
     }),
-  // Get available channels for a project/team context
-  getChannelsForContext: protectedProcedure
+  // Get available channels for a project/team context (or user's integrations if no project/team)
+  getChannelsForMeeting: protectedProcedure
     .input(z.object({ 
       projectId: z.string().optional(),
       teamId: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      if (!input.projectId && !input.teamId) {
-        throw new TRPCError({
-          code: "BAD_REQUEST", 
-          message: "Either projectId or teamId must be provided",
-        });
+      let channelConfig: { channel: string | null; integrationId: string | null } = { 
+        channel: null, 
+        integrationId: null 
+      };
+      let integrationId: string | null = null;
+
+      // Try to get channel config for project/team if provided
+      if (input.projectId || input.teamId) {
+        channelConfig = await SlackChannelResolver.resolveChannel(
+          input.projectId,
+          input.teamId
+        );
+        integrationId = channelConfig.integrationId;
       }
 
-      // Get the channel configuration to find the integration
-      const channelConfig = await SlackChannelResolver.resolveChannel(
-        input.projectId,
-        input.teamId
-      );
+      // If no integration found from project/team, try to get user's first active Slack integration
+      if (!integrationId) {
+        const userIntegration = await ctx.db.integration.findFirst({
+          where: {
+            userId: ctx.session.user.id,
+            provider: "slack",
+            status: "ACTIVE",
+          },
+        });
+        integrationId = userIntegration?.id || null;
+        channelConfig = { channel: null, integrationId };
+      }
 
-      if (!channelConfig.integrationId) {
+      if (!integrationId) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "No Slack integration configured for this project/team",
+          message: "No Slack integration available",
         });
       }
 
-      // Verify user has access
-      const hasAccess = await SlackChannelResolver.validateUserAccess(
-        ctx.session.user.id,
-        input.projectId,
-        input.teamId
-      );
+      // Verify user has access (if project/team context exists)
+      if (input.projectId || input.teamId) {
+        const hasAccess = await SlackChannelResolver.validateUserAccess(
+          ctx.session.user.id,
+          input.projectId,
+          input.teamId
+        );
 
-      if (!hasAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Access denied",
-        });
+        if (!hasAccess) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Access denied",
+          });
+        }
       }
 
       // Get the integration
       const integration = await ctx.db.integration.findFirst({
         where: {
-          id: channelConfig.integrationId,
+          id: integrationId,
+          userId: ctx.session.user.id, // Ensure user owns the integration
           provider: "slack",
           status: "ACTIVE",
         },
@@ -289,16 +307,16 @@ export const slackRouter = createTRPCRouter({
       try {
         const slackService = new SlackNotificationService({
           userId: ctx.session.user.id,
-          integrationId: channelConfig.integrationId,
+          integrationId: integrationId,
         });
 
         const channels = await slackService.getAvailableChannels();
         
-        // Mark the current default channel
-        const defaultChannel = channelConfig.channel;
+        // Mark the current default channel (if any)
+        const defaultChannel = channelConfig?.channel;
         const channelsWithDefault = channels.map(channel => ({
           ...channel,
-          isDefault: channel.id === defaultChannel || `#${channel.name}` === defaultChannel
+          isDefault: defaultChannel && (channel.id === defaultChannel || channel.name === defaultChannel)
         }));
 
         return channelsWithDefault;
@@ -310,13 +328,14 @@ export const slackRouter = createTRPCRouter({
       }
     }),
 
-  // Get the default channel for a project/team
+  // Get the default channel for a project/team (or null if no project/team)
   getDefaultChannel: protectedProcedure
     .input(z.object({ 
       projectId: z.string().optional(),
       teamId: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
+      // If no project/team provided, return null (no default channel)
       if (!input.projectId && !input.teamId) {
         return null;
       }
