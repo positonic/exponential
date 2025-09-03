@@ -217,6 +217,129 @@ export class TranscriptionProcessingService {
     }
   }
 
+  static async sendSlackSummary(
+    transcriptionId: string,
+    userId: string,
+    options: {
+      channel: string;
+      includeSummary: boolean;
+      includeActions: boolean;
+    }
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // 1. Get the transcription with its project and actions
+      const transcription = await db.transcriptionSession.findUnique({
+        where: { id: transcriptionId },
+        include: {
+          project: {
+            include: { team: true }
+          }
+        }
+      });
+
+      if (!transcription) {
+        return { success: false, error: 'Transcription not found' };
+      }
+
+      // Get actions separately
+      const actions = await db.action.findMany({
+        where: { 
+          transcriptionSessionId: transcriptionId,
+          status: { not: 'COMPLETED' }
+        },
+        include: {
+          assignedTo: {
+            select: {
+              name: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      // 2. Verify user has access
+      const hasAccess = await this.verifyUserAccess(userId, transcription.projectId);
+      if (!hasAccess) {
+        return { success: false, error: 'Access denied' };
+      }
+
+      // 3. Get the integration for this project/team
+      const channelConfig = await SlackChannelResolver.resolveChannel(
+        transcription.projectId || undefined,
+        transcription.project?.teamId || undefined
+      );
+
+      if (!channelConfig.integrationId) {
+        return { success: false, error: 'No Slack integration configured' };
+      }
+
+      // 4. Build the message content
+      const messageParts: string[] = [];
+      
+      // Header
+      messageParts.push(`📋 *Meeting Summary: ${transcription.title || 'Untitled'}*`);
+      
+      if (transcription.project) {
+        messageParts.push(`_Project: ${transcription.project.name}${transcription.project.team ? ` (${transcription.project.team.name})` : ''}_`);
+      }
+
+      // Summary content
+      if (options.includeSummary && transcription.summary) {
+        try {
+          const summaryData = JSON.parse(transcription.summary);
+          if (summaryData.shorthand_bullet) {
+            messageParts.push('\n📝 *Detailed Breakdown:*');
+            messageParts.push(summaryData.shorthand_bullet);
+          }
+        } catch (e) {
+          console.error('Failed to parse summary for Slack message:', e);
+        }
+      }
+
+      // Actions content  
+      if (options.includeActions && actions.length > 0) {
+        messageParts.push('\n✅ *Action Items:*');
+        actions.forEach((action, index) => {
+          const assignedText = action.assignedTo ? ` (assigned to ${action.assignedTo.name || action.assignedTo.email})` : '';
+          messageParts.push(`${index + 1}. ${action.description}${assignedText}`);
+        });
+      }
+
+      const finalMessage = messageParts.join('\n');
+
+      // 5. Send via NotificationServiceFactory using specific channel
+      const results = await NotificationServiceFactory.sendToAll(userId, {
+        title: `Meeting Summary: ${transcription.title || 'Untitled'}`,
+        message: finalMessage,
+        priority: 'normal',
+        metadata: {
+          transcriptionId,
+          projectId: transcription.projectId,
+          customChannel: options.channel,
+          actionCount: actions.length
+        }
+      });
+
+      // 6. Check if Slack message was sent successfully
+      const slackResult = results.find(r => r.service.toLowerCase().includes('slack'));
+      if (slackResult?.success) {
+        return { success: true };
+      }
+
+      return { 
+        success: false, 
+        error: slackResult?.error || 'Failed to send Slack message'
+      };
+
+    } catch (error) {
+      console.error('Error sending Slack summary:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
   /**
    * Associate a transcription with a project and optionally process it
    */
