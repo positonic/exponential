@@ -9,7 +9,7 @@ import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
 
 // Test Fireflies API connection
-async function testFirefliesConnection(
+export async function testFirefliesConnection(
   apiKey: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {

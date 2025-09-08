@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   SimpleGrid,
   Card,
@@ -74,6 +74,13 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
     number | null
   >(null);
   const [isCreatingIntegration, setIsCreatingIntegration] = useState(false);
+  const [integrationRequiredModal, setIntegrationRequiredModal] = useState<{
+    open: boolean;
+    provider?: string;
+    instructions?: string;
+    requiresOAuth?: boolean;
+    authUrl?: string;
+  }>({ open: false });
 
   // Fetch workflow templates from API
   const { data: templates, isLoading: templatesLoading } =
@@ -118,6 +125,40 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
     }
   }, []);
 
+  // Mutation to create API key-based integrations for workflow
+  const createIntegrationMutation =
+    api.projectWorkflow.createIntegrationForWorkflow.useMutation({
+      onSuccess: (data) => {
+        notifications.show({
+          title: "Integration Created",
+          message: `${data.integration.provider} integration created successfully!`,
+          color: "green",
+          icon: <IconCheck size={16} />,
+        });
+        
+        // Close the modal
+        setIntegrationRequiredModal({ open: false });
+        
+        // Now try to create the workflow again
+        if (selectedTemplate) {
+          createWorkflowMutation.mutate({
+            projectId,
+            templateId: selectedTemplate.id,
+            name: workflowName,
+            configuration,
+          });
+        }
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Integration Failed",
+          message: error.message || "Failed to create integration",
+          color: "red",
+          icon: <IconAlertCircle size={16} />,
+        });
+      },
+    });
+
   // Mutation to create workflow from template
   const createWorkflowMutation =
     api.projectWorkflow.createFromTemplate.useMutation({
@@ -138,14 +179,33 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
           })
           .catch((error) => console.error(error));
       },
-      onError: (error) => {
-        notifications.show({
-          title: "Error",
-          message:
-            error.message || "Failed to create workflow. Please try again.",
-          color: "red",
-          icon: <IconAlertCircle size={16} />,
-        });
+      onError: (error: any) => {
+        // Check if this is a precondition failed error (missing integration)
+        if (error.data?.code === "PRECONDITION_FAILED" && error.cause) {
+          const { provider, requiresOAuth, authUrl, instructions } = error.cause;
+          
+          if (requiresOAuth) {
+            // For OAuth providers, redirect to OAuth flow
+            window.location.href = `${authUrl}?projectId=${projectId}&redirectUrl=${encodeURIComponent(window.location.href)}`;
+          } else {
+            // For API key providers, show integration modal
+            setIntegrationRequiredModal({
+              open: true,
+              provider,
+              instructions,
+              requiresOAuth: false,
+            });
+          }
+        } else {
+          // Regular error handling
+          notifications.show({
+            title: "Error",
+            message:
+              error.message || "Failed to create workflow. Please try again.",
+            color: "red",
+            icon: <IconAlertCircle size={16} />,
+          });
+        }
       },
     });
 
@@ -363,7 +423,12 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
     const commonProps = {
       label: field.label || fieldKey,
       required: field.required,
-      value: field.type === "multi-select" ? (Array.isArray(value) ? value : []) : (value || ""),
+      value:
+        field.type === "multi-select"
+          ? Array.isArray(value)
+            ? value
+            : []
+          : value || "",
     };
 
     switch (field.type) {
@@ -996,6 +1061,112 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
           </Stack>
         )}
       </Modal>
+
+      {/* Integration Required Modal */}
+      <Modal
+        opened={integrationRequiredModal.open}
+        onClose={() => setIntegrationRequiredModal({ open: false })}
+        title={`${integrationRequiredModal.provider?.charAt(0)?.toUpperCase()}${integrationRequiredModal.provider?.slice(1)} Integration Required`}
+        size="md"
+        closeOnClickOutside={false}
+      >
+        {integrationRequiredModal.provider && (
+          <Stack gap="lg">
+            <Alert icon={<IconAlertCircle size={16} />} color="blue">
+              You need to connect {integrationRequiredModal.provider} to create this workflow.
+            </Alert>
+
+            <div>
+              <Text fw={600} size="sm" mb="md">
+                Setup Instructions
+              </Text>
+              <Text size="sm" style={{ whiteSpace: 'pre-line' }}>
+                {integrationRequiredModal.instructions}
+              </Text>
+            </div>
+
+            {integrationRequiredModal.provider === 'fireflies' && (
+              <IntegrationSetupForm 
+                provider={integrationRequiredModal.provider}
+                onSubmit={(apiKey: string) => {
+                  createIntegrationMutation.mutate({
+                    provider: 'fireflies',
+                    apiKey,
+                    name: 'Fireflies Integration'
+                  });
+                }}
+                isLoading={createIntegrationMutation.isPending}
+              />
+            )}
+
+            {integrationRequiredModal.provider === 'monday' && (
+              <IntegrationSetupForm 
+                provider={integrationRequiredModal.provider}
+                onSubmit={(apiKey: string) => {
+                  createIntegrationMutation.mutate({
+                    provider: 'monday',
+                    apiKey,
+                    name: 'Monday.com Integration'
+                  });
+                }}
+                isLoading={createIntegrationMutation.isPending}
+              />
+            )}
+
+            <Group justify="flex-end">
+              <Button
+                variant="outline"
+                onClick={() => setIntegrationRequiredModal({ open: false })}
+              >
+                Cancel
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
     </>
+  );
+}
+
+// Integration Setup Form Component
+interface IntegrationSetupFormProps {
+  provider: string;
+  onSubmit: (apiKey: string) => void;
+  isLoading: boolean;
+}
+
+function IntegrationSetupForm({ provider, onSubmit, isLoading }: IntegrationSetupFormProps) {
+  const [apiKey, setApiKey] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (apiKey.trim()) {
+      onSubmit(apiKey.trim());
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <Stack gap="md">
+        <TextInput
+          label={`${provider.charAt(0).toUpperCase() + provider.slice(1)} API Key`}
+          placeholder="Enter your API key"
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.currentTarget.value)}
+          required
+          rightSection={
+            <Button
+              type="submit"
+              size="xs"
+              loading={isLoading}
+              disabled={!apiKey.trim() || isLoading}
+            >
+              Connect
+            </Button>
+          }
+        />
+      </Stack>
+    </form>
   );
 }

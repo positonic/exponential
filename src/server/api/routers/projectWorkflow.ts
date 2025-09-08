@@ -1,10 +1,13 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { notionSyncService } from "~/server/services/notion-sync";
+import { mondaySyncService } from "~/server/services/monday-sync";
+import { MondayService } from "~/server/services/MondayService";
 
 // Define the workflow template structure (hardcoded templates)
 const WORKFLOW_TEMPLATES = {
-  "Fireflies Meeting Transcription": {
+  "fireflies-meeting-transcription": {
     id: "fireflies-meeting-transcription",
     name: "Fireflies Meeting Transcription",
     description:
@@ -29,67 +32,6 @@ const WORKFLOW_TEMPLATES = {
       //   required: false,
       // },
       // assignToMeetingParticipants: {
-      //   type: "boolean",
-      //   required: false,
-      // },
-    },
-  },
-  "Notion Tasks Database": {
-    id: "notion-tasks-database",
-    name: "Notion Tasks Database",
-    description:
-      "Sync your tasks with Notion databases. Keep everything in sync across platforms.",
-    category: "Integration",
-    type: "notion_sync",
-    integrations: ["notion"],
-    defaultConfiguration: {
-      // syncDirection: "bidirectional",
-      // conflictResolution: "local_wins",
-      // notifyOnSync: true,
-    },
-    configurationSchema: {
-      // syncDirection: {
-      //   type: "select",
-      //   options: ["push", "pull", "bidirectional"],
-      //   required: true,
-      // },
-      // conflictResolution: {
-      //   type: "select",
-      //   options: ["local_wins", "remote_wins", "manual_review"],
-      //   required: true,
-      // },
-      // notifyOnSync: {
-      //   type: "boolean",
-      //   required: false,
-      // },
-    },
-  },
-  "Monday.com Boards": {
-    id: "monday-boards",
-    name: "Monday.com Boards",
-    description:
-      "Push your action items to Monday.com boards for team collaboration.",
-    category: "Communication",
-    integrations: ["monday"],
-    type: "monday_sync",
-    defaultConfiguration: {
-      // frequency: "weekly",
-      // channels: ["slack"],
-      // includeMetrics: true,
-      // stakeholderGroups: [],
-    },
-    configurationSchema: {
-      // frequency: {
-      //   type: "select",
-      //   options: ["daily", "weekly", "monthly"],
-      //   required: true,
-      // },
-      // channels: {
-      //   type: "multi-select",
-      //   options: ["slack", "whatsapp", "email"],
-      //   required: true,
-      // },
-      // includeMetrics: {
       //   type: "boolean",
       //   required: false,
       // },
@@ -158,44 +100,177 @@ const WORKFLOW_TEMPLATES = {
       },
     },
   },
-  // "standup-reporter": {
-  //   id: "standup-reporter",
-  //   name: "Daily Standup Reporter",
-  //   description: "Generates and distributes daily progress summaries based on completed actions",
-  //   category: "Communication",
-  //   integrations: ["slack", "whatsapp"],
+  // "notion-todos": {
+  //   id: "notion-todos",
+  //   name: "Notion Tasks Sync",
+  //   description:
+  //     "Sync Notion database pages as project todos with status and priority mapping",
+  //   category: "Productivity",
+  //   type: "notion_todos",
+  //   integrations: ["notion"],
   //   defaultConfiguration: {
-  //     schedule: "09:00",
-  //     timezone: "UTC",
-  //     includeBlockers: true,
-  //     channels: ["slack"],
+  //     syncDirection: "pull",
+  //     autoSync: false,
+  //     statusFieldMapping: {
+  //       "Not started": "ACTIVE",
+  //       "In progress": "IN_PROGRESS",
+  //       Done: "COMPLETED",
+  //       Blocked: "BLOCKED",
+  //     },
+  //     priorityFieldMapping: {
+  //       High: "Immediate",
+  //       Medium: "Soon",
+  //       Low: "Later",
+  //     },
+  //     filterCompleted: true,
+  //     assigneeSync: false,
+  //     syncFrequency: "manual",
   //   },
   //   configurationSchema: {
-  //     schedule: {
-  //       type: "time",
+  //     databaseIds: {
+  //       type: "multi-select",
+  //       label: "Notion Databases",
   //       required: true,
   //     },
-  //     timezone: {
+  //     syncDirection: {
   //       type: "select",
-  //       options: ["UTC", "America/New_York", "America/Los_Angeles", "Europe/London"],
+  //       label: "Sync Direction",
+  //       options: ["pull", "push", "bidirectional"],
   //       required: true,
   //     },
-  //     includeBlockers: {
+  //     filterCompleted: {
   //       type: "boolean",
+  //       label: "Exclude Completed Items",
   //       required: false,
   //     },
-  //     channels: {
+  //     assigneeSync: {
+  //       type: "boolean",
+  //       label: "Sync Assignees",
+  //       required: false,
+  //     },
+  //     autoSync: {
+  //       type: "boolean",
+  //       label: "Enable Automatic Sync",
+  //       required: false,
+  //     },
+  //   },
+  // },
+  // "monday-items": {
+  //   id: "monday-items",
+  //   name: "Monday.com Items Sync",
+  //   description:
+  //     "Sync Monday board items as project todos with column mapping and status synchronization",
+  //   category: "Project Management",
+  //   type: "monday_items",
+  //   integrations: ["monday"],
+  //   defaultConfiguration: {
+  //     syncDirection: "pull",
+  //     autoSync: false,
+  //     columnMappings: {
+  //       statusColumn: "",
+  //       priorityColumn: "",
+  //       assigneeColumn: "",
+  //       dueDateColumn: "",
+  //     },
+  //     statusMapping: {
+  //       "Working on it": "IN_PROGRESS",
+  //       Done: "COMPLETED",
+  //       Stuck: "BLOCKED",
+  //     },
+  //     filterGroups: [],
+  //     syncFrequency: "manual",
+  //   },
+  //   configurationSchema: {
+  //     boardIds: {
   //       type: "multi-select",
-  //       options: ["slack", "whatsapp", "email"],
+  //       label: "Monday Boards",
   //       required: true,
+  //     },
+  //     statusColumn: {
+  //       type: "select",
+  //       label: "Status Column",
+  //       required: true,
+  //     },
+  //     priorityColumn: {
+  //       type: "select",
+  //       label: "Priority Column",
+  //       required: false,
+  //     },
+  //     assigneeColumn: {
+  //       type: "select",
+  //       label: "Assignee Column",
+  //       required: false,
+  //     },
+  //     dueDateColumn: {
+  //       type: "select",
+  //       label: "Due Date Column",
+  //       required: false,
+  //     },
+  //     syncDirection: {
+  //       type: "select",
+  //       label: "Sync Direction",
+  //       options: ["pull", "push", "bidirectional"],
+  //       required: true,
+  //     },
+  //     autoSync: {
+  //       type: "boolean",
+  //       label: "Enable Automatic Sync",
+  //       required: false,
   //     },
   //   },
   // },
 } as const;
 
+// Helper function to get integration setup instructions
+function getIntegrationInstructions(provider: string) {
+  switch (provider) {
+    case "fireflies":
+      return {
+        oauth: false,
+        authUrl: null,
+        instructions:
+          "To get your Fireflies API key:\n1. Log in to your Fireflies account\n2. Go to Settings > API Keys\n3. Generate a new API key\n4. Copy the key and paste it below",
+      };
+    case "notion":
+      return {
+        oauth: true,
+        authUrl: "/api/auth/notion/authorize",
+        instructions:
+          "Connect with Notion using OAuth for secure authentication. Click the button below to authorize Exponential to access your Notion workspace.",
+      };
+    case "monday":
+      return {
+        oauth: false,
+        authUrl: null,
+        instructions:
+          "To get your Monday.com API key:\n1. Go to your Monday workspace\n2. Navigate to Admin > Integrations > API\n3. Generate a personal API token\n4. Copy the token and paste it below",
+      };
+    case "github":
+      return {
+        oauth: true,
+        authUrl: "/api/auth/github/authorize",
+        instructions:
+          "Connect with GitHub using OAuth for secure authentication. Click the button below to authorize Exponential to access your GitHub repositories.",
+      };
+    case "slack":
+      return {
+        oauth: true,
+        authUrl: "/api/auth/slack/authorize",
+        instructions:
+          "Connect with Slack using OAuth for secure authentication. Click the button below to authorize Exponential to access your Slack workspace.",
+      };
+    default:
+      return {
+        oauth: false,
+        authUrl: null,
+        instructions: `Please connect your ${provider} integration first.`,
+      };
+  }
+}
+
 export const projectWorkflowRouter = createTRPCRouter({
   // Get all available workflow templates
-  getTemplates: protectedProcedure.query(async ({ ctx }) => {
+  getTemplates: protectedProcedure.query(async () => {
     // Return hardcoded templates - no need to fetch from database
     return Object.values(WORKFLOW_TEMPLATES);
   }),
@@ -207,7 +282,7 @@ export const projectWorkflowRouter = createTRPCRouter({
         templateId: z.string(),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .query(async ({ input }) => {
       const template =
         WORKFLOW_TEMPLATES[input.templateId as keyof typeof WORKFLOW_TEMPLATES];
 
@@ -297,6 +372,96 @@ export const projectWorkflowRouter = createTRPCRouter({
       return enrichedWorkflows;
     }),
 
+  // Create API key-based integration for workflow
+  createIntegrationForWorkflow: protectedProcedure
+    .input(
+      z.object({
+        provider: z.enum(["fireflies", "monday"]),
+        apiKey: z.string().min(1),
+        name: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { provider, apiKey } = input;
+
+      // Test connection before creating
+      let testResult: { success: boolean; error?: string };
+
+      if (provider === "fireflies") {
+        // Import and test Fireflies connection from integration router
+        const { testFirefliesConnection } = await import(
+          "~/server/api/routers/integration"
+        );
+        testResult = await testFirefliesConnection(apiKey);
+      } else if (provider === "monday") {
+        // Test Monday connection
+        const mondayService = new MondayService(apiKey);
+        testResult = await mondayService.testConnection();
+      } else {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Unsupported provider: ${provider as string}`,
+        });
+      }
+
+      if (!testResult.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${provider.charAt(0).toUpperCase() + provider.slice(1)} connection failed: ${testResult.error}`,
+        });
+      }
+
+      // Check if integration already exists
+      const existingIntegration = await ctx.db.integration.findFirst({
+        where: {
+          userId: ctx.session.user.id,
+          provider: provider,
+          status: "ACTIVE",
+        },
+      });
+
+      if (existingIntegration) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `You already have an active ${provider} integration. Please delete the existing one first if you want to create a new one.`,
+        });
+      }
+
+      // Create the integration
+      const integration = await ctx.db.integration.create({
+        data: {
+          name:
+            input.name ||
+            `${provider.charAt(0).toUpperCase() + provider.slice(1)} Integration`,
+          type: "API_KEY",
+          provider: provider,
+          description: `${provider.charAt(0).toUpperCase() + provider.slice(1)} integration created from workflow setup`,
+          userId: ctx.session.user.id,
+          status: "ACTIVE",
+        },
+      });
+
+      // Create the credential
+      await ctx.db.integrationCredential.create({
+        data: {
+          key: apiKey,
+          keyType: "API_KEY",
+          isEncrypted: false,
+          integrationId: integration.id,
+        },
+      });
+
+      return {
+        success: true,
+        integration: {
+          id: integration.id,
+          name: integration.name,
+          provider: integration.provider,
+          status: integration.status,
+        },
+      };
+    }),
+
   // Create a new project workflow from template
   createFromTemplate: protectedProcedure
     .input(
@@ -333,15 +498,15 @@ export const projectWorkflowRouter = createTRPCRouter({
         });
       }
 
-      // Find integration ID from database if template specifies integrations
-      let integrationId = ""; // Default empty string for template workflows
+      // Check for required integrations - don't allow workflow creation without them
+      let integrationId = ""; // Default empty string for workflows without integrations
 
       if (template.integrations && template.integrations.length > 0) {
         // Get the first integration provider from template
         const primaryProvider = template.integrations[0];
 
-        // Find existing integration for this user and provider
-        const integration = await ctx.db.integration.findFirst({
+        // Check if integration exists - don't create automatically
+        const existingIntegration = await ctx.db.integration.findFirst({
           where: {
             userId: ctx.session.user.id,
             provider: primaryProvider,
@@ -349,12 +514,23 @@ export const projectWorkflowRouter = createTRPCRouter({
           },
         });
 
-        if (integration) {
-          integrationId = integration.id;
+        if (!existingIntegration) {
+          // Don't allow workflow creation without integration
+          const integrationInstructions =
+            getIntegrationInstructions(primaryProvider);
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `${primaryProvider.charAt(0).toUpperCase() + primaryProvider.slice(1)} integration required`,
+            cause: {
+              provider: primaryProvider,
+              requiresOAuth: integrationInstructions.oauth,
+              authUrl: integrationInstructions.authUrl,
+              instructions: integrationInstructions.instructions,
+            },
+          });
         }
-        // Note: We don't throw an error if no integration is found
-        // This allows creating template workflows even without active integrations
-        // The user can connect integrations later
+
+        integrationId = existingIntegration.id;
       }
 
       // Create the workflow using existing Workflow table
@@ -378,7 +554,7 @@ export const projectWorkflowRouter = createTRPCRouter({
           },
           projectId: input.projectId,
           userId: ctx.session.user.id,
-          integrationId: integrationId, // Use the found integration ID or empty string
+          integrationId: integrationId,
         },
       });
 
@@ -509,9 +685,6 @@ export const projectWorkflowRouter = createTRPCRouter({
       }
 
       const templateId = (workflow.config as any)?.templateId as string;
-      const template = templateId
-        ? WORKFLOW_TEMPLATES[templateId as keyof typeof WORKFLOW_TEMPLATES]
-        : null;
 
       // Create workflow run record using existing WorkflowRun table
       const run = await ctx.db.workflowRun.create({
@@ -531,39 +704,56 @@ export const projectWorkflowRouter = createTRPCRouter({
       });
 
       try {
-        // TODO: Implement actual workflow execution logic based on template
-        // For now, simulate successful execution
-
+        // Execute workflow based on type
         const startTime = Date.now();
+        let syncResult: any;
 
-        // Simulate execution delay
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        const endTime = Date.now();
-        const duration = endTime - startTime;
-
-        // Update run with success
-        await ctx.db.workflowRun.update({
-          where: { id: run.id },
-          data: {
-            status: "completed",
-            completedAt: new Date(),
+        if (workflow.type === "notion_todos") {
+          syncResult =
+            await notionSyncService.syncNotionTodosToActions(workflow);
+        } else if (workflow.type === "monday_items") {
+          syncResult =
+            await mondaySyncService.syncMondayItemsToActions(workflow);
+        } else {
+          // For other workflow types, simulate execution
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          syncResult = {
             itemsProcessed: 1,
             itemsCreated: 1,
             itemsUpdated: 0,
             itemsSkipped: 0,
+            errors: [],
+          };
+        }
+
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+
+        // Update run with results
+        await ctx.db.workflowRun.update({
+          where: { id: run.id },
+          data: {
+            status:
+              syncResult.errors.length > 0
+                ? "completed_with_errors"
+                : "completed",
+            completedAt: new Date(),
+            itemsProcessed: syncResult.itemsProcessed,
+            itemsCreated: syncResult.itemsCreated,
+            itemsUpdated: syncResult.itemsUpdated,
+            itemsSkipped: syncResult.itemsSkipped,
+            errorMessage:
+              syncResult.errors.length > 0
+                ? syncResult.errors.join(", ")
+                : null,
             metadata: {
               ...(run.metadata as object),
               duration,
-              result: "success",
+              result:
+                syncResult.errors.length > 0 ? "partial_success" : "success",
               message: `Workflow '${workflow.name}' executed successfully`,
-              actions: [
-                {
-                  action: "test_execution",
-                  result: "success",
-                  message: `Workflow '${workflow.name}' executed successfully`,
-                },
-              ],
+              errors: syncResult.errors,
+              workflowType: workflow.type,
             },
           },
         });
@@ -579,6 +769,11 @@ export const projectWorkflowRouter = createTRPCRouter({
           runId: run.id,
           message: `Workflow '${workflow.name}' executed successfully`,
           duration,
+          itemsProcessed: syncResult.itemsProcessed,
+          itemsCreated: syncResult.itemsCreated,
+          itemsUpdated: syncResult.itemsUpdated,
+          itemsSkipped: syncResult.itemsSkipped,
+          errors: syncResult.errors,
         };
       } catch (error) {
         // Update run with failure

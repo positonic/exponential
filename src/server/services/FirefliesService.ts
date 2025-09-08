@@ -29,7 +29,7 @@ export interface FirefliesTranscript {
     start_time: number;
     end_time: number;
   }>;
-  summary: FirefliesSummary;
+  summary: FirefliesSummary | null;
 }
 
 export interface ProcessedTranscriptionData {
@@ -205,7 +205,24 @@ export class FirefliesService {
   /**
    * Structure summary data for storage and display
    */
-  static processSummary(summary: FirefliesSummary): FirefliesSummary {
+  static processSummary(summary: FirefliesSummary | null | undefined): FirefliesSummary {
+    if (!summary) {
+      return {
+        keywords: [],
+        action_items: [],
+        outline: '',
+        shorthand_bullet: [],
+        overview: '',
+        bullet_gist: [],
+        gist: '',
+        short_summary: '',
+        short_overview: '',
+        meeting_type: '',
+        topics_discussed: [],
+        transcript_chapters: [],
+      };
+    }
+
     return {
       keywords: summary.keywords || [],
       action_items: summary.action_items || [],
@@ -242,16 +259,27 @@ export class FirefliesService {
    * Main processing function for Fireflies transcript data
    */
   static processTranscription(transcript: FirefliesTranscript): ProcessedTranscriptionData {
-    const summary = this.processSummary(transcript.summary);
-    console.log('📚 summary', summary);
-    const actionItems = this.parseActionItems(summary);
-    const transcriptText = JSON.stringify(transcript, null, 2);
+    try {
+      const summary = this.processSummary(transcript.summary);
+      console.log('📚 summary', summary);
+      const actionItems = this.parseActionItems(summary);
+      const transcriptText = JSON.stringify(transcript, null, 2);
 
-    return {
-      summary,
-      actionItems,
-      transcriptText,
-    };
+      return {
+        summary,
+        actionItems,
+        transcriptText,
+      };
+    } catch (error) {
+      console.error(`Failed to process transcript ${transcript.id}:`, error);
+      
+      // Return minimal data if processing fails
+      return {
+        summary: this.processSummary(null), // Returns empty summary
+        actionItems: [],
+        transcriptText: JSON.stringify(transcript, null, 2),
+      };
+    }
   }
 
   /**

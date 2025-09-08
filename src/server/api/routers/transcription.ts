@@ -451,6 +451,70 @@ export const transcriptionRouter = createTRPCRouter({
       return result;
     }),
 
+  // Sync Fireflies transcriptions and automatically associate them with a project
+  syncFirefliesForProject: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+        projectId: z.string(),
+        syncSinceDays: z.number().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // First, sync from Fireflies
+      const syncResult = await FirefliesSyncService.bulkSyncFromFireflies(
+        ctx.session.user.id,
+        input.integrationId,
+        input.syncSinceDays
+      );
+
+      if (!syncResult.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: syncResult.error || "Failed to sync from Fireflies",
+        });
+      }
+
+      // If new transcripts were created, find the recently synced ones and associate them with the project
+      let projectAssociations = 0;
+      if (syncResult.newTranscripts > 0) {
+        // Get recent transcriptions that don't have a project assigned yet from this integration
+        const recentUnassignedTranscriptions = await ctx.db.transcriptionSession.findMany({
+          where: {
+            userId: ctx.session.user.id,
+            sourceIntegrationId: input.integrationId,
+            projectId: null,
+            createdAt: {
+              gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: syncResult.newTranscripts, // Limit to the number of new transcripts we just synced
+        });
+
+        // Associate each unassigned transcription with the project
+        for (const transcription of recentUnassignedTranscriptions) {
+          const result = await TranscriptionProcessingService.associateWithProject(
+            transcription.id,
+            input.projectId,
+            ctx.session.user.id,
+            true // autoProcess = true
+          );
+          
+          if (result.success) {
+            projectAssociations++;
+          }
+        }
+      }
+
+      return {
+        ...syncResult,
+        projectAssociations,
+      };
+    }),
+
   deleteTranscription: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {

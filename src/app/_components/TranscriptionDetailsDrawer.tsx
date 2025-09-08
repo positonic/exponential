@@ -167,11 +167,22 @@ export function TranscriptionDetailsDrawer({
                 <Title order={5}>Transcription</Title>
               </Accordion.Control>
               <Accordion.Panel>
-                <TranscriptionRenderer
-                  transcription={transcription.transcription}
-                  provider={transcription.sourceIntegration?.provider}
-                  isPreview={false}
-                />
+                <div 
+                  style={{ 
+                    maxHeight: '400px', 
+                    overflowY: 'auto',
+                    paddingRight: '8px',
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: 'var(--border-primary) transparent',
+                  }}
+                  className="scrollable-transcription"
+                >
+                  <TranscriptionRenderer
+                    transcription={transcription.transcription}
+                    provider={transcription.sourceIntegration?.provider}
+                    isPreview={false}
+                  />
+                </div>
               </Accordion.Panel>
             </Accordion.Item>
 
