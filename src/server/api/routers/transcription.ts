@@ -13,7 +13,6 @@ import { TranscriptionProcessingService } from "~/server/services/TranscriptionP
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
 
-
 // Middleware to check API key
 const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
   const apiKey = ctx.headers.get("x-api-key");
@@ -242,15 +241,17 @@ export const transcriptionRouter = createTRPCRouter({
 
   getAllTranscriptions: protectedProcedure
     .input(
-      z.object({
-        includeArchived: z.boolean().optional().default(false),
-      }).optional()
+      z
+        .object({
+          includeArchived: z.boolean().optional().default(false),
+        })
+        .optional(),
     )
     .query(async ({ ctx, input }) => {
       const whereClause: any = {
         userId: ctx.session.user.id,
       };
-      
+
       // Exclude archived by default unless explicitly requested
       if (!input?.includeArchived) {
         whereClause.archivedAt = null;
@@ -261,34 +262,34 @@ export const transcriptionRouter = createTRPCRouter({
         orderBy: {
           createdAt: "desc",
         },
-      include: {
-        project: {
-          select: {
-            id: true,
-            name: true,
-            taskManagementTool: true,
-            taskManagementConfig: true,
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              taskManagementTool: true,
+              taskManagementConfig: true,
+            },
+          },
+          screenshots: true,
+          sourceIntegration: {
+            select: {
+              id: true,
+              provider: true,
+              name: true,
+            },
+          },
+          actions: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              priority: true,
+            },
           },
         },
-        screenshots: true,
-        sourceIntegration: {
-          select: {
-            id: true,
-            provider: true,
-            name: true,
-          },
-        },
-        actions: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            priority: true,
-          },
-        },
-      },
-    });
-  }),
+      });
+    }),
 
   assignProject: protectedProcedure
     .input(
@@ -308,7 +309,7 @@ export const transcriptionRouter = createTRPCRouter({
           updatedAt: new Date(),
         },
       });
-      
+
       // Also update all associated actions to the same project
       await ctx.db.action.updateMany({
         where: {
@@ -318,7 +319,7 @@ export const transcriptionRouter = createTRPCRouter({
           projectId: input.projectId,
         },
       });
-      
+
       return session;
     }),
 
@@ -343,7 +344,7 @@ export const transcriptionRouter = createTRPCRouter({
           updatedAt: new Date(),
         },
       });
-      
+
       // Also update all associated actions to the same project
       await ctx.db.action.updateMany({
         where: {
@@ -355,7 +356,7 @@ export const transcriptionRouter = createTRPCRouter({
           projectId: input.projectId,
         },
       });
-      
+
       return { count: result.count };
     }),
 
@@ -397,17 +398,71 @@ export const transcriptionRouter = createTRPCRouter({
 
   // Fireflies bulk sync endpoints
   getFirefliesIntegrations: protectedProcedure.query(async ({ ctx }) => {
-    return FirefliesSyncService.getUserFirefliesIntegrations(ctx.session.user.id);
+    return FirefliesSyncService.getUserFirefliesIntegrations(
+      ctx.session.user.id,
+    );
   }),
+
+  // Fireflies bulk sync endpoints for project
+  getFirefliesProjectIntegrations: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      if (input.projectId) {
+        // Get Fireflies integrations associated with this project through workflows
+        const projectWorkflows = await ctx.db.workflow.findMany({
+          where: {
+            projectId: input.projectId,
+            provider: "fireflies",
+            status: "ACTIVE",
+          },
+          include: {
+            integration: {
+              include: {
+                credentials: {
+                  where: {
+                    keyType: "API_KEY",
+                  },
+                  take: 1,
+                },
+              },
+            },
+          },
+        });
+
+        // Map workflows to integration format expected by the UI
+        return projectWorkflows
+          .filter(
+            (workflow) =>
+              workflow.integration &&
+              workflow.integration.credentials.length > 0,
+          )
+          .map((workflow) => ({
+            id: workflow.integration.id,
+            name: workflow.integration.name,
+            provider: workflow.integration.provider,
+            status: workflow.integration.status,
+            credentials: workflow.integration.credentials,
+          }));
+      } else {
+        // Fallback to all user integrations for backward compatibility
+        return FirefliesSyncService.getUserFirefliesIntegrations(
+          ctx.session.user.id,
+        );
+      }
+    }),
 
   getFirefliesSyncStatus: protectedProcedure
     .input(z.object({ integrationId: z.string() }))
     .query(async ({ ctx, input }) => {
       const integration = await FirefliesSyncService.getFirefliesIntegration(
         ctx.session.user.id,
-        input.integrationId
+        input.integrationId,
       );
-      
+
       if (!integration) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -415,10 +470,11 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      const estimatedNewCount = await FirefliesSyncService.estimateNewTranscripts(
-        ctx.session.user.id,
-        input.integrationId
-      );
+      const estimatedNewCount =
+        await FirefliesSyncService.estimateNewTranscripts(
+          ctx.session.user.id,
+          input.integrationId,
+        );
 
       return {
         integrationName: integration.name,
@@ -432,13 +488,13 @@ export const transcriptionRouter = createTRPCRouter({
       z.object({
         integrationId: z.string(),
         syncSinceDays: z.number().optional(),
-      })
+      }),
     )
     .mutation(async ({ ctx, input }) => {
       const result = await FirefliesSyncService.bulkSyncFromFireflies(
         ctx.session.user.id,
         input.integrationId,
-        input.syncSinceDays
+        input.syncSinceDays,
       );
 
       if (!result.success) {
@@ -458,14 +514,14 @@ export const transcriptionRouter = createTRPCRouter({
         integrationId: z.string(),
         projectId: z.string(),
         syncSinceDays: z.number().optional(),
-      })
+      }),
     )
     .mutation(async ({ ctx, input }) => {
       // First, sync from Fireflies
       const syncResult = await FirefliesSyncService.bulkSyncFromFireflies(
         ctx.session.user.id,
         input.integrationId,
-        input.syncSinceDays
+        input.syncSinceDays,
       );
 
       if (!syncResult.success) {
@@ -479,30 +535,32 @@ export const transcriptionRouter = createTRPCRouter({
       let projectAssociations = 0;
       if (syncResult.newTranscripts > 0) {
         // Get recent transcriptions that don't have a project assigned yet from this integration
-        const recentUnassignedTranscriptions = await ctx.db.transcriptionSession.findMany({
-          where: {
-            userId: ctx.session.user.id,
-            sourceIntegrationId: input.integrationId,
-            projectId: null,
-            createdAt: {
-              gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+        const recentUnassignedTranscriptions =
+          await ctx.db.transcriptionSession.findMany({
+            where: {
+              userId: ctx.session.user.id,
+              sourceIntegrationId: input.integrationId,
+              projectId: null,
+              createdAt: {
+                gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+              },
             },
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-          take: syncResult.newTranscripts, // Limit to the number of new transcripts we just synced
-        });
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: syncResult.newTranscripts, // Limit to the number of new transcripts we just synced
+          });
 
         // Associate each unassigned transcription with the project
         for (const transcription of recentUnassignedTranscriptions) {
-          const result = await TranscriptionProcessingService.associateWithProject(
-            transcription.id,
-            input.projectId,
-            ctx.session.user.id,
-            true // autoProcess = true
-          );
-          
+          const result =
+            await TranscriptionProcessingService.associateWithProject(
+              transcription.id,
+              input.projectId,
+              ctx.session.user.id,
+              true, // autoProcess = true
+            );
+
           if (result.success) {
             projectAssociations++;
           }
@@ -565,20 +623,21 @@ export const transcriptionRouter = createTRPCRouter({
         transcriptionId: z.string(),
         projectId: z.string(),
         autoProcess: z.boolean().optional().default(true),
-      })
+      }),
     )
     .mutation(async ({ ctx, input }) => {
       const result = await TranscriptionProcessingService.associateWithProject(
         input.transcriptionId,
         input.projectId,
         ctx.session.user.id,
-        input.autoProcess
+        input.autoProcess,
       );
 
       if (!result.success) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: result.error || "Failed to associate transcription with project",
+          message:
+            result.error || "Failed to associate transcription with project",
         });
       }
 
@@ -590,13 +649,14 @@ export const transcriptionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const result = await TranscriptionProcessingService.processTranscription(
         input.transcriptionId,
-        ctx.session.user.id
+        ctx.session.user.id,
       );
 
       if (!result.success) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: result.errors.join(", ") || "Failed to process transcription",
+          message:
+            result.errors.join(", ") || "Failed to process transcription",
         });
       }
 
@@ -608,7 +668,7 @@ export const transcriptionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const result = await TranscriptionProcessingService.sendSlackNotification(
         input.transcriptionId,
-        ctx.session.user.id
+        ctx.session.user.id,
       );
 
       if (!result.success) {
@@ -646,7 +706,7 @@ export const transcriptionRouter = createTRPCRouter({
       // Archive the transcription
       await ctx.db.transcriptionSession.update({
         where: { id: input.id },
-        data: { 
+        data: {
           archivedAt: new Date(),
           updatedAt: new Date(),
         },
@@ -672,7 +732,7 @@ export const transcriptionRouter = createTRPCRouter({
 
       if (transcription.userId !== ctx.session.user.id) {
         throw new TRPCError({
-          code: "FORBIDDEN", 
+          code: "FORBIDDEN",
           message: "Not authorized to unarchive this transcription",
         });
       }
@@ -680,7 +740,7 @@ export const transcriptionRouter = createTRPCRouter({
       // Unarchive the transcription
       await ctx.db.transcriptionSession.update({
         where: { id: input.id },
-        data: { 
+        data: {
           archivedAt: null,
           updatedAt: new Date(),
         },

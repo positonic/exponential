@@ -21,6 +21,10 @@ const WORKFLOW_TEMPLATES = {
       // assignToMeetingParticipants: true,
     },
     configurationSchema: {
+      apiKey: {
+        type: "text",
+        required: true,
+      },
       // notificationChannels: {
       //   type: "multi-select",
       //   options: ["slack", "email", "whatsapp"],
@@ -411,21 +415,21 @@ export const projectWorkflowRouter = createTRPCRouter({
         });
       }
 
-      // Check if integration already exists
-      const existingIntegration = await ctx.db.integration.findFirst({
-        where: {
-          userId: ctx.session.user.id,
-          provider: provider,
-          status: "ACTIVE",
-        },
-      });
+      // // Check if integration already exists
+      // const existingIntegration = await ctx.db.integration.findFirst({
+      //   where: {
+      //     userId: ctx.session.user.id,
+      //     provider: provider,
+      //     status: "ACTIVE",
+      //   },
+      // });
 
-      if (existingIntegration) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: `You already have an active ${provider} integration. Please delete the existing one first if you want to create a new one.`,
-        });
-      }
+      // if (existingIntegration) {
+      //   throw new TRPCError({
+      //     code: "CONFLICT",
+      //     message: `You already have an active ${provider} integration. Please delete the existing one first if you want to create a new one.`,
+      //   });
+      // }
 
       // Create the integration
       const integration = await ctx.db.integration.create({
@@ -470,6 +474,7 @@ export const projectWorkflowRouter = createTRPCRouter({
         templateId: z.string(),
         name: z.string().optional(),
         configuration: z.record(z.any()),
+        integrationId: z.string(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -499,38 +504,22 @@ export const projectWorkflowRouter = createTRPCRouter({
       }
 
       // Check for required integrations - don't allow workflow creation without them
-      let integrationId = ""; // Default empty string for workflows without integrations
-
-      if (template.integrations && template.integrations.length > 0) {
+      if (!input.integrationId) {
         // Get the first integration provider from template
         const primaryProvider = template.integrations[0];
 
-        // Check if integration exists - don't create automatically
-        const existingIntegration = await ctx.db.integration.findFirst({
-          where: {
-            userId: ctx.session.user.id,
+        const integrationInstructions =
+          getIntegrationInstructions(primaryProvider);
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `${primaryProvider.charAt(0).toUpperCase() + primaryProvider.slice(1)} integration required`,
+          cause: {
             provider: primaryProvider,
-            status: "ACTIVE",
+            requiresOAuth: integrationInstructions.oauth,
+            authUrl: integrationInstructions.authUrl,
+            instructions: integrationInstructions.instructions,
           },
         });
-
-        if (!existingIntegration) {
-          // Don't allow workflow creation without integration
-          const integrationInstructions =
-            getIntegrationInstructions(primaryProvider);
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: `${primaryProvider.charAt(0).toUpperCase() + primaryProvider.slice(1)} integration required`,
-            cause: {
-              provider: primaryProvider,
-              requiresOAuth: integrationInstructions.oauth,
-              authUrl: integrationInstructions.authUrl,
-              instructions: integrationInstructions.instructions,
-            },
-          });
-        }
-
-        integrationId = existingIntegration.id;
       }
 
       // Create the workflow using existing Workflow table
@@ -554,7 +543,7 @@ export const projectWorkflowRouter = createTRPCRouter({
           },
           projectId: input.projectId,
           userId: ctx.session.user.id,
-          integrationId: integrationId,
+          integrationId: input.integrationId,
         },
       });
 

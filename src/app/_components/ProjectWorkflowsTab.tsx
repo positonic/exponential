@@ -135,13 +135,14 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
           color: "green",
           icon: <IconCheck size={16} />,
         });
-        
+
         // Close the modal
         setIntegrationRequiredModal({ open: false });
-        
+
         // Now try to create the workflow again
         if (selectedTemplate) {
           createWorkflowMutation.mutate({
+            integrationId: data.integration.id,
             projectId,
             templateId: selectedTemplate.id,
             name: workflowName,
@@ -182,8 +183,8 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
       onError: (error: any) => {
         // Check if this is a precondition failed error (missing integration)
         if (error.data?.code === "PRECONDITION_FAILED" && error.cause) {
-          const { provider, requiresOAuth, authUrl, instructions } = error.cause;
-          
+          const { provider, requiresOAuth, authUrl, instructions } =
+            error.cause;
           if (requiresOAuth) {
             // For OAuth providers, redirect to OAuth flow
             window.location.href = `${authUrl}?projectId=${projectId}&redirectUrl=${encodeURIComponent(window.location.href)}`;
@@ -305,6 +306,7 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
         // If we have a template selected, proceed with workflow creation
         if (selectedTemplate) {
           createWorkflowMutation.mutate({
+            integrationId: result.integrationId,
             projectId,
             templateId: selectedTemplate.id,
             name: workflowName,
@@ -347,11 +349,10 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
       // User has selected repositories, proceed with workflow creation
     }
 
-    createWorkflowMutation.mutate({
-      projectId,
-      templateId: selectedTemplate.id,
-      name: workflowName,
-      configuration,
+    createIntegrationMutation.mutate({
+      provider: "fireflies",
+      apiKey: configuration.apiKey,
+      name: `Fireflies Integration for ${workflowName}`,
     });
   };
 
@@ -669,13 +670,13 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
         <Stack gap="md">
           <Group justify="space-between" align="center">
             <div>
-              <Title order={4}>Available Workflow Templates</Title>
+              <Title order={4}>Project Workflows</Title>
               <Text size="sm" c="dimmed">
-                Choose from pre-built workflows to automate your project tasks
+                Choose from multiple workflows to automate your project tasks
               </Text>
             </div>
             <Badge variant="light" color="blue">
-              {templates?.length || 0} templates
+              {templates?.length || 0} workflows
             </Badge>
           </Group>
 
@@ -1073,40 +1074,41 @@ export function ProjectWorkflowsTab({ projectId }: ProjectWorkflowsTabProps) {
         {integrationRequiredModal.provider && (
           <Stack gap="lg">
             <Alert icon={<IconAlertCircle size={16} />} color="blue">
-              You need to connect {integrationRequiredModal.provider} to create this workflow.
+              You need to connect {integrationRequiredModal.provider} to create
+              this workflow.
             </Alert>
 
             <div>
               <Text fw={600} size="sm" mb="md">
                 Setup Instructions
               </Text>
-              <Text size="sm" style={{ whiteSpace: 'pre-line' }}>
+              <Text size="sm" style={{ whiteSpace: "pre-line" }}>
                 {integrationRequiredModal.instructions}
               </Text>
             </div>
 
-            {integrationRequiredModal.provider === 'fireflies' && (
-              <IntegrationSetupForm 
+            {integrationRequiredModal.provider === "fireflies" && (
+              <IntegrationSetupForm
                 provider={integrationRequiredModal.provider}
                 onSubmit={(apiKey: string) => {
                   createIntegrationMutation.mutate({
-                    provider: 'fireflies',
+                    provider: "fireflies",
                     apiKey,
-                    name: 'Fireflies Integration'
+                    name: "Fireflies Integration",
                   });
                 }}
                 isLoading={createIntegrationMutation.isPending}
               />
             )}
 
-            {integrationRequiredModal.provider === 'monday' && (
-              <IntegrationSetupForm 
+            {integrationRequiredModal.provider === "monday" && (
+              <IntegrationSetupForm
                 provider={integrationRequiredModal.provider}
                 onSubmit={(apiKey: string) => {
                   createIntegrationMutation.mutate({
-                    provider: 'monday',
+                    provider: "monday",
                     apiKey,
-                    name: 'Monday.com Integration'
+                    name: "Monday.com Integration",
                   });
                 }}
                 isLoading={createIntegrationMutation.isPending}
@@ -1135,8 +1137,12 @@ interface IntegrationSetupFormProps {
   isLoading: boolean;
 }
 
-function IntegrationSetupForm({ provider, onSubmit, isLoading }: IntegrationSetupFormProps) {
-  const [apiKey, setApiKey] = useState('');
+function IntegrationSetupForm({
+  provider,
+  onSubmit,
+  isLoading,
+}: IntegrationSetupFormProps) {
+  const [apiKey, setApiKey] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

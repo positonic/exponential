@@ -40,9 +40,9 @@ export function ProjectFirefliesSyncPanel({
     Record<string, string>
   >({});
 
-  // Fetch Fireflies integrations
+  // Fetch Fireflies integrations for this project
   const { data: integrations = [], isLoading } =
-    api.transcription.getFirefliesIntegrations.useQuery();
+    api.transcription.getFirefliesProjectIntegrations.useQuery({ projectId });
   const utils = api.useUtils();
 
   // Project-specific sync mutation
