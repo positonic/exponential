@@ -209,7 +209,7 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-primary)',
         },
         calendarHeader: {
-          backgroundColor: 'var(--color-bg-primary)',
+          backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
         },
         calendarHeaderControl: {
@@ -357,7 +357,7 @@ const componentStyles = {
           color: 'var(--color-text-disabled)',
         },
         '&[data-today]': {
-          backgroundColor: 'var(--color-brand-success)',
+          backgroundColor: 'var(--color-brand-error)',
           color: 'var(--color-text-inverse)',
           fontWeight: 600,
         },
@@ -439,7 +439,7 @@ const componentStyles = {
           color: 'var(--color-text-disabled)',
         },
         '&[data-today]': {
-          backgroundColor: 'var(--color-brand-success)',
+          backgroundColor: 'var(--color-brand-error)',
           color: 'var(--color-text-inverse)',
           fontWeight: 600,
         },

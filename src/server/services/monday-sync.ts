@@ -394,7 +394,7 @@ export class MondaySyncService {
   /**
    * Map Monday columns to Action fields
    */
-  private mapMondayColumnsToActionFields(item: any): Record<string, any> {
+  private mapMondayColumnsToActionFields(_item: any): Record<string, any> {
     const fields: Record<string, any> = {};
     
     // This would implement intelligent mapping based on column types and names

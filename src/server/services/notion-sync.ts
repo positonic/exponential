@@ -1,6 +1,7 @@
 import { db } from '~/server/db';
-import { notionIntegrationService } from './notion-integration';
-import type { Integration, Workflow, Action } from '@prisma/client';
+// import { notionIntegrationService } from './notion-integration'; // Currently unused
+import type { Workflow, Action } from '@prisma/client';
+// import type { Integration } from '@prisma/client'; // Currently unused
 
 interface NotionTodo {
   id: string;
@@ -262,7 +263,7 @@ export class NotionSyncService {
   /**
    * Push Action changes back to Notion (for bidirectional sync)
    */
-  async updateNotionTodoFromAction(action: Action, notionPageId: string, integrationId: string): Promise<void> {
+  async updateNotionTodoFromAction(_action: Action, _notionPageId: string, _integrationId: string): Promise<void> {
     try {
       // This would implement pushing changes back to Notion
       // For now, we'll focus on pull sync only
@@ -334,7 +335,7 @@ export class NotionSyncService {
   /**
    * Convert Notion page to todo structure
    */
-  private async convertPageToTodo(page: any, database: any, config: NotionTodosConfig): Promise<NotionTodo | null> {
+  private async convertPageToTodo(page: any, database: any, _config: NotionTodosConfig): Promise<NotionTodo | null> {
     try {
       const properties = page.properties;
       

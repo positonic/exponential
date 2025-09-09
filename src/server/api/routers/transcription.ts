@@ -680,6 +680,33 @@ export const transcriptionRouter = createTRPCRouter({
 
       return result;
     }),
+  sendSlackSummary: protectedProcedure
+    .input(z.object({ 
+      transcriptionId: z.string(),
+      channel: z.string(),
+      includeSummary: z.boolean().default(true),
+      includeActions: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await TranscriptionProcessingService.sendSlackSummary(
+        input.transcriptionId,
+        ctx.session.user.id,
+        {
+          channel: input.channel,
+          includeSummary: input.includeSummary,
+          includeActions: input.includeActions,
+        }
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.error || "Failed to send Slack summary",
+        });
+      }
+
+      return result;
+    }),
 
   archiveTranscription: protectedProcedure
     .input(z.object({ id: z.string() }))

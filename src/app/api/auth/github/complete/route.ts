@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { auth } from "~/server/auth";
 import { githubIntegrationService } from "~/server/services/github-integration";
 import { z } from "zod";
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
     let authData;
     try {
       authData = JSON.parse(Buffer.from(authToken, "base64").toString());
-    } catch (error) {
+    } catch {
       return NextResponse.json(
         { error: "Invalid auth token" },
         { status: 400 },

@@ -6,7 +6,6 @@ import {
   Group,
   Text,
   Badge,
-  Button,
   ActionIcon,
   Tooltip,
   ThemeIcon,
@@ -15,7 +14,6 @@ import {
   IconTestPipe,
   IconRefresh,
   IconSettings,
-  IconPlus,
   IconBrandGithub,
   IconBrandSlack,
   IconBrandNotion,
@@ -24,7 +22,7 @@ import {
   IconBrandWhatsapp,
   IconCalendar,
 } from "@tabler/icons-react";
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 
 interface ServiceCardProps {
   variant: "connected" | "available";

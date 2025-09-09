@@ -123,3 +123,18 @@
     --color-brand-info: #4dabf7;
   }
 }
+
+/* Custom styles for UnifiedDatePicker today highlighting */
+@layer components {
+  /* High specificity selector to override inline styles */
+  .unified-datepicker-day[data-today][data-highlight-today] {
+    background-color: var(--color-brand-primary) !important;
+    font-weight: 600 !important;
+  }
+  
+  /* Handle selected state as well */
+  .unified-datepicker-day[data-today][data-highlight-today][data-selected] {
+    background-color: var(--color-brand-primary) !important;
+    font-weight: 600 !important;
+  }
+}

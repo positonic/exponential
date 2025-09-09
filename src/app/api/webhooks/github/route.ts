@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "~/server/db";
 import { githubIntegrationService } from "~/server/services/github-integration";

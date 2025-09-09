@@ -155,7 +155,6 @@ export function ConnectedServicesGrid({
         {providerCards.map((providerCard) => {
           const {
             provider,
-            integrations: providerIntegrations,
             displayIntegration,
             count,
             status,
