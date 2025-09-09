@@ -198,7 +198,7 @@ export const semanticColors = {
       selected: 'brand.primary',
       selectedText: 'text.inverse',
       outside: 'text.disabled',
-      today: 'brand.success',
+      today: 'brand.primary',
     },
     month: {
       background: 'background.primary',

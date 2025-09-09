@@ -262,6 +262,18 @@ export function UnifiedDatePicker({
                 }
               }}
               size="sm"
+              highlightToday={true}
+              classNames={{
+                day: 'unified-datepicker-day'
+              }}
+              styles={{
+                calendarHeader: {
+                  backgroundColor: 'var(--color-bg-secondary)',
+                },
+                month: {
+                  backgroundColor: 'var(--color-bg-secondary)',
+                }
+              }}
             />
 
             <UnstyledButton className="mt-2 flex w-full items-center justify-center gap-2 border-t border-border-primary p-3 hover:bg-surface-hover">
