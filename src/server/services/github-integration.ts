@@ -158,12 +158,12 @@ class GitHubIntegrationService {
     },
   ) {
     const {
-      accessToken,
+      accessToken: _accessToken,
       scopes,
       githubUser,
       selectedRepository,
       installationId,
-      projectId,
+      projectId: _projectId,
     } = oauthData;
 
     // Create the main integration record with project-specific naming
@@ -591,7 +591,7 @@ class GitHubIntegrationService {
 
       await this.makeGitHubRequest(integration as GitHubIntegration, "/user");
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }

@@ -7,7 +7,7 @@ const SECRET_KEY = process.env.ENCRYPTION_KEY || 'your-32-char-secret-key-here-1
 const KEY = crypto.scryptSync(SECRET_KEY, 'salt', 32);
 
 export function encrypt(text: string): string {
-  // const iv = crypto.randomBytes(16); // Currently unused
+  const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipher(ALGORITHM, KEY);
   cipher.setAAD(Buffer.from('github-token', 'utf8'));
   
@@ -26,7 +26,7 @@ export function decrypt(encryptedData: string): string {
     throw new Error('Invalid encrypted data format');
   }
   
-  // const iv = Buffer.from(parts[0]!, 'hex'); // Currently unused
+  const _iv = Buffer.from(parts[0]!, 'hex'); // Currently unused but kept for future IV-based decryption
   const authTag = Buffer.from(parts[1]!, 'hex');
   const encrypted = parts[2]!;
   

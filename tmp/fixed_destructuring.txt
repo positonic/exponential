@@ -1,8 +1,0 @@
-          const {
-            provider,
-            displayIntegration,
-            count,
-            status,
-            activeCount,
-            lastSync,
-          } = providerCard;
