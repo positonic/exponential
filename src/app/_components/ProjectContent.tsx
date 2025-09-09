@@ -48,6 +48,7 @@ import { ProjectSyncConfiguration } from "./ProjectSyncConfiguration";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 import { TeamWeeklyReview } from "./TeamWeeklyReview";
 import { WeeklyOutcomes } from "./WeeklyOutcomes";
+import { ProjectFirefliesSyncPanel } from "./ProjectFirefliesSyncPanel";
 import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import Link from "next/link";
 
@@ -81,6 +82,8 @@ export function ProjectContent({
   const { data: projectActions } = api.action.getProjectActions.useQuery({ projectId });
   const goalsQuery = api.goal.getProjectGoals.useQuery({ projectId });
   const outcomesQuery = api.outcome.getProjectOutcomes.useQuery({ projectId });
+  const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery({ projectId });
+  const utils = api.useUtils();
 
   const handleTabChange = (value: string | null) => {
     if (value) {
@@ -92,6 +95,11 @@ export function ProjectContent({
     setSelectedTranscription(transcription);
     setDrawerOpened(true);
   };
+
+  // Check if project has active Fireflies workflow
+  const hasFirefliesWorkflow = projectWorkflows?.some(
+    workflow => workflow.template?.id === 'fireflies-meeting-transcription' && workflow.status === 'ACTIVE'
+  ) || false;
 
   if (isLoading) {
     return <div>Loading project...</div>;
@@ -307,14 +315,40 @@ export function ProjectContent({
               <Stack gap="md">
                 <Group justify="space-between" align="center">
                   <Title order={4}>Project Transcriptions</Title>
-                  <Text size="sm" c="dimmed">
-                    {project.transcriptionSessions?.length || 0} transcriptions
-                  </Text>
+                  <Group gap="md">
+                    {hasFirefliesWorkflow && (
+                      <ProjectFirefliesSyncPanel 
+                        projectId={projectId}
+                        onSyncComplete={() => {
+                          // Refresh project data to show newly synced transcriptions
+                          void utils.project.getById.invalidate({ id: projectId });
+                        }}
+                      />
+                    )}
+                    <Text size="sm" c="dimmed">
+                      {project.transcriptionSessions?.length || 0} transcriptions
+                      {(project.transcriptionSessions?.length || 0) > 3 && (
+                        <Text component="span" size="xs" c="dimmed" ml="xs">
+                          • Scroll to view all
+                        </Text>
+                      )}
+                    </Text>
+                  </Group>
                 </Group>
 
                 {project.transcriptionSessions && project.transcriptionSessions.length > 0 ? (
-                  <Stack gap="lg">
-                    {project.transcriptionSessions.map((session) => (
+                  <div 
+                    style={{ 
+                      maxHeight: '600px', 
+                      overflowY: 'auto',
+                      paddingRight: '8px',
+                      scrollbarWidth: 'thin',
+                      scrollbarColor: 'var(--mantine-color-gray-4) transparent',
+                    }}
+                    className="scrollable-transcriptions"
+                  >
+                    <Stack gap="lg">
+                      {project.transcriptionSessions.map((session) => (
                       <Card
                         key={session.id}
                         withBorder
@@ -418,8 +452,9 @@ export function ProjectContent({
                           )}
                         </Stack>
                       </Card>
-                    ))}
-                  </Stack>
+                      ))}
+                    </Stack>
+                  </div>
                 ) : (
                   <Paper p="xl" radius="md" className="text-center">
                     <Stack gap="md" align="center">
