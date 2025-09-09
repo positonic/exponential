@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { auth } from "~/server/auth";
 import { githubIntegrationService } from "~/server/services/github-integration";
 import { App } from "octokit";
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { installation_id, setup_action, state } = validatedParams;
+    const { installation_id, state } = validatedParams;
 
     // Check if this installation has already been processed
     if (processedInstallations.has(installation_id)) {

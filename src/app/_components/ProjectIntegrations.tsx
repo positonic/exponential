@@ -107,7 +107,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const selectedIntegrationData = slackIntegrations?.find(i => i.id === selectedSlackIntegration);
   const canFetchChannels = selectedIntegrationData?.accessType === 'owned';
   
-  const { data: availableChannels = [] } = api.slack.getAvailableChannels.useQuery(
+  const { data: availableChannels = [] } = api.slack.getAvailableChannelsForIntegration.useQuery(
     { integrationId: selectedSlackIntegration },
     { enabled: !!selectedSlackIntegration && canFetchChannels }
   );

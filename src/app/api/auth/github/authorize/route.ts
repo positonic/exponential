@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { auth } from "~/server/auth";
 import { z } from "zod";
 
@@ -7,9 +8,9 @@ const authorizeSchema = z.object({
   redirectUrl: z.string().url().optional(),
 });
 
-// GitHub App credentials
-const GITHUB_APP_ID = process.env.GITHUB_APP_ID!;
-const BASE_URL = process.env.NEXTAUTH_URL || "http://localhost:3000";
+// GitHub App credentials (currently unused)
+// const GITHUB_APP_ID = process.env.GITHUB_APP_ID!;
+// const BASE_URL = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
 export async function GET(request: NextRequest) {
   try {

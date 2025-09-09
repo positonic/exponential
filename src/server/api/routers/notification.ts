@@ -43,6 +43,9 @@ export const notificationRouter = createTRPCRouter({
         projectUpdates: z.boolean().optional(),
         quietHoursStart: z.string().optional(),
         quietHoursEnd: z.string().optional(),
+        weeklyDayOfWeek: z.number().optional(),
+        reminderMinutesBefore: z.array(z.number()).optional(),
+        integrationId: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

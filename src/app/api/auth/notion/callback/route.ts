@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { auth } from '~/server/auth';
 import { notionIntegrationService } from '~/server/services/notion-integration';
 import { z } from 'zod';
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent('Failed to get Notion workspace information')}`);
     }
 
-    const workspaceData = await workspaceResponse.json();
+    // const workspaceData = await workspaceResponse.json(); // Currently unused
 
     // Create Notion integration using the service
     await notionIntegrationService.createNotionIntegration(session.user.id, {

@@ -274,7 +274,7 @@ function getIntegrationInstructions(provider: string) {
 
 export const projectWorkflowRouter = createTRPCRouter({
   // Get all available workflow templates
-  getTemplates: protectedProcedure.query(async () => {
+  getTemplates: protectedProcedure.query(async ({ ctx: _ctx }) => {
     // Return hardcoded templates - no need to fetch from database
     return Object.values(WORKFLOW_TEMPLATES);
   }),
@@ -286,7 +286,7 @@ export const projectWorkflowRouter = createTRPCRouter({
         templateId: z.string(),
       }),
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx: _ctx, input }) => {
       const template =
         WORKFLOW_TEMPLATES[input.templateId as keyof typeof WORKFLOW_TEMPLATES];
 
@@ -674,6 +674,9 @@ export const projectWorkflowRouter = createTRPCRouter({
       }
 
       const templateId = (workflow.config as any)?.templateId as string;
+      // const template = templateId
+      //   ? WORKFLOW_TEMPLATES[templateId as keyof typeof WORKFLOW_TEMPLATES]
+      //   : null; // Currently unused
 
       // Create workflow run record using existing WorkflowRun table
       const run = await ctx.db.workflowRun.create({
