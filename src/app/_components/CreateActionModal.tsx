@@ -73,6 +73,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
         assignedToId: null,
         kanbanStatus: newAction.projectId ? "TODO" as ActionStatus : null, // Set kanban status for project actions
         kanbanOrder: null, // Will be set by the server
+        completedAt: null, // New field for completion timestamp
         syncs: [], // Initialize empty syncs array for consistency with getAll type
         assignees: [], // Initialize empty assignees array for type consistency
         project: newAction.projectId 
