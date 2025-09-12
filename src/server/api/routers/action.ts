@@ -232,9 +232,29 @@ export const actionRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updateData } = input;
+      
+      // Check if action is being marked as completed
+      const isCompleting = updateData.status === "COMPLETED" || updateData.kanbanStatus === "DONE";
+      const isUncompleting = updateData.status === "ACTIVE" || (updateData.kanbanStatus && updateData.kanbanStatus !== "DONE");
+      
+      // Get current action to check previous state
+      const currentAction = await ctx.db.action.findUnique({
+        where: { id },
+        select: { status: true, kanbanStatus: true, completedAt: true }
+      });
+      
+      const wasCompleted = currentAction?.status === "COMPLETED" || currentAction?.kanbanStatus === "DONE";
+      
+      // Set completedAt timestamp when completing, clear when uncompleting
+      const finalUpdateData = {
+        ...updateData,
+        ...(isCompleting && !wasCompleted && { completedAt: new Date() }),
+        ...(isUncompleting && wasCompleted && { completedAt: null }),
+      };
+      
       return ctx.db.action.update({
         where: { id },
-        data: updateData,
+        data: finalUpdateData,
       });
     }),
 
@@ -248,6 +268,12 @@ export const actionRouter = createTRPCRouter({
       // Verify the action exists and user has permission to modify it
       const action = await ctx.db.action.findUnique({
         where: { id: input.actionId },
+        select: { 
+          id: true, 
+          createdById: true, 
+          kanbanStatus: true,
+          completedAt: true 
+        }
       });
 
       if (!action) {
@@ -258,10 +284,22 @@ export const actionRouter = createTRPCRouter({
         throw new Error("You don't have permission to modify this action");
       }
 
+      // Check if action is being completed or uncompleted
+      const isCompleting = input.kanbanStatus === "DONE";
+      const isUncompleting = input.kanbanStatus !== "DONE";
+      const wasCompleted = action.kanbanStatus === "DONE";
+
+      // Prepare update data with completion timestamp
+      const updateData = {
+        kanbanStatus: input.kanbanStatus,
+        ...(isCompleting && !wasCompleted && { completedAt: new Date() }),
+        ...(isUncompleting && wasCompleted && { completedAt: null }),
+      };
+
       // Update the kanban status
       return ctx.db.action.update({
         where: { id: input.actionId },
-        data: { kanbanStatus: input.kanbanStatus },
+        data: updateData,
         include: {
           project: true,
           assignees: {
@@ -1068,5 +1106,70 @@ export const actionRouter = createTRPCRouter({
         message: `Initialized kanban orders for ${actionsWithoutOrder.length} actions`,
         updated: actionsWithoutOrder.length 
       };
+    }),
+
+  // Get actions completed today
+  getCompletedToday: protectedProcedure
+    .query(async ({ ctx }) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      return ctx.db.action.findMany({
+        where: {
+          createdById: ctx.session.user.id,
+          completedAt: {
+            gte: today,
+            lt: tomorrow,
+          },
+        },
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: {
+          completedAt: 'desc',
+        },
+      });
+    }),
+
+  // Get recent completed actions with date range
+  getRecentCompleted: protectedProcedure
+    .input(z.object({
+      days: z.number().min(1).max(90).default(7), // Default to last 7 days, max 90
+    }))
+    .query(async ({ ctx, input }) => {
+      const endDate = new Date();
+      endDate.setHours(23, 59, 59, 999);
+      
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - input.days);
+      startDate.setHours(0, 0, 0, 0);
+
+      return ctx.db.action.findMany({
+        where: {
+          createdById: ctx.session.user.id,
+          completedAt: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: {
+          completedAt: 'desc',
+        },
+      });
     }),
 }); 
