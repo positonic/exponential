@@ -21,6 +21,7 @@ import {
   Tabs,
   Paper,
   Switch,
+  Tooltip,
   // Divider,
   // List,
   // ListItem
@@ -39,7 +40,8 @@ import {
   IconPlug,
   IconArrowLeft,
   IconUserMinus,
-  IconPlus
+  IconPlus,
+  IconCalendarWeek
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
@@ -317,24 +319,41 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                         </div>
                       </Group>
                       
-                      {isOwnerOrAdmin && member.role !== 'owner' && member.userId !== currentUserId && (
-                        <Menu shadow="md" width={200}>
-                          <Menu.Target>
-                            <ActionIcon variant="subtle" size="sm">
-                              <IconDots size={16} />
-                            </ActionIcon>
-                          </Menu.Target>
-                          <Menu.Dropdown>
-                            <Menu.Item
-                              leftSection={<IconUserMinus size={14} />}
-                              color="red"
-                              onClick={() => handleRemoveMember(member.userId)}
+                      <Group gap="xs">
+                        {/* Weekly Review Link for Organization Teams */}
+                        {team.isOrganization && (
+                          <Tooltip label="View Weekly Review">
+                            <ActionIcon
+                              variant="light"
+                              color="blue"
+                              size="sm"
+                              component={Link}
+                              href={`/teams/${team.slug}/members/${member.userId}/weekly-review`}
                             >
-                              Remove Member
-                            </Menu.Item>
-                          </Menu.Dropdown>
-                        </Menu>
-                      )}
+                              <IconCalendarWeek size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                        )}
+                        
+                        {isOwnerOrAdmin && member.role !== 'owner' && member.userId !== currentUserId && (
+                          <Menu shadow="md" width={200}>
+                            <Menu.Target>
+                              <ActionIcon variant="subtle" size="sm">
+                                <IconDots size={16} />
+                              </ActionIcon>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                              <Menu.Item
+                                leftSection={<IconUserMinus size={14} />}
+                                color="red"
+                                onClick={() => handleRemoveMember(member.userId)}
+                              >
+                                Remove Member
+                              </Menu.Item>
+                            </Menu.Dropdown>
+                          </Menu>
+                        )}
+                      </Group>
                     </Group>
                   ))}
                 </Stack>

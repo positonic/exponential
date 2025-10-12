@@ -344,6 +344,111 @@ export const projectRouter = createTRPCRouter({
       });
     }),
 
+  getActiveWithDetailsForUser: protectedProcedure
+    .input(z.object({
+      userId: z.string(),
+      teamId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Verify that the requesting user is a member of the specified team
+      const requestingUserMembership = await ctx.db.teamUser.findUnique({
+        where: {
+          userId_teamId: {
+            userId: ctx.session.user.id,
+            teamId: input.teamId,
+          },
+        },
+        include: {
+          team: {
+            select: {
+              isOrganization: true,
+            },
+          },
+        },
+      });
+
+      if (!requestingUserMembership) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You must be a member of this team to view shared weekly reviews',
+        });
+      }
+
+      if (!requestingUserMembership.team.isOrganization) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Weekly reviews can only be viewed in organization teams',
+        });
+      }
+
+      // Verify that the target user is also a member of the team
+      const targetUserMembership = await ctx.db.teamUser.findUnique({
+        where: {
+          userId_teamId: {
+            userId: input.userId,
+            teamId: input.teamId,
+          },
+        },
+      });
+
+      if (!targetUserMembership) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'The requested user is not a member of this team',
+        });
+      }
+
+      // Verify that the target user has enabled sharing with this team
+      const sharingSettings = await ctx.db.weeklyReviewSharing.findUnique({
+        where: {
+          userId_teamId: {
+            userId: input.userId,
+            teamId: input.teamId,
+          },
+        },
+      });
+
+      if (!sharingSettings?.isEnabled) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'This user has not enabled weekly review sharing with this team',
+        });
+      }
+
+      // Get the user's active projects with the same structure as getActiveWithDetails
+      return await ctx.db.project.findMany({
+        where: {
+          createdById: input.userId,
+          status: "ACTIVE",
+        },
+        include: {
+          actions: {
+            orderBy: {
+              priority: 'asc',
+            },
+            include: {
+              project: true,
+              syncs: true,
+              assignees: {
+                include: { user: { select: { id: true, name: true, email: true, image: true } } },
+              },
+            },
+          },
+          outcomes: {
+            where: {
+              type: 'weekly',
+            },
+            orderBy: {
+              dueDate: 'asc',
+            },
+          },
+        },
+        orderBy: {
+          priority: 'asc',
+        },
+      });
+    }),
+
   getUnassignedProjects: protectedProcedure
     .query(async ({ ctx }) => {
       return ctx.db.project.findMany({

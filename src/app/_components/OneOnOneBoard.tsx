@@ -11,14 +11,27 @@ import Link from "next/link";
 
 type Project = RouterOutputs["project"]["getActiveWithDetails"][0];
 
-export function OneOnOneBoard() {
-  const { data: projects, isLoading } = api.project.getActiveWithDetails.useQuery();
+interface OneOnOneBoardProps {
+  userId?: string;
+  teamId?: string;
+  userName?: string;
+  isSharedView?: boolean;
+}
+
+export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false }: OneOnOneBoardProps) {
+  // Use different API calls based on whether it's a shared view
+  const { data: projects, isLoading } = isSharedView && userId && teamId
+    ? api.project.getActiveWithDetailsForUser.useQuery({ userId, teamId })
+    : api.project.getActiveWithDetails.useQuery();
+  
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [outcomeSearchValues, setOutcomeSearchValues] = useState<Record<string, string>>({});
   const utils = api.useUtils();
   
-  // Fetch all outcomes for the dropdown
-  const { data: allOutcomes } = api.outcome.getMyOutcomes.useQuery();
+  // Fetch outcomes - use different API for shared view
+  const { data: allOutcomes } = isSharedView && userId && teamId
+    ? api.outcome.getOutcomesForUser.useQuery({ userId, teamId })
+    : api.outcome.getMyOutcomes.useQuery();
   
   const updateProject = api.project.update.useMutation({
     onSuccess: () => {
@@ -104,7 +117,9 @@ export function OneOnOneBoard() {
 
   return (
     <Container size="xl" py="xl">
-      <Title order={2} mb="xl" className="text-text-primary">Weekly Review</Title>
+      <Title order={2} mb="xl" className="text-text-primary">
+        {isSharedView && userName ? `${userName}'s Weekly Review` : 'Weekly Review'}
+      </Title>
       
       <ScrollArea>
         <table className="w-full border-collapse">
@@ -147,7 +162,7 @@ export function OneOnOneBoard() {
                     <td className="p-3">
                       <Select
                         value={project.status}
-                        onChange={(value) => {
+                        onChange={isSharedView ? undefined : (value) => {
                           if (value) {
                             updateProject.mutate({
                               id: project.id,
@@ -160,6 +175,7 @@ export function OneOnOneBoard() {
                         data={statusOptions}
                         size="xs"
                         variant="filled"
+                        disabled={isSharedView}
                         styles={{
                           input: {
                             backgroundColor: `var(--mantine-color-${getStatusColor(project.status)}-light)`,
@@ -173,7 +189,7 @@ export function OneOnOneBoard() {
                     <td className="p-3">
                       <Select
                         value={project.priority}
-                        onChange={(value) => {
+                        onChange={isSharedView ? undefined : (value) => {
                           if (value) {
                             updateProject.mutate({
                               id: project.id,
@@ -186,6 +202,7 @@ export function OneOnOneBoard() {
                         data={priorityOptions}
                         size="xs"
                         variant="filled"
+                        disabled={isSharedView}
                         styles={{
                           input: {
                             backgroundColor: `var(--mantine-color-${getPriorityColor(project.priority)}-light)`,
@@ -204,7 +221,7 @@ export function OneOnOneBoard() {
                         projectPriority={project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE"}
                         currentOutcomes={project.outcomes?.map(outcome => ({ ...outcome, goals: [], projects: [], assignees: [] })) || []}
                         searchValue={outcomeSearchValues[project.id] || ''}
-                        onSearchChange={(value) => {
+                        onSearchChange={isSharedView ? () => { /* disabled in shared view */ } : (value) => {
                           setOutcomeSearchValues(prev => ({
                             ...prev,
                             [project.id]: value

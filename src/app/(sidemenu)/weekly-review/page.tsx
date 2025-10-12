@@ -1,4 +1,5 @@
 import { OneOnOneBoard } from "~/app/_components/OneOnOneBoard";
+import { ShareableLinks } from "~/app/_components/ShareableLinks";
 import { Container, Group, Button, Title, Text } from "@mantine/core";
 import { IconSettings } from "@tabler/icons-react";
 import Link from "next/link";
@@ -26,6 +27,11 @@ export default function WeeklyReviewPage() {
             Sharing Settings
           </Button>
         </Group>
+      </Container>
+      
+      {/* Shareable Links Section */}
+      <Container size="xl" py="md">
+        <ShareableLinks />
       </Container>
       
       {/* Main Content */}

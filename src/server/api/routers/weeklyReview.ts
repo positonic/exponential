@@ -26,6 +26,29 @@ export const weeklyReviewRouter = createTRPCRouter({
       return sharingSettings;
     }),
 
+  // Get teams where user has enabled sharing (for shareable links)
+  getSharedTeams: protectedProcedure
+    .query(async ({ ctx }) => {
+      const sharedTeams = await ctx.db.weeklyReviewSharing.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          isEnabled: true,
+        },
+        include: {
+          team: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              isOrganization: true,
+            },
+          },
+        },
+      });
+
+      return sharedTeams;
+    }),
+
   // Get user's organization teams (for sharing options)
   getOrganizationTeams: protectedProcedure
     .query(async ({ ctx }) => {
