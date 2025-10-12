@@ -351,7 +351,7 @@ export const weeklyReviewRouter = createTRPCRouter({
       
       // Test connection first
       const connectionTest = await slackService.testConnection();
-      if (!connectionTest.success) {
+      if (!connectionTest.connected) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: `Slack connection failed: ${connectionTest.error}`,

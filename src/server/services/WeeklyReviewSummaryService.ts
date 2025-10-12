@@ -23,7 +23,7 @@ export interface WeeklyHighlight {
   title: string;
   description?: string;
   projectName?: string;
-  completedAt?: Date;
+  completedAt?: Date | null;
 }
 
 export class WeeklyReviewSummaryService {
@@ -93,7 +93,7 @@ export class WeeklyReviewSummaryService {
         }
       },
       orderBy: {
-        updatedAt: 'desc'
+        createdAt: 'desc'
       },
       take: 5 // Limit to top 5 active projects
     });
@@ -101,7 +101,7 @@ export class WeeklyReviewSummaryService {
     return projects.map(project => {
       const totalActions = project.actions.length;
       const completedActions = project.actions.filter(action => 
-        action.status === 'DONE' || action.kanbanStatus === 'DONE'
+        action.status === 'COMPLETED' || action.kanbanStatus === 'DONE'
       ).length;
       
       const completionPercentage = totalActions > 0 
@@ -129,33 +129,33 @@ export class WeeklyReviewSummaryService {
   ): Promise<WeeklyHighlight[]> {
     const highlights: WeeklyHighlight[] = [];
 
-    // Get recently completed outcomes
-    const completedOutcomes = await db.outcome.findMany({
+    // Get recently completed outcomes (Note: Outcome model may not have status/completion tracking)
+    const recentOutcomes = await db.outcome.findMany({
       where: {
-        createdById: userId,
-        status: 'COMPLETED',
-        updatedAt: {
+        userId: userId,
+        dueDate: {
           gte: weekStart,
           lte: weekEnd
         }
       },
       include: {
-        project: {
-          select: { name: true }
+        projects: {
+          select: { name: true },
+          take: 1
         }
       },
       orderBy: {
-        updatedAt: 'desc'
+        dueDate: 'desc'
       },
       take: 3
     });
 
-    highlights.push(...completedOutcomes.map(outcome => ({
+    highlights.push(...recentOutcomes.map(outcome => ({
       type: 'outcome' as const,
-      title: outcome.name,
-      description: outcome.description ?? undefined,
-      projectName: outcome.project?.name,
-      completedAt: outcome.updatedAt
+      title: outcome.description, // Using description as title since there's no name field
+      description: undefined,
+      projectName: outcome.projects[0]?.name,
+      completedAt: outcome.dueDate
     })));
 
     // Get recently completed high-priority actions
@@ -163,13 +163,13 @@ export class WeeklyReviewSummaryService {
       where: {
         createdById: userId,
         OR: [
-          { status: 'DONE' },
+          { status: 'COMPLETED' },
           { kanbanStatus: 'DONE' }
         ],
         priority: {
           in: ['HIGH', '1st Priority']
         },
-        updatedAt: {
+        completedAt: {
           gte: weekStart,
           lte: weekEnd
         }
@@ -180,7 +180,7 @@ export class WeeklyReviewSummaryService {
         }
       },
       orderBy: {
-        updatedAt: 'desc'
+        completedAt: 'desc'
       },
       take: 3
     });
@@ -190,7 +190,7 @@ export class WeeklyReviewSummaryService {
       title: action.name,
       description: action.description ?? undefined,
       projectName: action.project?.name,
-      completedAt: action.updatedAt
+      completedAt: action.completedAt
     })));
 
     // Sort by completion date and return top 5
@@ -211,7 +211,7 @@ export class WeeklyReviewSummaryService {
       where: {
         createdById: userId,
         status: {
-          not: 'DONE'
+          not: 'COMPLETED'
         },
         kanbanStatus: {
           not: 'DONE'
@@ -240,7 +240,6 @@ export class WeeklyReviewSummaryService {
         }
       },
       orderBy: [
-        { priority: 'desc' },
         { dueDate: 'asc' }
       ],
       take: 5
