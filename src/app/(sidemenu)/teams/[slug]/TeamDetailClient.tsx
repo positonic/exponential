@@ -48,7 +48,7 @@ import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 // import { useRouter } from 'next/navigation';
 import { AddProjectToTeamModal } from '~/app/_components/AddProjectToTeamModal';
 import { AssignProjectToTeamModal } from '~/app/_components/AssignProjectToTeamModal';
@@ -66,7 +66,8 @@ interface TeamDetailClientProps {
 }
 
 export default function TeamDetailClient({ team: initialTeam, currentUserId }: TeamDetailClientProps) {
-  // const router = useRouter();
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [addMemberModalOpened, { open: openAddMemberModal, close: closeAddMemberModal }] = useDisclosure(false);
   const [addIntegrationModalOpened, { open: openAddIntegrationModal, close: closeAddIntegrationModal }] = useDisclosure(false);
@@ -83,6 +84,21 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
 
   // Get active tab from URL parameters
   const activeTab = searchParams.get('tab') ?? 'members';
+
+  // Handle tab change by updating URL
+  const handleTabChange = (value: string | null) => {
+    if (!value) return;
+    
+    const newSearchParams = new URLSearchParams(searchParams.toString());
+    if (value === 'members') {
+      newSearchParams.delete('tab');
+    } else {
+      newSearchParams.set('tab', value);
+    }
+    
+    const newUrl = `${pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`;
+    router.push(newUrl);
+  };
 
   // Add member mutation
   const addMember = api.team.addMember.useMutation({
@@ -277,7 +293,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
         </Grid>
 
         {/* Content Tabs */}
-        <Tabs value={activeTab} onChange={() => { /* controlled by URL parameters */ }}>
+        <Tabs value={activeTab} onChange={handleTabChange}>
           <Tabs.List>
             <Tabs.Tab value="members" leftSection={<IconUsers size={16} />}>
               Members

@@ -12,8 +12,10 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import { modals } from '@mantine/modals';
 import { api } from '~/trpc/react';
-import { IconEdit } from '@tabler/icons-react';
+import { IconEdit, IconTrash } from '@tabler/icons-react';
+import { useRouter } from 'next/navigation';
 
 interface EditTeamModalProps {
   team: {
@@ -28,6 +30,7 @@ export function EditTeamModal({ team, onTeamUpdated }: EditTeamModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [name, setName] = useState(team.name);
   const [description, setDescription] = useState(team.description || '');
+  const router = useRouter();
 
   const utils = api.useUtils();
 
@@ -55,6 +58,30 @@ export function EditTeamModal({ team, onTeamUpdated }: EditTeamModalProps) {
     },
   });
 
+  const deleteTeam = api.team.delete.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Team Deleted',
+        message: 'Team has been deleted successfully.',
+        color: 'green',
+      });
+      
+      // Invalidate relevant queries
+      void utils.team.list.invalidate();
+      
+      // Navigate to teams list
+      router.push('/teams');
+      close();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to delete team',
+        color: 'red',
+      });
+    },
+  });
+
   const handleSubmit = () => {
     if (!name.trim()) {
       notifications.show({
@@ -77,6 +104,20 @@ export function EditTeamModal({ team, onTeamUpdated }: EditTeamModalProps) {
     setName(team.name);
     setDescription(team.description || '');
     close();
+  };
+
+  const handleDeleteTeam = () => {
+    modals.openConfirmModal({
+      title: 'Delete Team',
+      children: (
+        <Text size="sm">
+          Are you sure you want to delete <strong>{team.name}</strong>? This action cannot be undone.
+        </Text>
+      ),
+      labels: { confirm: 'Delete', cancel: 'Cancel' },
+      confirmProps: { color: 'red' },
+      onConfirm: () => deleteTeam.mutate({ teamId: team.id }),
+    });
   };
 
   return (
@@ -119,17 +160,29 @@ export function EditTeamModal({ team, onTeamUpdated }: EditTeamModalProps) {
             Only team owners and admins can edit team details.
           </Text>
 
-          <Group justify="flex-end">
-            <Button variant="light" onClick={handleClose}>
-              Cancel
-            </Button>
+          <Group justify="space-between">
             <Button
-              onClick={handleSubmit}
-              loading={updateTeam.isPending}
-              disabled={!name.trim()}
+              variant="subtle"
+              color="red"
+              leftSection={<IconTrash size={16} />}
+              onClick={handleDeleteTeam}
+              loading={deleteTeam.isPending}
             >
-              Save Changes
+              Delete Team
             </Button>
+            
+            <Group>
+              <Button variant="light" onClick={handleClose}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                loading={updateTeam.isPending}
+                disabled={!name.trim()}
+              >
+                Save Changes
+              </Button>
+            </Group>
           </Group>
         </Stack>
       </Modal>
