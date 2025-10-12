@@ -83,3 +83,5 @@ pnpm-lock.yaml
 
 # Serena MCP cache (regenerated automatically)
 .serena/
+
+db-backups/

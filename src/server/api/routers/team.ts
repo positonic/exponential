@@ -393,4 +393,94 @@ export const teamRouter = createTRPCRouter({
 
       return { success: true };
     }),
+
+  // Set team as organization (owner only)
+  setAsOrganization: protectedProcedure
+    .input(z.object({
+      teamId: z.string(),
+      isOrganization: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Check if user is owner
+      const member = await ctx.db.teamUser.findUnique({
+        where: {
+          userId_teamId: {
+            userId: ctx.session.user.id,
+            teamId: input.teamId,
+          },
+        },
+      });
+
+      if (!member || member.role !== 'owner') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Only team owners can modify organization settings',
+        });
+      }
+
+      // Update team organization status
+      const updatedTeam = await ctx.db.team.update({
+        where: { id: input.teamId },
+        data: { isOrganization: input.isOrganization },
+      });
+
+      return updatedTeam;
+    }),
+
+  // Get weekly reviews shared with team (members only)
+  getWeeklyReviews: protectedProcedure
+    .input(z.object({
+      teamId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Check if user is team member
+      const member = await ctx.db.teamUser.findUnique({
+        where: {
+          userId_teamId: {
+            userId: ctx.session.user.id,
+            teamId: input.teamId,
+          },
+        },
+      });
+
+      if (!member) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You must be a team member to view shared weekly reviews',
+        });
+      }
+
+      // Get team to verify it's an organization
+      const team = await ctx.db.team.findUnique({
+        where: { id: input.teamId },
+        select: { isOrganization: true },
+      });
+
+      if (!team?.isOrganization) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Weekly reviews are only available for organization teams',
+        });
+      }
+
+      // Get shared weekly reviews from team members
+      const sharedReviews = await ctx.db.weeklyReviewSharing.findMany({
+        where: {
+          teamId: input.teamId,
+          isEnabled: true,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+      });
+
+      return sharedReviews;
+    }),
 });

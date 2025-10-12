@@ -20,13 +20,14 @@ import {
   Grid,
   Tabs,
   Paper,
+  Switch,
   // Divider,
   // List,
   // ListItem
 } from '@mantine/core';
 import {
   IconUsers,
-  // IconSettings,
+  IconSettings,
   IconUserPlus,
   IconDots,
   // IconTrash,
@@ -116,6 +117,25 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
     },
   });
 
+  // Set organization mutation
+  const setOrganization = api.team.setAsOrganization.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Organization Settings Updated',
+        message: 'Team organization settings have been updated successfully.',
+        color: 'green',
+      });
+      void refetch();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to update organization settings',
+        color: 'red',
+      });
+    },
+  });
+
   // Add member form
   const addMemberForm = useForm<AddMemberForm>({
     initialValues: {
@@ -145,6 +165,13 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
         userId,
       });
     }
+  };
+
+  const handleOrganizationToggle = (isOrganization: boolean) => {
+    setOrganization.mutate({
+      teamId: team.id,
+      isOrganization,
+    });
   };
 
   const getRoleIcon = (role: string) => {
@@ -254,6 +281,11 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
             <Tabs.Tab value="integrations" leftSection={<IconPlug size={16} />}>
               Integrations
             </Tabs.Tab>
+            {isOwnerOrAdmin && (
+              <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
+                Settings
+              </Tabs.Tab>
+            )}
           </Tabs.List>
 
           <Tabs.Panel value="members" pt="md">
@@ -423,6 +455,78 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
               </Stack>
             </Card>
           </Tabs.Panel>
+
+          {isOwnerOrAdmin && (
+            <Tabs.Panel value="settings" pt="md">
+              <Card withBorder>
+                <Stack gap="lg">
+                  <Title order={3}>Team Settings</Title>
+                  
+                  {/* Organization Settings */}
+                  <Paper p="md" withBorder radius="md" className="bg-surface-secondary">
+                    <Stack gap="md">
+                      <Group justify="space-between" align="flex-start">
+                        <div>
+                          <Text fw={500} size="sm" className="text-text-primary">
+                            Organization Team
+                          </Text>
+                          <Text size="xs" c="dimmed" style={{ maxWidth: 400 }}>
+                            Organization teams can receive shared weekly reviews from members. 
+                            Regular teams are for project collaboration only.
+                          </Text>
+                        </div>
+                        <Switch
+                          checked={team.isOrganization ?? false}
+                          onChange={(event) => handleOrganizationToggle(event.currentTarget.checked)}
+                          disabled={setOrganization.isPending}
+                          label=""
+                        />
+                      </Group>
+                      
+                      {team.isOrganization && (
+                        <Alert variant="light" color="blue">
+                          <Text size="sm">
+                            This team can now receive shared weekly reviews from members. 
+                            Team members can choose to share their weekly reviews in their personal settings.
+                          </Text>
+                        </Alert>
+                      )}
+                    </Stack>
+                  </Paper>
+
+                  {/* Weekly Review Settings (for organization teams) */}
+                  {team.isOrganization && (
+                    <Paper p="md" withBorder radius="md" className="bg-surface-secondary">
+                      <Stack gap="md">
+                        <div>
+                          <Text fw={500} size="sm" className="text-text-primary">
+                            Weekly Review Sharing
+                          </Text>
+                          <Text size="xs" c="dimmed">
+                            View and manage weekly review sharing for this organization team.
+                          </Text>
+                        </div>
+                        
+                        <TeamWeeklyReviewManagement teamId={team.id} />
+                        
+                        <Group>
+                          <Button
+                            variant="light"
+                            size="sm"
+                            leftSection={<IconUsers size={16} />}
+                            component={Link}
+                            href={`/teams/${team.slug}?tab=weekly-team-review`}
+                          >
+                            View Shared Reviews
+                          </Button>
+                        </Group>
+                      </Stack>
+                    </Paper>
+                  )}
+                </Stack>
+              </Card>
+            </Tabs.Panel>
+          )}
         </Tabs>
 
         {/* Add Member Modal */}
@@ -480,5 +584,61 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
         />
       </Stack>
     </Container>
+  );
+}
+
+// Component for managing team weekly review sharing
+interface TeamWeeklyReviewManagementProps {
+  teamId: string;
+}
+
+function TeamWeeklyReviewManagement({ teamId }: TeamWeeklyReviewManagementProps) {
+  const { data: sharedReviews, isLoading } = api.team.getWeeklyReviews.useQuery({
+    teamId
+  });
+
+  if (isLoading) {
+    return (
+      <Group justify="center" py="sm">
+        <Text size="sm" c="dimmed">Loading sharing status...</Text>
+      </Group>
+    );
+  }
+
+  const activeSharingCount = sharedReviews?.length ?? 0;
+
+  return (
+    <Group justify="space-between" align="center" py="xs">
+      <div>
+        <Text size="sm" fw={500} className="text-text-primary">
+          {activeSharingCount} member{activeSharingCount !== 1 ? 's' : ''} sharing
+        </Text>
+        {activeSharingCount > 0 && (
+          <Group gap="xs" mt={2}>
+            {sharedReviews?.slice(0, 3).map((sharing: any) => (
+              <Avatar
+                key={sharing.user.id}
+                src={sharing.user.image || undefined}
+                alt={sharing.user.name || "Team member"}
+                size="xs"
+                radius="xl"
+              >
+                {sharing.user.name?.split(' ').map((n: string) => n[0]).join('') || '?'}
+              </Avatar>
+            ))}
+            {activeSharingCount > 3 && (
+              <Text size="xs" c="dimmed">
+                +{activeSharingCount - 3} more
+              </Text>
+            )}
+          </Group>
+        )}
+      </div>
+      {activeSharingCount === 0 && (
+        <Text size="xs" c="dimmed" fs="italic">
+          No members sharing reviews yet
+        </Text>
+      )}
+    </Group>
   );
 }

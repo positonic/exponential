@@ -2,8 +2,8 @@
 
 import React, { useState } from "react";
 import { api } from "~/trpc/react";
-import { Text, Group, Progress, Title, Container, ScrollArea, Badge, Avatar, Loader, Alert } from "@mantine/core";
-import { IconChevronDown, IconChevronRight, IconAlertCircle } from "@tabler/icons-react";
+import { Text, Group, Progress, Title, Container, ScrollArea, Badge, Avatar, Loader, Alert, Paper, Stack, Card, Button } from "@mantine/core";
+import { IconChevronDown, IconChevronRight, IconAlertCircle, IconShare, IconCalendarWeek, IconSettings } from "@tabler/icons-react";
 import { HTMLContent } from "./HTMLContent";
 import Link from "next/link";
 
@@ -282,6 +282,12 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
         </table>
       </ScrollArea>
       
+      {/* Shared Weekly Reviews Section */}
+      <SharedWeeklyReviewsSection 
+        projectId={projectId}
+        currentWeekStart={currentWeekStart}
+      />
+      
       <div className="mt-8 p-4 bg-surface-secondary rounded-lg border border-border-primary">
         <Text size="sm" className="text-text-secondary">
           <strong>Member-Centric Approach:</strong> This view focuses on what each team member is working on this week.
@@ -297,5 +303,206 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
         </Text>
       </div>
     </Container>
+  );
+}
+
+// Component for displaying shared weekly reviews from team members
+interface SharedWeeklyReviewsSectionProps {
+  projectId: string;
+  currentWeekStart: Date;
+}
+
+function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeeklyReviewsSectionProps) {
+  const [expandedReviews, setExpandedReviews] = useState<Set<string>>(new Set());
+
+  // First get the project to get the team ID
+  const { data: project } = api.project.getById.useQuery({ id: projectId });
+  
+  // Then fetch shared reviews for this team
+  const { data: sharedReviews, isLoading, error } = api.weeklyReview.getTeamSharedReviews.useQuery(
+    {
+      teamId: project?.teamId ?? "",
+      weekStartDate: currentWeekStart
+    },
+    {
+      enabled: !!project?.teamId
+    }
+  );
+
+  const toggleReviewExpanded = (userId: string) => {
+    setExpandedReviews(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(userId)) {
+        newSet.delete(userId);
+      } else {
+        newSet.add(userId);
+      }
+      return newSet;
+    });
+  };
+
+  const formatWeekRange = (weekStart: Date) => {
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    return `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  };
+
+  // Don't show section if project has no team
+  if (!project?.teamId) {
+    return null;
+  }
+
+  if (isLoading) {
+    return (
+      <Paper p="lg" mt="xl" withBorder radius="md" className="bg-surface-secondary">
+        <Group justify="center" py="md">
+          <Loader size="sm" />
+          <Text size="sm" c="dimmed">Loading shared weekly reviews...</Text>
+        </Group>
+      </Paper>
+    );
+  }
+
+  if (error) {
+    return (
+      <Paper p="lg" mt="xl" withBorder radius="md" className="bg-surface-secondary">
+        <Alert variant="light" color="red" icon={<IconAlertCircle size={16} />}>
+          <Text size="sm">
+            {error.message || "Failed to load shared weekly reviews."}
+          </Text>
+        </Alert>
+      </Paper>
+    );
+  }
+
+  return (
+    <Paper p="lg" mt="xl" withBorder radius="md" className="bg-surface-secondary">
+      <Stack gap="lg">
+        <Group justify="space-between" align="center">
+          <div>
+            <Group gap="sm" align="center">
+              <IconShare size={20} className="text-brand-primary" />
+              <Title order={3} className="text-text-primary">
+                Shared Weekly Reviews
+              </Title>
+            </Group>
+            <Text size="sm" c="dimmed">
+              Weekly reviews shared by team members for {formatWeekRange(currentWeekStart)}
+            </Text>
+          </div>
+          <Group gap="xs">
+            <Button
+              variant="light"
+              size="sm"
+              leftSection={<IconSettings size={16} />}
+              component={Link}
+              href="/weekly-review/settings"
+            >
+              Manage Sharing
+            </Button>
+          </Group>
+        </Group>
+
+        {sharedReviews && sharedReviews.length > 0 ? (
+          <Stack gap="md">
+            {sharedReviews.map((sharing: any) => {
+              const isExpanded = expandedReviews.has(sharing.user.id);
+              
+              return (
+                <Card key={sharing.user.id} withBorder radius="md" className="bg-surface-primary">
+                  <Stack gap="md">
+                    <Group justify="space-between" align="center">
+                      <Group gap="md">
+                        <Avatar
+                          src={sharing.user.image || undefined}
+                          alt={sharing.user.name || "Team member"}
+                          size="md"
+                          radius="xl"
+                        >
+                          {sharing.user.name?.split(' ').map((n: string) => n[0]).join('') || '?'}
+                        </Avatar>
+                        <div>
+                          <Text fw={500} className="text-text-primary">
+                            {sharing.user.name || sharing.user.email}
+                          </Text>
+                          <Text size="sm" c="dimmed">
+                            Sharing weekly reviews with this team
+                          </Text>
+                        </div>
+                      </Group>
+                      <Group gap="xs">
+                        <Badge variant="dot" color="green" size="sm">
+                          Sharing Enabled
+                        </Badge>
+                        <Button
+                          variant="subtle"
+                          size="xs"
+                          onClick={() => toggleReviewExpanded(sharing.user.id)}
+                          rightSection={
+                            isExpanded ? 
+                              <IconChevronDown size={14} /> : 
+                              <IconChevronRight size={14} />
+                          }
+                        >
+                          {isExpanded ? 'Hide' : 'View'} Reviews
+                        </Button>
+                      </Group>
+                    </Group>
+
+                    {isExpanded && (
+                      <Paper p="md" radius="sm" className="bg-background-secondary border border-border-primary">
+                        <Stack gap="sm">
+                          <Text size="sm" fw={500} className="text-text-primary">
+                            Weekly Review Content
+                          </Text>
+                          <Alert variant="light" color="blue">
+                            <Text size="sm">
+                              <strong>Coming Soon:</strong> Actual weekly review content integration is in development. 
+                              This will show the member's weekly outcomes, reflections, and progress summaries.
+                            </Text>
+                          </Alert>
+                          <Group mt="sm">
+                            <Button
+                              variant="light"
+                              size="xs"
+                              leftSection={<IconCalendarWeek size={14} />}
+                              component={Link}
+                              href={`/weekly-review?user=${sharing.user.id}&week=${currentWeekStart.toISOString()}`}
+                            >
+                              View Full Review
+                            </Button>
+                          </Group>
+                        </Stack>
+                      </Paper>
+                    )}
+                  </Stack>
+                </Card>
+              );
+            })}
+          </Stack>
+        ) : (
+          <Alert variant="light" color="blue" icon={<IconShare size={16} />}>
+            <Stack gap="xs">
+              <Text fw={500} size="sm">No Shared Weekly Reviews</Text>
+              <Text size="sm">
+                No team members are currently sharing their weekly reviews with this team. 
+                Team members can enable sharing in their weekly review settings.
+              </Text>
+              <Group mt="sm">
+                <Button
+                  variant="light"
+                  size="sm"
+                  leftSection={<IconSettings size={16} />}
+                  component={Link}
+                  href="/weekly-review/settings"
+                >
+                  Manage Your Sharing
+                </Button>
+              </Group>
+            </Stack>
+          </Alert>
+        )}
+      </Stack>
+    </Paper>
   );
 }

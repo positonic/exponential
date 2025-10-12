@@ -88,6 +88,7 @@ model User {
   weeklyOutcomesCreated   WeeklyOutcome[]          @relation("WeeklyOutcomeCreated")
   weeklyOutcomeAssignees  WeeklyOutcomeAssignee[]  @relation("WeeklyOutcomeAssignee")
   teamCapacities          TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
+  weeklyReviewSharing     WeeklyReviewSharing[]
 }
 
 model VerificationToken {
@@ -309,6 +310,7 @@ model Team {
   name                    String
   slug                    String                   @unique
   description             String?
+  isOrganization          Boolean                  @default(false)
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
   actions                 Action[]
@@ -320,8 +322,10 @@ model Team {
   members                 TeamUser[]
   weeklyOutcomes          WeeklyOutcome[]
   memberCapacities        TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacities")
+  weeklyReviewSharing     WeeklyReviewSharing[]
 
   @@index([slug])
+  @@index([isOrganization])
 }
 
 model TeamUser {
@@ -990,4 +994,21 @@ model TeamMemberWeeklyCapacity {
   @@index([userId])
   @@index([teamId])
   @@index([weekStartDate])
+}
+
+model WeeklyReviewSharing {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String
+  isEnabled Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, teamId])
+  @@index([userId])
+  @@index([teamId])
+  @@index([isEnabled])
 }
