@@ -458,7 +458,7 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
                           <Alert variant="light" color="blue">
                             <Text size="sm">
                               <strong>Coming Soon:</strong> Actual weekly review content integration is in development. 
-                              This will show the member's weekly outcomes, reflections, and progress summaries.
+                              This will show the member&apos;s weekly outcomes, reflections, and progress summaries.
                             </Text>
                           </Alert>
                           <Group mt="sm">

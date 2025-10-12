@@ -32,12 +32,12 @@ export const weeklyReviewRouter = createTRPCRouter({
       const organizationTeams = await ctx.db.teamUser.findMany({
         where: {
           userId: ctx.session.user.id,
+          team: {
+            isOrganization: true,
+          },
         },
         include: {
           team: {
-            where: {
-              isOrganization: true,
-            },
             select: {
               id: true,
               name: true,
@@ -48,10 +48,9 @@ export const weeklyReviewRouter = createTRPCRouter({
         },
       });
 
-      // Filter out teams that aren't organizations and flatten the structure
+      // Filter out null teams and flatten the structure
       return organizationTeams
-        .filter(membership => membership.team?.isOrganization)
-        .map(membership => membership.team!)
+        .map(membership => membership.team)
         .filter(Boolean);
     }),
 

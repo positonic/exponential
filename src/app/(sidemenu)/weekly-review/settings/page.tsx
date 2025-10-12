@@ -53,7 +53,7 @@ export default function WeeklyReviewSettingsPage() {
       });
       void refetchSettings();
     },
-    onError: (error, { teamId }) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to update sharing settings',
@@ -249,7 +249,7 @@ export default function WeeklyReviewSettingsPage() {
             <Stack gap="xs">
               <Text fw={500}>No Organization Teams Available</Text>
               <Text size="sm">
-                You're not a member of any organization teams yet. Organization teams can receive 
+                You&apos;re not a member of any organization teams yet. Organization teams can receive 
                 shared weekly reviews from their members.
               </Text>
               <Group mt="sm">
