@@ -48,6 +48,7 @@ import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 // import { useRouter } from 'next/navigation';
 import { AddProjectToTeamModal } from '~/app/_components/AddProjectToTeamModal';
 import { AssignProjectToTeamModal } from '~/app/_components/AssignProjectToTeamModal';
@@ -66,6 +67,7 @@ interface TeamDetailClientProps {
 
 export default function TeamDetailClient({ team: initialTeam, currentUserId }: TeamDetailClientProps) {
   // const router = useRouter();
+  const searchParams = useSearchParams();
   const [addMemberModalOpened, { open: openAddMemberModal, close: closeAddMemberModal }] = useDisclosure(false);
   const [addIntegrationModalOpened, { open: openAddIntegrationModal, close: closeAddIntegrationModal }] = useDisclosure(false);
 
@@ -78,6 +80,9 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
   // Get current user's role in this team
   const currentMember = team.members.find((m: any) => m.userId === currentUserId);
   const isOwnerOrAdmin = currentMember?.role === 'owner' || currentMember?.role === 'admin';
+
+  // Get active tab from URL parameters
+  const activeTab = searchParams.get('tab') ?? 'members';
 
   // Add member mutation
   const addMember = api.team.addMember.useMutation({
@@ -272,7 +277,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
         </Grid>
 
         {/* Content Tabs */}
-        <Tabs defaultValue="members">
+        <Tabs value={activeTab} onChange={() => { /* controlled by URL parameters */ }}>
           <Tabs.List>
             <Tabs.Tab value="members" leftSection={<IconUsers size={16} />}>
               Members
@@ -283,6 +288,11 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
             <Tabs.Tab value="integrations" leftSection={<IconPlug size={16} />}>
               Integrations
             </Tabs.Tab>
+            {team.isOrganization && (
+              <Tabs.Tab value="weekly-reviews" leftSection={<IconCalendarWeek size={16} />}>
+                Weekly Reviews
+              </Tabs.Tab>
+            )}
             {isOwnerOrAdmin && (
               <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
                 Settings
@@ -475,6 +485,17 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
             </Card>
           </Tabs.Panel>
 
+          {team.isOrganization && (
+            <Tabs.Panel value="weekly-reviews" pt="md">
+              <Card withBorder>
+                <Stack gap="md">
+                  <Title order={3}>Shared Weekly Reviews</Title>
+                  <TeamSharedReviewsList teamId={team.id} teamSlug={team.slug} />
+                </Stack>
+              </Card>
+            </Tabs.Panel>
+          )}
+
           {isOwnerOrAdmin && (
             <Tabs.Panel value="settings" pt="md">
               <Card withBorder>
@@ -534,7 +555,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                             size="sm"
                             leftSection={<IconUsers size={16} />}
                             component={Link}
-                            href={`/teams/${team.slug}?tab=weekly-team-review`}
+                            href={`/teams/${team.slug}?tab=weekly-reviews`}
                           >
                             View Shared Reviews
                           </Button>
@@ -659,5 +680,96 @@ function TeamWeeklyReviewManagement({ teamId }: TeamWeeklyReviewManagementProps)
         </Text>
       )}
     </Group>
+  );
+}
+
+// Component for displaying list of shared weekly reviews
+interface TeamSharedReviewsListProps {
+  teamId: string;
+  teamSlug: string;
+}
+
+function TeamSharedReviewsList({ teamId, teamSlug }: TeamSharedReviewsListProps) {
+  const { data: sharedReviews, isLoading } = api.team.getWeeklyReviews.useQuery({
+    teamId
+  });
+
+  if (isLoading) {
+    return (
+      <Group justify="center" py="xl">
+        <Text size="sm" c="dimmed">Loading shared reviews...</Text>
+      </Group>
+    );
+  }
+
+  if (!sharedReviews || sharedReviews.length === 0) {
+    return (
+      <Paper p="xl" withBorder radius="md" className="bg-surface-secondary">
+        <Stack align="center" gap="md">
+          <IconCalendarWeek size={48} className="text-text-muted" />
+          <div style={{ textAlign: 'center' }}>
+            <Text fw={500} size="sm" className="text-text-primary">
+              No shared weekly reviews yet
+            </Text>
+            <Text size="xs" c="dimmed" mt="xs">
+              Team members can enable weekly review sharing in their personal settings.
+            </Text>
+          </div>
+        </Stack>
+      </Paper>
+    );
+  }
+
+  return (
+    <Stack gap="md">
+      <Text size="sm" c="dimmed">
+        {sharedReviews.length} member{sharedReviews.length !== 1 ? 's' : ''} sharing weekly reviews
+      </Text>
+      
+      <Stack gap="sm">
+        {sharedReviews.map((sharing: any) => (
+          <Paper 
+            key={sharing.user.id} 
+            p="md" 
+            withBorder 
+            radius="sm" 
+            className="bg-background-primary border-border-primary hover:bg-surface-hover transition-colors"
+          >
+            <Group justify="space-between" align="center">
+              <Group gap="md">
+                <Avatar
+                  src={sharing.user.image || undefined}
+                  alt={sharing.user.name || "Team member"}
+                  size="md"
+                  radius="xl"
+                >
+                  {sharing.user.name?.split(' ').map((n: string) => n[0]).join('') || '?'}
+                </Avatar>
+                <div>
+                  <Text fw={500} className="text-text-primary">
+                    {sharing.user.name || sharing.user.email}
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    {sharing.user.email}
+                  </Text>
+                </div>
+              </Group>
+              
+              <Group gap="xs">
+                <Button
+                  variant="light"
+                  size="sm"
+                  leftSection={<IconCalendarWeek size={16} />}
+                  component={Link}
+                  href={`/teams/${teamSlug}/members/${sharing.user.id}/weekly-review`}
+                >
+                  View Weekly Review
+                </Button>
+              </Group>
+            </Group>
+          </Paper>
+        ))}
+      </Stack>
+    </Stack>
   );
 }
