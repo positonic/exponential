@@ -39,10 +39,11 @@ export default function TeamMemberWeeklyReviewPage() {
     api.user.getById.useQuery({ id: userId }, { enabled: !!userId });
 
   // Get current user to check if they can edit
-  const { data: currentUser } = api.user.getCurrentUser.useQuery();
+  const { data: currentUser, isLoading: currentUserLoading, error: currentUserError } = 
+    api.user.getCurrentUser.useQuery();
 
-  const isLoading = teamLoading || userLoading;
-  const error = teamError || userError;
+  const isLoading = teamLoading || userLoading || currentUserLoading;
+  const error = teamError || userError || currentUserError;
 
   if (isLoading) {
     return (
@@ -79,7 +80,8 @@ export default function TeamMemberWeeklyReviewPage() {
   }
 
   // Check if current user can edit (is the owner of the weekly review)
-  const canEdit = currentUser && targetUser && currentUser.id === targetUser.id;
+  // Only evaluate after currentUser has loaded successfully
+  const canEdit = !currentUserLoading && currentUser && targetUser && currentUser.id === targetUser.id;
 
   return (
     <Container size="xl" py="md">

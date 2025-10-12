@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { WeeklyReviewSummaryService } from "~/server/services/WeeklyReviewSummaryService";
+import { SlackNotificationService } from "~/server/services/notifications/SlackNotificationService";
+import { SlackChannelResolver } from "~/server/services/SlackChannelResolver";
 
 export const weeklyReviewRouter = createTRPCRouter({
   
@@ -268,5 +271,201 @@ export const weeklyReviewRouter = createTRPCRouter({
       );
 
       return results;
+    }),
+
+  /**
+   * Send weekly review summary to Slack
+   */
+  sendWeeklyReviewToSlack: protectedProcedure
+    .input(z.object({
+      weekStart: z.string().optional(), // ISO date string
+      channelOverride: z.string().optional(), // specific channel like "#general"
+      integrationId: z.string().optional() // specific integration to use
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      
+      // Parse week start date if provided
+      const weekStart = input.weekStart ? new Date(input.weekStart) : undefined;
+      
+      // Generate weekly review summary
+      const summaryService = new WeeklyReviewSummaryService();
+      const summary = await summaryService.generateWeeklyReviewSummary(userId, weekStart);
+      
+      // Determine which Slack integration and channel to use
+      let integrationId = input.integrationId;
+      let channel = input.channelOverride;
+      
+      if (!integrationId || !channel) {
+        // Get user's Slack integrations
+        const userIntegrations = await SlackChannelResolver.getUserSlackIntegrations(userId);
+        
+        if (userIntegrations.length === 0) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'No Slack integration found. Please configure a Slack integration first.',
+          });
+        }
+        
+        // Use the first available integration if none specified
+        if (!integrationId) {
+          integrationId = userIntegrations[0]!.id;
+        }
+        
+        // Try to resolve channel for this integration
+        if (!channel) {
+          const channelConfig = await SlackChannelResolver.resolveChannel(
+            undefined, // no specific project
+            undefined, // no specific team
+            integrationId
+          );
+          
+          if (channelConfig.channel) {
+            channel = channelConfig.channel;
+          } else {
+            channel = '#general'; // Default fallback
+          }
+        }
+      }
+      
+      if (!integrationId) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'No Slack integration found. Please configure a Slack integration first.',
+        });
+      }
+      
+      if (!channel) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'No Slack channel configured. Please specify a channel or configure default channels.',
+        });
+      }
+      
+      // Send to Slack using SlackNotificationService
+      const slackService = new SlackNotificationService({
+        userId,
+        integrationId,
+        channel
+      });
+      
+      // Test connection first
+      const connectionTest = await slackService.testConnection();
+      if (!connectionTest.success) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Slack connection failed: ${connectionTest.error}`,
+        });
+      }
+      
+      // Send the notification
+      const result = await slackService.sendNotification({
+        title: summary.title,
+        message: summary.message,
+        metadata: {
+          type: 'weekly_review',
+          weekStart: summary.weekStart.toISOString(),
+          weekEnd: summary.weekEnd.toISOString(),
+          userId
+        }
+      });
+      
+      if (!result.success) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to send weekly review to Slack: ${result.error}`,
+        });
+      }
+      
+      return {
+        success: true,
+        message: `Weekly review sent successfully to ${channel}`,
+        channel,
+        integrationId,
+        messageId: result.messageId,
+        summary: {
+          title: summary.title,
+          weekStart: summary.weekStart,
+          weekEnd: summary.weekEnd
+        }
+      };
+    }),
+
+  /**
+   * Get preview of weekly review summary without sending
+   */
+  getWeeklyReviewPreview: protectedProcedure
+    .input(z.object({
+      weekStart: z.string().optional()
+    }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const weekStart = input.weekStart ? new Date(input.weekStart) : undefined;
+      
+      const summaryService = new WeeklyReviewSummaryService();
+      const summary = await summaryService.generateWeeklyReviewSummary(userId, weekStart);
+      
+      // Get available Slack integrations
+      const availableIntegrations = await SlackChannelResolver.getUserSlackIntegrations(userId);
+      
+      // Try to get default channel from first integration
+      let defaultChannel = '#general';
+      if (availableIntegrations.length > 0) {
+        try {
+          const channelConfig = await SlackChannelResolver.resolveChannel(
+            undefined,
+            undefined,
+            availableIntegrations[0]!.id
+          );
+          if (channelConfig.channel) {
+            defaultChannel = channelConfig.channel;
+          }
+        } catch {
+          // Use fallback
+        }
+      }
+      
+      return {
+        summary,
+        availableIntegrations,
+        defaultChannel
+      };
+    }),
+
+  /**
+   * Get available Slack channels for the user
+   */
+  getAvailableSlackChannels: protectedProcedure
+    .input(z.object({
+      integrationId: z.string()
+    }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      
+      // Verify user has access to this integration
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          id: input.integrationId,
+          userId: userId,
+          provider: 'slack',
+          status: 'ACTIVE'
+        }
+      });
+      
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Slack integration not found or access denied',
+        });
+      }
+      
+      // Get available channels
+      const slackService = new SlackNotificationService({
+        userId,
+        integrationId: input.integrationId
+      });
+      
+      const channels = await slackService.getAvailableChannels();
+      return channels;
     }),
 });
