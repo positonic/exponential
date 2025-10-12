@@ -7,6 +7,7 @@ import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { type RouterOutputs } from "~/trpc/react";
 import { ActionList } from "./ActionList";
 import { OutcomeMultiSelect } from "./OutcomeMultiSelect";
+import { OutcomeBadges } from "./OutcomeBadges";
 import Link from "next/link";
 
 type Project = RouterOutputs["project"]["getActiveWithDetails"][0];
@@ -35,7 +36,14 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false }
   
   const updateProject = api.project.update.useMutation({
     onSuccess: () => {
-      void utils.project.getActiveWithDetails.invalidate();
+      if (isSharedView && userId && teamId) {
+        // Invalidate shared view queries
+        void utils.project.getActiveWithDetailsForUser.invalidate({ userId, teamId });
+        void utils.outcome.getOutcomesForUser.invalidate({ userId, teamId });
+      } else {
+        // Invalidate personal view queries
+        void utils.project.getActiveWithDetails.invalidate();
+      }
     },
   });
 
@@ -103,7 +111,9 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false }
 
   const calculateCompletionPercentage = (project: Project) => {
     if (!project.actions || project.actions.length === 0) return 0;
-    const completedTasks = project.actions.filter(action => action.status === "DONE").length;
+    const completedTasks = project.actions.filter(action => 
+      action.status === "DONE" || action.kanbanStatus === "DONE"
+    ).length;
     return Math.round((completedTasks / project.actions.length) * 100);
   };
 
@@ -214,27 +224,37 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false }
                       />
                     </td>
                     <td className="p-3">
-                      <OutcomeMultiSelect
-                        projectId={project.id}
-                        projectName={project.name}
-                        projectStatus={project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED"}
-                        projectPriority={project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE"}
-                        currentOutcomes={project.outcomes?.map(outcome => ({ ...outcome, goals: [], projects: [], assignees: [] })) || []}
-                        searchValue={outcomeSearchValues[project.id] || ''}
-                        onSearchChange={isSharedView ? () => { /* disabled in shared view */ } : (value) => {
-                          setOutcomeSearchValues(prev => ({
-                            ...prev,
-                            [project.id]: value
-                          }));
-                        }}
-                        allOutcomes={allOutcomes || []}
-                        size="sm"
-                      />
+                      {isSharedView ? (
+                        <OutcomeBadges
+                          outcomes={project.outcomes?.map(outcome => ({ ...outcome, goals: [], projects: [], assignees: [] })) || []}
+                          size="sm"
+                        />
+                      ) : (
+                        <OutcomeMultiSelect
+                          projectId={project.id}
+                          projectName={project.name}
+                          projectStatus={project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED"}
+                          projectPriority={project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE"}
+                          currentOutcomes={project.outcomes?.map(outcome => ({ ...outcome, goals: [], projects: [], assignees: [] })) || []}
+                          searchValue={outcomeSearchValues[project.id] || ''}
+                          onSearchChange={(value) => {
+                            setOutcomeSearchValues(prev => ({
+                              ...prev,
+                              [project.id]: value
+                            }));
+                          }}
+                          allOutcomes={allOutcomes || []}
+                          size="sm"
+                          isSharedView={isSharedView}
+                          sharedViewUserId={userId}
+                          sharedViewTeamId={teamId}
+                        />
+                      )}
                     </td>
                     <td className="p-3">
                       <Group gap="xs" align="center">
                         <Text size="sm" className="text-text-secondary">
-                          {project.actions?.filter(a => a.status === "DONE").length || 0}/{project.actions?.length || 0} completed
+                          {project.actions?.filter(a => a.status === "DONE" || a.kanbanStatus === "DONE").length || 0}/{project.actions?.length || 0} completed
                         </Text>
                         <Progress 
                           value={completionPercentage} 

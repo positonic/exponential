@@ -17,6 +17,9 @@ interface OutcomeMultiSelectProps {
   onSearchChange: (value: string) => void;
   allOutcomes?: Outcome[];
   size?: "xs" | "sm" | "md" | "lg" | "xl";
+  isSharedView?: boolean;
+  sharedViewUserId?: string;
+  sharedViewTeamId?: string;
 }
 
 export function OutcomeMultiSelect({
@@ -29,8 +32,31 @@ export function OutcomeMultiSelect({
   onSearchChange,
   allOutcomes = [],
   size = "sm",
+  isSharedView = false,
+  sharedViewUserId,
+  sharedViewTeamId,
 }: OutcomeMultiSelectProps) {
   const utils = api.useUtils();
+  
+  // Helper function to invalidate the correct queries based on view context
+  const invalidateQueries = () => {
+    if (isSharedView && sharedViewUserId && sharedViewTeamId) {
+      // Invalidate shared view queries
+      void utils.project.getActiveWithDetailsForUser.invalidate({ 
+        userId: sharedViewUserId, 
+        teamId: sharedViewTeamId 
+      });
+      void utils.outcome.getOutcomesForUser.invalidate({ 
+        userId: sharedViewUserId, 
+        teamId: sharedViewTeamId 
+      });
+    } else {
+      // Invalidate personal view queries
+      void utils.project.getActiveWithDetails.invalidate();
+      void utils.project.getAll.invalidate();
+      void utils.outcome.getMyOutcomes.invalidate();
+    }
+  };
   
   const updateProject = api.project.update.useMutation({
     onMutate: async () => {
@@ -94,10 +120,8 @@ export function OutcomeMultiSelect({
       }
     },
     onSettled: () => {
-      // Default behavior - invalidate queries
-      // This can be overridden when calling the mutation
-      void utils.project.getActiveWithDetails.invalidate();
-      void utils.project.getAll.invalidate();
+      // Use smart invalidation based on view context
+      invalidateQueries();
     },
   });
 
@@ -215,19 +239,15 @@ export function OutcomeMultiSelect({
             });
           },
           onSettled: () => {
-            // Override default onSettled to invalidate all queries once
-            void utils.outcome.getMyOutcomes.invalidate();
-            void utils.project.getActiveWithDetails.invalidate();
-            void utils.project.getAll.invalidate();
+            // Use smart invalidation based on view context
+            invalidateQueries();
           }
         });
       }
     },
     onError: (error) => {
-      // Invalidate to rollback optimistic updates
-      void utils.outcome.getMyOutcomes.invalidate();
-      void utils.project.getActiveWithDetails.invalidate();
-      void utils.project.getAll.invalidate();
+      // Use smart invalidation to rollback optimistic updates
+      invalidateQueries();
       
       notifications.show({
         title: 'Failed to create outcome',

@@ -3,6 +3,16 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 
 export const userRouter = createTRPCRouter({
+  getCurrentUser: protectedProcedure
+    .query(async ({ ctx }) => {
+      return {
+        id: ctx.session.user.id,
+        name: ctx.session.user.name,
+        email: ctx.session.user.email,
+        image: ctx.session.user.image,
+      };
+    }),
+
   getById: protectedProcedure
     .input(z.object({
       id: z.string(),

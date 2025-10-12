@@ -19,7 +19,8 @@ import {
   IconAlertCircle, 
   IconArrowLeft, 
   IconUser, 
-  IconShare 
+  IconShare,
+  IconEdit
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { OneOnOneBoard } from "~/app/_components/OneOnOneBoard";
@@ -36,6 +37,9 @@ export default function TeamMemberWeeklyReviewPage() {
   // Get user information
   const { data: targetUser, isLoading: userLoading, error: userError } = 
     api.user.getById.useQuery({ id: userId }, { enabled: !!userId });
+
+  // Get current user to check if they can edit
+  const { data: currentUser } = api.user.getCurrentUser.useQuery();
 
   const isLoading = teamLoading || userLoading;
   const error = teamError || userError;
@@ -73,6 +77,9 @@ export default function TeamMemberWeeklyReviewPage() {
       </Container>
     );
   }
+
+  // Check if current user can edit (is the owner of the weekly review)
+  const canEdit = currentUser && targetUser && currentUser.id === targetUser.id;
 
   return (
     <Container size="xl" py="md">
@@ -115,6 +122,17 @@ export default function TeamMemberWeeklyReviewPage() {
             </div>
           </Group>
           <Group gap="xs">
+            {canEdit && (
+              <Button
+                variant="light"
+                size="sm"
+                leftSection={<IconEdit size={16} />}
+                component={Link}
+                href="/weekly-review"
+              >
+                Edit
+              </Button>
+            )}
             <IconShare size={20} className="text-brand-primary" />
           </Group>
         </Group>
