@@ -279,7 +279,7 @@ export const projectRouter = createTRPCRouter({
           goals: goalIds?.length ? {
             set: goalIds.map(id => ({ id: parseInt(id) })),
           } : undefined,
-          outcomes: outcomeIds?.length ? {
+          outcomes: outcomeIds !== undefined ? {
             set: outcomeIds.map(id => ({ id })),
           } : undefined,
         },
