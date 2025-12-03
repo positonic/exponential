@@ -1,7 +1,8 @@
-import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect } from '@mantine/core';
+import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect, Tooltip } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import type { Project, Goal, Outcome } from '@prisma/client';
 import { useState } from "react";
+import { useSession } from 'next-auth/react';
 import { api } from "~/trpc/react";
 import { notifications } from '@mantine/notifications';
 
@@ -29,7 +30,12 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
   const [goalSearchValue, setGoalSearchValue] = useState("");
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
 
+  const { data: session } = useSession();
   const utils = api.useUtils();
+
+  // Check if user is the project owner (can edit status/priority)
+  const isOwner = !project || project.createdById === session?.user?.id;
+  const cannotEditMessage = "Only the project owner can change this field";
 
   // Fetch goals and outcomes for the select boxes
   const { data: goals } = api.goal.getAllMyGoals.useQuery();
@@ -199,54 +205,72 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
             }}
           />
 
-          <Select
-            data={[
-              { value: 'ACTIVE', label: 'Active' },
-              { value: 'COMPLETED', label: 'Completed' },
-              { value: 'ON_HOLD', label: 'On Hold' },
-            ]}
-            value={status}
-            onChange={(value) => setStatus(value as ProjectStatus)}
-            required
-            mt="md"
-            styles={{
-              input: {
-                backgroundColor: 'var(--color-surface-secondary)',
-                color: 'var(--color-text-primary)',
-                borderColor: 'var(--color-border-primary)',
-              },
-              dropdown: {
-                backgroundColor: 'var(--color-surface-secondary)',
-                borderColor: 'var(--color-border-primary)',
-                color: 'var(--color-text-primary)',
-              },
-            }}
-          />
+          <Tooltip
+            label={cannotEditMessage}
+            disabled={isOwner}
+            position="top-start"
+            withArrow
+          >
+            <Select
+              data={[
+                { value: 'ACTIVE', label: 'Active' },
+                { value: 'COMPLETED', label: 'Completed' },
+                { value: 'ON_HOLD', label: 'On Hold' },
+              ]}
+              value={status}
+              onChange={(value) => setStatus(value as ProjectStatus)}
+              required
+              mt="md"
+              disabled={!isOwner}
+              label="Status"
+              styles={{
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+                dropdown: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  borderColor: 'var(--color-border-primary)',
+                  color: 'var(--color-text-primary)',
+                },
+              }}
+            />
+          </Tooltip>
 
-          <Select
-            data={[
-              { value: 'NONE', label: 'None' },
-              { value: 'LOW', label: 'Low' },
-              { value: 'MEDIUM', label: 'Medium' },
-              { value: 'HIGH', label: 'High' },
-            ]}
-            value={priority}
-            onChange={(value) => setPriority(value as ProjectPriority)}
-            required
-            mt="md"
-            styles={{
-              input: {
-                backgroundColor: 'var(--color-surface-secondary)',
-                color: 'var(--color-text-primary)',
-                borderColor: 'var(--color-border-primary)',
-              },
-              dropdown: {
-                backgroundColor: 'var(--color-surface-secondary)',
-                borderColor: 'var(--color-border-primary)',
-                color: 'var(--color-text-primary)',
-              },
-            }}
-          />
+          <Tooltip
+            label={cannotEditMessage}
+            disabled={isOwner}
+            position="top-start"
+            withArrow
+          >
+            <Select
+              data={[
+                { value: 'NONE', label: 'None' },
+                { value: 'LOW', label: 'Low' },
+                { value: 'MEDIUM', label: 'Medium' },
+                { value: 'HIGH', label: 'High' },
+              ]}
+              value={priority}
+              onChange={(value) => setPriority(value as ProjectPriority)}
+              required
+              mt="md"
+              disabled={!isOwner}
+              label="Priority"
+              styles={{
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+                dropdown: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  borderColor: 'var(--color-border-primary)',
+                  color: 'var(--color-text-primary)',
+                },
+              }}
+            />
+          </Tooltip>
 
           <MultiSelect
             data={goalData}

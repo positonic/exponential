@@ -7,6 +7,7 @@ const orbitron = Orbitron({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700', '800', '900'],
   display: 'swap',
+  variable: '--font-orbitron',
 });
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
@@ -21,6 +22,7 @@ import { FloatingFeedbackButton } from '~/app/_components/FloatingFeedbackButton
 import { ColorSchemeScript } from '~/app/_components/layout/ColorSchemeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
 import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvider';
+import { SessionProvider } from "next-auth/react";
 
 const domain = getThemeDomain();
 
@@ -38,22 +40,24 @@ export default async function RootLayout({
   const domain = getThemeDomain();
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.className} h-full`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.variable} h-full`}>
       <head>
         <ColorSchemeScript />
       </head>
       <body className="h-full bg-background-primary">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
-            <MantineRootProvider>
-              <ColorSchemeProvider>
-                <Layout domain={domain}>
-                  {children}
-                  <Analytics />
-                </Layout>
-                <FloatingFeedbackButton />
-              </ColorSchemeProvider>
-            </MantineRootProvider>
+            <SessionProvider>
+              <MantineRootProvider>
+                <ColorSchemeProvider>
+                  <Layout domain={domain}>
+                    {children}
+                    <Analytics />
+                  </Layout>
+                  <FloatingFeedbackButton />
+                </ColorSchemeProvider>
+              </MantineRootProvider>
+            </SessionProvider>
           </TRPCReactProvider>
         </ThemeProvider>
       </body>
