@@ -30,6 +30,8 @@ import {
   IconPlus,
   IconExternalLink,
   IconBrandSlack,
+  IconRefresh,
+  IconFolder,
 } from "@tabler/icons-react";
 import { useDisclosure } from "@mantine/hooks";
 import { useForm } from "@mantine/form";
@@ -88,9 +90,11 @@ const availableIntegrations = [
 export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const [expandedIntegrations, setExpandedIntegrations] = useState<Set<string>>(new Set());
   const [newIntegrationModalOpened, { open: openNewIntegrationModal, close: closeNewIntegrationModal }] = useDisclosure(false);
+  const [configureProjectModalOpened, { open: openConfigureProjectModal, close: closeConfigureProjectModal }] = useDisclosure(false);
   const [selectedSlackIntegration, setSelectedSlackIntegration] = useState<string>('');
   const [selectedSlackChannel, setSelectedSlackChannel] = useState<string>('');
   const [slackConfigExpanded, setSlackConfigExpanded] = useState(false);
+  const [selectedNotionProjectId, setSelectedNotionProjectId] = useState<string>(project.notionProjectId ?? '');
 
   // Get available workflows for this project
   const { data: workflows = [] } = api.workflow.list.useQuery();
@@ -171,6 +175,33 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
     },
   });
 
+  // Sync workflow mutation
+  const runWorkflow = api.workflow.run.useMutation({
+    onSuccess: (data) => {
+      notifications.show({
+        title: 'Sync Complete',
+        message: `Successfully synced ${data.itemsCreated} new tasks and updated ${data.itemsUpdated} existing tasks.`,
+        color: 'green',
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Sync Failed',
+        message: error.message || 'Failed to sync with Notion',
+        color: 'red',
+      });
+    },
+  });
+
+  // Get the configured workflow for this project
+  const configuredWorkflowId = project.taskManagementConfig?.workflowId;
+
+  // Fetch Notion projects from the configured workflow's projects database
+  const { data: notionProjectsData, isLoading: isLoadingNotionProjects } = api.workflow.getNotionProjects.useQuery(
+    { workflowId: configuredWorkflowId ?? '' },
+    { enabled: !!configuredWorkflowId && project.taskManagementTool === 'notion' }
+  );
+
   // Form for adding new integration
   const newIntegrationForm = useForm<NewIntegrationForm>({
     initialValues: {
@@ -230,6 +261,40 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
     if (slackChannelConfig) {
       removeSlackConfigMutation.mutate({ configId: slackChannelConfig.id });
     }
+  };
+
+  // Notion sync handler
+  const handleSyncNotion = () => {
+    const workflowId = project.taskManagementConfig?.workflowId;
+    if (!workflowId) {
+      notifications.show({
+        title: 'Error',
+        message: 'No workflow configured for this project',
+        color: 'red',
+      });
+      return;
+    }
+    runWorkflow.mutate({ id: workflowId, projectId: project.id });
+  };
+
+  // Save Notion project selection handler
+  const handleSaveNotionProject = async () => {
+    if (!selectedNotionProjectId) {
+      notifications.show({
+        title: 'Error',
+        message: 'Please select a Notion project',
+        color: 'red',
+      });
+      return;
+    }
+
+    await updateTaskManagement.mutateAsync({
+      id: project.id,
+      taskManagementTool: 'notion',
+      taskManagementConfig: project.taskManagementConfig,
+      notionProjectId: selectedNotionProjectId,
+    });
+    closeConfigureProjectModal();
   };
 
   // Get configured integrations for this project
@@ -321,13 +386,13 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
               return (
                 <Card key={integration.id} shadow="sm" padding="md" radius="md" withBorder>
                   <Stack gap="md">
-                    {/* Main Row */}
-                    <Group justify="space-between" align="center" wrap="nowrap">
-                      <Group align="center" gap="md" style={{ flex: 1 }}>
+                    {/* Header Row - Icon, Title, Badge */}
+                    <Group justify="space-between" align="flex-start">
+                      <Group align="center" gap="md">
                         <ThemeIcon size="lg" variant="light" color={integration.color} radius="md">
                           <integration.icon size={24} />
                         </ThemeIcon>
-                        <div style={{ flex: 1 }}>
+                        <div>
                           <Group gap="xs" align="center">
                             <Text fw={600} size="md">
                               {integration.title}
@@ -341,27 +406,43 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                           </Text>
                         </div>
                       </Group>
-                      
-                      {/* Action Buttons */}
-                      <Group gap="xs">
-                        <Button
-                          component={Link}
-                          href={integration.href}
-                          size="sm" 
-                          variant="light"
-                          leftSection={<IconSettings size={14} />}
-                        >
-                          Configure
-                        </Button>
-                        
-                        <ActionIcon
-                          variant="subtle"
-                          onClick={() => toggleIntegrationExpanded(integration.id)}
-                          aria-label={isExpanded ? 'Collapse details' : 'Expand details'}
-                        >
-                          {isExpanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                        </ActionIcon>
-                      </Group>
+                      <ActionIcon
+                        variant="subtle"
+                        onClick={() => toggleIntegrationExpanded(integration.id)}
+                        aria-label={isExpanded ? 'Collapse details' : 'Expand details'}
+                      >
+                        {isExpanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                      </ActionIcon>
+                    </Group>
+
+                    {/* Action Buttons Row */}
+                    <Group gap="xs">
+                      <Button
+                        size="sm"
+                        variant="filled"
+                        leftSection={<IconRefresh size={14} />}
+                        onClick={handleSyncNotion}
+                        loading={runWorkflow.isPending}
+                      >
+                        Sync
+                      </Button>
+                      <Button
+                        component={Link}
+                        href={integration.href}
+                        size="sm"
+                        variant="light"
+                        leftSection={<IconSettings size={14} />}
+                      >
+                        Configure Notion
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="light"
+                        leftSection={<IconFolder size={14} />}
+                        onClick={openConfigureProjectModal}
+                      >
+                        Configure Project
+                      </Button>
                     </Group>
 
                     {/* Expandable Details */}
@@ -829,6 +910,75 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
             </Group>
           </Stack>
         </form>
+      </Modal>
+
+      {/* Configure Project Modal */}
+      <Modal
+        opened={configureProjectModalOpened}
+        onClose={closeConfigureProjectModal}
+        title="Configure Notion Project"
+        size="md"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Select which Notion project this local project should sync with. Only tasks associated with the selected project will be synced.
+          </Text>
+
+          {isLoadingNotionProjects ? (
+            <Group>
+              <Loader size="sm" />
+              <Text size="sm" c="dimmed">Loading Notion projects...</Text>
+            </Group>
+          ) : notionProjectsData && notionProjectsData.length > 0 ? (
+            <Select
+              label="Notion Project"
+              placeholder="Select a Notion project"
+              description="Tasks will be filtered to only show those linked to this project"
+              data={notionProjectsData.map(p => ({
+                value: p.id,
+                label: p.title,
+              }))}
+              value={selectedNotionProjectId}
+              onChange={(value) => setSelectedNotionProjectId(value ?? '')}
+              searchable
+              clearable
+            />
+          ) : (
+            <Alert
+              icon={<IconAlertCircle size={16} />}
+              title="No Projects Found"
+              color="orange"
+              variant="light"
+            >
+              No projects were found in the configured Notion Projects database. Make sure you have projects in your Notion database and the workflow is configured correctly.
+            </Alert>
+          )}
+
+          {project.notionProjectId && (
+            <Alert
+              icon={<IconCheck size={16} />}
+              title="Current Configuration"
+              color="blue"
+              variant="light"
+            >
+              Currently linked to Notion project ID: {project.notionProjectId.slice(-8)}...
+            </Alert>
+          )}
+
+          <Group justify="flex-end">
+            <Button variant="light" onClick={closeConfigureProjectModal}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveNotionProject}
+              loading={updateTaskManagement.isPending}
+              disabled={!selectedNotionProjectId}
+              leftSection={<IconCheck size={16} />}
+            >
+              Save Configuration
+            </Button>
+          </Group>
+        </Stack>
       </Modal>
     </>
   );

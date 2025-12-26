@@ -628,39 +628,34 @@ export function ActionList({
           }}
         >
           <Accordion.Item value="overdue" className="border-none">
-            <Accordion.Control>
-                <Group justify="space-between" wrap="nowrap">
-                    <Group gap="xs">
-                      <Text fw={500}>Overdue</Text>
-                      <Badge variant="filled" color="red" size="sm">
-                        {overdueActions.length}
-                      </Badge>
-                    </Group>
-                    <Group gap="xs">
-                      {/* Show bulk edit toggle for overdue actions */}
-                      {enableBulkEditForOverdue && (
-                        <div 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setBulkEditOverdueMode(!bulkEditOverdueMode);
-                            if (bulkEditOverdueMode) {
-                              setSelectedOverdueActionIds(new Set());
-                            }
-                          }}
-                        >
-                          <Button
-                            size="xs"
-                            variant={bulkEditOverdueMode ? "filled" : "light"}
-                            color={bulkEditOverdueMode ? "blue" : "gray"}
-                            leftSection={<IconEdit size={12} />}
-                          >
-                            {bulkEditOverdueMode ? 'Exit' : 'Bulk reschedule'}
-                          </Button>
-                        </div>
-                      )}
-                    </Group>
+            <Group justify="space-between" wrap="nowrap" className="pr-2">
+              <Accordion.Control className="flex-1">
+                <Group gap="xs">
+                  <Text fw={500}>Overdue</Text>
+                  <Badge variant="filled" color="red" size="sm">
+                    {overdueActions.length}
+                  </Badge>
                 </Group>
-            </Accordion.Control>
+              </Accordion.Control>
+              {/* Show bulk edit toggle for overdue actions - outside Accordion.Control to avoid nested buttons */}
+              {enableBulkEditForOverdue && (
+                <Button
+                  size="xs"
+                  variant={bulkEditOverdueMode ? "filled" : "light"}
+                  color={bulkEditOverdueMode ? "blue" : "gray"}
+                  leftSection={<IconEdit size={12} />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setBulkEditOverdueMode(!bulkEditOverdueMode);
+                    if (bulkEditOverdueMode) {
+                      setSelectedOverdueActionIds(new Set());
+                    }
+                  }}
+                >
+                  {bulkEditOverdueMode ? 'Exit' : 'Bulk reschedule'}
+                </Button>
+              )}
+            </Group>
             <Accordion.Panel p={0}>
               {/* Bulk actions for overdue items */}
               {bulkEditOverdueMode && enableBulkEditForOverdue && (

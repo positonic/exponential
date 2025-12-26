@@ -20,6 +20,7 @@ interface NotionWorkflowForm {
   description?: string;
   databaseId: string;
   projectsDatabaseId: string;
+  projectColumn: string;
   syncDirection: 'push' | 'pull' | 'bidirectional';
   syncFrequency: 'manual' | 'hourly' | 'daily' | 'weekly';
   source: 'fireflies' | 'internal' | 'all';
@@ -141,6 +142,7 @@ export default function NotionWorkflowPage() {
       name: 'Actions → Notion Sync',
       databaseId: '',
       projectsDatabaseId: '',
+      projectColumn: '',
       syncDirection: 'push',
       syncFrequency: 'manual',
       source: 'fireflies',
@@ -164,6 +166,7 @@ export default function NotionWorkflowPage() {
       name: '',
       databaseId: '',
       projectsDatabaseId: '',
+      projectColumn: '',
       syncDirection: 'push',
       syncFrequency: 'manual',
       source: 'fireflies',
@@ -335,6 +338,7 @@ export default function NotionWorkflowPage() {
       config: {
         databaseId: values.databaseId,
         projectsDatabaseId: values.projectsDatabaseId,
+        projectColumn: values.projectColumn,
         source: values.source,
         propertyMappings: values.propertyMappings,
       },
@@ -360,6 +364,7 @@ export default function NotionWorkflowPage() {
       config: {
         databaseId: values.databaseId,
         projectsDatabaseId: values.projectsDatabaseId,
+        projectColumn: values.projectColumn,
         source: values.source,
         propertyMappings: values.propertyMappings,
       },
@@ -372,6 +377,7 @@ export default function NotionWorkflowPage() {
       name: workflow.name,
       databaseId: workflow.config?.databaseId || '',
       projectsDatabaseId: workflow.config?.projectsDatabaseId || '',
+      projectColumn: workflow.config?.projectColumn || '',
       syncDirection: workflow.syncDirection || 'push',
       syncFrequency: workflow.syncFrequency || 'manual',
       source: workflow.config?.source || 'fireflies',
@@ -861,11 +867,22 @@ export default function NotionWorkflowPage() {
 
               {selectedDatabase && (
                 <>
+                  {/* Project Column Mapping - Required for filtering tasks by project */}
+                  <Select
+                    label="Project Column"
+                    placeholder="Select the relation column for projects"
+                    description="Choose which column links tasks to projects (must be a relation property)"
+                    data={getPropertyOptions('relation')}
+                    {...workflowForm.getInputProps('projectColumn')}
+                    clearable
+                    mb="md"
+                  />
+
                   <Text fw={500} size="sm">Property Mappings (Optional)</Text>
                   <Text size="xs" c="dimmed" mb="xs">
                     Map your action fields to Notion database properties:
                   </Text>
-                  
+
                   {/* Debug: Show all available properties */}
                   <Paper withBorder p="xs" mb="sm">
                     <Text size="xs" fw={500} mb={4}>Available properties on &ldquo;{selectedDatabase.title}&rdquo;:</Text>
@@ -880,7 +897,7 @@ export default function NotionWorkflowPage() {
                       )}
                     </Group>
                   </Paper>
-                  
+
                   <Select
                     label="Title Property"
                     placeholder="Select title property"
@@ -1240,11 +1257,22 @@ export default function NotionWorkflowPage() {
 
               {selectedDatabase && (
                 <>
+                  {/* Project Column Mapping - Required for filtering tasks by project */}
+                  <Select
+                    label="Project Column"
+                    placeholder="Select the relation column for projects"
+                    description="Choose which column links tasks to projects (must be a relation property)"
+                    data={getPropertyOptions('relation')}
+                    {...editWorkflowForm.getInputProps('projectColumn')}
+                    clearable
+                    mb="md"
+                  />
+
                   <Text fw={500} size="sm">Property Mappings (Optional)</Text>
                   <Text size="xs" c="dimmed" mb="xs">
                     Map your action fields to Notion database properties:
                   </Text>
-                  
+
                   {/* Debug: Show all available properties */}
                   <Paper withBorder p="xs" mb="sm">
                     <Text size="xs" fw={500} mb={4}>Available properties on &ldquo;{selectedDatabase.title}&rdquo;:</Text>
@@ -1259,7 +1287,7 @@ export default function NotionWorkflowPage() {
                       )}
                     </Group>
                   </Paper>
-                  
+
                   <Select
                     label="Title Property"
                     placeholder="Select title property"
