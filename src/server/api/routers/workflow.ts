@@ -50,7 +50,19 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
     notionProjectId,
     config.projectColumn // Pass dynamic column name
   );
-  
+
+  // Get user mappings for this integration to resolve assignees
+  const userMappings = await ctx.db.integrationUserMapping.findMany({
+    where: {
+      integrationId: workflow.integrationId,
+    },
+  });
+
+  // Create a lookup map for quick access: Notion user ID -> Local user ID
+  const userMappingLookup = new Map<string, string>();
+  for (const mapping of userMappings) {
+    userMappingLookup.set(mapping.externalUserId, mapping.userId);
+  }
 
   // Create actions for each task
   let itemsCreated = 0;
@@ -61,7 +73,12 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
     try {
       // Parse Notion page to action format
       const task = notionService.parseNotionPageToAction(page, config.propertyMappings);
-      
+
+      // Resolve assignee using the user mapping
+      const assignedToId = task.assigneeNotionUserId
+        ? userMappingLookup.get(task.assigneeNotionUserId)
+        : undefined;
+
       // Check if we already have an ActionSync record for this Notion page
       const existingSync = await ctx.db.actionSync.findFirst({
         where: {
@@ -79,11 +96,12 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
         if (existingSync.action) {
           // Update existing action if it's different
           const existingAction = existingSync.action;
-          const needsUpdate = 
+          const needsUpdate =
             existingAction.name !== task.name ||
             existingAction.status !== task.status ||
             existingAction.description !== task.description ||
             existingAction.priority !== task.priority ||
+            existingAction.assignedToId !== assignedToId ||
             (existingAction.dueDate?.getTime() !== task.dueDate?.getTime());
 
           if (needsUpdate) {
@@ -95,9 +113,10 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
                 status: task.status,
                 priority: task.priority,
                 dueDate: task.dueDate,
+                assignedToId: assignedToId ?? existingAction.assignedToId,
               },
             });
-            
+
             // Update the sync record
             await ctx.db.actionSync.update({
               where: { id: existingSync.id },
@@ -106,26 +125,26 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
                 updatedAt: new Date(),
               },
             });
-            
+
             itemsUpdated++;
           } else {
             itemsSkipped++;
           }
         } else {
           // Sync record exists but action was deleted locally - recreate it
-          
+
           // Delete the orphaned sync record
           await ctx.db.actionSync.delete({
             where: { id: existingSync.id },
           });
-          
+
           // Mark that we need to create a new action
           shouldCreateNew = true;
         }
       } else {
         shouldCreateNew = true;
       }
-      
+
       if (shouldCreateNew) {
         // Create new action and ActionSync record
         const newAction = await ctx.db.action.create({
@@ -137,6 +156,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             dueDate: task.dueDate,
             createdById: ctx.session.user.id,
             projectId: projectId || undefined, // Use the provided projectId
+            assignedToId,
           },
         });
 
@@ -1630,5 +1650,159 @@ export const workflowRouter = createTRPCRouter({
           message: 'Failed to fetch Notion projects',
         });
       }
+    }),
+
+  // Get Notion workspace users for DRI mapping
+  getNotionUsers: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Get integration with credentials
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          id: input.integrationId,
+          userId: ctx.session.user.id,
+          provider: 'notion',
+        },
+        include: {
+          credentials: true,
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Notion integration not found',
+        });
+      }
+
+      const accessToken = integration.credentials.find(
+        (c) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+      )?.key;
+
+      if (!accessToken) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'No access token found for Notion integration',
+        });
+      }
+
+      try {
+        const notionService = new NotionService(accessToken);
+        return await notionService.getWorkspaceUsers();
+      } catch (error) {
+        console.error('Failed to fetch Notion users:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to fetch Notion workspace users',
+        });
+      }
+    }),
+
+  // Get local users for mapping dropdown
+  getLocalUsers: protectedProcedure
+    .query(async ({ ctx }) => {
+      const users = await ctx.db.user.findMany({
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+        },
+        orderBy: {
+          name: 'asc',
+        },
+      });
+
+      return users;
+    }),
+
+  // Get existing user mappings for an integration
+  getUserMappings: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const mappings = await ctx.db.integrationUserMapping.findMany({
+        where: {
+          integrationId: input.integrationId,
+          integration: {
+            userId: ctx.session.user.id,
+          },
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+      });
+
+      return mappings;
+    }),
+
+  // Save user mappings for an integration
+  saveUserMappings: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+      mappings: z.array(z.object({
+        externalUserId: z.string(),
+        externalUserName: z.string().optional(),
+        userId: z.string().nullable(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify user owns the integration
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          id: input.integrationId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Integration not found',
+        });
+      }
+
+      // Process each mapping
+      for (const mapping of input.mappings) {
+        if (mapping.userId) {
+          // Upsert the mapping
+          await ctx.db.integrationUserMapping.upsert({
+            where: {
+              integrationId_externalUserId: {
+                integrationId: input.integrationId,
+                externalUserId: mapping.externalUserId,
+              },
+            },
+            update: {
+              userId: mapping.userId,
+            },
+            create: {
+              integrationId: input.integrationId,
+              externalUserId: mapping.externalUserId,
+              userId: mapping.userId,
+            },
+          });
+        } else {
+          // Remove the mapping if userId is null
+          await ctx.db.integrationUserMapping.deleteMany({
+            where: {
+              integrationId: input.integrationId,
+              externalUserId: mapping.externalUserId,
+            },
+          });
+        }
+      }
+
+      return { success: true };
     }),
 });

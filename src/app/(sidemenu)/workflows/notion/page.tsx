@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Container, Title, Text, Button, Card, Group, Stack, ThemeIcon, Badge, Alert, Modal, TextInput, Select, Textarea, Paper, Accordion, List, Table } from '@mantine/core';
+import { useState, useEffect } from 'react';
+import { Container, Title, Text, Button, Card, Group, Stack, ThemeIcon, Badge, Alert, Modal, TextInput, Select, Textarea, Paper, Accordion, List, Table, Divider, Avatar, Loader } from '@mantine/core';
 import { IconDatabase, IconArrowRight, IconCheck, IconAlertCircle, IconPlus, IconBrandNotion, IconExternalLink, IconEdit, IconTrash } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
@@ -56,11 +56,86 @@ export default function NotionWorkflowPage() {
   const [selectedProjectsDatabase, setSelectedProjectsDatabase] = useState<NotionDatabase | null>(null);
   const [selectingDatabaseFor, setSelectingDatabaseFor] = useState<'tasks' | 'projects' | null>(null);
   const [editingWorkflow, setEditingWorkflow] = useState<any>(null);
+  const [userMappings, setUserMappings] = useState<Record<string, string | null>>({});
   
   // API calls for checking configuration status
   const { data: integrations = [] } = api.integration.listIntegrations.useQuery();
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const utils = api.useUtils();
+
+  // Get the active Notion integration (needed early for DRI mapping queries)
+  const activeNotionIntegration = integrations.find(integration =>
+    integration.provider === 'notion' &&
+    integration.status === 'ACTIVE'
+  );
+
+  // DRI Mapping API calls
+  const { data: notionUsers = [], isLoading: isLoadingNotionUsers, refetch: refetchNotionUsers } = api.workflow.getNotionUsers.useQuery(
+    { integrationId: activeNotionIntegration?.id ?? '' },
+    { enabled: !!activeNotionIntegration?.id && editWorkflowModalOpened }
+  );
+
+  const { data: localUsers = [] } = api.workflow.getLocalUsers.useQuery(
+    undefined,
+    { enabled: editWorkflowModalOpened }
+  );
+
+  const { data: existingMappings = [], refetch: refetchMappings } = api.workflow.getUserMappings.useQuery(
+    { integrationId: activeNotionIntegration?.id ?? '' },
+    { enabled: !!activeNotionIntegration?.id && editWorkflowModalOpened }
+  );
+
+  const saveUserMappings = api.workflow.saveUserMappings.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Mappings Saved',
+        message: 'User mappings have been saved successfully.',
+        color: 'green',
+      });
+      void refetchMappings();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to save user mappings',
+        color: 'red',
+      });
+    },
+  });
+
+  // Effect to populate userMappings from existing mappings
+  useEffect(() => {
+    if (existingMappings.length > 0) {
+      const mappingsMap: Record<string, string | null> = {};
+      for (const mapping of existingMappings) {
+        mappingsMap[mapping.externalUserId] = mapping.userId;
+      }
+      setUserMappings(mappingsMap);
+    }
+  }, [existingMappings]);
+
+  // Handler to update a single user mapping
+  const handleUserMappingChange = (notionUserId: string, localUserId: string | null) => {
+    setUserMappings(prev => ({
+      ...prev,
+      [notionUserId]: localUserId,
+    }));
+  };
+
+  // Handler to save all user mappings
+  const handleSaveUserMappings = () => {
+    if (!activeNotionIntegration?.id) return;
+
+    const mappingsToSave = Object.entries(userMappings).map(([externalUserId, userId]) => ({
+      externalUserId,
+      userId,
+    }));
+
+    saveUserMappings.mutate({
+      integrationId: activeNotionIntegration.id,
+      mappings: mappingsToSave,
+    });
+  };
 
   // Test connection and get databases
   const testConnection = api.integration.testConnection.useMutation({
@@ -185,17 +260,11 @@ export default function NotionWorkflowPage() {
     },
   });
 
-  // Check if Notion integration exists
-  const hasNotionIntegration = integrations.some(integration => 
-    integration.provider === 'notion' && 
-    integration.status === 'ACTIVE'
-  );
+  // Check if Notion integration exists (use activeNotionIntegration defined earlier)
+  const hasNotionIntegration = !!activeNotionIntegration;
 
-  // Get the active Notion integration
-  const notionIntegration = integrations.find(integration => 
-    integration.provider === 'notion' && 
-    integration.status === 'ACTIVE'
-  );
+  // Alias for backward compatibility
+  const notionIntegration = activeNotionIntegration;
 
   // Get Notion workflows
   const notionWorkflows = workflows.filter(workflow => workflow.provider === 'notion');
@@ -1332,6 +1401,85 @@ export default function NotionWorkflowPage() {
                     />
                   </Group>
                 </>
+              )}
+
+              {/* DRI (Assignee) Mapping Section */}
+              <Divider my="md" label="DRI (Assignee) Mapping" labelPosition="center" />
+              <Text size="xs" c="dimmed" mb="sm">
+                Map Notion workspace members to local users for automatic DRI assignment during sync:
+              </Text>
+
+              {isLoadingNotionUsers ? (
+                <Group justify="center" py="md">
+                  <Loader size="sm" />
+                  <Text size="sm" c="dimmed">Loading Notion users...</Text>
+                </Group>
+              ) : notionUsers.length === 0 ? (
+                <Paper withBorder p="md" radius="sm">
+                  <Group justify="center">
+                    <Text size="sm" c="dimmed">
+                      No Notion users found. Make sure your integration has access to workspace members.
+                    </Text>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      onClick={() => void refetchNotionUsers()}
+                    >
+                      Retry
+                    </Button>
+                  </Group>
+                </Paper>
+              ) : (
+                <Stack gap="sm">
+                  {notionUsers.map((notionUser) => (
+                    <Paper key={notionUser.id} withBorder p="sm" radius="sm">
+                      <Group justify="space-between" wrap="nowrap">
+                        <Group gap="sm" wrap="nowrap" style={{ flex: 1 }}>
+                          <Avatar
+                            src={notionUser.avatarUrl}
+                            size="sm"
+                            radius="xl"
+                          >
+                            {notionUser.name?.charAt(0)?.toUpperCase()}
+                          </Avatar>
+                          <div style={{ minWidth: 0 }}>
+                            <Text size="sm" fw={500} truncate>
+                              {notionUser.name}
+                            </Text>
+                            {notionUser.email && (
+                              <Text size="xs" c="dimmed" truncate>
+                                {notionUser.email}
+                              </Text>
+                            )}
+                          </div>
+                        </Group>
+                        <Select
+                          placeholder="Select local user"
+                          data={localUsers.map((u) => ({
+                            value: u.id,
+                            label: u.name ?? u.email ?? 'Unknown User',
+                          }))}
+                          value={userMappings[notionUser.id] ?? null}
+                          onChange={(value) => handleUserMappingChange(notionUser.id, value)}
+                          clearable
+                          searchable
+                          style={{ minWidth: 200 }}
+                          size="sm"
+                        />
+                      </Group>
+                    </Paper>
+                  ))}
+                  <Group justify="flex-end" mt="xs">
+                    <Button
+                      size="sm"
+                      variant="light"
+                      onClick={handleSaveUserMappings}
+                      loading={saveUserMappings.isPending}
+                    >
+                      Save Mappings
+                    </Button>
+                  </Group>
+                </Stack>
               )}
 
               <Select

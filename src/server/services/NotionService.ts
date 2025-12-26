@@ -7,6 +7,14 @@ export interface NotionDatabase {
   properties: Record<string, NotionProperty>;
 }
 
+export interface NotionUser {
+  id: string;
+  name: string;
+  email?: string;
+  avatarUrl?: string;
+  type: 'person' | 'bot';
+}
+
 export interface NotionProperty {
   id: string;
   name: string;
@@ -48,6 +56,42 @@ export class NotionService {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
       };
+    }
+  }
+
+  async getWorkspaceUsers(): Promise<NotionUser[]> {
+    try {
+      const users: NotionUser[] = [];
+      let hasMore = true;
+      let startCursor: string | undefined;
+
+      while (hasMore) {
+        const response = await this.client.users.list({
+          page_size: 100,
+          start_cursor: startCursor,
+        });
+
+        for (const user of response.results) {
+          // Only include person type users (not bots)
+          if (user.type === 'person') {
+            users.push({
+              id: user.id,
+              name: user.name ?? 'Unknown User',
+              email: user.type === 'person' ? user.person?.email : undefined,
+              avatarUrl: user.avatar_url ?? undefined,
+              type: 'person',
+            });
+          }
+        }
+
+        hasMore = response.has_more;
+        startCursor = response.next_cursor ?? undefined;
+      }
+
+      return users;
+    } catch (error) {
+      console.error('Failed to fetch Notion workspace users:', error);
+      throw new Error('Failed to fetch workspace users from Notion');
     }
   }
 
@@ -304,6 +348,7 @@ export class NotionService {
     priority?: string;
     dueDate?: Date;
     lastModified: Date;
+    assigneeNotionUserId?: string;
   } {
     try {
       // Get title from title property (could be Name, Title, Task, etc.)
@@ -378,6 +423,14 @@ export class NotionService {
         dueDate = new Date(page.properties[dueDateProp].date.start);
       }
 
+      // Get assignee (extract Notion user ID for mapping)
+      let assigneeNotionUserId: string | undefined;
+      const assigneeProp = propertyMappings?.assignee || 'Assignee';
+      const assigneeProperty = page.properties[assigneeProp];
+      if (assigneeProperty?.people?.length > 0) {
+        assigneeNotionUserId = assigneeProperty.people[0].id;
+      }
+
       return {
         notionId: page.id,
         name,
@@ -386,6 +439,7 @@ export class NotionService {
         priority,
         dueDate,
         lastModified: new Date(page.last_edited_time),
+        assigneeNotionUserId,
       };
     } catch (error) {
       console.error('Failed to parse Notion page:', error);
