@@ -4,8 +4,8 @@ import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
-import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh } from "@tabler/icons-react";
-import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip } from "@mantine/core";
+import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff } from "@tabler/icons-react";
+import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
@@ -32,11 +32,18 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
   const [isKanbanMode, setIsKanbanMode] = useState(defaultView === 'kanban');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showNotionUnassigned, setShowNotionUnassigned] = useState(false);
   const utils = api.useUtils();
 
   // Check if this project has a Notion integration
   const hasNotionSync = projectSyncInfo?.taskManagementTool === 'notion' &&
     projectSyncInfo?.taskManagementConfig?.workflowId;
+
+  // Query for Notion imports without project (only fetch when filter is active or to get count)
+  const notionUnassignedQuery = api.action.getNotionImportedWithoutProject.useQuery(
+    undefined,
+    { enabled: !projectId } // Only enable on non-project pages
+  );
 
   // Smart sync mutation for Notion
   const smartSyncMutation = api.workflow.smartSync.useMutation({
@@ -80,11 +87,20 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   };
 
   // Conditionally fetch actions based on projectId
-  const actionsQuery = projectId
-    ? api.action.getProjectActions.useQuery({ projectId })
-    : api.action.getAll.useQuery(); // Consider using getToday for specific views if needed
+  const allActionsQuery = api.action.getAll.useQuery(undefined, { enabled: !projectId });
+  const projectActionsQuery = api.action.getProjectActions.useQuery(
+    { projectId: projectId! },
+    { enabled: !!projectId }
+  );
 
-  const actions = actionsQuery.data; // Extract data from the chosen query
+  // Use filtered results if Notion unassigned filter is active, otherwise use normal query
+  // All three queries return the same shape, so we can safely union them
+  const actions = projectId
+    ? projectActionsQuery.data
+    : (showNotionUnassigned ? notionUnassignedQuery.data : allActionsQuery.data);
+
+  // Count of unassigned Notion imports (for badge)
+  const notionUnassignedCount = notionUnassignedQuery.data?.length ?? 0;
 
   // Bulk update mutation for rescheduling
   const bulkUpdateMutation = api.action.update.useMutation({
@@ -358,7 +374,13 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         message: `Successfully deleted ${data.count} overdue actions`,
         color: 'green',
       });
-      void actionsQuery.refetch();
+      // Refetch the appropriate query
+      if (projectId) {
+        void projectActionsQuery.refetch();
+      } else {
+        void allActionsQuery.refetch();
+        void notionUnassignedQuery.refetch();
+      }
     },
     onError: (error) => {
       notifications.show({
@@ -512,6 +534,39 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
                 </ActionIcon>
               </Tooltip>
             </Group>
+          )}
+        </Group>
+      )}
+
+      {/* Filter for Notion imports without project - only show on non-project pages */}
+      {!projectId && notionUnassignedCount > 0 && (
+        <Group gap="xs" mb="md">
+          <Tooltip label={showNotionUnassigned ? "Show all actions" : "Show Notion imports without a project"}>
+            <Button
+              variant={showNotionUnassigned ? "filled" : "light"}
+              size="sm"
+              color={showNotionUnassigned ? "violet" : "gray"}
+              onClick={() => setShowNotionUnassigned(!showNotionUnassigned)}
+              leftSection={<IconBrandNotion size={16} />}
+              rightSection={
+                <Badge size="sm" variant="filled" color={showNotionUnassigned ? "white" : "violet"}>
+                  {notionUnassignedCount}
+                </Badge>
+              }
+            >
+              {showNotionUnassigned ? "Showing Unassigned" : "Notion Unassigned"}
+            </Button>
+          </Tooltip>
+          {showNotionUnassigned && (
+            <Button
+              variant="subtle"
+              size="sm"
+              color="gray"
+              onClick={() => setShowNotionUnassigned(false)}
+              leftSection={<IconFilterOff size={16} />}
+            >
+              Clear Filter
+            </Button>
           )}
         </Group>
       )}

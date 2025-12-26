@@ -64,6 +64,10 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
     },
     onSettled: () => {
       void utils.goal.getAllMyGoals.invalidate();
+      // Also invalidate project-specific goals if a project was selected
+      if (selectedProjectId) {
+        void utils.goal.getProjectGoals.invalidate({ projectId: selectedProjectId });
+      }
     },
     onSuccess: () => {
       resetForm();

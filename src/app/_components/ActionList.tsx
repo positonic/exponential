@@ -1,5 +1,5 @@
 import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button, Avatar, HoverCard, ActionIcon, Menu } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots } from '@tabler/icons-react';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots, IconBrandNotion } from '@tabler/icons-react';
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
@@ -92,16 +92,18 @@ const SyncStatusIndicator = ({ action }: { action: Action }) => {
   }
 
   if (syncInfo.status === 'synced') {
+    // Show provider-specific icon
+    if (syncInfo.provider === 'notion') {
+      return (
+        <Tooltip label={`Synced to Notion on ${syncInfo.syncedAt ? new Date(syncInfo.syncedAt).toLocaleDateString() : 'unknown date'}`}>
+          <IconBrandNotion size={16} style={{ color: 'var(--mantine-color-gray-5)' }} />
+        </Tooltip>
+      );
+    }
+    // Fallback for other providers
     return (
-      <Tooltip label={`Synced to ${syncInfo.provider === 'notion' ? 'Notion' : syncInfo.provider} on ${syncInfo.syncedAt ? new Date(syncInfo.syncedAt).toLocaleDateString() : 'unknown date'}`}>
-        <Badge 
-          size="sm" 
-          color="green" 
-          variant="light"
-          leftSection={<IconCloudCheck size={12} />}
-        >
-          Synced
-        </Badge>
+      <Tooltip label={`Synced to ${syncInfo.provider} on ${syncInfo.syncedAt ? new Date(syncInfo.syncedAt).toLocaleDateString() : 'unknown date'}`}>
+        <IconCloudCheck size={16} style={{ color: 'var(--mantine-color-green-5)' }} />
       </Tooltip>
     );
   }

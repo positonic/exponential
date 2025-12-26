@@ -82,6 +82,29 @@ export const actionRouter = createTRPCRouter({
       });
     }),
 
+  // Get actions imported from Notion that don't have a project assigned
+  getNotionImportedWithoutProject: protectedProcedure
+    .query(async ({ ctx }) => {
+      return ctx.db.action.findMany({
+        where: {
+          createdById: ctx.session.user.id,
+          projectId: null,
+          status: { not: "DELETED" },
+          syncs: {
+            some: { provider: "notion" }
+          }
+        },
+        include: {
+          syncs: true,
+          project: true,
+          assignees: {
+            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+          },
+        },
+        orderBy: { id: 'desc' }
+      });
+    }),
+
   // Get actions for Kanban board with comprehensive filtering
   getKanbanActions: protectedProcedure
     .input(z.object({
