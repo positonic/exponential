@@ -3,10 +3,19 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { NotionService } from "~/server/services/NotionService";
+import {
+  WorkflowExecutorFactory,
+  type WorkflowWithCredentials,
+  type WorkflowConfig,
+} from "~/server/services/sync";
 
 // Helper function for Notion pull sync
 async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletionBehavior?: string, projectId?: string) {
-  const config = workflow.config as { databaseId: string; propertyMappings?: Record<string, string> };
+  const config = workflow.config as {
+    databaseId: string;
+    propertyMappings?: Record<string, string>;
+    projectColumn?: string; // Dynamic column name for project relation
+  };
   const accessToken = workflow.integration.credentials.find(
     (c: any) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
   )?.key;
@@ -37,8 +46,9 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
 
   // Get pages from the Notion database, filtered by project if available
   const notionPages = await notionService.getAllPagesFromDatabase(
-    config.databaseId, 
-    notionProjectId
+    config.databaseId,
+    notionProjectId,
+    config.projectColumn // Pass dynamic column name
   );
   
 
@@ -224,10 +234,11 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
 
 // Helper function for Notion push sync
 async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwriteMode = false, projectId?: string, actionIds?: string[]) {
-  const config = workflow.config as { 
-    databaseId: string; 
+  const config = workflow.config as {
+    databaseId: string;
     propertyMappings?: Record<string, string>;
     source?: 'fireflies' | 'internal' | 'all';
+    projectColumn?: string; // Dynamic column name for project relation
   };
   
   const accessToken = workflow.integration.credentials.find(
@@ -322,7 +333,11 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
   if (existingSyncs.length > 0) {
     
     // Get current pages from Notion to check what still exists
-    const currentNotionPages = await notionService.getAllPagesFromDatabase(config.databaseId);
+    const currentNotionPages = await notionService.getAllPagesFromDatabase(
+      config.databaseId,
+      undefined, // No project filter for existence check
+      config.projectColumn
+    );
     const currentPageIds = currentNotionPages.map((page: any) => page.id);
     
     // Check each synced task to see if it still exists in Notion
@@ -350,10 +365,11 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
     // Get all pages from Notion for this project
     const allNotionPages = await notionService.getAllPagesFromDatabase(
       config.databaseId,
-      projectId ? (await ctx.db.project.findUnique({ 
-        where: { id: projectId }, 
-        select: { notionProjectId: true } 
-      }))?.notionProjectId : undefined
+      projectId ? (await ctx.db.project.findUnique({
+        where: { id: projectId },
+        select: { notionProjectId: true }
+      }))?.notionProjectId : undefined,
+      config.projectColumn
     );
     
     const localActionNotionIds = new Set(
@@ -479,7 +495,8 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
         title: action.name,
         properties,
         titleProperty: config.propertyMappings?.title,
-        projectId: project?.notionProjectId || undefined,
+        projectId: project?.notionProjectId ?? undefined,
+        projectColumn: config.projectColumn,
       });
 
       // Create ActionSync record to track this sync
@@ -563,6 +580,126 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
     itemsFailedToSync,
     itemsDeleted,
     skippedReasons,
+  };
+}
+
+// Helper function for new sync engine (feature flagged)
+async function runNewSyncEngine(
+  ctx: any,
+  workflow: WorkflowWithCredentials,
+  runId: string,
+  input: {
+    projectId?: string;
+    overwriteMode?: boolean;
+    actionIds?: string[];
+    notionProjectId?: string;
+  }
+) {
+  const config = workflow.config as WorkflowConfig;
+  const syncDirection = workflow.syncDirection ?? config.syncDirection ?? 'push';
+
+  // Get project's notionProjectId if projectId is provided
+  let notionProjectId = input.notionProjectId ?? config.notionProjectId;
+  if (input.projectId && !notionProjectId) {
+    const project = await ctx.db.project.findUnique({
+      where: { id: input.projectId },
+      select: { notionProjectId: true },
+    });
+    notionProjectId = project?.notionProjectId ?? undefined;
+  }
+
+  const engine = WorkflowExecutorFactory.create(workflow, {
+    userId: ctx.session.user.id,
+    db: ctx.db,
+  });
+
+  let result;
+
+  switch (syncDirection) {
+    case 'pull': {
+      const pullConfig = WorkflowExecutorFactory.buildPullConfig(
+        workflow,
+        {
+          projectId: input.projectId,
+          notionProjectId,
+          deletionBehavior: config.deletionHandling,
+        },
+        ctx.session.user.id
+      );
+      result = await engine.pull(pullConfig);
+      break;
+    }
+
+    case 'push': {
+      const pushConfig = WorkflowExecutorFactory.buildPushConfig(
+        workflow,
+        {
+          projectId: input.projectId,
+          notionProjectId,
+          actionIds: input.actionIds,
+          overwriteMode: input.overwriteMode,
+        },
+        ctx.session.user.id
+      );
+      result = await engine.push(pushConfig);
+      break;
+    }
+
+    case 'bidirectional': {
+      const biConfig = WorkflowExecutorFactory.buildBiSyncConfig(
+        workflow,
+        {
+          projectId: input.projectId,
+          notionProjectId,
+          conflictResolution: 'local_wins',
+          deletionBehavior: config.deletionHandling,
+        },
+        ctx.session.user.id
+      );
+      result = await engine.bidirectional(biConfig);
+      break;
+    }
+
+    default:
+      throw new Error(`Unknown sync direction: ${syncDirection}`);
+  }
+
+  // Update the run record with results
+  await ctx.db.workflowRun.update({
+    where: { id: runId },
+    data: {
+      status: result.success ? 'SUCCESS' : 'FAILED',
+      completedAt: new Date(),
+      itemsProcessed: result.itemsProcessed,
+      itemsCreated: result.itemsCreated,
+      itemsUpdated: result.itemsUpdated,
+      itemsSkipped: result.itemsSkipped,
+      metadata: {
+        syncDirection,
+        itemsDeleted: result.itemsDeleted,
+        conflicts: result.conflicts.length,
+        errors: result.errors.map(e => e.message),
+        useNewSyncEngine: true,
+      },
+    },
+  });
+
+  // Update workflow last run time
+  await ctx.db.workflow.update({
+    where: { id: workflow.id },
+    data: { lastRunAt: new Date() },
+  });
+
+  return {
+    success: result.success,
+    runId,
+    itemsProcessed: result.itemsProcessed,
+    itemsCreated: result.itemsCreated,
+    itemsUpdated: result.itemsUpdated,
+    itemsSkipped: result.itemsSkipped,
+    itemsDeleted: result.itemsDeleted,
+    conflicts: result.conflicts,
+    errors: result.errors,
   };
 }
 
@@ -752,6 +889,27 @@ export const workflowRouter = createTRPCRouter({
       });
 
       try {
+        // Check for new sync engine feature flag
+        const workflowConfig = workflow.config as WorkflowConfig;
+        if (workflowConfig.useNewSyncEngine && workflow.provider === 'notion') {
+          // Use new provider-agnostic sync engine
+          const typedWorkflow: WorkflowWithCredentials = {
+            id: workflow.id,
+            name: workflow.name,
+            provider: workflow.provider,
+            syncDirection: workflow.syncDirection,
+            config: workflow.config,
+            integration: workflow.integration,
+          };
+
+          return await runNewSyncEngine(ctx, typedWorkflow, run.id, {
+            projectId: input.projectId,
+            overwriteMode: input.overwriteMode,
+            actionIds: input.actionIds,
+          });
+        }
+
+        // Legacy sync implementation (existing code)
         // Execute the workflow based on type
         // Only treat as pull if syncDirection is pull AND no overwriteMode is specified
         if (workflow.provider === 'notion' && workflow.syncDirection === 'pull' && !input.overwriteMode) {

@@ -26,6 +26,7 @@ export interface CreatePageParams {
   properties: Record<string, any>;
   titleProperty?: string; // Optional override for which property to use as title
   projectId?: string; // Optional Notion project ID to link the page to
+  projectColumn?: string; // Dynamic column name for project relation (default: 'Project')
 }
 
 export class NotionService {
@@ -162,9 +163,9 @@ export class NotionService {
           //     },
           //   ],
           // },
-          // Link to project if provided
+          // Link to project if provided (use dynamic column name, default to 'Project')
           ...(params.projectId && {
-            Project: {
+            [params.projectColumn ?? 'Project']: {
               relation: [
                 {
                   id: params.projectId,
@@ -234,18 +235,21 @@ export class NotionService {
     return null;
   }
 
-  async getAllPagesFromDatabase(databaseId: string, filterByProjectId?: string): Promise<any[]> {
+  async getAllPagesFromDatabase(
+    databaseId: string,
+    filterByProjectId?: string,
+    projectColumn?: string // Dynamic column name for project relation (default: 'Project')
+  ): Promise<any[]> {
     try {
-      
       const queryOptions: any = {
         database_id: databaseId,
         page_size: 100,
       };
 
-      // Add filter for project if provided
+      // Add filter for project if provided (use dynamic column name)
       if (filterByProjectId) {
         queryOptions.filter = {
-          property: 'Project', // Assuming the relation property is named 'Project'
+          property: projectColumn ?? 'Project',
           relation: {
             contains: filterByProjectId,
           },
@@ -319,22 +323,37 @@ export class NotionService {
       // Get status - default to ACTIVE if not found
       let status = 'ACTIVE';
       const statusProp = propertyMappings?.status || 'Status';
-      if (page.properties[statusProp]?.select?.name) {
-        const notionStatus = page.properties[statusProp].select.name;
-        // Map Notion status to our status
-        const statusMapping: Record<string, string> = {
-          'Done': 'COMPLETED',
-          'Completed': 'COMPLETED',
-          'Complete': 'COMPLETED',
-          'Finished': 'COMPLETED',
-          'In Progress': 'ACTIVE',
-          'Active': 'ACTIVE',
-          'Todo': 'ACTIVE',
-          'Not Started': 'ACTIVE',
-        };
-        status = statusMapping[notionStatus] || 'ACTIVE';
-      } else if (page.properties[statusProp]?.checkbox !== undefined) {
-        status = page.properties[statusProp].checkbox ? 'COMPLETED' : 'ACTIVE';
+      const statusProperty = page.properties[statusProp];
+
+      // Map Notion status to our status
+      const statusMapping: Record<string, string> = {
+        'Done': 'COMPLETED',
+        'Completed': 'COMPLETED',
+        'Complete': 'COMPLETED',
+        'Finished': 'COMPLETED',
+        'Archived': 'COMPLETED',
+        'In Progress': 'ACTIVE',
+        'In progress': 'ACTIVE',
+        'Active': 'ACTIVE',
+        'Todo': 'ACTIVE',
+        'To-do': 'ACTIVE',
+        'Not Started': 'ACTIVE',
+        'Not started': 'ACTIVE',
+      };
+
+      // Handle native Notion status type (different from select)
+      if (statusProperty?.status?.name) {
+        const notionStatus = statusProperty.status.name;
+        status = statusMapping[notionStatus] ?? 'ACTIVE';
+      }
+      // Handle select type status
+      else if (statusProperty?.select?.name) {
+        const notionStatus = statusProperty.select.name;
+        status = statusMapping[notionStatus] ?? 'ACTIVE';
+      }
+      // Handle checkbox type status
+      else if (statusProperty?.checkbox !== undefined) {
+        status = statusProperty.checkbox ? 'COMPLETED' : 'ACTIVE';
       }
 
       // Get priority
