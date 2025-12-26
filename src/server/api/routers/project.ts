@@ -178,6 +178,7 @@ export const projectRouter = createTRPCRouter({
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
         teamId: z.string().optional(),
+        notionProjectId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -185,7 +186,7 @@ export const projectRouter = createTRPCRouter({
       const baseSlug = slugify(input.name);
       let slug = baseSlug;
       let counter = 1;
-      
+
       // Check if slug exists and increment counter until we find a unique one
       while (await ctx.db.project.findFirst({ where: { slug } })) {
         slug = `${baseSlug}_${counter}`;
@@ -202,6 +203,7 @@ export const projectRouter = createTRPCRouter({
           slug,
           reviewDate: input.reviewDate ?? null,
           nextActionDate: input.nextActionDate ?? null,
+          notionProjectId: input.notionProjectId,
           createdBy: {
             connect: {
               id: ctx.session.user.id,

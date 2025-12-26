@@ -69,6 +69,16 @@ export default function NotionWorkflowPage() {
     integration.status === 'ACTIVE'
   );
 
+  // Get Notion workflows for unlinked projects query
+  const notionWorkflowsList = workflows.filter(w => w.provider === 'notion');
+  const firstNotionWorkflowId = notionWorkflowsList[0]?.id;
+
+  // Query for unlinked Notion projects (projects in Notion but not linked locally)
+  const { data: unlinkedProjectsData } = api.workflow.getUnlinkedNotionProjects.useQuery(
+    { workflowId: firstNotionWorkflowId ?? '' },
+    { enabled: !!firstNotionWorkflowId }
+  );
+
   // DRI Mapping API calls
   const { data: notionUsers = [], isLoading: isLoadingNotionUsers, refetch: refetchNotionUsers } = api.workflow.getNotionUsers.useQuery(
     { integrationId: activeNotionIntegration?.id ?? '' },
@@ -1155,7 +1165,32 @@ export default function NotionWorkflowPage() {
                 {notionWorkflows.length} workflow{notionWorkflows.length !== 1 ? 's' : ''}
               </Badge>
             </Group>
-            
+
+            {/* Unlinked Notion Projects Alert */}
+            {unlinkedProjectsData && unlinkedProjectsData.unlinkedProjects.length > 0 && (
+              <Alert
+                icon={<IconBrandNotion size={16} />}
+                title="Notion Projects Available"
+                color="blue"
+                variant="light"
+                mb="md"
+              >
+                <Text size="sm">
+                  {unlinkedProjectsData.unlinkedProjects.length} project{unlinkedProjectsData.unlinkedProjects.length !== 1 ? 's' : ''} in Notion {unlinkedProjectsData.unlinkedProjects.length !== 1 ? 'are' : 'is'} not linked to any local project.
+                </Text>
+                <Button
+                  component={Link}
+                  href="/projects?showNotionSuggestions=true"
+                  size="xs"
+                  variant="light"
+                  mt="sm"
+                  leftSection={<IconExternalLink size={14} />}
+                >
+                  View & Import Projects
+                </Button>
+              </Alert>
+            )}
+
             <Stack gap="md">
               {notionWorkflows.map((workflow) => (
                 <Paper key={workflow.id} p="md" radius="sm" withBorder>

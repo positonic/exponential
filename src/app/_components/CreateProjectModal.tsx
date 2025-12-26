@@ -17,11 +17,15 @@ type ProjectWithRelations = Project & {
 interface CreateProjectModalProps {
   children: React.ReactNode;
   project?: ProjectWithRelations;
+  prefillName?: string;
+  prefillNotionProjectId?: string;
+  onClose?: () => void;
 }
 
-export function CreateProjectModal({ children, project }: CreateProjectModalProps) {
+export function CreateProjectModal({ children, project, prefillName, prefillNotionProjectId, onClose }: CreateProjectModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
-  const [projectName, setProjectName] = useState(project?.name ?? "");
+  const [projectName, setProjectName] = useState(project?.name ?? prefillName ?? "");
+  const [notionProjectId] = useState(prefillNotionProjectId);
   const [description, setDescription] = useState(project?.description ?? "");
   const [status, setStatus] = useState<ProjectStatus>(project?.status as ProjectStatus ?? "ACTIVE");
   const [priority, setPriority] = useState<ProjectPriority>(project?.priority as ProjectPriority ?? "NONE");
@@ -53,6 +57,7 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
     onSuccess: () => {
       void utils.project.getAll.invalidate();
       close();
+      onClose?.();
     },
   });
 
@@ -168,6 +173,7 @@ export function CreateProjectModal({ children, project }: CreateProjectModalProp
                 priority,
                 goalIds: selectedGoals,
                 outcomeIds: selectedOutcomes,
+                notionProjectId: notionProjectId ?? undefined,
               });
             }
           }}

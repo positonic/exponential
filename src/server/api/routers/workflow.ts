@@ -1805,4 +1805,124 @@ export const workflowRouter = createTRPCRouter({
 
       return { success: true };
     }),
+
+  // Get Notion projects that don't have a local project linked
+  getUnlinkedNotionProjects: protectedProcedure
+    .input(z.object({
+      workflowId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Find the workflow
+      const workflow = await ctx.db.workflow.findFirst({
+        where: {
+          id: input.workflowId,
+          userId: ctx.session.user.id,
+          provider: 'notion',
+          status: 'ACTIVE',
+        },
+        include: {
+          integration: {
+            include: {
+              credentials: true,
+            },
+          },
+        },
+      });
+
+      if (!workflow) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Workflow not found',
+        });
+      }
+
+      const config = workflow.config as {
+        projectsDatabaseId?: string;
+      };
+
+      if (!config.projectsDatabaseId) {
+        return { unlinkedProjects: [], totalNotionProjects: 0, linkedCount: 0 };
+      }
+
+      // Get access token
+      const accessToken = workflow.integration.credentials.find(
+        (c: { keyType: string }) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+      )?.key;
+
+      if (!accessToken) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'No access token found for Notion integration',
+        });
+      }
+
+      try {
+        // Fetch all Notion projects
+        const notionService = new NotionService(accessToken);
+        const notionProjects = await notionService.getProjectsFromDatabase(config.projectsDatabaseId);
+
+        // Get all local projects that are linked to Notion
+        const linkedProjects = await ctx.db.project.findMany({
+          where: {
+            createdById: ctx.session.user.id,
+            notionProjectId: { not: null },
+          },
+          select: {
+            notionProjectId: true,
+          },
+        });
+
+        const linkedNotionIds = new Set(linkedProjects.map(p => p.notionProjectId));
+
+        // Helper to extract status from Notion page properties
+        const getNotionStatus = (properties: Record<string, any>): string | null => {
+          // eslint-disable-next-line @typescript-eslint/dot-notation
+          const statusProperty = properties['Status'];
+          if (!statusProperty) return null;
+
+          // Handle native Notion status type
+          if (statusProperty.status?.name) {
+            return statusProperty.status.name;
+          }
+          // Handle select type status
+          if (statusProperty.select?.name) {
+            return statusProperty.select.name;
+          }
+          return null;
+        };
+
+        // Status values to include in suggestions
+        const allowedStatuses = ['Not started', 'In Progress', 'In progress', 'Active', 'Todo', 'To-do'];
+
+        // Filter to only unlinked Notion projects with allowed status
+        const unlinkedProjects = notionProjects.filter(np => {
+          // Must not be already linked
+          if (linkedNotionIds.has(np.id)) return false;
+
+          // Check status - if no status property, include by default
+          const status = getNotionStatus(np.properties);
+          if (!status) return true; // No status field = include it
+
+          return allowedStatuses.some(allowed =>
+            status.toLowerCase() === allowed.toLowerCase()
+          );
+        });
+
+        return {
+          unlinkedProjects: unlinkedProjects.map(p => ({
+            notionId: p.id,
+            title: p.title,
+            url: p.url,
+          })),
+          totalNotionProjects: notionProjects.length,
+          linkedCount: linkedProjects.length,
+        };
+      } catch (error) {
+        console.error('Failed to fetch unlinked Notion projects:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to fetch Notion projects',
+        });
+      }
+    }),
 });
