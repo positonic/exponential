@@ -230,16 +230,23 @@ export function ProjectContent({
             {/* Content Area */}
             <Tabs.Panel value="tasks">
               <Stack gap="md">
-                <ProjectSyncStatus 
-                  project={project} 
-                  opened={syncStatusOpened} 
-                  onToggle={() => setSyncStatusOpened(!syncStatusOpened)} 
+                <ProjectSyncStatus
+                  project={project}
+                  opened={syncStatusOpened}
+                  onToggle={() => setSyncStatusOpened(!syncStatusOpened)}
                 />
                 <Actions
                   viewName={viewName}
                   defaultView="list"
                   projectId={projectId}
                   displayAlignment={false}
+                  projectSyncInfo={{
+                    taskManagementTool: project.taskManagementTool,
+                    taskManagementConfig: project.taskManagementConfig as {
+                      workflowId?: string;
+                      syncStrategy?: 'manual' | 'auto_pull_then_push' | 'notion_canonical';
+                    } | null,
+                  }}
                 />
               </Stack>
             </Tabs.Panel>

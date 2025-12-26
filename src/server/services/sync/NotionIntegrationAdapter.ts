@@ -101,7 +101,7 @@ export class NotionIntegrationAdapter implements IIntegrationService {
       title: data.title,
       properties,
       titleProperty: options?.titleProperty,
-      projectId: data.projectId as string | undefined,
+      projectId: data.projectId,
       projectColumn: options?.projectColumn,
     });
 
@@ -155,7 +155,7 @@ export class NotionIntegrationAdapter implements IIntegrationService {
     await this.notionService.archivePage(itemId);
   }
 
-  parseToAction(item: ExternalItem, mappings: PropertyMappings): ParsedAction {
+  parseToAction(item: ExternalItem, _mappings: PropertyMappings): ParsedAction {
     // The item already has parsed data from convertPageToExternalItem
     return {
       externalId: item.id,

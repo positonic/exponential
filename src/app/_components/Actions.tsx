@@ -4,8 +4,8 @@ import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
-import { IconLayoutKanban, IconList } from "@tabler/icons-react";
-import { Button, Title, Stack, Paper, Text, Group } from "@mantine/core";
+import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh } from "@tabler/icons-react";
+import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip } from "@mantine/core";
 import { useState, useEffect } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
@@ -18,12 +18,66 @@ interface ActionsProps {
   defaultView?: 'list' | 'alignment' | 'kanban';
   projectId?: string;
   displayAlignment?: boolean;
+  /** Project sync info for showing Notion sync button */
+  projectSyncInfo?: {
+    taskManagementTool?: string | null;
+    taskManagementConfig?: {
+      workflowId?: string;
+      syncStrategy?: 'manual' | 'auto_pull_then_push' | 'notion_canonical';
+    } | null;
+  };
 }
 
-export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false }: ActionsProps) {
+export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false, projectSyncInfo }: ActionsProps) {
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
   const [isKanbanMode, setIsKanbanMode] = useState(defaultView === 'kanban');
+  const [isSyncing, setIsSyncing] = useState(false);
   const utils = api.useUtils();
+
+  // Check if this project has a Notion integration
+  const hasNotionSync = projectSyncInfo?.taskManagementTool === 'notion' &&
+    projectSyncInfo?.taskManagementConfig?.workflowId;
+
+  // Smart sync mutation for Notion
+  const smartSyncMutation = api.workflow.smartSync.useMutation({
+    onSuccess: (data) => {
+      setIsSyncing(false);
+      const totalCreated = data.itemsCreated ?? 0;
+      const totalUpdated = data.itemsUpdated ?? 0;
+
+      let message = '';
+      if (totalCreated > 0 || totalUpdated > 0) {
+        if (totalCreated > 0) message += `${totalCreated} created`;
+        if (totalUpdated > 0) message += `${message ? ', ' : ''}${totalUpdated} updated`;
+      } else {
+        message = 'Everything up to date';
+      }
+
+      notifications.show({
+        title: 'Notion Sync Complete',
+        message,
+        color: 'green',
+        autoClose: 3000,
+      });
+
+      // Refresh actions
+      void utils.action.getProjectActions.invalidate({ projectId: projectId! });
+    },
+    onError: (error) => {
+      setIsSyncing(false);
+      notifications.show({
+        title: 'Sync Failed',
+        message: error.message ?? 'Failed to sync with Notion',
+        color: 'red',
+      });
+    },
+  });
+
+  const handleNotionSync = () => {
+    if (!projectId || !hasNotionSync) return;
+    setIsSyncing(true);
+    smartSyncMutation.mutate({ projectId });
+  };
 
   // Conditionally fetch actions based on projectId
   const actionsQuery = projectId
@@ -393,41 +447,71 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     <div className="w-full  mx-auto">
       {/* View Toggle Buttons */}
       {projectId && (
-        <Group gap="xs" mb="md">
-          {/* List/Kanban toggle - only show for projects */}
-          <Button
-            variant={!isKanbanMode ? "filled" : "subtle"}
-            size="sm"
-            onClick={() => setIsKanbanMode(false)}
-          >
-            <Group gap="xs">
-              <IconList size={16} />
-              List
-            </Group>
-          </Button>
-          <Button
-            variant={isKanbanMode ? "filled" : "subtle"}
-            size="sm"
-            onClick={() => setIsKanbanMode(true)}
-          >
-            <Group gap="xs">
-              <IconLayoutKanban size={16} />
-              Kanban
-            </Group>
-          </Button>
-          
-          {/* Alignment toggle */}
-          {displayAlignment && (
+        <Group gap="xs" mb="md" justify="space-between">
+          <Group gap="xs">
+            {/* List/Kanban toggle - only show for projects */}
             <Button
-              variant="subtle"
+              variant={!isKanbanMode ? "filled" : "subtle"}
               size="sm"
-              onClick={() => setIsAlignmentMode(!isAlignmentMode)}
+              onClick={() => setIsKanbanMode(false)}
             >
               <Group gap="xs">
-                {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
-                {isAlignmentMode ? 'Task View' : 'Alignment View'}
+                <IconList size={16} />
+                List
               </Group>
             </Button>
+            <Button
+              variant={isKanbanMode ? "filled" : "subtle"}
+              size="sm"
+              onClick={() => setIsKanbanMode(true)}
+            >
+              <Group gap="xs">
+                <IconLayoutKanban size={16} />
+                Kanban
+              </Group>
+            </Button>
+
+            {/* Alignment toggle */}
+            {displayAlignment && (
+              <Button
+                variant="subtle"
+                size="sm"
+                onClick={() => setIsAlignmentMode(!isAlignmentMode)}
+              >
+                <Group gap="xs">
+                  {isAlignmentMode ? <IconList size={16} /> : <IconLayoutKanban size={16} />}
+                  {isAlignmentMode ? 'Task View' : 'Alignment View'}
+                </Group>
+              </Button>
+            )}
+          </Group>
+
+          {/* Notion Sync Button - only show when project has Notion integration */}
+          {hasNotionSync && (
+            <Group gap="xs">
+              <Tooltip label="Sync with Notion" position="left">
+                <ActionIcon
+                  variant="light"
+                  color="gray"
+                  size="lg"
+                  onClick={handleNotionSync}
+                  loading={isSyncing}
+                >
+                  <IconBrandNotion size={20} />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="Refresh from Notion" position="left">
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="lg"
+                  onClick={handleNotionSync}
+                  loading={isSyncing}
+                >
+                  <IconRefresh size={18} />
+                </ActionIcon>
+              </Tooltip>
+            </Group>
           )}
         </Group>
       )}
