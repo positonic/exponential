@@ -1,4 +1,6 @@
-import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect, Tooltip } from '@mantine/core';
+import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect, Tooltip, Stack, Title, Text, Alert, Loader } from '@mantine/core';
+import { IconAlertCircle, IconBrandNotion, IconCheck } from '@tabler/icons-react';
+import Link from 'next/link';
 import { useDisclosure } from '@mantine/hooks';
 import type { Project, Goal, Outcome } from '@prisma/client';
 import { useState } from "react";
@@ -34,6 +36,14 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [goalSearchValue, setGoalSearchValue] = useState("");
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
 
+  // Multi-step flow state for Notion imports
+  const [step, setStep] = useState<'create' | 'workflow' | 'success'>('create');
+  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
+  const [createdProjectSlug, setCreatedProjectSlug] = useState<string | null>(null);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
+  const [syncStrategy, setSyncStrategy] = useState<string>('notion_canonical');
+  const [syncedTaskCount, setSyncedTaskCount] = useState<number>(0);
+
   const { data: session } = useSession();
   const utils = api.useUtils();
 
@@ -46,6 +56,12 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
   const { data: lifeDomains } = api.lifeDomain.getAllLifeDomains.useQuery();
 
+  // Fetch workflows for Notion imports (only when we have a prefillNotionProjectId)
+  const { data: workflows = [] } = api.workflow.list.useQuery(undefined, {
+    enabled: !!prefillNotionProjectId,
+  });
+  const notionWorkflows = workflows.filter(w => w.provider === 'notion');
+
   const updateMutation = api.project.update.useMutation({
     onSuccess: () => {
       void utils.project.getAll.invalidate();
@@ -54,10 +70,50 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   });
 
   const createMutation = api.project.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
       void utils.project.getAll.invalidate();
-      close();
-      onClose?.();
+
+      // If this is a Notion import and workflows exist, show workflow step
+      if (prefillNotionProjectId && notionWorkflows.length > 0) {
+        setCreatedProjectId(data.id);
+        setCreatedProjectSlug(data.slug);
+        setStep('workflow');
+        // Auto-select if only one workflow
+        if (notionWorkflows.length === 1 && notionWorkflows[0]) {
+          setSelectedWorkflowId(notionWorkflows[0].id);
+        }
+      } else {
+        close();
+        onClose?.();
+      }
+    },
+  });
+
+  // Mutations for workflow configuration (Notion import step 2)
+  const updateTaskManagement = api.project.updateTaskManagement.useMutation({
+    onError: (error) => {
+      notifications.show({
+        title: 'Configuration Failed',
+        message: error.message ?? 'Failed to configure Notion sync',
+        color: 'red',
+      });
+    },
+  });
+
+  const runWorkflow = api.workflow.run.useMutation({
+    onSuccess: (data) => {
+      notifications.show({
+        title: 'Sync Complete',
+        message: `Imported ${data.itemsCreated} tasks from Notion`,
+        color: 'green',
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Sync Failed',
+        message: error.message ?? 'Failed to sync with Notion',
+        color: 'red',
+      });
     },
   });
 
@@ -131,15 +187,78 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
     });
   }
 
+  // Reset step state when modal closes
+  const handleClose = () => {
+    setStep('create');
+    setCreatedProjectId(null);
+    setCreatedProjectSlug(null);
+    setSelectedWorkflowId('');
+    setSyncStrategy('notion_canonical');
+    setSyncedTaskCount(0);
+    close();
+  };
+
+  // Handler for skipping workflow configuration
+  const handleSkip = () => {
+    handleClose();
+    onClose?.();
+    notifications.show({
+      title: 'Project Created',
+      message: 'You can configure Notion sync later in project settings.',
+      color: 'blue',
+    });
+  };
+
+  // Handler for configuring workflow and running initial sync
+  const handleConfigureWorkflow = async () => {
+    if (!createdProjectId || !selectedWorkflowId) return;
+
+    const workflow = notionWorkflows.find(w => w.id === selectedWorkflowId);
+    if (!workflow) return;
+
+    try {
+      // 1. Save task management config
+      const workflowConfig = workflow.config as Record<string, unknown> | null;
+      const databaseId = typeof workflowConfig?.databaseId === 'string' ? workflowConfig.databaseId : '';
+
+      await updateTaskManagement.mutateAsync({
+        id: createdProjectId,
+        taskManagementTool: 'notion',
+        taskManagementConfig: {
+          workflowId: selectedWorkflowId,
+          databaseId,
+          syncStrategy: syncStrategy as 'notion_canonical' | 'manual' | 'auto_pull_then_push',
+          conflictResolution: 'local_wins',
+          deletionBehavior: 'mark_deleted',
+        },
+      });
+
+      // 2. Trigger initial sync
+      const syncResult = await runWorkflow.mutateAsync({ id: selectedWorkflowId, projectId: createdProjectId });
+      setSyncedTaskCount(syncResult.itemsCreated);
+
+      // 3. Show success step
+      setStep('success');
+    } catch {
+      // Errors are handled by the mutation onError handlers
+    }
+  };
+
+  // Handler for closing success modal and navigating
+  const handleSuccessClose = () => {
+    handleClose();
+    onClose?.();
+  };
+
   return (
     <>
       <div onClick={open}>
         {children}
       </div>
 
-      <Modal 
-        opened={opened} 
-        onClose={close}
+      <Modal
+        opened={opened}
+        onClose={handleClose}
         size="lg"
         radius="md"
         padding="lg"
@@ -152,6 +271,8 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
           }
         }}
       >
+        {/* Step 1: Create Project Form */}
+        {step === 'create' && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -407,10 +528,10 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
           />
 
           <Group justify="flex-end" mt="xl">
-            <Button variant="subtle" color="gray" onClick={close}>
+            <Button variant="subtle" color="gray" onClick={handleClose}>
               Cancel
             </Button>
-            <Button 
+            <Button
               type="submit"
               loading={updateMutation.isPending || createMutation.isPending}
             >
@@ -418,6 +539,125 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
             </Button>
           </Group>
         </form>
+        )}
+
+        {/* Step 2: Workflow Configuration (only for Notion imports) */}
+        {step === 'workflow' && (
+          <Stack gap="md" className="p-4">
+            <Group gap="sm">
+              <IconBrandNotion size={24} />
+              <Title order={3}>Configure Notion Sync</Title>
+            </Group>
+
+            <Text size="sm" c="dimmed">
+              Choose which Notion workflow to use for syncing tasks with this project.
+            </Text>
+
+            {notionWorkflows.length === 0 ? (
+              <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+                No Notion workflows configured. You can set this up later in project settings.
+              </Alert>
+            ) : (
+              <>
+                <Select
+                  label="Notion Workflow"
+                  placeholder="Select a workflow"
+                  description="This workflow will be used to sync tasks between this project and Notion"
+                  data={notionWorkflows.map(w => ({
+                    value: w.id,
+                    label: w.name,
+                  }))}
+                  value={selectedWorkflowId}
+                  onChange={(v) => setSelectedWorkflowId(v ?? '')}
+                  required
+                  styles={{
+                    input: {
+                      backgroundColor: 'var(--color-surface-secondary)',
+                      color: 'var(--color-text-primary)',
+                      borderColor: 'var(--color-border-primary)',
+                    },
+                    dropdown: {
+                      backgroundColor: 'var(--color-surface-secondary)',
+                      borderColor: 'var(--color-border-primary)',
+                    },
+                  }}
+                />
+
+                <Select
+                  label="Sync Strategy"
+                  description="How should syncing between your app and Notion work?"
+                  data={[
+                    { value: 'notion_canonical', label: 'Notion Canonical - Notion is source of truth (recommended)' },
+                    { value: 'auto_pull_then_push', label: 'Smart Sync - Pull from Notion first, then push' },
+                    { value: 'manual', label: 'Manual - Sync only when clicking sync button' },
+                  ]}
+                  value={syncStrategy}
+                  onChange={(v) => setSyncStrategy(v ?? 'notion_canonical')}
+                  styles={{
+                    input: {
+                      backgroundColor: 'var(--color-surface-secondary)',
+                      color: 'var(--color-text-primary)',
+                      borderColor: 'var(--color-border-primary)',
+                    },
+                    dropdown: {
+                      backgroundColor: 'var(--color-surface-secondary)',
+                      borderColor: 'var(--color-border-primary)',
+                    },
+                  }}
+                />
+              </>
+            )}
+
+            <Group justify="flex-end" mt="xl">
+              <Button variant="subtle" color="gray" onClick={handleSkip}>
+                Skip for Now
+              </Button>
+              <Button
+                onClick={handleConfigureWorkflow}
+                loading={updateTaskManagement.isPending || runWorkflow.isPending}
+                disabled={!selectedWorkflowId}
+                leftSection={runWorkflow.isPending ? <Loader size={14} /> : undefined}
+              >
+                {runWorkflow.isPending ? 'Syncing...' : 'Configure & Sync'}
+              </Button>
+            </Group>
+          </Stack>
+        )}
+
+        {/* Step 3: Success (after Notion sync completes) */}
+        {step === 'success' && (
+          <Stack gap="md" className="p-6" align="center">
+            <div className="rounded-full bg-green-500/20 p-4">
+              <IconCheck size={48} className="text-green-500" />
+            </div>
+
+            <Title order={3} ta="center">Project Created Successfully!</Title>
+
+            <Text size="sm" c="dimmed" ta="center">
+              Your project has been created and configured with Notion sync.
+              {syncedTaskCount > 0 && (
+                <Text component="span" fw={500} c="green">
+                  {' '}{syncedTaskCount} task{syncedTaskCount !== 1 ? 's' : ''} imported from Notion.
+                </Text>
+              )}
+            </Text>
+
+            <Group justify="center" mt="lg" gap="md">
+              <Button variant="subtle" color="gray" onClick={handleSuccessClose}>
+                Close
+              </Button>
+              {createdProjectSlug && createdProjectId && (
+                <Button
+                  component={Link}
+                  href={`/projects/${createdProjectSlug}-${createdProjectId}`}
+                  onClick={handleSuccessClose}
+                >
+                  View Project
+                </Button>
+              )}
+            </Group>
+          </Stack>
+        )}
       </Modal>
     </>
   );
