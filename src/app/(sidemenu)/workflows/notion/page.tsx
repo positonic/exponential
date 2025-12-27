@@ -57,6 +57,7 @@ export default function NotionWorkflowPage() {
   const [selectingDatabaseFor, setSelectingDatabaseFor] = useState<'tasks' | 'projects' | null>(null);
   const [editingWorkflow, setEditingWorkflow] = useState<any>(null);
   const [userMappings, setUserMappings] = useState<Record<string, string | null>>({});
+  const [shouldOpenDatabaseModal, setShouldOpenDatabaseModal] = useState(false);
   
   // API calls for checking configuration status
   const { data: integrations = [] } = api.integration.listIntegrations.useQuery();
@@ -169,7 +170,11 @@ export default function NotionWorkflowPage() {
           }
         }
         
-        openDatabasesModal();
+        // Only open the modal if explicitly requested (e.g., clicking "Change" button)
+        if (shouldOpenDatabaseModal) {
+          openDatabasesModal();
+          setShouldOpenDatabaseModal(false);
+        }
       } else {
         notifications.show({
           title: 'Error',
@@ -179,6 +184,7 @@ export default function NotionWorkflowPage() {
       }
     },
     onError: (error) => {
+      setShouldOpenDatabaseModal(false);
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to test connection',
@@ -313,6 +319,7 @@ export default function NotionWorkflowPage() {
 
   const handleTestDatabases = () => {
     if (notionIntegration) {
+      setShouldOpenDatabaseModal(true);
       testConnection.mutate({ integrationId: notionIntegration.id });
     }
   };
@@ -320,6 +327,7 @@ export default function NotionWorkflowPage() {
   const handleSelectTasksDatabase = () => {
     setSelectingDatabaseFor('tasks');
     if (notionIntegration) {
+      setShouldOpenDatabaseModal(true);
       testConnection.mutate({ integrationId: notionIntegration.id });
     }
   };
@@ -327,6 +335,7 @@ export default function NotionWorkflowPage() {
   const handleSelectProjectsDatabase = () => {
     setSelectingDatabaseFor('projects');
     if (notionIntegration) {
+      setShouldOpenDatabaseModal(true);
       testConnection.mutate({ integrationId: notionIntegration.id });
     }
   };
@@ -804,10 +813,14 @@ export default function NotionWorkflowPage() {
             color="blue"
             size="sm"
             leftSection={<IconDatabase size={16} />}
-            disabled={!hasNotionIntegration}
+            disabled={!hasNotionIntegration || notionWorkflows.length > 0}
             onClick={hasNotionIntegration ? openWorkflowModal : openIntegrationModal}
           >
-            {hasNotionIntegration ? 'Configure Workflow' : 'Add Notion Integration'}
+            {!hasNotionIntegration
+              ? 'Add Notion Integration'
+              : notionWorkflows.length > 0
+                ? 'Workflow Configured'
+                : 'Configure Workflow'}
           </Button>
         </Card>
 
@@ -1492,7 +1505,9 @@ export default function NotionWorkflowPage() {
                           placeholder="Select local user"
                           data={localUsers.map((u) => ({
                             value: u.id,
-                            label: u.name ?? u.email ?? 'Unknown User',
+                            label: u.name && u.email
+                              ? `${u.name} (${u.email})`
+                              : u.name ?? u.email ?? 'Unknown User',
                           }))}
                           value={userMappings[notionUser.id] ?? null}
                           onChange={(value) => handleUserMappingChange(notionUser.id, value)}

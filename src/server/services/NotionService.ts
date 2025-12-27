@@ -424,9 +424,38 @@ export class NotionService {
       }
 
       // Get assignee (extract Notion user ID for mapping)
+      // Check multiple common property names for assignee
       let assigneeNotionUserId: string | undefined;
-      const assigneeProp = propertyMappings?.assignee || 'Assignee';
-      const assigneeProperty = page.properties[assigneeProp];
+      const assigneePropNames = [
+        propertyMappings?.assignee,
+        'Assignee',
+        'DRI',
+        'DRI (one only)',
+        'Lead',
+        'Owner',
+        'Assigned to',
+        'Assigned To',
+      ].filter(Boolean) as string[];
+
+      // Find the first people property that matches one of our expected names
+      let assigneeProperty: any = null;
+      for (const propName of assigneePropNames) {
+        if (page.properties[propName]?.people?.length > 0) {
+          assigneeProperty = page.properties[propName];
+          break;
+        }
+      }
+
+      // If no match found by name, fall back to the first people-type property with data
+      if (!assigneeProperty) {
+        const firstPeopleProperty = Object.entries(page.properties).find(
+          ([, prop]: [string, any]) => prop?.type === 'people' && prop?.people?.length > 0
+        );
+        if (firstPeopleProperty) {
+          assigneeProperty = firstPeopleProperty[1];
+        }
+      }
+
       if (assigneeProperty?.people?.length > 0) {
         assigneeNotionUserId = assigneeProperty.people[0].id;
       }

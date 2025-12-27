@@ -57,6 +57,9 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
     },
   });
 
+  console.log('[PULL SYNC] User mappings found:', userMappings.length, 'for integrationId:', workflow.integrationId);
+  console.log('[PULL SYNC] User mappings:', userMappings.map((m: { externalUserId: string; userId: string }) => ({ externalUserId: m.externalUserId, localUserId: m.userId })));
+
   // Create a lookup map for quick access: Notion user ID -> Local user ID
   const userMappingLookup = new Map<string, string>();
   for (const mapping of userMappings) {
@@ -77,6 +80,13 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
       const assignedToId = task.assigneeNotionUserId
         ? userMappingLookup.get(task.assigneeNotionUserId)
         : undefined;
+
+      console.log('[PULL SYNC] Assignee resolution:', {
+        taskName: task.name,
+        notionUserId: task.assigneeNotionUserId,
+        resolvedLocalUserId: assignedToId,
+        mappingExists: task.assigneeNotionUserId ? userMappingLookup.has(task.assigneeNotionUserId) : false,
+      });
 
       // Check if we already have an ActionSync record for this Notion page
       const existingSync = await ctx.db.actionSync.findFirst({
@@ -104,6 +114,16 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             existingAction.projectId !== projectId || // Also update if projectId changed
             (existingAction.dueDate?.getTime() !== task.dueDate?.getTime());
 
+          console.log('[PULL SYNC] Action check:', {
+            actionId: existingAction.id,
+            actionName: existingAction.name,
+            existingProjectId: existingAction.projectId,
+            targetProjectId: projectId,
+            existingStatus: existingAction.status,
+            newStatus: task.status,
+            needsUpdate,
+          });
+
           if (needsUpdate) {
             await ctx.db.action.update({
               where: { id: existingAction.id },
@@ -117,6 +137,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
                 projectId: projectId ?? existingAction.projectId, // Update projectId if provided
               },
             });
+            console.log('[PULL SYNC] Updated action:', existingAction.id, 'with projectId:', projectId);
 
             // Update the sync record
             await ctx.db.actionSync.update({
