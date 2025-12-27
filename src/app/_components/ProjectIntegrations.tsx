@@ -95,6 +95,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const [selectedSlackChannel, setSelectedSlackChannel] = useState<string>('');
   const [slackConfigExpanded, setSlackConfigExpanded] = useState(false);
   const [selectedNotionProjectId, setSelectedNotionProjectId] = useState<string>(project.notionProjectId ?? '');
+  const [selectedSyncStrategy, setSelectedSyncStrategy] = useState<string>(project.taskManagementConfig?.syncStrategy ?? 'manual');
 
   // Get available workflows for this project
   const { data: workflows = [] } = api.workflow.list.useQuery();
@@ -291,7 +292,10 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
     await updateTaskManagement.mutateAsync({
       id: project.id,
       taskManagementTool: 'notion',
-      taskManagementConfig: project.taskManagementConfig,
+      taskManagementConfig: {
+        ...project.taskManagementConfig,
+        syncStrategy: selectedSyncStrategy,
+      },
       notionProjectId: selectedNotionProjectId,
     });
     closeConfigureProjectModal();
@@ -951,6 +955,31 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
               variant="light"
             >
               No projects were found in the configured Notion Projects database. Make sure you have projects in your Notion database and the workflow is configured correctly.
+            </Alert>
+          )}
+
+          <Select
+            label="Sync Strategy"
+            description="How should syncing between your app and Notion work?"
+            data={[
+              { value: 'manual', label: 'Manual - Push only when clicking sync' },
+              { value: 'auto_pull_then_push', label: 'Smart Sync - Pull from Notion first, then push' },
+              { value: 'notion_canonical', label: 'Notion Canonical - Notion is the source of truth (recommended for pulling tasks)' },
+            ]}
+            value={selectedSyncStrategy}
+            onChange={(value) => setSelectedSyncStrategy(value ?? 'manual')}
+          />
+
+          {selectedSyncStrategy === 'manual' && (
+            <Alert
+              icon={<IconAlertCircle size={16} />}
+              color="orange"
+              variant="light"
+            >
+              <Text size="sm">
+                <strong>Manual mode only pushes</strong> - it won&apos;t pull tasks from Notion.
+                To import tasks from Notion, select &quot;Notion Canonical&quot; or &quot;Smart Sync&quot;.
+              </Text>
             </Alert>
           )}
 

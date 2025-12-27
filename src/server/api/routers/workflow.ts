@@ -31,14 +31,13 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
   // Get the project's notionProjectId for filtering if projectId is provided
   let project = null;
   let notionProjectId = undefined;
-  
+
   if (projectId) {
     project = await ctx.db.project.findUnique({
       where: { id: projectId },
       select: { notionProjectId: true, name: true },
     });
     notionProjectId = project?.notionProjectId;
-  } else {
   }
 
   // Initialize Notion service
@@ -102,6 +101,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             existingAction.description !== task.description ||
             existingAction.priority !== task.priority ||
             existingAction.assignedToId !== assignedToId ||
+            existingAction.projectId !== projectId || // Also update if projectId changed
             (existingAction.dueDate?.getTime() !== task.dueDate?.getTime());
 
           if (needsUpdate) {
@@ -114,6 +114,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
                 priority: task.priority,
                 dueDate: task.dueDate,
                 assignedToId: assignedToId ?? existingAction.assignedToId,
+                projectId: projectId ?? existingAction.projectId, // Update projectId if provided
               },
             });
 
@@ -1487,12 +1488,19 @@ export const workflowRouter = createTRPCRouter({
 
       const syncStrategy = config.syncStrategy || 'manual';
 
-      // Get available workflows
+      // Get available workflows with integration credentials
       const workflows = await ctx.db.workflow.findMany({
         where: {
           userId: ctx.session.user.id,
           provider: project.taskManagementTool,
           status: 'ACTIVE',
+        },
+        include: {
+          integration: {
+            include: {
+              credentials: true,
+            },
+          },
         },
       });
 
@@ -1505,7 +1513,14 @@ export const workflowRouter = createTRPCRouter({
         const pullWorkflow = workflows[0]; // Use the first active workflow
 
         if (pullWorkflow) {
-          
+          // Verify the workflow has an integration with credentials
+          if (!pullWorkflow.integration) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Workflow is not linked to a Notion integration. Please reconfigure the workflow on the Notion Integration page.',
+            });
+          }
+
           // Run the existing pull sync logic
           const pullRunResult = await ctx.db.workflowRun.create({
             data: {
@@ -1541,7 +1556,14 @@ export const workflowRouter = createTRPCRouter({
       );
 
       if (pushWorkflow) {
-        
+        // Verify the workflow has an integration with credentials
+        if (!pushWorkflow.integration) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Workflow is not linked to a Notion integration. Please reconfigure the workflow on the Notion Integration page.',
+          });
+        }
+
         const pushRunResult = await ctx.db.workflowRun.create({
           data: {
             workflowId: pushWorkflow.id,
