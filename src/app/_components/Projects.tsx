@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
-import { Select, Card, Text, Group, Badge, Button, Stack, Alert } from "@mantine/core";
+import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Tabs } from "@mantine/core";
 import { slugify } from "~/utils/slugify";
 import { IconEdit, IconTrash, IconBrandNotion, IconPlus } from "@tabler/icons-react";
 
@@ -166,8 +166,8 @@ function ProjectList({ projects }: { projects: Project[] }) {
   );
 }
 
-// Component for displaying Notion project suggestions
-function NotionSuggestions({
+// Component for displaying Notion project suggestions inside the tab
+function NotionSuggestionsContent({
   unlinkedProjects,
   onProjectImported,
 }: {
@@ -177,21 +177,20 @@ function NotionSuggestions({
   const [importingId, setImportingId] = useState<string | null>(null);
 
   if (unlinkedProjects.length === 0) {
-    return null;
+    return (
+      <Alert
+        icon={<IconBrandNotion size={16} />}
+        title="All Notion Projects Linked"
+        color="green"
+        variant="light"
+      >
+        All projects from your Notion workspace are already linked to local projects.
+      </Alert>
+    );
   }
 
   return (
-    <Card shadow="sm" padding="lg" radius="md" withBorder mb="lg">
-      <Group justify="space-between" align="center" mb="md">
-        <Group gap="sm">
-          <IconBrandNotion size={20} />
-          <Text fw={500}>Suggested Projects from Notion</Text>
-        </Group>
-        <Badge variant="light" color="blue">
-          {unlinkedProjects.length} available
-        </Badge>
-      </Group>
-
+    <div>
       <Text size="sm" c="dimmed" mb="md">
         These projects exist in your Notion workspace but are not linked to any local project.
         Import them to start syncing actions.
@@ -231,7 +230,7 @@ function NotionSuggestions({
           </Card>
         ))}
       </Stack>
-    </Card>
+    </div>
   );
 }
 
@@ -278,37 +277,44 @@ export function Projects() {
     void refetchUnlinkedProjects();
   };
 
+  const unlinkedCount = unlinkedProjectsData?.unlinkedProjects.length ?? 0;
+  const defaultTab = showNotionSuggestions ? "notion" : "projects";
+
   return (
     <div className="w-full max-w-2xl">
-      {/* Show Notion suggestions if there are unlinked projects */}
-      {(showNotionSuggestions || (unlinkedProjectsData && unlinkedProjectsData.unlinkedProjects.length > 0)) && (
-        <NotionSuggestions
-          unlinkedProjects={unlinkedProjectsData?.unlinkedProjects ?? []}
-          onProjectImported={handleProjectImported}
-        />
-      )}
+      <h2 className="mb-4 text-2xl font-bold">Projects</h2>
 
-      {/* Show alert if coming from workflows page but no suggestions */}
-      {showNotionSuggestions && (!unlinkedProjectsData || unlinkedProjectsData.unlinkedProjects.length === 0) && (
-        <Alert
-          icon={<IconBrandNotion size={16} />}
-          title="All Notion Projects Linked"
-          color="green"
-          variant="light"
-          mb="lg"
-        >
-          All projects from your Notion workspace are already linked to local projects.
-        </Alert>
-      )}
+      <Tabs defaultValue={defaultTab}>
+        <Tabs.List>
+          <Tabs.Tab value="projects">Projects</Tabs.Tab>
+          <Tabs.Tab value="notion" rightSection={unlinkedCount > 0 ? (
+            <Badge size="xs" variant="filled" color="blue">
+              {unlinkedCount}
+            </Badge>
+          ) : null}>
+            <Group gap="xs">
+              <IconBrandNotion size={16} />
+              <span>Notion Suggestions</span>
+            </Group>
+          </Tabs.Tab>
+        </Tabs.List>
 
-      <div className="mt-8">
-        <h2 className="text-2xl font-bold">Projects</h2>
-        <ProjectList projects={projects.data ?? []} />
-      </div>
-      <br/>
-      <CreateProjectModal>
-        <div>Create Project</div>
-      </CreateProjectModal>
+        <Tabs.Panel value="projects" pt="md">
+          <ProjectList projects={projects.data ?? []} />
+          <div className="mt-4">
+            <CreateProjectModal>
+              <Button variant="light">Create Project</Button>
+            </CreateProjectModal>
+          </div>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="notion" pt="md">
+          <NotionSuggestionsContent
+            unlinkedProjects={unlinkedProjectsData?.unlinkedProjects ?? []}
+            onProjectImported={handleProjectImported}
+          />
+        </Tabs.Panel>
+      </Tabs>
     </div>
   );
 } 
