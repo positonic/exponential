@@ -430,7 +430,6 @@ export class NotionService {
         propertyMappings?.assignee,
         'Assignee',
         'DRI',
-        'DRI (one only)',
         'Lead',
         'Owner',
         'Assigned to',

@@ -137,6 +137,28 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
                 projectId: projectId ?? existingAction.projectId, // Update projectId if provided
               },
             });
+
+            // Also update the assignees relationship (many-to-many)
+            if (assignedToId) {
+              // Check if this assignee already exists
+              const existingAssignee = await ctx.db.actionAssignee.findFirst({
+                where: {
+                  actionId: existingAction.id,
+                  userId: assignedToId,
+                },
+              });
+
+              if (!existingAssignee) {
+                await ctx.db.actionAssignee.create({
+                  data: {
+                    actionId: existingAction.id,
+                    userId: assignedToId,
+                  },
+                });
+                console.log('[PULL SYNC] Added assignee:', assignedToId, 'to action:', existingAction.id);
+              }
+            }
+
             console.log('[PULL SYNC] Updated action:', existingAction.id, 'with projectId:', projectId);
 
             // Update the sync record
@@ -181,6 +203,17 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             assignedToId,
           },
         });
+
+        // Create ActionAssignee record for many-to-many relationship
+        if (assignedToId) {
+          await ctx.db.actionAssignee.create({
+            data: {
+              actionId: newAction.id,
+              userId: assignedToId,
+            },
+          });
+          console.log('[PULL SYNC] Created action with assignee:', assignedToId);
+        }
 
         // Create ActionSync record
         await ctx.db.actionSync.create({
