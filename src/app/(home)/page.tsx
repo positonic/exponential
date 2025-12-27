@@ -109,6 +109,23 @@ export default async function Home() {
         {/* Product Roadmap Section */}
         <ProductRoadmapSection id="roadmap" />
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-border-primary py-8 px-8">
+        <div className="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+          <p className="text-text-muted text-sm">
+            © {new Date().getFullYear()} Funding the Commons. All rights reserved.
+          </p>
+          <nav className="flex items-center gap-6">
+            <a
+              href="/privacy"
+              className="text-text-muted text-sm hover:text-text-primary transition-colors"
+            >
+              Privacy Policy
+            </a>
+          </nav>
+        </div>
+      </footer>
     </div>
   );
 }
