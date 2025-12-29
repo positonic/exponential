@@ -1,6 +1,56 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import {
+  createTRPCRouter,
+  protectedProcedure,
+  publicProcedure,
+} from "~/server/api/trpc";
+import { TRPCError } from "@trpc/server";
 import { PRIORITY_VALUES } from "~/types/priority";
+
+// Middleware to check API key for external integrations (iOS shortcuts, etc.)
+const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
+  const apiKey = ctx.headers.get("x-api-key");
+
+  if (!apiKey) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "API key is required. Use x-api-key header.",
+    });
+  }
+
+  // Find the verification token and associated user
+  const verificationToken = await ctx.db.verificationToken.findFirst({
+    where: {
+      token: apiKey,
+      expires: {
+        gt: new Date(), // Only non-expired tokens
+      },
+    },
+  });
+
+  if (!verificationToken) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Invalid or expired API key",
+    });
+  }
+
+  const userId = verificationToken.userId;
+  if (!userId) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "No user associated with this API key",
+    });
+  }
+
+  // Add the user id to the context
+  return next({
+    ctx: {
+      ...ctx,
+      userId,
+    },
+  });
+});
 
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure
@@ -1194,5 +1244,77 @@ export const actionRouter = createTRPCRouter({
           completedAt: 'desc',
         },
       });
+    }),
+
+  // Quick create action via API key (for iOS shortcuts, external integrations)
+  quickCreate: apiKeyMiddleware
+    .input(
+      z.object({
+        name: z.string().min(1),
+        projectId: z.string().optional(),
+        priority: z.enum(PRIORITY_VALUES).default("Quick"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+
+      // Verify user exists
+      const user = await ctx.db.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "User not found",
+        });
+      }
+
+      // If projectId provided, verify it belongs to the user
+      if (input.projectId) {
+        const project = await ctx.db.project.findFirst({
+          where: {
+            id: input.projectId,
+            createdById: userId,
+          },
+        });
+
+        if (!project) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Project not found or does not belong to user",
+          });
+        }
+      }
+
+      // Create the action
+      const action = await ctx.db.action.create({
+        data: {
+          name: input.name,
+          projectId: input.projectId,
+          priority: input.priority,
+          status: "ACTIVE",
+          createdById: userId,
+          // Set kanban status if project is specified
+          kanbanStatus: input.projectId ? "TODO" : null,
+        },
+        select: {
+          id: true,
+          name: true,
+          priority: true,
+          status: true,
+          project: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      return {
+        success: true,
+        action,
+      };
     }),
 }); 
