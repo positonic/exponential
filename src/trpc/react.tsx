@@ -4,12 +4,11 @@ import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { loggerLink, unstable_httpBatchStreamLink } from "@trpc/client";
 import { createTRPCReact } from "@trpc/react-query";
 import { type inferRouterInputs, type inferRouterOutputs } from "@trpc/server";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import SuperJSON from "superjson";
 
 import { type AppRouter } from "~/server/api/root";
 import { createQueryClient } from "./query-client";
-import { useOnlineStatus } from "~/hooks/useOnlineStatus";
 
 let clientQueryClientSingleton: QueryClient | undefined = undefined;
 const getQueryClient = () => {
@@ -37,9 +36,8 @@ export type RouterInputs = inferRouterInputs<AppRouter>;
  */
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
 
-function TRPCReactProviderInner(props: { children: React.ReactNode }) {
+export function TRPCReactProvider(props: { children: React.ReactNode }) {
   const queryClient = getQueryClient();
-  const { isOnline, wasOffline } = useOnlineStatus();
 
   const [trpcClient] = useState(() =>
     api.createClient({
@@ -62,36 +60,6 @@ function TRPCReactProviderInner(props: { children: React.ReactNode }) {
     })
   );
 
-  // Handle offline/online transitions
-  useEffect(() => {
-    if (!isOnline) {
-      // When offline, pause all queries from refetching
-      queryClient.setDefaultOptions({
-        queries: {
-          refetchOnWindowFocus: false,
-          refetchOnMount: false,
-          refetchOnReconnect: false,
-          retry: false,
-        },
-      });
-    } else {
-      // When back online, restore normal behavior
-      queryClient.setDefaultOptions({
-        queries: {
-          refetchOnWindowFocus: true,
-          refetchOnMount: true,
-          refetchOnReconnect: true,
-          retry: 3,
-        },
-      });
-
-      // If we were offline and came back online, refetch all active queries
-      if (wasOffline) {
-        void queryClient.refetchQueries({ type: 'active' });
-      }
-    }
-  }, [isOnline, wasOffline, queryClient]);
-
   return (
     <QueryClientProvider client={queryClient}>
       <api.Provider client={trpcClient} queryClient={queryClient}>
@@ -99,10 +67,6 @@ function TRPCReactProviderInner(props: { children: React.ReactNode }) {
       </api.Provider>
     </QueryClientProvider>
   );
-}
-
-export function TRPCReactProvider(props: { children: React.ReactNode }) {
-  return <TRPCReactProviderInner>{props.children}</TRPCReactProviderInner>;
 }
 
 function getBaseUrl() {

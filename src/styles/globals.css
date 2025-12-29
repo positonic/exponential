@@ -124,28 +124,6 @@
   }
 }
 
-/* PWA Safe Area Support for iOS */
-@layer utilities {
-  .safe-area-inset-top {
-    padding-top: env(safe-area-inset-top);
-  }
-  .safe-area-inset-bottom {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  .safe-area-inset-left {
-    padding-left: env(safe-area-inset-left);
-  }
-  .safe-area-inset-right {
-    padding-right: env(safe-area-inset-right);
-  }
-  .safe-area-inset-all {
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-  }
-}
-
 /* Custom styles for UnifiedDatePicker today highlighting */
 @layer components {
   /* High specificity selector to override inline styles */

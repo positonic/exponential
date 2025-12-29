@@ -85,7 +85,3 @@ pnpm-lock.yaml
 .serena/
 
 db-backups/
-
-# PWA Service Worker (generated at build time)
-public/sw.js
-public/sw.js.map
