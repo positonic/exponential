@@ -16,12 +16,19 @@ if [ -n "$STAGED_FILES" ]; then
   # Check each file for hardcoded colors
   FOUND_COLORS=false
   for file in $STAGED_FILES; do
-    if [ -f "$file" ] && grep -q -E '(#[0-9A-Fa-f]{3}\b|#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{8}\b)' "$file" 2>/dev/null; then
-      echo "❌ Hardcoded colors found in: $file"
-      FOUND_COLORS=true
+    if [ -f "$file" ]; then
+      # Check for hex colors, but exclude:
+      # - Lines with theme-color meta tags (browser requirement)
+      # - Lines with eslint-disable comments
+      PROBLEMATIC_LINES=$(grep -n -E '(#[0-9A-Fa-f]{3}\b|#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{8}\b)' "$file" 2>/dev/null | grep -v -E '(theme-color|eslint-disable)' || true)
+      if [ -n "$PROBLEMATIC_LINES" ]; then
+        echo "❌ Hardcoded colors found in: $file"
+        echo "$PROBLEMATIC_LINES"
+        FOUND_COLORS=true
+      fi
     fi
   done
-  
+
   if [ "$FOUND_COLORS" = true ]; then
     echo "❌ Error: Hardcoded hex colors found in staged files!"
     echo "Please use CSS variables or Tailwind classes instead."

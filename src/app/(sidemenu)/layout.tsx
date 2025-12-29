@@ -43,6 +43,18 @@ export default async function RootLayout({
     <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.variable} h-full`}>
       <head>
         <ColorSchemeScript />
+        {/* PWA Meta Tags */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+        {/* eslint-disable-next-line no-restricted-syntax -- theme-color meta tags require actual hex values */}
+        <meta name="theme-color" content="#1a1b1e" media="(prefers-color-scheme: dark)" />
+        {/* eslint-disable-next-line no-restricted-syntax -- theme-color meta tags require actual hex values */}
+        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+        {/* iOS PWA Meta Tags */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Exponential" />
+        {/* Manifest */}
+        <link rel="manifest" href="/manifest.webmanifest" />
       </head>
       <body className="h-full bg-background-primary">
         <ThemeProvider domain={domain}>
