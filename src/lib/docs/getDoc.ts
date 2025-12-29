@@ -61,7 +61,10 @@ export async function getAllDocSlugs(): Promise<string[][]> {
         } else if (entry.name.endsWith(".md")) {
           const name = entry.name.replace(/\.md$/, "");
           if (name === "index") {
-            slugs.push(prefix);
+            // Only push non-empty prefixes (root /docs handled by separate page.tsx)
+            if (prefix.length > 0) {
+              slugs.push(prefix);
+            }
           } else {
             slugs.push([...prefix, name]);
           }
