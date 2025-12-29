@@ -1247,15 +1247,13 @@ export const actionRouter = createTRPCRouter({
     }),
 
   // Quick create action via API key (for iOS shortcuts, external integrations)
-  // Supports natural language parsing for dates and project references
   quickCreate: apiKeyMiddleware
     .input(
       z.object({
         name: z.string().min(1),
         projectId: z.string().optional(),
         priority: z.enum(PRIORITY_VALUES).default("Quick"),
-        parseNaturalLanguage: z.boolean().default(true), // Opt-in/out of parsing
-        source: z.string().default("ios-shortcut"), // Track origin (e.g., "dictation-shortcut")
+        source: z.string().default("ios-shortcut"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1273,93 +1271,39 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      // Initialize parsed values with defaults
-      let finalName = input.name;
-      let finalProjectId = input.projectId;
-      let finalDueDate: Date | null = null;
-      let parsingMetadata: Record<string, unknown> | null = null;
-
-      // Parse natural language if enabled
-      if (input.parseNaturalLanguage) {
-        // Fetch user's projects for matching
-        const userProjects = await ctx.db.project.findMany({
-          where: {
-            createdById: userId,
-            status: "ACTIVE",
-          },
-          select: {
-            id: true,
-            name: true,
-          },
-        });
-
-        // Parse the input
-        const { parseDictation } = await import(
-          "~/server/services/parsing"
-        );
-        const parsed = parseDictation(input.name, userProjects);
-
-        // Apply parsed values
-        finalName = parsed.cleanedName;
-        finalDueDate = parsed.dueDate;
-
-        // Only use parsed project if no explicit projectId was provided
-        if (!input.projectId && parsed.matchedProject) {
-          finalProjectId = parsed.matchedProject.id;
-        }
-
-        // Store metadata for debugging/analytics
-        parsingMetadata = {
-          originalInput: parsed.originalInput,
-          datePhrase: parsed.extractionDetails.datePhrase,
-          projectPhrase: parsed.extractionDetails.projectPhrase,
-          matchedProjectName: parsed.matchedProject?.name ?? null,
-          matchScore: parsed.matchedProject?.score ?? null,
-        };
-      }
-
-      // If projectId provided (explicit or parsed), verify it belongs to the user
-      if (finalProjectId) {
+      // If projectId provided, verify it belongs to the user
+      if (input.projectId) {
         const project = await ctx.db.project.findFirst({
           where: {
-            id: finalProjectId,
+            id: input.projectId,
             createdById: userId,
           },
         });
 
         if (!project) {
-          // If explicit projectId was provided and invalid, throw error
-          // If it was from parsing and invalid, just ignore it
-          if (input.projectId) {
-            throw new TRPCError({
-              code: "NOT_FOUND",
-              message: "Project not found or does not belong to user",
-            });
-          }
-          // Ignore invalid parsed project - create action without project
-          finalProjectId = undefined;
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Project not found or does not belong to user",
+          });
         }
       }
 
       // Create the action
       const action = await ctx.db.action.create({
         data: {
-          name: finalName,
-          projectId: finalProjectId,
+          name: input.name,
+          projectId: input.projectId,
           priority: input.priority,
           status: "ACTIVE",
           createdById: userId,
-          dueDate: finalDueDate,
-          source: input.source, // Track origin (e.g., "dictation-shortcut", "ios-shortcut")
-          // Set kanban status if project is specified
-          kanbanStatus: finalProjectId ? "TODO" : null,
+          source: input.source,
+          kanbanStatus: input.projectId ? "TODO" : null,
         },
         select: {
           id: true,
           name: true,
           priority: true,
           status: true,
-          dueDate: true,
           project: {
             select: {
               id: true,
@@ -1372,7 +1316,6 @@ export const actionRouter = createTRPCRouter({
       return {
         success: true,
         action,
-        parsing: parsingMetadata, // Include for debugging
       };
     }),
 }); 
