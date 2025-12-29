@@ -44,6 +44,7 @@
     "@octokit/rest": "^21.1.1",
     "@openai/realtime-api-beta": "github:simliai/openai-realtime-api-beta",
     "@prisma/client": "^6.14.0",
+    "@serwist/next": "^9.4.2",
     "@silk-wallet/silk-wallet-sdk": "^0.2.1",
     "@t3-oss/env-nextjs": "^0.10.1",
     "@tabler/icons-react": "^3.30.0",
@@ -85,6 +86,7 @@
     "recharts": "^3.1.2",
     "remark-gfm": "^4.0.1",
     "server-only": "^0.0.1",
+    "serwist": "^9.4.2",
     "simli-client": "^1.2.8",
     "superjson": "^2.2.1",
     "zod": "^3.23.3"
