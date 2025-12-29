@@ -1,4 +1,4 @@
-import * as chrono from "chrono-node";
+import { parse as chronoParse } from "chrono-node";
 
 import type { DateExtractionResult } from "./types";
 
@@ -13,7 +13,7 @@ export function parseDateFromText(
   const ref = referenceDate ?? new Date();
 
   // Parse with chrono-node (forwardDate ensures "Monday" means next Monday, not last)
-  const parsed = chrono.parse(text, ref, { forwardDate: true });
+  const parsed = chronoParse(text, ref, { forwardDate: true });
 
   if (parsed.length === 0) {
     return {
