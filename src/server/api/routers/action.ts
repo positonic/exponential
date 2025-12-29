@@ -1276,19 +1276,39 @@ export const actionRouter = createTRPCRouter({
       // Initialize parsed values
       let finalName = input.name;
       let finalDueDate: Date | null = null;
+      let finalProjectId = input.projectId;
       let parsingMetadata: Record<string, unknown> | null = null;
 
-      // Parse natural language dates if enabled
+      // Parse natural language if enabled
       if (input.parseNaturalLanguage) {
+        // Fetch user's active projects for matching
+        const userProjects = await ctx.db.project.findMany({
+          where: {
+            createdById: userId,
+            status: { not: "COMPLETED" },
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+        });
+
         const { parseDictation } = await import("~/server/services/parsing");
-        const parsed = parseDictation(input.name);
+        const parsed = parseDictation(input.name, userProjects);
 
         finalName = parsed.cleanedName;
         finalDueDate = parsed.dueDate;
 
+        // Use matched project only if no explicit projectId provided
+        if (!input.projectId && parsed.matchedProject) {
+          finalProjectId = parsed.matchedProject.id;
+        }
+
         parsingMetadata = {
           originalInput: parsed.originalInput,
           datePhrase: parsed.extractionDetails.datePhrase,
+          projectPhrase: parsed.extractionDetails.projectPhrase,
+          matchedProject: parsed.matchedProject,
         };
       }
 
@@ -1313,13 +1333,13 @@ export const actionRouter = createTRPCRouter({
       const action = await ctx.db.action.create({
         data: {
           name: finalName,
-          projectId: input.projectId,
+          projectId: finalProjectId,
           priority: input.priority,
           status: "ACTIVE",
           createdById: userId,
           dueDate: finalDueDate,
           source: input.source,
-          kanbanStatus: input.projectId ? "TODO" : null,
+          kanbanStatus: finalProjectId ? "TODO" : null,
         },
         select: {
           id: true,

@@ -1,3 +1,8 @@
 export { parseDictation } from "./DictationParser";
 export { parseDateFromText } from "./DateParser";
-export type { ParsedDictation, DateExtractionResult } from "./types";
+export { matchProject } from "./ProjectMatcher";
+export type {
+  ParsedDictation,
+  DateExtractionResult,
+  ProjectForMatching,
+} from "./types";
