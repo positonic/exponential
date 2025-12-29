@@ -1247,6 +1247,7 @@ export const actionRouter = createTRPCRouter({
     }),
 
   // Quick create action via API key (for iOS shortcuts, external integrations)
+  // Supports natural language date parsing (e.g., "Call John tomorrow")
   quickCreate: apiKeyMiddleware
     .input(
       z.object({
@@ -1254,6 +1255,7 @@ export const actionRouter = createTRPCRouter({
         projectId: z.string().optional(),
         priority: z.enum(PRIORITY_VALUES).default("Quick"),
         source: z.string().default("ios-shortcut"),
+        parseNaturalLanguage: z.boolean().default(true),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1269,6 +1271,25 @@ export const actionRouter = createTRPCRouter({
           code: "NOT_FOUND",
           message: "User not found",
         });
+      }
+
+      // Initialize parsed values
+      let finalName = input.name;
+      let finalDueDate: Date | null = null;
+      let parsingMetadata: Record<string, unknown> | null = null;
+
+      // Parse natural language dates if enabled
+      if (input.parseNaturalLanguage) {
+        const { parseDictation } = await import("~/server/services/parsing");
+        const parsed = parseDictation(input.name);
+
+        finalName = parsed.cleanedName;
+        finalDueDate = parsed.dueDate;
+
+        parsingMetadata = {
+          originalInput: parsed.originalInput,
+          datePhrase: parsed.extractionDetails.datePhrase,
+        };
       }
 
       // If projectId provided, verify it belongs to the user
@@ -1291,11 +1312,12 @@ export const actionRouter = createTRPCRouter({
       // Create the action
       const action = await ctx.db.action.create({
         data: {
-          name: input.name,
+          name: finalName,
           projectId: input.projectId,
           priority: input.priority,
           status: "ACTIVE",
           createdById: userId,
+          dueDate: finalDueDate,
           source: input.source,
           kanbanStatus: input.projectId ? "TODO" : null,
         },
@@ -1304,6 +1326,7 @@ export const actionRouter = createTRPCRouter({
           name: true,
           priority: true,
           status: true,
+          dueDate: true,
           project: {
             select: {
               id: true,
@@ -1316,6 +1339,7 @@ export const actionRouter = createTRPCRouter({
       return {
         success: true,
         action,
+        parsing: parsingMetadata,
       };
     }),
 }); 
