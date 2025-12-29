@@ -117,6 +117,7 @@ model Action {
   kanbanStatus           ActionStatus?
   kanbanOrder            Int?
   completedAt            DateTime?
+  source                 String?               @default("app") // "app", "ios-shortcut", "notion", "api", "transcription"
   assignedTo             User?                 @relation("AssignedActions", fields: [assignedToId], references: [id])
   createdBy              User                  @relation(fields: [createdById], references: [id])
   project                Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
