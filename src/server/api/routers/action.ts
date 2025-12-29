@@ -1255,6 +1255,7 @@ export const actionRouter = createTRPCRouter({
         projectId: z.string().optional(),
         priority: z.enum(PRIORITY_VALUES).default("Quick"),
         parseNaturalLanguage: z.boolean().default(true), // Opt-in/out of parsing
+        source: z.string().default("ios-shortcut"), // Track origin (e.g., "dictation-shortcut")
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1349,7 +1350,7 @@ export const actionRouter = createTRPCRouter({
           status: "ACTIVE",
           createdById: userId,
           dueDate: finalDueDate,
-          source: "ios-shortcut", // Track that this came from external integration
+          source: input.source, // Track origin (e.g., "dictation-shortcut", "ios-shortcut")
           // Set kanban status if project is specified
           kanbanStatus: finalProjectId ? "TODO" : null,
         },
