@@ -23,6 +23,8 @@ import { ColorSchemeScript } from '~/app/_components/layout/ColorSchemeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
 import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvider';
 import { SessionProvider } from "next-auth/react";
+import { ServiceWorkerRegistration } from "~/app/_components/ServiceWorkerRegistration";
+import { OfflineBanner } from "~/app/_components/OfflineBanner";
 
 const domain = getThemeDomain();
 
@@ -57,6 +59,7 @@ export default async function RootLayout({
         <link rel="manifest" href="/manifest.webmanifest" />
       </head>
       <body className="h-full bg-background-primary">
+        <OfflineBanner />
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
             <SessionProvider>
@@ -67,6 +70,7 @@ export default async function RootLayout({
                     <Analytics />
                   </Layout>
                   <FloatingFeedbackButton />
+                  <ServiceWorkerRegistration />
                 </ColorSchemeProvider>
               </MantineRootProvider>
             </SessionProvider>
