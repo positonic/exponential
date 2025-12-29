@@ -7,6 +7,7 @@ import {
   IconPlug,
   IconBook,
   IconSettings,
+  IconDeviceMobile,
 } from "@tabler/icons-react";
 import type { DocNavSection, DocBreadcrumb } from "./types";
 
@@ -28,6 +29,11 @@ export const docsNavigation: DocNavSection[] = [
         title: "Configuration",
         href: "/docs/getting-started/configuration",
         icon: IconSettings,
+      },
+      {
+        title: "Mobile App",
+        href: "/docs/getting-started/mobile-app",
+        icon: IconDeviceMobile,
       },
     ],
   },
