@@ -76,6 +76,7 @@
     "gray-matter": "^4.0.3",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.501.0",
+    "minimatch": "^10.1.1",
     "next": "15.0.5",
     "next-auth": "5.0.0-beta.25",
     "node-cache": "^5.1.2",
@@ -118,5 +119,8 @@
   },
   "prisma": {
     "seed": "bun prisma/seed.ts"
+  },
+  "overrides": {
+    "minimatch": "^10.1.1"
   }
 }
