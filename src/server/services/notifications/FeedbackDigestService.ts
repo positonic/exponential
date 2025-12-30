@@ -319,9 +319,7 @@ export class FeedbackDigestService {
               },
             },
           },
-          notificationPreferences: {
-            take: 1,
-          },
+          notificationPreferences: true,
         },
       });
 
