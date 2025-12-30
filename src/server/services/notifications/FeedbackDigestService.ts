@@ -333,8 +333,8 @@ export class FeedbackDigestService {
           continue;
         }
 
-        const channel =
-          admin.notificationPreferences[0]?.channel ?? "#general";
+        // Default to #general - could be enhanced to use SlackChannelConfig if needed
+        const channel = "#general";
 
         const slackService = new SlackNotificationService({
           userId: admin.id,
