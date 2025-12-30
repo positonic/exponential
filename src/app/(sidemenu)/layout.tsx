@@ -23,9 +23,6 @@ import { ColorSchemeScript } from '~/app/_components/layout/ColorSchemeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
 import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvider';
 import { SessionProvider } from "next-auth/react";
-// PWA components disabled - causing Vercel build timeout
-// import { ServiceWorkerRegistration } from "~/app/_components/ServiceWorkerRegistration";
-// import { OfflineBanner } from "~/app/_components/OfflineBanner";
 
 const domain = getThemeDomain();
 
@@ -46,21 +43,9 @@ export default async function RootLayout({
     <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.variable} h-full`}>
       <head>
         <ColorSchemeScript />
-        {/* PWA Meta Tags */}
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-        {/* eslint-disable-next-line no-restricted-syntax -- theme-color meta tags require actual hex values */}
-        <meta name="theme-color" content="#1a1b1e" media="(prefers-color-scheme: dark)" />
-        {/* eslint-disable-next-line no-restricted-syntax -- theme-color meta tags require actual hex values */}
-        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-        {/* iOS PWA Meta Tags */}
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="Exponential" />
-        {/* Manifest */}
-        <link rel="manifest" href="/manifest.webmanifest" />
       </head>
       <body className="h-full bg-background-primary">
-        {/* <OfflineBanner /> */}
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
             <SessionProvider>
@@ -71,7 +56,6 @@ export default async function RootLayout({
                     <Analytics />
                   </Layout>
                   <FloatingFeedbackButton />
-                  {/* <ServiceWorkerRegistration /> */}
                 </ColorSchemeProvider>
               </MantineRootProvider>
             </SessionProvider>
