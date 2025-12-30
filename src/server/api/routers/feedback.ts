@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { getEmbeddingService } from "~/server/services/EmbeddingService";
 
 export const feedbackRouter = createTRPCRouter({
   submitCalendarFeedback: protectedProcedure
@@ -111,20 +112,35 @@ export const feedbackRouter = createTRPCRouter({
         },
       });
 
-      // If there's an improvement suggestion, handle feature request clustering
+      // If there's an improvement suggestion, use AI clustering to deduplicate
       if (input.improvementSuggestion) {
-        // TODO: Implement embedding-based clustering in Phase 3c
-        // For now, just create a feature request
-        await ctx.db.featureRequest.create({
-          data: {
-            title: input.improvementSuggestion.slice(0, 100),
-            description: input.improvementSuggestion,
-            embedding: [], // Will be populated by EmbeddingService
-            priority: input.rating <= 2 ? 50 : 10, // Higher priority for low ratings
-            feedbackIds: [feedbackEntry.id],
-            avgRating: input.rating,
-          },
-        });
+        try {
+          const embeddingService = getEmbeddingService(ctx.db);
+          const result = await embeddingService.processImprovementSuggestion(
+            input.improvementSuggestion,
+            feedbackEntry.id,
+            input.rating
+          );
+          console.log(
+            `[FEEDBACK] Feature request ${result.action}: ${result.featureRequestId}`
+          );
+        } catch (embeddingError) {
+          // Fallback to simple creation if embedding fails
+          console.error(
+            "[FEEDBACK] Embedding service failed, using fallback:",
+            embeddingError
+          );
+          await ctx.db.featureRequest.create({
+            data: {
+              title: input.improvementSuggestion.slice(0, 100),
+              description: input.improvementSuggestion,
+              embedding: [],
+              priority: input.rating <= 2 ? 50 : 10,
+              feedbackIds: [feedbackEntry.id],
+              avgRating: input.rating,
+            },
+          });
+        }
       }
 
       console.log(

@@ -4,19 +4,21 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from "~/trpc/react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { 
-  Paper, 
-  TextInput, 
-  Button, 
-  ScrollArea, 
-  Avatar, 
-  Group, 
+import {
+  Paper,
+  TextInput,
+  Button,
+  ScrollArea,
+  Avatar,
+  Group,
   Text,
   Box,
   ActionIcon,
-  Tooltip
+  Tooltip,
+  Accordion
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
+import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 
 interface Message {
     type: 'system' | 'human' | 'ai' | 'tool';
@@ -24,6 +26,7 @@ interface Message {
     tool_call_id?: string;
     name?: string; // Used for tool responses
     agentName?: string; // Added: Name of the AI agent sending the message
+    interactionId?: string; // Added: ID for feedback tracking
 }
 
 interface ManyChatProps {
@@ -437,16 +440,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         ? result.response 
         : JSON.stringify(result.response);
 
-      const aiResponse: Message = {
-        type: 'ai', 
-        agentName: result.agentName || 'Agent',
-        content: aiResponseText
-      };
-      setMessages(prev => [...prev, aiResponse]);
-
-      // Log the successful interaction
+      // Log the successful interaction first to get the interaction ID
+      let interactionId: string | undefined;
       try {
-        await logInteraction.mutateAsync({
+        const logResult = await logInteraction.mutateAsync({
           platform: "manychat",
           conversationId: conversationId || undefined,
           userMessage: input,
@@ -459,17 +456,26 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           responseTime,
           projectId: projectId || undefined,
           toolsUsed: result.toolCalls?.map((tool: any) => tool.name || tool.function?.name).filter(Boolean) || [],
-          actionsTaken: result.toolResults?.map((result: any) => ({
-            action: result.name || "unknown",
-            result: result.success ? "success" : "error",
-            data: result.content || result.text,
+          actionsTaken: result.toolResults?.map((toolResult: any) => ({
+            action: toolResult.name || "unknown",
+            result: toolResult.success ? "success" : "error",
+            data: toolResult.content || toolResult.text,
           })) || [],
           hadError: false,
         });
+        interactionId = logResult.interactionId;
       } catch (logError) {
         console.warn("Failed to log AI interaction:", logError);
         // Don't throw error to avoid breaking the chat flow
       }
+
+      const aiResponse: Message = {
+        type: 'ai',
+        agentName: result.agentName || 'Agent',
+        content: aiResponseText,
+        interactionId, // Include interaction ID for feedback tracking
+      };
+      setMessages(prev => [...prev, aiResponse]);
 
     } catch (error) {
       console.error('Chat error:', error);
@@ -909,6 +915,14 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                           {renderMessageContent(message.content, message.type)}
                         </div>
                       </Paper>
+                      {/* Feedback component for AI messages */}
+                      {message.interactionId && (
+                        <AgentMessageFeedback
+                          aiInteractionId={message.interactionId}
+                          conversationId={conversationId}
+                          agentName={message.agentName}
+                        />
+                      )}
                     </div>
                   </div>
                 ) : (

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { feedbackDigestService } from "~/server/services/notifications/FeedbackDigestService";
 
 /**
  * Admin procedure - extends protectedProcedure with isAdmin check
@@ -115,5 +116,30 @@ export const adminRouter = createTRPCRouter({
       platform: p.platform,
       count: p._count.platform,
     }));
+  }),
+
+  /**
+   * Generate and preview the feedback digest (without sending)
+   */
+  previewFeedbackDigest: adminProcedure.query(async () => {
+    const digest = await feedbackDigestService.generateDailyDigest();
+    return digest;
+  }),
+
+  /**
+   * Send the feedback digest to all admin users via Slack
+   */
+  sendFeedbackDigest: adminProcedure.mutation(async () => {
+    const result = await feedbackDigestService.sendDigestToAdmins();
+
+    if (!result.success && result.errors.length > 0) {
+      console.error("[Admin] Feedback digest errors:", result.errors);
+    }
+
+    return {
+      success: result.success,
+      sentTo: result.sentTo,
+      errors: result.errors,
+    };
   }),
 });
