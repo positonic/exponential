@@ -1,9 +1,19 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { Drawer, Text, ActionIcon } from '@mantine/core';
 import { IconX } from '@tabler/icons-react';
 import { useAgentDrawer } from '~/providers/AgentDrawerProvider';
-import ManyChat from '../ManyChat';
+
+// Dynamic import to prevent Vercel build timeout - ManyChat has 1000+ lines with complex tRPC types
+const ManyChat = dynamic(() => import('../ManyChat'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-full">
+      <div className="animate-pulse text-text-muted">Loading chat...</div>
+    </div>
+  )
+});
 
 export function AgentChatDrawer() {
   const { isOpen, projectId, closeDrawer } = useAgentDrawer();
