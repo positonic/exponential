@@ -45,6 +45,7 @@ export default async function RootLayout({
         <ColorSchemeScript />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
+        <link rel="manifest" href="/manifest.webmanifest" />
       </head>
       <body className="h-full bg-background-primary">
         <ThemeProvider domain={domain}>
