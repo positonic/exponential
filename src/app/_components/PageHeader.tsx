@@ -15,12 +15,12 @@ export function PageHeader({ calendarConnected, todayExists }: PageHeaderProps) 
   const today = new Date();
 
   return (
-    <Paper 
+    <Paper
       className="w-full max-w-3xl mx-auto mb-6 bg-surface-primary border border-border-primary"
       p="lg"
       radius="md"
     >
-      <Group justify="space-between" align="center" wrap="nowrap">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         {/* Left side: Page title and date */}
         <div>
           <Title order={2} size="h3" className="text-text-primary">
@@ -37,7 +37,7 @@ export function PageHeader({ calendarConnected, todayExists }: PageHeaderProps) 
           <TodayPageCalendar isConnected={calendarConnected} />
           {!todayExists && <TodayButton />}
         </Group>
-      </Group>
+      </div>
     </Paper>
   );
 }
