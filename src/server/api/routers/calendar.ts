@@ -11,6 +11,7 @@ export const calendarRouter = createTRPCRouter({
       },
       select: {
         access_token: true,
+        refresh_token: true,
         scope: true,
         expires_at: true,
       },
@@ -22,14 +23,17 @@ export const calendarRouter = createTRPCRouter({
 
     // Check if the account has calendar scopes
     const hasCalendarScope = account.scope?.includes("https://www.googleapis.com/auth/calendar.events") ?? false;
-    
-    // Check if token is still valid (with some buffer)
-    const isTokenValid = !account.expires_at || account.expires_at > Math.floor(Date.now() / 1000) + 300;
+
+    // Token is valid if not expired, OR if we have a refresh token (can auto-refresh)
+    const tokenNotExpired = !account.expires_at || account.expires_at > Math.floor(Date.now() / 1000) + 300;
+    const canRefresh = !!account.refresh_token;
+    const isTokenValid = tokenNotExpired || canRefresh;
 
     return {
       isConnected: hasCalendarScope && isTokenValid,
       hasCalendarScope,
-      tokenExpired: !isTokenValid,
+      tokenExpired: !tokenNotExpired,
+      canRefresh,
     };
   }),
 
