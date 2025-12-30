@@ -71,11 +71,7 @@ cd ../<project-name>-<feature>
 cp ../<project-name>/.env .
 
 # Install dependencies
-bun install
-# OR
-npm install
-# OR
-yarn install
+pnpm install
 
 # Copy any other necessary config files
 # Examples: .env.local, config.json, etc.
