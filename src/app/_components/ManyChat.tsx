@@ -743,105 +743,144 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
 
   return (
     <div className="relative flex flex-col h-full">
-      {/* Enhanced Agent Discovery Header */}
-      <div className="bg-surface-secondary backdrop-blur-sm border-b border-border-primary p-4">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-2 h-2 bg-brand-success rounded-full animate-pulse"></div>
-          <Text size="sm" fw={600} c="blue">
-            Available Agents
-          </Text>
-        </div>
-        <TextInput
-          placeholder="🔍 Filter agents by name or skill..."
-          size="sm"
-          value={agentFilter}
-          onChange={e => setAgentFilter(e.currentTarget.value)}
-          mb="sm"
+      {/* Enhanced Agent Discovery Header - Accordion */}
+      <div className="bg-surface-secondary backdrop-blur-sm border-b border-border-primary">
+        <Accordion
+          variant="filled"
           styles={{
-            input: {
-              backgroundColor: 'var(--color-surface-secondary)',
-              border: '1px solid var(--color-border-primary)',
-              color: 'var(--color-text-primary)',
-              '&:focus': {
-                borderColor: 'var(--color-brand-primary)',
-                boxShadow: '0 0 0 3px var(--color-brand-primary-opacity)'
+            root: {
+              backgroundColor: 'transparent',
+            },
+            item: {
+              backgroundColor: 'transparent',
+              border: 'none',
+            },
+            control: {
+              backgroundColor: 'transparent',
+              padding: '12px 16px',
+              '&:hover': {
+                backgroundColor: 'var(--color-surface-hover)',
               },
-              '&::placeholder': {
-                color: 'var(--color-text-muted)'
-              }
-            }
+            },
+            content: {
+              padding: '0 16px 16px 16px',
+            },
+            chevron: {
+              color: 'var(--color-text-muted)',
+            },
           }}
-        />
-        <div className="space-y-3">
-          <div className="overflow-x-auto">
-            {renderAgentAvatars()}
-          </div>
-          
-          {/* Enhanced Agent List */}
-          {mastraAgents && mastraAgents.length > 0 && (
-            <div className="space-y-2 max-h-32 overflow-y-auto">
-              {mastraAgents
-                .filter(agent => {
-                  const term = agentFilter.trim().toLowerCase();
-                  if (!term) return true;
-                  const nameMatch = agent.name.toLowerCase().includes(term);
-                  const instr = (agent as any).instructions as string | undefined;
-                  const instructionsMatch = instr?.toLowerCase().includes(term) ?? false;
-                  return nameMatch || instructionsMatch;
-                })
-                .map((agent, index) => (
-                  <div 
-                    key={agent.id}
-                    className="flex items-center gap-3 p-2 rounded-lg bg-surface-secondary border border-border-primary transition-all duration-200 hover:bg-surface-hover hover:border-brand-primary group"
-                    style={{ animationDelay: `${index * 30}ms` }}
-                  >
-                    <div className="relative">
-                      <Avatar 
-                        size="xs" 
-                        radius="xl"
-                        className="ring-1 ring-border-primary group-hover:ring-brand-primary transition-all duration-200"
-                        styles={{
-                          root: {
-                            background: `linear-gradient(135deg, 
-                              ${index % 4 === 0 ? 'var(--color-brand-primary), var(--color-brand-info)' : 
-                                index % 4 === 1 ? 'var(--color-brand-primary), var(--color-brand-primary)' :
-                                index % 4 === 2 ? 'var(--color-brand-error), var(--color-brand-error)' :
-                                'var(--color-brand-success), var(--color-brand-success)'})`,
-                          }
-                        }}
-                      >
-                        {getInitials(agent.name)}
-                      </Avatar>
-                      <div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-brand-success rounded-full ring-1 ring-background-primary"></div>
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Text size="xs" fw={600} className="text-text-primary group-hover:text-brand-primary transition-colors">
-                          {agent.name}
-                        </Text>
-                        <div className="px-1.5 py-0.5 bg-brand-success/20 border border-brand-success/30 rounded text-xs font-medium text-brand-success">
-                          online
-                        </div>
-                      </div>
-                      <Text size="xs" c="dimmed" className="truncate mt-0.5">
-                        {(agent as any).instructions ? 
-                          (agent as any).instructions.slice(0, 60) + '...' : 
-                          'AI Agent ready to assist'
-                        }
-                      </Text>
-                    </div>
-                    
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Text size="xs" c="blue" fw={500}>
-                        @{agent.name.toLowerCase()}
-                      </Text>
-                    </div>
+        >
+          <Accordion.Item value="agents">
+            <Accordion.Control>
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 bg-brand-success rounded-full animate-pulse"></div>
+                <Text size="sm" fw={600} c="blue">
+                  Available Agents
+                </Text>
+                {mastraAgents && (
+                  <div className="px-2 py-0.5 bg-brand-primary/20 border border-brand-primary/30 rounded-full">
+                    <Text size="xs" fw={600} c="blue">
+                      {mastraAgents.length} online
+                    </Text>
                   </div>
-                ))}
-            </div>
-          )}
-        </div>
+                )}
+              </div>
+            </Accordion.Control>
+            <Accordion.Panel>
+              <TextInput
+                placeholder="Filter agents by name or skill..."
+                size="sm"
+                value={agentFilter}
+                onChange={e => setAgentFilter(e.currentTarget.value)}
+                mb="sm"
+                styles={{
+                  input: {
+                    backgroundColor: 'var(--color-surface-secondary)',
+                    border: '1px solid var(--color-border-primary)',
+                    color: 'var(--color-text-primary)',
+                    '&:focus': {
+                      borderColor: 'var(--color-brand-primary)',
+                      boxShadow: '0 0 0 3px var(--color-brand-primary-opacity)'
+                    },
+                    '&::placeholder': {
+                      color: 'var(--color-text-muted)'
+                    }
+                  }
+                }}
+              />
+              <div className="space-y-3">
+                <div className="overflow-x-auto">
+                  {renderAgentAvatars()}
+                </div>
+
+                {/* Enhanced Agent List */}
+                {mastraAgents && mastraAgents.length > 0 && (
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {mastraAgents
+                      .filter(agent => {
+                        const term = agentFilter.trim().toLowerCase();
+                        if (!term) return true;
+                        const nameMatch = agent.name.toLowerCase().includes(term);
+                        const instr = (agent as any).instructions as string | undefined;
+                        const instructionsMatch = instr?.toLowerCase().includes(term) ?? false;
+                        return nameMatch || instructionsMatch;
+                      })
+                      .map((agent, index) => (
+                        <div
+                          key={agent.id}
+                          className="flex items-center gap-3 p-2 rounded-lg bg-surface-secondary border border-border-primary transition-all duration-200 hover:bg-surface-hover hover:border-brand-primary group"
+                          style={{ animationDelay: `${index * 30}ms` }}
+                        >
+                          <div className="relative">
+                            <Avatar
+                              size="xs"
+                              radius="xl"
+                              className="ring-1 ring-border-primary group-hover:ring-brand-primary transition-all duration-200"
+                              styles={{
+                                root: {
+                                  background: `linear-gradient(135deg,
+                                    ${index % 4 === 0 ? 'var(--color-brand-primary), var(--color-brand-info)' :
+                                      index % 4 === 1 ? 'var(--color-brand-primary), var(--color-brand-primary)' :
+                                      index % 4 === 2 ? 'var(--color-brand-error), var(--color-brand-error)' :
+                                      'var(--color-brand-success), var(--color-brand-success)'})`,
+                                }
+                              }}
+                            >
+                              {getInitials(agent.name)}
+                            </Avatar>
+                            <div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-brand-success rounded-full ring-1 ring-background-primary"></div>
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <Text size="xs" fw={600} className="text-text-primary group-hover:text-brand-primary transition-colors">
+                                {agent.name}
+                              </Text>
+                              <div className="px-1.5 py-0.5 bg-brand-success/20 border border-brand-success/30 rounded text-xs font-medium text-brand-success">
+                                online
+                              </div>
+                            </div>
+                            <Text size="xs" c="dimmed" className="truncate mt-0.5">
+                              {(agent as any).instructions ?
+                                (agent as any).instructions.slice(0, 60) + '...' :
+                                'AI Agent ready to assist'
+                              }
+                            </Text>
+                          </div>
+
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Text size="xs" c="blue" fw={500}>
+                              @{agent.name.toLowerCase()}
+                            </Text>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
       </div>
       
       {buttons && buttons.length > 0 && (
