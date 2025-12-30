@@ -102,9 +102,10 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
               email: user.email,
               name: user.name,
               image: user.image,
+              isAdmin: user.isAdmin,
             },
-            expires: decoded.exp 
-              ? new Date(decoded.exp * 1000).toISOString() 
+            expires: decoded.exp
+              ? new Date(decoded.exp * 1000).toISOString()
               : new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 minutes fallback
           };
           return {

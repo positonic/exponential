@@ -56,6 +56,7 @@ model User {
   selectedTools           String[]
   usageType               String?
   userRole                String?
+  isAdmin                 Boolean                  @default(false)
   accounts                Account[]
   assignedActions         Action[]                 @relation("AssignedActions")
   actions                 Action[]

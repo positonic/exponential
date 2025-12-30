@@ -1,6 +1,7 @@
 import { postRouter } from "~/server/api/routers/post";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 import { actionRouter } from "./routers/action";
+import { adminRouter } from "./routers/admin";
 import { projectRouter } from "./routers/project";
 import { toolRouter } from "./routers/tool";
 import { videoRouter } from "~/server/api/routers/video";
@@ -37,6 +38,7 @@ export const appRouter = createTRPCRouter({
   post: postRouter,
   project: projectRouter,
   action: actionRouter,
+  admin: adminRouter,
   tools: toolRouter,
   video: videoRouter,
   goal: goalRouter,

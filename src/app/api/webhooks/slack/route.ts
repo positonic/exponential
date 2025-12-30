@@ -865,8 +865,9 @@ async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<strin
         email: user.email,
         name: user.name,
         image: user.image,
+        isAdmin: user.isAdmin ?? false,
       },
-      expires: new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
+      expires: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
     };
 
     // Create server-side tRPC caller with authentication context

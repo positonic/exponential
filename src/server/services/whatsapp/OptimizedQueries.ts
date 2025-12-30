@@ -65,9 +65,10 @@ export class OptimizedQueries {
                 image: true,
                 usageType: true,
                 userRole: true,
+                isAdmin: true,
                 selectedTools: true,
                 onboardingCompletedAt: true,
-                onboardingStep: true
+                onboardingStep: true,
               }
             }
           }

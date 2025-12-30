@@ -16,8 +16,7 @@ declare module "next-auth" {
   interface Session extends DefaultSession {
     user: {
       id: string;
-      // ...other properties
-      // role: UserRole;
+      isAdmin: boolean;
     } & DefaultSession["user"];
   }
 }
@@ -69,22 +68,33 @@ export const authConfig = {
   },
   callbacks: {
     session: ({ session, user, token }) => {
-      const tokenId = typeof token.id === 'string' ? token.id : 
-                     typeof token.sub === 'string' ? token.sub : '';
-      
+      const tokenId =
+        typeof token.id === "string"
+          ? token.id
+          : typeof token.sub === "string"
+            ? token.sub
+            : "";
+
       return {
         ...session,
         token,
         user: {
           ...session.user,
-          id: user?.id ?? tokenId
-        }
+          id: user?.id ?? tokenId,
+          isAdmin: (token.isAdmin as boolean) ?? false,
+        },
       };
     },
-    jwt: ({ token, account, user }) => {
+    jwt: async ({ token, account, user }) => {
       if (user) {
         token.sub = user.id;
         token.email = user.email;
+        // Fetch isAdmin from DB
+        const dbUser = await db.user.findUnique({
+          where: { id: user.id },
+          select: { isAdmin: true },
+        });
+        token.isAdmin = dbUser?.isAdmin ?? false;
       }
       if (account) {
         token.accessToken = account.access_token;
