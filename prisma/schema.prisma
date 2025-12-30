@@ -658,9 +658,10 @@ model AiInteractionHistory {
   toolsUsed       String[]
   userAgent       String?
   ipAddress       String?
-  createdAt       DateTime @default(now())
-  project         Project? @relation(fields: [projectId], references: [id])
-  user            User?    @relation(fields: [systemUserId], references: [id])
+  createdAt       DateTime   @default(now())
+  project         Project?   @relation(fields: [projectId], references: [id])
+  user            User?      @relation(fields: [systemUserId], references: [id])
+  feedback        Feedback[]
 
   @@index([systemUserId])
   @@index([platform])
@@ -675,20 +676,42 @@ model AiInteractionHistory {
 }
 
 model Feedback {
-  id        String   @id @default(cuid())
-  userId    String
-  feature   String
-  rating    Int
-  content   String
-  metadata  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String                @id @default(cuid())
+  userId          String
+  feature         String
+  rating          Int
+  content         String
+  metadata        Json?
+  aiInteractionId String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiInteraction   AiInteractionHistory? @relation(fields: [aiInteractionId], references: [id])
 
   @@index([userId])
   @@index([feature])
   @@index([createdAt])
   @@index([feature, rating])
+  @@index([aiInteractionId])
+}
+
+model FeatureRequest {
+  id            String    @id @default(cuid())
+  title         String
+  description   String
+  embedding     Float[]
+  priority      Int       @default(0)
+  status        String    @default("open")
+  feedbackCount Int       @default(1)
+  avgRating     Float?
+  feedbackIds   String[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  resolvedAt    DateTime?
+
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
 }
 
 model WhatsAppConfig {
