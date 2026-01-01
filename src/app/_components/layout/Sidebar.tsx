@@ -4,14 +4,23 @@ import Link from "next/link";
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
 import { IconMenu2, IconX } from "@tabler/icons-react";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { themes, type ValidDomain } from "~/config/themes";
 import { LogoDisplay } from "./LogoDisplay";
 import { ThemeToggle } from "../ThemeToggle";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
-  const [isMenuOpen, setIsMenuOpen] = useState(true); // Default to open on desktop
+  const [isMenuOpen, setIsMenuOpen] = useState(false); // Default to closed
   const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
+
+  // Auto-open sidebar on desktop only
+  useEffect(() => {
+    const isDesktop = window.matchMedia('(min-width: 640px)').matches;
+    if (isDesktop) {
+      setIsMenuOpen(true);
+    }
+  }, []);
+
   console.log('domain', domain);
   if (!session?.user) {
     return null;
