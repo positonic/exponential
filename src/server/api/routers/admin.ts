@@ -58,6 +58,14 @@ export const adminRouter = createTRPCRouter({
               email: true,
             },
           },
+          feedback: {
+            select: {
+              id: true,
+              rating: true,
+            },
+            take: 1,
+            orderBy: { createdAt: "desc" },
+          },
         },
       });
 

@@ -13,7 +13,13 @@ import {
   ScrollArea,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconStar,
+  IconStarFilled,
+  IconEye,
+} from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 
 function truncate(str: string | null | undefined, maxLength: number): string {
@@ -31,6 +37,18 @@ function formatDate(date: Date): string {
   }).format(new Date(date));
 }
 
+function StarRating({ rating }: { rating: number }) {
+  return (
+    <Group gap={2}>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <span key={star} className={star <= rating ? "text-yellow-500" : "text-text-muted"}>
+          {star <= rating ? <IconStarFilled size={14} /> : <IconStar size={14} />}
+        </span>
+      ))}
+    </Group>
+  );
+}
+
 interface Interaction {
   id: string;
   platform: string;
@@ -42,6 +60,10 @@ interface Interaction {
     name: string | null;
     email: string | null;
   } | null;
+  feedback: {
+    id: string;
+    rating: number;
+  }[];
 }
 
 export function AiInteractionsTable() {
@@ -94,7 +116,9 @@ export function AiInteractionsTable() {
               <Table.Th className="text-text-muted">User</Table.Th>
               <Table.Th className="text-text-muted">User Message</Table.Th>
               <Table.Th className="text-text-muted">AI Response</Table.Th>
+              <Table.Th className="text-text-muted">Rating</Table.Th>
               <Table.Th className="text-text-muted">Date</Table.Th>
+              <Table.Th className="text-text-muted">Details</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -116,21 +140,23 @@ export function AiInteractionsTable() {
                   <Table.Td>
                     <Skeleton height={20} width={80} />
                   </Table.Td>
+                  <Table.Td>
+                    <Skeleton height={20} width={80} />
+                  </Table.Td>
+                  <Table.Td>
+                    <Skeleton height={20} width={40} />
+                  </Table.Td>
                 </Table.Tr>
               ))
             ) : data?.interactions.length === 0 ? (
               <Table.Tr>
-                <Table.Td colSpan={5} className="text-center text-text-muted">
+                <Table.Td colSpan={7} className="text-center text-text-muted">
                   No interactions found
                 </Table.Td>
               </Table.Tr>
             ) : (
               data?.interactions.map((interaction) => (
-                <Table.Tr
-                  key={interaction.id}
-                  className="cursor-pointer"
-                  onClick={() => handleRowClick(interaction)}
-                >
+                <Table.Tr key={interaction.id}>
                   <Table.Td>
                     <Badge variant="light" size="sm">
                       {interaction.platform}
@@ -152,9 +178,28 @@ export function AiInteractionsTable() {
                     </Text>
                   </Table.Td>
                   <Table.Td>
+                    {interaction.feedback[0] ? (
+                      <StarRating rating={interaction.feedback[0].rating} />
+                    ) : (
+                      <Text size="sm" className="text-text-muted">
+                        —
+                      </Text>
+                    )}
+                  </Table.Td>
+                  <Table.Td>
                     <Text size="sm" className="text-text-muted">
                       {formatDate(interaction.createdAt)}
                     </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      leftSection={<IconEye size={14} />}
+                      onClick={() => handleRowClick(interaction)}
+                    >
+                      View
+                    </Button>
                   </Table.Td>
                 </Table.Tr>
               ))
@@ -213,6 +258,21 @@ export function AiInteractionsTable() {
               <Text className="text-text-primary">
                 {formatDate(selectedInteraction.createdAt)}
               </Text>
+            </div>
+            <div>
+              <Text size="sm" className="font-medium text-text-muted">
+                Rating
+              </Text>
+              {selectedInteraction.feedback[0] ? (
+                <Group gap="xs">
+                  <StarRating rating={selectedInteraction.feedback[0].rating} />
+                  <Text className="text-text-primary">
+                    ({selectedInteraction.feedback[0].rating}/5)
+                  </Text>
+                </Group>
+              ) : (
+                <Text className="text-text-muted">No rating</Text>
+              )}
             </div>
             <div>
               <Text size="sm" className="font-medium text-text-muted">
