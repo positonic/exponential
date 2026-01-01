@@ -1,10 +1,10 @@
 "use client";
 
-import { Modal, Button, Group, TextInput, Select } from '@mantine/core';
+import { Modal, Button, Group, TextInput, Select, Text } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
-import { DateInput } from '@mantine/dates';
+import { UnifiedDatePicker } from './UnifiedDatePicker';
 
 interface CreateGoalModalProps {
   children?: React.ReactNode;
@@ -206,13 +206,14 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             mt="md"
           />
           
-          <DateInput
-            value={dueDate}
-            onChange={setDueDate}
-            label="Due date (optional)"
-            placeholder="Pick a date"
-            mt="md"
-          />
+          <div className="mt-4">
+            <Text size="sm" fw={500} mb={4}>Due date (optional)</Text>
+            <UnifiedDatePicker
+              value={dueDate}
+              onChange={setDueDate}
+              notificationContext="goal"
+            />
+          </div>
 
           <Select
             label="Project (optional)"
