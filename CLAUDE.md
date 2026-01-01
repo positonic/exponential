@@ -37,7 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run preview` - Build and start production server
-- Always use pnpm to install packages
+- Always use bun to install packages
 
 ### Code Quality
 
@@ -67,7 +67,7 @@ See `/docs/ESLINT_INTEGRATION.md` for complete rule details and fix patterns.
 - `npm run db:generate` - Generate Prisma client after migrations
 - `npm run db:migrate` - Deploy database migrations (production)
 - `npm run db:studio` - Open Prisma Studio for database management
-- `pnpm dlx tsx prisma/seed.ts` - Seed database with initial data
+- `bun prisma/seed.ts` - Seed database with initial data
 
 **IMPORTANT**: Always create proper migration files when changing the schema:
 1. First, modify the schema.prisma file

@@ -87,19 +87,19 @@ tail -200 one.log | grep -i "error\|exception\|failed"
 #### Build & Type Analysis Commands
 ```bash
 # Run typecheck and capture output
-SKIP_ENV_VALIDATION=1 npm run typecheck 2>&1
+SKIP_ENV_VALIDATION=1 bun run typecheck 2>&1
 
 # Filter specific module errors
-SKIP_ENV_VALIDATION=1 npm run typecheck 2>&1 | grep -E "(workflows|documents|organizations)"
+SKIP_ENV_VALIDATION=1 bun run typecheck 2>&1 | grep -E "(workflows|documents|organizations)"
 
 # Build analysis
-npm run build 2>&1
+bun run build 2>&1
 
 # Lint analysis
-npm run lint 2>&1
+bun run lint 2>&1
 
 # Combined quality check
-npm run check 2>&1
+bun run check 2>&1
 ```
 
 #### Error Pattern Detection

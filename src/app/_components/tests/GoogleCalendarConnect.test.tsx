@@ -1,14 +1,14 @@
-import React from 'react';
-import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, mock } from 'bun:test';
 import { render, screen, fireEvent, cleanup } from '~/test/test-utils';
+import { GoogleCalendarConnect } from '../GoogleCalendarConnect';
 
 // Add custom matchers for DOM testing
 const customMatchers = {
-  toBeInTheDocument(received: unknown) {
-    const pass = received && document.body.contains(received as Node);
+  toBeInTheDocument(received: any) {
+    const pass = received && document.body.contains(received);
     return {
       pass,
-      message: () => pass
+      message: () => pass 
         ? `expected element not to be in the document`
         : `expected element to be in the document`,
     };
@@ -25,10 +25,10 @@ const customMatchers = {
   toHaveAttribute(received: HTMLElement, name: string, value?: string) {
     const hasAttribute = received.hasAttribute(name);
     const attributeValue = received.getAttribute(name);
-    const pass = value !== undefined
+    const pass = value !== undefined 
       ? hasAttribute && attributeValue === value
       : hasAttribute;
-
+    
     return {
       pass,
       message: () => pass
@@ -38,9 +38,9 @@ const customMatchers = {
   },
 };
 
-// Type augmentation for Vitest's expect
-declare module "vitest" {
-  interface Assertion<T> {
+// Type augmentation for Bun's expect
+declare module "bun:test" {
+  interface Matchers<T> {
     toBeInTheDocument(): void;
     toBeDisabled(): void;
     toHaveAttribute(name: string, value?: string): void;
@@ -49,42 +49,37 @@ declare module "vitest" {
 
 expect.extend(customMatchers);
 
-// Use vi.hoisted to ensure mocks are available when vi.mock runs
-const { mockPush, mockGetSearchParam, mockShow } = vi.hoisted(() => ({
-  mockPush: vi.fn(),
-  mockGetSearchParam: vi.fn(() => null),
-  mockShow: vi.fn(),
+// Mock next/navigation
+const mockPush = mock(() => undefined);
+const mockUseSearchParams = mock(() => ({
+  get: mock(() => null),
 }));
 
-// Mock next/navigation
-vi.mock('next/navigation', () => ({
+mock.module('next/navigation', () => ({
   useRouter: () => ({
     push: mockPush,
   }),
-  useSearchParams: () => ({
-    get: mockGetSearchParam,
-  }),
+  useSearchParams: mockUseSearchParams,
 }));
 
 // Mock @mantine/notifications
-vi.mock('@mantine/notifications', () => ({
+const mockShow = mock(() => undefined);
+mock.module('@mantine/notifications', () => ({
   notifications: {
     show: mockShow,
   },
 }));
-
-// Import component after mocks are set up
-import { GoogleCalendarConnect } from '../GoogleCalendarConnect';
 
 describe('GoogleCalendarConnect', () => {
   beforeEach(() => {
     // Reset mocks before each test
     mockPush.mockClear();
     mockShow.mockClear();
-    mockGetSearchParam.mockReset();
-    mockGetSearchParam.mockReturnValue(null);
+    mockUseSearchParams.mockImplementation(() => ({
+      get: mock(() => null),
+    }));
   });
-
+  
   afterEach(() => {
     // Clean up DOM after each test
     cleanup();
@@ -93,7 +88,7 @@ describe('GoogleCalendarConnect', () => {
   describe('when calendar is not connected', () => {
     test('renders connect button', () => {
       render(<GoogleCalendarConnect isConnected={false} />);
-
+      
       const button = screen.getByRole('button', { name: /connect google calendar/i });
       expect(button).toBeInTheDocument();
       expect(button).not.toBeDisabled();
@@ -101,10 +96,10 @@ describe('GoogleCalendarConnect', () => {
 
     test('shows loading state when button is clicked', () => {
       render(<GoogleCalendarConnect isConnected={false} />);
-
+      
       const button = screen.getByRole('button', { name: /connect google calendar/i });
       fireEvent.click(button);
-
+      
       // Button should show loading state - check for data-loading attribute
       const loadingButton = screen.getByRole('button');
       expect(loadingButton).toHaveAttribute('data-loading');
@@ -112,17 +107,16 @@ describe('GoogleCalendarConnect', () => {
 
     test('redirects to auth endpoint when clicked', () => {
       const originalLocation = window.location;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (window as any).location;
       window.location = { ...originalLocation, href: '' } as Location;
 
       render(<GoogleCalendarConnect isConnected={false} />);
-
+      
       const button = screen.getByRole('button', { name: /connect google calendar/i });
       fireEvent.click(button);
-
+      
       expect(window.location.href).toBe('/api/auth/google-calendar');
-
+      
       // Restore original location
       window.location = originalLocation;
     });
@@ -131,7 +125,7 @@ describe('GoogleCalendarConnect', () => {
   describe('when calendar is connected', () => {
     test('renders connected state button', () => {
       render(<GoogleCalendarConnect isConnected={true} />);
-
+      
       const button = screen.getByRole('button', { name: /calendar connected/i });
       expect(button).toBeInTheDocument();
       expect(button).toBeDisabled();
@@ -140,10 +134,12 @@ describe('GoogleCalendarConnect', () => {
 
   describe('URL parameter handling', () => {
     test('shows success notification when calendar_connected=true', () => {
-      mockGetSearchParam.mockImplementation((param: string) => {
-        if (param === 'calendar_connected') return 'true';
-        return null;
-      });
+      mockUseSearchParams.mockImplementation(() => ({
+        get: mock((param: string) => {
+          if (param === 'calendar_connected') return 'true';
+          return null;
+        }),
+      }));
 
       render(<GoogleCalendarConnect isConnected={false} />);
 
@@ -156,10 +152,12 @@ describe('GoogleCalendarConnect', () => {
     });
 
     test('shows error notification for access_denied', () => {
-      mockGetSearchParam.mockImplementation((param: string) => {
-        if (param === 'calendar_error') return 'access_denied';
-        return null;
-      });
+      mockUseSearchParams.mockImplementation(() => ({
+        get: mock((param: string) => {
+          if (param === 'calendar_error') return 'access_denied';
+          return null;
+        }),
+      }));
 
       render(<GoogleCalendarConnect isConnected={false} />);
 
@@ -171,10 +169,12 @@ describe('GoogleCalendarConnect', () => {
     });
 
     test('shows error notification for token_exchange_failed', () => {
-      mockGetSearchParam.mockImplementation((param: string) => {
-        if (param === 'calendar_error') return 'token_exchange_failed';
-        return null;
-      });
+      mockUseSearchParams.mockImplementation(() => ({
+        get: mock((param: string) => {
+          if (param === 'calendar_error') return 'token_exchange_failed';
+          return null;
+        }),
+      }));
 
       render(<GoogleCalendarConnect isConnected={false} />);
 

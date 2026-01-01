@@ -223,7 +223,7 @@ git checkout -b hotfix/critical-bug
 1. Clone the repository
 2. Install Claude Code
 3. Copy `.env.example` to `.env`
-4. Run `pnpm install`
+4. Run `bun install`
 5. Check out appropriate branch based on your work
 6. Use Claude Code commands for PRs
 

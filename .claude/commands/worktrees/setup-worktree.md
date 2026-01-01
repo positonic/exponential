@@ -5,7 +5,7 @@ Steps:
 2. Copy environment files from main:
    - `cp .env .worktrees/$ARGUMENTS/`
    - `cp .env.local .worktrees/$ARGUMENTS/` (if exists)
-3. Install dependencies: `cd .worktrees/$ARGUMENTS && pnpm install`
+3. Install dependencies: `cd .worktrees/$ARGUMENTS && bun install`
 4. Run type checking: `cd .worktrees/$ARGUMENTS && npm run typecheck`
 5. Provide status and next steps
 

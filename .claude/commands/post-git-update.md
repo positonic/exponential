@@ -10,9 +10,9 @@ Steps:
    - Run `/serena-index` to update code intelligence
 3. Check for package.json changes:
    ```bash
-   git diff --name-only HEAD@{1} HEAD | grep -E "(package\.json|pnpm-lock\.yaml)"
+   git diff --name-only HEAD@{1} HEAD | grep -E "(package\.json|bun\.lockb)"
    ```
-   - If changed, remind to run `pnpm install`
+   - If changed, remind to run `bun install`
 4. Check for schema.prisma changes:
    ```bash
    git diff --name-only HEAD@{1} HEAD | grep "schema\.prisma"

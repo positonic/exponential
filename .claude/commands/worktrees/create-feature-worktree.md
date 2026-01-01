@@ -8,7 +8,7 @@ Steps:
 5. Copy essential files:
    - `cp .env .worktrees/$ARGUMENTS/`
    - `cp .env.local .worktrees/$ARGUMENTS/` (if exists)
-6. Install dependencies: `cd .worktrees/$ARGUMENTS && pnpm install`
+6. Install dependencies: `cd .worktrees/$ARGUMENTS && bun install`
 7. Provide instructions for running the dev server on an alternate port
 
 Output format:

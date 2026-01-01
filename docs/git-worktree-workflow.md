@@ -197,9 +197,9 @@ cp .env .worktrees/my-feature/
 
 ### 2. Dependency Synchronization
 **Problem**: Package updates in main don't automatically sync to worktrees  
-**Solution**: Run `pnpm install` in worktrees after package updates
+**Solution**: Run `bun install` in worktrees after package updates
 ```bash
-cd .worktrees/my-feature && pnpm install
+cd .worktrees/my-feature && bun install
 ```
 
 ### 3. Database Migrations
@@ -229,7 +229,7 @@ cd .worktrees/my-feature && pnpm install
 /setup-worktree feature-name
 
 # Solution 2: Manual install
-cd .worktrees/feature-name && pnpm install
+cd .worktrees/feature-name && bun install
 ```
 
 ### Missing Environment Variables
@@ -246,7 +246,7 @@ cp .env .worktrees/feature-name/
 # Update all active worktrees
 for dir in .worktrees/*/; do
   echo "Updating $dir"
-  (cd "$dir" && pnpm install)
+  (cd "$dir" && bun install)
 done
 ```
 

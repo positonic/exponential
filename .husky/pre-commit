@@ -1,6 +1,6 @@
-# Run tests with Vitest
+# Run tests with Bun
 echo "Running tests..."
-if ! npm run test; then
+if ! bun test; then
   echo "❌ Tests failed. Please fix the failing tests before committing."
   exit 1
 fi
