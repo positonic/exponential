@@ -8,9 +8,10 @@ import { ActionModalForm } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
 import { IconPlus } from '@tabler/icons-react';
 import type { ActionStatus } from '@prisma/client';
+import { useSession } from 'next-auth/react';
 
 export function CreateActionModal({ viewName, projectId: propProjectId }: { viewName: string; projectId?: string }) {
-  
+  const { data: session } = useSession();
   const { width } = useViewportSize();
   // Use propProjectId if provided, otherwise try to extract from viewName
   const initProjectId = propProjectId || (viewName.includes("project-") ? viewName.split("-").pop() : '');
@@ -66,7 +67,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
         status: "ACTIVE",
         priority: newAction.priority ?? "Quick",
         projectId: newAction.projectId ?? null,
-        createdById: previousState.projects?.[0]?.createdById ?? "",
+        createdById: session?.user?.id ?? previousState.projects?.[0]?.createdById ?? "",
         dueDate: newAction.dueDate ? new Date(newAction.dueDate) : null,
         transcriptionSessionId: null,
         teamId: null,
@@ -77,9 +78,15 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
         source: null, // Source of the action (e.g., 'api', 'notion')
         syncs: [], // Initialize empty syncs array for consistency with getAll type
         assignees: [], // Initialize empty assignees array for type consistency
-        project: newAction.projectId 
+        project: newAction.projectId
           ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
           : null,
+        createdBy: {
+          id: session?.user?.id ?? "",
+          name: session?.user?.name ?? null,
+          email: session?.user?.email ?? null,
+          image: session?.user?.image ?? null,
+        },
       };
 
       // Helper function to add action to a list

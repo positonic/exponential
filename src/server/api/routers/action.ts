@@ -59,14 +59,20 @@ export const actionRouter = createTRPCRouter({
     }).optional())
     .query(async ({ ctx, input }) => {
     console.log("in getAll")
+    const userId = ctx.session.user.id;
+
+    // Base condition: show tasks created by user OR assigned to user
     const whereClause: any = {
-      createdById: ctx.session.user.id,
+      OR: [
+        { createdById: userId },
+        { assignees: { some: { userId: userId } } }
+      ],
       status: {
         not: "DELETED",
       },
     };
 
-    // Add assignee filtering if specified
+    // Add additional assignee filtering if specified (for filtering within user's tasks)
     if (input?.assigneeId) {
       whereClause.assignees = {
         some: {
@@ -83,6 +89,7 @@ export const actionRouter = createTRPCRouter({
         assignees: {
           include: { user: { select: { id: true, name: true, email: true, image: true } } },
         },
+        createdBy: { select: { id: true, name: true, email: true, image: true } },
       },
       orderBy: {
         project: {
@@ -123,6 +130,7 @@ export const actionRouter = createTRPCRouter({
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
+          createdBy: { select: { id: true, name: true, email: true, image: true } },
         },
         orderBy: [
           { kanbanOrder: { sort: "asc", nulls: "last" } },
@@ -385,13 +393,17 @@ export const actionRouter = createTRPCRouter({
   getToday: protectedProcedure.query(async ({ ctx }) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+    const userId = ctx.session.user.id;
 
     return ctx.db.action.findMany({
       where: {
-        createdById: ctx.session.user.id,
+        OR: [
+          { createdById: userId },
+          { assignees: { some: { userId: userId } } }
+        ],
         dueDate: {
           gte: today,
           lt: tomorrow,
@@ -404,6 +416,7 @@ export const actionRouter = createTRPCRouter({
         assignees: {
           include: { user: { select: { id: true, name: true, email: true, image: true } } },
         },
+        createdBy: { select: { id: true, name: true, email: true, image: true } },
       },
       orderBy: {
         project: {

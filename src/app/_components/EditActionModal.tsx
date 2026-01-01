@@ -7,8 +7,10 @@ import { ActionModalForm } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
-type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
-type Action = ActionWithSyncs | ActionWithoutSyncs;
+// Make createdBy optional to support actions from various sources
+type Action = Omit<ActionWithSyncs, 'createdBy'> & {
+  createdBy?: ActionWithSyncs['createdBy'] | null;
+};
 
 interface EditActionModalProps {
   action: Action | null;

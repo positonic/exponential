@@ -1,10 +1,11 @@
 import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button, Avatar, HoverCard, ActionIcon, Menu } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots, IconBrandNotion } from '@tabler/icons-react';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots, IconBrandNotion, IconUserShare } from '@tabler/icons-react';
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
 import { useState } from "react";
 import React from "react";
+import { useSession } from 'next-auth/react';
 import { EditActionModal } from "./EditActionModal";
 import { AssignActionModal } from "./AssignActionModal";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
@@ -13,7 +14,10 @@ import type { Priority } from "~/types/action";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
 type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
-type Action = ActionWithSyncs;
+// Make createdBy optional to support both queries that include it and those that don't
+type Action = Omit<ActionWithSyncs, 'createdBy'> & {
+  createdBy?: ActionWithSyncs['createdBy'] | null;
+};
 
 // Helper function to format date like "22 Feb"
 const formatDate = (date: Date | null | undefined): string => {
@@ -137,6 +141,8 @@ export function ActionList({
   const [assignSelectedAction, setAssignSelectedAction] = useState<Action | null>(null);
   const [bulkEditOverdueMode, setBulkEditOverdueMode] = useState(false);
   const [selectedOverdueActionIds, setSelectedOverdueActionIds] = useState<Set<string>>(new Set());
+  const { data: session } = useSession();
+  const currentUserId = session?.user?.id;
   const utils = api.useUtils();
   
   const updateAction = api.action.update.useMutation({
@@ -495,7 +501,51 @@ export function ActionList({
                 </Group>
               )}
               <SyncStatusIndicator action={action} />
-              
+
+              {/* Show "From [Creator]" indicator if task was created by someone else */}
+              {currentUserId && action.createdById !== currentUserId && action.createdBy && (
+                <HoverCard width={200} shadow="md">
+                  <HoverCard.Target>
+                    <Badge
+                      size="sm"
+                      variant="light"
+                      color="blue"
+                      leftSection={<IconUserShare size={12} />}
+                      className="cursor-pointer"
+                    >
+                      From {action.createdBy.name?.split(' ')[0] ?? 'Unknown'}
+                    </Badge>
+                  </HoverCard.Target>
+                  <HoverCard.Dropdown>
+                    <Group gap="sm">
+                      <Avatar
+                        src={action.createdBy.image}
+                        alt={action.createdBy.name ?? 'User'}
+                        radius="xl"
+                        size="md"
+                        styles={{
+                          root: {
+                            backgroundColor: action.createdBy.image ? undefined : getAvatarColor(getColorSeed(action.createdBy.name, action.createdBy.email)),
+                            color: action.createdBy.image ? undefined : getTextColor(getAvatarColor(getColorSeed(action.createdBy.name, action.createdBy.email))),
+                            fontWeight: 600,
+                          }
+                        }}
+                      >
+                        {!action.createdBy.image && getInitial(action.createdBy.name, action.createdBy.email)}
+                      </Avatar>
+                      <div>
+                        <Text size="sm" fw={500}>
+                          {action.createdBy.name ?? "Unknown User"}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          Assigned this to you
+                        </Text>
+                      </div>
+                    </Group>
+                  </HoverCard.Dropdown>
+                </HoverCard>
+              )}
+
               {/* Assignees */}
               {action.assignees && action.assignees.length > 0 && (
                 <Avatar.Group spacing="xs">
