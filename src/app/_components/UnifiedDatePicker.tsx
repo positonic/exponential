@@ -6,6 +6,7 @@ import {
   Stack,
 } from "@mantine/core";
 import { DatePicker } from '@mantine/dates';
+import { useMediaQuery } from "@mantine/hooks";
 import {
   IconCalendar,
   IconX,
@@ -80,7 +81,8 @@ export function UnifiedDatePicker({
 }: UnifiedDatePickerProps) {
   const [opened, setOpened] = useState(false);
   const [calendarDate, setCalendarDate] = useState<Date | null>(null);
-  
+  const isMobile = useMediaQuery('(max-width: 640px)');
+
   const isToday = value?.toDateString() === new Date().toDateString();
   const isBulkMode = mode === 'bulk';
 
@@ -201,12 +203,14 @@ export function UnifiedDatePicker({
   };
 
   return (
-    <Popover 
-      width={300} 
+    <Popover
+      width={isMobile ? 'calc(100vw - 48px)' : 300}
       position="bottom-start"
       opened={opened}
       onClose={() => setOpened(false)}
       disabled={disabled}
+      withinPortal={true}
+      middlewares={{ flip: true, shift: true }}
     >
       <Popover.Target>
         <UnstyledButton
