@@ -1,10 +1,12 @@
 "use client";
 
 import { Modal, Button, Group, TextInput, Select, Text } from '@mantine/core';
+import { IconPlus } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
+import { CreateProjectModal } from './CreateProjectModal';
 
 interface CreateGoalModalProps {
   children?: React.ReactNode;

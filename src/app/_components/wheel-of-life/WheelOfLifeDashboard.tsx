@@ -1,10 +1,15 @@
 "use client";
 
-import { Paper, Title, Text, Group, Stack, Badge, Button, SimpleGrid } from "@mantine/core";
+import { useState } from "react";
+import { Paper, Title, Text, Group, Stack, Badge, Button, SimpleGrid, Modal } from "@mantine/core";
 import { IconArrowRight, IconTarget } from "@tabler/icons-react";
 import Link from "next/link";
 import { PriorityGapChart } from "./PriorityGapChart";
+import { NextStepsPanel } from "./NextStepsPanel";
+import { AssessmentHistoryList } from "./AssessmentHistoryList";
+import { AssessmentCompareView } from "./AssessmentCompareView";
 import { calculatePriorityGaps } from "~/server/services/wheelOfLifeService";
+import { api } from "~/trpc/react";
 
 interface LifeDomain {
   id: number;
@@ -55,8 +60,22 @@ interface WheelOfLifeDashboardProps {
 }
 
 export function WheelOfLifeDashboard({ assessment }: WheelOfLifeDashboardProps) {
+  const [compareModalOpen, setCompareModalOpen] = useState(false);
+  const [compareAssessmentId, setCompareAssessmentId] = useState<string | null>(null);
+
   const gaps = calculatePriorityGaps(assessment.scores);
   const areasNeedingAttention = gaps.filter((g) => g.needsAttention);
+
+  // Check if there's history for the compare button
+  const { data: history } = api.wheelOfLife.getAssessmentHistory.useQuery({ limit: 2 });
+  const hasHistory = (history?.filter((a) => a.id !== assessment.id).length ?? 0) > 0;
+
+  const handleCompare = (assessmentId?: string) => {
+    if (assessmentId) {
+      setCompareAssessmentId(assessmentId);
+    }
+    setCompareModalOpen(true);
+  };
 
   return (
     <Stack gap="lg">
@@ -210,6 +229,46 @@ export function WheelOfLifeDashboard({ assessment }: WheelOfLifeDashboardProps) 
           </Text>
         </Paper>
       )}
+
+      {/* Next Steps Panel */}
+      <NextStepsPanel
+        assessmentId={assessment.id}
+        hasHistory={hasHistory}
+        areasNeedingAttention={areasNeedingAttention.map((a) => ({
+          lifeDomainId: a.lifeDomainId,
+          title: a.title,
+          gap: a.gap,
+        }))}
+        onCompare={() => handleCompare()}
+      />
+
+      {/* Assessment History */}
+      <AssessmentHistoryList
+        currentAssessmentId={assessment.id}
+        onCompare={handleCompare}
+      />
+
+      {/* Compare Modal */}
+      <Modal
+        opened={compareModalOpen}
+        onClose={() => {
+          setCompareModalOpen(false);
+          setCompareAssessmentId(null);
+        }}
+        title="Compare Assessments"
+        size="xl"
+      >
+        {compareAssessmentId ? (
+          <AssessmentCompareView
+            currentAssessmentId={assessment.id}
+            compareAssessmentId={compareAssessmentId}
+          />
+        ) : (
+          <Text c="dimmed" ta="center" py="xl">
+            Select an assessment from history to compare.
+          </Text>
+        )}
+      </Modal>
     </Stack>
   );
 }
