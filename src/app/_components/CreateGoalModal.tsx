@@ -229,6 +229,17 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             onChange={(value) => setSelectedProjectId(value ?? undefined)}
             mt="md"
           />
+          <CreateProjectModal>
+            <Button
+              variant="subtle"
+              size="xs"
+              leftSection={<IconPlus size={14} />}
+              mt={4}
+              className="text-text-secondary hover:text-text-primary"
+            >
+              Add new project
+            </Button>
+          </CreateProjectModal>
 
           <Group justify="flex-end" mt="xl">
             <Button variant="subtle" color="gray" onClick={close}>

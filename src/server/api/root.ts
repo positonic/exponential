@@ -31,6 +31,7 @@ import { projectWorkflowRouter } from "./routers/projectWorkflow";
 import { weeklyReviewRouter } from "./routers/weeklyReview";
 import { userRouter } from "./routers/user";
 import { wheelOfLifeRouter } from "./routers/wheelOfLife";
+import { navigationPreferenceRouter } from "./routers/navigationPreference";
 /**
  * This is the primary router for your server.
  *
@@ -69,6 +70,7 @@ export const appRouter = createTRPCRouter({
   weeklyReview: weeklyReviewRouter,
   user: userRouter,
   wheelOfLife: wheelOfLifeRouter,
+  navigationPreference: navigationPreferenceRouter,
 });
 
 // export type definition of API
