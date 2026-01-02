@@ -90,6 +90,7 @@ model User {
   weeklyOutcomeAssignees  WeeklyOutcomeAssignee[]  @relation("WeeklyOutcomeAssignee")
   teamCapacities          TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
   weeklyReviewSharing     WeeklyReviewSharing[]
+  wheelOfLifeAssessments  WheelOfLifeAssessment[]
 }
 
 model VerificationToken {
@@ -269,10 +270,15 @@ model Goal {
 }
 
 model LifeDomain {
-  id          Int     @id @default(autoincrement())
-  title       String
-  description String?
-  goals       Goal[]
+  id               Int                  @id @default(autoincrement())
+  title            String
+  description      String?
+  icon             String?              // Tabler icon name (e.g., "IconBriefcase")
+  color            String?              // Semantic color key (e.g., "brand-primary")
+  displayOrder     Int                  @default(0)
+  isActive         Boolean              @default(true)
+  goals            Goal[]
+  assessmentScores WheelOfLifeScore[]
 }
 
 model Note {
@@ -1028,12 +1034,72 @@ model WeeklyReviewSharing {
   isEnabled Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
+
   @@unique([userId, teamId])
   @@index([userId])
   @@index([teamId])
   @@index([isEnabled])
+}
+
+// ============================================
+// Wheel of Life Assessment Models
+// ============================================
+
+model WheelOfLifeAssessment {
+  id              String                       @id @default(cuid())
+  userId          String
+  completedAt     DateTime                     @default(now())
+  mode            String                       @default("quick") // "quick" | "deep"
+  type            String                       @default("on_demand") // "on_demand" | "quarterly"
+  quarterYear     String?                      // e.g., "2026-Q1"
+  notes           String?
+
+  user            User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scores          WheelOfLifeScore[]
+  recommendations WheelOfLifeRecommendation[]
+
+  @@index([userId])
+  @@index([completedAt])
+  @@index([quarterYear])
+}
+
+model WheelOfLifeScore {
+  id              String   @id @default(cuid())
+  assessmentId    String
+  lifeDomainId    Int
+
+  // Priority rankings (both modes)
+  currentRank     Int      // 1-10, where 1 = highest priority currently
+  desiredRank     Int      // 1-10, where 1 = highest priority desired
+
+  // Satisfaction score (Deep mode only)
+  score           Int?     // 1-10 scale, null in Quick mode
+
+  reflection      String?  // Optional reflection
+
+  assessment      WheelOfLifeAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  lifeDomain      LifeDomain            @relation(fields: [lifeDomainId], references: [id])
+
+  @@unique([assessmentId, lifeDomainId])
+  @@index([assessmentId])
+  @@index([lifeDomainId])
+}
+
+model WheelOfLifeRecommendation {
+  id              String   @id @default(cuid())
+  assessmentId    String
+  lifeDomainId    Int
+  recommendation  String
+  suggestedGoal   String?
+  priority        String   @default("medium") // "high" | "medium" | "low"
+  goalCreated     Boolean  @default(false)
+  goalId          Int?
+
+  assessment      WheelOfLifeAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@index([assessmentId])
+  @@index([lifeDomainId])
 }

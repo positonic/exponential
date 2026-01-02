@@ -47,7 +47,11 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
           lifeDomain: {
             id: newGoal.lifeDomainId,
             title: "Loading...",
-            description: null
+            description: null,
+            icon: null,
+            color: null,
+            displayOrder: 0,
+            isActive: true,
           },
           projects: [],
           outcomes: []

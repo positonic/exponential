@@ -45,17 +45,108 @@ async function main() {
     });
   }
 
-  // Seed life domains
-  const defaultLifeDomains = [
-    { title: 'Work' },
-    { title: 'Home' },
-    { title: 'Personal' },
-    { title: 'Finance' },
+  // Seed life domains (Wheel of Life categories)
+  // Maps old domains to new ones: Work→Career, Finance→Finance, Personal→Personal Growth, Home→Physical Environment
+  const wheelOfLifeDomains = [
+    {
+      title: 'Career/Business',
+      description: 'Your professional life, job satisfaction, career growth, and work-life balance',
+      icon: 'IconBriefcase',
+      color: 'brand-primary',
+      displayOrder: 1,
+      isActive: true,
+    },
+    {
+      title: 'Finance/Wealth',
+      description: 'Financial security, savings, investments, debt management, and money mindset',
+      icon: 'IconCoin',
+      color: 'brand-success',
+      displayOrder: 2,
+      isActive: true,
+    },
+    {
+      title: 'Health/Fitness',
+      description: 'Physical health, exercise, nutrition, sleep, energy levels, and self-care',
+      icon: 'IconHeartbeat',
+      color: 'avatar-red',
+      displayOrder: 3,
+      isActive: true,
+    },
+    {
+      title: 'Family/Relationships',
+      description: 'Relationships with parents, siblings, children, and extended family',
+      icon: 'IconUsers',
+      color: 'avatar-teal',
+      displayOrder: 4,
+      isActive: true,
+    },
+    {
+      title: 'Romance/Partnership',
+      description: 'Romantic relationships, intimacy, partnership, and connection with your significant other',
+      icon: 'IconHeart',
+      color: 'avatar-pink',
+      displayOrder: 5,
+      isActive: true,
+    },
+    {
+      title: 'Personal Growth',
+      description: 'Learning, self-improvement, skills development, education, and becoming your best self',
+      icon: 'IconTrendingUp',
+      color: 'avatar-blue',
+      displayOrder: 6,
+      isActive: true,
+    },
+    {
+      title: 'Fun/Recreation',
+      description: 'Hobbies, leisure activities, enjoyment, play, and things that bring you joy',
+      icon: 'IconConfetti',
+      color: 'avatar-yellow',
+      displayOrder: 7,
+      isActive: true,
+    },
+    {
+      title: 'Physical Environment',
+      description: 'Your home, workspace, surroundings, and the spaces where you spend your time',
+      icon: 'IconHome',
+      color: 'avatar-green',
+      displayOrder: 8,
+      isActive: true,
+    },
+    {
+      title: 'Social/Friends',
+      description: 'Friendships, social connections, community involvement, and support network',
+      icon: 'IconFriends',
+      color: 'avatar-plum',
+      displayOrder: 9,
+      isActive: true,
+    },
+    {
+      title: 'Spirituality/Purpose',
+      description: 'Meaning, purpose, values, spiritual practices, and connection to something greater',
+      icon: 'IconSparkles',
+      color: 'avatar-lavender',
+      displayOrder: 10,
+      isActive: true,
+    },
   ];
-  for (const domain of defaultLifeDomains) {
-    const existing = await prisma.lifeDomain.findFirst({ where: { title: domain.title } });
-    if (!existing) {
-      await prisma.lifeDomain.create({ data: domain });
+
+  for (const domain of wheelOfLifeDomains) {
+    await prisma.lifeDomain.upsert({
+      where: { id: domain.displayOrder }, // Use displayOrder as ID for consistency
+      update: domain,
+      create: domain,
+    });
+  }
+
+  // Deactivate old domains that don't match the new schema (if they exist)
+  const oldDomainTitles = ['Work', 'Home', 'Personal', 'Finance'];
+  for (const title of oldDomainTitles) {
+    const existing = await prisma.lifeDomain.findFirst({ where: { title } });
+    if (existing) {
+      await prisma.lifeDomain.update({
+        where: { id: existing.id },
+        data: { isActive: false },
+      });
     }
   }
 

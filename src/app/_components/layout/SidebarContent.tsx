@@ -4,7 +4,7 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot } from "@tabler/icons-react";
+import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 // import Link from "next/link";
@@ -61,6 +61,9 @@ export function SidebarContent() {
           </Accordion.Control>
           <Accordion.Panel>
             <GoalList />
+            <NavLink href="/wheel-of-life" icon={IconCircleCheck}>
+              Wheel of Life
+            </NavLink>
           </Accordion.Panel>
         </Accordion.Item>
 
