@@ -21,6 +21,7 @@ interface OutcomeInput {
   dueDate?: Date;
   type: string;
   projectId?: string;
+  goalId?: number;
 }
 
 export const createOutcome = async ({ ctx, input }: { ctx: Context, input: OutcomeInput }) => {
@@ -36,6 +37,9 @@ export const createOutcome = async ({ ctx, input }: { ctx: Context, input: Outco
       userId: ctx.session.user.id,
       projects: input.projectId ? {
         connect: [{ id: input.projectId }]
+      } : undefined,
+      goals: input.goalId ? {
+        connect: [{ id: input.goalId }]
       } : undefined,
     },
     include: {
@@ -79,6 +83,12 @@ export const updateOutcome = async ({ ctx, input }: { ctx: Context, input: Updat
         connect: [{ id: input.projectId }]
       } : {
         set: [] // Clear project connection if no projectId provided
+      },
+      goals: input.goalId ? {
+        set: [], // Clear existing connections
+        connect: [{ id: input.goalId }]
+      } : {
+        set: [] // Clear goal connection if no goalId provided
       },
     },
     include: {

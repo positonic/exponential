@@ -207,6 +207,7 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
                           dueDate: outcome.dueDate,
                           type: outcome.type as OutcomeType,
                           projectId: outcome.projects[0]?.id,
+                          goalId: outcome.goals[0]?.id,
                         }}
                         trigger={
                           <ActionIcon

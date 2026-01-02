@@ -15,6 +15,7 @@ interface CreateOutcomeModalProps {
     dueDate: Date | null;
     type: OutcomeType;
     projectId?: string;
+    goalId?: number;
   };
   trigger?: React.ReactNode; // For clicking on existing outcomes
 }
@@ -27,9 +28,11 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
   const [dueDate, setDueDate] = useState<Date | null>(outcome?.dueDate ?? null);
   const [type, setType] = useState<OutcomeType>(outcome?.type ?? "daily");
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(projectId ?? outcome?.projectId);
+  const [selectedGoalId, setSelectedGoalId] = useState<number | undefined>(outcome?.goalId);
 
   const utils = api.useUtils();
   const { data: projects } = api.project.getAll.useQuery();
+  const { data: goals } = api.goal.getAllMyGoals.useQuery();
 
   const createOutcome = api.outcome.createOutcome.useMutation({
     onMutate: async (newOutcome) => {
@@ -57,10 +60,12 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
         dueDate: newOutcome.dueDate ?? null,
         type: newOutcome.type!,
         userId: "",
-        projects: selectedProjectId && projects 
+        projects: selectedProjectId && projects
           ? [projects.find(p => p.id === selectedProjectId)].filter(Boolean)
           : [],
-        goals: [],
+        goals: selectedGoalId && goals
+          ? [goals.find(g => g.id === selectedGoalId)].filter(Boolean)
+          : [],
         assignees: []
       };
       console.log('🟡 Created optimistic outcome:', optimisticOutcome);
@@ -170,6 +175,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
     setDueDate(null);
     setType("daily");
     setSelectedProjectId(undefined);
+    setSelectedGoalId(undefined);
   };
 
   // Update the form when the outcome prop changes
@@ -179,6 +185,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       setDueDate(outcome.dueDate);
       setType(outcome.type);
       setSelectedProjectId(outcome.projectId);
+      setSelectedGoalId(outcome.goalId);
     }
   }, [outcome]);
 
@@ -198,6 +205,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       dueDate: dueDate ?? undefined,
       type,
       projectId: selectedProjectId,
+      goalId: selectedGoalId,
     };
 
     if (outcome?.id) {
@@ -282,10 +290,38 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
           />
 
           <Select
-            label="Project (optional)"
-            placeholder="Select a project"
+            label="Which vision goal is this outcome for? (optional)"
+            placeholder="Search goals..."
+            searchable
+            clearable
+            data={goals?.map(g => ({ value: String(g.id), label: g.title })) ?? []}
+            value={selectedGoalId ? String(selectedGoalId) : null}
+            onChange={(value) => setSelectedGoalId(value ? Number(value) : undefined)}
+            mt="md"
+            styles={{
+              input: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+              label: {
+                color: 'var(--color-text-primary)',
+              },
+              dropdown: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+                color: 'var(--color-text-primary)',
+              },
+            }}
+          />
+
+          <Select
+            label="How will you achieve this? (optional)"
+            placeholder="Search projects..."
+            searchable
+            clearable
             data={projects?.map(p => ({ value: p.id, label: p.name })) ?? []}
-            value={selectedProjectId}
+            value={selectedProjectId ?? null}
             onChange={(value) => setSelectedProjectId(value ?? undefined)}
             mt="md"
             styles={{

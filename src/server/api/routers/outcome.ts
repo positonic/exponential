@@ -104,6 +104,7 @@ export const outcomeRouter = createTRPCRouter({
       dueDate: z.date().optional(),
       type: outcomeTypeEnum.default('daily'),
       projectId: z.string().optional(),
+      goalId: z.number().optional(),
     }))
     .mutation(createOutcome),
 
@@ -138,6 +139,7 @@ export const outcomeRouter = createTRPCRouter({
       dueDate: z.date().optional(),
       type: outcomeTypeEnum,
       projectId: z.string().optional(),
+      goalId: z.number().optional(),
     }))
     .mutation(updateOutcome),
 
