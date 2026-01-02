@@ -1,6 +1,6 @@
 "use client";
 
-import { Modal, Button, Group, TextInput, Select, Text } from '@mantine/core';
+import { Modal, Button, Group, TextInput, Select, Text, Textarea, MultiSelect } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect } from "react";
@@ -14,8 +14,11 @@ interface CreateGoalModalProps {
     id: number;
     title: string;
     description: string | null;
+    whyThisGoal: string | null;
+    notes: string | null;
     dueDate: Date | null;
     lifeDomainId: number;
+    outcomes?: { id: string; description: string }[];
   };
   trigger?: React.ReactNode;
   projectId?: string;
@@ -25,13 +28,19 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
   const [opened, { open, close }] = useDisclosure(false);
   const [title, setTitle] = useState(goal?.title ?? "");
   const [description, setDescription] = useState(goal?.description ?? "");
+  const [whyThisGoal, setWhyThisGoal] = useState(goal?.whyThisGoal ?? "");
+  const [notes, setNotes] = useState(goal?.notes ?? "");
   const [dueDate, setDueDate] = useState<Date | null>(goal?.dueDate ?? null);
   const [lifeDomainId, setLifeDomainId] = useState<number | null>(goal?.lifeDomainId ?? null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(projectId);
+  const [selectedOutcomeIds, setSelectedOutcomeIds] = useState<string[]>(
+    goal?.outcomes?.map(o => o.id) ?? []
+  );
 
   const utils = api.useUtils();
   const { data: lifeDomains } = api.lifeDomain.getAllLifeDomains.useQuery();
   const { data: projects } = api.project.getAll.useQuery();
+  const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
 
   const createGoal = api.goal.createGoal.useMutation({
     onMutate: async (newGoal) => {
@@ -43,6 +52,8 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
           id: -1,
           title: newGoal.title,
           description: newGoal.description ?? null,
+          whyThisGoal: newGoal.whyThisGoal ?? null,
+          notes: newGoal.notes ?? null,
           dueDate: newGoal.dueDate ?? null,
           lifeDomainId: newGoal.lifeDomainId,
           userId: "",
@@ -56,7 +67,8 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             isActive: true,
           },
           projects: [],
-          outcomes: []
+          outcomes: [],
+          habits: [],
         };
         return old ? [...old, optimisticGoal] : [optimisticGoal];
       });
@@ -92,6 +104,8 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
           ...g,
           title: updatedGoal.title,
           description: updatedGoal.description ?? null,
+          whyThisGoal: updatedGoal.whyThisGoal ?? null,
+          notes: updatedGoal.notes ?? null,
           dueDate: updatedGoal.dueDate ?? null,
           lifeDomainId: updatedGoal.lifeDomainId,
         } : g);
@@ -116,17 +130,23 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
   const resetForm = () => {
     setTitle("");
     setDescription("");
+    setWhyThisGoal("");
+    setNotes("");
     setDueDate(null);
     setLifeDomainId(null);
     setSelectedProjectId(undefined);
+    setSelectedOutcomeIds([]);
   };
 
   useEffect(() => {
     if (goal) {
       setTitle(goal.title);
       setDescription(goal.description ?? "");
+      setWhyThisGoal(goal.whyThisGoal ?? "");
+      setNotes(goal.notes ?? "");
       setDueDate(goal.dueDate);
       setLifeDomainId(goal.lifeDomainId);
+      setSelectedOutcomeIds(goal.outcomes?.map(o => o.id) ?? []);
     }
   }, [goal]);
 
@@ -166,9 +186,12 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             const goalData = {
               title,
               description: description || undefined,
+              whyThisGoal: whyThisGoal || undefined,
+              notes: notes || undefined,
               dueDate: dueDate ?? undefined,
               lifeDomainId,
               projectId: selectedProjectId,
+              outcomeIds: selectedOutcomeIds.length > 0 ? selectedOutcomeIds : undefined,
             };
 
             if (goal?.id) {
@@ -200,6 +223,27 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             placeholder="Description (optional)"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            mt="md"
+          />
+
+          <Textarea
+            label="Why this value goal?"
+            placeholder="What makes this goal meaningful to you? How does it align with your values?"
+            value={whyThisGoal}
+            onChange={(e) => setWhyThisGoal(e.target.value)}
+            mt="md"
+            minRows={2}
+            autosize
+          />
+
+          <MultiSelect
+            label="Goal Outcomes"
+            placeholder="Select outcomes that support this goal"
+            data={outcomes?.map(o => ({ value: o.id, label: o.description })) ?? []}
+            value={selectedOutcomeIds}
+            onChange={setSelectedOutcomeIds}
+            searchable
+            clearable
             mt="md"
           />
 
@@ -240,6 +284,16 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
               Add new project
             </Button>
           </CreateProjectModal>
+
+          <Textarea
+            label="Notes"
+            placeholder="Additional notes about this goal..."
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            mt="md"
+            minRows={3}
+            autosize
+          />
 
           <Group justify="flex-end" mt="xl">
             <Button variant="subtle" color="gray" onClick={close}>

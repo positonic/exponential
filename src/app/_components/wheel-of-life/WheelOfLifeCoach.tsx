@@ -335,6 +335,8 @@ When ready to create a goal, format it clearly:
                                 id: 0,
                                 title: extractGoalFromMessage(message.content)?.title ?? "",
                                 description: null,
+                                whyThisGoal: null,
+                                notes: null,
                                 dueDate: null,
                                 lifeDomainId: topArea.lifeDomainId,
                               }}

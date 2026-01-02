@@ -4,7 +4,7 @@
 // import { usePathname } from "next/navigation";
 import { api } from "~/trpc/react";
 import { NavLink } from "./NavLinks";
-import { IconTarget, IconNumber } from "@tabler/icons-react";
+import { IconTarget, IconNumber, IconFlame } from "@tabler/icons-react";
 export function GoalList() {
   // const pathname = usePathname();
   const { data: goals } = api.goal.getAllMyGoals.useQuery(undefined, {
@@ -18,6 +18,7 @@ export function GoalList() {
   return (
     <div className="mt-1 space-y-1">
       <NavLink href="/goals" icon={IconTarget}>Goals</NavLink>
+      <NavLink href="/habits" icon={IconFlame}>Habits</NavLink>
       <NavLink href="/outcomes" icon={IconNumber}>Outcomes</NavLink>
           
       {/* {goals.map((goal) => {

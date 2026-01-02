@@ -95,8 +95,11 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
                         id: goal.id,
                         title: goal.title,
                         description: goal.description,
+                        whyThisGoal: goal.whyThisGoal,
+                        notes: goal.notes,
                         dueDate: goal.dueDate,
                         lifeDomainId: goal.lifeDomainId,
+                        outcomes: goal.outcomes,
                       }}
                       trigger={
                         <ActionIcon

@@ -84,6 +84,8 @@ export function NextStepsPanel({
               id: 0,
               title: `Improve ${topArea.title.split("/")[0]}`,
               description: null,
+              whyThisGoal: null,
+              notes: null,
               dueDate: null,
               lifeDomainId: topArea.lifeDomainId,
             }}

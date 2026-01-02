@@ -92,6 +92,7 @@ model User {
   teamCapacities          TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
   weeklyReviewSharing     WeeklyReviewSharing[]
   wheelOfLifeAssessments  WheelOfLifeAssessment[]
+  habits                  Habit[]
 }
 
 model VerificationToken {
@@ -258,6 +259,8 @@ model Goal {
   id           Int        @id @default(autoincrement())
   title        String
   description  String?
+  whyThisGoal  String?    // "Why this value goal?" motivation text
+  notes        String?    // Notes field for each goal
   dueDate      DateTime?
   lifeDomainId Int
   userId       String
@@ -265,9 +268,50 @@ model Goal {
   user         User       @relation(fields: [userId], references: [id])
   outcomes     Outcome[]  @relation("GoalOutcomes")
   projects     Project[]  @relation("GoalProjects")
+  habits       Habit[]    // Habits linked to this goal
 
   @@index([lifeDomainId])
   @@index([userId])
+}
+
+model Habit {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  frequency   String   @default("daily") // daily, 3x_week, weekly, bi_weekly, monthly, custom
+  daysOfWeek  Int[]    // Array of day numbers (0=Sunday, 1=Monday, etc.) for custom scheduling
+  timeOfDay   String?  // Optional reminder time (e.g., "08:00")
+  startDate   DateTime @default(now())
+  endDate     DateTime?
+  isActive    Boolean  @default(true)
+  goalId      Int?     // Optional link to a Goal
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  goal        Goal?              @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completions HabitCompletion[]
+
+  @@index([userId])
+  @@index([goalId])
+  @@index([isActive])
+}
+
+model HabitCompletion {
+  id            String   @id @default(cuid())
+  habitId       String
+  completedDate DateTime @db.Date // The date the habit was completed (no time component)
+  completedAt   DateTime @default(now()) // Timestamp when marked complete
+  notes         String?  // Optional notes for this completion
+  duration      Int?     // Optional duration in minutes
+  rating        Int?     // Optional quality/rating 1-5
+
+  habit         Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, completedDate]) // One completion per habit per day
+  @@index([habitId])
+  @@index([completedDate])
 }
 
 model LifeDomain {

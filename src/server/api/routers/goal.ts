@@ -22,23 +22,35 @@ export const goalRouter = createTRPCRouter({
     .input(z.object({
       title: z.string(),
       description: z.string().optional(),
+      whyThisGoal: z.string().optional(),
+      notes: z.string().optional(),
       dueDate: z.date().optional(),
       lifeDomainId: z.number(),
       projectId: z.string().optional(),
+      outcomeIds: z.array(z.string()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-
       return await ctx.db.goal.create({
         data: {
           title: input.title,
           description: input.description,
+          whyThisGoal: input.whyThisGoal,
+          notes: input.notes,
           dueDate: input.dueDate,
           lifeDomainId: input.lifeDomainId,
           userId: ctx.session.user.id,
           projects: input.projectId
             ? { connect: [{ id: input.projectId }] }
             : undefined,
-        }
+          outcomes: input.outcomeIds?.length
+            ? { connect: input.outcomeIds.map(id => ({ id })) }
+            : undefined,
+        },
+        include: {
+          lifeDomain: true,
+          projects: true,
+          outcomes: true,
+        },
       });
     }),
 
@@ -47,9 +59,12 @@ export const goalRouter = createTRPCRouter({
       id: z.number(),
       title: z.string(),
       description: z.string().optional(),
+      whyThisGoal: z.string().optional(),
+      notes: z.string().optional(),
       dueDate: z.date().optional(),
       lifeDomainId: z.number(),
       projectId: z.string().optional(),
+      outcomeIds: z.array(z.string()).optional(),
     }))
     .mutation(updateGoal),
 
