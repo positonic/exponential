@@ -61,11 +61,15 @@ export const actionRouter = createTRPCRouter({
     console.log("in getAll")
     const userId = ctx.session.user.id;
 
-    // Base condition: show tasks created by user OR assigned to user
+    // Base condition: show tasks I created (with no assignees) OR assigned to me
     const whereClause: any = {
       OR: [
-        { createdById: userId },
-        { assignees: { some: { userId: userId } } }
+        // Created by me AND no assignees
+        { createdById: userId, assignedToId: null, assignees: { none: {} } },
+        // Assigned to me via legacy assignedToId
+        { assignedToId: userId },
+        // Assigned to me via ActionAssignee
+        { assignees: { some: { userId: userId } } },
       ],
       status: {
         not: "DELETED",
@@ -401,8 +405,12 @@ export const actionRouter = createTRPCRouter({
     return ctx.db.action.findMany({
       where: {
         OR: [
-          { createdById: userId },
-          { assignees: { some: { userId: userId } } }
+          // Created by me AND no assignees
+          { createdById: userId, assignedToId: null, assignees: { none: {} } },
+          // Assigned to me via legacy assignedToId
+          { assignedToId: userId },
+          // Assigned to me via ActionAssignee
+          { assignees: { some: { userId: userId } } },
         ],
         dueDate: {
           gte: today,
