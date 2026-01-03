@@ -81,7 +81,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   - ALWAYS report tool failures to user (never fail silently)
                   - Use format: "⚠️ Tool Error: [action] failed - [reason]. Working with available context instead."
                   - Context shows current/recent data only - use tools for historical/complete data
-                  - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue
+                  - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue, get_project_context
+                  - For project goals and outcomes: use get_project_context tool with the project ID
                   - If authentication fails, inform user and suggest checking token validity
                   
                   📊 CONTEXT LIMITATIONS:
@@ -949,7 +950,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                         className="bg-surface-secondary backdrop-blur-sm border border-border-primary shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01]"
                       >
                         <div
-                          className="text-text-primary whitespace-pre-wrap text-sm leading-relaxed"
+                          className="text-text-primary text-sm leading-relaxed"
                         >
                           {renderMessageContent(message.content, message.type)}
                         </div>
