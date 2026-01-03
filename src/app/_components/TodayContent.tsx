@@ -1,17 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { Tabs, Stack, Paper, Text, Group, ScrollArea } from "@mantine/core";
+import { Tabs, Stack, Paper, Text, Group, ScrollArea, ActionIcon, Drawer } from "@mantine/core";
 import {
   IconHome,
   IconLayoutKanban,
   IconCalendar,
   IconClock,
   IconNotebook,
+  IconMessageCircle,
+  IconX,
 } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 import { TodayOverview } from "./TodayOverview";
 import { StartupRoutineForm } from "./StartupRoutineForm";
+import ManyChat from "./ManyChat";
 import { api } from "~/trpc/react";
 import { format, parseISO, startOfDay, endOfDay } from "date-fns";
 import { CalendarDayView } from "./CalendarDayView";
@@ -24,6 +27,7 @@ interface TodayContentProps {
 
 export function TodayContent({ calendarConnected }: TodayContentProps) {
   const [activeTab, setActiveTab] = useState<TabValue>("overview");
+  const [chatOpened, setChatOpened] = useState(false);
   const today = new Date();
 
   // Fetch calendar events for today
@@ -68,20 +72,36 @@ export function TodayContent({ calendarConnected }: TodayContentProps) {
       <Tabs value={activeTab} onChange={handleTabChange}>
         <Stack gap="xl" align="stretch" justify="flex-start">
           {/* Tabs Navigation */}
-          <Tabs.List>
-            <Tabs.Tab value="overview" leftSection={<IconHome size={16} />}>
-              Overview
-            </Tabs.Tab>
-            <Tabs.Tab value="tasks" leftSection={<IconLayoutKanban size={16} />}>
-              Tasks
-            </Tabs.Tab>
-            <Tabs.Tab value="calendar" leftSection={<IconCalendar size={16} />}>
-              Calendar
-            </Tabs.Tab>
-            <Tabs.Tab value="journal" leftSection={<IconNotebook size={16} />}>
-              Journal
-            </Tabs.Tab>
-          </Tabs.List>
+          <Group justify="space-between" align="center">
+            <Tabs.List>
+              <Tabs.Tab value="overview" leftSection={<IconHome size={16} />}>
+                Overview
+              </Tabs.Tab>
+              <Tabs.Tab value="tasks" leftSection={<IconLayoutKanban size={16} />}>
+                Tasks
+              </Tabs.Tab>
+              <Tabs.Tab value="calendar" leftSection={<IconCalendar size={16} />}>
+                Calendar
+              </Tabs.Tab>
+              <Tabs.Tab value="journal" leftSection={<IconNotebook size={16} />}>
+                Journal
+              </Tabs.Tab>
+            </Tabs.List>
+            <ActionIcon
+              variant={chatOpened ? "gradient" : "filled"}
+              gradient={chatOpened ? { from: "blue", to: "indigo", deg: 45 } : undefined}
+              size="lg"
+              onClick={() => setChatOpened(!chatOpened)}
+              title={chatOpened ? "Close Chat" : "Open Chat"}
+              style={{
+                transition: "all 0.2s ease",
+                transform: chatOpened ? "scale(1.05)" : "scale(1)",
+                boxShadow: chatOpened ? "0 4px 12px rgba(59, 130, 246, 0.3)" : undefined,
+              }}
+            >
+              <IconMessageCircle size={20} />
+            </ActionIcon>
+          </Group>
 
           {/* Content Area */}
           <Tabs.Panel value="overview">
@@ -215,6 +235,50 @@ export function TodayContent({ calendarConnected }: TodayContentProps) {
           </Tabs.Panel>
         </Stack>
       </Tabs>
+
+      {/* Chat Drawer */}
+      <Drawer.Root
+        opened={chatOpened}
+        onClose={() => setChatOpened(false)}
+        position="right"
+        size="lg"
+        trapFocus={false}
+        lockScroll={false}
+      >
+        <Drawer.Content
+          style={{
+            height: "100vh",
+            backgroundColor: "transparent",
+          }}
+        >
+          <div className="bg-primary flex h-full flex-col">
+            {/* Custom Header */}
+            <div className="border-border-primary/30 bg-background-secondary/90 border-b p-4 backdrop-blur-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-brand-success h-2 w-2 animate-pulse rounded-full"></div>
+                  <Text size="lg" fw={600} className="text-primary">
+                    Daily Chat
+                  </Text>
+                </div>
+                <ActionIcon
+                  variant="subtle"
+                  size="lg"
+                  onClick={() => setChatOpened(false)}
+                  c="dimmed"
+                  className="hover:bg-surface-hover/50 transition-colors"
+                >
+                  <IconX size={20} />
+                </ActionIcon>
+              </div>
+            </div>
+
+            <div className="h-full flex-1 overflow-hidden">
+              <ManyChat />
+            </div>
+          </div>
+        </Drawer.Content>
+      </Drawer.Root>
     </div>
   );
 }

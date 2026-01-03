@@ -34,6 +34,7 @@ export default async function HomePage() {
       select: {
         onboardingCompletedAt: true,
         onboardingStep: true,
+        projectSetupCompletedAt: true,
         usageType: true,
         userRole: true,
         selectedTools: true,
@@ -52,6 +53,11 @@ export default async function HomePage() {
     // Redirect to onboarding if not completed
     if (userData && !userData.onboardingCompletedAt) {
       redirect('/onboarding');
+    }
+
+    // Redirect to project setup if onboarding done but project setup not completed
+    if (userData && userData.onboardingCompletedAt && !userData.projectSetupCompletedAt) {
+      redirect('/project-setup');
     }
 
     // Check if user completed onboarding recently (within last 24 hours)

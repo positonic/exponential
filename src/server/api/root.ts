@@ -33,6 +33,7 @@ import { userRouter } from "./routers/user";
 import { wheelOfLifeRouter } from "./routers/wheelOfLife";
 import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
+import { projectSetupRouter } from "./routers/projectSetup";
 /**
  * This is the primary router for your server.
  *
@@ -73,6 +74,7 @@ export const appRouter = createTRPCRouter({
   wheelOfLife: wheelOfLifeRouter,
   navigationPreference: navigationPreferenceRouter,
   habit: habitRouter,
+  projectSetup: projectSetupRouter,
 });
 
 // export type definition of API

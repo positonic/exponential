@@ -261,9 +261,9 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
         autoClose: 3000
       });
       
-      // Redirect to home after a brief delay
+      // Redirect to project setup wizard after a brief delay
       setTimeout(() => {
-        router.push('/home');
+        router.push('/project-setup');
       }, 2000);
       
     } catch {
