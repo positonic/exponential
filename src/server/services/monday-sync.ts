@@ -203,7 +203,6 @@ export class MondaySyncService {
           dueDate,
           projectId,
           createdById: userId,
-          // assignedToId: assigneeId, // Would implement assignee mapping if needed
         },
       });
 

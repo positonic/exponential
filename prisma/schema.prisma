@@ -58,7 +58,6 @@ model User {
   userRole                String?
   isAdmin                 Boolean                  @default(false)
   accounts                Account[]
-  assignedActions         Action[]                 @relation("AssignedActions")
   actions                 Action[]
   actionAssignees         ActionAssignee[]         @relation("ActionAssignees")
   aiInteractionHistory    AiInteractionHistory[]
@@ -115,14 +114,12 @@ model Action {
   priority               String                @default("Quick")
   projectId              String?
   createdById            String
-  assignedToId           String?
   teamId                 String?
   transcriptionSessionId String?
   kanbanStatus           ActionStatus?
   kanbanOrder            Int?
   completedAt            DateTime?
   source                 String?               @default("app") // "app", "ios-shortcut", "notion", "api", "transcription"
-  assignedTo             User?                 @relation("AssignedActions", fields: [assignedToId], references: [id])
   createdBy              User                  @relation(fields: [createdById], references: [id])
   project                Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   team                   Team?                 @relation(fields: [teamId], references: [id])
@@ -134,7 +131,6 @@ model Action {
   @@index([projectId])
   @@index([createdById])
   @@index([teamId])
-  @@index([assignedToId])
   @@index([transcriptionSessionId])
   @@index([kanbanStatus])
 }

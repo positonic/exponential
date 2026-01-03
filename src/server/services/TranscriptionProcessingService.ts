@@ -249,10 +249,14 @@ export class TranscriptionProcessingService {
           status: { not: 'COMPLETED' }
         },
         include: {
-          assignedTo: {
-            select: {
-              name: true,
-              email: true
+          assignees: {
+            include: {
+              user: {
+                select: {
+                  name: true,
+                  email: true
+                }
+              }
             }
           }
         }
@@ -316,11 +320,12 @@ export class TranscriptionProcessingService {
         }
       }
 
-      // Actions content  
+      // Actions content
       if (options.includeActions && actions.length > 0) {
         messageParts.push('\n✅ *Action Items:*');
         actions.forEach((action, index) => {
-          const assignedText = action.assignedTo ? ` (assigned to ${action.assignedTo.name || action.assignedTo.email})` : '';
+          const firstAssignee = action.assignees[0]?.user;
+          const assignedText = firstAssignee ? ` (assigned to ${firstAssignee.name ?? firstAssignee.email})` : '';
           messageParts.push(`${index + 1}. ${action.description}${assignedText}`);
         });
       }
