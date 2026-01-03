@@ -69,6 +69,7 @@ export class OptimizedQueries {
                 selectedTools: true,
                 onboardingCompletedAt: true,
                 onboardingStep: true,
+                projectSetupCompletedAt: true,
               }
             }
           }
