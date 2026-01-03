@@ -445,26 +445,6 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 backgroundColor: 'var(--color-surface-secondary)',
                 borderColor: 'var(--color-border-primary)',
               },
-              option: {
-                // Style for dropdown items
-                '&[data-selected]': {
-                  '&, &:hover': {
-                    backgroundColor: 'var(--color-surface-hover)',
-                    color: 'var(--color-text-primary)',
-                  },
-                },
-                // Special style for create option
-                '&[value^="create-"]': {
-                  fontWeight: 600,
-                  borderTop: '1px solid var(--color-border-primary)',
-                  marginTop: '4px',
-                  paddingTop: '8px',
-                  backgroundColor: 'var(--color-surface-hover)',
-                  '&:hover': {
-                    backgroundColor: 'var(--color-brand-surface)',
-                  },
-                },
-              },
             }}
           />
 
@@ -503,26 +483,6 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               dropdown: {
                 backgroundColor: 'var(--color-surface-secondary)',
                 borderColor: 'var(--color-border-primary)',
-              },
-              option: {
-                // Style for dropdown items
-                '&[data-selected]': {
-                  '&, &:hover': {
-                    backgroundColor: 'var(--color-surface-hover)',
-                    color: 'var(--color-text-primary)',
-                  },
-                },
-                // Special style for create option
-                '&[value^="create-"]': {
-                  fontWeight: 600,
-                  borderTop: '1px solid var(--color-border-primary)',
-                  marginTop: '4px',
-                  paddingTop: '8px',
-                  backgroundColor: 'var(--color-surface-hover)',
-                  '&:hover': {
-                    backgroundColor: 'var(--color-brand-surface)',
-                  },
-                },
               },
             }}
           />

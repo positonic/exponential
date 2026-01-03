@@ -330,19 +330,6 @@ export function OutcomeMultiSelect({
           input: {
             backgroundColor: 'transparent',
           },
-          option: {
-            // Special style for create option
-            '&[value^="create-"]': {
-              fontWeight: 600,
-              borderTop: '1px solid var(--color-border-primary)',
-              marginTop: '4px',
-              paddingTop: '8px',
-              backgroundColor: 'var(--color-surface-hover)',
-              '&:hover': {
-                backgroundColor: 'var(--color-brand-surface)',
-              },
-            },
-          },
         }}
       />
     </div>
