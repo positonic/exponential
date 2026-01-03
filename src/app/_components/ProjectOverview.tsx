@@ -575,6 +575,7 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
                     description: outcome.description,
                     dueDate: outcome.dueDate,
                     type: (outcome.type ?? "daily") as "daily" | "weekly" | "monthly" | "quarterly" | "annual" | "life" | "problem",
+                    whyThisOutcome: outcome.whyThisOutcome,
                     projectId: project.id,
                     goalId: outcome.goals?.[0]?.id,
                   }}

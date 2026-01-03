@@ -149,13 +149,14 @@ model ActionAssignee {
 }
 
 model Outcome {
-  id          String    @id @default(cuid())
-  description String
-  dueDate     DateTime?
-  userId      String?
-  type        String?   @default("daily")
-  projectId   String?
-  user        User?     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  id              String    @id @default(cuid())
+  description     String
+  dueDate         DateTime?
+  userId          String?
+  type            String?   @default("daily")
+  whyThisOutcome  String?
+  projectId       String?
+  user            User?     @relation(fields: [userId], references: [id], onDelete: Restrict)
   goals       Goal[]    @relation("GoalOutcomes")
   projects    Project[] @relation("ProjectOutcomes")
 

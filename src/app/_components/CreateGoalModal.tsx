@@ -271,6 +271,8 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             data={projects?.map(p => ({ value: p.id, label: p.name })) ?? []}
             value={selectedProjectId}
             onChange={(value) => setSelectedProjectId(value ?? undefined)}
+            searchable
+            clearable
             mt="md"
           />
           <CreateProjectModal>

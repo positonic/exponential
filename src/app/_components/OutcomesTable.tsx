@@ -206,6 +206,7 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
                           description: outcome.description,
                           dueDate: outcome.dueDate,
                           type: outcome.type as OutcomeType,
+                          whyThisOutcome: outcome.whyThisOutcome,
                           projectId: outcome.projects[0]?.id,
                           goalId: outcome.goals[0]?.id,
                         }}

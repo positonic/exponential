@@ -131,10 +131,22 @@
     background-color: var(--color-brand-primary) !important;
     font-weight: 600 !important;
   }
-  
+
   /* Handle selected state as well */
   .unified-datepicker-day[data-today][data-highlight-today][data-selected] {
     background-color: var(--color-brand-primary) !important;
     font-weight: 600 !important;
   }
+}
+
+/* Mantine Calendar weekend highlighting */
+.mantine-Calendar-day[data-weekend] {
+  color: var(--color-brand-primary) !important;
+}
+
+/* Today should keep its special styling even on weekends */
+.mantine-Calendar-day[data-today] {
+  background-color: var(--color-brand-primary) !important;
+  color: var(--color-text-inverse) !important;
+  font-weight: 600 !important;
 }

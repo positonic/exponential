@@ -1,6 +1,6 @@
 "use client";
 
-import { Modal, Button, Group, TextInput, Select } from '@mantine/core';
+import { Modal, Button, Group, TextInput, Select, Textarea } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
@@ -14,6 +14,7 @@ interface CreateOutcomeModalProps {
     description: string;
     dueDate: Date | null;
     type: OutcomeType;
+    whyThisOutcome?: string | null;
     projectId?: string;
     goalId?: number;
   };
@@ -27,6 +28,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
   const [description, setDescription] = useState(outcome?.description ?? "");
   const [dueDate, setDueDate] = useState<Date | null>(outcome?.dueDate ?? null);
   const [type, setType] = useState<OutcomeType>(outcome?.type ?? "daily");
+  const [whyThisOutcome, setWhyThisOutcome] = useState(outcome?.whyThisOutcome ?? "");
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(projectId ?? outcome?.projectId);
   const [selectedGoalId, setSelectedGoalId] = useState<number | undefined>(outcome?.goalId);
 
@@ -174,6 +176,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
     setDescription("");
     setDueDate(null);
     setType("daily");
+    setWhyThisOutcome("");
     setSelectedProjectId(undefined);
     setSelectedGoalId(undefined);
   };
@@ -184,6 +187,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       setDescription(outcome.description);
       setDueDate(outcome.dueDate);
       setType(outcome.type);
+      setWhyThisOutcome(outcome.whyThisOutcome ?? "");
       setSelectedProjectId(outcome.projectId);
       setSelectedGoalId(outcome.goalId);
     }
@@ -204,6 +208,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       description,
       dueDate: dueDate ?? undefined,
       type,
+      whyThisOutcome: whyThisOutcome || undefined,
       projectId: selectedProjectId,
       goalId: selectedGoalId,
     };
@@ -261,6 +266,26 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
                 '&::placeholder': {
                   color: 'var(--color-text-primary)',
                 },
+              },
+            }}
+          />
+
+          <Textarea
+            label="Why this outcome?"
+            placeholder="What makes this outcome meaningful? How does achieving it move you forward?"
+            value={whyThisOutcome}
+            onChange={(e) => setWhyThisOutcome(e.target.value)}
+            mt="md"
+            minRows={2}
+            autosize
+            styles={{
+              input: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+              label: {
+                color: 'var(--color-text-primary)',
               },
             }}
           />

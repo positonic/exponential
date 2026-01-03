@@ -54,7 +54,37 @@ const componentStyles = {
       },
     },
   },
-  
+
+  // Drawer specific styles
+  Drawer: {
+    defaultProps: {
+      styles: {
+        content: {
+          backgroundColor: 'var(--color-bg-elevated)',
+        },
+        header: {
+          backgroundColor: 'var(--color-bg-elevated)',
+          borderBottom: '1px solid var(--color-border-primary)',
+        },
+        title: {
+          color: 'var(--color-text-primary)',
+        },
+        close: {
+          color: 'var(--color-text-secondary)',
+          '&:hover': {
+            backgroundColor: 'var(--color-surface-hover)',
+          },
+        },
+        body: {
+          backgroundColor: 'var(--color-bg-elevated)',
+        },
+        overlay: {
+          backgroundColor: 'var(--color-bg-overlay)',
+        },
+      },
+    },
+  },
+
   // Popover styles
   Popover: {
     defaultProps: {
@@ -67,7 +97,21 @@ const componentStyles = {
       },
     },
   },
-  
+
+  // Tooltip styles
+  Tooltip: {
+    defaultProps: {
+      styles: {
+        tooltip: {
+          backgroundColor: 'var(--color-bg-elevated)',
+          color: 'var(--color-text-primary)',
+          border: '1px solid var(--color-border-primary)',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+        },
+      },
+    },
+  },
+
   // Select component
   Select: {
     defaultProps: {
@@ -308,10 +352,10 @@ const componentStyles = {
         },
       },
       month: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       monthsList: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       monthsListCell: {
         color: 'var(--color-text-primary)',
@@ -325,7 +369,7 @@ const componentStyles = {
         },
       },
       yearsList: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       yearsListCell: {
         color: 'var(--color-text-primary)',
@@ -371,10 +415,10 @@ const componentStyles = {
   Calendar: {
     styles: {
       calendar: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       calendarHeader: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
         color: 'var(--color-text-primary)',
       },
       calendarHeaderControl: {
@@ -390,10 +434,10 @@ const componentStyles = {
         },
       },
       month: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       monthsList: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       monthsListCell: {
         color: 'var(--color-text-primary)',
@@ -407,7 +451,7 @@ const componentStyles = {
         },
       },
       yearsList: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       yearsListCell: {
         color: 'var(--color-text-primary)',
@@ -438,8 +482,11 @@ const componentStyles = {
         '&[data-outside]': {
           color: 'var(--color-text-disabled)',
         },
+        '&[data-weekend]': {
+          color: 'var(--color-brand-primary)',
+        },
         '&[data-today]': {
-          backgroundColor: 'var(--color-brand-error)',
+          backgroundColor: 'var(--color-brand-primary)',
           color: 'var(--color-text-inverse)',
           fontWeight: 600,
         },
@@ -449,7 +496,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   // Table component
   Table: {
     defaultProps: {
