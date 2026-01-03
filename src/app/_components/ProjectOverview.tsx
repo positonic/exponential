@@ -14,14 +14,13 @@ import {
 } from "@mantine/core";
 import {
   IconCalendar,
-  IconShare,
+  IconEdit,
   IconDots,
   IconDownload,
   IconEye,
   IconUserPlus,
   IconAlertCircle,
   IconStar,
-  IconTargetArrow,
   IconTag,
   IconPaperclip,
   IconFileDescription,
@@ -32,14 +31,17 @@ import {
   getInitial,
   getTextColor,
 } from "~/utils/avatarColors";
+import { CreateProjectModal } from "./CreateProjectModal";
 
 // Types
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
 type Goal = RouterOutputs["goal"]["getProjectGoals"][number];
+type Outcome = RouterOutputs["outcome"]["getProjectOutcomes"][number];
 
 interface ProjectOverviewProps {
   project: Project;
   goals: Goal[];
+  outcomes: Outcome[];
 }
 
 // Mock data for attachments
@@ -55,60 +57,6 @@ const MOCK_ATTACHMENTS = [
     name: "Medical dashboard",
     timestamp: "11:30 AM, 16 Aug 2024",
     type: "star" as const,
-  },
-];
-
-// Mock data for team chat
-const MOCK_CHAT = [
-  {
-    id: "1",
-    name: "Wade Warren",
-    message: "Are you available tonight?",
-    time: "9:41 AM",
-    unread: 8,
-  },
-  {
-    id: "2",
-    name: "Esther Howard",
-    message: "Wanna lunch with me?",
-    time: "1 day ago",
-  },
-  {
-    id: "3",
-    name: "Ralph Edwards",
-    message: "Missing your a lot.",
-    time: "1 day ago",
-    unread: 6,
-  },
-  {
-    id: "4",
-    name: "Rheresa Gebb",
-    message: "Typing....",
-    time: "3 day ago",
-    isTyping: true,
-  },
-];
-
-// Mock data for recent activity
-const MOCK_ACTIVITY = [
-  {
-    id: "1",
-    name: "Leslie Alexander",
-    action: "You have a new comment from @asifmadmud",
-    time: "Just now",
-  },
-  {
-    id: "2",
-    name: "Jenny Wilson",
-    action: "A new system update is available. Please update your app.",
-    time: "3 hours ago",
-  },
-  {
-    id: "3",
-    name: "Guy Hawkins",
-    action:
-      "You have a new comment: You've completed the task: @asifmahmud. Well done!",
-    time: "16 hours ago",
   },
 ];
 
@@ -158,7 +106,23 @@ function getPriorityColor(priority: string): string {
   }
 }
 
-export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
+// Helper function to get outcome type color
+function getOutcomeTypeColor(type: string | null): string {
+  switch (type?.toUpperCase()) {
+    case "DAILY":
+      return "blue";
+    case "WEEKLY":
+      return "teal";
+    case "MONTHLY":
+      return "violet";
+    case "QUARTERLY":
+      return "orange";
+    default:
+      return "gray";
+  }
+}
+
+export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewProps) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
       {/* Left Column - Project Information */}
@@ -174,13 +138,15 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
               Project Information
             </Text>
             <Group gap="xs">
-              <Button
-                variant="default"
-                size="xs"
-                leftSection={<IconShare size={14} />}
-              >
-                Share
-              </Button>
+              <CreateProjectModal project={project}>
+                <Button
+                  variant="default"
+                  size="xs"
+                  leftSection={<IconEdit size={14} />}
+                >
+                  Edit
+                </Button>
+              </CreateProjectModal>
               <ActionIcon variant="subtle" size="md">
                 <IconDots size={16} />
               </ActionIcon>
@@ -402,57 +368,13 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                 ))}
               </Stack>
             </Stack>
-
-            <Divider my="sm" />
-
-            {/* Project Goals */}
-            <Stack gap="xs">
-              <Group gap="xs">
-                <IconTargetArrow size={14} className="text-text-muted" />
-                <Text size="sm" c="dimmed">
-                  Project Goals
-                </Text>
-              </Group>
-              {goals.length > 0 ? (
-                <Stack gap="xs">
-                  {goals.slice(0, 3).map((goal) => (
-                    <Paper
-                      key={goal.id}
-                      p="sm"
-                      radius="sm"
-                      className="border-border-primary bg-background-secondary border"
-                    >
-                      <Group justify="space-between">
-                        <Text size="sm" className="text-text-primary">
-                          {goal.title}
-                        </Text>
-                        {goal.lifeDomain && (
-                          <Badge variant="light" color="blue" size="xs">
-                            {goal.lifeDomain.title}
-                          </Badge>
-                        )}
-                      </Group>
-                    </Paper>
-                  ))}
-                  {goals.length > 3 && (
-                    <Text size="xs" c="dimmed" ta="center">
-                      +{goals.length - 3} more goals
-                    </Text>
-                  )}
-                </Stack>
-              ) : (
-                <Text size="sm" c="dimmed" fs="italic">
-                  No goals linked to this project yet
-                </Text>
-              )}
-            </Stack>
           </Stack>
         </Card>
       </div>
 
       {/* Right Column - Sidebar */}
       <div className="space-y-6">
-        {/* Team Chat Card */}
+        {/* Outcomes Card */}
         <Card
           withBorder
           radius="md"
@@ -460,71 +382,63 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
         >
           <Group justify="space-between" mb="md">
             <Text fw={600} size="lg" className="text-text-primary">
-              Team Chat
+              Outcomes
             </Text>
             <ActionIcon variant="subtle" size="md">
               <IconDots size={16} />
             </ActionIcon>
           </Group>
 
-          <Stack gap="md">
-            {MOCK_CHAT.map((chat) => {
-              const bgColor = getAvatarColor(chat.name.toLowerCase());
-              const textColor = getTextColor(bgColor);
-
-              return (
-                <Group
-                  key={chat.id}
-                  gap="sm"
-                  align="flex-start"
-                  className="cursor-pointer rounded-md p-2 hover:bg-surface-hover"
+          <Stack gap="sm">
+            {outcomes.length > 0 ? (
+              outcomes.slice(0, 5).map((outcome) => (
+                <Paper
+                  key={outcome.id}
+                  p="sm"
+                  radius="sm"
+                  className="border-border-primary bg-background-secondary border"
                 >
-                  <div className="relative">
-                    <Avatar
-                      radius="xl"
-                      size="md"
-                      style={{ backgroundColor: bgColor, color: textColor }}
-                    >
-                      {getInitial(chat.name, null)}
-                    </Avatar>
-                    <div className="bg-brand-success absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white" />
-                  </div>
-                  <Stack gap={2} style={{ flex: 1 }}>
-                    <Group justify="space-between">
-                      <Text size="sm" fw={500} className="text-text-primary">
-                        {chat.name}
+                  <Stack gap="xs">
+                    <Group justify="space-between" align="flex-start">
+                      <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
+                        {outcome.description}
                       </Text>
-                      <Text size="xs" className="text-text-disabled">
-                        {chat.time}
-                      </Text>
-                    </Group>
-                    <Group justify="space-between">
-                      <Text
-                        size="xs"
-                        c={chat.isTyping ? "green" : "dimmed"}
-                        lineClamp={1}
-                      >
-                        {chat.message}
-                      </Text>
-                      {chat.unread && (
+                      {outcome.type && (
                         <Badge
-                          variant="filled"
-                          color="orange"
+                          variant="light"
+                          color={getOutcomeTypeColor(outcome.type)}
                           size="xs"
-                          circle
                         >
-                          {chat.unread}
+                          {outcome.type}
                         </Badge>
                       )}
                     </Group>
+                    {outcome.dueDate && (
+                      <Text size="xs" className="text-text-disabled">
+                        Due: {new Date(outcome.dueDate).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </Text>
+                    )}
                   </Stack>
-                </Group>
-              );
-            })}
+                </Paper>
+              ))
+            ) : (
+              <Text size="sm" c="dimmed" fs="italic" ta="center" py="md">
+                No outcomes linked to this project yet
+              </Text>
+            )}
+            {outcomes.length > 5 && (
+              <Text size="xs" c="dimmed" ta="center">
+                +{outcomes.length - 5} more outcomes
+              </Text>
+            )}
           </Stack>
         </Card>
 
-        {/* Recent Activity Card */}
+        {/* Goals Card */}
         <Card
           withBorder
           radius="md"
@@ -532,52 +446,51 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
         >
           <Group justify="space-between" mb="md">
             <Text fw={600} size="lg" className="text-text-primary">
-              Recent Activity
+              Goals
             </Text>
             <ActionIcon variant="subtle" size="md">
               <IconDots size={16} />
             </ActionIcon>
           </Group>
 
-          <Stack gap="md">
-            {MOCK_ACTIVITY.map((activity, index) => {
-              const bgColor = getAvatarColor(activity.name.toLowerCase());
-              const textColor = getTextColor(bgColor);
-
-              return (
-                <Group
-                  key={activity.id}
-                  gap="sm"
-                  align="flex-start"
-                  className="relative"
+          <Stack gap="sm">
+            {goals.length > 0 ? (
+              goals.slice(0, 5).map((goal) => (
+                <Paper
+                  key={goal.id}
+                  p="sm"
+                  radius="sm"
+                  className="border-border-primary bg-background-secondary border"
                 >
-                  {/* Timeline line */}
-                  {index < MOCK_ACTIVITY.length - 1 && (
-                    <div className="bg-border-primary absolute left-5 top-10 h-full w-px" />
-                  )}
-                  <Avatar
-                    radius="xl"
-                    size="md"
-                    style={{ backgroundColor: bgColor, color: textColor }}
-                  >
-                    {getInitial(activity.name, null)}
-                  </Avatar>
-                  <Stack gap={2} style={{ flex: 1 }}>
+                  <Stack gap="xs">
                     <Group justify="space-between" align="flex-start">
-                      <Text size="sm" fw={500} className="text-text-primary">
-                        {activity.name}
+                      <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
+                        {goal.title}
                       </Text>
-                      <Text size="xs" className="text-text-disabled">
-                        {activity.time}
-                      </Text>
+                      {goal.lifeDomain && (
+                        <Badge variant="light" color="blue" size="xs">
+                          {goal.lifeDomain.title}
+                        </Badge>
+                      )}
                     </Group>
-                    <Text size="xs" c="dimmed" lineClamp={2}>
-                      {activity.action}
-                    </Text>
+                    {goal.description && (
+                      <Text size="xs" c="dimmed" lineClamp={1}>
+                        {goal.description}
+                      </Text>
+                    )}
                   </Stack>
-                </Group>
-              );
-            })}
+                </Paper>
+              ))
+            ) : (
+              <Text size="sm" c="dimmed" fs="italic" ta="center" py="md">
+                No goals linked to this project yet
+              </Text>
+            )}
+            {goals.length > 5 && (
+              <Text size="xs" c="dimmed" ta="center">
+                +{goals.length - 5} more goals
+              </Text>
+            )}
           </Stack>
         </Card>
       </div>

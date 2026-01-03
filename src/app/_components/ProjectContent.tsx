@@ -238,7 +238,7 @@ export function ProjectContent({
 
             {/* Content Area */}
             <Tabs.Panel value="overview">
-              <ProjectOverview project={project} goals={goalsQuery.data ?? []} />
+              <ProjectOverview project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
             </Tabs.Panel>
 
             <Tabs.Panel value="tasks">
