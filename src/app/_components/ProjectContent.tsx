@@ -39,6 +39,7 @@ import {
   IconUsers,
   IconCalendarWeek,
   IconGitBranch,
+  IconHome,
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
@@ -50,9 +51,11 @@ import { TeamWeeklyReview } from "./TeamWeeklyReview";
 import { WeeklyOutcomes } from "./WeeklyOutcomes";
 import { ProjectFirefliesSyncPanel } from "./ProjectFirefliesSyncPanel";
 import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
+import { ProjectOverview } from "./ProjectOverview";
 import Link from "next/link";
 
 type TabValue =
+  | "overview"
   | "tasks"
   | "plan"
   | "goals"
@@ -70,7 +73,7 @@ export function ProjectContent({
   viewName: string;
   projectId: string;
 }) {
-  const [activeTab, setActiveTab] = useState<TabValue>("tasks");
+  const [activeTab, setActiveTab] = useState<TabValue>("overview");
   const [drawerOpened, setDrawerOpened] = useState(false);
   const [activeDrawer, setActiveDrawer] = useState<'chat' | 'settings' | null>(null);
   const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
@@ -168,6 +171,12 @@ export function ProjectContent({
             {/* Tabs Navigation */}
             <Tabs.List>
               <Tabs.Tab
+                value="overview"
+                leftSection={<IconHome size={16} />}
+              >
+                Overview
+              </Tabs.Tab>
+              <Tabs.Tab
                 value="tasks"
                 leftSection={<IconLayoutKanban size={16} />}
               >
@@ -228,6 +237,10 @@ export function ProjectContent({
             </Tabs.List>
 
             {/* Content Area */}
+            <Tabs.Panel value="overview">
+              <ProjectOverview project={project} goals={goalsQuery.data ?? []} />
+            </Tabs.Panel>
+
             <Tabs.Panel value="tasks">
               <Stack gap="md">
                 <ProjectSyncStatus
