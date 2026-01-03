@@ -5,11 +5,12 @@ import {
   publicProcedure,
 } from "~/server/api/trpc";
 
-import { 
-  getMyPublicGoals, 
+import {
+  getMyPublicGoals,
   getAllMyGoals,
   updateGoal,
-  getProjectGoals
+  getProjectGoals,
+  deleteGoal
 } from "~/server/services/goalService";
 
 export const goalRouter = createTRPCRouter({
@@ -72,5 +73,11 @@ export const goalRouter = createTRPCRouter({
     .input(z.object({ projectId: z.string() }))
     .query(async ({ ctx, input }) => {
       return getProjectGoals({ ctx, projectId: input.projectId });
+    }),
+
+  deleteGoal: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      return deleteGoal({ ctx, input });
     }),
 });

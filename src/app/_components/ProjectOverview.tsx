@@ -23,8 +23,9 @@ import {
   IconFileDescription,
   IconPlus,
   IconMicrophone,
+  IconTrash,
 } from "@tabler/icons-react";
-import { type RouterOutputs } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 import {
   getAvatarColor,
   getInitial,
@@ -110,6 +111,21 @@ function getOutcomeTypeColor(type: string | null): string {
 }
 
 export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewProps) {
+  const utils = api.useUtils();
+
+  const deleteGoalMutation = api.goal.deleteGoal.useMutation({
+    onSuccess: () => {
+      void utils.goal.getProjectGoals.invalidate({ projectId: project.id });
+    },
+  });
+
+  const handleDeleteGoal = (goalId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm("Are you sure you want to delete this goal?")) {
+      deleteGoalMutation.mutate({ id: goalId });
+    }
+  };
+
   // Helper to get items for a specific date
   const getItemsForDate = (date: Date) => {
     const dateStr = date.toDateString();
@@ -465,44 +481,59 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
           <Stack gap="sm">
             {goals.length > 0 ? (
               goals.slice(0, 5).map((goal) => (
-                <CreateGoalModal
+                <Paper
                   key={goal.id}
-                  goal={{
-                    id: goal.id,
-                    title: goal.title,
-                    description: goal.description,
-                    whyThisGoal: goal.whyThisGoal,
-                    notes: goal.notes,
-                    dueDate: goal.dueDate,
-                    lifeDomainId: goal.lifeDomainId,
-                    outcomes: goal.outcomes,
-                  }}
-                  trigger={
-                    <Paper
-                      p="sm"
-                      radius="sm"
-                      className="border-border-primary bg-background-secondary hover:bg-surface-hover cursor-pointer border transition-colors"
+                  p="sm"
+                  radius="sm"
+                  className="border-border-primary bg-background-secondary group border transition-colors"
+                >
+                  <Group justify="space-between" align="flex-start" wrap="nowrap">
+                    <CreateGoalModal
+                      goal={{
+                        id: goal.id,
+                        title: goal.title,
+                        description: goal.description,
+                        whyThisGoal: goal.whyThisGoal,
+                        notes: goal.notes,
+                        dueDate: goal.dueDate,
+                        lifeDomainId: goal.lifeDomainId,
+                        outcomes: goal.outcomes,
+                      }}
+                      trigger={
+                        <div className="hover:bg-surface-hover flex-1 cursor-pointer rounded p-1 transition-colors">
+                          <Stack gap="xs">
+                            <Group justify="space-between" align="flex-start">
+                              <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
+                                {goal.title}
+                              </Text>
+                              {goal.lifeDomain && (
+                                <Badge variant="light" color="blue" size="xs">
+                                  {goal.lifeDomain.title}
+                                </Badge>
+                              )}
+                            </Group>
+                            {goal.description && (
+                              <Text size="xs" c="dimmed" lineClamp={1}>
+                                {goal.description}
+                              </Text>
+                            )}
+                          </Stack>
+                        </div>
+                      }
+                    />
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      size="sm"
+                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                      onClick={(e) => handleDeleteGoal(goal.id, e)}
+                      loading={deleteGoalMutation.isPending}
+                      aria-label="Delete goal"
                     >
-                      <Stack gap="xs">
-                        <Group justify="space-between" align="flex-start">
-                          <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
-                            {goal.title}
-                          </Text>
-                          {goal.lifeDomain && (
-                            <Badge variant="light" color="blue" size="xs">
-                              {goal.lifeDomain.title}
-                            </Badge>
-                          )}
-                        </Group>
-                        {goal.description && (
-                          <Text size="xs" c="dimmed" lineClamp={1}>
-                            {goal.description}
-                          </Text>
-                        )}
-                      </Stack>
-                    </Paper>
-                  }
-                />
+                      <IconTrash size={14} />
+                    </ActionIcon>
+                  </Group>
+                </Paper>
               ))
             ) : (
               <Text size="sm" c="dimmed" fs="italic" ta="center" py="md">

@@ -140,3 +140,20 @@ export async function getProjectGoals({ ctx, projectId }: { ctx: Context, projec
     },
   });
 }
+
+export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: number } }) {
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+
+  const existingGoal = await ctx.db.goal.findFirst({
+    where: { id: input.id, userId },
+  });
+
+  if (!existingGoal) {
+    throw new Error("Goal not found or unauthorized");
+  }
+
+  return await ctx.db.goal.delete({
+    where: { id: input.id },
+  });
+}
