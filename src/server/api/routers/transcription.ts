@@ -239,6 +239,51 @@ export const transcriptionRouter = createTRPCRouter({
       return updated;
     }),
 
+  createManualTranscription: protectedProcedure
+    .input(
+      z.object({
+        title: z.string().min(1, "Title is required"),
+        description: z.string().optional(),
+        transcription: z.string().min(1, "Transcription text is required"),
+        meetingDate: z.date().optional(),
+        projectId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.create({
+        data: {
+          sessionId: `manual_${Date.now()}`,
+          title: input.title,
+          description: input.description ?? null,
+          transcription: input.transcription,
+          meetingDate: input.meetingDate ?? null,
+          projectId: input.projectId,
+          userId: ctx.session.user.id,
+        },
+        include: {
+          sourceIntegration: {
+            select: {
+              id: true,
+              provider: true,
+              name: true,
+            },
+          },
+          actions: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              status: true,
+              priority: true,
+              dueDate: true,
+            },
+          },
+        },
+      });
+
+      return session;
+    }),
+
   getAllTranscriptions: protectedProcedure
     .input(
       z

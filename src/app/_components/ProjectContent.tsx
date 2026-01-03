@@ -53,6 +53,7 @@ import { WeeklyOutcomes } from "./WeeklyOutcomes";
 import { ProjectFirefliesSyncPanel } from "./ProjectFirefliesSyncPanel";
 import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
+import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 import Link from "next/link";
 
 type TabValue =
@@ -372,7 +373,10 @@ export function ProjectContent({
             <Tabs.Panel value="transcriptions">
               <Stack gap="md">
                 <Group justify="space-between" align="center">
-                  <Title order={4}>Project Transcriptions</Title>
+                  <Group gap="md">
+                    <Title order={4}>Project Transcriptions</Title>
+                    <CreateTranscriptionModal projectId={projectId} />
+                  </Group>
                   <Group gap="md">
                     {hasFirefliesWorkflow && (
                       <ProjectFirefliesSyncPanel 
