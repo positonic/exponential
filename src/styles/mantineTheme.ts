@@ -499,6 +499,14 @@ const componentStyles = {
   Tabs: {
     defaultProps: {
       styles: {
+        list: {
+          flexWrap: 'nowrap',
+          overflowX: 'auto',
+          scrollbarWidth: 'none',
+          '&::-webkit-scrollbar': {
+            display: 'none',
+          },
+        },
         tab: {
           color: 'var(--color-text-secondary)',
           '&[data-active]': {
