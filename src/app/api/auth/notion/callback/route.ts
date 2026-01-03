@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     const session = await auth();
     
     if (!session?.user?.id) {
-      return NextResponse.redirect('/use-the-force?error=unauthorized');
+      return NextResponse.redirect(`${BASE_URL}/use-the-force?error=unauthorized`);
     }
 
     const { searchParams } = new URL(request.url);
@@ -100,10 +100,11 @@ export async function GET(request: NextRequest) {
       projectId: stateData.projectId,
     });
 
-    // Determine redirect URL
-    const redirectUrl = stateData.redirectUrl || `${BASE_URL}/integrations`;
+    // Determine redirect URL (ensure it's absolute)
+    const redirectPath = stateData.redirectUrl || '/integrations';
+    const redirectUrl = redirectPath.startsWith('http') ? redirectPath : `${BASE_URL}${redirectPath}`;
     const successMessage = `Successfully connected Notion workspace: ${tokenData.workspace_name}`;
-    
+
     return NextResponse.redirect(
       `${redirectUrl}?success=${encodeURIComponent(successMessage)}`
     );
