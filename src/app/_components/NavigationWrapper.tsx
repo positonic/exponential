@@ -1,7 +1,7 @@
 "use client";
 
-import { Actions } from "./Actions";
 import { PageHeader } from "./PageHeader";
+import { TodayContent } from "./TodayContent";
 import Link from "next/link";
 import { format } from "date-fns";
 
@@ -20,8 +20,8 @@ export function NavigationWrapper({ calendarConnected, todayExists, todayRecord 
         todayExists={todayExists}
       />
 
-      {/* Main Actions Content */}
-      <Actions viewName="today" />
+      {/* Main Tabbed Content */}
+      <TodayContent calendarConnected={calendarConnected} />
 
       {/* Today record link */}
       {todayExists && todayRecord && todayRecord.date && (

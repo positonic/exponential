@@ -494,7 +494,7 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                       <Text size="sm" fw={500} className="text-text-primary">
                         {chat.name}
                       </Text>
-                      <Text size="xs" c="dimmed">
+                      <Text size="xs" className="text-text-disabled">
                         {chat.time}
                       </Text>
                     </Group>
@@ -567,7 +567,7 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                       <Text size="sm" fw={500} className="text-text-primary">
                         {activity.name}
                       </Text>
-                      <Text size="xs" c="dimmed">
+                      <Text size="xs" className="text-text-disabled">
                         {activity.time}
                       </Text>
                     </Group>
