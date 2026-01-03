@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Actions } from "./Actions";
 import ProjectDetails from "./ProjectDetails";
 //import Chat from "./Chat";
@@ -66,17 +67,46 @@ type TabValue =
   | "weekly-team-review"
   | "weekly-outcomes";
 
+const VALID_TABS: TabValue[] = [
+  "overview",
+  "tasks",
+  "plan",
+  "goals",
+  "outcomes",
+  "timeline",
+  "transcriptions",
+  "workflows",
+  "weekly-team-review",
+  "weekly-outcomes",
+];
+
+function isValidTab(tab: string | null | undefined): tab is TabValue {
+  return tab != null && VALID_TABS.includes(tab as TabValue);
+}
+
 export function ProjectContent({
   viewName,
   projectId,
+  initialTab,
 }: {
   viewName: string;
   projectId: string;
+  initialTab?: string;
 }) {
-  const [activeTab, setActiveTab] = useState<TabValue>("overview");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Get tab from URL or use initial/default
+  const tabFromUrl = searchParams.get("tab");
+  const activeTab: TabValue = isValidTab(tabFromUrl)
+    ? tabFromUrl
+    : isValidTab(initialTab)
+      ? initialTab
+      : "overview";
+
   const [drawerOpened, setDrawerOpened] = useState(false);
   const [activeDrawer, setActiveDrawer] = useState<'chat' | 'settings' | null>(null);
-  const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
+  const [selectedTranscription, setSelectedTranscription] = useState<unknown>(null);
   const [syncStatusOpened, setSyncStatusOpened] = useState(false);
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
   const { data: project, isLoading } = api.project.getById.useQuery({
@@ -88,11 +118,19 @@ export function ProjectContent({
   const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery({ projectId });
   const utils = api.useUtils();
 
-  const handleTabChange = (value: string | null) => {
-    if (value) {
-      setActiveTab(value as TabValue);
+  const handleTabChange = useCallback((value: string | null) => {
+    if (value && isValidTab(value)) {
+      // Update URL with new tab
+      const params = new URLSearchParams(searchParams.toString());
+      if (value === "overview") {
+        params.delete("tab");
+      } else {
+        params.set("tab", value);
+      }
+      const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+      router.push(newUrl, { scroll: false });
     }
-  };
+  }, [router, searchParams]);
 
   const handleTranscriptionClick = (transcription: any) => {
     setSelectedTranscription(transcription);

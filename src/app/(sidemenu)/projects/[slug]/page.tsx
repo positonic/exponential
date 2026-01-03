@@ -9,17 +9,17 @@ interface PageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default async function Home({ params }: PageProps) {
+export default async function Home({ params, searchParams }: PageProps) {
   const resolvedParams = await params;
-  // If you need searchParams, await it as well:
-  // const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const { slug } = resolvedParams;
+  const tab = typeof resolvedSearchParams?.tab === 'string' ? resolvedSearchParams.tab : undefined;
 
   return (
     <HydrateClient>
         <div className="container flex flex-col items-stretch justify-start gap-4 px-4 py-8">
           <Suspense fallback={<div>Loading...</div>}>
-            <ProjectWrapper slug={slug} />
+            <ProjectWrapper slug={slug} initialTab={tab} />
           </Suspense>
           
         </div>
@@ -28,10 +28,10 @@ export default async function Home({ params }: PageProps) {
   );
 }
 
-async function ProjectWrapper({ slug }: { slug: string }) {
+async function ProjectWrapper({ slug, initialTab }: { slug: string; initialTab?: string }) {
   const session = await auth();
   const viewName = `project-${slug}`;
-  
+
   if (!session?.user) {
     return <Welcome />;
   }
@@ -40,5 +40,5 @@ async function ProjectWrapper({ slug }: { slug: string }) {
     return <div>Project not found</div>;
   }
 
-  return <ProjectContent viewName={viewName} projectId={projectId} />;
+  return <ProjectContent viewName={viewName} projectId={projectId} initialTab={initialTab} />;
 }
