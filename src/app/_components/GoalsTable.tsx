@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useMemo, type FC } from 'react';
-import { Table, Text, Paper, ActionIcon, Tabs, Checkbox } from "@mantine/core";
+import { Table, Text, Paper, ActionIcon, Tabs, Checkbox, Group } from "@mantine/core";
 import { format, isBefore, startOfDay } from "date-fns";
 import { CreateGoalModal } from "./CreateGoalModal";
-import { IconEdit } from '@tabler/icons-react';
+import { IconEdit, IconTrash } from '@tabler/icons-react';
+import { api } from "~/trpc/react";
 
 interface GoalsTableProps {
   goals: any[];
@@ -13,6 +14,20 @@ interface GoalsTableProps {
 export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
   const [activeTab, setActiveTab] = useState<string | null>('all');
   const [hidePastDue, setHidePastDue] = useState<boolean>(true);
+  const utils = api.useUtils();
+
+  const deleteGoalMutation = api.goal.deleteGoal.useMutation({
+    onSuccess: () => {
+      void utils.goal.getProjectGoals.invalidate();
+      void utils.goal.getAllMyGoals.invalidate();
+    },
+  });
+
+  const handleDeleteGoal = (goalId: number) => {
+    if (confirm("Are you sure you want to delete this goal?")) {
+      deleteGoalMutation.mutate({ id: goalId });
+    }
+  };
 
   const lifeDomainTitles = useMemo(() => {
     if (!goals) return [];
@@ -90,27 +105,38 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
                   </Table.Td>
                   <Table.Td>{goal.lifeDomain?.title || '-'}</Table.Td>
                   <Table.Td>
-                    <CreateGoalModal
-                      goal={{
-                        id: goal.id,
-                        title: goal.title,
-                        description: goal.description,
-                        whyThisGoal: goal.whyThisGoal,
-                        notes: goal.notes,
-                        dueDate: goal.dueDate,
-                        lifeDomainId: goal.lifeDomainId,
-                        outcomes: goal.outcomes,
-                      }}
-                      trigger={
-                        <ActionIcon
-                          variant="subtle"
-                          color="gray"
-                          aria-label="Edit goal"
-                        >
-                          <IconEdit size={16} />
-                        </ActionIcon>
-                      }
-                    />
+                    <Group gap="xs">
+                      <CreateGoalModal
+                        goal={{
+                          id: goal.id,
+                          title: goal.title,
+                          description: goal.description,
+                          whyThisGoal: goal.whyThisGoal,
+                          notes: goal.notes,
+                          dueDate: goal.dueDate,
+                          lifeDomainId: goal.lifeDomainId,
+                          outcomes: goal.outcomes,
+                        }}
+                        trigger={
+                          <ActionIcon
+                            variant="subtle"
+                            color="gray"
+                            aria-label="Edit goal"
+                          >
+                            <IconEdit size={16} />
+                          </ActionIcon>
+                        }
+                      />
+                      <ActionIcon
+                        variant="subtle"
+                        color="red"
+                        aria-label="Delete goal"
+                        onClick={() => handleDeleteGoal(goal.id)}
+                        loading={deleteGoalMutation.isPending}
+                      >
+                        <IconTrash size={16} />
+                      </ActionIcon>
+                    </Group>
                   </Table.Td>
                 </Table.Tr>
               ))}
