@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Container,
   Title,
@@ -55,13 +55,6 @@ export function ProjectSetupWizard() {
   const createTasksMutation = api.projectSetup.createProjectTasks.useMutation();
   const completeSetupMutation = api.projectSetup.completeSetup.useMutation();
   const skipSetupMutation = api.projectSetup.skipSetup.useMutation();
-
-  // Pre-fill project name from onboarding
-  useEffect(() => {
-    if (setupData?.project?.name) {
-      setProjectName(setupData.project.name);
-    }
-  }, [setupData]);
 
   const handleAddTask = () => {
     setTasks((prev) => [...prev, { id: Date.now().toString(), name: "" }]);
