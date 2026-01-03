@@ -22,9 +22,7 @@ export default async function Home() {
 
 async function ActionsWrapper() {
   const session = await auth();
-  
-  // Declare todayRecord in the outer scope
-  let todayRecord = null; // Or provide a more specific type if known, e.g., Awaited<ReturnType<typeof api.day.getByDate>> | null
+
   let todayExists = false;
   let calendarConnected = false;
 
@@ -32,22 +30,18 @@ async function ActionsWrapper() {
   if (session?.user) {
     // Check if a day record exists for today
     const today = startOfDay(new Date());
-    console.log("today", today);
-    // Assign the value inside the block
-    todayRecord = await api.day.getByDate({ date: today });
-    console.log("todayRecord", todayRecord);
+    const todayRecord = await api.day.getByDate({ date: today });
     todayExists = !!todayRecord;
 
     // Check calendar connection status
     const calendarStatus = await api.calendar.getConnectionStatus();
     calendarConnected = calendarStatus.isConnected;
   }
-  
+
   return session?.user ? (
-    <NavigationWrapper 
+    <NavigationWrapper
       calendarConnected={calendarConnected}
       todayExists={todayExists}
-      todayRecord={todayRecord}
     />
   ) : (
     <Welcome />
