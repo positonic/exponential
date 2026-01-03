@@ -1,6 +1,6 @@
 "use client";
 
-import { Group, Paper, Text, Title } from "@mantine/core";
+import { Group, Text, Title } from "@mantine/core";
 import { format } from "date-fns";
 import { GoogleCalendarConnect } from "./GoogleCalendarConnect";
 import { TodayPageCalendar } from "./TodayPageCalendar";
@@ -15,11 +15,7 @@ export function PageHeader({ calendarConnected, todayExists }: PageHeaderProps) 
   const today = new Date();
 
   return (
-    <Paper
-      className="w-full max-w-3xl mx-auto mb-6 bg-surface-primary border border-border-primary"
-      p="lg"
-      radius="md"
-    >
+    <div className="w-full mb-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         {/* Left side: Page title and date */}
         <div>
@@ -38,6 +34,6 @@ export function PageHeader({ calendarConnected, todayExists }: PageHeaderProps) 
           {!todayExists && <TodayButton />}
         </Group>
       </div>
-    </Paper>
+    </div>
   );
 }
