@@ -14,8 +14,8 @@ import {
 } from "@mantine/core";
 import {
   IconCalendar,
-  IconEdit,
   IconDots,
+  IconEdit,
   IconDownload,
   IconEye,
   IconUserPlus,
@@ -24,6 +24,7 @@ import {
   IconTag,
   IconPaperclip,
   IconFileDescription,
+  IconPlus,
 } from "@tabler/icons-react";
 import { type RouterOutputs } from "~/trpc/react";
 import {
@@ -32,6 +33,8 @@ import {
   getTextColor,
 } from "~/utils/avatarColors";
 import { CreateProjectModal } from "./CreateProjectModal";
+import { CreateGoalModal } from "./CreateGoalModal";
+import { CreateOutcomeModal } from "./CreateOutcomeModal";
 
 // Types
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
@@ -384,9 +387,11 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
             <Text fw={600} size="lg" className="text-text-primary">
               Outcomes
             </Text>
-            <ActionIcon variant="subtle" size="md">
-              <IconDots size={16} />
-            </ActionIcon>
+            <CreateOutcomeModal projectId={project.id}>
+              <ActionIcon variant="subtle" size="md" aria-label="Add outcome">
+                <IconPlus size={16} />
+              </ActionIcon>
+            </CreateOutcomeModal>
           </Group>
 
           <Stack gap="sm">
@@ -448,9 +453,11 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
             <Text fw={600} size="lg" className="text-text-primary">
               Goals
             </Text>
-            <ActionIcon variant="subtle" size="md">
-              <IconDots size={16} />
-            </ActionIcon>
+            <CreateGoalModal projectId={project.id}>
+              <ActionIcon variant="subtle" size="md" aria-label="Add goal">
+                <IconPlus size={16} />
+              </ActionIcon>
+            </CreateGoalModal>
           </Group>
 
           <Stack gap="sm">
