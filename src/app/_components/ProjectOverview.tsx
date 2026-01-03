@@ -11,20 +11,18 @@ import {
   Paper,
   ActionIcon,
   Divider,
+  Indicator,
+  Tooltip,
 } from "@mantine/core";
+import { Calendar } from "@mantine/dates";
 import {
   IconCalendar,
-  IconDots,
   IconEdit,
-  IconDownload,
-  IconEye,
   IconUserPlus,
-  IconAlertCircle,
-  IconStar,
   IconTag,
-  IconPaperclip,
   IconFileDescription,
   IconPlus,
+  IconMicrophone,
 } from "@tabler/icons-react";
 import { type RouterOutputs } from "~/trpc/react";
 import {
@@ -35,6 +33,7 @@ import {
 import { CreateProjectModal } from "./CreateProjectModal";
 import { CreateGoalModal } from "./CreateGoalModal";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
+import { OutcomeTimeline } from "./OutcomeTimeline";
 
 // Types
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
@@ -47,21 +46,6 @@ interface ProjectOverviewProps {
   outcomes: Outcome[];
 }
 
-// Mock data for attachments
-const MOCK_ATTACHMENTS = [
-  {
-    id: "1",
-    name: "Medical dashboard",
-    timestamp: "11:30 AM, 16 Aug 2024",
-    type: "alert" as const,
-  },
-  {
-    id: "2",
-    name: "Medical dashboard",
-    timestamp: "11:30 AM, 16 Aug 2024",
-    type: "star" as const,
-  },
-];
 
 // Helper function to get status color
 function getStatusColor(status: string): string {
@@ -126,40 +110,60 @@ function getOutcomeTypeColor(type: string | null): string {
 }
 
 export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewProps) {
+  // Helper to get items for a specific date
+  const getItemsForDate = (date: Date) => {
+    const dateStr = date.toDateString();
+    const items: { type: "goal" | "outcome" | "project"; title: string; color: string }[] = [];
+
+    // Check project due date
+    if (project.reviewDate && new Date(project.reviewDate).toDateString() === dateStr) {
+      items.push({ type: "project", title: "Project Due", color: "red" });
+    }
+    if (project.nextActionDate && new Date(project.nextActionDate).toDateString() === dateStr) {
+      items.push({ type: "project", title: "Next Action", color: "orange" });
+    }
+
+    // Check goals
+    goals.forEach((goal) => {
+      if (goal.dueDate && new Date(goal.dueDate).toDateString() === dateStr) {
+        items.push({ type: "goal", title: goal.title, color: "blue" });
+      }
+    });
+
+    // Check outcomes
+    outcomes.forEach((outcome) => {
+      if (outcome.dueDate && new Date(outcome.dueDate).toDateString() === dateStr) {
+        items.push({ type: "outcome", title: outcome.description, color: "teal" });
+      }
+    });
+
+    return items;
+  };
+
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
       {/* Left Column - Project Information */}
-      <div className="lg:col-span-2">
+      <div>
         <Card
           withBorder
           radius="md"
           className="border-border-primary bg-surface-secondary"
         >
-          {/* Card Header */}
-          <Group justify="space-between" mb="lg">
-            <Text fw={600} size="lg" className="text-text-primary">
-              Project Information
+          {/* Project Title with Edit Button */}
+          <Group justify="space-between" align="flex-start" mb="lg">
+            <Text fw={700} size="xl" className="text-text-primary">
+              {project.name}
             </Text>
-            <Group gap="xs">
-              <CreateProjectModal project={project}>
-                <Button
-                  variant="default"
-                  size="xs"
-                  leftSection={<IconEdit size={14} />}
-                >
-                  Edit
-                </Button>
-              </CreateProjectModal>
-              <ActionIcon variant="subtle" size="md">
-                <IconDots size={16} />
-              </ActionIcon>
-            </Group>
+            <CreateProjectModal project={project}>
+              <Button
+                variant="default"
+                size="xs"
+                leftSection={<IconEdit size={14} />}
+              >
+                Edit
+              </Button>
+            </CreateProjectModal>
           </Group>
-
-          {/* Project Title */}
-          <Text fw={700} size="xl" mb="lg" className="text-text-primary">
-            {project.name}
-          </Text>
 
           <Stack gap="md">
             {/* Status */}
@@ -208,7 +212,7 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
                           year: "numeric",
                         }
                       )
-                    : "16 June 2024"}
+                    : "Not set"}
               </Badge>
             </Group>
 
@@ -310,139 +314,137 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
 
             <Divider my="sm" />
 
-            {/* Attachments */}
+            {/* Transcriptions */}
             <Stack gap="xs">
               <Group gap="xs">
-                <IconPaperclip size={14} className="text-text-muted" />
+                <IconMicrophone size={14} className="text-text-muted" />
                 <Text size="sm" c="dimmed">
-                  Attachment ({MOCK_ATTACHMENTS.length})
+                  Meeting Transcriptions ({project.transcriptionSessions?.length ?? 0})
                 </Text>
               </Group>
               <Stack gap="xs">
-                {MOCK_ATTACHMENTS.map((attachment) => (
-                  <Paper
-                    key={attachment.id}
-                    p="sm"
-                    radius="sm"
-                    className="border-border-primary bg-background-secondary border"
-                  >
-                    <Group justify="space-between">
-                      <Group gap="sm">
-                        <div
-                          className={`flex h-10 w-10 items-center justify-center rounded-lg ${
-                            attachment.type === "alert"
-                              ? "bg-orange-500/20 text-orange-500"
-                              : "bg-blue-500/20 text-blue-500"
-                          }`}
-                        >
-                          {attachment.type === "alert" ? (
-                            <IconAlertCircle size={20} />
-                          ) : (
-                            <IconStar size={20} />
-                          )}
-                        </div>
-                        <Stack gap={2}>
-                          <Text size="sm" fw={500} className="text-text-primary">
-                            {attachment.name}
-                          </Text>
+                {project.transcriptionSessions && project.transcriptionSessions.length > 0 ? (
+                  project.transcriptionSessions.slice(0, 3).map((session) => (
+                    <Paper
+                      key={session.id}
+                      p="sm"
+                      radius="sm"
+                      className="border-border-primary bg-background-secondary hover:bg-surface-hover cursor-pointer border transition-colors"
+                    >
+                      <Stack gap={2}>
+                        <Text size="sm" fw={500} className="text-text-primary" lineClamp={1}>
+                          {session.title ?? `Session ${session.sessionId}`}
+                        </Text>
+                        <Group gap="xs">
                           <Text size="xs" c="dimmed">
-                            {attachment.timestamp}
+                            {new Date(session.createdAt).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
                           </Text>
-                        </Stack>
-                      </Group>
-                      <Group gap="xs">
-                        <Button
-                          variant="subtle"
-                          size="xs"
-                          leftSection={<IconEye size={14} />}
-                        >
-                          View
-                        </Button>
-                        <Button
-                          variant="subtle"
-                          size="xs"
-                          leftSection={<IconDownload size={14} />}
-                        >
-                          Download
-                        </Button>
-                      </Group>
-                    </Group>
-                  </Paper>
-                ))}
+                          {session.sourceIntegration && (
+                            <Badge variant="dot" color="teal" size="xs">
+                              {session.sourceIntegration.provider}
+                            </Badge>
+                          )}
+                        </Group>
+                      </Stack>
+                    </Paper>
+                  ))
+                ) : (
+                  <Text size="sm" c="dimmed" fs="italic" ta="center" py="md">
+                    No transcriptions yet
+                  </Text>
+                )}
+                {(project.transcriptionSessions?.length ?? 0) > 3 && (
+                  <Text size="xs" c="dimmed" ta="center">
+                    +{(project.transcriptionSessions?.length ?? 0) - 3} more transcriptions
+                  </Text>
+                )}
               </Stack>
             </Stack>
           </Stack>
         </Card>
       </div>
 
-      {/* Right Column - Sidebar */}
+      {/* Middle Column - Calendar & Timeline */}
       <div className="space-y-6">
-        {/* Outcomes Card */}
         <Card
           withBorder
           radius="md"
           className="border-border-primary bg-surface-secondary"
         >
-          <Group justify="space-between" mb="md">
-            <Text fw={600} size="lg" className="text-text-primary">
-              Outcomes
-            </Text>
-            <CreateOutcomeModal projectId={project.id}>
-              <ActionIcon variant="subtle" size="md" aria-label="Add outcome">
-                <IconPlus size={16} />
-              </ActionIcon>
-            </CreateOutcomeModal>
-          </Group>
+          <Text fw={600} size="lg" className="text-text-primary" mb="md">
+            Project Calendar
+          </Text>
+          <div className="flex justify-center">
+            <Calendar
+              getDayProps={(date) => {
+              const items = getItemsForDate(date);
+              if (items.length === 0) return {};
 
-          <Stack gap="sm">
-            {outcomes.length > 0 ? (
-              outcomes.slice(0, 5).map((outcome) => (
-                <Paper
-                  key={outcome.id}
-                  p="sm"
-                  radius="sm"
-                  className="border-border-primary bg-background-secondary border"
+              return {
+                style: { position: "relative" as const },
+              };
+            }}
+            renderDay={(date) => {
+              const day = date.getDate();
+              const items = getItemsForDate(date);
+
+              if (items.length === 0) {
+                return <div>{day}</div>;
+              }
+
+              return (
+                <Tooltip
+                  label={
+                    <Stack gap={4}>
+                      {items.map((item, idx) => (
+                        <Group key={idx} gap="xs">
+                          <Badge size="xs" color={item.color} variant="filled">
+                            {item.type}
+                          </Badge>
+                          <Text size="xs" lineClamp={1}>
+                            {item.title}
+                          </Text>
+                        </Group>
+                      ))}
+                    </Stack>
+                  }
+                  withArrow
+                  multiline
+                  w={220}
                 >
-                  <Stack gap="xs">
-                    <Group justify="space-between" align="flex-start">
-                      <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
-                        {outcome.description}
-                      </Text>
-                      {outcome.type && (
-                        <Badge
-                          variant="light"
-                          color={getOutcomeTypeColor(outcome.type)}
-                          size="xs"
-                        >
-                          {outcome.type}
-                        </Badge>
-                      )}
-                    </Group>
-                    {outcome.dueDate && (
-                      <Text size="xs" className="text-text-disabled">
-                        Due: {new Date(outcome.dueDate).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </Text>
-                    )}
-                  </Stack>
-                </Paper>
-              ))
-            ) : (
-              <Text size="sm" c="dimmed" fs="italic" ta="center" py="md">
-                No outcomes linked to this project yet
-              </Text>
-            )}
-            {outcomes.length > 5 && (
-              <Text size="xs" c="dimmed" ta="center">
-                +{outcomes.length - 5} more outcomes
-              </Text>
-            )}
-          </Stack>
+                  <Indicator
+                    size={6}
+                    color={items[0]?.color ?? "blue"}
+                    offset={-2}
+                  >
+                    <div>{day}</div>
+                  </Indicator>
+                </Tooltip>
+              );
+            }}
+            />
+          </div>
         </Card>
 
+        {/* Timeline Card */}
+        <Card
+          withBorder
+          radius="md"
+          className="border-border-primary bg-surface-secondary"
+        >
+          <Text fw={600} size="lg" className="text-text-primary" mb="md">
+            Timeline
+          </Text>
+          <OutcomeTimeline projectId={project.id} />
+        </Card>
+      </div>
+
+      {/* Right Column - Sidebar */}
+      <div className="space-y-6">
         {/* Goals Card */}
         <Card
           withBorder
@@ -463,30 +465,44 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
           <Stack gap="sm">
             {goals.length > 0 ? (
               goals.slice(0, 5).map((goal) => (
-                <Paper
+                <CreateGoalModal
                   key={goal.id}
-                  p="sm"
-                  radius="sm"
-                  className="border-border-primary bg-background-secondary border"
-                >
-                  <Stack gap="xs">
-                    <Group justify="space-between" align="flex-start">
-                      <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
-                        {goal.title}
-                      </Text>
-                      {goal.lifeDomain && (
-                        <Badge variant="light" color="blue" size="xs">
-                          {goal.lifeDomain.title}
-                        </Badge>
-                      )}
-                    </Group>
-                    {goal.description && (
-                      <Text size="xs" c="dimmed" lineClamp={1}>
-                        {goal.description}
-                      </Text>
-                    )}
-                  </Stack>
-                </Paper>
+                  goal={{
+                    id: goal.id,
+                    title: goal.title,
+                    description: goal.description,
+                    whyThisGoal: goal.whyThisGoal,
+                    notes: goal.notes,
+                    dueDate: goal.dueDate,
+                    lifeDomainId: goal.lifeDomainId,
+                    outcomes: goal.outcomes,
+                  }}
+                  trigger={
+                    <Paper
+                      p="sm"
+                      radius="sm"
+                      className="border-border-primary bg-background-secondary hover:bg-surface-hover cursor-pointer border transition-colors"
+                    >
+                      <Stack gap="xs">
+                        <Group justify="space-between" align="flex-start">
+                          <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
+                            {goal.title}
+                          </Text>
+                          {goal.lifeDomain && (
+                            <Badge variant="light" color="blue" size="xs">
+                              {goal.lifeDomain.title}
+                            </Badge>
+                          )}
+                        </Group>
+                        {goal.description && (
+                          <Text size="xs" c="dimmed" lineClamp={1}>
+                            {goal.description}
+                          </Text>
+                        )}
+                      </Stack>
+                    </Paper>
+                  }
+                />
               ))
             ) : (
               <Text size="sm" c="dimmed" fs="italic" ta="center" py="md">
@@ -496,6 +512,84 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
             {goals.length > 5 && (
               <Text size="xs" c="dimmed" ta="center">
                 +{goals.length - 5} more goals
+              </Text>
+            )}
+          </Stack>
+        </Card>
+
+        {/* Outcomes Card */}
+        <Card
+          withBorder
+          radius="md"
+          className="border-border-primary bg-surface-secondary"
+        >
+          <Group justify="space-between" mb="md">
+            <Text fw={600} size="lg" className="text-text-primary">
+              Outcomes
+            </Text>
+            <CreateOutcomeModal projectId={project.id}>
+              <ActionIcon variant="subtle" size="md" aria-label="Add outcome">
+                <IconPlus size={16} />
+              </ActionIcon>
+            </CreateOutcomeModal>
+          </Group>
+
+          <Stack gap="sm">
+            {outcomes.length > 0 ? (
+              outcomes.slice(0, 5).map((outcome) => (
+                <CreateOutcomeModal
+                  key={outcome.id}
+                  outcome={{
+                    id: outcome.id,
+                    description: outcome.description,
+                    dueDate: outcome.dueDate,
+                    type: (outcome.type ?? "daily") as "daily" | "weekly" | "monthly" | "quarterly" | "annual" | "life" | "problem",
+                    projectId: project.id,
+                    goalId: outcome.goals?.[0]?.id,
+                  }}
+                  trigger={
+                    <Paper
+                      p="sm"
+                      radius="sm"
+                      className="border-border-primary bg-background-secondary hover:bg-surface-hover cursor-pointer border transition-colors"
+                    >
+                      <Stack gap="xs">
+                        <Group justify="space-between" align="flex-start">
+                          <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
+                            {outcome.description}
+                          </Text>
+                          {outcome.type && (
+                            <Badge
+                              variant="light"
+                              color={getOutcomeTypeColor(outcome.type)}
+                              size="xs"
+                            >
+                              {outcome.type}
+                            </Badge>
+                          )}
+                        </Group>
+                        {outcome.dueDate && (
+                          <Text size="xs" className="text-text-disabled">
+                            Due: {new Date(outcome.dueDate).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </Text>
+                        )}
+                      </Stack>
+                    </Paper>
+                  }
+                />
+              ))
+            ) : (
+              <Text size="sm" c="dimmed" fs="italic" ta="center" py="md">
+                No outcomes linked to this project yet
+              </Text>
+            )}
+            {outcomes.length > 5 && (
+              <Text size="xs" c="dimmed" ta="center">
+                +{outcomes.length - 5} more outcomes
               </Text>
             )}
           </Stack>
