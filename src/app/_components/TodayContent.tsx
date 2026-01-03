@@ -7,14 +7,16 @@ import {
   IconLayoutKanban,
   IconCalendar,
   IconClock,
+  IconNotebook,
 } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 import { TodayOverview } from "./TodayOverview";
+import { StartupRoutineForm } from "./StartupRoutineForm";
 import { api } from "~/trpc/react";
 import { format, parseISO, startOfDay, endOfDay } from "date-fns";
 import { CalendarDayView } from "./CalendarDayView";
 
-type TabValue = "overview" | "tasks" | "calendar";
+type TabValue = "overview" | "tasks" | "calendar" | "journal";
 
 interface TodayContentProps {
   calendarConnected: boolean;
@@ -75,6 +77,9 @@ export function TodayContent({ calendarConnected }: TodayContentProps) {
             </Tabs.Tab>
             <Tabs.Tab value="calendar" leftSection={<IconCalendar size={16} />}>
               Calendar
+            </Tabs.Tab>
+            <Tabs.Tab value="journal" leftSection={<IconNotebook size={16} />}>
+              Journal
             </Tabs.Tab>
           </Tabs.List>
 
@@ -203,6 +208,10 @@ export function TodayContent({ calendarConnected }: TodayContentProps) {
                 </div>
               </div>
             )}
+          </Tabs.Panel>
+
+          <Tabs.Panel value="journal">
+            <StartupRoutineForm />
           </Tabs.Panel>
         </Stack>
       </Tabs>
