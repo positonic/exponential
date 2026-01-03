@@ -42,7 +42,7 @@ export default function SignIn() {
             By continuing, you agree to our{" "}
             <Text
               component="a"
-              href="#"
+              href="/terms"
               className="text-blue-400 hover:text-blue-300 hover:underline transition-colors"
               inherit
             >
@@ -51,7 +51,7 @@ export default function SignIn() {
             and{" "}
             <Text
               component="a"
-              href="#"
+              href="/privacy"
               className="text-blue-400 hover:text-blue-300 hover:underline transition-colors"
               inherit
             >

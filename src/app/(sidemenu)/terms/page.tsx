@@ -1,21 +1,21 @@
 import { type Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: 'Terms of Use | Force Flow',
-  description: 'Terms of Use for Force Flow - Understanding your rights and responsibilities when using our service.',
+  title: 'Terms of Service | Exponential',
+  description: 'Terms of Service for Exponential - Understanding your rights and responsibilities when using our service.',
 };
 
 export default function TermsOfUse() {
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
-      <h1 className="text-3xl font-bold mb-8">Terms of Use</h1>
-      
-      <p className="text-gray-400 mb-8">Effective Date: March 12th, 2025</p>
+      <h1 className="text-3xl font-bold mb-8">Terms of Service</h1>
+
+      <p className="text-gray-400 mb-8">Effective Date: January 3rd, 2026</p>
 
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Introduction</h2>
         <p className="text-gray-300 mb-4">
-          By using Force Flow, you agree to these Terms of Use. Please read them carefully before using our service.
+          By using Exponential, you agree to these Terms of Service. Please read them carefully before using our service.
         </p>
       </section>
 
@@ -40,7 +40,7 @@ export default function TermsOfUse() {
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Intellectual Property</h2>
         <p className="text-gray-300 mb-4">
-          All content, design, and functionality provided through the service are the property of Force Flow 
+          All content, design, and functionality provided through the service are the property of Exponential
           or its licensors. Unauthorized use, reproduction, or distribution is prohibited.
         </p>
       </section>
@@ -72,7 +72,13 @@ export default function TermsOfUse() {
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Contact</h2>
         <p className="text-gray-300">
-          For any questions regarding these Terms, please contact us.
+          For any questions regarding these Terms, please contact us at{' '}
+          <a
+            href="mailto:support@exponential.im"
+            className="text-blue-400 hover:text-blue-300 underline"
+          >
+            support@exponential.im
+          </a>
         </p>
       </section>
     </div>
