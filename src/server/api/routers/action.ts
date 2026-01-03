@@ -65,9 +65,7 @@ export const actionRouter = createTRPCRouter({
     const whereClause: any = {
       OR: [
         // Created by me AND no assignees
-        { createdById: userId, assignedToId: null, assignees: { none: {} } },
-        // Assigned to me via legacy assignedToId
-        { assignedToId: userId },
+        { createdById: userId, assignees: { none: {} } },
         // Assigned to me via ActionAssignee
         { assignees: { some: { userId: userId } } },
       ],
@@ -406,9 +404,7 @@ export const actionRouter = createTRPCRouter({
       where: {
         OR: [
           // Created by me AND no assignees
-          { createdById: userId, assignedToId: null, assignees: { none: {} } },
-          // Assigned to me via legacy assignedToId
-          { assignedToId: userId },
+          { createdById: userId, assignees: { none: {} } },
           // Assigned to me via ActionAssignee
           { assignees: { some: { userId: userId } } },
         ],
@@ -933,16 +929,16 @@ export const actionRouter = createTRPCRouter({
       }
 
       // Ensure user has permission to update this action
-      if (action.createdById !== ctx.session.user.id && action.assignedToId !== ctx.session.user.id) {
-        // Check if user is assigned to this action
-        const assignment = await ctx.db.actionAssignee.findFirst({
-          where: {
-            actionId,
-            userId: ctx.session.user.id,
-          },
-        });
+      const isCreator = action.createdById === ctx.session.user.id;
+      const isAssignee = await ctx.db.actionAssignee.findFirst({
+        where: {
+          actionId,
+          userId: ctx.session.user.id,
+        },
+      });
 
-        if (!assignment && action.project) {
+      if (!isCreator && !isAssignee) {
+        if (action.project) {
           // Check if user is a project member
           const projectMember = await ctx.db.projectMember.findFirst({
             where: {
@@ -954,6 +950,8 @@ export const actionRouter = createTRPCRouter({
           if (!projectMember) {
             throw new Error("Not authorized to update this action");
           }
+        } else {
+          throw new Error("Not authorized to update this action");
         }
       }
 
@@ -1063,13 +1061,12 @@ export const actionRouter = createTRPCRouter({
       // Get the action to verify permissions
       const action = await ctx.db.action.findUnique({
         where: { id: actionId },
-        select: { 
-          id: true, 
-          projectId: true, 
-          kanbanStatus: true, 
+        select: {
+          id: true,
+          projectId: true,
+          kanbanStatus: true,
           kanbanOrder: true,
           createdById: true,
-          assignedToId: true,
           project: true
         }
       });
@@ -1079,15 +1076,16 @@ export const actionRouter = createTRPCRouter({
       }
 
       // Ensure user has permission to reorder this action
-      if (action.createdById !== ctx.session.user.id && action.assignedToId !== ctx.session.user.id) {
-        const assignment = await ctx.db.actionAssignee.findFirst({
-          where: {
-            actionId,
-            userId: ctx.session.user.id,
-          },
-        });
+      const isCreator = action.createdById === ctx.session.user.id;
+      const isAssignee = await ctx.db.actionAssignee.findFirst({
+        where: {
+          actionId,
+          userId: ctx.session.user.id,
+        },
+      });
 
-        if (!assignment && action.project) {
+      if (!isCreator && !isAssignee) {
+        if (action.project) {
           const projectMember = await ctx.db.projectMember.findFirst({
             where: {
               projectId: action.projectId!,
@@ -1098,6 +1096,8 @@ export const actionRouter = createTRPCRouter({
           if (!projectMember) {
             throw new Error("Not authorized to reorder this action");
           }
+        } else {
+          throw new Error("Not authorized to reorder this action");
         }
       }
 

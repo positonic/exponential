@@ -349,6 +349,7 @@ export class NotionService {
     dueDate?: Date;
     lastModified: Date;
     assigneeNotionUserId?: string;
+    creatorNotionUserId?: string;
   } {
     try {
       // Get title from title property (could be Name, Title, Task, etc.)
@@ -459,6 +460,9 @@ export class NotionService {
         assigneeNotionUserId = assigneeProperty.people[0].id;
       }
 
+      // Extract creator from page metadata (Notion's created_by field)
+      const creatorNotionUserId = page.created_by?.id;
+
       return {
         notionId: page.id,
         name,
@@ -468,6 +472,7 @@ export class NotionService {
         dueDate,
         lastModified: new Date(page.last_edited_time),
         assigneeNotionUserId,
+        creatorNotionUserId,
       };
     } catch (error) {
       console.error('Failed to parse Notion page:', error);

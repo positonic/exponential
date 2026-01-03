@@ -77,15 +77,21 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
       const task = notionService.parseNotionPageToAction(page, config.propertyMappings);
 
       // Resolve assignee using the user mapping
-      const assignedToId = task.assigneeNotionUserId
+      const assigneeUserId = task.assigneeNotionUserId
         ? userMappingLookup.get(task.assigneeNotionUserId)
         : undefined;
 
-      console.log('[PULL SYNC] Assignee resolution:', {
+      // Resolve creator using the user mapping (fall back to importing user)
+      const creatorUserId = task.creatorNotionUserId
+        ? userMappingLookup.get(task.creatorNotionUserId) ?? ctx.session.user.id
+        : ctx.session.user.id;
+
+      console.log('[PULL SYNC] User resolution:', {
         taskName: task.name,
-        notionUserId: task.assigneeNotionUserId,
-        resolvedLocalUserId: assignedToId,
-        mappingExists: task.assigneeNotionUserId ? userMappingLookup.has(task.assigneeNotionUserId) : false,
+        assigneeNotionUserId: task.assigneeNotionUserId,
+        resolvedAssigneeId: assigneeUserId,
+        creatorNotionUserId: task.creatorNotionUserId,
+        resolvedCreatorId: creatorUserId,
       });
 
       // Check if we already have an ActionSync record for this Notion page
@@ -110,7 +116,6 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             existingAction.status !== task.status ||
             existingAction.description !== task.description ||
             existingAction.priority !== task.priority ||
-            existingAction.assignedToId !== assignedToId ||
             existingAction.projectId !== projectId || // Also update if projectId changed
             (existingAction.dueDate?.getTime() !== task.dueDate?.getTime());
 
@@ -133,18 +138,17 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
                 status: task.status,
                 priority: task.priority,
                 dueDate: task.dueDate,
-                assignedToId: assignedToId ?? existingAction.assignedToId,
                 projectId: projectId ?? existingAction.projectId, // Update projectId if provided
               },
             });
 
-            // Also update the assignees relationship (many-to-many)
-            if (assignedToId) {
+            // Update the assignees relationship (many-to-many) - this is now the only assignment mechanism
+            if (assigneeUserId) {
               // Check if this assignee already exists
               const existingAssignee = await ctx.db.actionAssignee.findFirst({
                 where: {
                   actionId: existingAction.id,
-                  userId: assignedToId,
+                  userId: assigneeUserId,
                 },
               });
 
@@ -152,10 +156,10 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
                 await ctx.db.actionAssignee.create({
                   data: {
                     actionId: existingAction.id,
-                    userId: assignedToId,
+                    userId: assigneeUserId,
                   },
                 });
-                console.log('[PULL SYNC] Added assignee:', assignedToId, 'to action:', existingAction.id);
+                console.log('[PULL SYNC] Added assignee:', assigneeUserId, 'to action:', existingAction.id);
               }
             }
 
@@ -191,6 +195,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
 
       if (shouldCreateNew) {
         // Create new action and ActionSync record
+        // Use mapped creator (or fall back to importing user)
         const newAction = await ctx.db.action.create({
           data: {
             name: task.name,
@@ -198,21 +203,20 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             status: task.status,
             priority: task.priority || 'Quick',
             dueDate: task.dueDate,
-            createdById: ctx.session.user.id,
+            createdById: creatorUserId,
             projectId: projectId || undefined, // Use the provided projectId
-            assignedToId,
           },
         });
 
-        // Create ActionAssignee record for many-to-many relationship
-        if (assignedToId) {
+        // Create ActionAssignee record for assignee (this is now the only assignment mechanism)
+        if (assigneeUserId) {
           await ctx.db.actionAssignee.create({
             data: {
               actionId: newAction.id,
-              userId: assignedToId,
+              userId: assigneeUserId,
             },
           });
-          console.log('[PULL SYNC] Created action with assignee:', assignedToId);
+          console.log('[PULL SYNC] Created action with assignee:', assigneeUserId);
         }
 
         // Create ActionSync record

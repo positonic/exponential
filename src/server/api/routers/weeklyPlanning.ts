@@ -94,14 +94,9 @@ export const weeklyPlanningRouter = createTRPCRouter({
           const actions = await ctx.db.action.findMany({
             where: {
               projectId,
-              OR: [
-                { assignedToId: member.userId },
-                {
-                  assignees: {
-                    some: { userId: member.userId }
-                  }
-                }
-              ],
+              assignees: {
+                some: { userId: member.userId }
+              },
               AND: [
                 {
                   OR: [
