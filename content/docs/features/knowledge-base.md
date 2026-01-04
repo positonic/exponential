@@ -92,6 +92,56 @@ Your Knowledge Base content is:
 - Scoped to your projects and workspaces
 - Stored securely with encryption at rest
 
+## Getting Started
+
+### Step 1: Access the Knowledge Base
+
+1. Open the sidebar menu
+2. Expand the **Tools** section
+3. Click **Knowledge Base**
+
+Or navigate directly to: `/w/{your-workspace}/knowledge-base`
+
+### Step 2: Index Your Meeting Transcriptions
+
+If you have existing meeting transcriptions:
+
+1. Look for the yellow alert: "Transcriptions need indexing"
+2. Click **Index Now** to process them
+3. Wait for completion (processes 20 at a time)
+4. Repeat if more remain pending
+
+### Step 3: Add Your First Resource
+
+1. Click **Add Resource** (top right)
+2. Choose a type:
+   - **Web Page** - Articles, documentation with URLs
+   - **Document** - Text documents without URLs
+   - **Note** - Quick thoughts and reminders
+   - **Bookmark** - URL references for later
+3. Fill in the title and content
+4. Click **Add Resource**
+
+Your content is automatically processed and indexed for search.
+
+### Step 4: Test Semantic Search
+
+1. Click the **Search** tab
+2. Type a query (at least 3 characters)
+3. View results ranked by relevance
+
+**Try these searches:**
+- Topics from your recent meetings
+- Concepts rather than exact words
+- Questions like "how to deploy" or "what's the budget"
+
+## Tips for Best Results
+
+- **Be specific**: "Q4 marketing budget" works better than just "budget"
+- **Use natural language**: Search like you'd ask a question
+- **Add context**: More words help find better matches
+- **Check similarity**: Higher percentages mean closer matches
+
 ## Technical Details
 
 For developers and power users:

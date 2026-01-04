@@ -249,6 +249,75 @@ const stats = await api.mastra.getEmbeddingStats.query({
 // Returns: { transcriptions: { total, withEmbeddings, pendingEmbeddings }, ... }
 ```
 
+## UI Usage Guide
+
+### Accessing the Knowledge Base
+
+Navigate to: `/w/{workspaceSlug}/knowledge-base`
+
+Example: `http://localhost:3000/w/personal-abc123/knowledge-base`
+
+The Knowledge Base link is available in the sidebar under "Tools".
+
+### Dashboard Overview
+
+The page shows three stat cards:
+- **Transcriptions**: Shows indexed/total transcriptions with pending count
+- **Resources**: Shows indexed/total resources with pending count
+- **Total Chunks**: Total searchable text segments in the system
+
+### Indexing Existing Transcriptions
+
+If you have meeting transcriptions that haven't been indexed:
+
+1. Look for the yellow alert banner: "Transcriptions need indexing"
+2. Click the **"Index Now"** button
+3. Wait for the process to complete (indexes up to 20 at a time)
+4. A green success banner shows how many were processed
+5. Repeat if more transcriptions remain pending
+
+### Adding Resources
+
+1. Click the **"Add Resource"** button (top right)
+2. Fill in the form:
+   - **Title** (required): Name for the resource
+   - **Type**: Web Page, Document, Note, or Bookmark
+   - **URL**: For web pages and bookmarks
+   - **Description**: Optional summary
+   - **Content**: Paste the text content here
+3. Click **"Add Resource"** to save
+4. The resource is automatically chunked and embedded
+
+### Testing Semantic Search
+
+1. Click the **"Search"** tab
+2. Enter a search query (minimum 3 characters)
+3. Results show:
+   - Source type badge (transcription or resource type)
+   - Similarity percentage (higher = more relevant)
+   - Content preview (3 lines max)
+
+**Search Examples:**
+
+| Query | Finds |
+|-------|-------|
+| "how to deploy" | Deployment discussions and documentation |
+| "authentication setup" | Auth-related meetings and docs |
+| "budget review" | Financial discussions from meetings |
+
+**Tips for Testing:**
+- Try different phrasings - semantic search finds related concepts
+- Search for topics you know exist in your meetings
+- Compare results between Resources tab (keyword) and Search tab (semantic)
+
+### Managing Resources
+
+In the **Resources** tab:
+- View all saved resources in a table
+- Click the refresh icon to regenerate embeddings
+- Click the trash icon to permanently delete
+- Resources show word count and creation date
+
 ## Related Files
 
 | File | Description |
@@ -258,6 +327,7 @@ const stats = await api.mastra.getEmbeddingStats.query({
 | `src/server/services/KnowledgeService.ts` | Chunking, embedding, search service |
 | `src/server/api/routers/resource.ts` | Resource CRUD endpoints |
 | `src/server/api/routers/mastra.ts` | `queryMeetingContext`, backfill, stats endpoints |
+| `src/app/(sidemenu)/w/[workspaceSlug]/knowledge-base/page.tsx` | Knowledge Base UI |
 
 ## Migration Notes
 

@@ -4,7 +4,7 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings } from "@tabler/icons-react";
+import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
@@ -162,6 +162,11 @@ export function SidebarContent() {
                 {isItemVisible("tools/ai-history") && (
                   <NavLink href="/ai-history" icon={IconBrain}>
                     AI History
+                  </NavLink>
+                )}
+                {isItemVisible("tools/knowledge-base") && (
+                  <NavLink href={workspaceSlug ? `/w/${workspaceSlug}/knowledge-base` : '/knowledge-base'} icon={IconDatabase}>
+                    Knowledge Base
                   </NavLink>
                 )}
                 {isItemVisible("tools/api-access") && (
