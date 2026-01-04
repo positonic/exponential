@@ -284,6 +284,35 @@ export const transcriptionRouter = createTRPCRouter({
       return session;
     }),
 
+  // Get transcriptions for a specific project (used by ManyChat agent context)
+  getProjectTranscriptions: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.transcriptionSession.findMany({
+        where: {
+          projectId: input.projectId,
+          userId: ctx.session.user.id,
+          archivedAt: null,
+        },
+        orderBy: { processedAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          title: true,
+          summary: true,
+          processedAt: true,
+          meetingDate: true,
+          actions: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+            },
+          },
+        },
+      });
+    }),
+
   getAllTranscriptions: protectedProcedure
     .input(
       z

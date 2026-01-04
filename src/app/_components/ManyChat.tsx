@@ -42,9 +42,47 @@ interface ManyChatProps {
 
 export default function ManyChat({ initialMessages, githubSettings, buttons, projectId }: ManyChatProps) {
   // Function to generate initial messages with project context
-  const generateInitialMessages = useCallback((projectData?: any, projectActions?: any[]): Message[] => {
+  const generateInitialMessages = useCallback((projectData?: any, projectActions?: any[], transcriptions?: any[]): Message[] => {
+    // Format transcription context
+    const transcriptionContext = transcriptions && transcriptions.length > 0 ? `
+
+      📝 RECENT MEETING TRANSCRIPTIONS (${transcriptions.length} meetings):
+      ${transcriptions.map(t => {
+        const dateStr = t.meetingDate
+          ? new Date(t.meetingDate).toLocaleDateString()
+          : t.processedAt
+            ? new Date(t.processedAt).toLocaleDateString()
+            : 'Unknown date';
+
+        let summaryInfo = '';
+        if (t.summary) {
+          try {
+            const summary = JSON.parse(t.summary);
+            if (summary.overview) {
+              summaryInfo = `\n        Summary: ${summary.overview.slice(0, 200)}${summary.overview.length > 200 ? '...' : ''}`;
+            }
+            if (summary.action_items?.length) {
+              summaryInfo += `\n        Action items discussed: ${summary.action_items.length}`;
+            }
+          } catch {
+            // Summary not JSON, include as-is if short
+            if (t.summary.length < 300) {
+              summaryInfo = `\n        Summary: ${t.summary}`;
+            }
+          }
+        }
+
+        const actionsFromMeeting = t.actions?.length
+          ? `\n        Created actions: ${t.actions.map((a: any) => a.name).join(', ')}`
+          : '';
+
+        return `
+      ### ${t.title || 'Untitled Meeting'} (${dateStr})${summaryInfo}${actionsFromMeeting}`;
+      }).join('\n')}
+    ` : '';
+
     const projectContext = projectData && projectActions ? `
-      
+
       📋 CURRENT PROJECT CONTEXT (Authorized User Data Only):
       - Project: ${projectData.name} (ID: ${projectId})
       - Owner: Authenticated user (secure context)
@@ -53,15 +91,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - Priority: ${projectData.priority}
       - Progress: ${projectData.progress || 0}%
       - Active Tasks Shown: ${projectActions.length} (use retrieveActionsTool for complete history)
-      ${projectActions.length > 0 ? 
-        projectActions.map(action => `  • ${action.name} (${action.status}, ${action.priority})`).join('\n      ') : 
+      ${projectActions.length > 0 ?
+        projectActions.map(action => `  • ${action.name} (${action.status}, ${action.priority})`).join('\n      ') :
         '  • No active tasks'}
-      
+      ${transcriptionContext}
       🎯 ACTIONS REQUIRED:
       - When creating actions: automatically assign to project ID: ${projectId}
       - When asked about tasks: refer to context above or use tools for complete data
       - Always specify project ID in tool calls for security
       - For historical data beyond current context, explicitly use retrieveActionsTool
+      - When asked about meetings or transcriptions: refer to the meeting context above
     ` : '';
 
     return [
@@ -138,6 +177,12 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     { enabled: !!projectId }
   );
 
+  // Fetch project transcriptions for agent context
+  const { data: projectTranscriptions } = api.transcription.getProjectTranscriptions.useQuery(
+    { projectId: projectId! },
+    { enabled: !!projectId }
+  );
+
   // Fetch Mastra agents
   const { data: mastraAgents, isLoading: isLoadingAgents, error: agentsError } = 
     api.mastra.getMastraAgents.useQuery(
@@ -181,16 +226,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         projectId: projectData.id,
         projectName: projectData.name,
         actionsCount: projectActions.length,
+        transcriptionsCount: projectTranscriptions?.length ?? 0,
         timestamp: new Date().toISOString(),
         hasInitialMessages: !!initialMessages,
         contextScope: 'single-project-only',
         currentMessageCount: messages.length
       });
-      
-      const newMessages = generateInitialMessages(projectData, projectActions);
+
+      const newMessages = generateInitialMessages(projectData, projectActions, projectTranscriptions);
       setMessages(newMessages);
     }
-  }, [projectData, projectActions, initialMessages, generateInitialMessages, messages.length]); // Added missing deps
+  }, [projectData, projectActions, projectTranscriptions, initialMessages, generateInitialMessages, messages.length]);
   
   // Parse agent mentions from input
   const parseAgentMention = (text: string): { agentId: string | null; cleanMessage: string } => {
