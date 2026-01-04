@@ -155,8 +155,8 @@ function ProjectList({ projects }: { projects: Project[] }) {
                   }}
                 />
               </td>
-              <td className="px-4 py-2">
-                <div className="flex gap-2">
+              <td className="px-4 py-2 whitespace-nowrap">
+                <div className="flex items-center gap-2">
                   <CreateProjectModal project={project}>
                     <button
                       className="text-gray-400 hover:text-blue-500"
@@ -165,13 +165,15 @@ function ProjectList({ projects }: { projects: Project[] }) {
                       <IconEdit className="h-5 w-5" />
                     </button>
                   </CreateProjectModal>
-                  <button
-                    onClick={() => handleDeleteProject(project)}
-                    className="text-gray-400 hover:text-red-500"
-                    aria-label="Delete project"
-                  >
-                    <IconTrash className="h-5 w-5" />
-                  </button>
+                  <div>
+                    <button
+                      onClick={() => handleDeleteProject(project)}
+                      className="text-gray-400 hover:text-red-500"
+                      aria-label="Delete project"
+                    >
+                      <IconTrash className="h-5 w-5" />
+                    </button>
+                  </div>
                 </div>
               </td>
             </tr>
