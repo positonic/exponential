@@ -120,13 +120,23 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   - ALWAYS report tool failures to user (never fail silently)
                   - Use format: "⚠️ Tool Error: [action] failed - [reason]. Working with available context instead."
                   - Context shows current/recent data only - use tools for historical/complete data
-                  - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue, get_project_context
+                  - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue, get_project_context, get-meeting-transcriptions, query-meeting-context, get-meeting-insights
                   - For project goals and outcomes: use get_project_context tool with the project ID
                   - If authentication fails, inform user and suggest checking token validity
-                  
+
+                  📝 TRANSCRIPTION SEARCH (RAG):
+                  - The transcription summaries in context show recent meetings - use them for quick reference
+                  - For DEEPER questions about meeting content, USE THE SEARCH TOOLS:
+                    • "What did we discuss about [topic]?" → use 'query-meeting-context' to search full transcription text
+                    • "What decisions were made?" → use 'get-meeting-insights' for structured extraction
+                    • "What happened in meeting [name]?" → use 'get-meeting-transcriptions' with filters
+                  - ALWAYS search when: user asks about specific topics, quotes, or details not visible in summaries
+                  - The search tools access FULL transcription text, not just the summaries shown in context
+
                   📊 CONTEXT LIMITATIONS:
                   - Project data: Current snapshot only (real-time via tools)
                   - Actions: Active actions shown (use retrieveActionsTool for historical)
+                  - Transcriptions: Summaries shown in context (use search tools for full text and specific topics)
                   - For complete datasets or older data, explicitly use tools
                   - Always mention when working with limited context vs complete data
                   
