@@ -223,6 +223,27 @@ Required environment variables:
 - Browser extension authentication
 - [Mastra AI](https://mastra.ai/en/docs) for multi-agent system infrastructure
 
+## Related Codebases
+
+### Mastra Agents Repository
+
+The AI agents for this application live in a separate repository:
+
+- **Location**: `../mastra` (relative to this project root)
+- **Purpose**: Contains all Mastra agent definitions, tools, and workflows
+- **Relationship**: This Next.js app communicates with agents via `MASTRA_API_URL`
+
+**When to reference the agents codebase:**
+- Building new agent tools that interact with this app's data
+- Debugging agent behavior or tool execution
+- Adding new tRPC endpoints that agents will call
+- Understanding the full request flow from UI → tRPC → Agent → Tool
+
+**Cross-repo development tips:**
+- When adding a new tool, check if a corresponding tRPC endpoint exists here
+- Agent tools often mirror the services layer in `src/server/services/`
+- JWT tokens generated here (see `src/server/api/routers/mastra.ts`) are verified by agents
+
 ## Development Notes
 
 ### Keyboard Shortcuts
