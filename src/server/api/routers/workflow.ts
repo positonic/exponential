@@ -1890,6 +1890,7 @@ export const workflowRouter = createTRPCRouter({
   getUnlinkedNotionProjects: protectedProcedure
     .input(z.object({
       workflowId: z.string(),
+      workspaceId: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
       // Find the workflow
@@ -1942,10 +1943,12 @@ export const workflowRouter = createTRPCRouter({
         const notionProjects = await notionService.getProjectsFromDatabase(config.projectsDatabaseId);
 
         // Get all local projects that are linked to Notion
+        // Filter by workspaceId if provided to show only workspace-relevant suggestions
         const linkedProjects = await ctx.db.project.findMany({
           where: {
             createdById: ctx.session.user.id,
             notionProjectId: { not: null },
+            ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
           },
           select: {
             notionProjectId: true,

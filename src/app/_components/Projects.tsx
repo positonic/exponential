@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Tabs, Modal } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { slugify } from "~/utils/slugify";
@@ -245,8 +246,12 @@ export function Projects() {
   const [selectedDomain, setSelectedDomain] = useState<string>("all");
   const [notionModalOpened, { open: openNotionModal, close: closeNotionModal }] = useDisclosure(false);
 
+  const { workspaceId } = useWorkspace();
   const utils = api.useUtils();
-  const projects = api.project.getAll.useQuery();
+  const projects = api.project.getAll.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: true }
+  );
   const { data: lifeDomains = [] } = api.lifeDomain.getAllLifeDomains.useQuery();
 
   // Get Notion workflows to find the first one for querying unlinked projects
@@ -254,10 +259,10 @@ export function Projects() {
   const notionWorkflows = workflows.filter(w => w.provider === 'notion');
   const firstNotionWorkflowId = notionWorkflows[0]?.id;
 
-  // Query for unlinked Notion projects
+  // Query for unlinked Notion projects (filtered by current workspace)
   const { data: unlinkedProjectsData, refetch: refetchUnlinkedProjects } = api.workflow.getUnlinkedNotionProjects.useQuery(
-    { workflowId: firstNotionWorkflowId ?? '' },
-    { enabled: !!firstNotionWorkflowId }
+    { workflowId: firstNotionWorkflowId ?? '', workspaceId: workspaceId ?? undefined },
+    { enabled: !!firstNotionWorkflowId && !!workspaceId }
   );
 
   api.project.create.useMutation({

@@ -131,11 +131,18 @@ src/
 ├── app/                     # Next.js app router
 │   ├── (home)/             # Landing page and authentication
 │   ├── (sidemenu)/         # Main authenticated application
+│   │   └── w/[workspaceSlug]/  # Workspace-scoped routes
+│   │       ├── projects/       # Projects page
+│   │       ├── goals/          # Goals page
+│   │       ├── outcomes/       # Outcomes page
+│   │       └── settings/       # Workspace settings
 │   ├── (web3)/             # Web3 integration (Silk wallet integration)
 │   ├── _components/        # Shared components
 │   │   ├── layout/         # Navigation and shell components
 │   │   └── sections/       # Content sections (journal, outcomes, etc.)
 │   └── api/                # API routes and tRPC handlers
+├── providers/              # React context providers
+│   └── WorkspaceProvider.tsx  # Workspace context
 ├── server/                 # Server-side code
 │   ├── api/                # tRPC routers and procedures
 │   ├── auth/               # Authentication configuration
@@ -185,11 +192,64 @@ src/
 ### Database Schema
 Key entities include:
 - `User` - Authentication and user data
+- `Workspace` - Container for organizing projects/goals/outcomes (similar to Linear.app)
 - `Project` - Main project container with status/priority
 - `Action` - Tasks linked to projects with flexible priority
 - `Goal` - Strategic goals linked to life domains
 - `Outcome` - Measurable results (daily/weekly/monthly/quarterly)
 - `Video` - Media content with transcription and AI analysis
+
+### Workspaces
+
+Workspaces allow users to organize their work into separate containers (e.g., one per company/client). Each user gets an auto-created "Personal" workspace.
+
+**Data Model:**
+- `Workspace` - Container with name, slug, type (personal/team/organization)
+- `WorkspaceUser` - Many-to-many join table with role (owner/admin/member/viewer)
+- Projects, Goals, Outcomes, Actions all have optional `workspaceId` field
+
+**URL Structure:**
+- All workspace-scoped pages use `/w/[workspaceSlug]/...` routes
+- Example: `/w/personal-abc123/projects`, `/w/ftc/goals`
+
+**Frontend Pattern - Using WorkspaceProvider:**
+```tsx
+// In any component under /w/[workspaceSlug]/ routes:
+import { useWorkspace } from '~/providers/WorkspaceProvider';
+
+function MyComponent() {
+  const { workspace, workspaceId, isLoading } = useWorkspace();
+
+  // Pass workspaceId to queries for filtering
+  const { data } = api.project.getAll.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspace }
+  );
+}
+```
+
+**Backend Pattern - Adding Workspace Filtering:**
+```typescript
+// In tRPC routers, accept optional workspaceId and filter:
+getAll: protectedProcedure
+  .input(z.object({
+    workspaceId: z.string().optional(),
+  }).optional())
+  .query(async ({ ctx, input }) => {
+    return ctx.db.project.findMany({
+      where: {
+        createdById: ctx.session.user.id,
+        ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      },
+    });
+  }),
+```
+
+**Key Files:**
+- `src/providers/WorkspaceProvider.tsx` - React context for current workspace
+- `src/app/_components/layout/WorkspaceSwitcher.tsx` - UI for switching workspaces
+- `src/server/api/routers/workspace.ts` - Workspace CRUD operations
+- `src/app/(sidemenu)/w/[workspaceSlug]/layout.tsx` - Workspace route layout
 
 ### Component Organization
 - **Layout Components**: Navigation, sidebar, header

@@ -7,12 +7,15 @@ import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 export default function WorkspaceGoalsPage() {
-  const { workspace, isLoading: workspaceLoading } = useWorkspace();
-  const { data: goals } = api.goal.getAllMyGoals.useQuery(undefined, {
-    refetchOnWindowFocus: true,
-    staleTime: 0,
-    enabled: !!workspace,
-  });
+  const { workspace, workspaceId, isLoading: workspaceLoading } = useWorkspace();
+  const { data: goals } = api.goal.getAllMyGoals.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    {
+      refetchOnWindowFocus: true,
+      staleTime: 0,
+      enabled: !!workspace,
+    }
+  );
 
   if (workspaceLoading) {
     return (

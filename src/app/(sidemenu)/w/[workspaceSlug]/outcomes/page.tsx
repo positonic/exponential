@@ -7,10 +7,11 @@ import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 export default function WorkspaceOutcomesPage() {
-  const { workspace, isLoading: workspaceLoading } = useWorkspace();
-  const outcomesQuery = api.outcome.getMyOutcomes.useQuery(undefined, {
-    enabled: !!workspace,
-  });
+  const { workspace, workspaceId, isLoading: workspaceLoading } = useWorkspace();
+  const outcomesQuery = api.outcome.getMyOutcomes.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspace }
+  );
 
   if (workspaceLoading) {
     return (
