@@ -6,6 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { PRIORITY_VALUES } from "~/types/priority";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { getKnowledgeService } from "~/server/services/KnowledgeService";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -948,17 +949,13 @@ export const mastraRouter = createTRPCRouter({
         end: z.string(),
       }).optional(),
       topK: z.number().optional().default(5),
+      sourceTypes: z.array(z.enum(['transcription', 'resource'])).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Build where clause for filtering transcriptions
-      const whereClause: any = {
-        userId: userId, // Ensure user can only access their own transcriptions
-      };
-
+      // Verify project access if specified
       if (input.projectId) {
-        // Verify user has access to this project
         const project = await ctx.db.project.findUnique({
           where: { id: input.projectId, createdById: userId }
         });
@@ -968,75 +965,97 @@ export const mastraRouter = createTRPCRouter({
             message: 'Project not found or access denied'
           });
         }
-        whereClause.projectId = input.projectId;
       }
 
-      if (input.dateRange) {
-        whereClause.createdAt = { // Use createdAt instead of meetingDate
-          gte: new Date(input.dateRange.start),
-          lte: new Date(input.dateRange.end),
-        };
-      }
-
-      // Get relevant transcriptions
-      const transcriptions = await ctx.db.transcriptionSession.findMany({
-        where: whereClause,
-        orderBy: { createdAt: 'desc' },
-        take: 20, // Limit for semantic search
-      });
-
-      // Enhanced semantic search using OpenAI embeddings
       try {
-        // Create embedding for the query
-        await openai.embeddings.create({
-          model: 'text-embedding-3-small',
-          input: input.query,
+        // Use KnowledgeService for vector search
+        const knowledgeService = getKnowledgeService(ctx.db);
+
+        const searchResults = await knowledgeService.search(input.query, {
+          userId,
+          projectId: input.projectId,
+          sourceTypes: input.sourceTypes,
+          limit: input.topK,
         });
 
-        // For now, use simple keyword matching (you can enhance with vector search)
+        // Transform results to expected format
+        const results = searchResults.map(result => ({
+          content: result.content,
+          sourceType: result.sourceType,
+          sourceId: result.sourceId,
+          sourceTitle: result.sourceTitle ?? "",
+          meetingTitle: result.sourceType === 'transcription' ? result.sourceTitle ?? "" : undefined,
+          meetingDate: result.sourceMeta?.meetingDate?.toISOString(),
+          url: result.sourceMeta?.url,
+          contentType: result.sourceMeta?.contentType,
+          relevanceScore: result.similarity,
+          contextType: determineContextType(result.content),
+          chunkIndex: result.chunkIndex,
+        }));
+
+        return { results };
+      } catch (error) {
+        console.error('Error in queryMeetingContext:', error);
+
+        // Fallback to keyword search if vector search fails (e.g., no embeddings yet)
+        console.log('[queryMeetingContext] Falling back to keyword search');
+
+        const whereClause: Record<string, unknown> = {
+          userId: userId,
+        };
+
+        if (input.projectId) {
+          whereClause.projectId = input.projectId;
+        }
+
+        if (input.dateRange) {
+          whereClause.createdAt = {
+            gte: new Date(input.dateRange.start),
+            lte: new Date(input.dateRange.end),
+          };
+        }
+
+        const transcriptions = await ctx.db.transcriptionSession.findMany({
+          where: whereClause,
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        });
+
         const results = transcriptions
           .map(t => {
-            const transcript = (t.transcription || "").toLowerCase();
+            const transcript = (t.transcription ?? "").toLowerCase();
             const query = input.query.toLowerCase();
             const queryWords = query.split(' ');
 
-            // Calculate relevance score
             let relevanceScore = 0;
             queryWords.forEach(word => {
-              const matches = (transcript.match(new RegExp(word, 'g')) || []).length;
+              const matches = (transcript.match(new RegExp(word, 'g')) ?? []).length;
               relevanceScore += matches;
             });
 
             if (relevanceScore === 0) return null;
 
-            // Extract context around matches
-            const sentences = (t.transcription || "").split(/[.!?]+/);
+            const sentences = (t.transcription ?? "").split(/[.!?]+/);
             const relevantSentences = sentences.filter(sentence =>
               queryWords.some(word => sentence.toLowerCase().includes(word))
             );
 
             return {
               content: relevantSentences.slice(0, 3).join('. '),
-              meetingTitle: t.title || "",
+              sourceType: 'transcription' as const,
+              sourceId: t.id,
+              sourceTitle: t.title ?? "",
+              meetingTitle: t.title ?? "",
               meetingDate: t.createdAt.toISOString(),
-              participants: [], // Empty array - field doesn't exist in schema
-              meetingType: "", // Empty string - field doesn't exist in schema
-              projectId: t.projectId,
               relevanceScore: relevanceScore / queryWords.length,
               contextType: determineContextType(relevantSentences.join(' ')),
             };
           })
           .filter(Boolean)
-          .sort((a, b) => (b?.relevanceScore || 0) - (a?.relevanceScore || 0))
+          .sort((a, b) => (b?.relevanceScore ?? 0) - (a?.relevanceScore ?? 0))
           .slice(0, input.topK);
 
         return { results };
-      } catch (error) {
-        console.error('Error in queryMeetingContext:', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to query meeting context'
-        });
       }
     }),
 
@@ -1118,6 +1137,159 @@ export const mastraRouter = createTRPCRouter({
           upcomingDeadlines: insights.deadlines.filter(d => new Date(d.dueDate) > now).length,
           activeBlockers: insights.blockers.filter(b => !b.resolution).length,
         }
+      };
+    }),
+
+  // Backfill embeddings for existing transcriptions
+  backfillTranscriptionEmbeddings: protectedProcedure
+    .input(z.object({
+      projectId: z.string().optional(),
+      limit: z.number().min(1).max(100).default(10),
+      skipExisting: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Verify project access if specified
+      if (input.projectId) {
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId, createdById: userId }
+        });
+        if (!project) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Project not found or access denied'
+          });
+        }
+      }
+
+      // Find transcriptions that need embedding
+      const whereClause: Record<string, unknown> = {
+        userId,
+        transcription: { not: null },
+        ...(input.projectId && { projectId: input.projectId }),
+      };
+
+      // Get all user's transcriptions
+      const transcriptions = await ctx.db.transcriptionSession.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        take: input.limit * 2, // Get extra to filter
+        select: { id: true, title: true },
+      });
+
+      // If skipExisting, filter out those that already have chunks
+      let toProcess = transcriptions;
+      if (input.skipExisting) {
+        const existingChunks = await ctx.db.knowledgeChunk.groupBy({
+          by: ['sourceId'],
+          where: {
+            sourceType: 'transcription',
+            sourceId: { in: transcriptions.map(t => t.id) },
+          },
+        });
+        const existingIds = new Set(existingChunks.map(c => c.sourceId));
+        toProcess = transcriptions.filter(t => !existingIds.has(t.id));
+      }
+
+      // Limit to requested amount
+      toProcess = toProcess.slice(0, input.limit);
+
+      // Process each transcription
+      const knowledgeService = getKnowledgeService(ctx.db);
+      const results: { id: string; title: string | null; chunkCount: number; error?: string }[] = [];
+
+      for (const transcription of toProcess) {
+        try {
+          const chunkCount = await knowledgeService.embedTranscription(transcription.id);
+          results.push({
+            id: transcription.id,
+            title: transcription.title,
+            chunkCount,
+          });
+        } catch (error) {
+          console.error(`[backfillTranscriptionEmbeddings] Failed for ${transcription.id}:`, error);
+          results.push({
+            id: transcription.id,
+            title: transcription.title,
+            chunkCount: 0,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      }
+
+      return {
+        processed: results.length,
+        successful: results.filter(r => !r.error).length,
+        failed: results.filter(r => r.error).length,
+        results,
+      };
+    }),
+
+  // Get embedding statistics
+  getEmbeddingStats: protectedProcedure
+    .input(z.object({
+      projectId: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Count transcriptions with/without embeddings
+      const totalTranscriptions = await ctx.db.transcriptionSession.count({
+        where: {
+          userId,
+          transcription: { not: null },
+          ...(input.projectId && { projectId: input.projectId }),
+        },
+      });
+
+      const transcriptionChunks = await ctx.db.knowledgeChunk.groupBy({
+        by: ['sourceId'],
+        where: {
+          userId,
+          sourceType: 'transcription',
+          ...(input.projectId && { projectId: input.projectId }),
+        },
+      });
+
+      // Count resources with/without embeddings
+      const totalResources = await ctx.db.resource.count({
+        where: {
+          userId,
+          content: { not: null },
+          ...(input.projectId && { projectId: input.projectId }),
+        },
+      });
+
+      const resourceChunks = await ctx.db.knowledgeChunk.groupBy({
+        by: ['sourceId'],
+        where: {
+          userId,
+          sourceType: 'resource',
+          ...(input.projectId && { projectId: input.projectId }),
+        },
+      });
+
+      // Total chunks
+      const totalChunks = await ctx.db.knowledgeChunk.count({
+        where: {
+          userId,
+          ...(input.projectId && { projectId: input.projectId }),
+        },
+      });
+
+      return {
+        transcriptions: {
+          total: totalTranscriptions,
+          withEmbeddings: transcriptionChunks.length,
+          pendingEmbeddings: totalTranscriptions - transcriptionChunks.length,
+        },
+        resources: {
+          total: totalResources,
+          withEmbeddings: resourceChunks.length,
+          pendingEmbeddings: totalResources - resourceChunks.length,
+        },
+        totalChunks,
       };
     }),
 }); 

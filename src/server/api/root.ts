@@ -35,6 +35,7 @@ import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
 import { projectSetupRouter } from "./routers/projectSetup";
 import { workspaceRouter } from "./routers/workspace";
+import { resourceRouter } from "./routers/resource";
 /**
  * This is the primary router for your server.
  *
@@ -77,6 +78,7 @@ export const appRouter = createTRPCRouter({
   habit: habitRouter,
   projectSetup: projectSetupRouter,
   workspace: workspaceRouter,
+  resource: resourceRouter,
 });
 
 // export type definition of API

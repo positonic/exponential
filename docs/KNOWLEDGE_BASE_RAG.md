@@ -93,6 +93,67 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 For Railway/Supabase/Neon, pgvector is pre-installed. Just run the migration.
 
+## API Endpoints
+
+### Resource CRUD (`api.resource.*`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `resource.create` | mutation | Create a new resource with optional auto-embedding |
+| `resource.get` | query | Get a single resource by ID |
+| `resource.list` | query | List resources with filters (project, workspace, tags, search) |
+| `resource.update` | mutation | Update a resource |
+| `resource.archive` | mutation | Soft delete a resource |
+| `resource.unarchive` | mutation | Restore an archived resource |
+| `resource.delete` | mutation | Permanently delete a resource and its embeddings |
+| `resource.regenerateEmbeddings` | mutation | Regenerate embeddings for a resource |
+| `resource.search` | query | Semantic search across resources |
+
+### Mastra Endpoints (`api.mastra.*`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `mastra.queryMeetingContext` | mutation | Semantic search across all knowledge (transcriptions + resources) |
+| `mastra.backfillTranscriptionEmbeddings` | mutation | Generate embeddings for existing transcriptions |
+| `mastra.getEmbeddingStats` | query | Get statistics on embedding coverage |
+
+## KnowledgeService
+
+The `KnowledgeService` (`src/server/services/KnowledgeService.ts`) provides core functionality:
+
+### Methods
+
+```typescript
+// Get singleton instance
+const knowledgeService = getKnowledgeService(db);
+
+// Generate embedding for text
+await knowledgeService.generateEmbedding(text);
+
+// Chunk text into ~500 token segments
+const chunks = knowledgeService.chunkText(text);
+
+// Embed a resource (chunks + stores embeddings)
+await knowledgeService.embedResource(resourceId);
+
+// Embed a transcription
+await knowledgeService.embedTranscription(transcriptionId);
+
+// Semantic search
+const results = await knowledgeService.search(query, {
+  userId: string,
+  projectId?: string,
+  sourceTypes?: ('transcription' | 'resource')[],
+  limit?: number,
+});
+
+// Delete chunks for a source
+await knowledgeService.deleteChunks(sourceType, sourceId);
+
+// Get chunk count for a source
+await knowledgeService.getChunkCount(sourceType, sourceId);
+```
+
 ## Vector Search
 
 Since Prisma doesn't support pgvector operations natively, use raw SQL:
@@ -135,72 +196,68 @@ Target: ~500 tokens per chunk with sentence boundary splitting.
 3. Include 1-2 sentence overlap for context
 4. Preserve speaker labels in transcriptions
 
-## Usage Patterns
+## Usage Examples
 
-### Creating a Resource with Chunks
+### Creating a Resource via API
 
 ```typescript
-// 1. Create the resource
-const resource = await prisma.resource.create({
-  data: {
-    title: "API Documentation",
-    url: "https://example.com/docs",
-    content: cleanedText,
-    contentType: "web_page",
-    userId: user.id,
-    projectId: project.id,
-  }
+// Create resource with auto-embedding
+const { resource } = await api.resource.create.mutate({
+  title: "API Documentation",
+  url: "https://example.com/docs",
+  content: cleanedText,
+  contentType: "web_page",
+  projectId: project.id,
+  generateEmbeddings: true, // auto-embed
 });
-
-// 2. Chunk the content
-const chunks = KnowledgeService.chunkText(cleanedText);
-
-// 3. Generate embeddings and store
-for (const [index, chunk] of chunks.entries()) {
-  const embedding = await KnowledgeService.generateEmbedding(chunk.text);
-
-  await prisma.$executeRaw`
-    INSERT INTO "KnowledgeChunk" (id, content, embedding, "sourceType", "sourceId", "chunkIndex", "userId", "projectId", "createdAt")
-    VALUES (${cuid()}, ${chunk.text}, ${embedding}::vector, 'resource', ${resource.id}, ${index}, ${user.id}, ${project.id}, NOW())
-  `;
-}
 ```
 
-### Searching the Knowledge Base
+### Semantic Search
 
 ```typescript
-// Generate query embedding
-const queryEmbedding = await KnowledgeService.generateEmbedding(query);
+// Search across all knowledge
+const { results } = await api.mastra.queryMeetingContext.mutate({
+  query: "how to deploy the application",
+  projectId: project.id,
+  topK: 10,
+  sourceTypes: ['transcription', 'resource'], // optional filter
+});
 
-// Search
-const results = await prisma.$queryRaw`
-  SELECT
-    kc.id,
-    kc.content,
-    kc."sourceType",
-    kc."sourceId",
-    kc."chunkIndex",
-    1 - (kc.embedding <=> ${queryEmbedding}::vector) as similarity,
-    CASE
-      WHEN kc."sourceType" = 'transcription' THEN ts.title
-      WHEN kc."sourceType" = 'resource' THEN r.title
-    END as "sourceTitle"
-  FROM "KnowledgeChunk" kc
-  LEFT JOIN "TranscriptionSession" ts ON kc."sourceType" = 'transcription' AND kc."sourceId" = ts.id
-  LEFT JOIN "Resource" r ON kc."sourceType" = 'resource' AND kc."sourceId" = r.id
-  WHERE kc."userId" = ${userId}
-    AND (kc."projectId" = ${projectId} OR kc."projectId" IS NULL)
-  ORDER BY kc.embedding <=> ${queryEmbedding}::vector
-  LIMIT 10
-`;
+// Search only resources
+const { results } = await api.resource.search.query({
+  query: "authentication setup",
+  projectId: project.id,
+  limit: 5,
+});
+```
+
+### Backfill Existing Transcriptions
+
+```typescript
+// Backfill embeddings for transcriptions that don't have them
+const { processed, successful, failed, results } =
+  await api.mastra.backfillTranscriptionEmbeddings.mutate({
+    projectId: project.id,
+    limit: 10,
+    skipExisting: true,
+  });
+
+// Check embedding coverage
+const stats = await api.mastra.getEmbeddingStats.query({
+  projectId: project.id,
+});
+// Returns: { transcriptions: { total, withEmbeddings, pendingEmbeddings }, ... }
 ```
 
 ## Related Files
 
-- `prisma/schema.prisma` - Resource and KnowledgeChunk models
-- `prisma/migrations/20260104202249_add_knowledge_base/` - Migration with pgvector
-- `src/server/services/KnowledgeService.ts` - Chunking, embedding, search (Phase 2)
-- `src/server/api/routers/mastra.ts` - `queryMeetingContext` endpoint
+| File | Description |
+|------|-------------|
+| `prisma/schema.prisma` | Resource and KnowledgeChunk models |
+| `prisma/migrations/20260104202249_add_knowledge_base/` | Migration with pgvector |
+| `src/server/services/KnowledgeService.ts` | Chunking, embedding, search service |
+| `src/server/api/routers/resource.ts` | Resource CRUD endpoints |
+| `src/server/api/routers/mastra.ts` | `queryMeetingContext`, backfill, stats endpoints |
 
 ## Migration Notes
 
@@ -219,3 +276,12 @@ Prisma's shadow database doesn't have pgvector. Solutions:
 1. Use `prisma migrate deploy` (recommended)
 2. Configure `shadowDatabaseUrl` with pgvector-enabled DB
 3. Use `prisma db push` for dev (loses migration history)
+
+## Fallback Behavior
+
+The `queryMeetingContext` endpoint has graceful fallback:
+1. Attempts vector search using KnowledgeService
+2. If vector search fails (e.g., no embeddings), falls back to keyword search
+3. Returns results in consistent format either way
+
+This ensures the system works before embeddings are generated while providing better results once they're available.

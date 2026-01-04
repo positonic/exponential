@@ -15,14 +15,15 @@ The Knowledge Base lets you save documents, web pages, and notes alongside your 
 - **Documents** - Store text documents and notes
 - **Meeting Transcriptions** - Automatically indexed from your meetings
 - **Bookmarks** - Quick references to important URLs
+- **Notes** - Quick thoughts and reminders
 
 ## How It Works
 
 When you save content to the Knowledge Base:
 
 1. **Content is cleaned** - HTML is stripped, text is extracted
-2. **Text is chunked** - Content is split into searchable segments
-3. **AI embeddings are generated** - Each chunk gets a semantic fingerprint
+2. **Text is chunked** - Content is split into ~500 token segments with smart sentence boundaries
+3. **AI embeddings are generated** - Each chunk gets a semantic fingerprint using OpenAI
 4. **Stored for search** - Content becomes searchable by meaning, not just keywords
 
 ## AI-Powered Search
@@ -32,6 +33,7 @@ Unlike traditional keyword search, the Knowledge Base uses **semantic search**. 
 - Search by meaning, not exact words
 - Find related content even with different terminology
 - Get relevant results ranked by similarity
+- Search across all your content with a single query
 
 ### Example
 
@@ -53,8 +55,32 @@ This gives your AI assistant the context it needs to provide relevant, informed 
 |------|-------------|----------|
 | Web Page | Saved web content with URL | Articles, documentation, references |
 | Document | Text content without a URL | Notes, drafts, internal docs |
+| PDF | Uploaded PDF documents | Reports, papers, presentations |
 | Bookmark | URL reference with minimal content | Quick links, read-later items |
 | Note | Short text snippets | Quick thoughts, reminders |
+
+## Managing Your Knowledge Base
+
+### Adding Content
+
+Content can be added through:
+- Saving web pages directly
+- Uploading documents
+- Automatic indexing of meeting transcriptions
+- Creating notes and bookmarks
+
+### Organizing Content
+
+- **Tags** - Add tags to organize and filter content
+- **Projects** - Associate content with specific projects
+- **Workspaces** - Keep work and personal content separate
+
+### Archiving
+
+Content you no longer need can be archived:
+- Archived content is hidden from normal searches
+- Can be restored at any time
+- Permanently delete when you're sure
 
 ## Privacy
 
@@ -64,3 +90,13 @@ Your Knowledge Base content is:
 - Only searchable by you and your AI assistant
 - Never shared with other users
 - Scoped to your projects and workspaces
+- Stored securely with encryption at rest
+
+## Technical Details
+
+For developers and power users:
+
+- **Embedding Model**: OpenAI text-embedding-3-small (1536 dimensions)
+- **Vector Database**: pgvector on PostgreSQL
+- **Chunking**: ~500 tokens with sentence boundary awareness and overlap
+- **Search**: Cosine similarity ranking
