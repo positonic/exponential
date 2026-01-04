@@ -23,9 +23,10 @@ interface CreateGoalModalProps {
   };
   trigger?: React.ReactNode;
   projectId?: string;
+  onSuccess?: (goalId: number) => void; // Callback when goal is created/updated
 }
 
-export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGoalModalProps) {
+export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess }: CreateGoalModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [title, setTitle] = useState(goal?.title ?? "");
   const [description, setDescription] = useState(goal?.description ?? "");
@@ -88,7 +89,8 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
         void utils.goal.getProjectGoals.invalidate({ projectId: selectedProjectId });
       }
     },
-    onSuccess: () => {
+    onSuccess: (newGoal) => {
+      onSuccess?.(newGoal.id);
       resetForm();
       close();
     },
@@ -122,7 +124,8 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
     onSettled: () => {
       void utils.goal.getAllMyGoals.invalidate();
     },
-    onSuccess: () => {
+    onSuccess: (updatedGoal) => {
+      onSuccess?.(updatedGoal.id);
       resetForm();
       close();
     },

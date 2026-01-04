@@ -1,10 +1,12 @@
 "use client";
 
 import { Modal, Button, Group, TextInput, Select, Textarea } from '@mantine/core';
+import { IconPlus } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { DateInput } from '@mantine/dates';
+import { CreateGoalModal } from './CreateGoalModal';
 
 interface CreateOutcomeModalProps {
   children?: React.ReactNode;
@@ -346,6 +348,17 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
               },
             }}
           />
+          <CreateGoalModal onSuccess={(id) => setSelectedGoalId(id)}>
+            <Button
+              variant="subtle"
+              size="xs"
+              leftSection={<IconPlus size={14} />}
+              mt={4}
+              className="text-text-secondary hover:text-text-primary"
+            >
+              Create goal
+            </Button>
+          </CreateGoalModal>
 
           <Select
             label="How will you achieve this? (optional)"
