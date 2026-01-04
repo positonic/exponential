@@ -19,11 +19,12 @@ interface CreateOutcomeModalProps {
     goalId?: number;
   };
   trigger?: React.ReactNode; // For clicking on existing outcomes
+  onSuccess?: (outcomeId: string) => void; // Callback when outcome is created/updated
 }
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
-export function CreateOutcomeModal({ children, projectId, outcome, trigger }: CreateOutcomeModalProps) {
+export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSuccess }: CreateOutcomeModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [description, setDescription] = useState(outcome?.description ?? "");
   const [dueDate, setDueDate] = useState<Date | null>(outcome?.dueDate ?? null);
@@ -99,7 +100,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
 
     onSuccess: async (newOutcome) => {
       console.log('🟢 Mutation succeeded:', newOutcome);
-      
+
       // Immediately update the cache with the new data
       if (selectedProjectId) {
         console.log('🟢 Invalidating project outcomes for:', selectedProjectId);
@@ -107,7 +108,10 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       }
       console.log('🟢 Invalidating all outcomes');
       await utils.outcome.getMyOutcomes.invalidate();
-      
+
+      // Call onSuccess callback if provided
+      onSuccess?.(newOutcome.id);
+
       // Reset form and close modal
       setDescription("");
       setDueDate(null);
@@ -141,12 +145,15 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       return previousData;
     },
 
-    onSuccess: async (_updatedOutcome) => {
+    onSuccess: async (updatedOutcome) => {
       // Invalidate and refetch immediately
       await Promise.all([
         utils.outcome.getMyOutcomes.invalidate(),
         selectedProjectId ? utils.outcome.getProjectOutcomes.invalidate({ projectId: selectedProjectId }) : Promise.resolve()
       ]);
+
+      // Call onSuccess callback if provided
+      onSuccess?.(updatedOutcome.id);
 
       // Reset form and close modal
       resetForm();

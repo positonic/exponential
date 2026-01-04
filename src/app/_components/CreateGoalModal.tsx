@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { CreateProjectModal } from './CreateProjectModal';
+import { CreateOutcomeModal } from './CreateOutcomeModal';
 
 interface CreateGoalModalProps {
   children?: React.ReactNode;
@@ -246,6 +247,17 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             clearable
             mt="md"
           />
+          <CreateOutcomeModal onSuccess={(id) => setSelectedOutcomeIds(prev => [...prev, id])}>
+            <Button
+              variant="subtle"
+              size="xs"
+              leftSection={<IconPlus size={14} />}
+              mt={4}
+              className="text-text-secondary hover:text-text-primary"
+            >
+              Create outcome
+            </Button>
+          </CreateOutcomeModal>
 
           <Select
             label="Life Domain"
