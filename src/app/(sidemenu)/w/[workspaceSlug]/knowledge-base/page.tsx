@@ -103,6 +103,13 @@ export default function KnowledgeBasePage() {
   // Mutations
   const backfillMutation = api.mastra.backfillTranscriptionEmbeddings.useMutation({
     onSuccess: async (data) => {
+      console.log('[Backfill] Batch complete:', {
+        processed: data.processed,
+        successful: data.successful,
+        failed: data.failed,
+        isBackfillingRef: isBackfillingRef.current,
+      });
+
       // Update progress
       setBackfillProgress(prev => ({
         ...prev,
@@ -114,19 +121,31 @@ export default function KnowledgeBasePage() {
       const result = await refetchStats();
       const pending = result.data?.transcriptions.pendingEmbeddings ?? 0;
 
+      console.log('[Backfill] Stats refreshed:', {
+        pending,
+        isBackfillingRef: isBackfillingRef.current,
+        shouldContinue: isBackfillingRef.current && pending > 0 && data.processed > 0,
+      });
+
       // If still running and more pending, continue processing
       if (isBackfillingRef.current && pending > 0 && data.processed > 0) {
+        console.log('[Backfill] Scheduling next batch in 500ms...');
         // Small delay to avoid hammering the API
         setTimeout(() => {
+          console.log('[Backfill] Starting next batch...');
           backfillMutation.mutate({ limit: 20, skipExisting: true });
         }, 500);
       } else {
+        console.log('[Backfill] Stopping:', {
+          reason: !isBackfillingRef.current ? 'user stopped' : pending === 0 ? 'no more pending' : 'no items processed',
+        });
         // Done - reset state
         isBackfillingRef.current = false;
         setBackfillProgress(prev => ({ ...prev, isRunning: false }));
       }
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('[Backfill] Error:', error);
       isBackfillingRef.current = false;
       setBackfillProgress(prev => ({ ...prev, isRunning: false }));
     },
@@ -316,11 +335,18 @@ export default function KnowledgeBasePage() {
         >
           <Stack gap="xs">
             <Group justify="space-between" align="center">
-              <Text size="sm">
-                Processed {backfillProgress.totalProcessed} transcriptions
-                {backfillProgress.totalFailed > 0 && ` (${backfillProgress.totalFailed} failed)`}
-                {stats && ` • ${stats.transcriptions.pendingEmbeddings} remaining`}
-              </Text>
+              <Stack gap={2}>
+                <Text size="sm">
+                  Processed {backfillProgress.totalProcessed} transcriptions
+                  {backfillProgress.totalFailed > 0 && ` (${backfillProgress.totalFailed} failed)`}
+                  {stats && ` • ${stats.transcriptions.pendingEmbeddings} remaining`}
+                </Text>
+                <Text size="xs" className="text-blue-400 h-4">
+                  {backfillMutation.isPending
+                    ? `Processing batch ${Math.floor(backfillProgress.totalProcessed / 20) + 1}... (up to 60 seconds per batch)`
+                    : 'Preparing next batch...'}
+                </Text>
+              </Stack>
               <Button
                 size="xs"
                 variant="subtle"
