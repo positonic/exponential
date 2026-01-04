@@ -44,7 +44,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(project?.workspaceId ?? null);
 
   // Get current workspace context for new projects
-  const { workspaceId: currentWorkspaceId } = useWorkspace();
+  const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
 
   // Fetch all workspaces the user belongs to
   const { data: workspaces } = api.workspace.list.useQuery();
@@ -703,7 +703,10 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               {createdProjectSlug && createdProjectId && (
                 <Button
                   component={Link}
-                  href={`/projects/${createdProjectSlug}-${createdProjectId}`}
+                  href={workspaceSlug
+                    ? `/w/${workspaceSlug}/projects/${createdProjectSlug}-${createdProjectId}`
+                    : `/projects/${createdProjectSlug}-${createdProjectId}`
+                  }
                   onClick={handleSuccessClose}
                 >
                   View Project

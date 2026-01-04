@@ -27,6 +27,7 @@ import {
 import { useRouter } from "next/navigation";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 interface TaskInput {
   id: string;
@@ -37,6 +38,7 @@ type WizardStep = 1 | 2;
 
 export function ProjectSetupWizard() {
   const router = useRouter();
+  const { workspaceSlug } = useWorkspace();
   const [step, setStep] = useState<WizardStep>(1);
   const [isLoading, setIsLoading] = useState(false);
   const [projectName, setProjectName] = useState("");
@@ -130,7 +132,11 @@ export function ProjectSetupWizard() {
       });
 
       // Redirect to the project
-      router.push(`/projects/${setupData.project.slug}-${setupData.project.id}`);
+      const projectPath = `${setupData.project.slug}-${setupData.project.id}`;
+      router.push(workspaceSlug
+        ? `/w/${workspaceSlug}/projects/${projectPath}`
+        : `/projects/${projectPath}`
+      );
     } catch {
       notifications.show({
         title: "Error",

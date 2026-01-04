@@ -49,6 +49,7 @@ import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
 import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 // import { useRouter } from 'next/navigation';
 import { AddProjectToTeamModal } from '~/app/_components/AddProjectToTeamModal';
 import { AssignProjectToTeamModal } from '~/app/_components/AssignProjectToTeamModal';
@@ -69,6 +70,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { workspaceSlug } = useWorkspace();
   const [addMemberModalOpened, { open: openAddMemberModal, close: closeAddMemberModal }] = useDisclosure(false);
   const [addIntegrationModalOpened, { open: openAddIntegrationModal, close: closeAddIntegrationModal }] = useDisclosure(false);
 
@@ -436,7 +438,10 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                           variant="light"
                           size="xs"
                           component={Link}
-                          href={`/projects/${project.slug}-${project.id}`}
+                          href={workspaceSlug
+                            ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
+                            : `/projects/${project.slug}-${project.id}`
+                          }
                         >
                           View
                         </Button>

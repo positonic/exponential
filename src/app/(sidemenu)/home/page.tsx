@@ -44,7 +44,13 @@ export default async function HomePage() {
           select: {
             id: true,
             name: true,
-            createdAt: true
+            slug: true,
+            createdAt: true,
+            workspace: {
+              select: {
+                slug: true
+              }
+            }
           }
         }
       },
@@ -130,7 +136,10 @@ export default async function HomePage() {
               {recentProject && (
                 <Button
                   component={Link}
-                  href={`/projects/${recentProject.id}`}
+                  href={recentProject.workspace?.slug
+                    ? `/w/${recentProject.workspace.slug}/projects/${recentProject.slug}-${recentProject.id}`
+                    : `/projects/${recentProject.slug}-${recentProject.id}`
+                  }
                   variant="light"
                   leftSection={<IconFolder size={16} />}
                   size="sm"
