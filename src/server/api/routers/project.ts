@@ -275,10 +275,11 @@ export const projectRouter = createTRPCRouter({
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
         lifeDomainIds: z.array(z.number()).optional(),
+        workspaceId: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, lifeDomainIds, ...updateData } = input;
+      const { id, goalIds, outcomeIds, lifeDomainIds, workspaceId, ...updateData } = input;
       
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -313,6 +314,12 @@ export const projectRouter = createTRPCRouter({
           lifeDomains: lifeDomainIds !== undefined ? {
             set: lifeDomainIds.map(id => ({ id })),
           } : undefined,
+          // Handle workspace: null means disconnect, string means connect
+          workspace: workspaceId === null
+            ? { disconnect: true }
+            : workspaceId !== undefined
+              ? { connect: { id: workspaceId } }
+              : undefined,
         },
       });
     }),

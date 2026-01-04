@@ -3,11 +3,12 @@ import { IconAlertCircle, IconBrandNotion, IconCheck, IconPlus } from '@tabler/i
 import Link from 'next/link';
 import { useDisclosure } from '@mantine/hooks';
 import type { Project, Goal, Outcome } from '@prisma/client';
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from 'next-auth/react';
 import { api } from "~/trpc/react";
 import { CreateGoalModal } from './CreateGoalModal';
 import { notifications } from '@mantine/notifications';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 type ProjectStatus = "ACTIVE" | "COMPLETED" | "ON_HOLD" | "CANCELLED";
 type ProjectPriority = "HIGH" | "MEDIUM" | "LOW" | "NONE";
@@ -16,6 +17,7 @@ type ProjectWithRelations = Project & {
   goals?: Goal[];
   outcomes?: Outcome[];
   lifeDomains?: { id: number; title: string }[];
+  workspaceId?: string | null;
 };
 
 interface CreateProjectModalProps {
@@ -39,6 +41,20 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [selectedLifeDomainIds, setSelectedLifeDomainIds] = useState<string[]>(project?.lifeDomains?.map(d => d.id.toString()) ?? []);
   const [goalSearchValue, setGoalSearchValue] = useState("");
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(project?.workspaceId ?? null);
+
+  // Get current workspace context for new projects
+  const { workspaceId: currentWorkspaceId } = useWorkspace();
+
+  // Fetch all workspaces the user belongs to
+  const { data: workspaces } = api.workspace.list.useQuery();
+
+  // Set workspace to current workspace when creating a new project
+  useEffect(() => {
+    if (!project && currentWorkspaceId && selectedWorkspaceId === null) {
+      setSelectedWorkspaceId(currentWorkspaceId);
+    }
+  }, [project, currentWorkspaceId, selectedWorkspaceId]);
 
   // Multi-step flow state for Notion imports
   const [step, setStep] = useState<'create' | 'workflow' | 'success'>('create');
@@ -293,6 +309,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 goalIds: selectedGoals,
                 outcomeIds: selectedOutcomes,
                 lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
+                workspaceId: selectedWorkspaceId,
               });
             } else {
               createMutation.mutate({
@@ -304,6 +321,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 outcomeIds: selectedOutcomes,
                 lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
                 notionProjectId: notionProjectId ?? undefined,
+                workspaceId: selectedWorkspaceId ?? undefined,
               });
             }
           }}
@@ -532,6 +550,36 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               },
             }}
           />
+
+          {/* Workspace selector - show when editing to allow moving between workspaces */}
+          {project && workspaces && workspaces.length > 0 && (
+            <Select
+              data={[
+                { value: '', label: 'No Workspace (Personal)' },
+                ...workspaces.map(ws => ({
+                  value: ws.id,
+                  label: ws.name
+                }))
+              ]}
+              value={selectedWorkspaceId ?? ''}
+              onChange={(value) => setSelectedWorkspaceId(value === '' ? null : value)}
+              label="Workspace"
+              description="Move this project to a different workspace"
+              mt="md"
+              styles={{
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+                dropdown: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  borderColor: 'var(--color-border-primary)',
+                  color: 'var(--color-text-primary)',
+                },
+              }}
+            />
+          )}
 
           <Group justify="flex-end" mt="xl">
             <Button variant="subtle" color="gray" onClick={handleClose}>
