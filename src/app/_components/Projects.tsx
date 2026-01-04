@@ -6,6 +6,7 @@ import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Tabs, Modal } from "@mantine/core";
+import { modals } from "@mantine/modals";
 import { useDisclosure } from "@mantine/hooks";
 import { slugify } from "~/utils/slugify";
 import { IconEdit, IconTrash, IconBrandNotion, IconPlus } from "@tabler/icons-react";
@@ -26,6 +27,20 @@ function ProjectList({ projects }: { projects: Project[] }) {
       void utils.project.getAll.invalidate();
     },
   });
+
+  const handleDeleteProject = (project: Project) => {
+    modals.openConfirmModal({
+      title: 'Delete Project',
+      children: (
+        <Text size="sm">
+          Are you sure you want to delete <strong>{project.name}</strong>? This action cannot be undone.
+        </Text>
+      ),
+      labels: { confirm: 'Delete', cancel: 'Cancel' },
+      confirmProps: { color: 'red' },
+      onConfirm: () => deleteProject.mutate({ id: project.id }),
+    });
+  };
 
   const statusOptions = [
     { value: "ACTIVE", label: "Active" },
@@ -151,7 +166,7 @@ function ProjectList({ projects }: { projects: Project[] }) {
                     </button>
                   </CreateProjectModal>
                   <button
-                    onClick={() => deleteProject.mutate({ id: project.id })}
+                    onClick={() => handleDeleteProject(project)}
                     className="text-gray-400 hover:text-red-500"
                     aria-label="Delete project"
                   >
