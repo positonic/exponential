@@ -85,7 +85,8 @@ export const projectRouter = createTRPCRouter({
     .input(z.object({
       include: z.object({
         actions: z.boolean()
-      }).optional()
+      }).optional(),
+      workspaceId: z.string().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       console.log('🔍 [PROJECT.GETALL DEBUG] Query started', {
@@ -94,11 +95,14 @@ export const projectRouter = createTRPCRouter({
         userEmail: ctx.session.user.email,
         userName: ctx.session.user.name,
         sessionExpires: ctx.session.expires,
-        includeActions: input?.include?.actions ?? false
+        includeActions: input?.include?.actions ?? false,
+        workspaceId: input?.workspaceId ?? 'none'
       });
 
       const projects = await ctx.db.project.findMany({
         where: {
+          // Filter by workspace if provided
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
           OR: [
             // User is the project creator
             { createdById: ctx.session.user.id },
@@ -111,7 +115,17 @@ export const projectRouter = createTRPCRouter({
                   }
                 }
               }
-            }
+            },
+            // User is a member of the workspace
+            ...(input?.workspaceId ? [{
+              workspace: {
+                members: {
+                  some: {
+                    userId: ctx.session.user.id
+                  }
+                }
+              }
+            }] : [])
           ]
         },
         orderBy: {
@@ -181,6 +195,7 @@ export const projectRouter = createTRPCRouter({
         lifeDomainIds: z.array(z.number()).optional(),
         teamId: z.string().optional(),
         notionProjectId: z.string().optional(),
+        workspaceId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -211,6 +226,11 @@ export const projectRouter = createTRPCRouter({
               id: ctx.session.user.id,
             },
           },
+          workspace: input.workspaceId ? {
+            connect: {
+              id: input.workspaceId,
+            },
+          } : undefined,
           team: input.teamId ? {
             connect: {
               id: input.teamId,

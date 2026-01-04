@@ -63,6 +63,7 @@ export function GlobalAddTaskButton() {
         dueDate: newAction.dueDate ? new Date(newAction.dueDate) : null,
         transcriptionSessionId: null,
         teamId: null,
+        workspaceId: null,
         kanbanStatus: newAction.projectId ? ("TODO" as ActionStatus) : null,
         kanbanOrder: null,
         completedAt: null,

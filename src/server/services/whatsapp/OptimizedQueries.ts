@@ -70,6 +70,7 @@ export class OptimizedQueries {
                 onboardingCompletedAt: true,
                 onboardingStep: true,
                 projectSetupCompletedAt: true,
+                defaultWorkspaceId: true,
               }
             }
           }

@@ -7,7 +7,6 @@ import {
 
 import {
   getMyPublicGoals,
-  getAllMyGoals,
   updateGoal,
   getProjectGoals,
   deleteGoal
@@ -17,7 +16,23 @@ export const goalRouter = createTRPCRouter({
   myPublicGoals: publicProcedure
     .query(getMyPublicGoals),
 
-  getAllMyGoals: protectedProcedure.query(getAllMyGoals),
+  getAllMyGoals: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      return await ctx.db.goal.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        include: {
+          lifeDomain: true,
+          projects: true,
+          outcomes: true,
+        },
+      });
+    }),
 
   createGoal: protectedProcedure
     .input(z.object({
@@ -29,6 +44,7 @@ export const goalRouter = createTRPCRouter({
       lifeDomainId: z.number(),
       projectId: z.string().optional(),
       outcomeIds: z.array(z.string()).optional(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       return await ctx.db.goal.create({
@@ -40,6 +56,7 @@ export const goalRouter = createTRPCRouter({
           dueDate: input.dueDate,
           lifeDomainId: input.lifeDomainId,
           userId: ctx.session.user.id,
+          workspaceId: input.workspaceId,
           projects: input.projectId
             ? { connect: [{ id: input.projectId }] }
             : undefined,

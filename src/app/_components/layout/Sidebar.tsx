@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { IconMenu2, IconX } from "@tabler/icons-react";
 import { useState, useEffect } from 'react';
 import { themes, type ValidDomain } from "~/config/themes";
@@ -75,6 +76,9 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           </button>
         </div>
         
+        {/* Workspace Switcher */}
+        <WorkspaceSwitcher />
+
         {/* Scrollable content area */}
         <nav className="flex-1 overflow-y-auto px-1 py-4 space-y-6">
           <div className="space-y-2">

@@ -46,28 +46,29 @@ model Session {
 }
 
 model User {
-  id                      String                   @id @default(cuid())
+  id                      String                     @id @default(cuid())
   name                    String?
-  email                   String?                  @unique
+  email                   String?                    @unique
   emailVerified           DateTime?
   image                   String?
   onboardingCompletedAt   DateTime?
-  onboardingStep          Int                      @default(1)
+  onboardingStep          Int                        @default(1)
   projectSetupCompletedAt DateTime?
   selectedTools           String[]
   usageType               String?
   userRole                String?
-  isAdmin                 Boolean                  @default(false)
+  isAdmin                 Boolean                    @default(false)
+  defaultWorkspaceId      String?
   accounts                Account[]
   actions                 Action[]
-  actionAssignees         ActionAssignee[]         @relation("ActionAssignees")
+  actionAssignees         ActionAssignee[]           @relation("ActionAssignees")
   aiInteractionHistory    AiInteractionHistory[]
   feedback                Feedback[]
   goals                   Goal[]
   integrations            Integration[]
-  permissionsGrantedBy    IntegrationPermission[]  @relation("PermissionGrantedBy")
-  permissionsGrantedTo    IntegrationPermission[]  @relation("PermissionGrantedTo")
-  permissionsRevokedBy    IntegrationPermission[]  @relation("PermissionRevokedBy")
+  permissionsGrantedBy    IntegrationPermission[]    @relation("PermissionGrantedBy")
+  permissionsGrantedTo    IntegrationPermission[]    @relation("PermissionGrantedTo")
+  permissionsRevokedBy    IntegrationPermission[]    @relation("PermissionRevokedBy")
   integrationMappings     IntegrationUserMapping[]
   notes                   Note[]
   notificationPreferences NotificationPreference?
@@ -87,12 +88,14 @@ model User {
   verificationTokens      VerificationToken[]
   whatsappConversations   WhatsAppConversation[]
   workflows               Workflow[]
-  weeklyOutcomesCreated   WeeklyOutcome[]          @relation("WeeklyOutcomeCreated")
-  weeklyOutcomeAssignees  WeeklyOutcomeAssignee[]  @relation("WeeklyOutcomeAssignee")
+  weeklyOutcomesCreated   WeeklyOutcome[]            @relation("WeeklyOutcomeCreated")
+  weeklyOutcomeAssignees  WeeklyOutcomeAssignee[]    @relation("WeeklyOutcomeAssignee")
   teamCapacities          TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
   weeklyReviewSharing     WeeklyReviewSharing[]
   wheelOfLifeAssessments  WheelOfLifeAssessment[]
   habits                  Habit[]
+  ownedWorkspaces         Workspace[]                @relation("WorkspaceOwner")
+  workspaceMemberships    WorkspaceUser[]
 }
 
 model VerificationToken {
@@ -106,6 +109,48 @@ model VerificationToken {
   @@index([userId])
 }
 
+// ============================================
+// Workspace Models
+// ============================================
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  type        String   @default("personal") // "personal" | "team" | "organization"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  ownerId     String
+
+  owner    User            @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members  WorkspaceUser[]
+  projects Project[]
+  goals    Goal[]
+  outcomes Outcome[]
+  actions  Action[]
+  teams    Team[]
+
+  @@index([slug])
+  @@index([ownerId])
+  @@index([type])
+}
+
+model WorkspaceUser {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        String   @default("member") // "owner" | "admin" | "member" | "viewer"
+  joinedAt    DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([userId])
+  @@index([workspaceId])
+}
+
 model Action {
   id                     String                @id @default(cuid())
   name                   String
@@ -116,6 +161,7 @@ model Action {
   projectId              String?
   createdById            String
   teamId                 String?
+  workspaceId            String?
   transcriptionSessionId String?
   kanbanStatus           ActionStatus?
   kanbanOrder            Int?
@@ -124,14 +170,16 @@ model Action {
   createdBy              User                  @relation(fields: [createdById], references: [id])
   project                Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   team                   Team?                 @relation(fields: [teamId], references: [id])
+  workspace              Workspace?            @relation(fields: [workspaceId], references: [id])
   transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
   syncs                  ActionSync[]
   assignees              ActionAssignee[]
-  weeklyOutcomes         WeeklyOutcome[]   @relation("WeeklyOutcomeActions")
+  weeklyOutcomes         WeeklyOutcome[]       @relation("WeeklyOutcomeActions")
 
   @@index([projectId])
   @@index([createdById])
   @@index([teamId])
+  @@index([workspaceId])
   @@index([transcriptionSessionId])
   @@index([kanbanStatus])
 }
@@ -149,47 +197,52 @@ model ActionAssignee {
 }
 
 model Outcome {
-  id              String    @id @default(cuid())
-  description     String
-  dueDate         DateTime?
-  userId          String?
-  type            String?   @default("daily")
-  whyThisOutcome  String?
-  projectId       String?
-  user            User?     @relation(fields: [userId], references: [id], onDelete: Restrict)
-  goals       Goal[]    @relation("GoalOutcomes")
-  projects    Project[] @relation("ProjectOutcomes")
+  id             String     @id @default(cuid())
+  description    String
+  dueDate        DateTime?
+  userId         String?
+  type           String?    @default("daily")
+  whyThisOutcome String?
+  projectId      String?
+  workspaceId    String?
+  user           User?      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  workspace      Workspace? @relation(fields: [workspaceId], references: [id])
+  goals          Goal[]     @relation("GoalOutcomes")
+  projects       Project[]  @relation("ProjectOutcomes")
 
   @@index([userId])
   @@index([projectId])
+  @@index([workspaceId])
 }
 
 model Project {
-  id                    String                 @id @default(cuid())
+  id                    String                     @id @default(cuid())
   name                  String
-  status                String                 @default("ACTIVE")
-  priority              String                 @default("NONE")
-  progress              Float                  @default(0)
-  createdAt             DateTime               @default(now())
+  status                String                     @default("ACTIVE")
+  priority              String                     @default("NONE")
+  progress              Float                      @default(0)
+  createdAt             DateTime                   @default(now())
   reviewDate            DateTime?
   nextActionDate        DateTime?
   createdById           String
-  slug                  String                 @unique
+  slug                  String                     @unique
   description           String?
   teamId                String?
+  workspaceId           String?
   taskManagementConfig  Json?
-  taskManagementTool    String?                @default("internal")
+  taskManagementTool    String?                    @default("internal")
   notionProjectId       String?
   actions               Action[]
   aiInteractionHistory  AiInteractionHistory[]
-  createdBy             User                   @relation(fields: [createdById], references: [id])
-  team                  Team?                  @relation(fields: [teamId], references: [id])
+  createdBy             User                       @relation(fields: [createdById], references: [id])
+  team                  Team?                      @relation(fields: [teamId], references: [id])
+  workspace             Workspace?                 @relation(fields: [workspaceId], references: [id])
   projectMembers        ProjectMember[]
   slackConfig           SlackChannelConfig?
   transcriptionSessions TranscriptionSession[]
   workflows             Workflow[]
-  goals                 Goal[]                 @relation("GoalProjects")
-  outcomes              Outcome[]              @relation("ProjectOutcomes")
+  goals                 Goal[]                     @relation("GoalProjects")
+  outcomes              Outcome[]                  @relation("ProjectOutcomes")
   weeklyOutcomes        WeeklyOutcome[]
   memberCapacities      TeamMemberWeeklyCapacity[] @relation("ProjectCapacities")
   lifeDomains           LifeDomain[]               @relation("ProjectLifeDomains")
@@ -198,6 +251,7 @@ model Project {
   @@index([status])
   @@index([priority])
   @@index([teamId])
+  @@index([workspaceId])
   @@index([taskManagementTool])
 }
 
@@ -258,38 +312,41 @@ model Goal {
   id           Int        @id @default(autoincrement())
   title        String
   description  String?
-  whyThisGoal  String?    // "Why this value goal?" motivation text
-  notes        String?    // Notes field for each goal
+  whyThisGoal  String? // "Why this value goal?" motivation text
+  notes        String? // Notes field for each goal
   dueDate      DateTime?
   lifeDomainId Int
   userId       String
+  workspaceId  String?
   lifeDomain   LifeDomain @relation(fields: [lifeDomainId], references: [id])
   user         User       @relation(fields: [userId], references: [id])
+  workspace    Workspace? @relation(fields: [workspaceId], references: [id])
   outcomes     Outcome[]  @relation("GoalOutcomes")
   projects     Project[]  @relation("GoalProjects")
-  habits       Habit[]    // Habits linked to this goal
+  habits       Habit[] // Habits linked to this goal
 
   @@index([lifeDomainId])
   @@index([userId])
+  @@index([workspaceId])
 }
 
 model Habit {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   title       String
   description String?
-  frequency   String   @default("daily") // daily, 3x_week, weekly, bi_weekly, monthly, custom
-  daysOfWeek  Int[]    // Array of day numbers (0=Sunday, 1=Monday, etc.) for custom scheduling
-  timeOfDay   String?  // Optional reminder time (e.g., "08:00")
-  startDate   DateTime @default(now())
+  frequency   String    @default("daily") // daily, 3x_week, weekly, bi_weekly, monthly, custom
+  daysOfWeek  Int[] // Array of day numbers (0=Sunday, 1=Monday, etc.) for custom scheduling
+  timeOfDay   String? // Optional reminder time (e.g., "08:00")
+  startDate   DateTime  @default(now())
   endDate     DateTime?
-  isActive    Boolean  @default(true)
-  goalId      Int?     // Optional link to a Goal
+  isActive    Boolean   @default(true)
+  goalId      Int? // Optional link to a Goal
   userId      String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  goal        Goal?              @relation(fields: [goalId], references: [id], onDelete: SetNull)
-  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal        Goal?             @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   completions HabitCompletion[]
 
   @@index([userId])
@@ -302,11 +359,11 @@ model HabitCompletion {
   habitId       String
   completedDate DateTime @db.Date // The date the habit was completed (no time component)
   completedAt   DateTime @default(now()) // Timestamp when marked complete
-  notes         String?  // Optional notes for this completion
-  duration      Int?     // Optional duration in minutes
-  rating        Int?     // Optional quality/rating 1-5
+  notes         String? // Optional notes for this completion
+  duration      Int? // Optional duration in minutes
+  rating        Int? // Optional quality/rating 1-5
 
-  habit         Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
 
   @@unique([habitId, completedDate]) // One completion per habit per day
   @@index([habitId])
@@ -314,13 +371,13 @@ model HabitCompletion {
 }
 
 model LifeDomain {
-  id               Int                  @id @default(autoincrement())
+  id               Int                @id @default(autoincrement())
   title            String
   description      String?
-  icon             String?              // Tabler icon name (e.g., "IconBriefcase")
-  color            String?              // Semantic color key (e.g., "brand-primary")
-  displayOrder     Int                  @default(0)
-  isActive         Boolean              @default(true)
+  icon             String? // Tabler icon name (e.g., "IconBriefcase")
+  color            String? // Semantic color key (e.g., "brand-primary")
+  displayOrder     Int                @default(0)
+  isActive         Boolean            @default(true)
   goals            Goal[]
   assessmentScores WheelOfLifeScore[]
   projects         Project[]          @relation("ProjectLifeDomains")
@@ -359,13 +416,15 @@ model ProjectMember {
 }
 
 model Team {
-  id                      String                   @id @default(cuid())
+  id                      String                     @id @default(cuid())
   name                    String
-  slug                    String                   @unique
+  slug                    String                     @unique
   description             String?
-  isOrganization          Boolean                  @default(false)
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
+  isOrganization          Boolean                    @default(false)
+  workspaceId             String?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+  workspace               Workspace?                 @relation(fields: [workspaceId], references: [id])
   actions                 Action[]
   integrations            Integration[]
   integrationPermissions  IntegrationPermission[]
@@ -379,6 +438,7 @@ model Team {
 
   @@index([slug])
   @@index([isOrganization])
+  @@index([workspaceId])
 }
 
 model TeamUser {
@@ -421,7 +481,7 @@ model TranscriptionSession {
   transcription       String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
-  meetingDate         DateTime?    // Actual date/time when the meeting occurred
+  meetingDate         DateTime? // Actual date/time when the meeting occurred
   userId              String?
   setupId             String?
   projectId           String?
@@ -683,7 +743,7 @@ model SlackMessageHistory {
 }
 
 model AiInteractionHistory {
-  id              String   @id @default(cuid())
+  id              String     @id @default(cuid())
   platform        String
   sourceId        String?
   systemUserId    String?
@@ -701,7 +761,7 @@ model AiInteractionHistory {
   category        String?
   responseTime    Int?
   tokenUsage      Json?
-  hadError        Boolean  @default(false)
+  hadError        Boolean    @default(false)
   errorMessage    String?
   confidenceScore Float?
   projectId       String?
@@ -1022,62 +1082,62 @@ enum ActionStatus {
 
 // Team Weekly Planning Models
 model WeeklyOutcome {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   title         String
   description   String?
   weekStartDate DateTime // Start of the week (Monday)
-  status        String   @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
-  priority      String   @default("MEDIUM") // HIGH, MEDIUM, LOW
+  status        String    @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
+  priority      String    @default("MEDIUM") // HIGH, MEDIUM, LOW
   teamId        String
   projectId     String
   createdById   String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   dueDate       DateTime? // Optional specific due date within the week
-  
+
   // Relations
-  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy     User     @relation("WeeklyOutcomeCreated", fields: [createdById], references: [id])
-  assignees     WeeklyOutcomeAssignee[]
-  relatedActions Action[] @relation("WeeklyOutcomeActions")
-  
+  team           Team                    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  project        Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy      User                    @relation("WeeklyOutcomeCreated", fields: [createdById], references: [id])
+  assignees      WeeklyOutcomeAssignee[]
+  relatedActions Action[]                @relation("WeeklyOutcomeActions")
+
+  @@unique([teamId, projectId, weekStartDate, title])
   @@index([teamId])
   @@index([projectId])
   @@index([weekStartDate])
   @@index([status])
-  @@unique([teamId, projectId, weekStartDate, title])
 }
 
 model WeeklyOutcomeAssignee {
-  id              String        @id @default(cuid())
+  id              String   @id @default(cuid())
   weeklyOutcomeId String
   userId          String
-  assignedAt      DateTime      @default(now())
-  
-  weeklyOutcome   WeeklyOutcome @relation(fields: [weeklyOutcomeId], references: [id], onDelete: Cascade)
-  user            User          @relation("WeeklyOutcomeAssignee", fields: [userId], references: [id], onDelete: Cascade)
-  
+  assignedAt      DateTime @default(now())
+
+  weeklyOutcome WeeklyOutcome @relation(fields: [weeklyOutcomeId], references: [id], onDelete: Cascade)
+  user          User          @relation("WeeklyOutcomeAssignee", fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([weeklyOutcomeId, userId])
   @@index([weeklyOutcomeId])
   @@index([userId])
 }
 
 model TeamMemberWeeklyCapacity {
-  id            String   @id @default(cuid())
-  userId        String
-  teamId        String
-  projectId     String?  // Optional: project-specific capacity
-  weekStartDate DateTime
-  availableHours Float   @default(40) // Default full-time capacity
-  notes         String?  // Vacation, part-time, etc.
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  user          User     @relation("TeamMemberCapacity", fields: [userId], references: [id])
-  team          Team     @relation("TeamMemberCapacities", fields: [teamId], references: [id])
-  project       Project? @relation("ProjectCapacities", fields: [projectId], references: [id])
-  
+  id             String   @id @default(cuid())
+  userId         String
+  teamId         String
+  projectId      String? // Optional: project-specific capacity
+  weekStartDate  DateTime
+  availableHours Float    @default(40) // Default full-time capacity
+  notes          String? // Vacation, part-time, etc.
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user    User     @relation("TeamMemberCapacity", fields: [userId], references: [id])
+  team    Team     @relation("TeamMemberCapacities", fields: [teamId], references: [id])
+  project Project? @relation("ProjectCapacities", fields: [projectId], references: [id])
+
   @@unique([userId, teamId, weekStartDate, projectId])
   @@index([userId])
   @@index([teamId])
@@ -1092,8 +1152,8 @@ model WeeklyReviewSharing {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@unique([userId, teamId])
   @@index([userId])
@@ -1106,15 +1166,15 @@ model WeeklyReviewSharing {
 // ============================================
 
 model WheelOfLifeAssessment {
-  id              String                       @id @default(cuid())
-  userId          String
-  completedAt     DateTime                     @default(now())
-  mode            String                       @default("quick") // "quick" | "deep"
-  type            String                       @default("on_demand") // "on_demand" | "quarterly"
-  quarterYear     String?                      // e.g., "2026-Q1"
-  notes           String?
+  id          String   @id @default(cuid())
+  userId      String
+  completedAt DateTime @default(now())
+  mode        String   @default("quick") // "quick" | "deep"
+  type        String   @default("on_demand") // "on_demand" | "quarterly"
+  quarterYear String? // e.g., "2026-Q1"
+  notes       String?
 
-  user            User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
   scores          WheelOfLifeScore[]
   recommendations WheelOfLifeRecommendation[]
 
@@ -1124,21 +1184,21 @@ model WheelOfLifeAssessment {
 }
 
 model WheelOfLifeScore {
-  id              String   @id @default(cuid())
-  assessmentId    String
-  lifeDomainId    Int
+  id           String @id @default(cuid())
+  assessmentId String
+  lifeDomainId Int
 
   // Priority rankings (both modes)
-  currentRank     Int      // 1-10, where 1 = highest priority currently
-  desiredRank     Int      // 1-10, where 1 = highest priority desired
+  currentRank Int // 1-10, where 1 = highest priority currently
+  desiredRank Int // 1-10, where 1 = highest priority desired
 
   // Satisfaction score (Deep mode only)
-  score           Int?     // 1-10 scale, null in Quick mode
+  score Int? // 1-10 scale, null in Quick mode
 
-  reflection      String?  // Optional reflection
+  reflection String? // Optional reflection
 
-  assessment      WheelOfLifeAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  lifeDomain      LifeDomain            @relation(fields: [lifeDomainId], references: [id])
+  assessment WheelOfLifeAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  lifeDomain LifeDomain            @relation(fields: [lifeDomainId], references: [id])
 
   @@unique([assessmentId, lifeDomainId])
   @@index([assessmentId])
@@ -1146,16 +1206,16 @@ model WheelOfLifeScore {
 }
 
 model WheelOfLifeRecommendation {
-  id              String   @id @default(cuid())
-  assessmentId    String
-  lifeDomainId    Int
-  recommendation  String
-  suggestedGoal   String?
-  priority        String   @default("medium") // "high" | "medium" | "low"
-  goalCreated     Boolean  @default(false)
-  goalId          Int?
+  id             String  @id @default(cuid())
+  assessmentId   String
+  lifeDomainId   Int
+  recommendation String
+  suggestedGoal  String?
+  priority       String  @default("medium") // "high" | "medium" | "low"
+  goalCreated    Boolean @default(false)
+  goalId         Int?
 
-  assessment      WheelOfLifeAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessment WheelOfLifeAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
   @@index([assessmentId])
   @@index([lifeDomainId])

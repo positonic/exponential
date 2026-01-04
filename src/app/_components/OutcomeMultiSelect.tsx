@@ -135,6 +135,9 @@ export function OutcomeMultiSelect({
         type: 'weekly',
         dueDate: null,
         whyThisOutcome: null,
+        userId: null,
+        projectId: null,
+        workspaceId: null,
         goals: [],
         projects: []
       };

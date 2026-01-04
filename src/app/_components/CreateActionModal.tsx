@@ -71,6 +71,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
         dueDate: newAction.dueDate ? new Date(newAction.dueDate) : null,
         transcriptionSessionId: null,
         teamId: null,
+        workspaceId: null,
         kanbanStatus: newAction.projectId ? "TODO" as ActionStatus : null, // Set kanban status for project actions
         kanbanOrder: null, // Will be set by the server
         completedAt: null, // New field for completion timestamp

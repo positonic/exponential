@@ -24,6 +24,7 @@ import { ColorSchemeScript } from '~/app/_components/layout/ColorSchemeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
 import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvider';
 import { SessionProvider } from "next-auth/react";
+import { WorkspaceProvider } from '~/providers/WorkspaceProvider';
 
 const domain = getThemeDomain();
 
@@ -53,11 +54,13 @@ export default async function RootLayout({
               <MantineRootProvider>
                 <AgentDrawerProvider>
                   <ColorSchemeProvider>
-                    <Layout domain={domain}>
-                      {children}
-                      <Analytics />
-                    </Layout>
-                    <FloatingFeedbackButton />
+                    <WorkspaceProvider>
+                      <Layout domain={domain}>
+                        {children}
+                        <Analytics />
+                      </Layout>
+                      <FloatingFeedbackButton />
+                    </WorkspaceProvider>
                   </ColorSchemeProvider>
                 </AgentDrawerProvider>
               </MantineRootProvider>

@@ -5,12 +5,30 @@ import {
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 
-import { getMyOutcomes, createOutcome, updateOutcome, deleteOutcome, deleteOutcomes } from "~/server/services/outcomeService";
+import { createOutcome, updateOutcome, deleteOutcome, deleteOutcomes } from "~/server/services/outcomeService";
 
 const outcomeTypeEnum = z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'annual', 'life', 'problem']);
 
 export const outcomeRouter = createTRPCRouter({
-  getMyOutcomes: protectedProcedure.query(getMyOutcomes),
+  getMyOutcomes: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      return await ctx.db.outcome.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        include: {
+          projects: true,
+          goals: true,
+        },
+        orderBy: {
+          dueDate: 'asc',
+        },
+      });
+    }),
 
   getOutcomesForUser: protectedProcedure
     .input(z.object({

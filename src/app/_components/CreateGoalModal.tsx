@@ -59,6 +59,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
           dueDate: newGoal.dueDate ?? null,
           lifeDomainId: newGoal.lifeDomainId,
           userId: "",
+          workspaceId: null,
           lifeDomain: {
             id: newGoal.lifeDomainId,
             title: "Loading...",

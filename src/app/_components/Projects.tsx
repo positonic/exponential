@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useMemo } from "react";
 import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
-import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Tabs } from "@mantine/core";
+import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Tabs, Modal } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
 import { slugify } from "~/utils/slugify";
 import { IconEdit, IconTrash, IconBrandNotion, IconPlus } from "@tabler/icons-react";
 
@@ -242,12 +242,12 @@ export function Projects() {
   const [, setSlug] = useState("");
   const [, setReviewDate] = useState("");
   const [, setNextActionDate] = useState("");
-
-  const searchParams = useSearchParams();
-  const showNotionSuggestions = searchParams.get('showNotionSuggestions') === 'true';
+  const [selectedDomain, setSelectedDomain] = useState<string>("all");
+  const [notionModalOpened, { open: openNotionModal, close: closeNotionModal }] = useDisclosure(false);
 
   const utils = api.useUtils();
   const projects = api.project.getAll.useQuery();
+  const { data: lifeDomains = [] } = api.lifeDomain.getAllLifeDomains.useQuery();
 
   // Get Notion workflows to find the first one for querying unlinked projects
   const { data: workflows = [] } = api.workflow.list.useQuery();
@@ -278,43 +278,64 @@ export function Projects() {
   };
 
   const unlinkedCount = unlinkedProjectsData?.unlinkedProjects.length ?? 0;
-  const defaultTab = showNotionSuggestions ? "notion" : "projects";
+
+  const filteredProjects = useMemo(() => {
+    if (!projects.data) return [];
+    if (selectedDomain === "all") return projects.data;
+
+    const domainId = parseInt(selectedDomain);
+    return projects.data.filter(project =>
+      project.lifeDomains?.some(d => d.id === domainId)
+    );
+  }, [projects.data, selectedDomain]);
 
   return (
     <div className="w-full max-w-2xl">
-      <h2 className="mb-4 text-2xl font-bold">Projects</h2>
+      <Group justify="space-between" align="center" mb="md">
+        <h2 className="text-2xl font-bold">Projects</h2>
+        {unlinkedCount > 0 && (
+          <Button
+            variant="light"
+            leftSection={<IconBrandNotion size={16} />}
+            rightSection={<Badge size="xs">{unlinkedCount}</Badge>}
+            onClick={openNotionModal}
+          >
+            Notion Suggestions
+          </Button>
+        )}
+      </Group>
 
-      <Tabs defaultValue={defaultTab}>
+      <Tabs value={selectedDomain} onChange={(v) => setSelectedDomain(v ?? "all")}>
         <Tabs.List>
-          <Tabs.Tab value="projects">Projects</Tabs.Tab>
-          <Tabs.Tab value="notion" rightSection={unlinkedCount > 0 ? (
-            <Badge size="xs" variant="filled" color="blue">
-              {unlinkedCount}
-            </Badge>
-          ) : null}>
-            <Group gap="xs">
-              <IconBrandNotion size={16} />
-              <span>Notion Suggestions</span>
-            </Group>
-          </Tabs.Tab>
+          <Tabs.Tab value="all">All</Tabs.Tab>
+          {lifeDomains.map((domain) => (
+            <Tabs.Tab key={domain.id} value={domain.id.toString()}>
+              {domain.title}
+            </Tabs.Tab>
+          ))}
         </Tabs.List>
 
-        <Tabs.Panel value="projects" pt="md">
-          <ProjectList projects={projects.data ?? []} />
+        <Tabs.Panel value={selectedDomain} pt="md">
+          <ProjectList projects={filteredProjects} />
           <div className="mt-4">
             <CreateProjectModal>
               <Button variant="light">Create Project</Button>
             </CreateProjectModal>
           </div>
         </Tabs.Panel>
-
-        <Tabs.Panel value="notion" pt="md">
-          <NotionSuggestionsContent
-            unlinkedProjects={unlinkedProjectsData?.unlinkedProjects ?? []}
-            onProjectImported={handleProjectImported}
-          />
-        </Tabs.Panel>
       </Tabs>
+
+      <Modal
+        opened={notionModalOpened}
+        onClose={closeNotionModal}
+        title="Notion Suggestions"
+        size="lg"
+      >
+        <NotionSuggestionsContent
+          unlinkedProjects={unlinkedProjectsData?.unlinkedProjects ?? []}
+          onProjectImported={handleProjectImported}
+        />
+      </Modal>
     </div>
   );
 } 
