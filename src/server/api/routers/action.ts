@@ -818,42 +818,18 @@ export const actionRouter = createTRPCRouter({
     }),
 
   // Get users available for assignment to a specific action
+  // Returns all users from all teams the current user belongs to
   getAssignableUsers: protectedProcedure
     .input(z.object({
       actionId: z.string(),
     }))
     .query(async ({ ctx, input }) => {
-      // Get the action with its project/team context
+      // Get the action to verify it exists and get context
       const action = await ctx.db.action.findUnique({
         where: { id: input.actionId },
-        include: { 
-          project: {
-            include: {
-              projectMembers: {
-                include: {
-                  user: { select: { id: true, name: true, email: true, image: true } }
-                }
-              },
-              team: {
-                include: {
-                  members: {
-                    include: {
-                      user: { select: { id: true, name: true, email: true, image: true } }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          team: {
-            include: {
-              members: {
-                include: {
-                  user: { select: { id: true, name: true, email: true, image: true } }
-                }
-              }
-            }
-          }
+        include: {
+          project: true,
+          team: true,
         },
       });
 
@@ -861,41 +837,35 @@ export const actionRouter = createTRPCRouter({
         throw new Error("Action not found");
       }
 
-      if (action.createdById !== ctx.session.user.id) {
-        throw new Error("You don't have permission to view assignable users for this action");
-      }
+      // Get all teams the current user is a member of
+      const userTeams = await ctx.db.team.findMany({
+        where: {
+          members: {
+            some: {
+              userId: ctx.session.user.id,
+            },
+          },
+        },
+        include: {
+          members: {
+            include: {
+              user: {
+                select: { id: true, name: true, email: true, image: true },
+              },
+            },
+          },
+        },
+      });
 
-      let assignableUsers: Array<{ id: string; name: string | null; email: string | null; image: string | null }> = [];
+      // Deduplicate users across all teams
+      const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
+      userTeams.forEach(team => {
+        team.members.forEach(member => {
+          userMap.set(member.user.id, member.user);
+        });
+      });
 
-      // If action has a project, get project members and team members
-      if (action.projectId && action.project) {
-        // Add project members
-        assignableUsers = action.project.projectMembers.map((member: any) => member.user);
-        
-        // Add team members if project has a team
-        if (action.project.team) {
-          const teamUsers = action.project.team.members.map((member: any) => member.user);
-          // Merge and deduplicate by user ID
-          const userMap = new Map();
-          [...assignableUsers, ...teamUsers].forEach(user => userMap.set(user.id, user));
-          assignableUsers = Array.from(userMap.values());
-        }
-      }
-      // If action has a team (but no project), get team members
-      else if (action.teamId && action.team) {
-        assignableUsers = action.team.members.map((member: any) => member.user);
-      }
-      // If action has neither project nor team, get all users (or limit to action creator for now)
-      else {
-        assignableUsers = [
-          {
-            id: ctx.session.user.id,
-            name: ctx.session.user.name ?? null,
-            email: ctx.session.user.email ?? null,
-            image: ctx.session.user.image ?? null,
-          }
-        ];
-      }
+      const assignableUsers = Array.from(userMap.values());
 
       return {
         assignableUsers,
@@ -903,7 +873,8 @@ export const actionRouter = createTRPCRouter({
           hasProject: !!action.projectId,
           hasTeam: !!action.teamId,
           projectName: action.project?.name,
-          teamName: action.project?.team?.name || action.team?.name,
+          teamName: action.team?.name,
+          userTeamCount: userTeams.length,
         }
       };
     }),

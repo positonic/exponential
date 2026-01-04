@@ -116,10 +116,9 @@ export function ActionModalForm({
             onClear={() => setDueDate(null)}
           />
         )}
-        {projectId && (
+        {actionId && (
           <AssigneeSelector
             selectedAssigneeIds={selectedAssigneeIds}
-            projectId={projectId}
             actionId={actionId}
             onAssigneeClick={onAssigneeClick}
           />
