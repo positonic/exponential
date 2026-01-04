@@ -192,6 +192,7 @@ model Project {
   outcomes              Outcome[]              @relation("ProjectOutcomes")
   weeklyOutcomes        WeeklyOutcome[]
   memberCapacities      TeamMemberWeeklyCapacity[] @relation("ProjectCapacities")
+  lifeDomains           LifeDomain[]               @relation("ProjectLifeDomains")
 
   @@index([name])
   @@index([status])
@@ -322,6 +323,7 @@ model LifeDomain {
   isActive         Boolean              @default(true)
   goals            Goal[]
   assessmentScores WheelOfLifeScore[]
+  projects         Project[]          @relation("ProjectLifeDomains")
 }
 
 model Note {

@@ -1,11 +1,12 @@
 import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect, Tooltip, Stack, Title, Text, Alert, Loader } from '@mantine/core';
-import { IconAlertCircle, IconBrandNotion, IconCheck } from '@tabler/icons-react';
+import { IconAlertCircle, IconBrandNotion, IconCheck, IconPlus } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useDisclosure } from '@mantine/hooks';
 import type { Project, Goal, Outcome } from '@prisma/client';
 import { useState } from "react";
 import { useSession } from 'next-auth/react';
 import { api } from "~/trpc/react";
+import { CreateGoalModal } from './CreateGoalModal';
 import { notifications } from '@mantine/notifications';
 
 type ProjectStatus = "ACTIVE" | "COMPLETED" | "ON_HOLD" | "CANCELLED";
@@ -14,6 +15,7 @@ type ProjectPriority = "HIGH" | "MEDIUM" | "LOW" | "NONE";
 type ProjectWithRelations = Project & {
   goals?: Goal[];
   outcomes?: Outcome[];
+  lifeDomains?: { id: number; title: string }[];
 };
 
 interface CreateProjectModalProps {
@@ -22,9 +24,10 @@ interface CreateProjectModalProps {
   prefillName?: string;
   prefillNotionProjectId?: string;
   onClose?: () => void;
+  onSuccess?: (project: Project) => void;
 }
 
-export function CreateProjectModal({ children, project, prefillName, prefillNotionProjectId, onClose }: CreateProjectModalProps) {
+export function CreateProjectModal({ children, project, prefillName, prefillNotionProjectId, onClose, onSuccess }: CreateProjectModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [projectName, setProjectName] = useState(project?.name ?? prefillName ?? "");
   const [notionProjectId] = useState(prefillNotionProjectId);
@@ -33,6 +36,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [priority, setPriority] = useState<ProjectPriority>(project?.priority as ProjectPriority ?? "NONE");
   const [selectedGoals, setSelectedGoals] = useState<string[]>(project?.goals?.map(g => g.id.toString()) ?? []);
   const [selectedOutcomes, setSelectedOutcomes] = useState<string[]>(project?.outcomes?.map(o => o.id) ?? []);
+  const [selectedLifeDomainIds, setSelectedLifeDomainIds] = useState<string[]>(project?.lifeDomains?.map(d => d.id.toString()) ?? []);
   const [goalSearchValue, setGoalSearchValue] = useState("");
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
 
@@ -72,6 +76,9 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const createMutation = api.project.create.useMutation({
     onSuccess: (data) => {
       void utils.project.getAll.invalidate();
+
+      // Call onSuccess callback with the created project
+      onSuccess?.(data);
 
       // If this is a Notion import and workflows exist, show workflow step
       if (prefillNotionProjectId && notionWorkflows.length > 0) {
@@ -285,6 +292,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 priority: priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
                 goalIds: selectedGoals,
                 outcomeIds: selectedOutcomes,
+                lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
               });
             } else {
               createMutation.mutate({
@@ -294,6 +302,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 priority,
                 goalIds: selectedGoals,
                 outcomeIds: selectedOutcomes,
+                lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
                 notionProjectId: notionProjectId ?? undefined,
               });
             }
@@ -447,6 +456,17 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               },
             }}
           />
+          <CreateGoalModal onSuccess={(goalId) => setSelectedGoals(prev => [...prev, goalId.toString()])}>
+            <Button
+              variant="subtle"
+              size="xs"
+              leftSection={<IconPlus size={14} />}
+              mt={4}
+              className="text-text-secondary hover:text-text-primary"
+            >
+              Create new goal
+            </Button>
+          </CreateGoalModal>
 
           <MultiSelect
             data={outcomeData}
@@ -470,6 +490,32 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
             searchValue={outcomeSearchValue}
             label="Link to Outcomes"
             placeholder="Select or create outcomes"
+            searchable
+            clearable
+            maxDropdownHeight={300}
+            mt="md"
+            styles={{
+              input: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+              dropdown: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+            }}
+          />
+
+          <MultiSelect
+            data={lifeDomains?.map(domain => ({
+              value: domain.id.toString(),
+              label: domain.title
+            })) ?? []}
+            value={selectedLifeDomainIds}
+            onChange={setSelectedLifeDomainIds}
+            label="Life Domains (optional)"
+            placeholder="Select life domains this project relates to"
             searchable
             clearable
             maxDropdownHeight={300}

@@ -120,7 +120,8 @@ export const projectRouter = createTRPCRouter({
         include: {
           actions: input?.include?.actions ?? false,
           goals: true,
-          outcomes: true
+          outcomes: true,
+          lifeDomains: true
         }
       });
 
@@ -177,6 +178,7 @@ export const projectRouter = createTRPCRouter({
         nextActionDate: z.date().nullable().optional(),
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
+        lifeDomainIds: z.array(z.number()).optional(),
         teamId: z.string().optional(),
         notionProjectId: z.string().optional(),
       }),
@@ -220,6 +222,9 @@ export const projectRouter = createTRPCRouter({
           outcomes: input.outcomeIds?.length ? {
             connect: input.outcomeIds.map(id => ({ id })),
           } : undefined,
+          lifeDomains: input.lifeDomainIds?.length ? {
+            connect: input.lifeDomainIds.map(id => ({ id })),
+          } : undefined,
         },
       });
     }),
@@ -249,10 +254,11 @@ export const projectRouter = createTRPCRouter({
         taskManagementConfig: z.record(z.any()).optional(),
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
+        lifeDomainIds: z.array(z.number()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, ...updateData } = input;
+      const { id, goalIds, outcomeIds, lifeDomainIds, ...updateData } = input;
       
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -283,6 +289,9 @@ export const projectRouter = createTRPCRouter({
           } : undefined,
           outcomes: outcomeIds !== undefined ? {
             set: outcomeIds.map(id => ({ id })),
+          } : undefined,
+          lifeDomains: lifeDomainIds !== undefined ? {
+            set: lifeDomainIds.map(id => ({ id })),
           } : undefined,
         },
       });
@@ -514,6 +523,7 @@ export const projectRouter = createTRPCRouter({
         include: {
           goals: true,
           outcomes: true,
+          lifeDomains: true,
           actions: true,
           team: {
             select: {

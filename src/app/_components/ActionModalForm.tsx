@@ -1,9 +1,11 @@
-import { Textarea, Button, Group, Select } from '@mantine/core';
+import { Textarea, Button, Group, Select, ActionIcon } from '@mantine/core';
+import { IconPlus } from '@tabler/icons-react';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { RichTextInput } from './RichTextInput';
 import { AssigneeSelector } from './AssigneeSelector';
+import { CreateProjectModal } from './CreateProjectModal';
 
 interface ActionModalFormProps {
   name: string;
@@ -127,19 +129,31 @@ export function ActionModalForm({
 
       <div className="border-t border-border-primary p-4 mt-4">
         <Group justify="space-between">
-          <Select
-            placeholder="Select a project (optional)"
-            variant="unstyled"
-            value={projectId}
-            searchable
-            onChange={(value) => setProjectId(value ?? undefined)}
-            data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
-            styles={{
-              input: {
-                color: 'var(--color-text-primary)',
-              },
-            }}
-          />
+          <Group gap="xs">
+            <Select
+              placeholder="Select a project (optional)"
+              variant="unstyled"
+              value={projectId}
+              searchable
+              onChange={(value) => setProjectId(value ?? undefined)}
+              data={projects.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
+              styles={{
+                input: {
+                  color: 'var(--color-text-primary)',
+                },
+              }}
+            />
+            <CreateProjectModal onSuccess={(project) => setProjectId(project.id)}>
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                aria-label="Create new project"
+                className="text-text-muted hover:text-text-primary"
+              >
+                <IconPlus size={16} />
+              </ActionIcon>
+            </CreateProjectModal>
+          </Group>
           <Group>
             <Button variant="subtle" color="gray" onClick={onClose}>
               Cancel
