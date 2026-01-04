@@ -307,7 +307,7 @@ export const actionRouter = createTRPCRouter({
         name: z.string().min(1).optional(),
         description: z.string().optional(),
         projectId: z.string().optional(),
-        dueDate: z.date().optional(),
+        dueDate: z.date().nullable().optional(), // nullable allows explicitly setting to null
         priority: z.enum(PRIORITY_VALUES).optional(),
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED"]).optional(),
         kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]).optional(),

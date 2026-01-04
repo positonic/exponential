@@ -64,7 +64,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       description: description || undefined,
       projectId: projectId || undefined,
       priority,
-      dueDate: dueDate || undefined,
+      dueDate: dueDate, // Pass null explicitly to clear the date
     });
   };
 
