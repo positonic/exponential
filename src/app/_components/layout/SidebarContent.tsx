@@ -8,9 +8,14 @@ import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 export function SidebarContent() {
   const { isSectionVisible, isItemVisible } = useNavigationPreferences();
+  const { workspaceSlug } = useWorkspace();
+
+  // Use workspace-aware paths when in a workspace context
+  const projectsPath = workspaceSlug ? `/w/${workspaceSlug}/projects` : '/projects';
 
   return (
     <div className="space-y-0.5">
@@ -45,7 +50,7 @@ export function SidebarContent() {
             </Accordion.Control>
             <Accordion.Panel>
               {isItemVisible("projects/my-projects") && (
-                <NavLink href="/projects" icon={IconDeviceProjector}>
+                <NavLink href={projectsPath} icon={IconDeviceProjector}>
                   My Projects
                 </NavLink>
               )}

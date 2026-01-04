@@ -1,9 +1,9 @@
 'use client';
 
-// import Link from "next/link";
-// import { usePathname } from "next/navigation";
 import { api } from "~/trpc/react";
 import { NavLink } from "./NavLinks";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+
 type Priority = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
 
 const priorityOrder: Record<Priority, number> = {
@@ -14,11 +14,13 @@ const priorityOrder: Record<Priority, number> = {
 };
 
 export function ProjectList() {
-  // const pathname = usePathname();
+  const { workspaceSlug, workspaceId } = useWorkspace();
+
   const { data: projects } = api.project.getAll.useQuery({
     include: {
       actions: true,
     },
+    workspaceId: workspaceId ?? undefined,
   }, {
     refetchOnWindowFocus: false,
     staleTime: 30 * 1000, // Consider data stale after 30 seconds
@@ -34,7 +36,10 @@ export function ProjectList() {
   return (
     <div className="mt-2 space-y-1">
       {sortedProjects.filter((project) => project.status === "ACTIVE").map((project) => {
-        const projectPath = `/projects/${project.slug}-${project.id}`;
+        // Use workspace-aware path when in a workspace context
+        const projectPath = workspaceSlug
+          ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
+          : `/projects/${project.slug}-${project.id}`;
         const activeActionsCount = project.actions.filter(
           (action) => action.status !== "COMPLETED",
         )?.length || 0;

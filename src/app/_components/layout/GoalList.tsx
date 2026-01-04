@@ -1,25 +1,33 @@
 'use client';
 
-// import Link from "next/link";
-// import { usePathname } from "next/navigation";
 import { api } from "~/trpc/react";
 import { NavLink } from "./NavLinks";
 import { IconTarget, IconNumber, IconFlame } from "@tabler/icons-react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+
 export function GoalList() {
-  // const pathname = usePathname();
-  const { data: goals } = api.goal.getAllMyGoals.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 30 * 1000, // Consider data stale after 30 seconds
-    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
-  });
+  const { workspaceSlug, workspaceId } = useWorkspace();
+
+  const { data: goals } = api.goal.getAllMyGoals.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    {
+      refetchOnWindowFocus: false,
+      staleTime: 30 * 1000, // Consider data stale after 30 seconds
+      gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
+    }
+  );
 
   if (!goals) return null;
-  
+
+  // Use workspace-aware paths when in a workspace context
+  const goalsPath = workspaceSlug ? `/w/${workspaceSlug}/goals` : '/goals';
+  const outcomesPath = workspaceSlug ? `/w/${workspaceSlug}/outcomes` : '/outcomes';
+
   return (
     <div className="mt-1 space-y-1">
-      <NavLink href="/goals" icon={IconTarget}>Goals</NavLink>
+      <NavLink href={goalsPath} icon={IconTarget}>Goals</NavLink>
       <NavLink href="/habits" icon={IconFlame}>Habits</NavLink>
-      <NavLink href="/outcomes" icon={IconNumber}>Outcomes</NavLink>
+      <NavLink href={outcomesPath} icon={IconNumber}>Outcomes</NavLink>
           
       {/* {goals.map((goal) => {
         const goalPath = `/goals/${slugify(goal.title)}-${goal.id}`;
