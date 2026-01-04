@@ -96,6 +96,7 @@ model User {
   habits                  Habit[]
   ownedWorkspaces         Workspace[]                @relation("WorkspaceOwner")
   workspaceMemberships    WorkspaceUser[]
+  resources               Resource[]
 }
 
 model VerificationToken {
@@ -123,13 +124,14 @@ model Workspace {
   updatedAt   DateTime @updatedAt
   ownerId     String
 
-  owner    User            @relation("WorkspaceOwner", fields: [ownerId], references: [id])
-  members  WorkspaceUser[]
-  projects Project[]
-  goals    Goal[]
-  outcomes Outcome[]
-  actions  Action[]
-  teams    Team[]
+  owner     User            @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members   WorkspaceUser[]
+  projects  Project[]
+  goals     Goal[]
+  outcomes  Outcome[]
+  actions   Action[]
+  teams     Team[]
+  resources Resource[]
 
   @@index([slug])
   @@index([ownerId])
@@ -246,6 +248,7 @@ model Project {
   weeklyOutcomes        WeeklyOutcome[]
   memberCapacities      TeamMemberWeeklyCapacity[] @relation("ProjectCapacities")
   lifeDomains           LifeDomain[]               @relation("ProjectLifeDomains")
+  resources             Resource[]
 
   @@index([name])
   @@index([status])
@@ -1219,4 +1222,78 @@ model WheelOfLifeRecommendation {
 
   @@index([assessmentId])
   @@index([lifeDomainId])
+}
+
+// ============================================
+// Knowledge Base Models (RAG)
+// ============================================
+
+model Resource {
+  id String @id @default(cuid())
+
+  // Core content
+  title       String
+  description String?
+  url         String? // Source URL for web pages/bookmarks
+  rawContent  String? // Original HTML/content
+  content     String? // Cleaned/processed text
+  contentType String  @default("web_page") // "web_page" | "document" | "pdf" | "bookmark" | "note"
+  mimeType    String? // e.g., "text/html", "application/pdf"
+
+  // Metadata
+  author      String?
+  publishedAt DateTime?
+  fetchedAt   DateTime?
+  wordCount   Int?
+  summary     String? // AI-generated summary
+
+  // Organization
+  tags        String[]
+  userId      String
+  projectId   String?
+  workspaceId String?
+
+  // Timestamps
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  archivedAt DateTime?
+
+  // Relations
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project?   @relation(fields: [projectId], references: [id])
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([workspaceId])
+  @@index([contentType])
+  @@index([url])
+}
+
+model KnowledgeChunk {
+  id String @id @default(cuid())
+
+  // Content
+  content   String // Text chunk (~500 tokens)
+  embedding Unsupported("vector(1536)")? // pgvector embedding
+
+  // Source reference (polymorphic - query manually, no Prisma relations)
+  sourceType String // "transcription" | "resource"
+  sourceId   String // ID of TranscriptionSession or Resource
+
+  // Position info
+  chunkIndex Int // Order within source
+  tokenCount Int?
+  startPos   Int? // Character position in source
+  endPos     Int?
+
+  // Filtering
+  userId    String
+  projectId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([sourceType, sourceId])
+  @@index([userId])
+  @@index([projectId])
 }
