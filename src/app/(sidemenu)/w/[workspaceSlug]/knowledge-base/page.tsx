@@ -89,10 +89,16 @@ export default function KnowledgeBasePage() {
     { enabled: true }
   );
 
-  const { data: searchResults, isLoading: searchLoading } = api.resource.search.useQuery(
-    { query: searchQuery, limit: 10 },
-    { enabled: searchQuery.length > 2 }
-  );
+  // Use unified search that includes both transcriptions AND resources
+  const searchMutation = api.mastra.queryMeetingContext.useMutation();
+
+  // Trigger search when query changes
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (query.length > 2) {
+      searchMutation.mutate({ query, topK: 10 });
+    }
+  };
 
   // Mutations
   const backfillMutation = api.mastra.backfillTranscriptionEmbeddings.useMutation({
@@ -461,47 +467,59 @@ export default function KnowledgeBasePage() {
         <Tabs.Panel value="search">
           <Card className="bg-surface-secondary border-border-primary" withBorder>
             <TextInput
-              placeholder="Search your knowledge base..."
+              placeholder="Search transcriptions and resources..."
               leftSection={<IconSearch size={16} />}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.currentTarget.value)}
+              onChange={(e) => handleSearch(e.currentTarget.value)}
               className="mb-4"
               classNames={{
                 input: 'bg-surface-primary border-border-primary text-text-primary',
               }}
             />
 
-            {searchLoading ? (
+            {searchMutation.isPending ? (
               <Stack gap="md">
                 <Skeleton height={60} />
                 <Skeleton height={60} />
                 <Skeleton height={60} />
               </Stack>
-            ) : searchResults?.results && searchResults.results.length > 0 ? (
+            ) : searchMutation.data?.results && searchMutation.data.results.length > 0 ? (
               <Stack gap="md">
-                {searchResults.results.map((result, idx) => (
+                {searchMutation.data.results.map((result, idx) => (
                   <Card key={idx} className="bg-surface-primary border-border-primary" withBorder p="sm">
                     <Group justify="space-between" mb="xs">
-                      <Badge size="sm" variant="light">
-                        {result.sourceType}
-                      </Badge>
+                      <Group gap="xs">
+                        <Badge size="sm" variant="light" color={result.sourceType === 'transcription' ? 'blue' : 'green'}>
+                          {result.sourceType === 'transcription' ? 'Meeting' : (result.contentType ?? 'Resource')}
+                        </Badge>
+                        {result.sourceTitle && (
+                          <Text size="xs" className="text-text-muted">
+                            {result.sourceTitle}
+                          </Text>
+                        )}
+                      </Group>
                       <Text size="xs" className="text-text-muted">
-                        Similarity: {(result.similarity * 100).toFixed(1)}%
+                        {((result.relevanceScore ?? 0) * 100).toFixed(1)}% match
                       </Text>
                     </Group>
                     <Text size="sm" className="text-text-primary line-clamp-3">
                       {result.content}
                     </Text>
+                    {result.meetingDate && (
+                      <Text size="xs" className="text-text-muted mt-1">
+                        {new Date(result.meetingDate).toLocaleDateString()}
+                      </Text>
+                    )}
                   </Card>
                 ))}
               </Stack>
-            ) : searchQuery.length > 2 ? (
+            ) : searchQuery.length > 2 && !searchMutation.isPending ? (
               <Text className="text-text-secondary text-center py-4">
                 No results found for &quot;{searchQuery}&quot;
               </Text>
             ) : (
               <Text className="text-text-muted text-center py-4">
-                Enter at least 3 characters to search
+                Enter at least 3 characters to search transcriptions and resources
               </Text>
             )}
           </Card>
