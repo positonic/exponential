@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Tabs, Modal } from "@mantine/core";
+import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Modal } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { useDisclosure } from "@mantine/hooks";
 import { slugify } from "~/utils/slugify";
@@ -260,7 +260,6 @@ export function Projects() {
   const [, setSlug] = useState("");
   const [, setReviewDate] = useState("");
   const [, setNextActionDate] = useState("");
-  const [selectedDomain, setSelectedDomain] = useState<string>("all");
   const [notionModalOpened, { open: openNotionModal, close: closeNotionModal }] = useDisclosure(false);
 
   const { workspaceId } = useWorkspace();
@@ -269,7 +268,6 @@ export function Projects() {
     { workspaceId: workspaceId ?? undefined },
     { enabled: true }
   );
-  const { data: lifeDomains = [] } = api.lifeDomain.getAllLifeDomains.useQuery();
 
   // Get Notion workflows to find the first one for querying unlinked projects
   const { data: workflows = [] } = api.workflow.list.useQuery();
@@ -301,16 +299,6 @@ export function Projects() {
 
   const unlinkedCount = unlinkedProjectsData?.unlinkedProjects.length ?? 0;
 
-  const filteredProjects = useMemo(() => {
-    if (!projects.data) return [];
-    if (selectedDomain === "all") return projects.data;
-
-    const domainId = parseInt(selectedDomain);
-    return projects.data.filter(project =>
-      project.lifeDomains?.some(d => d.id === domainId)
-    );
-  }, [projects.data, selectedDomain]);
-
   return (
     <div className="w-full max-w-2xl">
       <Group justify="space-between" align="center" mb="md">
@@ -327,25 +315,12 @@ export function Projects() {
         )}
       </Group>
 
-      <Tabs value={selectedDomain} onChange={(v) => setSelectedDomain(v ?? "all")}>
-        <Tabs.List>
-          <Tabs.Tab value="all">All</Tabs.Tab>
-          {lifeDomains.map((domain) => (
-            <Tabs.Tab key={domain.id} value={domain.id.toString()}>
-              {domain.title}
-            </Tabs.Tab>
-          ))}
-        </Tabs.List>
-
-        <Tabs.Panel value={selectedDomain} pt="md">
-          <ProjectList projects={filteredProjects} />
-          <div className="mt-4">
-            <CreateProjectModal>
-              <Button variant="light">Create Project</Button>
-            </CreateProjectModal>
-          </div>
-        </Tabs.Panel>
-      </Tabs>
+      <ProjectList projects={projects.data ?? []} />
+      <div className="mt-4">
+        <CreateProjectModal>
+          <Button variant="light">Create Project</Button>
+        </CreateProjectModal>
+      </div>
 
       <Modal
         opened={notionModalOpened}
