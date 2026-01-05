@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { DateInput } from '@mantine/dates';
 import { CreateGoalModal } from './CreateGoalModal';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 interface CreateOutcomeModalProps {
   children?: React.ReactNode;
@@ -19,6 +20,7 @@ interface CreateOutcomeModalProps {
     whyThisOutcome?: string | null;
     projectId?: string;
     goalId?: number;
+    workspaceId?: string | null;
   };
   trigger?: React.ReactNode; // For clicking on existing outcomes
   onSuccess?: (outcomeId: string) => void; // Callback when outcome is created/updated
@@ -34,10 +36,16 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
   const [whyThisOutcome, setWhyThisOutcome] = useState(outcome?.whyThisOutcome ?? "");
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(projectId ?? outcome?.projectId);
   const [selectedGoalId, setSelectedGoalId] = useState<number | undefined>(outcome?.goalId);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    outcome?.workspaceId ?? null
+  );
 
   const utils = api.useUtils();
   const { data: projects } = api.project.getAll.useQuery();
   const { data: goals } = api.goal.getAllMyGoals.useQuery();
+  const { data: workspaces } = api.workspace.list.useQuery();
+
+  const { workspaceId: currentWorkspaceId } = useWorkspace();
 
   const createOutcome = api.outcome.createOutcome.useMutation({
     onMutate: async (newOutcome) => {
@@ -188,6 +196,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
     setWhyThisOutcome("");
     setSelectedProjectId(undefined);
     setSelectedGoalId(undefined);
+    setSelectedWorkspaceId(null);
   };
 
   // Update the form when the outcome prop changes
@@ -199,8 +208,16 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
       setWhyThisOutcome(outcome.whyThisOutcome ?? "");
       setSelectedProjectId(outcome.projectId);
       setSelectedGoalId(outcome.goalId);
+      setSelectedWorkspaceId(outcome.workspaceId ?? null);
     }
   }, [outcome]);
+
+  // Auto-set workspace when creating (not editing)
+  useEffect(() => {
+    if (!outcome && currentWorkspaceId && selectedWorkspaceId === null) {
+      setSelectedWorkspaceId(currentWorkspaceId);
+    }
+  }, [outcome, currentWorkspaceId, selectedWorkspaceId]);
 
   // Add this useEffect to update selectedProjectId when projectId prop changes
   useEffect(() => {
@@ -220,6 +237,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
       whyThisOutcome: whyThisOutcome || undefined,
       projectId: selectedProjectId,
       goalId: selectedGoalId,
+      workspaceId: selectedWorkspaceId ?? undefined,
     };
 
     if (outcome?.id) {
@@ -402,7 +420,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
               label: {
                 color: 'var(--color-text-primary)',
               },
-              
+
               calendarHeader: {
                 backgroundColor: 'var(--color-surface-secondary)',
                 color: 'var(--color-text-primary)',
@@ -421,6 +439,35 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
               },
             }}
           />
+
+          {outcome && workspaces && workspaces.length > 0 && (
+            <Select
+              label="Workspace"
+              description="Move this outcome to a different workspace"
+              data={[
+                { value: '', label: 'No Workspace (Personal)' },
+                ...workspaces.map(ws => ({ value: ws.id, label: ws.name }))
+              ]}
+              value={selectedWorkspaceId ?? ''}
+              onChange={(value) => setSelectedWorkspaceId(value === '' ? null : value)}
+              mt="md"
+              styles={{
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+                label: {
+                  color: 'var(--color-text-primary)',
+                },
+                dropdown: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  borderColor: 'var(--color-border-primary)',
+                  color: 'var(--color-text-primary)',
+                },
+              }}
+            />
+          )}
 
           <Group justify="flex-end" mt="xl">
             <Button variant="subtle" color="gray" onClick={close}>

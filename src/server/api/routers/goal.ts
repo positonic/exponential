@@ -83,6 +83,7 @@ export const goalRouter = createTRPCRouter({
       lifeDomainId: z.number(),
       projectId: z.string().optional(),
       outcomeIds: z.array(z.string()).optional(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(updateGoal),
 

@@ -21,6 +21,7 @@ interface CreateGoalModalProps {
     dueDate: Date | null;
     lifeDomainId: number;
     outcomes?: { id: string; description: string }[];
+    workspaceId?: string | null;
   };
   trigger?: React.ReactNode;
   projectId?: string;
@@ -39,13 +40,17 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
   const [selectedOutcomeIds, setSelectedOutcomeIds] = useState<string[]>(
     goal?.outcomes?.map(o => o.id) ?? []
   );
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    goal?.workspaceId ?? null
+  );
 
   const utils = api.useUtils();
   const { data: lifeDomains } = api.lifeDomain.getAllLifeDomains.useQuery();
   const { data: projects } = api.project.getAll.useQuery();
   const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
+  const { data: workspaces } = api.workspace.list.useQuery();
 
-  const { workspace } = useWorkspace();
+  const { workspace, workspaceId: currentWorkspaceId } = useWorkspace();
   const isPersonalWorkspace = workspace?.type === 'personal';
 
   // Find Career/Business domain ID for non-personal workspaces
@@ -148,6 +153,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
     setLifeDomainId(null);
     setSelectedProjectId(undefined);
     setSelectedOutcomeIds([]);
+    setSelectedWorkspaceId(null);
   };
 
   useEffect(() => {
@@ -159,8 +165,16 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
       setDueDate(goal.dueDate);
       setLifeDomainId(goal.lifeDomainId);
       setSelectedOutcomeIds(goal.outcomes?.map(o => o.id) ?? []);
+      setSelectedWorkspaceId(goal.workspaceId ?? null);
     }
   }, [goal]);
+
+  // Auto-set workspace when creating (not editing)
+  useEffect(() => {
+    if (!goal && currentWorkspaceId && selectedWorkspaceId === null) {
+      setSelectedWorkspaceId(currentWorkspaceId);
+    }
+  }, [goal, currentWorkspaceId, selectedWorkspaceId]);
 
   useEffect(() => {
     setSelectedProjectId(projectId);
@@ -211,6 +225,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
               lifeDomainId,
               projectId: selectedProjectId,
               outcomeIds: selectedOutcomeIds.length > 0 ? selectedOutcomeIds : undefined,
+              workspaceId: selectedWorkspaceId ?? undefined,
             };
 
             if (goal?.id) {
@@ -328,6 +343,20 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
             minRows={3}
             autosize
           />
+
+          {goal && workspaces && workspaces.length > 0 && (
+            <Select
+              label="Workspace"
+              description="Move this goal to a different workspace"
+              data={[
+                { value: '', label: 'No Workspace (Personal)' },
+                ...workspaces.map(ws => ({ value: ws.id, label: ws.name }))
+              ]}
+              value={selectedWorkspaceId ?? ''}
+              onChange={(value) => setSelectedWorkspaceId(value === '' ? null : value)}
+              mt="md"
+            />
+          )}
 
           <Group justify="flex-end" mt="xl">
             <Button variant="subtle" color="gray" onClick={close}>

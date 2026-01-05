@@ -37,6 +37,7 @@ interface GoalInput {
   lifeDomainId: number;
   projectId?: string;
   outcomeIds?: string[];
+  workspaceId?: string;
 }
 
 export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInput }) {
@@ -100,6 +101,7 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
       notes: input.notes,
       dueDate: input.dueDate,
       lifeDomainId: input.lifeDomainId,
+      workspaceId: input.workspaceId,
       projects: input.projectId ? {
         set: [], // Clear existing connections
         connect: [{ id: input.projectId }]

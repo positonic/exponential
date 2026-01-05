@@ -150,6 +150,7 @@ export const outcomeRouter = createTRPCRouter({
       whyThisOutcome: z.string().optional(),
       projectId: z.string().optional(),
       goalId: z.number().optional(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(createOutcome),
 
@@ -186,6 +187,7 @@ export const outcomeRouter = createTRPCRouter({
       whyThisOutcome: z.string().optional(),
       projectId: z.string().optional(),
       goalId: z.number().optional(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(updateOutcome),
 
