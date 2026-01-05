@@ -63,15 +63,21 @@ describe('GoogleCalendarConnect', () => {
     test('redirects to auth endpoint when clicked', () => {
       const originalLocation = window.location;
       delete (window as any).location;
-      window.location = { ...originalLocation, href: '' } as Location;
+      window.location = {
+        ...originalLocation,
+        href: '',
+        pathname: '/today',
+        search: '',
+      } as Location;
 
       render(<GoogleCalendarConnect isConnected={false} />);
-      
+
       const button = screen.getByRole('button', { name: /connect google calendar/i });
       fireEvent.click(button);
-      
-      expect(window.location.href).toBe('/api/auth/google-calendar');
-      
+
+      // URL should include returnUrl parameter with encoded current path
+      expect(window.location.href).toBe('/api/auth/google-calendar?returnUrl=%2Ftoday');
+
       // Restore original location
       window.location = originalLocation;
     });
