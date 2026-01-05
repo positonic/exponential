@@ -99,9 +99,10 @@ model User {
   weeklyReviewSharing     WeeklyReviewSharing[]
   wheelOfLifeAssessments  WheelOfLifeAssessment[]
   habits                  Habit[]
-  ownedWorkspaces         Workspace[]                @relation("WorkspaceOwner")
-  workspaceMemberships    WorkspaceUser[]
-  resources               Resource[]
+  ownedWorkspaces              Workspace[]                @relation("WorkspaceOwner")
+  workspaceMemberships         WorkspaceUser[]
+  resources                    Resource[]
+  workspaceInvitationsCreated  WorkspaceInvitation[]      @relation("InvitationCreator")
 }
 
 model VerificationToken {
@@ -135,8 +136,9 @@ model Workspace {
   goals     Goal[]
   outcomes  Outcome[]
   actions   Action[]
-  teams     Team[]
-  resources Resource[]
+  teams       Team[]
+  resources   Resource[]
+  invitations WorkspaceInvitation[]
 
   @@index([slug])
   @@index([ownerId])
@@ -156,6 +158,28 @@ model WorkspaceUser {
   @@unique([userId, workspaceId])
   @@index([userId])
   @@index([workspaceId])
+}
+
+model WorkspaceInvitation {
+  id          String    @id @default(cuid())
+  workspaceId String
+  email       String
+  role        String    @default("member") // "admin" | "member" | "viewer"
+  token       String    @unique
+  status      String    @default("pending") // "pending" | "accepted" | "expired" | "cancelled"
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  createdById String
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("InvitationCreator", fields: [createdById], references: [id])
+
+  @@unique([workspaceId, email])
+  @@index([token])
+  @@index([email])
+  @@index([workspaceId])
+  @@index([status])
 }
 
 model Action {

@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import {
+  generateSecureToken,
+  generateInviteUrl,
+} from "~/server/utils/tokens";
 
 export const workspaceRouter = createTRPCRouter({
   // Create a new workspace
@@ -217,7 +221,7 @@ export const workspaceRouter = createTRPCRouter({
       return updatedWorkspace;
     }),
 
-  // Add a member to the workspace
+  // Add a member to the workspace (or create invitation if user doesn't exist)
   addMember: protectedProcedure
     .input(
       z.object({
@@ -252,50 +256,97 @@ export const workspaceRouter = createTRPCRouter({
         where: { email: input.email },
       });
 
-      if (!userToAdd) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "User with this email not found",
-        });
-      }
-
-      // Check if user is already a member
-      const existingMember = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: userToAdd.id,
-            workspaceId: input.workspaceId,
-          },
-        },
-      });
-
-      if (existingMember) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "User is already a member of this workspace",
-        });
-      }
-
-      // Add user to workspace
-      const newMember = await ctx.db.workspaceUser.create({
-        data: {
-          userId: userToAdd.id,
-          workspaceId: input.workspaceId,
-          role: input.role,
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
+      if (userToAdd) {
+        // User exists - add directly
+        // Check if user is already a member
+        const existingMember = await ctx.db.workspaceUser.findUnique({
+          where: {
+            userId_workspaceId: {
+              userId: userToAdd.id,
+              workspaceId: input.workspaceId,
             },
           },
-        },
-      });
+        });
 
-      return newMember;
+        if (existingMember) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "User is already a member of this workspace",
+          });
+        }
+
+        // Add user to workspace
+        const newMember = await ctx.db.workspaceUser.create({
+          data: {
+            userId: userToAdd.id,
+            workspaceId: input.workspaceId,
+            role: input.role,
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                image: true,
+              },
+            },
+          },
+        });
+
+        return { type: "member_added" as const, member: newMember };
+      } else {
+        // User doesn't exist - create invitation
+        // Check if already invited
+        const existingInvitation = await ctx.db.workspaceInvitation.findUnique({
+          where: {
+            workspaceId_email: {
+              workspaceId: input.workspaceId,
+              email: input.email,
+            },
+          },
+        });
+
+        if (existingInvitation && existingInvitation.status === "pending") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "An invitation has already been sent to this email",
+          });
+        }
+
+        const token = generateSecureToken();
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+        const invitation = await ctx.db.workspaceInvitation.upsert({
+          where: {
+            workspaceId_email: {
+              workspaceId: input.workspaceId,
+              email: input.email,
+            },
+          },
+          update: {
+            token,
+            role: input.role,
+            status: "pending",
+            expiresAt,
+            createdById: ctx.session.user.id,
+          },
+          create: {
+            workspaceId: input.workspaceId,
+            email: input.email,
+            role: input.role,
+            token,
+            expiresAt,
+            createdById: ctx.session.user.id,
+          },
+        });
+
+        return {
+          type: "invitation_created" as const,
+          invitation,
+          inviteUrl: generateInviteUrl(token),
+        };
+      }
     }),
 
   // Remove a member from the workspace
@@ -566,4 +617,417 @@ export const workspaceRouter = createTRPCRouter({
 
     return workspace;
   }),
+
+  // ============================================
+  // Invitation Management
+  // ============================================
+
+  // List pending invitations for a workspace
+  listInvitations: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Check if user is a member
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+      });
+
+      if (!member) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You must be a member to view invitations",
+        });
+      }
+
+      return ctx.db.workspaceInvitation.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          status: "pending",
+        },
+        include: {
+          createdBy: {
+            select: { id: true, name: true, email: true, image: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    }),
+
+  // Cancel a pending invitation
+  cancelInvitation: protectedProcedure
+    .input(z.object({ invitationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const invitation = await ctx.db.workspaceInvitation.findUnique({
+        where: { id: input.invitationId },
+      });
+
+      if (!invitation) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Invitation not found",
+        });
+      }
+
+      // Check permissions
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: invitation.workspaceId,
+          },
+        },
+      });
+
+      if (!member || (member.role !== "owner" && member.role !== "admin")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners and admins can cancel invitations",
+        });
+      }
+
+      return ctx.db.workspaceInvitation.update({
+        where: { id: input.invitationId },
+        data: { status: "cancelled" },
+      });
+    }),
+
+  // Resend an invitation (regenerate token and extend expiry)
+  resendInvitation: protectedProcedure
+    .input(z.object({ invitationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const invitation = await ctx.db.workspaceInvitation.findUnique({
+        where: { id: input.invitationId },
+      });
+
+      if (!invitation) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Invitation not found",
+        });
+      }
+
+      // Check permissions
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: invitation.workspaceId,
+          },
+        },
+      });
+
+      if (!member || (member.role !== "owner" && member.role !== "admin")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners and admins can resend invitations",
+        });
+      }
+
+      const newToken = generateSecureToken();
+      const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+      const updated = await ctx.db.workspaceInvitation.update({
+        where: { id: input.invitationId },
+        data: {
+          token: newToken,
+          expiresAt: newExpiry,
+          status: "pending",
+        },
+      });
+
+      return {
+        invitation: updated,
+        inviteUrl: generateInviteUrl(newToken),
+      };
+    }),
+
+  // Accept an invitation (called by the invitee)
+  acceptInvitation: protectedProcedure
+    .input(z.object({ token: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const invitation = await ctx.db.workspaceInvitation.findUnique({
+        where: { token: input.token },
+        include: { workspace: true },
+      });
+
+      if (!invitation) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Invalid invitation link",
+        });
+      }
+
+      if (invitation.status !== "pending") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This invitation is no longer valid",
+        });
+      }
+
+      if (invitation.expiresAt < new Date()) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This invitation has expired",
+        });
+      }
+
+      if (invitation.email !== ctx.session.user.email) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "This invitation was sent to a different email address",
+        });
+      }
+
+      // Check if user is already a member
+      const existingMember = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: invitation.workspaceId,
+          },
+        },
+      });
+
+      if (existingMember) {
+        // Mark invitation as accepted but don't create duplicate membership
+        await ctx.db.workspaceInvitation.update({
+          where: { id: invitation.id },
+          data: { status: "accepted", acceptedAt: new Date() },
+        });
+
+        return { success: true, workspace: invitation.workspace };
+      }
+
+      // Transaction: update invitation + create membership
+      await ctx.db.$transaction([
+        ctx.db.workspaceInvitation.update({
+          where: { id: invitation.id },
+          data: { status: "accepted", acceptedAt: new Date() },
+        }),
+        ctx.db.workspaceUser.create({
+          data: {
+            userId: ctx.session.user.id,
+            workspaceId: invitation.workspaceId,
+            role: invitation.role,
+          },
+        }),
+      ]);
+
+      return { success: true, workspace: invitation.workspace };
+    }),
+
+  // Get pending invitations for the current user
+  getMyPendingInvitations: protectedProcedure.query(async ({ ctx }) => {
+    if (!ctx.session.user.email) {
+      return [];
+    }
+
+    return ctx.db.workspaceInvitation.findMany({
+      where: {
+        email: ctx.session.user.email,
+        status: "pending",
+        expiresAt: { gt: new Date() },
+      },
+      include: {
+        workspace: {
+          select: { id: true, name: true, slug: true, type: true },
+        },
+        createdBy: {
+          select: { name: true, email: true, image: true },
+        },
+      },
+    });
+  }),
+
+  // Get invitation details by token (public info for accept page)
+  getInvitationByToken: protectedProcedure
+    .input(z.object({ token: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const invitation = await ctx.db.workspaceInvitation.findUnique({
+        where: { token: input.token },
+        include: {
+          workspace: {
+            select: { id: true, name: true, slug: true, type: true },
+          },
+          createdBy: {
+            select: { name: true, email: true, image: true },
+          },
+        },
+      });
+
+      if (!invitation) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Invalid invitation link",
+        });
+      }
+
+      return {
+        ...invitation,
+        isExpired: invitation.expiresAt < new Date(),
+        isForCurrentUser: invitation.email === ctx.session.user.email,
+      };
+    }),
+
+  // ============================================
+  // Team Linking
+  // ============================================
+
+  // Link a team to this workspace
+  linkTeam: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        teamId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Check workspace permissions (owner/admin)
+      const workspaceMember = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+      });
+
+      if (
+        !workspaceMember ||
+        (workspaceMember.role !== "owner" && workspaceMember.role !== "admin")
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners/admins can link teams",
+        });
+      }
+
+      // Check team permissions (owner only can link to workspace)
+      const teamMember = await ctx.db.teamUser.findUnique({
+        where: {
+          userId_teamId: {
+            userId: ctx.session.user.id,
+            teamId: input.teamId,
+          },
+        },
+      });
+
+      if (!teamMember || teamMember.role !== "owner") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only team owners can link their team to a workspace",
+        });
+      }
+
+      // Check if team is already linked to another workspace
+      const team = await ctx.db.team.findUnique({
+        where: { id: input.teamId },
+      });
+
+      if (team?.workspaceId && team.workspaceId !== input.workspaceId) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Team is already linked to another workspace",
+        });
+      }
+
+      return ctx.db.team.update({
+        where: { id: input.teamId },
+        data: { workspaceId: input.workspaceId },
+      });
+    }),
+
+  // Unlink a team from this workspace
+  unlinkTeam: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        teamId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Check workspace permissions (owner/admin)
+      const workspaceMember = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+      });
+
+      if (
+        !workspaceMember ||
+        (workspaceMember.role !== "owner" && workspaceMember.role !== "admin")
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners/admins can unlink teams",
+        });
+      }
+
+      // Verify team is linked to this workspace
+      const team = await ctx.db.team.findUnique({
+        where: { id: input.teamId },
+      });
+
+      if (!team || team.workspaceId !== input.workspaceId) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Team is not linked to this workspace",
+        });
+      }
+
+      return ctx.db.team.update({
+        where: { id: input.teamId },
+        data: { workspaceId: null },
+      });
+    }),
+
+  // Get all user's teams with their link status for this workspace
+  getUserTeamsForLinking: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Get all teams user is a member of
+      const userTeams = await ctx.db.team.findMany({
+        where: {
+          members: {
+            some: {
+              userId: ctx.session.user.id,
+            },
+          },
+        },
+        include: {
+          members: {
+            include: {
+              user: {
+                select: { id: true, name: true, email: true, image: true },
+              },
+            },
+          },
+          _count: {
+            select: { projects: true },
+          },
+        },
+      });
+
+      // Add link status and user's role for each team
+      return userTeams.map((team) => {
+        const userMembership = team.members.find(
+          (m) => m.userId === ctx.session.user.id
+        );
+        return {
+          ...team,
+          isLinkedToThisWorkspace: team.workspaceId === input.workspaceId,
+          isLinkedToOtherWorkspace:
+            team.workspaceId !== null && team.workspaceId !== input.workspaceId,
+          userRole: userMembership?.role ?? null,
+          canLink: userMembership?.role === "owner",
+        };
+      });
+    }),
 });
