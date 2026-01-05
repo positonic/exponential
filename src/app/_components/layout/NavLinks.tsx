@@ -7,11 +7,12 @@ import {
   IconCalendarEvent,
   IconCalendarTime,
   IconHome,
-  
+
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { UpcomingCount } from "./UpcomingCount";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 // Reusable NavLink component
 export function NavLink({ href, icon: Icon, children, count }: { 
@@ -55,9 +56,14 @@ export function NavLink({ href, icon: Icon, children, count }: {
 }
 
 export function NavLinks() {
+  const { workspaceSlug } = useWorkspace();
+
+  // Generate workspace-aware paths
+  const homePath = workspaceSlug ? `/w/${workspaceSlug}/home` : '/home';
+
   return (
     <div className="space-y-1">
-      <NavLink href="/home" icon={IconHome}>
+      <NavLink href={homePath} icon={IconHome}>
         Home
       </NavLink>
       <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>

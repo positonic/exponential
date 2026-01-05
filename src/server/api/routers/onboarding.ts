@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { uploadToBlob } from "~/lib/blob";
+import { slugify } from "~/utils/slugify";
 
 export const onboardingRouter = createTRPCRouter({
   /**
@@ -279,6 +280,17 @@ export const onboardingRouter = createTRPCRouter({
 
       // Use a transaction to create project, tasks, and complete onboarding atomically
       const result = await ctx.db.$transaction(async (tx) => {
+        // Generate a unique slug
+        const baseSlug = slugify(projectName);
+        let slug = baseSlug;
+        let counter = 1;
+
+        // Check if slug exists and increment counter until we find a unique one
+        while (await tx.project.findFirst({ where: { slug } })) {
+          slug = `${baseSlug}_${counter}`;
+          counter++;
+        }
+
         // Create the first project
         const project = await tx.project.create({
           data: {
@@ -287,7 +299,7 @@ export const onboardingRouter = createTRPCRouter({
             priority: projectPriority,
             status: "ACTIVE",
             createdById: userId,
-            slug: projectName.toLowerCase().split(" ").join("-")
+            slug,
           },
         });
 

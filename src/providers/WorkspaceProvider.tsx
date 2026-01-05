@@ -87,8 +87,8 @@ export function WorkspaceProvider({
 
   const switchWorkspace = useCallback(
     (slug: string) => {
-      // Navigate to the new workspace's projects page
-      router.push(`/w/${slug}/projects`);
+      // Navigate to the new workspace's home page
+      router.push(`/w/${slug}/home`);
     },
     [router]
   );
