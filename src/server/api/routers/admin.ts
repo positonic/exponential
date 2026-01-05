@@ -148,7 +148,6 @@ export const adminRouter = createTRPCRouter({
           isAdmin: true,
           onboardingCompletedAt: true,
           onboardingStep: true,
-          projectSetupCompletedAt: true,
           _count: {
             select: {
               actions: true,
@@ -168,13 +167,9 @@ export const adminRouter = createTRPCRouter({
       const getUserStatus = (user: {
         onboardingCompletedAt: Date | null;
         onboardingStep: number;
-        projectSetupCompletedAt: Date | null;
-      }): "registered" | "onboarding" | "setup" | "active" => {
+      }): "registered" | "onboarding" | "active" => {
         if (!user.onboardingCompletedAt) {
           return user.onboardingStep === 1 ? "registered" : "onboarding";
-        }
-        if (!user.projectSetupCompletedAt) {
-          return "setup";
         }
         return "active";
       };

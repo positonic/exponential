@@ -33,7 +33,6 @@ import { userRouter } from "./routers/user";
 import { wheelOfLifeRouter } from "./routers/wheelOfLife";
 import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
-import { projectSetupRouter } from "./routers/projectSetup";
 import { workspaceRouter } from "./routers/workspace";
 import { resourceRouter } from "./routers/resource";
 /**
@@ -76,7 +75,6 @@ export const appRouter = createTRPCRouter({
   wheelOfLife: wheelOfLifeRouter,
   navigationPreference: navigationPreferenceRouter,
   habit: habitRouter,
-  projectSetup: projectSetupRouter,
   workspace: workspaceRouter,
   resource: resourceRouter,
 });
