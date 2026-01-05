@@ -41,6 +41,10 @@
     --color-brand-warning: #fab005;
     --color-brand-error: #fa5252;
     --color-brand-info: #339af0;
+
+    /* Onboarding */
+    --color-onboarding-illustration-bg: #fdf4f3;
+    --color-onboarding-accent: #f87171;
   }
 
   /* Dark theme colors */
@@ -81,6 +85,10 @@
     --color-brand-warning: #ffd43b;
     --color-brand-error: #ff6b6b;
     --color-brand-info: #4dabf7;
+
+    /* Onboarding */
+    --color-onboarding-illustration-bg: #2c2e33;
+    --color-onboarding-accent: #f87171;
   }
 
   /* Also support Tailwind's dark mode class */
@@ -121,6 +129,10 @@
     --color-brand-warning: #ffd43b;
     --color-brand-error: #ff6b6b;
     --color-brand-info: #4dabf7;
+
+    /* Onboarding */
+    --color-onboarding-illustration-bg: #2c2e33;
+    --color-onboarding-accent: #f87171;
   }
 }
 

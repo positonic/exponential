@@ -1,16 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { 
-  Container, 
-  Title, 
-  Text, 
-  Button, 
-  Stack, 
+import { useState, useEffect, useRef } from 'react';
+import {
+  Title,
+  Text,
+  Button,
+  Stack,
   Group,
   Stepper,
   Card,
-  Grid,
   Select,
   TextInput,
   SimpleGrid,
@@ -18,11 +16,13 @@ import {
   Box,
   Progress,
   Anchor,
-  ThemeIcon
+  ThemeIcon,
+  Checkbox,
+  Avatar,
+  ActionIcon,
+  Loader
 } from '@mantine/core';
-import { 
-  IconBriefcase, 
-  IconHome, 
+import {
   IconCheck,
   IconArrowRight,
   IconBrandSlack,
@@ -35,36 +35,26 @@ import {
   IconPalette,
   IconMail,
   IconNotes,
-  IconTargetArrow
+  IconTargetArrow,
+  IconCamera,
+  IconUser
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
+import { OnboardingIllustration } from './OnboardingIllustration';
 
-type UsageType = 'work' | 'personal' | null;
-type OnboardingStep = 1 | 2 | 3 | 4;
+type OnboardingStep = 1 | 2 | 3;
 
 interface OnboardingData {
-  usageType: UsageType;
-  userRole?: string;
+  name: string;
+  emailMarketingOptIn: boolean;
   selectedTools: string[];
   projectName: string;
   projectDescription: string;
   projectPriority: 'LOW' | 'MEDIUM' | 'HIGH';
   template?: 'personal' | 'work' | 'learning' | 'scratch';
 }
-
-const predefinedRoles = [
-  'Executive/C-Level',
-  'Manager/Team Lead',
-  'Project Manager',
-  'Developer/Engineer',
-  'Designer',
-  'Marketing/Sales',
-  'Operations',
-  'Consultant',
-  'Other'
-];
 
 const toolCategories = {
   'Productivity': [
@@ -104,14 +94,22 @@ const toolCategories = {
   ]
 };
 
-export default function OnboardingPageComponent({userName}: {userName: string}) {
+interface OnboardingComponentProps {
+  userName: string;
+  userEmail: string;
+}
+
+export default function OnboardingPageComponent({ userName, userEmail }: OnboardingComponentProps) {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [currentStep, setCurrentStep] = useState<OnboardingStep>(1);
   const [isLoading, setIsLoading] = useState(false);
-  const [showOtherRole, setShowOtherRole] = useState(false);
-  
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+
   const [data, setData] = useState<OnboardingData>({
-    usageType: null,
+    name: userName ?? '',
+    emailMarketingOptIn: true,
     selectedTools: [],
     projectName: '',
     projectDescription: '',
@@ -120,66 +118,107 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
 
   // Get onboarding status
   const { data: onboardingStatus, isLoading: statusLoading } = api.onboarding.getStatus.useQuery();
-  
+
   // tRPC mutations
-  const updateUsageType = api.onboarding.updateUsageType.useMutation();
-  const updateRole = api.onboarding.updateRole.useMutation();
+  const updateProfile = api.onboarding.updateProfile.useMutation();
+  const uploadProfileImage = api.onboarding.uploadProfileImage.useMutation();
   const updateTools = api.onboarding.updateTools.useMutation();
   const completeOnboarding = api.onboarding.completeOnboarding.useMutation();
 
   // Set initial step based on current progress
   useEffect(() => {
     if (onboardingStatus && !onboardingStatus.isCompleted) {
-      setCurrentStep(onboardingStatus.onboardingStep as OnboardingStep);
+      // Map old step numbers to new (1->1, 2->1, 3->2, 4->3)
+      const step = onboardingStatus.onboardingStep;
+      const mappedStep = step <= 2 ? 1 : step === 3 ? 2 : 3;
+      setCurrentStep(mappedStep as OnboardingStep);
       setData(prev => ({
         ...prev,
-        usageType: onboardingStatus.usageType as UsageType,
-        userRole: onboardingStatus.userRole || undefined,
-        selectedTools: onboardingStatus.selectedTools || []
+        name: onboardingStatus.name ?? userName ?? '',
+        emailMarketingOptIn: onboardingStatus.emailMarketingOptIn ?? true,
+        selectedTools: onboardingStatus.selectedTools ?? []
       }));
+      if (onboardingStatus.image) {
+        setProfileImageUrl(onboardingStatus.image);
+      }
     } else if (onboardingStatus?.isCompleted) {
-      // If already completed, redirect to home
       router.push('/home');
     }
-  }, [onboardingStatus, router]);
+  }, [onboardingStatus, router, userName]);
 
-  const handleUsageTypeSelection = async (usageType: UsageType) => {
-    if (!usageType) return;
-    
-    setIsLoading(true);
-    try {
-      await updateUsageType.mutateAsync({ usageType });
-      setData(prev => ({ ...prev, usageType }));
-      
-      // Skip to step 3 if personal, step 2 if work
-      const nextStep = usageType === 'work' ? 2 : 3;
-      setCurrentStep(nextStep as OnboardingStep);
-      
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
       notifications.show({
-        title: 'Great!',
-        message: `We'll tailor Exponential for your ${usageType} needs.`,
-        color: 'green',
-        icon: <IconCheck size={16} />
-      });
-    } catch {
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to save your selection. Please try again.',
+        title: 'Invalid file',
+        message: 'Please select an image file.',
         color: 'red'
       });
-    } finally {
-      setIsLoading(false);
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      notifications.show({
+        title: 'File too large',
+        message: 'Please select an image under 5MB.',
+        color: 'red'
+      });
+      return;
+    }
+
+    setIsUploadingImage(true);
+    try {
+      // Convert to base64
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = (reader.result as string).split(',')[1];
+        if (!base64) return;
+
+        const result = await uploadProfileImage.mutateAsync({ base64Data: base64 });
+        setProfileImageUrl(result.imageUrl);
+        notifications.show({
+          title: 'Photo uploaded!',
+          message: 'Your profile photo has been saved.',
+          color: 'green',
+          icon: <IconCheck size={16} />
+        });
+        setIsUploadingImage(false);
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      notifications.show({
+        title: 'Upload failed',
+        message: 'Failed to upload image. Please try again.',
+        color: 'red'
+      });
+      setIsUploadingImage(false);
     }
   };
 
-  const handleRoleSelection = async () => {
+  const handleProfileSubmit = async () => {
+    if (!data.name.trim()) {
+      notifications.show({
+        title: 'Name required',
+        message: 'Please enter your full name.',
+        color: 'orange'
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
-      await updateRole.mutateAsync({ userRole: data.userRole });
-      setCurrentStep(3);
-      
+      await updateProfile.mutateAsync({
+        name: data.name,
+        emailMarketingOptIn: data.emailMarketingOptIn
+      });
+      setCurrentStep(2);
+
       notifications.show({
-        title: 'Role saved!',
+        title: 'Profile saved!',
         message: 'Let\'s see what tools you use.',
         color: 'green',
         icon: <IconCheck size={16} />
@@ -187,23 +226,7 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
     } catch {
       notifications.show({
         title: 'Error',
-        message: 'Failed to save your role. Please try again.',
-        color: 'red'
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSkipRole = async () => {
-    setIsLoading(true);
-    try {
-      await updateRole.mutateAsync({ userRole: undefined });
-      setCurrentStep(3);
-    } catch {
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to skip role selection. Please try again.',
+        message: 'Failed to save your profile. Please try again.',
         color: 'red'
       });
     } finally {
@@ -215,8 +238,8 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
     setIsLoading(true);
     try {
       await updateTools.mutateAsync({ selectedTools: data.selectedTools });
-      setCurrentStep(4);
-      
+      setCurrentStep(3);
+
       notifications.show({
         title: 'Tools saved!',
         message: 'Now let\'s create your first project.',
@@ -252,20 +275,19 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
         projectPriority: data.projectPriority,
         template: data.template
       });
-      
+
       notifications.show({
-        title: 'Welcome to Exponential! 🎉',
+        title: 'Welcome to Exponential!',
         message: 'Your onboarding is complete. Let\'s get started!',
         color: 'green',
         icon: <IconCheck size={16} />,
         autoClose: 3000
       });
-      
-      // Redirect to project setup wizard after a brief delay
+
       setTimeout(() => {
         router.push('/project-setup');
       }, 2000);
-      
+
     } catch {
       notifications.show({
         title: 'Error',
@@ -288,295 +310,305 @@ export default function OnboardingPageComponent({userName}: {userName: string}) 
 
   if (statusLoading) {
     return (
-      <Container size="sm" py="xl">
+      <div className="min-h-screen flex items-center justify-center bg-background-primary">
         <Box className="text-center">
           <Title order={3}>Loading...</Title>
-          <Progress value={50} animated mt="md" />
+          <Progress value={50} animated mt="md" className="w-48" />
         </Box>
-      </Container>
+      </div>
     );
   }
 
-  return (
-    <Container size="md" py="xl">
-      <Stack gap="xl">
-        {/* Header */}
-        <div className="text-center">
-          <Title order={1} size="h1" className="text-3xl font-bold mb-2">
-            Welcome to Exponential, {userName}! 👋
-          </Title>
-          <Text size="lg" className="text-text-secondary max-w-2xl mx-auto">
-            Let&apos;s get you set up in just a few quick steps. This will help us personalize your experience.
-          </Text>
+  // Step 1: Profile Setup - Asana-style two-column layout
+  if (currentStep === 1) {
+    return (
+      <div className="min-h-screen flex">
+        {/* Left column - Form */}
+        <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+          <div>
+            {/* Logo placeholder - replace with actual logo */}
+            <div className="mb-12">
+              <Title order={3} className="text-brand-primary font-bold">
+                Exponential
+              </Title>
+            </div>
+
+            {/* Welcome text */}
+            <div className="mb-8">
+              <Title order={1} className="text-3xl lg:text-4xl font-bold mb-2 text-text-primary">
+                Welcome to Exponential!
+              </Title>
+              <Text className="text-text-secondary">
+                You&apos;re signing up as {userEmail}.
+              </Text>
+            </div>
+
+            {/* Profile photo and name form */}
+            <div className="flex gap-6 mb-6">
+              {/* Profile photo upload */}
+              <div className="relative">
+                <Avatar
+                  src={profileImageUrl}
+                  size={100}
+                  radius="50%"
+                  className="border-2 border-dashed border-border-primary"
+                >
+                  {isUploadingImage ? (
+                    <Loader size="sm" />
+                  ) : (
+                    <IconUser size={40} className="text-text-muted" />
+                  )}
+                </Avatar>
+                <ActionIcon
+                  size="sm"
+                  radius="xl"
+                  variant="filled"
+                  className="absolute bottom-0 right-0 bg-surface-primary border border-border-primary"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingImage}
+                >
+                  <IconCamera size={14} className="text-text-secondary" />
+                </ActionIcon>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageUpload}
+                />
+              </div>
+
+              {/* Name input */}
+              <div className="flex-1">
+                <Text fw={500} className="mb-2 text-text-primary">
+                  What&apos;s your full name?
+                </Text>
+                <TextInput
+                  placeholder="Your full name"
+                  value={data.name}
+                  onChange={(e) => setData(prev => ({ ...prev, name: e.target.value }))}
+                  size="md"
+                  classNames={{
+                    input: 'bg-background-primary border-border-primary'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Email opt-in */}
+            <Checkbox
+              label="Get feature updates and tips via email (recommended)."
+              checked={data.emailMarketingOptIn}
+              onChange={(e) => setData(prev => ({ ...prev, emailMarketingOptIn: e.currentTarget.checked }))}
+              className="mb-8"
+              classNames={{
+                label: 'text-text-secondary'
+              }}
+            />
+          </div>
+
+          {/* Bottom section */}
+          <div>
+            <Text size="sm" className="text-text-muted mb-6">
+              Wrong account?{' '}
+              <Anchor href="/api/auth/signout" className="text-text-secondary hover:text-text-primary">
+                Log in
+              </Anchor>
+              {' '}instead.
+            </Text>
+
+            <Button
+              fullWidth
+              size="lg"
+              onClick={handleProfileSubmit}
+              loading={isLoading}
+              disabled={!data.name.trim()}
+            >
+              Continue
+            </Button>
+          </div>
         </div>
 
-        {/* Progress Stepper */}
-        <Stepper 
-          active={currentStep - 1} 
-          color="brand"
-          className="mb-8"
+        {/* Right column - Illustration */}
+        <div
+          className="hidden lg:flex w-[55%] items-center justify-center p-12"
+          style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
         >
-          <Stepper.Step label="Usage Type" description="How will you use Exponential?" />
-          <Stepper.Step label="Role" description="What's your role?" />
-          <Stepper.Step label="Tools" description="What tools do you use?" />
-          <Stepper.Step label="First Project" description="Create your first project" />
-        </Stepper>
+          <OnboardingIllustration />
+        </div>
+      </div>
+    );
+  }
 
-        {/* Step Content */}
-        <Card shadow="sm" padding="lg" radius="md" className="border-border-primary">
-          
-          {/* Step 1: Usage Type */}
-          {currentStep === 1 && (
-            <Stack gap="lg">
-              <div className="text-center">
-                <Title order={2} className="text-2xl font-semibold mb-2">
-                  How will you be using Exponential?
-                </Title>
-                <Text className="text-text-secondary">
-                  This helps us customize the experience for your needs.
-                </Text>
-              </div>
+  // Steps 2 and 3: Standard layout with stepper
+  return (
+    <div className="min-h-screen bg-background-primary py-12">
+      <div className="max-w-3xl mx-auto px-4">
+        <Stack gap="xl">
+          {/* Header */}
+          <div className="text-center">
+            <Title order={1} size="h1" className="text-3xl font-bold mb-2">
+              Almost there, {data.name || userName}!
+            </Title>
+            <Text size="lg" className="text-text-secondary max-w-2xl mx-auto">
+              Just a couple more steps to personalize your experience.
+            </Text>
+          </div>
 
-              <Grid gutter="md">
-                <Grid.Col span={{ base: 12, sm: 6 }}>
-                  <Card 
-                    shadow="sm" 
-                    padding="xl" 
-                    radius="md" 
-                    className={`cursor-pointer transition-all border-2 hover:border-brand-primary ${
-                      data.usageType === 'work' ? 'border-brand-primary bg-brand-light' : 'border-border-primary'
-                    }`}
-                    onClick={() => handleUsageTypeSelection('work')}
-                  >
-                    <Stack align="center" gap="md">
-                      <IconBriefcase size={48} className="text-brand-primary" />
-                      <Title order={3} className="text-xl font-semibold">Work</Title>
-                      <Text className="text-center text-text-secondary">
-                        Manage projects, collaborate with teams, and track professional goals.
-                      </Text>
-                    </Stack>
-                  </Card>
-                </Grid.Col>
+          {/* Progress Stepper */}
+          <Stepper
+            active={currentStep - 1}
+            color="brand"
+            className="mb-8"
+          >
+            <Stepper.Step label="Profile" description="Set up your profile" />
+            <Stepper.Step label="Tools" description="What tools do you use?" />
+            <Stepper.Step label="First Project" description="Create your first project" />
+          </Stepper>
 
-                <Grid.Col span={{ base: 12, sm: 6 }}>
-                  <Card 
-                    shadow="sm" 
-                    padding="xl" 
-                    radius="md" 
-                    className={`cursor-pointer transition-all border-2 hover:border-brand-primary ${
-                      data.usageType === 'personal' ? 'border-brand-primary bg-brand-light' : 'border-border-primary'
-                    }`}
-                    onClick={() => handleUsageTypeSelection('personal')}
-                  >
-                    <Stack align="center" gap="md">
-                      <IconHome size={48} className="text-brand-primary" />
-                      <Title order={3} className="text-xl font-semibold">Personal</Title>
-                      <Text className="text-center text-text-secondary">
-                        Organize personal projects, hobbies, and life goals.
-                      </Text>
-                    </Stack>
-                  </Card>
-                </Grid.Col>
-              </Grid>
-            </Stack>
-          )}
+          {/* Step Content */}
+          <Card shadow="sm" padding="lg" radius="md" className="border border-border-primary">
 
-          {/* Step 2: Role Selection (Work only) */}
-          {currentStep === 2 && data.usageType === 'work' && (
-            <Stack gap="lg">
-              <div className="text-center">
-                <Title order={2} className="text-2xl font-semibold mb-2">
-                  What&apos;s your role?
-                </Title>
-                <Text className="text-text-secondary">
-                  This helps us suggest relevant features and workflows.
-                </Text>
-              </div>
+            {/* Step 2: Tool Selection */}
+            {currentStep === 2 && (
+              <Stack gap="lg">
+                <div className="text-center">
+                  <Title order={2} className="text-2xl font-semibold mb-2">
+                    What tools do you use?
+                  </Title>
+                  <Text className="text-text-secondary">
+                    Select all that apply. We&apos;ll help you integrate them later.
+                  </Text>
+                </div>
 
-              <Stack gap="md">
-                <Select
-                  label="Select your role"
-                  placeholder="Choose your role"
-                  data={predefinedRoles}
-                  value={data.userRole}
-                  onChange={(value) => {
-                    setData(prev => ({ ...prev, userRole: value || undefined }));
-                    setShowOtherRole(value === 'Other');
-                  }}
-                  size="md"
-                />
+                <Stack gap="md">
+                  {Object.entries(toolCategories).map(([category, tools]) => (
+                    <div key={category}>
+                      <Title order={4} className="text-lg font-medium mb-2">
+                        {category}
+                      </Title>
+                      <SimpleGrid cols={{ base: 2, sm: 3, md: 4 }} spacing="md">
+                        {tools.map(tool => (
+                          <Card
+                            key={tool.name}
+                            shadow="sm"
+                            radius="md"
+                            padding="md"
+                            className={`cursor-pointer transition-all border-2 relative ${
+                              data.selectedTools.includes(tool.name)
+                                ? 'border-brand-primary bg-surface-secondary'
+                                : 'border-border-primary hover:border-border-focus'
+                            }`}
+                            onClick={() => toggleTool(tool.name)}
+                          >
+                            {/* Check mark overlay */}
+                            {data.selectedTools.includes(tool.name) && (
+                              <div className="absolute -top-1 -right-1 bg-brand-primary text-text-inverse rounded-full p-1 z-10">
+                                <IconCheck size={12} />
+                              </div>
+                            )}
 
-                {showOtherRole && (
+                            <Stack align="center" gap="xs">
+                              <ThemeIcon size={40} radius="md" variant="light" color={tool.color}>
+                                <tool.icon size={20} />
+                              </ThemeIcon>
+                              <Text size="xs" fw={500} className="text-center leading-tight">
+                                {tool.name}
+                              </Text>
+                            </Stack>
+                          </Card>
+                        ))}
+                      </SimpleGrid>
+                    </div>
+                  ))}
+
+                  <Group justify="space-between" mt="md">
+                    <Anchor
+                      component="button"
+                      onClick={handleToolsSelection}
+                      className="text-text-secondary hover:text-text-primary"
+                    >
+                      Skip for now
+                    </Anchor>
+
+                    <Button
+                      onClick={handleToolsSelection}
+                      loading={isLoading}
+                      rightSection={<IconArrowRight size={16} />}
+                    >
+                      Continue ({data.selectedTools.length} selected)
+                    </Button>
+                  </Group>
+                </Stack>
+              </Stack>
+            )}
+
+            {/* Step 3: First Project */}
+            {currentStep === 3 && (
+              <Stack gap="lg">
+                <div className="text-center">
+                  <Title order={2} className="text-2xl font-semibold mb-2">
+                    Create your first project
+                  </Title>
+                  <Text className="text-text-secondary">
+                    Let&apos;s start with a project to get you going.
+                  </Text>
+                </div>
+
+                <Stack gap="md">
                   <TextInput
-                    label="Please specify your role"
-                    placeholder="Enter your role"
-                    value={data.userRole === 'Other' ? '' : data.userRole}
-                    onChange={(e) => setData(prev => ({ ...prev, userRole: e.target.value }))}
+                    label="Project Name"
+                    placeholder="My awesome project"
+                    value={data.projectName}
+                    onChange={(e) => setData(prev => ({ ...prev, projectName: e.target.value }))}
+                    size="md"
+                    required
+                  />
+
+                  <Textarea
+                    label="Description (optional)"
+                    placeholder="What is this project about?"
+                    value={data.projectDescription}
+                    onChange={(e) => setData(prev => ({ ...prev, projectDescription: e.target.value }))}
+                    minRows={3}
+                  />
+
+                  <Select
+                    label="Priority"
+                    value={data.projectPriority}
+                    onChange={(value) => setData(prev => ({
+                      ...prev,
+                      projectPriority: (value as 'LOW' | 'MEDIUM' | 'HIGH') ?? 'MEDIUM'
+                    }))}
+                    data={[
+                      { value: 'LOW', label: 'Low' },
+                      { value: 'MEDIUM', label: 'Medium' },
+                      { value: 'HIGH', label: 'High' }
+                    ]}
                     size="md"
                   />
-                )}
 
-                <Group justify="space-between" mt="md">
-                  <Anchor 
-                    component="button" 
-                    onClick={handleSkipRole}
-                    className="text-text-secondary hover:text-text-primary"
-                  >
-                    Skip for now
-                  </Anchor>
-                  
-                  <Button 
-                    onClick={handleRoleSelection}
+                  <Button
+                    onClick={handleCompleteOnboarding}
                     loading={isLoading}
-                    disabled={!data.userRole}
-                    rightSection={<IconArrowRight size={16} />}
+                    size="lg"
+                    rightSection={<IconCheck size={16} />}
+                    className="mt-4"
+                    disabled={!data.projectName.trim()}
                   >
-                    Continue
+                    Complete Setup
                   </Button>
-                </Group>
+                </Stack>
               </Stack>
-            </Stack>
-          )}
+            )}
+          </Card>
 
-          {/* Step 3: Tool Selection */}
-          {currentStep === 3 && (
-            <Stack gap="lg">
-              <div className="text-center">
-                <Title order={2} className="text-2xl font-semibold mb-2">
-                  What tools do you use?
-                </Title>
-                <Text className="text-text-secondary">
-                  Select all that apply. We&apos;ll help you integrate them later.
-                </Text>
-              </div>
-
-              <Stack gap="md">
-                {Object.entries(toolCategories).map(([category, tools]) => (
-                  <div key={category}>
-                    <Title order={4} className="text-lg font-medium mb-2">
-                      {category}
-                    </Title>
-                    <SimpleGrid cols={{ base: 2, sm: 3, md: 4 }} spacing="md">
-                      {tools.map(tool => (
-                        <Card
-                          key={tool.name}
-                          shadow="sm"
-                          radius="md"
-                          padding="md"
-                          className={`cursor-pointer transition-all border-2 relative ${
-                            data.selectedTools.includes(tool.name)
-                              ? 'border-brand bg-surface-secondary'
-                              : 'border-border-primary hover:border-border-focus'
-                          }`}
-                          onClick={() => toggleTool(tool.name)}
-                        >
-                          {/* Check mark overlay */}
-                          {data.selectedTools.includes(tool.name) && (
-                            <div className="absolute -top-1 -right-1 bg-brand text-text-inverse rounded-full p-1 z-10">
-                              <IconCheck size={12} />
-                            </div>
-                          )}
-                          
-                          <Stack align="center" gap="xs">
-                            <ThemeIcon size={40} radius="md" variant="light" color={tool.color}>
-                              <tool.icon size={20} />
-                            </ThemeIcon>
-                            <Text size="xs" fw={500} className="text-center leading-tight">
-                              {tool.name}
-                            </Text>
-                          </Stack>
-                        </Card>
-                      ))}
-                    </SimpleGrid>
-                  </div>
-                ))}
-
-                <Group justify="space-between" mt="md">
-                  <Anchor 
-                    component="button" 
-                    onClick={handleToolsSelection}
-                    className="text-text-secondary hover:text-text-primary"
-                  >
-                    Skip for now
-                  </Anchor>
-                  
-                  <Button 
-                    onClick={handleToolsSelection}
-                    loading={isLoading}
-                    rightSection={<IconArrowRight size={16} />}
-                  >
-                    Continue ({data.selectedTools.length} selected)
-                  </Button>
-                </Group>
-              </Stack>
-            </Stack>
-          )}
-
-          {/* Step 4: First Project */}
-          {currentStep === 4 && (
-            <Stack gap="lg">
-              <div className="text-center">
-                <Title order={2} className="text-2xl font-semibold mb-2">
-                  Create your first project
-                </Title>
-                <Text className="text-text-secondary">
-                  Let&apos;s start with a project to get you going.
-                </Text>
-              </div>
-
-              <Stack gap="md">
-                <TextInput
-                  label="Project Name"
-                  placeholder="My awesome project"
-                  value={data.projectName}
-                  onChange={(e) => setData(prev => ({ ...prev, projectName: e.target.value }))}
-                  size="md"
-                  required
-                />
-
-                <Textarea
-                  label="Description (optional)"
-                  placeholder="What is this project about?"
-                  value={data.projectDescription}
-                  onChange={(e) => setData(prev => ({ ...prev, projectDescription: e.target.value }))}
-                  minRows={3}
-                />
-
-                <Select
-                  label="Priority"
-                  value={data.projectPriority}
-                  onChange={(value) => setData(prev => ({ 
-                    ...prev, 
-                    projectPriority: (value as 'LOW' | 'MEDIUM' | 'HIGH') || 'MEDIUM' 
-                  }))}
-                  data={[
-                    { value: 'LOW', label: 'Low' },
-                    { value: 'MEDIUM', label: 'Medium' },
-                    { value: 'HIGH', label: 'High' }
-                  ]}
-                  size="md"
-                />
-
-                <Button 
-                  onClick={handleCompleteOnboarding}
-                  loading={isLoading}
-                  size="lg"
-                  rightSection={<IconCheck size={16} />}
-                  className="mt-4"
-                  disabled={!data.projectName.trim()}
-                >
-                  Complete Setup
-                </Button>
-              </Stack>
-            </Stack>
-          )}
-        </Card>
-
-        {/* Footer */}
-        <Text size="sm" className="text-center text-text-muted">
-          Step {currentStep} of 4 • You can change these settings later in your profile
-        </Text>
-      </Stack>
-    </Container>
+          {/* Footer */}
+          <Text size="sm" className="text-center text-text-muted">
+            Step {currentStep} of 3 • You can change these settings later in your profile
+          </Text>
+        </Stack>
+      </div>
+    </div>
   );
 }

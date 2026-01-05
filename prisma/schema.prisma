@@ -58,6 +58,7 @@ model User {
   usageType               String?
   userRole                String?
   isAdmin                 Boolean                    @default(false)
+  emailMarketingOptIn     Boolean                    @default(true)
   lastLogin               DateTime?
   defaultWorkspaceId      String?
   accounts                Account[]

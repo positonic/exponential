@@ -3,9 +3,10 @@ import { auth } from '~/server/auth';
 
 export default async function OnboardingPage() {
   const session = await auth();
-  const userName = session?.user?.name || 'there';
-  
+  const userName = session?.user?.name ?? '';
+  const userEmail = session?.user?.email ?? '';
+
   return (
-    <OnBoardingComponent userName={userName} />
+    <OnBoardingComponent userName={userName} userEmail={userEmail} />
   )
 }

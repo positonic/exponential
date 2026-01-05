@@ -1,9 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-
-// Zod schemas for validation
-const UsageTypeSchema = z.enum(["work", "personal"]);
+import { uploadToBlob } from "~/lib/blob";
 
 export const onboardingRouter = createTRPCRouter({
   /**
@@ -13,8 +11,10 @@ export const onboardingRouter = createTRPCRouter({
     const user = await ctx.db.user.findUnique({
       where: { id: ctx.session.user.id },
       select: {
-        usageType: true,
-        userRole: true,
+        name: true,
+        email: true,
+        image: true,
+        emailMarketingOptIn: true,
         selectedTools: true,
         onboardingCompletedAt: true,
         onboardingStep: true,
@@ -29,8 +29,10 @@ export const onboardingRouter = createTRPCRouter({
     }
 
     return {
-      usageType: user.usageType,
-      userRole: user.userRole,
+      name: user.name,
+      email: user.email,
+      image: user.image,
+      emailMarketingOptIn: user.emailMarketingOptIn,
       selectedTools: user.selectedTools,
       onboardingCompletedAt: user.onboardingCompletedAt,
       onboardingStep: user.onboardingStep,
@@ -39,109 +41,80 @@ export const onboardingRouter = createTRPCRouter({
   }),
 
   /**
-   * Update user's usage type (work/personal) and advance to step 2
+   * Update user's profile (name, email opt-in) and advance to step 2
    */
-  updateUsageType: protectedProcedure
+  updateProfile: protectedProcedure
     .input(
       z.object({
-        usageType: UsageTypeSchema,
+        name: z.string().min(1).max(100),
+        emailMarketingOptIn: z.boolean(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { usageType } = input;
+      const { name, emailMarketingOptIn } = input;
       const userId = ctx.session.user.id;
-
-      // Determine next step - skip role if personal, go to step 3
-      const nextStep = usageType === "work" ? 2 : 3;
 
       const updatedUser = await ctx.db.user.update({
         where: { id: userId },
         data: {
-          usageType,
-          onboardingStep: nextStep,
+          name,
+          emailMarketingOptIn,
+          onboardingStep: 2,
         },
         select: {
-          usageType: true,
+          name: true,
+          emailMarketingOptIn: true,
           onboardingStep: true,
         },
       });
 
       return {
         success: true,
-        usageType: updatedUser.usageType,
+        name: updatedUser.name,
+        emailMarketingOptIn: updatedUser.emailMarketingOptIn,
         nextStep: updatedUser.onboardingStep,
       };
     }),
 
   /**
-   * Update user's role (only for work usage type) and advance to step 3
+   * Upload profile image and save URL to user record
    */
-  updateRole: protectedProcedure
+  uploadProfileImage: protectedProcedure
     .input(
       z.object({
-        userRole: z.string().min(1).max(100).optional(),
+        base64Data: z.string(),
+        contentType: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { userRole } = input;
+      const { base64Data } = input;
       const userId = ctx.session.user.id;
 
-      // Verify user is on the correct step and has work usage type
-      const currentUser = await ctx.db.user.findUnique({
-        where: { id: userId },
-        select: {
-          usageType: true,
-          onboardingStep: true,
-        },
-      });
+      // Upload to Vercel Blob
+      const filename = `profile-images/${userId}.png`;
+      const blob = await uploadToBlob(base64Data, filename);
 
-      if (!currentUser) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "User not found",
-        });
-      }
-
-      if (currentUser.usageType !== "work") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Role selection is only available for work usage type",
-        });
-      }
-
-      if (currentUser.onboardingStep !== 2) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Must complete usage type selection first",
-        });
-      }
-
-      const updatedUser = await ctx.db.user.update({
+      // Update user's image field
+      await ctx.db.user.update({
         where: { id: userId },
         data: {
-          userRole,
-          onboardingStep: 3,
-        },
-        select: {
-          userRole: true,
-          onboardingStep: true,
+          image: blob.url,
         },
       });
 
       return {
         success: true,
-        userRole: updatedUser.userRole,
-        nextStep: updatedUser.onboardingStep,
+        imageUrl: blob.url,
       };
     }),
 
   /**
-   * Update user's selected tools and advance to step 4
+   * Update user's selected tools and advance to step 3
    */
   updateTools: protectedProcedure
     .input(
       z.object({
-        selectedTools: z.array(z.string()).max(20), // Allow up to 20 tools
+        selectedTools: z.array(z.string()).max(20),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -163,10 +136,10 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      if (currentUser.onboardingStep !== 3) {
+      if (currentUser.onboardingStep !== 2) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Must complete previous onboarding steps first",
+          message: "Must complete profile setup first",
         });
       }
 
@@ -174,7 +147,7 @@ export const onboardingRouter = createTRPCRouter({
         where: { id: userId },
         data: {
           selectedTools,
-          onboardingStep: 4,
+          onboardingStep: 3,
         },
         select: {
           selectedTools: true,
@@ -221,7 +194,7 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      if (currentUser.onboardingStep !== 4) {
+      if (currentUser.onboardingStep !== 3) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Must complete previous onboarding steps first",
@@ -241,7 +214,7 @@ export const onboardingRouter = createTRPCRouter({
         const project = await tx.project.create({
           data: {
             name: projectName,
-            description: projectDescription || `My first project - created during onboarding${template ? ` using ${template} template` : ""}`,
+            description: projectDescription ?? `My first project - created during onboarding${template ? ` using ${template} template` : ""}`,
             priority: projectPriority,
             status: "ACTIVE",
             createdById: userId,
@@ -254,12 +227,9 @@ export const onboardingRouter = createTRPCRouter({
           where: { id: userId },
           data: {
             onboardingCompletedAt: new Date(),
-            // Keep onboardingStep at 4 for potential future reference
           },
           select: {
             onboardingCompletedAt: true,
-            usageType: true,
-            userRole: true,
             selectedTools: true,
           },
         });
@@ -279,8 +249,6 @@ export const onboardingRouter = createTRPCRouter({
         },
         completedAt: result.user.onboardingCompletedAt,
         userData: {
-          usageType: result.user.usageType,
-          userRole: result.user.userRole,
           selectedTools: result.user.selectedTools,
         },
       };

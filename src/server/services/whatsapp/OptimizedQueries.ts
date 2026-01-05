@@ -66,6 +66,7 @@ export class OptimizedQueries {
                 usageType: true,
                 userRole: true,
                 isAdmin: true,
+                emailMarketingOptIn: true,
                 lastLogin: true,
                 selectedTools: true,
                 onboardingCompletedAt: true,
