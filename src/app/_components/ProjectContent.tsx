@@ -112,7 +112,7 @@ export function ProjectContent({
   const [selectedTranscription, setSelectedTranscription] = useState<unknown>(null);
   const [syncStatusOpened, setSyncStatusOpened] = useState(false);
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
-  const { data: project, isLoading } = api.project.getById.useQuery({
+  const { data: project, isLoading, error: projectError } = api.project.getById.useQuery({
     id: projectId,
   });
   const { data: projectActions } = api.action.getProjectActions.useQuery({ projectId });
@@ -147,6 +147,19 @@ export function ProjectContent({
 
   if (isLoading) {
     return <div>Loading project...</div>;
+  }
+
+  if (projectError) {
+    const isAccessDenied = projectError.data?.code === "FORBIDDEN";
+    return (
+      <Paper p="xl" className="text-center">
+        <Text size="lg" c="dimmed">
+          {isAccessDenied
+            ? "Access denied - you don't have permission to view this project"
+            : "Project not found"}
+        </Text>
+      </Paper>
+    );
   }
 
   if (!project) {

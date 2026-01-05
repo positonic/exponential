@@ -105,7 +105,9 @@ function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspa
             >
               <td className="px-4 py-2">
                 <Link
-                  href={`/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`}
+                  href={workspaceSlug
+                    ? `/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`
+                    : `/projects/${slugify(project.name)}-${project.id}`}
                   className="text-text-primary hover:text-brand-primary hover:underline"
                 >
                   {project.name}

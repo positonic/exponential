@@ -534,24 +534,42 @@ export const projectRouter = createTRPCRouter({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.project.findFirst({
-        where: { 
-          id: input.id,
-          OR: [
-            // User is the project creator
-            { createdById: ctx.session.user.id },
-            // User is a member of the project's team
-            {
-              team: {
-                members: {
-                  some: {
-                    userId: ctx.session.user.id
-                  }
-                }
-              }
-            }
-          ]
-        },
+      // First check if project exists
+      const projectExists = await ctx.db.project.findUnique({
+        where: { id: input.id },
+        select: { id: true, createdById: true, teamId: true },
+      });
+
+      if (!projectExists) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project not found",
+        });
+      }
+
+      // Check permission: user is creator OR team member
+      let hasPermission = projectExists.createdById === ctx.session.user.id;
+
+      if (!hasPermission && projectExists.teamId) {
+        const teamMembership = await ctx.db.teamUser.findFirst({
+          where: {
+            teamId: projectExists.teamId,
+            userId: ctx.session.user.id,
+          },
+        });
+        hasPermission = !!teamMembership;
+      }
+
+      if (!hasPermission) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Access denied",
+        });
+      }
+
+      // Return full project with includes
+      return ctx.db.project.findUnique({
+        where: { id: input.id },
         include: {
           goals: true,
           outcomes: true,
