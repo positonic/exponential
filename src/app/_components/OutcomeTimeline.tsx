@@ -30,7 +30,7 @@ interface GoalData {
 type TimelineDisplayItem =
   | (OutcomeData & { itemType: 'outcome'; isTodayMarker: false })
   | (GoalData & { itemType: 'goal'; isTodayMarker: false })
-  | { id: string; description: string; dueDate: Date; isTodayMarker: true }; // Today marker
+  | { id: string; description: string; dueDate: Date; itemType: 'today'; isTodayMarker: true }; // Today marker
 
 export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
   const { data: outcomes, isLoading: outcomesLoading, error: outcomesError } = api.outcome.getProjectOutcomes.useQuery(
@@ -73,10 +73,11 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
 
   const today = startOfDay(new Date());
 
-  // Combine outcomes and today marker
+  // Combine outcomes, goals, and today marker
   const timelineItemsData: TimelineDisplayItem[] = [
-    ...(outcomes?.map(o => ({ ...o, isTodayMarker: false as const })) ?? []),
-    { id: 'today', description: 'Today', dueDate: today, isTodayMarker: true as const },
+    ...(outcomes?.map(o => ({ ...o, itemType: 'outcome' as const, isTodayMarker: false as const })) ?? []),
+    ...(goals?.map(g => ({ ...g, itemType: 'goal' as const, isTodayMarker: false as const })) ?? []),
+    { id: 'today', description: 'Today', dueDate: today, itemType: 'today' as const, isTodayMarker: true as const },
   ].sort((a, b) => {
     if (a.dueDate === null && b.dueDate === null) return 0;
     if (a.dueDate === null) return 1;
@@ -109,7 +110,8 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
     </Timeline.Item>
   );
 
-  if (!outcomes || outcomes.length === 0) {
+  const hasItems = (outcomes && outcomes.length > 0) || (goals && goals.length > 0);
+  if (!hasItems) {
     return (
       <Timeline active={0} bulletSize={24} lineWidth={2}>
         {todayTimelineItem}
@@ -120,15 +122,37 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
   return (
     <Timeline active={activeIndex} bulletSize={24} lineWidth={2}>
       {timelineItemsData.map((item, index) => {
-        if (item.isTodayMarker) {
+        if (item.itemType === 'today') {
           return React.cloneElement(todayTimelineItem, {
             lineVariant: index === 0 ? 'solid' : 'dashed'
           });
+        } else if (item.itemType === 'goal') {
+          const isPast = item.dueDate && isBefore(item.dueDate, today);
+          return (
+            <Timeline.Item
+              key={`goal-${item.id}`}
+              bullet={<IconTarget size={14} style={{ color: 'var(--mantine-color-yellow-6)' }} />}
+              title={item.title}
+              lineVariant={index <= activeIndex ? 'solid' : 'dashed'}
+              styles={{
+                itemTitle: {
+                  color: 'var(--mantine-color-yellow-6)',
+                },
+              }}
+            >
+              <Text c={isPast ? 'dimmed' : 'white'} size="sm">
+                {item.dueDate ? `Due: ${format(item.dueDate, 'PPP')}` : 'No due date'}
+              </Text>
+              <Text size="xs" mt={4} c="dimmed">
+                Goal
+              </Text>
+            </Timeline.Item>
+          );
         } else {
           const isPast = item.dueDate && isBefore(item.dueDate, today);
           return (
             <Timeline.Item
-              key={item.id}
+              key={`outcome-${item.id}`}
               bullet={<IconClock size={14} />}
               title={item.description}
               lineVariant={index <= activeIndex ? 'solid' : 'dashed'}
@@ -136,7 +160,6 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
               <Text c={isPast ? 'dimmed' : 'white'} size="sm">
                 {item.dueDate ? `Due: ${format(item.dueDate, 'PPP')}` : 'No due date'}
               </Text>
-              {/* Type is now explicitly allowed to be null */}
               {item.type && (
                 <Text size="xs" mt={4} c="dimmed">
                   Type: {item.type}

@@ -17,8 +17,12 @@ import { TodayOverview } from "./TodayOverview";
 import { StartupRoutineForm } from "./StartupRoutineForm";
 import ManyChat from "./ManyChat";
 import { api } from "~/trpc/react";
-import { format, parseISO, startOfDay, endOfDay } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { CalendarDayView } from "./CalendarDayView";
+import { CalendarWeekView } from "./CalendarWeekView";
+import { CalendarMonthView } from "./CalendarMonthView";
+import type { FocusPeriod, DateRange } from "~/types/focus";
+import { formatFocusLabel } from "~/lib/dateUtils";
 
 type TabValue = "overview" | "tasks" | "calendar" | "journal";
 
@@ -31,28 +35,36 @@ function isValidTab(tab: string | null | undefined): tab is TabValue {
 interface TodayContentProps {
   calendarConnected: boolean;
   initialTab?: string;
+  focus: FocusPeriod;
+  dateRange: DateRange;
 }
 
-export function TodayContent({ calendarConnected, initialTab }: TodayContentProps) {
+export function TodayContent({ calendarConnected, initialTab, focus, dateRange }: TodayContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [chatOpened, setChatOpened] = useState(false);
-  const today = new Date();
 
   // Get tab from URL or use initial/default
   const tabFromUrl = searchParams.get("tab");
-  const activeTab: TabValue = isValidTab(tabFromUrl)
+  // Filter out journal tab if not today focus
+  const availableTab = (tab: string | null | undefined): tab is TabValue => {
+    if (!isValidTab(tab)) return false;
+    if (tab === "journal" && focus !== "today") return false;
+    return true;
+  };
+
+  const activeTab: TabValue = availableTab(tabFromUrl)
     ? tabFromUrl
-    : isValidTab(initialTab)
+    : availableTab(initialTab)
       ? initialTab
       : "overview";
 
-  // Fetch calendar events for today
+  // Fetch calendar events for the date range
   const { data: events, isLoading: eventsLoading } = api.calendar.getEvents.useQuery(
     {
-      timeMin: startOfDay(today),
-      timeMax: endOfDay(today),
-      maxResults: 20,
+      timeMin: dateRange.startDate,
+      timeMax: dateRange.endDate,
+      maxResults: focus === "month" ? 100 : focus === "week" ? 50 : 20,
     },
     {
       enabled: calendarConnected && activeTab === "calendar",
@@ -64,6 +76,9 @@ export function TodayContent({ calendarConnected, initialTab }: TodayContentProp
 
   const handleTabChange = useCallback((value: string | null) => {
     if (value && isValidTab(value)) {
+      // Don't allow switching to journal if not today focus
+      if (value === "journal" && focus !== "today") return;
+
       const params = new URLSearchParams(searchParams.toString());
       if (value === "overview") {
         params.delete("tab");
@@ -73,7 +88,7 @@ export function TodayContent({ calendarConnected, initialTab }: TodayContentProp
       const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
       router.push(newUrl, { scroll: false });
     }
-  }, [router, searchParams]);
+  }, [router, searchParams, focus]);
 
   const formatEventTime = (event: NonNullable<typeof events>[0]) => {
     if (event.start.dateTime) {
@@ -89,6 +104,154 @@ export function TodayContent({ calendarConnected, initialTab }: TodayContentProp
       return "All day";
     }
     return "";
+  };
+
+  const getEmptyStateMessage = () => {
+    switch (focus) {
+      case "today":
+        return "No events today";
+      case "week":
+        return "No events this week";
+      case "month":
+        return "No events this month";
+    }
+  };
+
+  const renderCalendarContent = () => {
+    if (!calendarConnected) {
+      return (
+        <Paper
+          p="xl"
+          radius="md"
+          className="border-border-primary bg-surface-secondary text-center"
+        >
+          <Stack align="center" gap="md">
+            <IconCalendar size={48} className="text-text-muted" />
+            <Text size="lg" fw={500} className="text-text-primary">
+              Calendar not connected
+            </Text>
+            <Text size="sm" c="dimmed">
+              Connect your Google Calendar from the header to see your events
+            </Text>
+          </Stack>
+        </Paper>
+      );
+    }
+
+    if (eventsLoading) {
+      return (
+        <Paper
+          p="xl"
+          radius="md"
+          className="border-border-primary bg-surface-secondary text-center"
+        >
+          <Text c="dimmed">Loading calendar events...</Text>
+        </Paper>
+      );
+    }
+
+    if (events && events.length === 0) {
+      return (
+        <Paper
+          p="xl"
+          radius="md"
+          className="border-border-primary bg-surface-secondary text-center"
+        >
+          <Stack align="center" gap="md">
+            <IconCalendar size={48} className="text-text-muted" />
+            <Text size="lg" fw={500} className="text-text-primary">
+              {getEmptyStateMessage()}
+            </Text>
+            <Text size="sm" c="dimmed">
+              Enjoy your free time!
+            </Text>
+          </Stack>
+        </Paper>
+      );
+    }
+
+    // Render different calendar views based on focus
+    if (focus === "week") {
+      return <CalendarWeekView events={events ?? []} dateRange={dateRange} />;
+    }
+
+    if (focus === "month") {
+      return <CalendarMonthView events={events ?? []} dateRange={dateRange} />;
+    }
+
+    // Default: Today view
+    const today = new Date();
+    return (
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Left Column - Day View */}
+        <div className="lg:col-span-2">
+          <Paper
+            p="md"
+            radius="md"
+            withBorder
+            className="border-border-primary bg-surface-secondary"
+          >
+            <Text fw={600} size="lg" mb="md" className="text-text-primary">
+              {format(today, "EEEE, MMMM d")}
+            </Text>
+            <ScrollArea h={600}>
+              {events && <CalendarDayView events={events} selectedDate={today} />}
+            </ScrollArea>
+          </Paper>
+        </div>
+
+        {/* Right Column - Event List */}
+        <div>
+          <Paper
+            p="md"
+            radius="md"
+            withBorder
+            className="border-border-primary bg-surface-secondary"
+          >
+            <Text fw={600} size="lg" mb="md" className="text-text-primary">
+              Today&apos;s Schedule
+            </Text>
+            <Stack gap="sm">
+              {events
+                ?.sort((a, b) => {
+                  if (!a.start.dateTime && b.start.dateTime) return -1;
+                  if (a.start.dateTime && !b.start.dateTime) return 1;
+                  if (!a.start.dateTime && !b.start.dateTime) return 0;
+
+                  const aTime = a.start.dateTime
+                    ? parseISO(a.start.dateTime)
+                    : new Date(0);
+                  const bTime = b.start.dateTime
+                    ? parseISO(b.start.dateTime)
+                    : new Date(0);
+                  return aTime.getTime() - bTime.getTime();
+                })
+                .map((event) => (
+                  <Paper
+                    key={event.id}
+                    p="sm"
+                    radius="sm"
+                    className="cursor-pointer border-border-primary bg-background-secondary hover:bg-surface-hover"
+                    onClick={() =>
+                      event.htmlLink && window.open(event.htmlLink, "_blank")
+                    }
+                  >
+                    <Text size="sm" fw={500} className="text-text-primary" lineClamp={1}>
+                      {event.summary}
+                    </Text>
+                    <Group gap="xs" mt={4}>
+                      <IconClock size={12} className="text-text-muted" />
+                      <Text size="xs" c="dimmed">
+                        {formatEventTime(event)}
+                      </Text>
+                    </Group>
+                  </Paper>
+                ))}
+            </Stack>
+          </Paper>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -107,9 +270,11 @@ export function TodayContent({ calendarConnected, initialTab }: TodayContentProp
               <Tabs.Tab value="calendar" leftSection={<IconCalendar size={16} />}>
                 Calendar
               </Tabs.Tab>
-              <Tabs.Tab value="journal" leftSection={<IconNotebook size={16} />}>
-                Journal
-              </Tabs.Tab>
+              {focus === "today" && (
+                <Tabs.Tab value="journal" leftSection={<IconNotebook size={16} />}>
+                  Journal
+                </Tabs.Tab>
+              )}
             </Tabs.List>
             <ActionIcon
               variant={chatOpened ? "gradient" : "filled"}
@@ -129,134 +294,22 @@ export function TodayContent({ calendarConnected, initialTab }: TodayContentProp
 
           {/* Content Area */}
           <Tabs.Panel value="overview">
-            <TodayOverview />
+            <TodayOverview focus={focus} dateRange={dateRange} />
           </Tabs.Panel>
 
           <Tabs.Panel value="tasks">
-            <Actions viewName="today" />
+            <Actions viewName={formatFocusLabel(focus).toLowerCase().replace(" ", "-")} />
           </Tabs.Panel>
 
           <Tabs.Panel value="calendar">
-            {!calendarConnected ? (
-              <Paper
-                p="xl"
-                radius="md"
-                className="border-border-primary bg-surface-secondary text-center"
-              >
-                <Stack align="center" gap="md">
-                  <IconCalendar
-                    size={48}
-                    className="text-text-muted"
-                  />
-                  <Text size="lg" fw={500} className="text-text-primary">
-                    Calendar not connected
-                  </Text>
-                  <Text size="sm" c="dimmed">
-                    Connect your Google Calendar from the header to see today&apos;s
-                    events
-                  </Text>
-                </Stack>
-              </Paper>
-            ) : eventsLoading ? (
-              <Paper
-                p="xl"
-                radius="md"
-                className="border-border-primary bg-surface-secondary text-center"
-              >
-                <Text c="dimmed">Loading calendar events...</Text>
-              </Paper>
-            ) : events && events.length === 0 ? (
-              <Paper
-                p="xl"
-                radius="md"
-                className="border-border-primary bg-surface-secondary text-center"
-              >
-                <Stack align="center" gap="md">
-                  <IconCalendar size={48} className="text-text-muted" />
-                  <Text size="lg" fw={500} className="text-text-primary">
-                    No events today
-                  </Text>
-                  <Text size="sm" c="dimmed">
-                    Enjoy your free time!
-                  </Text>
-                </Stack>
-              </Paper>
-            ) : (
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                {/* Left Column - Day View */}
-                <div className="lg:col-span-2">
-                  <Paper
-                    p="md"
-                    radius="md"
-                    withBorder
-                    className="border-border-primary bg-surface-secondary"
-                  >
-                    <Text fw={600} size="lg" mb="md" className="text-text-primary">
-                      {format(today, "EEEE, MMMM d")}
-                    </Text>
-                    <ScrollArea h={600}>
-                      {events && <CalendarDayView events={events} selectedDate={today} />}
-                    </ScrollArea>
-                  </Paper>
-                </div>
-
-                {/* Right Column - Event List */}
-                <div>
-                  <Paper
-                    p="md"
-                    radius="md"
-                    withBorder
-                    className="border-border-primary bg-surface-secondary"
-                  >
-                    <Text fw={600} size="lg" mb="md" className="text-text-primary">
-                      Today&apos;s Schedule
-                    </Text>
-                    <Stack gap="sm">
-                      {events
-                        ?.sort((a, b) => {
-                          if (!a.start.dateTime && b.start.dateTime) return -1;
-                          if (a.start.dateTime && !b.start.dateTime) return 1;
-                          if (!a.start.dateTime && !b.start.dateTime) return 0;
-
-                          const aTime = a.start.dateTime
-                            ? parseISO(a.start.dateTime)
-                            : new Date(0);
-                          const bTime = b.start.dateTime
-                            ? parseISO(b.start.dateTime)
-                            : new Date(0);
-                          return aTime.getTime() - bTime.getTime();
-                        })
-                        .map((event) => (
-                          <Paper
-                            key={event.id}
-                            p="sm"
-                            radius="sm"
-                            className="cursor-pointer border-border-primary bg-background-secondary hover:bg-surface-hover"
-                            onClick={() =>
-                              event.htmlLink && window.open(event.htmlLink, "_blank")
-                            }
-                          >
-                            <Text size="sm" fw={500} className="text-text-primary" lineClamp={1}>
-                              {event.summary}
-                            </Text>
-                            <Group gap="xs" mt={4}>
-                              <IconClock size={12} className="text-text-muted" />
-                              <Text size="xs" c="dimmed">
-                                {formatEventTime(event)}
-                              </Text>
-                            </Group>
-                          </Paper>
-                        ))}
-                    </Stack>
-                  </Paper>
-                </div>
-              </div>
-            )}
+            {renderCalendarContent()}
           </Tabs.Panel>
 
-          <Tabs.Panel value="journal">
-            <StartupRoutineForm />
-          </Tabs.Panel>
+          {focus === "today" && (
+            <Tabs.Panel value="journal">
+              <StartupRoutineForm />
+            </Tabs.Panel>
+          )}
         </Stack>
       </Tabs>
 

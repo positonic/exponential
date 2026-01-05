@@ -5,6 +5,8 @@ import { Suspense } from "react";
 import { api } from "~/trpc/server";
 import { startOfDay } from "date-fns";
 import { NavigationWrapper } from "../../_components/NavigationWrapper";
+import { isValidFocusPeriod } from "~/types/focus";
+import type { FocusPeriod } from "~/types/focus";
 
 interface PageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -13,13 +15,15 @@ interface PageProps {
 export default async function Home({ searchParams }: PageProps) {
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const tab = typeof resolvedSearchParams?.tab === 'string' ? resolvedSearchParams.tab : undefined;
+  const focusParam = typeof resolvedSearchParams?.focus === 'string' ? resolvedSearchParams.focus : undefined;
+  const focus: FocusPeriod | undefined = isValidFocusPeriod(focusParam) ? focusParam : undefined;
 
   return (
     <HydrateClient>
       <main className="flex h-full flex-col items-center justify-start text-text-primary">
         <div className="container flex flex-col items-stretch justify-start gap-4 px-4 py-8">
           <Suspense fallback={<div>Loading...</div>}>
-            <ActionsWrapper initialTab={tab} />
+            <ActionsWrapper initialTab={tab} initialFocus={focus} />
           </Suspense>
         </div>
       </main>
@@ -27,7 +31,7 @@ export default async function Home({ searchParams }: PageProps) {
   );
 }
 
-async function ActionsWrapper({ initialTab }: { initialTab?: string }) {
+async function ActionsWrapper({ initialTab, initialFocus }: { initialTab?: string; initialFocus?: FocusPeriod }) {
   const session = await auth();
 
   let todayExists = false;
@@ -50,6 +54,7 @@ async function ActionsWrapper({ initialTab }: { initialTab?: string }) {
       calendarConnected={calendarConnected}
       todayExists={todayExists}
       initialTab={initialTab}
+      initialFocus={initialFocus}
     />
   ) : (
     <Welcome />

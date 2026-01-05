@@ -22,7 +22,9 @@ import { ActionList } from "./ActionList";
 import { CreateActionModal } from "./CreateActionModal";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { CreateGoalModal } from "./CreateGoalModal";
-import { isSameDay } from "date-fns";
+import { isSameDay, isWithinInterval, startOfDay, endOfDay } from "date-fns";
+import type { FocusPeriod, DateRange } from "~/types/focus";
+import { getFocusSectionTitle } from "~/lib/dateUtils";
 
 // Helper function to get outcome type color
 function getOutcomeTypeColor(type: string): string {
@@ -47,19 +49,69 @@ function formatOutcomeType(type: string): string {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
-export function TodayOverview() {
-  const { data: actions = [] } = api.action.getToday.useQuery();
-  const { data: outcomes = [] } = api.outcome.getMyOutcomes.useQuery();
+interface TodayOverviewProps {
+  focus?: FocusPeriod;
+  dateRange?: DateRange;
+}
+
+export function TodayOverview({ focus = "today", dateRange }: TodayOverviewProps) {
+  // Use dateRange for queries if provided, otherwise default to today
+  const today = new Date();
+  const effectiveDateRange = dateRange ?? {
+    startDate: startOfDay(today),
+    endDate: endOfDay(today),
+  };
+
+  // Fetch actions based on focus
+  const { data: actionsFromRange = [] } = api.action.getByDateRange.useQuery(
+    {
+      startDate: effectiveDateRange.startDate,
+      endDate: effectiveDateRange.endDate,
+    },
+    { enabled: focus !== "today" }
+  );
+
+  const { data: actionsToday = [] } = api.action.getToday.useQuery(
+    undefined,
+    { enabled: focus === "today" }
+  );
+
+  const actions = focus === "today" ? actionsToday : actionsFromRange;
+
+  // Fetch outcomes based on focus
+  const { data: outcomesFromRange = [] } = api.outcome.getByDateRange.useQuery(
+    {
+      startDate: effectiveDateRange.startDate,
+      endDate: effectiveDateRange.endDate,
+    },
+    { enabled: focus !== "today" }
+  );
+
+  const { data: allOutcomes = [] } = api.outcome.getMyOutcomes.useQuery(
+    undefined,
+    { enabled: focus === "today" }
+  );
+
+  // Goals - always fetch all and filter client-side
   const { data: goals = [] } = api.goal.getAllMyGoals.useQuery();
 
-  // Filter items that are due today
-  const today = new Date();
-  const outcomesToday = outcomes.filter(
-    (outcome) => outcome.dueDate && isSameDay(outcome.dueDate, today)
-  );
-  const goalsToday = goals.filter(
-    (goal) => goal.dueDate && isSameDay(goal.dueDate, today)
-  );
+  // Filter items based on focus
+  const outcomes = focus === "today"
+    ? allOutcomes.filter(
+        (outcome) => outcome.dueDate && isSameDay(outcome.dueDate, today)
+      )
+    : outcomesFromRange;
+
+  const filteredGoals = focus === "today"
+    ? goals.filter((goal) => goal.dueDate && isSameDay(goal.dueDate, today))
+    : goals.filter(
+        (goal) =>
+          goal.dueDate &&
+          isWithinInterval(goal.dueDate, {
+            start: effectiveDateRange.startDate,
+            end: effectiveDateRange.endDate,
+          })
+      );
 
   // Helper for calendar rendering - get items for a specific date
   const getItemsForDate = (date: Date) => {
@@ -73,14 +125,28 @@ export function TodayOverview() {
       }
     });
 
-    // Check outcomes
-    outcomes.forEach((outcome) => {
+    // Check outcomes - use all outcomes for calendar display
+    const outcomesToCheck = focus === "today" ? allOutcomes : outcomesFromRange;
+    outcomesToCheck.forEach((outcome) => {
       if (outcome.dueDate && new Date(outcome.dueDate).toDateString() === dateStr) {
         items.push({ type: "outcome", title: outcome.description, color: getOutcomeTypeColor(outcome.type ?? ""), subLabel: outcome.type ?? undefined });
       }
     });
 
     return items;
+  };
+
+  // Check if a date is within the selected range (for highlighting)
+  const isDateInRange = (date: Date) => {
+    return isWithinInterval(date, {
+      start: effectiveDateRange.startDate,
+      end: effectiveDateRange.endDate,
+    });
+  };
+
+  const getEmptyMessage = (type: "goals" | "outcomes" | "actions") => {
+    const periodText = focus === "today" ? "today" : focus === "week" ? "this week" : "this month";
+    return `No ${type} due ${periodText}`;
   };
 
   return (
@@ -98,9 +164,22 @@ export function TodayOverview() {
               renderDay={(date) => {
                 const day = date.getDate();
                 const items = getItemsForDate(date);
+                const isInRange = isDateInRange(date);
+
+                const dayContent = (
+                  <div
+                    className={
+                      isInRange && focus !== "today"
+                        ? "rounded-sm bg-brand-primary/20 px-1"
+                        : ""
+                    }
+                  >
+                    {day}
+                  </div>
+                );
 
                 if (items.length === 0) {
-                  return <div>{day}</div>;
+                  return dayContent;
                 }
 
                 return (
@@ -124,7 +203,7 @@ export function TodayOverview() {
                     w={220}
                   >
                     <Indicator size={6} color={items[0]?.color ?? "gray"} offset={-2}>
-                      <div>{day}</div>
+                      {dayContent}
                     </Indicator>
                   </Tooltip>
                 );
@@ -134,7 +213,7 @@ export function TodayOverview() {
         </Card>
       </div>
 
-      {/* Today's Goals */}
+      {/* Goals */}
       <div className="lg:col-span-2">
         <Card
           withBorder
@@ -145,7 +224,7 @@ export function TodayOverview() {
             <Group gap="xs">
               <IconTarget size={18} className="text-text-primary" />
               <Text fw={600} size="lg" className="text-text-primary">
-                Today&apos;s Goals
+                {getFocusSectionTitle(focus, "Goals")}
               </Text>
             </Group>
             <CreateGoalModal>
@@ -156,8 +235,8 @@ export function TodayOverview() {
           </Group>
 
           <Stack gap="md">
-            {goalsToday.length > 0 ? (
-              goalsToday.map((goal) => (
+            {filteredGoals.length > 0 ? (
+              filteredGoals.map((goal) => (
                 <CreateGoalModal
                   key={goal.id}
                   goal={{
@@ -206,14 +285,14 @@ export function TodayOverview() {
               ))
             ) : (
               <Text size="sm" c="dimmed" ta="center" py="md">
-                No goals due today
+                {getEmptyMessage("goals")}
               </Text>
             )}
           </Stack>
         </Card>
       </div>
 
-      {/* Today's Outcomes */}
+      {/* Outcomes */}
       <div className="lg:col-span-2">
         <Card
           withBorder
@@ -224,7 +303,7 @@ export function TodayOverview() {
             <Group gap="xs">
               <IconActivity size={18} className="text-text-primary" />
               <Text fw={600} size="lg" className="text-text-primary">
-                Today&apos;s Outcomes
+                {getFocusSectionTitle(focus, "Outcomes")}
               </Text>
             </Group>
             <CreateOutcomeModal>
@@ -235,8 +314,8 @@ export function TodayOverview() {
           </Group>
 
           <Stack gap="md">
-            {outcomesToday.length > 0 ? (
-              outcomesToday.map((outcome) => (
+            {outcomes.length > 0 ? (
+              outcomes.map((outcome) => (
                 <Group
                   key={outcome.id}
                   gap="sm"
@@ -281,14 +360,14 @@ export function TodayOverview() {
               ))
             ) : (
               <Text size="sm" c="dimmed" ta="center" py="md">
-                No outcomes due today
+                {getEmptyMessage("outcomes")}
               </Text>
             )}
           </Stack>
         </Card>
       </div>
 
-      {/* Today's Actions */}
+      {/* Actions */}
       <div className="lg:col-span-2">
         <Card
           withBorder
@@ -298,7 +377,7 @@ export function TodayOverview() {
           {/* Card Header */}
           <Group justify="space-between" mb="lg">
             <Text fw={600} size="lg" className="text-text-primary">
-              Today&apos;s Actions
+              {getFocusSectionTitle(focus, "Actions")}
             </Text>
             <CreateActionModal viewName="today">
               <ActionIcon variant="subtle" size="md" aria-label="Add action">

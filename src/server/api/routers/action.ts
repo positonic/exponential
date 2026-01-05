@@ -430,6 +430,42 @@ export const actionRouter = createTRPCRouter({
     });
   }),
 
+  getByDateRange: protectedProcedure
+    .input(
+      z.object({
+        startDate: z.date(),
+        endDate: z.date(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      return ctx.db.action.findMany({
+        where: {
+          OR: [
+            // Created by me AND no assignees
+            { createdById: userId, assignees: { none: {} } },
+            // Assigned to me via ActionAssignee
+            { assignees: { some: { userId: userId } } },
+          ],
+          dueDate: {
+            gte: input.startDate,
+            lt: input.endDate,
+          },
+          status: "ACTIVE",
+        },
+        include: {
+          project: true,
+          syncs: true,
+          assignees: {
+            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+          },
+          createdBy: { select: { id: true, name: true, email: true, image: true } },
+        },
+        orderBy: { dueDate: "asc" },
+      });
+    }),
+
   updateActionsProject: protectedProcedure
     .input(
       z.object({

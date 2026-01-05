@@ -30,6 +30,32 @@ export const outcomeRouter = createTRPCRouter({
       });
     }),
 
+  getByDateRange: protectedProcedure
+    .input(z.object({
+      startDate: z.date(),
+      endDate: z.date(),
+      workspaceId: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      return await ctx.db.outcome.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          dueDate: {
+            gte: input.startDate,
+            lt: input.endDate,
+          },
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        include: {
+          projects: true,
+          goals: true,
+        },
+        orderBy: {
+          dueDate: 'asc',
+        },
+      });
+    }),
+
   getOutcomesForUser: protectedProcedure
     .input(z.object({
       userId: z.string(),
