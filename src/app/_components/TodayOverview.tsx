@@ -64,17 +64,15 @@ export function TodayOverview() {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-8">
       {/* Left Column - Outcomes Calendar */}
-      <div>
+      <div className="lg:col-span-2">
         <Card
           withBorder
           radius="md"
+          p="sm"
           className="border-border-primary bg-surface-secondary"
         >
-          <Text fw={600} size="lg" className="text-text-primary" mb="md">
-            Outcomes Calendar
-          </Text>
           <div className="flex justify-center">
             <Calendar
               renderDay={(date) => {
@@ -117,7 +115,7 @@ export function TodayOverview() {
       </div>
 
       {/* Middle Column - Today's Outcomes */}
-      <div>
+      <div className="lg:col-span-3">
         <Card
           withBorder
           radius="md"
@@ -192,7 +190,7 @@ export function TodayOverview() {
       </div>
 
       {/* Right Column - Today's Actions */}
-      <div>
+      <div className="lg:col-span-3">
         <Card
           withBorder
           radius="md"

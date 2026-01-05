@@ -45,6 +45,11 @@
     /* Onboarding */
     --color-onboarding-illustration-bg: #fdf4f3;
     --color-onboarding-accent: #f87171;
+
+    /* macOS window button colors (for illustrations) */
+    --color-macos-close: #FF5F56;
+    --color-macos-minimize: #FFBD2E;
+    --color-macos-maximize: #27CA40;
   }
 
   /* Dark theme colors */
@@ -89,6 +94,11 @@
     /* Onboarding */
     --color-onboarding-illustration-bg: #2c2e33;
     --color-onboarding-accent: #f87171;
+
+    /* macOS window button colors (for illustrations) */
+    --color-macos-close: #FF5F56;
+    --color-macos-minimize: #FFBD2E;
+    --color-macos-maximize: #27CA40;
   }
 
   /* Also support Tailwind's dark mode class */

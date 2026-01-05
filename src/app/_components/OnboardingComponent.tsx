@@ -7,11 +7,8 @@ import {
   Button,
   Stack,
   Group,
-  Stepper,
-  Card,
   Select,
   TextInput,
-  Textarea,
   Box,
   Progress,
   Anchor,
@@ -38,7 +35,9 @@ import {
   IconDots,
   IconCamera,
   IconUser,
-  IconX
+  IconX,
+  IconPlus,
+  IconList
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
@@ -46,8 +45,14 @@ import { api } from '~/trpc/react';
 import { OnboardingIllustration } from './OnboardingIllustration';
 import { OnboardingWorkIllustration } from './OnboardingWorkIllustration';
 import { OnboardingToolsIllustration } from './OnboardingToolsIllustration';
+import { OnboardingProjectIllustration } from './OnboardingProjectIllustration';
 
-type OnboardingStep = 1 | 2 | 3 | 4;
+type OnboardingStep = 1 | 2 | 3 | 4 | 5;
+
+interface TaskInput {
+  id: string;
+  name: string;
+}
 
 interface OnboardingData {
   name: string;
@@ -57,9 +62,6 @@ interface OnboardingData {
   usagePurposes: string[];
   selectedTools: string[];
   projectName: string;
-  projectDescription: string;
-  projectPriority: 'LOW' | 'MEDIUM' | 'HIGH';
-  template?: 'personal' | 'work' | 'learning' | 'scratch';
 }
 
 // Work role options (single select)
@@ -144,6 +146,11 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [customToolInput, setCustomToolInput] = useState('');
+  const [tasks, setTasks] = useState<TaskInput[]>([
+    { id: '1', name: '' },
+    { id: '2', name: '' },
+    { id: '3', name: '' },
+  ]);
 
   const [data, setData] = useState<OnboardingData>({
     name: userName ?? '',
@@ -152,9 +159,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     workFunction: [],
     usagePurposes: [],
     selectedTools: [],
-    projectName: '',
-    projectDescription: '',
-    projectPriority: 'MEDIUM'
+    projectName: ''
   });
 
   // Get onboarding status
@@ -324,37 +329,78 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     }
   };
 
-  const handleCompleteOnboarding = async () => {
+  const handleProjectNameContinue = () => {
     if (!data.projectName.trim()) {
       notifications.show({
         title: 'Project name required',
-        message: 'Please enter a name for your first project.',
+        message: 'Please enter a name for your project.',
         color: 'orange'
       });
       return;
     }
+    setCurrentStep(5);
+  };
+
+  const handleAddTask = () => {
+    setTasks(prev => [...prev, { id: Date.now().toString(), name: '' }]);
+  };
+
+  const handleRemoveTask = (id: string) => {
+    if (tasks.length > 1) {
+      setTasks(prev => prev.filter(t => t.id !== id));
+    }
+  };
+
+  const handleTaskChange = (id: string, name: string) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, name } : t));
+  };
+
+  const handleCompleteOnboarding = async () => {
+    const projectName = data.projectName.trim() || 'My First Project';
+    const validTasks = tasks.filter(t => t.name.trim().length > 0);
 
     setIsLoading(true);
     try {
       await completeOnboarding.mutateAsync({
-        projectName: data.projectName,
-        projectDescription: data.projectDescription,
-        projectPriority: data.projectPriority,
-        template: data.template
+        projectName,
+        projectDescription: '',
+        projectPriority: 'MEDIUM',
+        tasks: validTasks.map(t => ({ name: t.name.trim() }))
       });
 
       notifications.show({
         title: 'Welcome to Exponential!',
-        message: 'Your onboarding is complete. Let\'s get started!',
+        message: 'Your project is ready. Let\'s get started!',
         color: 'green',
         icon: <IconCheck size={16} />,
         autoClose: 3000
       });
 
       setTimeout(() => {
-        router.push('/project-setup');
-      }, 2000);
+        router.push('/home');
+      }, 1500);
 
+    } catch {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to complete onboarding. Please try again.',
+        color: 'red'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSkipOnboarding = async () => {
+    setIsLoading(true);
+    try {
+      await completeOnboarding.mutateAsync({
+        projectName: data.projectName.trim() || 'My First Project',
+        projectDescription: '',
+        projectPriority: 'MEDIUM',
+        tasks: []
+      });
+      router.push('/home');
     } catch {
       notifications.show({
         title: 'Error',
@@ -756,100 +802,229 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     );
   }
 
-  // Step 4: First Project - Standard layout with stepper
+  // Step 4: Project Name - Asana-style two-column layout
+  if (currentStep === 4) {
+    return (
+      <div className="min-h-screen flex">
+        {/* Left column - Form */}
+        <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+          <div>
+            <div className="mb-8">
+              <Title order={3} className="text-brand-primary font-bold">
+                Exponential
+              </Title>
+            </div>
+
+            <div className="mb-8">
+              <Group gap="xs" className="mb-4">
+                <ActionIcon
+                  variant="subtle"
+                  onClick={() => setCurrentStep(3)}
+                  className="text-text-secondary hover:text-text-primary"
+                >
+                  <IconArrowLeft size={20} />
+                </ActionIcon>
+                <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
+                  Let&apos;s set up your first project
+                </Title>
+              </Group>
+              <Text className="text-text-secondary">
+                What&apos;s something you and your team are currently working on?
+              </Text>
+            </div>
+
+            <TextInput
+              placeholder="e.g., Website Redesign, Q1 Marketing Campaign"
+              value={data.projectName}
+              onChange={(e) => setData(prev => ({ ...prev, projectName: e.target.value }))}
+              size="lg"
+              classNames={{
+                input: 'bg-background-primary border-border-primary text-xl'
+              }}
+              styles={{
+                input: {
+                  fontSize: '1.25rem',
+                  padding: '1rem',
+                }
+              }}
+              autoFocus
+            />
+          </div>
+
+          <div className="mt-8">
+            <Button
+              fullWidth
+              size="lg"
+              onClick={handleProjectNameContinue}
+              loading={isLoading}
+              disabled={!data.projectName.trim()}
+              rightSection={<IconArrowRight size={18} />}
+            >
+              Continue
+            </Button>
+
+            <Anchor
+              component="button"
+              onClick={handleSkipOnboarding}
+              className="block text-center mt-4 text-text-muted hover:text-text-secondary"
+              disabled={isLoading}
+            >
+              Skip for now
+            </Anchor>
+          </div>
+        </div>
+
+        {/* Right column - Illustration */}
+        <div
+          className="hidden lg:flex w-[55%] items-center justify-center p-12"
+          style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
+        >
+          <OnboardingProjectIllustration />
+        </div>
+      </div>
+    );
+  }
+
+  // Step 5: Tasks - Asana-style two-column layout
+  const previewTasks = tasks.filter(t => t.name.trim().length > 0);
+
   return (
-    <div className="min-h-screen bg-background-primary py-12">
-      <div className="max-w-3xl mx-auto px-4">
-        <Stack gap="xl">
-          {/* Header */}
-          <div className="text-center">
-            <Title order={1} size="h1" className="text-3xl font-bold mb-2">
-              Almost there, {data.name || userName}!
+    <div className="min-h-screen flex">
+      {/* Left column - Form */}
+      <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+        <div>
+          <div className="mb-8">
+            <Title order={3} className="text-brand-primary font-bold">
+              Exponential
             </Title>
-            <Text size="lg" className="text-text-secondary max-w-2xl mx-auto">
-              Just one more step to personalize your experience.
+          </div>
+
+          <div className="mb-8">
+            <Group gap="xs" className="mb-4">
+              <ActionIcon
+                variant="subtle"
+                onClick={() => setCurrentStep(4)}
+                className="text-text-secondary hover:text-text-primary"
+              >
+                <IconArrowLeft size={20} />
+              </ActionIcon>
+              <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
+                What are a few tasks you need to do?
+              </Title>
+            </Group>
+            <Text className="text-text-secondary">
+              Add some initial tasks for {data.projectName || 'your project'}. You can always add more later.
             </Text>
           </div>
 
-          {/* Progress Stepper */}
-          <Stepper
-            active={currentStep - 1}
-            color="brand"
-            className="mb-8"
-          >
-            <Stepper.Step label="Profile" description="Set up your profile" />
-            <Stepper.Step label="Work" description="Tell us about your work" />
-            <Stepper.Step label="Tools" description="What tools do you use?" />
-            <Stepper.Step label="First Project" description="Create your first project" />
-          </Stepper>
-
-          {/* Step Content */}
-          <Card shadow="sm" padding="lg" radius="md" className="border border-border-primary">
-            {/* Step 4: First Project */}
-            {currentStep === 4 && (
-              <Stack gap="lg">
-                <div className="text-center">
-                  <Title order={2} className="text-2xl font-semibold mb-2">
-                    Create your first project
-                  </Title>
-                  <Text className="text-text-secondary">
-                    Let&apos;s start with a project to get you going.
-                  </Text>
-                </div>
-
-                <Stack gap="md">
-                  <TextInput
-                    label="Project Name"
-                    placeholder="My awesome project"
-                    value={data.projectName}
-                    onChange={(e) => setData(prev => ({ ...prev, projectName: e.target.value }))}
-                    size="md"
-                    required
-                  />
-
-                  <Textarea
-                    label="Description (optional)"
-                    placeholder="What is this project about?"
-                    value={data.projectDescription}
-                    onChange={(e) => setData(prev => ({ ...prev, projectDescription: e.target.value }))}
-                    minRows={3}
-                  />
-
-                  <Select
-                    label="Priority"
-                    value={data.projectPriority}
-                    onChange={(value) => setData(prev => ({
-                      ...prev,
-                      projectPriority: (value as 'LOW' | 'MEDIUM' | 'HIGH') ?? 'MEDIUM'
-                    }))}
-                    data={[
-                      { value: 'LOW', label: 'Low' },
-                      { value: 'MEDIUM', label: 'Medium' },
-                      { value: 'HIGH', label: 'High' }
-                    ]}
-                    size="md"
-                  />
-
-                  <Button
-                    onClick={handleCompleteOnboarding}
-                    loading={isLoading}
-                    size="lg"
-                    rightSection={<IconCheck size={16} />}
-                    className="mt-4"
-                    disabled={!data.projectName.trim()}
+          <Stack gap="md">
+            {tasks.map((task, index) => (
+              <Group key={task.id} gap="sm">
+                <TextInput
+                  placeholder={
+                    index === 0
+                      ? 'e.g., Research competitors'
+                      : index === 1
+                        ? 'e.g., Create wireframes'
+                        : 'e.g., Review with team'
+                  }
+                  value={task.name}
+                  onChange={(e) => handleTaskChange(task.id, e.target.value)}
+                  className="flex-1"
+                  size="md"
+                  classNames={{
+                    input: 'bg-background-primary border-border-primary'
+                  }}
+                />
+                {tasks.length > 1 && (
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    onClick={() => handleRemoveTask(task.id)}
+                    disabled={isLoading}
                   >
-                    Complete Setup
-                  </Button>
-                </Stack>
-              </Stack>
-            )}
-          </Card>
+                    <IconX size={16} />
+                  </ActionIcon>
+                )}
+              </Group>
+            ))}
 
-          {/* Footer */}
-          <Text size="sm" className="text-center text-text-muted">
-            Step {currentStep} of 4 • You can change these settings later in your profile
-          </Text>
-        </Stack>
+            <Button
+              variant="subtle"
+              leftSection={<IconPlus size={16} />}
+              onClick={handleAddTask}
+              className="w-fit"
+              disabled={isLoading}
+            >
+              Add another task
+            </Button>
+          </Stack>
+        </div>
+
+        <div className="mt-8">
+          <Button
+            fullWidth
+            size="lg"
+            onClick={handleCompleteOnboarding}
+            loading={isLoading}
+            rightSection={<IconCheck size={18} />}
+          >
+            Complete Setup
+          </Button>
+
+          <Anchor
+            component="button"
+            onClick={handleSkipOnboarding}
+            className="block text-center mt-4 text-text-muted hover:text-text-secondary"
+            disabled={isLoading}
+          >
+            Skip for now
+          </Anchor>
+        </div>
+      </div>
+
+      {/* Right column - Preview */}
+      <div
+        className="hidden lg:flex w-[55%] items-center justify-center p-12"
+        style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
+      >
+        <div className="w-full max-w-md">
+          <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 shadow-lg">
+            {/* Preview Header */}
+            <Group gap="sm" className="mb-6">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-primary/20">
+                <IconList size={20} className="text-brand-primary" />
+              </div>
+              <Title order={3} className="text-xl font-semibold text-text-primary">
+                {data.projectName || 'Your Project'}
+              </Title>
+            </Group>
+
+            {/* Preview Tasks */}
+            <Stack gap="sm">
+              {previewTasks.length > 0 ? (
+                previewTasks.map(task => (
+                  <Group key={task.id} gap="sm" className="py-2">
+                    <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
+                    <Text className="text-text-primary">{task.name}</Text>
+                  </Group>
+                ))
+              ) : (
+                <>
+                  {[1, 2, 3, 4, 5].map(i => (
+                    <Group key={i} gap="sm" className="py-2">
+                      <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
+                      <div
+                        className="h-4 rounded bg-surface-tertiary"
+                        style={{ width: `${60 + Math.random() * 80}px` }}
+                      />
+                    </Group>
+                  ))}
+                </>
+              )}
+            </Stack>
+          </div>
+        </div>
       </div>
     </div>
   );

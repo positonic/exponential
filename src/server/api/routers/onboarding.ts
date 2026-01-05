@@ -240,13 +240,14 @@ export const onboardingRouter = createTRPCRouter({
         projectDescription: z.string().max(500).optional(),
         projectPriority: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
         template: z.enum(["personal", "work", "learning", "scratch"]).optional(),
+        tasks: z.array(z.object({ name: z.string().min(1).max(200) })).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { projectName, projectDescription, projectPriority, template } = input;
+      const { projectName, projectDescription, projectPriority, template, tasks } = input;
       const userId = ctx.session.user.id;
 
-      // Verify user is on step 4
+      // Verify user is on step 4 or 5
       const currentUser = await ctx.db.user.findUnique({
         where: { id: userId },
         select: {
@@ -262,7 +263,7 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      if (currentUser.onboardingStep !== 4) {
+      if (currentUser.onboardingStep < 4) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Must complete previous onboarding steps first",
@@ -276,7 +277,7 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      // Use a transaction to create project and complete onboarding atomically
+      // Use a transaction to create project, tasks, and complete onboarding atomically
       const result = await ctx.db.$transaction(async (tx) => {
         // Create the first project
         const project = await tx.project.create({
@@ -290,11 +291,34 @@ export const onboardingRouter = createTRPCRouter({
           },
         });
 
-        // Mark onboarding as completed
+        // Create tasks (Actions) if provided
+        let createdTasks: { id: string; name: string }[] = [];
+        if (tasks && tasks.length > 0) {
+          createdTasks = await Promise.all(
+            tasks.map((task) =>
+              tx.action.create({
+                data: {
+                  name: task.name,
+                  projectId: project.id,
+                  createdById: userId,
+                  priority: "MEDIUM",
+                  status: "TODO",
+                },
+                select: {
+                  id: true,
+                  name: true,
+                },
+              })
+            )
+          );
+        }
+
+        // Mark onboarding as completed and also mark project setup as completed
         const updatedUser = await tx.user.update({
           where: { id: userId },
           data: {
             onboardingCompletedAt: new Date(),
+            projectSetupCompletedAt: new Date(),
           },
           select: {
             onboardingCompletedAt: true,
@@ -304,6 +328,7 @@ export const onboardingRouter = createTRPCRouter({
 
         return {
           project,
+          tasks: createdTasks,
           user: updatedUser,
         };
       });
@@ -315,6 +340,7 @@ export const onboardingRouter = createTRPCRouter({
           name: result.project.name,
           description: result.project.description,
         },
+        tasks: result.tasks,
         completedAt: result.user.onboardingCompletedAt,
         userData: {
           selectedTools: result.user.selectedTools,
