@@ -210,7 +210,7 @@ export const projectRouter = createTRPCRouter({
         counter++;
       }
 
-      return ctx.db.project.create({
+      const project = await ctx.db.project.create({
         data: {
           name: input.name,
           description: input.description,
@@ -222,27 +222,36 @@ export const projectRouter = createTRPCRouter({
           nextActionDate: input.nextActionDate ?? null,
           notionProjectId: input.notionProjectId,
           createdById: ctx.session.user.id,
-          workspace: input.workspaceId ? {
-            connect: {
-              id: input.workspaceId,
-            },
-          } : undefined,
-          team: input.teamId ? {
-            connect: {
-              id: input.teamId,
-            },
-          } : undefined,
-          goals: input.goalIds?.length ? {
-            connect: input.goalIds.map(id => ({ id: parseInt(id) })),
-          } : undefined,
-          outcomes: input.outcomeIds?.length ? {
-            connect: input.outcomeIds.map(id => ({ id })),
-          } : undefined,
-          lifeDomains: input.lifeDomainIds?.length ? {
-            connect: input.lifeDomainIds.map(id => ({ id })),
-          } : undefined,
+          workspaceId: input.workspaceId ?? null,
+          teamId: input.teamId ?? null,
         },
       });
+
+      // Connect relations if provided
+      if (input.goalIds?.length || input.outcomeIds?.length || input.lifeDomainIds?.length) {
+        await ctx.db.project.update({
+          where: { id: project.id },
+          data: {
+            ...(input.goalIds?.length && {
+              goals: {
+                connect: input.goalIds.map(id => ({ id: parseInt(id) })),
+              },
+            }),
+            ...(input.outcomeIds?.length && {
+              outcomes: {
+                connect: input.outcomeIds.map(id => ({ id })),
+              },
+            }),
+            ...(input.lifeDomainIds?.length && {
+              lifeDomains: {
+                connect: input.lifeDomainIds.map(id => ({ id })),
+              },
+            }),
+          },
+        });
+      }
+
+      return project;
     }),
 
   delete: protectedProcedure

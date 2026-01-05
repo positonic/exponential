@@ -16,11 +16,16 @@ import {
   Table,
   ActionIcon,
   Tooltip,
+  Divider,
 } from '@mantine/core';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye } from '@tabler/icons-react';
+import { useDisclosure } from '@mantine/hooks';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus } from '@tabler/icons-react';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { InviteMemberModal } from '~/app/_components/InviteMemberModal';
+import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTable';
+import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
 
 const roleIcons = {
   owner: IconCrown,
@@ -41,6 +46,7 @@ export default function WorkspaceSettingsPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [inviteModalOpened, { open: openInviteModal, close: closeInviteModal }] = useDisclosure(false);
 
   const utils = api.useUtils();
 
@@ -190,9 +196,20 @@ export default function WorkspaceSettingsPage() {
 
         {/* Members */}
         <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Title order={3} className="text-text-primary mb-4">
-            Members
-          </Title>
+          <Group justify="space-between" className="mb-4">
+            <Title order={3} className="text-text-primary">
+              Members
+            </Title>
+            {canManageMembers && (
+              <Button
+                variant="light"
+                leftSection={<IconUserPlus size={16} />}
+                onClick={openInviteModal}
+              >
+                Invite Member
+              </Button>
+            )}
+          </Group>
 
           <Table>
             <Table.Thead>
@@ -256,8 +273,34 @@ export default function WorkspaceSettingsPage() {
               })}
             </Table.Tbody>
           </Table>
+
+          {/* Pending Invitations */}
+          <Divider my="lg" />
+          <Title order={4} className="text-text-primary mb-3">
+            Pending Invitations
+          </Title>
+          <PendingInvitationsTable
+            workspaceId={workspaceId!}
+            canManage={canManageMembers}
+          />
         </Card>
+
+        {/* Teams */}
+        <WorkspaceTeamsSection
+          workspaceId={workspaceId!}
+          canManage={canManageMembers}
+        />
       </Stack>
+
+      {/* Invite Member Modal */}
+      <InviteMemberModal
+        workspaceId={workspaceId!}
+        opened={inviteModalOpened}
+        onClose={closeInviteModal}
+        onSuccess={() => {
+          refetchWorkspace();
+        }}
+      />
     </Container>
   );
 }
