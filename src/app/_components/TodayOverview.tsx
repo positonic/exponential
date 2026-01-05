@@ -25,6 +25,7 @@ import { CreateGoalModal } from "./CreateGoalModal";
 import { isSameDay, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import type { FocusPeriod, DateRange } from "~/types/focus";
 import { getFocusSectionTitle } from "~/lib/dateUtils";
+import type { OutcomeType } from "@prisma/client";
 
 // Helper function to get outcome type color
 function getOutcomeTypeColor(type: string): string {
@@ -319,47 +320,56 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
           <Stack gap="md">
             {outcomes.length > 0 ? (
               outcomes.map((outcome) => (
-                <Group
+                <CreateOutcomeModal
                   key={outcome.id}
-                  gap="sm"
-                  align="flex-start"
-                  className="cursor-pointer rounded-md p-2 hover:bg-surface-hover"
-                >
-                  <Stack gap={2} style={{ flex: 1 }}>
-                    <Group justify="space-between" wrap="nowrap">
-                      <Text
-                        size="sm"
-                        fw={500}
-                        className="text-text-primary"
-                        lineClamp={2}
-                      >
-                        {outcome.description}
-                      </Text>
-                    </Group>
-                    <Group gap="xs">
-                      {outcome.type && (
-                        <Badge
-                          variant="light"
-                          color={getOutcomeTypeColor(outcome.type)}
-                          size="xs"
-                        >
-                          {formatOutcomeType(outcome.type)}
-                        </Badge>
-                      )}
-                      {outcome.dueDate && (
-                        <Group gap={4} align="center" className="text-xs text-text-muted">
-                          <IconCalendar size={12} />
-                          <span>
-                            {outcome.dueDate.toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </span>
+                  outcome={{
+                    id: outcome.id,
+                    description: outcome.description,
+                    dueDate: outcome.dueDate,
+                    type: outcome.type as OutcomeType,
+                    whyThisOutcome: outcome.whyThisOutcome,
+                    projectId: outcome.projects?.[0]?.id,
+                    goalId: outcome.goals?.[0]?.id,
+                  }}
+                  trigger={
+                    <div className="cursor-pointer rounded-md p-2 hover:bg-surface-hover">
+                      <Stack gap={2}>
+                        <Group justify="space-between" wrap="nowrap">
+                          <Text
+                            size="sm"
+                            fw={500}
+                            className="text-text-primary"
+                            lineClamp={2}
+                          >
+                            {outcome.description}
+                          </Text>
                         </Group>
-                      )}
-                    </Group>
-                  </Stack>
-                </Group>
+                        <Group gap="xs">
+                          {outcome.type && (
+                            <Badge
+                              variant="light"
+                              color={getOutcomeTypeColor(outcome.type)}
+                              size="xs"
+                            >
+                              {formatOutcomeType(outcome.type)}
+                            </Badge>
+                          )}
+                          {outcome.dueDate && (
+                            <Group gap={4} align="center" className="text-xs text-text-muted">
+                              <IconCalendar size={12} />
+                              <span>
+                                {outcome.dueDate.toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                })}
+                              </span>
+                            </Group>
+                          )}
+                        </Group>
+                      </Stack>
+                    </div>
+                  }
+                />
               ))
             ) : (
               <Text size="sm" c="dimmed" ta="center" py="md">
