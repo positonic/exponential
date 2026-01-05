@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { Tabs, Stack, Paper, Text, Group, ScrollArea, ActionIcon, Drawer } from "@mantine/core";
+import { useState, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Tabs, Stack, Paper, Text, Group, ScrollArea, ActionIcon, Drawer, Card, Badge, Indicator, Tooltip } from "@mantine/core";
+import { Calendar } from "@mantine/dates";
 import {
   IconHome,
   IconLayoutKanban,
@@ -10,6 +12,7 @@ import {
   IconNotebook,
   IconMessageCircle,
   IconX,
+  IconTarget,
 } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 import { TodayOverview } from "./TodayOverview";
@@ -19,16 +22,43 @@ import { api } from "~/trpc/react";
 import { format, parseISO, startOfDay, endOfDay } from "date-fns";
 import { CalendarDayView } from "./CalendarDayView";
 
-type TabValue = "overview" | "tasks" | "calendar" | "journal";
+type TabValue = "overview" | "tasks" | "calendar" | "outcomes-calendar" | "journal";
+
+const VALID_TABS: TabValue[] = ["overview", "tasks", "calendar", "outcomes-calendar", "journal"];
+
+function isValidTab(tab: string | null | undefined): tab is TabValue {
+  return tab != null && VALID_TABS.includes(tab as TabValue);
+}
+
+function getOutcomeTypeColor(type: string | null): string {
+  switch (type?.toUpperCase()) {
+    case "DAILY": return "blue";
+    case "WEEKLY": return "teal";
+    case "MONTHLY": return "violet";
+    case "QUARTERLY": return "orange";
+    case "ANNUAL": return "pink";
+    default: return "gray";
+  }
+}
 
 interface TodayContentProps {
   calendarConnected: boolean;
+  initialTab?: string;
 }
 
-export function TodayContent({ calendarConnected }: TodayContentProps) {
-  const [activeTab, setActiveTab] = useState<TabValue>("overview");
+export function TodayContent({ calendarConnected, initialTab }: TodayContentProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [chatOpened, setChatOpened] = useState(false);
   const today = new Date();
+
+  // Get tab from URL or use initial/default
+  const tabFromUrl = searchParams.get("tab");
+  const activeTab: TabValue = isValidTab(tabFromUrl)
+    ? tabFromUrl
+    : isValidTab(initialTab)
+      ? initialTab
+      : "overview";
 
   // Fetch calendar events for today
   const { data: events, isLoading: eventsLoading } = api.calendar.getEvents.useQuery(
@@ -45,11 +75,28 @@ export function TodayContent({ calendarConnected }: TodayContentProps) {
     }
   );
 
-  const handleTabChange = (value: string | null) => {
-    if (value) {
-      setActiveTab(value as TabValue);
-    }
+  // Fetch outcomes for the outcomes calendar
+  const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
+
+  const getOutcomesForDate = (date: Date) => {
+    const dateStr = date.toDateString();
+    return outcomes?.filter((outcome) =>
+      outcome.dueDate && new Date(outcome.dueDate).toDateString() === dateStr
+    ) ?? [];
   };
+
+  const handleTabChange = useCallback((value: string | null) => {
+    if (value && isValidTab(value)) {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value === "overview") {
+        params.delete("tab");
+      } else {
+        params.set("tab", value);
+      }
+      const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+      router.push(newUrl, { scroll: false });
+    }
+  }, [router, searchParams]);
 
   const formatEventTime = (event: NonNullable<typeof events>[0]) => {
     if (event.start.dateTime) {
@@ -82,6 +129,9 @@ export function TodayContent({ calendarConnected }: TodayContentProps) {
               </Tabs.Tab>
               <Tabs.Tab value="calendar" leftSection={<IconCalendar size={16} />}>
                 Calendar
+              </Tabs.Tab>
+              <Tabs.Tab value="outcomes-calendar" leftSection={<IconTarget size={16} />}>
+                Outcomes Calendar
               </Tabs.Tab>
               <Tabs.Tab value="journal" leftSection={<IconNotebook size={16} />}>
                 Journal
@@ -228,6 +278,52 @@ export function TodayContent({ calendarConnected }: TodayContentProps) {
                 </div>
               </div>
             )}
+          </Tabs.Panel>
+
+          <Tabs.Panel value="outcomes-calendar">
+            <Card withBorder radius="md" className="border-border-primary bg-surface-secondary">
+              <Text fw={600} size="lg" className="text-text-primary" mb="md">
+                Outcomes Calendar
+              </Text>
+              <div className="flex justify-center">
+                <Calendar
+                  renderDay={(date) => {
+                    const day = date.getDate();
+                    const dayOutcomes = getOutcomesForDate(date);
+
+                    if (dayOutcomes.length === 0) {
+                      return <div>{day}</div>;
+                    }
+
+                    return (
+                      <Tooltip
+                        label={
+                          <Stack gap={4}>
+                            {dayOutcomes.map((outcome) => (
+                              <Group key={outcome.id} gap="xs">
+                                <Badge size="xs" color={getOutcomeTypeColor(outcome.type)} variant="filled">
+                                  {outcome.type ?? "outcome"}
+                                </Badge>
+                                <Text size="xs" lineClamp={1}>
+                                  {outcome.description}
+                                </Text>
+                              </Group>
+                            ))}
+                          </Stack>
+                        }
+                        withArrow
+                        multiline
+                        w={220}
+                      >
+                        <Indicator size={6} color={getOutcomeTypeColor(dayOutcomes[0]?.type ?? null)} offset={-2}>
+                          <div>{day}</div>
+                        </Indicator>
+                      </Tooltip>
+                    );
+                  }}
+                />
+              </div>
+            </Card>
           </Tabs.Panel>
 
           <Tabs.Panel value="journal">

@@ -6,9 +6,10 @@ import { TodayContent } from "./TodayContent";
 interface NavigationWrapperProps {
   calendarConnected: boolean;
   todayExists: boolean;
+  initialTab?: string;
 }
 
-export function NavigationWrapper({ calendarConnected, todayExists }: NavigationWrapperProps) {
+export function NavigationWrapper({ calendarConnected, todayExists, initialTab }: NavigationWrapperProps) {
   return (
     <>
       {/* Page Header Navigation */}
@@ -18,7 +19,7 @@ export function NavigationWrapper({ calendarConnected, todayExists }: Navigation
       />
 
       {/* Main Tabbed Content */}
-      <TodayContent calendarConnected={calendarConnected} />
+      <TodayContent calendarConnected={calendarConnected} initialTab={initialTab} />
     </>
   );
 }

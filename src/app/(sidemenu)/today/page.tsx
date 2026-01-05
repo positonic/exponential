@@ -6,13 +6,20 @@ import { api } from "~/trpc/server";
 import { startOfDay } from "date-fns";
 import { NavigationWrapper } from "../../_components/NavigationWrapper";
 
-export default async function Home() {
+interface PageProps {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function Home({ searchParams }: PageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const tab = typeof resolvedSearchParams?.tab === 'string' ? resolvedSearchParams.tab : undefined;
+
   return (
     <HydrateClient>
       <main className="flex h-full flex-col items-center justify-start text-text-primary">
         <div className="container flex flex-col items-stretch justify-start gap-4 px-4 py-8">
           <Suspense fallback={<div>Loading...</div>}>
-            <ActionsWrapper />
+            <ActionsWrapper initialTab={tab} />
           </Suspense>
         </div>
       </main>
@@ -20,7 +27,7 @@ export default async function Home() {
   );
 }
 
-async function ActionsWrapper() {
+async function ActionsWrapper({ initialTab }: { initialTab?: string }) {
   const session = await auth();
 
   let todayExists = false;
@@ -42,6 +49,7 @@ async function ActionsWrapper() {
     <NavigationWrapper
       calendarConnected={calendarConnected}
       todayExists={todayExists}
+      initialTab={initialTab}
     />
   ) : (
     <Welcome />
