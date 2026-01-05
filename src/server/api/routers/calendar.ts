@@ -114,4 +114,34 @@ export const calendarRouter = createTRPCRouter({
 
       return { success: true, message: "Calendar disconnected successfully" };
     }),
+
+  createEvent: protectedProcedure
+    .input(z.object({
+      summary: z.string().min(1, "Title is required"),
+      description: z.string().optional(),
+      start: z.object({
+        dateTime: z.string(),
+        timeZone: z.string().optional(),
+      }),
+      end: z.object({
+        dateTime: z.string(),
+        timeZone: z.string().optional(),
+      }),
+      attendees: z.array(z.object({
+        email: z.string().email(),
+      })).optional(),
+      conferenceData: z.object({
+        createRequest: z.object({
+          requestId: z.string(),
+          conferenceSolutionKey: z.object({
+            type: z.literal('hangoutsMeet'),
+          }),
+        }),
+      }).optional(),
+      calendarId: z.string().default('primary'),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const calendarService = new GoogleCalendarService();
+      return calendarService.createEvent(ctx.session.user.id, input);
+    }),
 });

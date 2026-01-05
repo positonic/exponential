@@ -26,6 +26,40 @@ export interface CalendarEvent {
   status: string;
 }
 
+export interface CreateEventInput {
+  summary: string;
+  description?: string;
+  start: {
+    dateTime: string;
+    timeZone?: string;
+  };
+  end: {
+    dateTime: string;
+    timeZone?: string;
+  };
+  attendees?: Array<{ email: string }>;
+  conferenceData?: {
+    createRequest: {
+      requestId: string;
+      conferenceSolutionKey: {
+        type: 'hangoutsMeet';
+      };
+    };
+  };
+  calendarId?: string;
+}
+
+export interface CreatedCalendarEvent extends CalendarEvent {
+  conferenceData?: {
+    entryPoints?: Array<{
+      uri: string;
+      label?: string;
+      entryPointType: string;
+    }>;
+    conferenceId?: string;
+  };
+}
+
 // Create a cache instance with 15 minute TTL
 const calendarCache = new NodeCache({ 
   stdTTL: 900, // 15 minutes in seconds
@@ -261,8 +295,68 @@ export class GoogleCalendarService {
     // Clear cache for this specific request first
     const cacheKey = this.generateCacheKey(userId, options);
     calendarCache.del(cacheKey);
-    
+
     // Fetch fresh data
     return this.getEvents(userId, { ...options, useCache: true });
+  }
+
+  // Create a new calendar event
+  async createEvent(
+    userId: string,
+    input: CreateEventInput
+  ): Promise<CreatedCalendarEvent> {
+    const calendar = await this.getCalendarClient(userId);
+    const { calendarId = 'primary', conferenceData, ...eventData } = input;
+
+    try {
+      const response = await calendar.events.insert({
+        calendarId,
+        conferenceDataVersion: conferenceData ? 1 : undefined,
+        requestBody: {
+          ...eventData,
+          conferenceData,
+        },
+      });
+
+      const event = response.data;
+
+      // Clear cache since we've created a new event
+      this.clearUserCache(userId);
+
+      return {
+        id: event.id!,
+        summary: event.summary ?? 'No title',
+        description: event.description ?? undefined,
+        start: {
+          dateTime: event.start?.dateTime ?? undefined,
+          date: event.start?.date ?? undefined,
+          timeZone: event.start?.timeZone ?? undefined,
+        },
+        end: {
+          dateTime: event.end?.dateTime ?? undefined,
+          date: event.end?.date ?? undefined,
+          timeZone: event.end?.timeZone ?? undefined,
+        },
+        location: event.location ?? undefined,
+        attendees: event.attendees?.map(attendee => ({
+          email: attendee.email!,
+          displayName: attendee.displayName ?? undefined,
+          responseStatus: attendee.responseStatus!,
+        })),
+        htmlLink: event.htmlLink!,
+        status: event.status!,
+        conferenceData: event.conferenceData ? {
+          entryPoints: event.conferenceData.entryPoints?.map(ep => ({
+            uri: ep.uri!,
+            label: ep.label ?? undefined,
+            entryPointType: ep.entryPointType!,
+          })),
+          conferenceId: event.conferenceData.conferenceId ?? undefined,
+        } : undefined,
+      };
+    } catch (error) {
+      console.error('Failed to create calendar event:', error);
+      throw new Error('Failed to create calendar event. Please try again.');
+    }
   }
 }

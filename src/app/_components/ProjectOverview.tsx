@@ -19,6 +19,7 @@ import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { CreateActionModal } from "./CreateActionModal";
 import { OutcomeTimeline } from "./OutcomeTimeline";
 import { ActionList } from "./ActionList";
+import { ProjectCalendarCard } from "./ProjectCalendarCard";
 
 // Types
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
@@ -155,6 +156,9 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
             />
           </div>
         </Card>
+
+        {/* Google Calendar Events */}
+        <ProjectCalendarCard projectId={project.id} projectName={project.name} />
       </div>
 
       {/* Middle Column - Goals, Outcomes, Timeline */}
