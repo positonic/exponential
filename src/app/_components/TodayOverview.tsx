@@ -63,34 +63,7 @@ export function TodayOverview() {
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      {/* Left Column - Today's Actions */}
-      <div>
-        <Card
-          withBorder
-          radius="md"
-          className="border-border-primary bg-surface-secondary"
-        >
-          {/* Card Header */}
-          <Group justify="space-between" mb="lg">
-            <Text fw={600} size="lg" className="text-text-primary">
-              Today&apos;s Actions
-            </Text>
-            <ActionIcon variant="subtle" size="md">
-              <IconDots size={16} />
-            </ActionIcon>
-          </Group>
-
-          {/* Action List */}
-          <ActionList
-            viewName="today"
-            actions={actions}
-            showCheckboxes={false}
-            enableBulkEditForOverdue={true}
-          />
-        </Card>
-      </div>
-
-      {/* Middle Column - Outcomes Calendar */}
+      {/* Left Column - Outcomes Calendar */}
       <div>
         <Card
           withBorder
@@ -141,9 +114,8 @@ export function TodayOverview() {
         </Card>
       </div>
 
-      {/* Right Column - Sidebar */}
+      {/* Middle Column - Today's Outcomes */}
       <div>
-        {/* Today's Outcomes Card */}
         <Card
           withBorder
           radius="md"
@@ -212,6 +184,33 @@ export function TodayOverview() {
               </Text>
             )}
           </Stack>
+        </Card>
+      </div>
+
+      {/* Right Column - Today's Actions */}
+      <div>
+        <Card
+          withBorder
+          radius="md"
+          className="border-border-primary bg-surface-secondary"
+        >
+          {/* Card Header */}
+          <Group justify="space-between" mb="lg">
+            <Text fw={600} size="lg" className="text-text-primary">
+              Today&apos;s Actions
+            </Text>
+            <ActionIcon variant="subtle" size="md">
+              <IconDots size={16} />
+            </ActionIcon>
+          </Group>
+
+          {/* Action List */}
+          <ActionList
+            viewName="today"
+            actions={actions}
+            showCheckboxes={false}
+            enableBulkEditForOverdue={true}
+          />
         </Card>
       </div>
     </div>
