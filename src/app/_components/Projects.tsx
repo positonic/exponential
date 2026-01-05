@@ -10,10 +10,11 @@ import { modals } from "@mantine/modals";
 import { useDisclosure } from "@mantine/hooks";
 import { slugify } from "~/utils/slugify";
 import { IconEdit, IconTrash, IconBrandNotion, IconPlus } from "@tabler/icons-react";
+import Link from "next/link";
 
 type Project = RouterOutputs["project"]["getAll"][0];
 
-function ProjectList({ projects }: { projects: Project[] }) {
+function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspaceSlug?: string }) {
   const utils = api.useUtils();
   
   const deleteProject = api.project.delete.useMutation({
@@ -102,7 +103,14 @@ function ProjectList({ projects }: { projects: Project[] }) {
               key={project.id} 
               className="border-b border-gray-700 hover:bg-white/5"
             >
-              <td className="px-4 py-2">{project.name}</td>
+              <td className="px-4 py-2">
+                <Link
+                  href={`/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`}
+                  className="text-text-primary hover:text-brand-primary hover:underline"
+                >
+                  {project.name}
+                </Link>
+              </td>
               <td className="px-4 py-2">
                 <Select
                   value={project.status}
@@ -262,7 +270,7 @@ export function Projects() {
   const [, setNextActionDate] = useState("");
   const [notionModalOpened, { open: openNotionModal, close: closeNotionModal }] = useDisclosure(false);
 
-  const { workspaceId } = useWorkspace();
+  const { workspaceId, workspace } = useWorkspace();
   const utils = api.useUtils();
   const projects = api.project.getAll.useQuery(
     { workspaceId: workspaceId ?? undefined },
@@ -315,7 +323,7 @@ export function Projects() {
         )}
       </Group>
 
-      <ProjectList projects={projects.data ?? []} />
+      <ProjectList projects={projects.data ?? []} workspaceSlug={workspace?.slug} />
       <div className="mt-4">
         <CreateProjectModal>
           <Button variant="light">Create Project</Button>
