@@ -15,6 +15,9 @@ export const onboardingRouter = createTRPCRouter({
         email: true,
         image: true,
         emailMarketingOptIn: true,
+        workRole: true,
+        workFunction: true,
+        usagePurposes: true,
         selectedTools: true,
         onboardingCompletedAt: true,
         onboardingStep: true,
@@ -33,6 +36,9 @@ export const onboardingRouter = createTRPCRouter({
       email: user.email,
       image: user.image,
       emailMarketingOptIn: user.emailMarketingOptIn,
+      workRole: user.workRole,
+      workFunction: user.workFunction,
+      usagePurposes: user.usagePurposes,
       selectedTools: user.selectedTools,
       onboardingCompletedAt: user.onboardingCompletedAt,
       onboardingStep: user.onboardingStep,
@@ -109,19 +115,21 @@ export const onboardingRouter = createTRPCRouter({
     }),
 
   /**
-   * Update user's selected tools and advance to step 3
+   * Update user's work profile (role, function, usage purposes) and advance to step 3
    */
-  updateTools: protectedProcedure
+  updateWorkProfile: protectedProcedure
     .input(
       z.object({
-        selectedTools: z.array(z.string()).max(20),
+        workRole: z.string().optional(),
+        workFunction: z.array(z.string()),
+        usagePurposes: z.array(z.string()),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { selectedTools } = input;
+      const { workRole, workFunction, usagePurposes } = input;
       const userId = ctx.session.user.id;
 
-      // Verify user is on the correct step
+      // Verify user is on step 2
       const currentUser = await ctx.db.user.findUnique({
         where: { id: userId },
         select: {
@@ -146,8 +154,68 @@ export const onboardingRouter = createTRPCRouter({
       const updatedUser = await ctx.db.user.update({
         where: { id: userId },
         data: {
-          selectedTools,
+          workRole,
+          workFunction,
+          usagePurposes,
           onboardingStep: 3,
+        },
+        select: {
+          workRole: true,
+          workFunction: true,
+          usagePurposes: true,
+          onboardingStep: true,
+        },
+      });
+
+      return {
+        success: true,
+        workRole: updatedUser.workRole,
+        workFunction: updatedUser.workFunction,
+        usagePurposes: updatedUser.usagePurposes,
+        nextStep: updatedUser.onboardingStep,
+      };
+    }),
+
+  /**
+   * Update user's selected tools and advance to step 4
+   */
+  updateTools: protectedProcedure
+    .input(
+      z.object({
+        selectedTools: z.array(z.string()).max(20),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { selectedTools } = input;
+      const userId = ctx.session.user.id;
+
+      // Verify user is on step 3
+      const currentUser = await ctx.db.user.findUnique({
+        where: { id: userId },
+        select: {
+          onboardingStep: true,
+        },
+      });
+
+      if (!currentUser) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "User not found",
+        });
+      }
+
+      if (currentUser.onboardingStep !== 3) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Must complete work profile first",
+        });
+      }
+
+      const updatedUser = await ctx.db.user.update({
+        where: { id: userId },
+        data: {
+          selectedTools,
+          onboardingStep: 4,
         },
         select: {
           selectedTools: true,
@@ -178,7 +246,7 @@ export const onboardingRouter = createTRPCRouter({
       const { projectName, projectDescription, projectPriority, template } = input;
       const userId = ctx.session.user.id;
 
-      // Verify user is on the final step
+      // Verify user is on step 4
       const currentUser = await ctx.db.user.findUnique({
         where: { id: userId },
         select: {
@@ -194,7 +262,7 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      if (currentUser.onboardingStep !== 3) {
+      if (currentUser.onboardingStep !== 4) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Must complete previous onboarding steps first",

@@ -20,7 +20,8 @@ import {
   Checkbox,
   Avatar,
   ActionIcon,
-  Loader
+  Loader,
+  MultiSelect
 } from '@mantine/core';
 import {
   IconCheck,
@@ -43,18 +44,76 @@ import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { OnboardingIllustration } from './OnboardingIllustration';
+import { OnboardingWorkIllustration } from './OnboardingWorkIllustration';
 
-type OnboardingStep = 1 | 2 | 3;
+type OnboardingStep = 1 | 2 | 3 | 4;
 
 interface OnboardingData {
   name: string;
   emailMarketingOptIn: boolean;
+  workRole: string | null;
+  workFunction: string[];
+  usagePurposes: string[];
   selectedTools: string[];
   projectName: string;
   projectDescription: string;
   projectPriority: 'LOW' | 'MEDIUM' | 'HIGH';
   template?: 'personal' | 'work' | 'learning' | 'scratch';
 }
+
+// Work role options (single select)
+const workRoleOptions = [
+  { value: 'team_member', label: 'Team member / Individual contributor' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'director', label: 'Director' },
+  { value: 'executive', label: 'Executive (e.g. VP or C-suite)' },
+  { value: 'business_owner', label: 'Business owner' },
+  { value: 'freelancer', label: 'Freelancer' },
+  { value: 'student', label: 'Student' },
+  { value: 'other', label: 'Other' },
+  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
+];
+
+// Work function options (multi-select)
+const workFunctionOptions = [
+  { value: 'administrative_assistant', label: 'Administrative Assistant' },
+  { value: 'communications', label: 'Communications' },
+  { value: 'customer_experience', label: 'Customer Experience' },
+  { value: 'data_analytics', label: 'Data or Analytics' },
+  { value: 'design', label: 'Design' },
+  { value: 'education_professional', label: 'Education Professional' },
+  { value: 'engineering', label: 'Engineering' },
+  { value: 'finance_accounting', label: 'Finance or Accounting' },
+  { value: 'fundraising', label: 'Fundraising' },
+  { value: 'healthcare_professional', label: 'Healthcare Professional' },
+  { value: 'human_resources', label: 'Human Resources' },
+  { value: 'information_technology', label: 'Information Technology (IT)' },
+  { value: 'legal', label: 'Legal' },
+  { value: 'marketing', label: 'Marketing' },
+  { value: 'operations', label: 'Operations' },
+  { value: 'product_management', label: 'Product Management' },
+  { value: 'project_program_management', label: 'Project or Program Management' },
+  { value: 'research_development', label: 'Research and Development' },
+  { value: 'sales', label: 'Sales' },
+  { value: 'other', label: 'Other' },
+  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
+];
+
+// Usage purpose options (multi-select)
+const usagePurposeOptions = [
+  { value: 'feature_development', label: 'Feature development' },
+  { value: 'performance_optimization', label: 'Performance optimization' },
+  { value: 'roadmap_planning', label: 'Roadmap planning' },
+  { value: 'sprint_management', label: 'Sprint management' },
+  { value: 'bug_tracking', label: 'Bug intake and tracking' },
+  { value: 'employee_onboarding', label: 'Employee onboarding' },
+  { value: 'project_management', label: 'Project management' },
+  { value: 'portfolio_management', label: 'Portfolio management' },
+  { value: 'workload_management', label: 'Workload management' },
+  { value: 'goal_management', label: 'Goal management' },
+  { value: 'other', label: 'Other' },
+  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
+];
 
 const toolCategories = {
   'Productivity': [
@@ -110,6 +169,9 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   const [data, setData] = useState<OnboardingData>({
     name: userName ?? '',
     emailMarketingOptIn: true,
+    workRole: null,
+    workFunction: [],
+    usagePurposes: [],
     selectedTools: [],
     projectName: '',
     projectDescription: '',
@@ -122,20 +184,22 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   // tRPC mutations
   const updateProfile = api.onboarding.updateProfile.useMutation();
   const uploadProfileImage = api.onboarding.uploadProfileImage.useMutation();
+  const updateWorkProfile = api.onboarding.updateWorkProfile.useMutation();
   const updateTools = api.onboarding.updateTools.useMutation();
   const completeOnboarding = api.onboarding.completeOnboarding.useMutation();
 
   // Set initial step based on current progress
   useEffect(() => {
     if (onboardingStatus && !onboardingStatus.isCompleted) {
-      // Map old step numbers to new (1->1, 2->1, 3->2, 4->3)
       const step = onboardingStatus.onboardingStep;
-      const mappedStep = step <= 2 ? 1 : step === 3 ? 2 : 3;
-      setCurrentStep(mappedStep as OnboardingStep);
+      setCurrentStep(step as OnboardingStep);
       setData(prev => ({
         ...prev,
         name: onboardingStatus.name ?? userName ?? '',
         emailMarketingOptIn: onboardingStatus.emailMarketingOptIn ?? true,
+        workRole: onboardingStatus.workRole ?? null,
+        workFunction: onboardingStatus.workFunction ?? [],
+        usagePurposes: onboardingStatus.usagePurposes ?? [],
         selectedTools: onboardingStatus.selectedTools ?? []
       }));
       if (onboardingStatus.image) {
@@ -150,7 +214,6 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith('image/')) {
       notifications.show({
         title: 'Invalid file',
@@ -160,7 +223,6 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
       return;
     }
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       notifications.show({
         title: 'File too large',
@@ -172,7 +234,6 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
 
     setIsUploadingImage(true);
     try {
-      // Convert to base64
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64 = (reader.result as string).split(',')[1];
@@ -219,7 +280,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
 
       notifications.show({
         title: 'Profile saved!',
-        message: 'Let\'s see what tools you use.',
+        message: 'Tell us about your work.',
         color: 'green',
         icon: <IconCheck size={16} />
       });
@@ -234,11 +295,38 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     }
   };
 
+  const handleWorkProfileSubmit = async () => {
+    setIsLoading(true);
+    try {
+      await updateWorkProfile.mutateAsync({
+        workRole: data.workRole ?? undefined,
+        workFunction: data.workFunction,
+        usagePurposes: data.usagePurposes
+      });
+      setCurrentStep(3);
+
+      notifications.show({
+        title: 'Work profile saved!',
+        message: 'Now let\'s see what tools you use.',
+        color: 'green',
+        icon: <IconCheck size={16} />
+      });
+    } catch {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to save your work profile. Please try again.',
+        color: 'red'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleToolsSelection = async () => {
     setIsLoading(true);
     try {
       await updateTools.mutateAsync({ selectedTools: data.selectedTools });
-      setCurrentStep(3);
+      setCurrentStep(4);
 
       notifications.show({
         title: 'Tools saved!',
@@ -326,14 +414,12 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
         {/* Left column - Form */}
         <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
           <div>
-            {/* Logo placeholder - replace with actual logo */}
             <div className="mb-12">
               <Title order={3} className="text-brand-primary font-bold">
                 Exponential
               </Title>
             </div>
 
-            {/* Welcome text */}
             <div className="mb-8">
               <Title order={1} className="text-3xl lg:text-4xl font-bold mb-2 text-text-primary">
                 Welcome to Exponential!
@@ -343,9 +429,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               </Text>
             </div>
 
-            {/* Profile photo and name form */}
             <div className="flex gap-6 mb-6">
-              {/* Profile photo upload */}
               <div className="relative">
                 <Avatar
                   src={profileImageUrl}
@@ -378,7 +462,6 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                 />
               </div>
 
-              {/* Name input */}
               <div className="flex-1">
                 <Text fw={500} className="mb-2 text-text-primary">
                   What&apos;s your full name?
@@ -395,7 +478,6 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               </div>
             </div>
 
-            {/* Email opt-in */}
             <Checkbox
               label="Get feature updates and tips via email (recommended)."
               checked={data.emailMarketingOptIn}
@@ -407,7 +489,6 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
             />
           </div>
 
-          {/* Bottom section */}
           <div>
             <Text size="sm" className="text-text-muted mb-6">
               Wrong account?{' '}
@@ -440,7 +521,96 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     );
   }
 
-  // Steps 2 and 3: Standard layout with stepper
+  // Step 2: Tell us about your work - Asana-style two-column layout
+  if (currentStep === 2) {
+    return (
+      <div className="min-h-screen flex">
+        {/* Left column - Form */}
+        <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+          <div>
+            <div className="mb-12">
+              <Title order={3} className="text-brand-primary font-bold">
+                Exponential
+              </Title>
+            </div>
+
+            <div className="mb-8">
+              <Title order={1} className="text-3xl lg:text-4xl font-bold mb-2 text-text-primary">
+                Tell us about your work
+              </Title>
+              <Text className="text-text-secondary">
+                This will help us tailor Exponential for you.
+              </Text>
+            </div>
+
+            <Stack gap="lg">
+              <Select
+                label="What's your role?"
+                placeholder="Select your role"
+                data={workRoleOptions}
+                value={data.workRole}
+                onChange={(value) => setData(prev => ({ ...prev, workRole: value }))}
+                size="md"
+                clearable
+                classNames={{
+                  input: 'bg-background-primary border-border-primary'
+                }}
+              />
+
+              <MultiSelect
+                label="Which function best describes your work?"
+                placeholder="Select all that apply"
+                data={workFunctionOptions}
+                value={data.workFunction}
+                onChange={(value) => setData(prev => ({ ...prev, workFunction: value }))}
+                size="md"
+                clearable
+                searchable
+                classNames={{
+                  input: 'bg-background-primary border-border-primary'
+                }}
+              />
+
+              <MultiSelect
+                label="What do you want to use Exponential for?"
+                placeholder="Select all that apply"
+                data={usagePurposeOptions}
+                value={data.usagePurposes}
+                onChange={(value) => setData(prev => ({ ...prev, usagePurposes: value }))}
+                size="md"
+                clearable
+                searchable
+                classNames={{
+                  input: 'bg-background-primary border-border-primary'
+                }}
+              />
+            </Stack>
+          </div>
+
+          <div className="mt-8">
+            <Button
+              fullWidth
+              size="lg"
+              onClick={handleWorkProfileSubmit}
+              loading={isLoading}
+            >
+              Continue
+            </Button>
+          </div>
+        </div>
+
+        {/* Right column - Illustration */}
+        <div
+          className="hidden lg:flex w-[55%] items-center justify-center p-12"
+          style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
+        >
+          <OnboardingWorkIllustration />
+        </div>
+      </div>
+    );
+  }
+
+  // Steps 3 and 4: Standard layout with stepper
   return (
     <div className="min-h-screen bg-background-primary py-12">
       <div className="max-w-3xl mx-auto px-4">
@@ -462,6 +632,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
             className="mb-8"
           >
             <Stepper.Step label="Profile" description="Set up your profile" />
+            <Stepper.Step label="Work" description="Tell us about your work" />
             <Stepper.Step label="Tools" description="What tools do you use?" />
             <Stepper.Step label="First Project" description="Create your first project" />
           </Stepper>
@@ -469,8 +640,8 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           {/* Step Content */}
           <Card shadow="sm" padding="lg" radius="md" className="border border-border-primary">
 
-            {/* Step 2: Tool Selection */}
-            {currentStep === 2 && (
+            {/* Step 3: Tool Selection */}
+            {currentStep === 3 && (
               <Stack gap="lg">
                 <div className="text-center">
                   <Title order={2} className="text-2xl font-semibold mb-2">
@@ -501,7 +672,6 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                             }`}
                             onClick={() => toggleTool(tool.name)}
                           >
-                            {/* Check mark overlay */}
                             {data.selectedTools.includes(tool.name) && (
                               <div className="absolute -top-1 -right-1 bg-brand-primary text-text-inverse rounded-full p-1 z-10">
                                 <IconCheck size={12} />
@@ -543,8 +713,8 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               </Stack>
             )}
 
-            {/* Step 3: First Project */}
-            {currentStep === 3 && (
+            {/* Step 4: First Project */}
+            {currentStep === 4 && (
               <Stack gap="lg">
                 <div className="text-center">
                   <Title order={2} className="text-2xl font-semibold mb-2">
@@ -605,7 +775,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
 
           {/* Footer */}
           <Text size="sm" className="text-center text-text-muted">
-            Step {currentStep} of 3 • You can change these settings later in your profile
+            Step {currentStep} of 4 • You can change these settings later in your profile
           </Text>
         </Stack>
       </div>

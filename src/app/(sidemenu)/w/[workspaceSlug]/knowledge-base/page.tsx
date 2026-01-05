@@ -511,33 +511,37 @@ export default function KnowledgeBasePage() {
               </Stack>
             ) : searchMutation.data?.results && searchMutation.data.results.length > 0 ? (
               <Stack gap="md">
-                {searchMutation.data.results.map((result, idx) => (
-                  <Card key={idx} className="bg-surface-primary border-border-primary" withBorder p="sm">
-                    <Group justify="space-between" mb="xs">
-                      <Group gap="xs">
-                        <Badge size="sm" variant="light" color={result.sourceType === 'transcription' ? 'blue' : 'green'}>
-                          {result.sourceType === 'transcription' ? 'Meeting' : (result.contentType ?? 'Resource')}
-                        </Badge>
-                        {result.sourceTitle && (
-                          <Text size="xs" className="text-text-muted">
-                            {result.sourceTitle}
-                          </Text>
-                        )}
+                {searchMutation.data.results.map((result, idx) => {
+                  if (!result) return null;
+                  const contentType = 'contentType' in result ? result.contentType : undefined;
+                  return (
+                    <Card key={idx} className="bg-surface-primary border-border-primary" withBorder p="sm">
+                      <Group justify="space-between" mb="xs">
+                        <Group gap="xs">
+                          <Badge size="sm" variant="light" color={result.sourceType === 'transcription' ? 'blue' : 'green'}>
+                            {result.sourceType === 'transcription' ? 'Meeting' : (contentType ?? 'Resource')}
+                          </Badge>
+                          {result.sourceTitle && (
+                            <Text size="xs" className="text-text-muted">
+                              {result.sourceTitle}
+                            </Text>
+                          )}
+                        </Group>
+                        <Text size="xs" className="text-text-muted">
+                          {((result.relevanceScore ?? 0) * 100).toFixed(1)}% match
+                        </Text>
                       </Group>
-                      <Text size="xs" className="text-text-muted">
-                        {((result.relevanceScore ?? 0) * 100).toFixed(1)}% match
+                      <Text size="sm" className="text-text-primary line-clamp-3">
+                        {result.content}
                       </Text>
-                    </Group>
-                    <Text size="sm" className="text-text-primary line-clamp-3">
-                      {result.content}
-                    </Text>
-                    {result.meetingDate && (
-                      <Text size="xs" className="text-text-muted mt-1">
-                        {new Date(result.meetingDate).toLocaleDateString()}
-                      </Text>
-                    )}
-                  </Card>
-                ))}
+                      {result.meetingDate && (
+                        <Text size="xs" className="text-text-muted mt-1">
+                          {new Date(result.meetingDate).toLocaleDateString()}
+                        </Text>
+                      )}
+                    </Card>
+                  );
+                })}
               </Stack>
             ) : searchQuery.length > 2 && !searchMutation.isPending ? (
               <Text className="text-text-secondary text-center py-4">
