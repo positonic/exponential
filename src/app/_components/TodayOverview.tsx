@@ -25,7 +25,9 @@ import { CreateGoalModal } from "./CreateGoalModal";
 import { isSameDay, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import type { FocusPeriod, DateRange } from "~/types/focus";
 import { getFocusSectionTitle } from "~/lib/dateUtils";
-import type { OutcomeType } from "@prisma/client";
+
+// Define OutcomeType locally to match CreateOutcomeModal.tsx
+type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
 // Helper function to get outcome type color
 function getOutcomeTypeColor(type: string): string {

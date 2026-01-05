@@ -46,7 +46,7 @@ export function HomeContent({
 }: HomeContentProps) {
   // Generate workspace-aware paths
   const projectsPath = workspaceSlug ? `/w/${workspaceSlug}/projects` : '/projects';
-  const todayPath = workspaceSlug ? `/w/${workspaceSlug}/today` : '/today';
+  const workspacePath = workspaceSlug ? `/w/${workspaceSlug}/workspace` : '/today';
   const goalsPath = workspaceSlug ? `/w/${workspaceSlug}/goals` : '/goals';
   const inboxPath = workspaceSlug ? `/w/${workspaceSlug}/inbox` : '/inbox';
 
@@ -216,7 +216,7 @@ export function HomeContent({
             <Group mt="md">
               <Button
                 component={Link}
-                href={todayPath}
+                href={workspacePath}
                 size="sm"
                 variant="light"
               >

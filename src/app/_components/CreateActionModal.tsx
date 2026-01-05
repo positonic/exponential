@@ -21,8 +21,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const [projectId, setProjectId] = useState<string | undefined>(initProjectId || undefined);
   const [priority, setPriority] = useState<ActionPriority>("Quick");
   const [dueDate, setDueDate] = useState<Date | null>(() => {
-    // If we're on the /today page, default to today's date
-    if (viewName.toLowerCase() === 'today') {
+    // If we're on the /today or /workspace page, default to today's date
+    const lowerViewName = viewName.toLowerCase();
+    if (lowerViewName === 'today' || lowerViewName === 'workspace') {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       return today;
@@ -98,8 +99,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       // Update all action lists
       utils.action.getAll.setData(undefined, addActionToList);
 
-      // Update today's actions - only if we're in the today view
-      if (viewName.toLowerCase() === 'today') {
+      // Update today's actions - only if we're in the today or workspace view
+      const lowerView = viewName.toLowerCase();
+      if (lowerView === 'today' || lowerView === 'workspace') {
         void utils.action.getToday.invalidate();
       }
 
@@ -162,7 +164,8 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       }
 
       // Invalidate Today view if relevant
-      if (isTodayAction || viewName.toLowerCase() === 'today') {
+      const settledLowerView = viewName.toLowerCase();
+      if (isTodayAction || settledLowerView === 'today' || settledLowerView === 'workspace') {
         invalidatePromises.push(utils.action.getToday.invalidate());
       }
 
@@ -202,9 +205,10 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       // Reset projectId to initial value (current project if on project page)
       setProjectId(initProjectId || undefined);
       setPriority("Quick");
-      // Reset dueDate to today if on /today page, otherwise null
+      // Reset dueDate to today if on /today or /workspace page, otherwise null
       setDueDate(() => {
-        if (viewName.toLowerCase() === 'today') {
+        const successLowerView = viewName.toLowerCase();
+        if (successLowerView === 'today' || successLowerView === 'workspace') {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           return today;
