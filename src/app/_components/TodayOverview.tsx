@@ -7,7 +7,10 @@ import {
   Stack,
   Badge,
   ActionIcon,
+  Indicator,
+  Tooltip,
 } from "@mantine/core";
+import { Calendar } from "@mantine/dates";
 import {
   IconDots,
   IconActivity,
@@ -50,10 +53,18 @@ export function TodayOverview() {
     (outcome) => outcome.dueDate && isSameDay(outcome.dueDate, today)
   );
 
+  // Helper for calendar rendering - get outcomes for a specific date
+  const getOutcomesForDate = (date: Date) => {
+    const dateStr = date.toDateString();
+    return outcomes.filter((outcome) =>
+      outcome.dueDate && new Date(outcome.dueDate).toDateString() === dateStr
+    );
+  };
+
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
       {/* Left Column - Today's Actions */}
-      <div className="lg:col-span-2">
+      <div>
         <Card
           withBorder
           radius="md"
@@ -79,8 +90,59 @@ export function TodayOverview() {
         </Card>
       </div>
 
+      {/* Middle Column - Outcomes Calendar */}
+      <div>
+        <Card
+          withBorder
+          radius="md"
+          className="border-border-primary bg-surface-secondary"
+        >
+          <Text fw={600} size="lg" className="text-text-primary" mb="md">
+            Outcomes Calendar
+          </Text>
+          <div className="flex justify-center">
+            <Calendar
+              renderDay={(date) => {
+                const day = date.getDate();
+                const dayOutcomes = getOutcomesForDate(date);
+
+                if (dayOutcomes.length === 0) {
+                  return <div>{day}</div>;
+                }
+
+                return (
+                  <Tooltip
+                    label={
+                      <Stack gap={4}>
+                        {dayOutcomes.map((outcome) => (
+                          <Group key={outcome.id} gap="xs">
+                            <Badge size="xs" color={getOutcomeTypeColor(outcome.type ?? "")} variant="filled">
+                              {formatOutcomeType(outcome.type ?? "outcome")}
+                            </Badge>
+                            <Text size="xs" lineClamp={1}>
+                              {outcome.description}
+                            </Text>
+                          </Group>
+                        ))}
+                      </Stack>
+                    }
+                    withArrow
+                    multiline
+                    w={220}
+                  >
+                    <Indicator size={6} color={getOutcomeTypeColor(dayOutcomes[0]?.type ?? "")} offset={-2}>
+                      <div>{day}</div>
+                    </Indicator>
+                  </Tooltip>
+                );
+              }}
+            />
+          </div>
+        </Card>
+      </div>
+
       {/* Right Column - Sidebar */}
-      <div className="space-y-6">
+      <div>
         {/* Today's Outcomes Card */}
         <Card
           withBorder
