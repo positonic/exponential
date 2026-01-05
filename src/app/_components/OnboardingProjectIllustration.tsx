@@ -53,9 +53,9 @@ export function OnboardingProjectIllustration() {
         />
 
         {/* Traffic light dots */}
-        <circle cx="24" cy="22" r="6" className="fill-[#FF5F56]" />
-        <circle cx="44" cy="22" r="6" className="fill-[#FFBD2E]" />
-        <circle cx="64" cy="22" r="6" className="fill-[#27CA40]" />
+        <circle cx="24" cy="22" r="6" className="fill-[var(--color-macos-close)]" />
+        <circle cx="44" cy="22" r="6" className="fill-[var(--color-macos-minimize)]" />
+        <circle cx="64" cy="22" r="6" className="fill-[var(--color-macos-maximize)]" />
 
         {/* AI Sparkle icon */}
         <g transform="translate(230, 12)">
