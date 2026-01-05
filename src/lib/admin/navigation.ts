@@ -4,6 +4,7 @@ import {
   IconArrowLeft,
   IconStar,
   IconBulb,
+  IconUsers,
 } from "@tabler/icons-react";
 import type { ElementType } from "react";
 
@@ -26,6 +27,11 @@ export const adminNavigation: AdminNavSection[] = [
         title: "Dashboard",
         href: "/admin",
         icon: IconDashboard,
+      },
+      {
+        title: "Users",
+        href: "/admin/users",
+        icon: IconUsers,
       },
       {
         title: "AI Interactions",

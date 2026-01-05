@@ -112,6 +112,92 @@ export const adminRouter = createTRPCRouter({
   }),
 
   /**
+   * Get all users with engagement stats (admin only)
+   */
+  getAllUsers: adminProcedure
+    .input(
+      z.object({
+        limit: z.number().min(1).max(100).default(20),
+        cursor: z.string().nullish(),
+        search: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const where: {
+        OR?: Array<{ name?: { contains: string; mode: "insensitive" }; email?: { contains: string; mode: "insensitive" } }>;
+      } = {};
+
+      if (input.search) {
+        where.OR = [
+          { name: { contains: input.search, mode: "insensitive" } },
+          { email: { contains: input.search, mode: "insensitive" } },
+        ];
+      }
+
+      const users = await ctx.db.user.findMany({
+        where,
+        orderBy: { lastLogin: { sort: "desc", nulls: "last" } },
+        take: input.limit + 1,
+        cursor: input.cursor ? { id: input.cursor } : undefined,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+          lastLogin: true,
+          isAdmin: true,
+          onboardingCompletedAt: true,
+          onboardingStep: true,
+          projectSetupCompletedAt: true,
+          _count: {
+            select: {
+              actions: true,
+              projects: true,
+            },
+          },
+        },
+      });
+
+      let nextCursor: typeof input.cursor | undefined = undefined;
+      if (users.length > input.limit) {
+        const nextItem = users.pop();
+        nextCursor = nextItem?.id;
+      }
+
+      // Compute lifecycle status for each user
+      const getUserStatus = (user: {
+        onboardingCompletedAt: Date | null;
+        onboardingStep: number;
+        projectSetupCompletedAt: Date | null;
+      }): "registered" | "onboarding" | "setup" | "active" => {
+        if (!user.onboardingCompletedAt) {
+          return user.onboardingStep === 1 ? "registered" : "onboarding";
+        }
+        if (!user.projectSetupCompletedAt) {
+          return "setup";
+        }
+        return "active";
+      };
+
+      return {
+        users: users.map((user) => ({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          image: user.image,
+          lastLogin: user.lastLogin,
+          isAdmin: user.isAdmin,
+          status: getUserStatus(user),
+          actionCount: user._count.actions,
+          projectCount: user._count.projects,
+          hasActions: user._count.actions > 0,
+          hasProjects: user._count.projects > 0,
+        })),
+        nextCursor,
+      };
+    }),
+
+  /**
    * Get platform breakdown for AI interactions
    */
   getPlatformStats: adminProcedure.query(async ({ ctx }) => {

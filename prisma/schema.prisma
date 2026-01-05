@@ -58,6 +58,7 @@ model User {
   usageType               String?
   userRole                String?
   isAdmin                 Boolean                    @default(false)
+  lastLogin               DateTime?
   defaultWorkspaceId      String?
   accounts                Account[]
   actions                 Action[]

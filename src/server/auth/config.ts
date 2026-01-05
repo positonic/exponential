@@ -116,12 +116,18 @@ export const authConfig = {
           projects: { take: 1 },
           actions: { take: 1 },
         },
-      }); 
+      });
 
       // If no user exists, allow sign in (new user - will need onboarding)
       if (!existingUser) {
         return true;
       }
+
+      // Update lastLogin timestamp for existing users
+      await db.user.update({
+        where: { id: existingUser.id },
+        data: { lastLogin: new Date() },
+      });
 
       // If user exists and this is the same provider they used before, allow sign in
       if (existingUser && account?.provider) {
