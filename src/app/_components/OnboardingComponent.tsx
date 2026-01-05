@@ -11,12 +11,10 @@ import {
   Card,
   Select,
   TextInput,
-  SimpleGrid,
   Textarea,
   Box,
   Progress,
   Anchor,
-  ThemeIcon,
   Checkbox,
   Avatar,
   ActionIcon,
@@ -26,25 +24,28 @@ import {
 import {
   IconCheck,
   IconArrowRight,
+  IconArrowLeft,
   IconBrandSlack,
   IconBrandDiscord,
   IconBrandGithub,
-  IconBrandFigma,
-  IconBrandNotion,
+  IconBrandGitlab,
   IconCalendar,
-  IconCode,
-  IconPalette,
-  IconMail,
-  IconNotes,
   IconTargetArrow,
+  IconTimeline,
+  IconCalendarWeek,
+  IconSeedling,
+  IconSparkles,
+  IconDots,
   IconCamera,
-  IconUser
+  IconUser,
+  IconX
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { OnboardingIllustration } from './OnboardingIllustration';
 import { OnboardingWorkIllustration } from './OnboardingWorkIllustration';
+import { OnboardingToolsIllustration } from './OnboardingToolsIllustration';
 
 type OnboardingStep = 1 | 2 | 3 | 4;
 
@@ -115,43 +116,19 @@ const usagePurposeOptions = [
   { value: 'prefer_not_to_say', label: 'Prefer not to say' },
 ];
 
-const toolCategories = {
-  'Productivity': [
-    { name: 'Notion', icon: IconBrandNotion, color: 'gray' },
-    { name: 'Obsidian', icon: IconNotes, color: 'violet' },
-    { name: 'Roam Research', icon: IconTargetArrow, color: 'blue' }
-  ],
-  'Communication': [
-    { name: 'Slack', icon: IconBrandSlack, color: 'green' },
-    { name: 'Discord', icon: IconBrandDiscord, color: 'indigo' },
-    { name: 'Microsoft Teams', icon: IconMail, color: 'blue' }
-  ],
-  'Project Management': [
-    { name: 'Asana', icon: IconTargetArrow, color: 'red' },
-    { name: 'Trello', icon: IconTargetArrow, color: 'blue' },
-    { name: 'Jira', icon: IconCode, color: 'blue' },
-    { name: 'Monday.com', icon: IconTargetArrow, color: 'orange' }
-  ],
-  'Development': [
-    { name: 'GitHub', icon: IconBrandGithub, color: 'dark' },
-    { name: 'GitLab', icon: IconCode, color: 'orange' },
-    { name: 'Linear', icon: IconTargetArrow, color: 'gray' }
-  ],
-  'Calendar': [
-    { name: 'Google Calendar', icon: IconCalendar, color: 'blue' },
-    { name: 'Outlook', icon: IconCalendar, color: 'blue' },
-    { name: 'Apple Calendar', icon: IconCalendar, color: 'gray' }
-  ],
-  'Note-taking': [
-    { name: 'Evernote', icon: IconNotes, color: 'green' },
-    { name: 'OneNote', icon: IconNotes, color: 'blue' },
-    { name: 'Apple Notes', icon: IconNotes, color: 'yellow' }
-  ],
-  'Design': [
-    { name: 'Figma', icon: IconBrandFigma, color: 'pink' },
-    { name: 'Adobe Creative Suite', icon: IconPalette, color: 'red' }
-  ]
-};
+// Flat list of tools for Step 3 (Asana-style chips)
+const TOOLS = [
+  { name: 'Slack', icon: IconBrandSlack },
+  { name: 'Discord', icon: IconBrandDiscord },
+  { name: 'Asana', icon: IconTargetArrow },
+  { name: 'Monday', icon: IconCalendarWeek },
+  { name: 'GitHub', icon: IconBrandGithub },
+  { name: 'Linear', icon: IconTimeline },
+  { name: 'GitLab', icon: IconBrandGitlab },
+  { name: 'Google Calendar', icon: IconCalendar },
+  { name: 'Granola', icon: IconSeedling },
+  { name: 'Fireflies', icon: IconSparkles },
+];
 
 interface OnboardingComponentProps {
   userName: string;
@@ -165,6 +142,8 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   const [isLoading, setIsLoading] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+  const [showOtherInput, setShowOtherInput] = useState(false);
+  const [customToolInput, setCustomToolInput] = useState('');
 
   const [data, setData] = useState<OnboardingData>({
     name: userName ?? '',
@@ -388,11 +367,33 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   };
 
   const toggleTool = (tool: string) => {
+    if (tool === 'Other') {
+      setShowOtherInput(!showOtherInput);
+      return;
+    }
     setData(prev => ({
       ...prev,
       selectedTools: prev.selectedTools.includes(tool)
         ? prev.selectedTools.filter(t => t !== tool)
         : [...prev.selectedTools, tool]
+    }));
+  };
+
+  const addCustomTool = () => {
+    const trimmed = customToolInput.trim();
+    if (trimmed && !data.selectedTools.includes(trimmed)) {
+      setData(prev => ({
+        ...prev,
+        selectedTools: [...prev.selectedTools, trimmed]
+      }));
+      setCustomToolInput('');
+    }
+  };
+
+  const removeCustomTool = (tool: string) => {
+    setData(prev => ({
+      ...prev,
+      selectedTools: prev.selectedTools.filter(t => t !== tool)
     }));
   };
 
@@ -610,7 +611,152 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     );
   }
 
-  // Steps 3 and 4: Standard layout with stepper
+  // Step 3: Tools Selection - Asana-style two-column layout
+  if (currentStep === 3) {
+    // Get custom tools (tools that are selected but not in the TOOLS list)
+    const standardToolNames = TOOLS.map(t => t.name);
+    const customTools = data.selectedTools.filter(t => !standardToolNames.includes(t));
+
+    return (
+      <div className="min-h-screen flex">
+        {/* Left column - Form */}
+        <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+          <div>
+            <div className="mb-8">
+              <Title order={3} className="text-brand-primary font-bold">
+                Exponential
+              </Title>
+            </div>
+
+            <div className="mb-8">
+              <Group gap="xs" className="mb-4">
+                <ActionIcon
+                  variant="subtle"
+                  onClick={() => setCurrentStep(2)}
+                  className="text-text-secondary hover:text-text-primary"
+                >
+                  <IconArrowLeft size={20} />
+                </ActionIcon>
+                <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
+                  What tools do you use?
+                </Title>
+              </Group>
+              <Text className="text-text-secondary">
+                Exponential connects to tools your team uses every day. Understanding your tools will help us tailor Exponential for you.
+              </Text>
+            </div>
+
+            {/* Tool chips */}
+            <div className="flex flex-wrap gap-2 mb-6">
+              {TOOLS.map(tool => (
+                <Button
+                  key={tool.name}
+                  variant={data.selectedTools.includes(tool.name) ? 'filled' : 'outline'}
+                  leftSection={<tool.icon size={16} />}
+                  onClick={() => toggleTool(tool.name)}
+                  className={`transition-all ${
+                    data.selectedTools.includes(tool.name)
+                      ? ''
+                      : 'border-border-primary text-text-primary hover:bg-surface-hover'
+                  }`}
+                  color={data.selectedTools.includes(tool.name) ? 'brand' : 'gray'}
+                >
+                  {tool.name}
+                </Button>
+              ))}
+              {/* Other button */}
+              <Button
+                variant={showOtherInput ? 'filled' : 'outline'}
+                leftSection={<IconDots size={16} />}
+                onClick={() => toggleTool('Other')}
+                className={`transition-all ${
+                  showOtherInput
+                    ? ''
+                    : 'border-border-primary text-text-primary hover:bg-surface-hover'
+                }`}
+                color={showOtherInput ? 'brand' : 'gray'}
+              >
+                Other
+              </Button>
+            </div>
+
+            {/* Other input */}
+            {showOtherInput && (
+              <div className="mb-6">
+                <TextInput
+                  placeholder="Enter tool name and press Enter"
+                  value={customToolInput}
+                  onChange={(e) => setCustomToolInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addCustomTool();
+                    }
+                  }}
+                  rightSection={
+                    <ActionIcon onClick={addCustomTool} variant="subtle">
+                      <IconArrowRight size={16} />
+                    </ActionIcon>
+                  }
+                  classNames={{
+                    input: 'bg-background-primary border-border-primary'
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Custom tools display */}
+            {customTools.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-6">
+                {customTools.map(tool => (
+                  <Button
+                    key={tool}
+                    variant="filled"
+                    color="brand"
+                    rightSection={
+                      <ActionIcon
+                        size="xs"
+                        variant="transparent"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeCustomTool(tool);
+                        }}
+                      >
+                        <IconX size={12} className="text-text-inverse" />
+                      </ActionIcon>
+                    }
+                  >
+                    {tool}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Button
+              fullWidth
+              size="lg"
+              onClick={handleToolsSelection}
+              loading={isLoading}
+            >
+              Continue
+            </Button>
+          </div>
+        </div>
+
+        {/* Right column - Illustration */}
+        <div
+          className="hidden lg:flex w-[55%] items-center justify-center p-12"
+          style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
+        >
+          <OnboardingToolsIllustration />
+        </div>
+      </div>
+    );
+  }
+
+  // Step 4: First Project - Standard layout with stepper
   return (
     <div className="min-h-screen bg-background-primary py-12">
       <div className="max-w-3xl mx-auto px-4">
@@ -621,7 +767,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               Almost there, {data.name || userName}!
             </Title>
             <Text size="lg" className="text-text-secondary max-w-2xl mx-auto">
-              Just a couple more steps to personalize your experience.
+              Just one more step to personalize your experience.
             </Text>
           </div>
 
@@ -639,80 +785,6 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
 
           {/* Step Content */}
           <Card shadow="sm" padding="lg" radius="md" className="border border-border-primary">
-
-            {/* Step 3: Tool Selection */}
-            {currentStep === 3 && (
-              <Stack gap="lg">
-                <div className="text-center">
-                  <Title order={2} className="text-2xl font-semibold mb-2">
-                    What tools do you use?
-                  </Title>
-                  <Text className="text-text-secondary">
-                    Select all that apply. We&apos;ll help you integrate them later.
-                  </Text>
-                </div>
-
-                <Stack gap="md">
-                  {Object.entries(toolCategories).map(([category, tools]) => (
-                    <div key={category}>
-                      <Title order={4} className="text-lg font-medium mb-2">
-                        {category}
-                      </Title>
-                      <SimpleGrid cols={{ base: 2, sm: 3, md: 4 }} spacing="md">
-                        {tools.map(tool => (
-                          <Card
-                            key={tool.name}
-                            shadow="sm"
-                            radius="md"
-                            padding="md"
-                            className={`cursor-pointer transition-all border-2 relative ${
-                              data.selectedTools.includes(tool.name)
-                                ? 'border-brand-primary bg-surface-secondary'
-                                : 'border-border-primary hover:border-border-focus'
-                            }`}
-                            onClick={() => toggleTool(tool.name)}
-                          >
-                            {data.selectedTools.includes(tool.name) && (
-                              <div className="absolute -top-1 -right-1 bg-brand-primary text-text-inverse rounded-full p-1 z-10">
-                                <IconCheck size={12} />
-                              </div>
-                            )}
-
-                            <Stack align="center" gap="xs">
-                              <ThemeIcon size={40} radius="md" variant="light" color={tool.color}>
-                                <tool.icon size={20} />
-                              </ThemeIcon>
-                              <Text size="xs" fw={500} className="text-center leading-tight">
-                                {tool.name}
-                              </Text>
-                            </Stack>
-                          </Card>
-                        ))}
-                      </SimpleGrid>
-                    </div>
-                  ))}
-
-                  <Group justify="space-between" mt="md">
-                    <Anchor
-                      component="button"
-                      onClick={handleToolsSelection}
-                      className="text-text-secondary hover:text-text-primary"
-                    >
-                      Skip for now
-                    </Anchor>
-
-                    <Button
-                      onClick={handleToolsSelection}
-                      loading={isLoading}
-                      rightSection={<IconArrowRight size={16} />}
-                    >
-                      Continue ({data.selectedTools.length} selected)
-                    </Button>
-                  </Group>
-                </Stack>
-              </Stack>
-            )}
-
             {/* Step 4: First Project */}
             {currentStep === 4 && (
               <Stack gap="lg">
