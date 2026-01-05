@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Card,
   Text,
@@ -14,6 +15,7 @@ import {
 import { Calendar } from "@mantine/dates";
 import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
+import { isSameDay } from "date-fns";
 import { CreateGoalModal } from "./CreateGoalModal";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { CreateActionModal } from "./CreateActionModal";
@@ -49,6 +51,7 @@ function getOutcomeTypeColor(type: string | null): string {
 }
 
 export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewProps) {
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState<Date>(new Date());
   const utils = api.useUtils();
   const { data: actions = [] } = api.action.getProjectActions.useQuery({ projectId: project.id });
 
@@ -107,12 +110,13 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
         >
           <div className="flex justify-center">
             <Calendar
+              date={calendarSelectedDate}
               getDayProps={(date) => {
                 const items = getItemsForDate(date);
-                if (items.length === 0) return {};
-
                 return {
-                  style: { position: "relative" as const },
+                  selected: isSameDay(date, calendarSelectedDate),
+                  onClick: () => setCalendarSelectedDate(date),
+                  ...(items.length > 0 ? { style: { position: "relative" as const } } : {}),
                 };
               }}
               renderDay={(date) => {
@@ -158,7 +162,7 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
         </Card>
 
         {/* Google Calendar Events */}
-        <ProjectCalendarCard projectId={project.id} projectName={project.name} />
+        <ProjectCalendarCard projectId={project.id} projectName={project.name} selectedDate={calendarSelectedDate} />
       </div>
 
       {/* Middle Column - Goals, Outcomes, Timeline */}

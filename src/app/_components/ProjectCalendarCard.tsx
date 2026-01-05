@@ -24,7 +24,7 @@ import {
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
-import { format, parseISO, startOfDay, endOfDay } from "date-fns";
+import { format, parseISO, startOfDay, endOfDay, isToday } from "date-fns";
 import { useState, useRef, useEffect } from "react";
 import { CalendarDayView } from "./CalendarDayView";
 import { CalendarDayViewSkeleton, CalendarEventsSkeleton } from "./CalendarSkeleton";
@@ -35,12 +35,13 @@ import { stripHtml } from "~/lib/utils";
 interface ProjectCalendarCardProps {
   projectId?: string;
   projectName?: string;
+  selectedDate?: Date;
 }
 
-export function ProjectCalendarCard({ projectId, projectName }: ProjectCalendarCardProps) {
+export function ProjectCalendarCard({ projectId, projectName, selectedDate: propSelectedDate }: ProjectCalendarCardProps) {
   const [viewMode, setViewMode] = useState<"list" | "dayview">("list");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const selectedDate = new Date();
+  const selectedDate = propSelectedDate ?? new Date();
 
   // Check calendar connection status
   const { data: connectionStatus, isLoading: statusLoading } =
@@ -160,7 +161,7 @@ export function ProjectCalendarCard({ projectId, projectName }: ProjectCalendarC
             style={{ color: "var(--mantine-color-blue-4)" }}
           />
           <Text size="sm" fw={600} className="text-text-primary">
-            Today&apos;s Schedule
+            {isToday(selectedDate) ? "Today's Schedule" : format(selectedDate, "EEE, MMM d")}
           </Text>
         </Group>
         {isConnected && (
@@ -264,7 +265,7 @@ export function ProjectCalendarCard({ projectId, projectName }: ProjectCalendarC
                   style={{ color: "var(--mantine-color-gray-6)" }}
                 />
                 <Text size="sm" c="dimmed">
-                  No events today
+                  {isToday(selectedDate) ? "No events today" : `No events on ${format(selectedDate, "MMM d")}`}
                 </Text>
               </Stack>
             </Paper>

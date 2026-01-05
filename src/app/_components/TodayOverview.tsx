@@ -23,6 +23,7 @@ import { CreateActionModal } from "./CreateActionModal";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { CreateGoalModal } from "./CreateGoalModal";
 import { ProjectCalendarCard } from "./ProjectCalendarCard";
+import { useState } from "react";
 import { isSameDay, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import type { FocusPeriod, DateRange } from "~/types/focus";
 import { getFocusSectionTitle } from "~/lib/dateUtils";
@@ -62,6 +63,7 @@ interface TodayOverviewProps {
 export function TodayOverview({ focus = "today", dateRange, workspaceId }: TodayOverviewProps) {
   // Use dateRange for queries if provided, otherwise default to today
   const today = new Date();
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState<Date>(today);
   const effectiveDateRange = dateRange ?? {
     startDate: startOfDay(today),
     endDate: endOfDay(today),
@@ -168,6 +170,11 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
         >
           <div className="flex justify-center">
             <Calendar
+              date={calendarSelectedDate}
+              getDayProps={(date) => ({
+                selected: isSameDay(date, calendarSelectedDate),
+                onClick: () => setCalendarSelectedDate(date),
+              })}
               renderDay={(date) => {
                 const day = date.getDate();
                 const items = getItemsForDate(date);
@@ -220,7 +227,7 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
         </Card>
 
         {/* Google Calendar Events */}
-        <ProjectCalendarCard />
+        <ProjectCalendarCard selectedDate={calendarSelectedDate} />
       </div>
 
       {/* Goals */}

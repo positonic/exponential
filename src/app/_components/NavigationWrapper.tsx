@@ -64,7 +64,6 @@ export function NavigationWrapper({
     <>
       {/* Page Header Navigation */}
       <PageHeader
-        calendarConnected={calendarConnected}
         todayExists={todayExists}
         focus={focus}
         onFocusChange={handleFocusChange}

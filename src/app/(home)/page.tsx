@@ -118,6 +118,12 @@ export default async function Home() {
           </p>
           <nav className="flex items-center gap-6">
             <a
+              href="/terms"
+              className="text-text-muted text-sm hover:text-text-primary transition-colors"
+            >
+              Terms of Service
+            </a>
+            <a
               href="/privacy"
               className="text-text-muted text-sm hover:text-text-primary transition-colors"
             >
