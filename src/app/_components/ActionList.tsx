@@ -115,24 +115,28 @@ const SyncStatusIndicator = ({ action }: { action: Action }) => {
   return null;
 };
 
-export function ActionList({ 
-  viewName, 
+export function ActionList({
+  viewName,
   actions,
   selectedActionIds = new Set(),
   onSelectionChange,
   showCheckboxes = true,
   enableBulkEditForOverdue = false,
   onOverdueBulkAction,
-  onOverdueBulkReschedule
-}: { 
-  viewName: string, 
+  onOverdueBulkReschedule,
+  enableBulkEditForProject = false,
+  onProjectBulkDelete
+}: {
+  viewName: string,
   actions: Action[],
   selectedActionIds?: Set<string>,
   onSelectionChange?: (ids: Set<string>) => void,
   showCheckboxes?: boolean,
   enableBulkEditForOverdue?: boolean,
   onOverdueBulkAction?: (action: 'delete', actionIds: string[]) => void,
-  onOverdueBulkReschedule?: (date: Date | null, actionIds: string[]) => void
+  onOverdueBulkReschedule?: (date: Date | null, actionIds: string[]) => void,
+  enableBulkEditForProject?: boolean,
+  onProjectBulkDelete?: (actionIds: string[]) => void
 }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
@@ -141,6 +145,8 @@ export function ActionList({
   const [assignSelectedAction, setAssignSelectedAction] = useState<Action | null>(null);
   const [bulkEditOverdueMode, setBulkEditOverdueMode] = useState(false);
   const [selectedOverdueActionIds, setSelectedOverdueActionIds] = useState<Set<string>>(new Set());
+  const [bulkEditProjectMode, setBulkEditProjectMode] = useState(false);
+  const [selectedProjectActionIds, setSelectedProjectActionIds] = useState<Set<string>>(new Set());
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
   const utils = api.useUtils();
@@ -385,6 +391,26 @@ export function ActionList({
     setSelectedOverdueActionIds(new Set());
   };
 
+  // Helper functions for project bulk operations
+  const handleSelectAllProject = () => {
+    const allProjectIds = filteredActions.map(action => action.id);
+    setSelectedProjectActionIds(new Set(allProjectIds));
+  };
+
+  const handleSelectNoneProject = () => {
+    setSelectedProjectActionIds(new Set());
+  };
+
+  const handleProjectBulkDelete = () => {
+    if (selectedProjectActionIds.size === 0 || !onProjectBulkDelete) return;
+
+    if (window.confirm(`Are you sure you want to delete ${selectedProjectActionIds.size} actions?`)) {
+      onProjectBulkDelete(Array.from(selectedProjectActionIds));
+      setSelectedProjectActionIds(new Set());
+      setBulkEditProjectMode(false);
+    }
+  };
+
   // Helper to render a single action item (used for both lists)
   const renderActionItem = (action: Action, isOverdue: boolean) => (
     <Paper
@@ -449,14 +475,33 @@ export function ActionList({
                     newSelected.delete(action.id);
                     console.log(`🔧 [SELECTION DEBUG] Removed ${action.id} from selection`);
                   }
-                  
+
                   console.log(`🔧 [SELECTION DEBUG] Selection updated:`, {
                     previousSize: selectedOverdueActionIds.size,
                     newSize: newSelected.size,
                     selectedIds: Array.from(newSelected)
                   });
-                  
+
                   setSelectedOverdueActionIds(newSelected);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+          {/* Bulk selection checkbox for project actions when bulk edit is enabled */}
+          {!isOverdue && bulkEditProjectMode && enableBulkEditForProject && (
+            <div className="bulk-checkbox-wrapper">
+              <Checkbox
+                size="sm"
+                checked={selectedProjectActionIds.has(action.id)}
+                onChange={(event) => {
+                  const newSelected = new Set(selectedProjectActionIds);
+                  if (event.currentTarget.checked) {
+                    newSelected.add(action.id);
+                  } else {
+                    newSelected.delete(action.id);
+                  }
+                  setSelectedProjectActionIds(newSelected);
                 }}
                 onClick={(e) => e.stopPropagation()}
               />
@@ -767,7 +812,7 @@ export function ActionList({
         </Accordion>
       )}
 
-      {/* Main Action List (Today/Upcoming/Inbox/Project) */} 
+      {/* Main Action List (Today/Upcoming/Inbox/Project) */}
       <Group justify="space-between" mb="md" className="flex-col sm:flex-row gap-4">
         {/* Consider making the title dynamic based on viewName */}
         {/* <h2 className="text-xl font-semibold capitalize">{viewName.startsWith('project-') ? viewName.split('-')[1] : viewName} View</h2>  */}
@@ -777,7 +822,42 @@ export function ActionList({
         >
           Show: {filter === "ACTIVE" ? "Active" : "Completed"}
         </button>
+        {enableBulkEditForProject && (
+          <Button
+            size="xs"
+            variant="subtle"
+            onClick={() => {
+              setBulkEditProjectMode(!bulkEditProjectMode);
+              setSelectedProjectActionIds(new Set());
+            }}
+          >
+            {bulkEditProjectMode ? "Exit" : "Bulk edit"}
+          </Button>
+        )}
       </Group>
+
+      {/* Bulk actions toolbar for project tasks */}
+      {bulkEditProjectMode && enableBulkEditForProject && (
+        <Group mb="md" gap="sm">
+          <Button size="xs" variant="light" onClick={handleSelectAllProject}>
+            Select All
+          </Button>
+          <Button size="xs" variant="light" onClick={handleSelectNoneProject}>
+            Select None
+          </Button>
+          <Badge>{selectedProjectActionIds.size} selected</Badge>
+          <Button
+            size="xs"
+            variant="filled"
+            color="red"
+            leftSection={<IconTrash size={12} />}
+            disabled={selectedProjectActionIds.size === 0}
+            onClick={handleProjectBulkDelete}
+          >
+            Delete Selected
+          </Button>
+        </Group>
+      )}
 
       {filteredActions.length > 0 
         ? filteredActions.map(action => renderActionItem(action, false))

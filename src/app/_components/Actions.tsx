@@ -400,6 +400,13 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     }
   };
 
+  // Handle project bulk delete
+  const handleProjectBulkDelete = (actionIds: string[]) => {
+    bulkDeleteMutation.mutate({
+      actionIds,
+    });
+  };
+
 
 
 
@@ -683,12 +690,14 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           actions={actions ?? []} 
         />
       ) : (
-        <ActionList 
-          viewName={viewName} 
-          actions={actions ?? []} 
-          enableBulkEditForOverdue={true} // Enable bulk edit for all pages
+        <ActionList
+          viewName={viewName}
+          actions={actions ?? []}
+          enableBulkEditForOverdue={true}
           onOverdueBulkAction={handleOverdueBulkAction}
           onOverdueBulkReschedule={handleOverdueBulkReschedule}
+          enableBulkEditForProject={!!projectId}
+          onProjectBulkDelete={handleProjectBulkDelete}
         />
       )}
       <div className="mt-6">
