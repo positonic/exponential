@@ -10,7 +10,7 @@ import { IconPlus } from '@tabler/icons-react';
 import type { ActionStatus } from '@prisma/client';
 import { useSession } from 'next-auth/react';
 
-export function CreateActionModal({ viewName, projectId: propProjectId }: { viewName: string; projectId?: string }) {
+export function CreateActionModal({ viewName, projectId: propProjectId, children }: { viewName: string; projectId?: string; children?: React.ReactNode }) {
   const { data: session } = useSession();
   const { width } = useViewportSize();
   // Use propProjectId if provided, otherwise try to extract from viewName
@@ -243,13 +243,17 @@ export function CreateActionModal({ viewName, projectId: propProjectId }: { view
 
   return (
     <>
-      <button
-        onClick={open}
-        className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-gray-300 transition-colors"
-      >
-        <IconPlus size={16} />
-        <span>Add task</span>
-      </button>
+      {children ? (
+        <div onClick={open}>{children}</div>
+      ) : (
+        <button
+          onClick={open}
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-gray-300 transition-colors"
+        >
+          <IconPlus size={16} />
+          <span>Add task</span>
+        </button>
+      )}
 
       <Modal 
         opened={opened} 

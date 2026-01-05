@@ -12,12 +12,14 @@ import {
 } from "@mantine/core";
 import { Calendar } from "@mantine/dates";
 import {
-  IconDots,
+  IconPlus,
   IconActivity,
   IconCalendar,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { ActionList } from "./ActionList";
+import { CreateActionModal } from "./CreateActionModal";
+import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { isSameDay } from "date-fns";
 
 // Helper function to get outcome type color
@@ -128,9 +130,11 @@ export function TodayOverview() {
                 Today&apos;s Outcomes
               </Text>
             </Group>
-            <ActionIcon variant="subtle" size="md">
-              <IconDots size={16} />
-            </ActionIcon>
+            <CreateOutcomeModal>
+              <ActionIcon variant="subtle" size="md" aria-label="Add outcome">
+                <IconPlus size={16} />
+              </ActionIcon>
+            </CreateOutcomeModal>
           </Group>
 
           <Stack gap="md">
@@ -199,9 +203,11 @@ export function TodayOverview() {
             <Text fw={600} size="lg" className="text-text-primary">
               Today&apos;s Actions
             </Text>
-            <ActionIcon variant="subtle" size="md">
-              <IconDots size={16} />
-            </ActionIcon>
+            <CreateActionModal viewName="today">
+              <ActionIcon variant="subtle" size="md" aria-label="Add action">
+                <IconPlus size={16} />
+              </ActionIcon>
+            </CreateActionModal>
           </Group>
 
           {/* Action List */}
