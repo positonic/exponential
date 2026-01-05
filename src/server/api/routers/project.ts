@@ -221,11 +221,7 @@ export const projectRouter = createTRPCRouter({
           reviewDate: input.reviewDate ?? null,
           nextActionDate: input.nextActionDate ?? null,
           notionProjectId: input.notionProjectId,
-          createdBy: {
-            connect: {
-              id: ctx.session.user.id,
-            },
-          },
+          createdById: ctx.session.user.id,
           workspace: input.workspaceId ? {
             connect: {
               id: input.workspaceId,

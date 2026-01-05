@@ -41,8 +41,10 @@ import {
   IconCalendarWeek,
   IconGitBranch,
   IconHome,
+  IconEdit,
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
+import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { ProjectIntegrations } from "./ProjectIntegrations";
 import { ProjectSyncStatus } from "./ProjectSyncStatus";
@@ -169,6 +171,17 @@ export function ProjectContent({
             </Text>
           </div>
           <Group gap="xs">
+            <CreateProjectModal project={project}>
+              <ActionIcon
+                variant="filled"
+                size="lg"
+                title="Edit Project"
+                className="hover:scale-105"
+                style={{ transition: 'all 0.2s ease' }}
+              >
+                <IconEdit size={20} />
+              </ActionIcon>
+            </CreateProjectModal>
             <ActionIcon
               variant={activeDrawer === 'chat' ? 'gradient' : 'filled'}
               gradient={activeDrawer === 'chat' ? { from: 'blue', to: 'indigo', deg: 45 } : undefined}

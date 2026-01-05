@@ -6,35 +6,19 @@ import {
   Group,
   Stack,
   Badge,
-  Avatar,
-  Button,
   Paper,
   ActionIcon,
-  Divider,
   Indicator,
   Tooltip,
 } from "@mantine/core";
 import { Calendar } from "@mantine/dates";
-import {
-  IconCalendar,
-  IconEdit,
-  IconUserPlus,
-  IconTag,
-  IconFileDescription,
-  IconPlus,
-  IconMicrophone,
-  IconTrash,
-} from "@tabler/icons-react";
+import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
-import {
-  getAvatarColor,
-  getInitial,
-  getTextColor,
-} from "~/utils/avatarColors";
-import { CreateProjectModal } from "./CreateProjectModal";
 import { CreateGoalModal } from "./CreateGoalModal";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
+import { CreateActionModal } from "./CreateActionModal";
 import { OutcomeTimeline } from "./OutcomeTimeline";
+import { ActionList } from "./ActionList";
 
 // Types
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
@@ -45,53 +29,6 @@ interface ProjectOverviewProps {
   project: Project;
   goals: Goal[];
   outcomes: Outcome[];
-}
-
-
-// Helper function to get status color
-function getStatusColor(status: string): string {
-  switch (status.toUpperCase()) {
-    case "ACTIVE":
-      return "green";
-    case "COMPLETED":
-      return "blue";
-    case "ON_HOLD":
-      return "yellow";
-    case "CANCELLED":
-      return "red";
-    default:
-      return "gray";
-  }
-}
-
-// Helper function to get status display text
-function getStatusText(status: string): string {
-  switch (status.toUpperCase()) {
-    case "ACTIVE":
-      return "In Progress";
-    case "COMPLETED":
-      return "Completed";
-    case "ON_HOLD":
-      return "On Hold";
-    case "CANCELLED":
-      return "Cancelled";
-    default:
-      return status;
-  }
-}
-
-// Helper function to get priority color
-function getPriorityColor(priority: string): string {
-  switch (priority.toUpperCase()) {
-    case "HIGH":
-      return "red";
-    case "MEDIUM":
-      return "yellow";
-    case "LOW":
-      return "blue";
-    default:
-      return "gray";
-  }
 }
 
 // Helper function to get outcome type color
@@ -112,6 +49,7 @@ function getOutcomeTypeColor(type: string | null): string {
 
 export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewProps) {
   const utils = api.useUtils();
+  const { data: actions = [] } = api.action.getProjectActions.useQuery({ projectId: project.id });
 
   const deleteGoalMutation = api.goal.deleteGoal.useMutation({
     onSuccess: () => {
@@ -157,310 +95,70 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
   };
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      {/* Left Column - Project Information */}
-      <div>
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-8">
+      {/* Left Column - Calendar */}
+      <div className="lg:col-span-2">
         <Card
           withBorder
           radius="md"
+          p="sm"
           className="border-border-primary bg-surface-secondary"
         >
-          {/* Project Title with Edit Button */}
-          <Group justify="space-between" align="flex-start" mb="lg">
-            <Text fw={700} size="xl" className="text-text-primary">
-              {project.name}
-            </Text>
-            <CreateProjectModal project={project}>
-              <Button
-                variant="default"
-                size="xs"
-                leftSection={<IconEdit size={14} />}
-              >
-                Edit
-              </Button>
-            </CreateProjectModal>
-          </Group>
-
-          <Stack gap="md">
-            {/* Status */}
-            <Group gap="lg">
-              <Group gap="xs" w={100}>
-                <div className="bg-text-muted h-2 w-2 rounded-full" />
-                <Text size="sm" c="dimmed">
-                  Status
-                </Text>
-              </Group>
-              <Badge
-                variant="light"
-                color={getStatusColor(project.status)}
-                size="md"
-              >
-                {getStatusText(project.status)}
-              </Badge>
-            </Group>
-
-            {/* Due Date */}
-            <Group gap="lg">
-              <Group gap="xs" w={100}>
-                <IconCalendar size={14} className="text-text-muted" />
-                <Text size="sm" c="dimmed">
-                  Due date
-                </Text>
-              </Group>
-              <Badge
-                variant="outline"
-                color="gray"
-                size="md"
-                leftSection={<IconCalendar size={12} />}
-              >
-                {project.reviewDate
-                  ? new Date(project.reviewDate).toLocaleDateString("en-US", {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                    })
-                  : project.nextActionDate
-                    ? new Date(project.nextActionDate).toLocaleDateString(
-                        "en-US",
-                        {
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        }
-                      )
-                    : "Not set"}
-              </Badge>
-            </Group>
-
-            {/* Assignees */}
-            <Group gap="lg">
-              <Group gap="xs" w={100}>
-                <IconUserPlus size={14} className="text-text-muted" />
-                <Text size="sm" c="dimmed">
-                  Assignee
-                </Text>
-              </Group>
-              <Group gap="sm">
-                <Avatar.Group spacing="xs">
-                  {/* Mock avatars for assignees */}
-                  {["Wade Warren", "Esther Howard", "Ralph Edwards"].map(
-                    (name, i) => {
-                      const bgColor = getAvatarColor(name.toLowerCase());
-                      const textColor = getTextColor(bgColor);
-                      return (
-                        <Avatar
-                          key={i}
-                          radius="xl"
-                          size="sm"
-                          style={{ backgroundColor: bgColor, color: textColor }}
-                        >
-                          {getInitial(name, null)}
-                        </Avatar>
-                      );
-                    }
-                  )}
-                  <Avatar radius="xl" size="sm">
-                    3+
-                  </Avatar>
-                </Avatar.Group>
-                <Button
-                  variant="default"
-                  size="xs"
-                  leftSection={<IconUserPlus size={14} />}
-                >
-                  Invite
-                </Button>
-              </Group>
-            </Group>
-
-            {/* Tags */}
-            <Group gap="lg">
-              <Group gap="xs" w={100}>
-                <IconTag size={14} className="text-text-muted" />
-                <Text size="sm" c="dimmed">
-                  Tags
-                </Text>
-              </Group>
-              <Group gap="xs">
-                <Badge variant="default" size="md">
-                  Dashboard
-                </Badge>
-                {project.priority !== "NONE" && (
-                  <Badge
-                    variant="dot"
-                    color={getPriorityColor(project.priority)}
-                    size="md"
-                  >
-                    {project.priority === "HIGH"
-                      ? "High Priority"
-                      : project.priority === "MEDIUM"
-                        ? "Medium Priority"
-                        : "Low Priority"}
-                  </Badge>
-                )}
-                {project.priority === "NONE" && (
-                  <Badge variant="dot" color="red" size="md">
-                    High Priority
-                  </Badge>
-                )}
-              </Group>
-            </Group>
-
-            <Divider my="sm" />
-
-            {/* Description */}
-            <Stack gap="xs">
-              <Group gap="xs">
-                <IconFileDescription size={14} className="text-text-muted" />
-                <Text size="sm" c="dimmed">
-                  Description
-                </Text>
-              </Group>
-              <Paper
-                p="md"
-                radius="sm"
-                className="border-border-primary bg-background-secondary border"
-              >
-                <Text size="sm" className="text-text-secondary">
-                  {project.description ??
-                    "The project focuses on redesigning the hotel administration interface, streamlining the management of customer information and transaction records."}
-                </Text>
-              </Paper>
-            </Stack>
-
-            <Divider my="sm" />
-
-            {/* Transcriptions */}
-            <Stack gap="xs">
-              <Group gap="xs">
-                <IconMicrophone size={14} className="text-text-muted" />
-                <Text size="sm" c="dimmed">
-                  Meeting Transcriptions ({project.transcriptionSessions?.length ?? 0})
-                </Text>
-              </Group>
-              <Stack gap="xs">
-                {project.transcriptionSessions && project.transcriptionSessions.length > 0 ? (
-                  project.transcriptionSessions.slice(0, 3).map((session) => (
-                    <Paper
-                      key={session.id}
-                      p="sm"
-                      radius="sm"
-                      className="border-border-primary bg-background-secondary hover:bg-surface-hover cursor-pointer border transition-colors"
-                    >
-                      <Stack gap={2}>
-                        <Text size="sm" fw={500} className="text-text-primary" lineClamp={1}>
-                          {session.title ?? `Session ${session.sessionId}`}
-                        </Text>
-                        <Group gap="xs">
-                          <Text size="xs" c="dimmed">
-                            {new Date(session.createdAt).toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            })}
-                          </Text>
-                          {session.sourceIntegration && (
-                            <Badge variant="dot" color="teal" size="xs">
-                              {session.sourceIntegration.provider}
-                            </Badge>
-                          )}
-                        </Group>
-                      </Stack>
-                    </Paper>
-                  ))
-                ) : (
-                  <Text size="sm" c="dimmed" fs="italic" ta="center" py="md">
-                    No transcriptions yet
-                  </Text>
-                )}
-                {(project.transcriptionSessions?.length ?? 0) > 3 && (
-                  <Text size="xs" c="dimmed" ta="center">
-                    +{(project.transcriptionSessions?.length ?? 0) - 3} more transcriptions
-                  </Text>
-                )}
-              </Stack>
-            </Stack>
-          </Stack>
-        </Card>
-      </div>
-
-      {/* Middle Column - Calendar & Timeline */}
-      <div className="space-y-6">
-        <Card
-          withBorder
-          radius="md"
-          className="border-border-primary bg-surface-secondary"
-        >
-          <Text fw={600} size="lg" className="text-text-primary" mb="md">
-            Project Calendar
-          </Text>
           <div className="flex justify-center">
             <Calendar
               getDayProps={(date) => {
-              const items = getItemsForDate(date);
-              if (items.length === 0) return {};
+                const items = getItemsForDate(date);
+                if (items.length === 0) return {};
 
-              return {
-                style: { position: "relative" as const },
-              };
-            }}
-            renderDay={(date) => {
-              const day = date.getDate();
-              const items = getItemsForDate(date);
+                return {
+                  style: { position: "relative" as const },
+                };
+              }}
+              renderDay={(date) => {
+                const day = date.getDate();
+                const items = getItemsForDate(date);
 
-              if (items.length === 0) {
-                return <div>{day}</div>;
-              }
+                if (items.length === 0) {
+                  return <div>{day}</div>;
+                }
 
-              return (
-                <Tooltip
-                  label={
-                    <Stack gap={4}>
-                      {items.map((item, idx) => (
-                        <Group key={idx} gap="xs">
-                          <Badge size="xs" color={item.color} variant="filled">
-                            {item.type}
-                          </Badge>
-                          <Text size="xs" lineClamp={1}>
-                            {item.title}
-                          </Text>
-                        </Group>
-                      ))}
-                    </Stack>
-                  }
-                  withArrow
-                  multiline
-                  w={220}
-                >
-                  <Indicator
-                    size={6}
-                    color={items[0]?.color ?? "blue"}
-                    offset={-2}
+                return (
+                  <Tooltip
+                    label={
+                      <Stack gap={4}>
+                        {items.map((item, idx) => (
+                          <Group key={idx} gap="xs">
+                            <Badge size="xs" color={item.color} variant="filled">
+                              {item.type}
+                            </Badge>
+                            <Text size="xs" lineClamp={1}>
+                              {item.title}
+                            </Text>
+                          </Group>
+                        ))}
+                      </Stack>
+                    }
+                    withArrow
+                    multiline
+                    w={220}
                   >
-                    <div>{day}</div>
-                  </Indicator>
-                </Tooltip>
-              );
-            }}
+                    <Indicator
+                      size={6}
+                      color={items[0]?.color ?? "blue"}
+                      offset={-2}
+                    >
+                      <div>{day}</div>
+                    </Indicator>
+                  </Tooltip>
+                );
+              }}
             />
           </div>
         </Card>
-
-        {/* Timeline Card */}
-        <Card
-          withBorder
-          radius="md"
-          className="border-border-primary bg-surface-secondary"
-        >
-          <Text fw={600} size="lg" className="text-text-primary" mb="md">
-            Timeline
-          </Text>
-          <OutcomeTimeline projectId={project.id} />
-        </Card>
       </div>
 
-      {/* Right Column - Sidebar */}
-      <div className="space-y-6">
+      {/* Middle Column - Goals, Outcomes, Timeline */}
+      <div className="space-y-6 lg:col-span-3">
         {/* Goals Card */}
         <Card
           withBorder
@@ -625,6 +323,47 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
               </Text>
             )}
           </Stack>
+        </Card>
+
+        {/* Timeline Card */}
+        <Card
+          withBorder
+          radius="md"
+          className="border-border-primary bg-surface-secondary"
+        >
+          <Text fw={600} size="lg" className="text-text-primary" mb="md">
+            Timeline
+          </Text>
+          <OutcomeTimeline projectId={project.id} />
+        </Card>
+      </div>
+
+      {/* Right Column - Actions */}
+      <div className="lg:col-span-3">
+        <Card
+          withBorder
+          radius="md"
+          className="border-border-primary bg-surface-secondary"
+        >
+          {/* Card Header */}
+          <Group justify="space-between" mb="lg">
+            <Text fw={600} size="lg" className="text-text-primary">
+              Project Actions
+            </Text>
+            <CreateActionModal projectId={project.id} viewName={`project-${project.id}`}>
+              <ActionIcon variant="subtle" size="md" aria-label="Add action">
+                <IconPlus size={16} />
+              </ActionIcon>
+            </CreateActionModal>
+          </Group>
+
+          {/* Action List */}
+          <ActionList
+            viewName={`project-${project.id}`}
+            actions={actions}
+            showCheckboxes={false}
+            enableBulkEditForOverdue={true}
+          />
         </Card>
       </div>
     </div>
