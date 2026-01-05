@@ -26,8 +26,8 @@ import {
 import { GoogleCalendarConnect } from "./GoogleCalendarConnect";
 
 interface CreateMeetingModalProps {
-  projectId: string;
-  projectName: string;
+  projectId?: string;
+  projectName?: string;
   children?: React.ReactNode;
 }
 
@@ -38,8 +38,11 @@ export function CreateMeetingModal({
 }: CreateMeetingModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
 
+  // Default title based on project name or generic
+  const defaultTitle = projectName ? `${projectName} Meeting` : "Meeting";
+
   // Form state
-  const [title, setTitle] = useState(`${projectName} Meeting`);
+  const [title, setTitle] = useState(defaultTitle);
   const [description, setDescription] = useState("");
   const [meetingDate, setMeetingDate] = useState<Date | null>(new Date());
   const [startTime, setStartTime] = useState("10:00");
@@ -53,8 +56,8 @@ export function CreateMeetingModal({
 
   // Reset form when project changes
   useEffect(() => {
-    setTitle(`${projectName} Meeting`);
-  }, [projectName]);
+    setTitle(defaultTitle);
+  }, [defaultTitle]);
 
   const utils = api.useUtils();
 
@@ -103,7 +106,7 @@ export function CreateMeetingModal({
   });
 
   const resetForm = () => {
-    setTitle(`${projectName} Meeting`);
+    setTitle(defaultTitle);
     setDescription("");
     setMeetingDate(new Date());
     setStartTime("10:00");
@@ -152,7 +155,7 @@ export function CreateMeetingModal({
       conferenceData: includeGoogleMeet
         ? {
             createRequest: {
-              requestId: `${projectId}-${Date.now()}`,
+              requestId: `meeting-${projectId ?? "general"}-${Date.now()}`,
               conferenceSolutionKey: { type: "hangoutsMeet" },
             },
           }

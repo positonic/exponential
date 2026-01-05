@@ -30,8 +30,8 @@ import { CreateMeetingModal } from "./CreateMeetingModal";
 import { stripHtml } from "~/lib/utils";
 
 interface ProjectCalendarCardProps {
-  projectId: string;
-  projectName: string;
+  projectId?: string;
+  projectName?: string;
 }
 
 export function ProjectCalendarCard({ projectId, projectName }: ProjectCalendarCardProps) {
@@ -140,7 +140,7 @@ export function ProjectCalendarCard({ projectId, projectName }: ProjectCalendarC
           </Text>
         </Group>
         {isConnected && (
-          <CreateMeetingModal projectId={projectId} projectName={projectName}>
+          <CreateMeetingModal projectId={projectId} projectName={projectName ?? undefined}>
             <ActionIcon variant="subtle" size="sm" aria-label="Create meeting">
               <IconPlus size={14} />
             </ActionIcon>

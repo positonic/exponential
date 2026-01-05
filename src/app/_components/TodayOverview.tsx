@@ -22,6 +22,7 @@ import { ActionList } from "./ActionList";
 import { CreateActionModal } from "./CreateActionModal";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { CreateGoalModal } from "./CreateGoalModal";
+import { ProjectCalendarCard } from "./ProjectCalendarCard";
 import { isSameDay, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import type { FocusPeriod, DateRange } from "~/types/focus";
 import { getFocusSectionTitle } from "~/lib/dateUtils";
@@ -217,6 +218,9 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
             />
           </div>
         </Card>
+
+        {/* Google Calendar Events */}
+        <ProjectCalendarCard />
       </div>
 
       {/* Goals */}

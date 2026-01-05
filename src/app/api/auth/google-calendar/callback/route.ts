@@ -4,24 +4,42 @@ import { redirect } from "next/navigation";
 import type { NextRequest } from "next/server";
 import { headers } from "next/headers";
 
+interface OAuthState {
+  userId: string;
+  returnUrl: string;
+}
+
+function parseState(state: string | null): OAuthState | null {
+  if (!state) return null;
+  try {
+    return JSON.parse(Buffer.from(state, 'base64').toString()) as OAuthState;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   const session = await auth();
-  
+
   if (!session?.user) {
     redirect("/signin");
   }
 
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
-  const state = searchParams.get("state");
+  const stateParam = searchParams.get("state");
   const error = searchParams.get("error");
 
+  // Parse state to get userId and returnUrl
+  const state = parseState(stateParam);
+  const returnUrl = state?.returnUrl ?? "/today";
+
   if (error) {
-    redirect("/today?calendar_error=access_denied");
+    redirect(`${returnUrl}?calendar_error=access_denied`);
   }
 
-  if (!code || state !== session.user.id) {
-    redirect("/today?calendar_error=invalid_request");
+  if (!code || !state || state.userId !== session.user.id) {
+    redirect(`${returnUrl}?calendar_error=invalid_request`);
   }
 
   // Get the host from the request headers to handle different ports
@@ -92,23 +110,23 @@ export async function GET(request: NextRequest) {
       });
     } else {
       // This shouldn't happen if user signed in with Google, but handle gracefully
-      redirect("/today?calendar_error=no_google_account");
+      redirect(`${returnUrl}?calendar_error=no_google_account`);
     }
 
     console.log("✅ Calendar tokens stored successfully!");
-    redirect("/today?calendar_connected=true");
+    redirect(`${returnUrl}?calendar_connected=true`);
   } catch (error) {
     // Don't catch Next.js redirect errors
     if (error instanceof Error && error.message === 'NEXT_REDIRECT') {
       throw error;
     }
-    
+
     console.error("Calendar OAuth error:", error);
     console.error("Error details:", {
       message: error instanceof Error ? error.message : 'Unknown error',
-      code: (error as any)?.code,
-      response: (error as any)?.response?.data,
+      code: (error as { code?: string } | null)?.code,
+      response: (error as { response?: { data?: unknown } } | null)?.response?.data,
     });
-    redirect("/today?calendar_error=token_exchange_failed");
+    redirect(`${returnUrl}?calendar_error=token_exchange_failed`);
   }
 }

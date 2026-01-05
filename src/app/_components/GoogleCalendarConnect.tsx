@@ -53,7 +53,9 @@ export function GoogleCalendarConnect({ isConnected = false }: GoogleCalendarCon
 
   const handleConnect = () => {
     setLoading(true);
-    window.location.href = "/api/auth/google-calendar";
+    // Pass current URL as return URL so user comes back to same page after OAuth
+    const returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `/api/auth/google-calendar?returnUrl=${returnUrl}`;
   };
 
   if (isConnected) {

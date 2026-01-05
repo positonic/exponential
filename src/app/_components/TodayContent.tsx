@@ -11,6 +11,7 @@ import {
   IconNotebook,
   IconMessageCircle,
   IconX,
+  IconFolder,
 } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 import { TodayOverview } from "./TodayOverview";
@@ -23,10 +24,11 @@ import { CalendarWeekView } from "./CalendarWeekView";
 import { CalendarMonthView } from "./CalendarMonthView";
 import type { FocusPeriod, DateRange } from "~/types/focus";
 import { formatFocusLabel } from "~/lib/dateUtils";
+import { Projects } from "./Projects";
 
-type TabValue = "overview" | "tasks" | "calendar" | "journal";
+type TabValue = "overview" | "tasks" | "calendar" | "journal" | "projects";
 
-const VALID_TABS: TabValue[] = ["overview", "tasks", "calendar", "journal"];
+const VALID_TABS: TabValue[] = ["overview", "tasks", "calendar", "journal", "projects"];
 
 function isValidTab(tab: string | null | undefined): tab is TabValue {
   return tab != null && VALID_TABS.includes(tab as TabValue);
@@ -271,6 +273,9 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
               <Tabs.Tab value="calendar" leftSection={<IconCalendar size={16} />}>
                 Calendar
               </Tabs.Tab>
+              <Tabs.Tab value="projects" leftSection={<IconFolder size={16} />}>
+                Projects
+              </Tabs.Tab>
               {focus === "today" && (
                 <Tabs.Tab value="journal" leftSection={<IconNotebook size={16} />}>
                   Journal
@@ -304,6 +309,10 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
 
           <Tabs.Panel value="calendar">
             {renderCalendarContent()}
+          </Tabs.Panel>
+
+          <Tabs.Panel value="projects">
+            <Projects />
           </Tabs.Panel>
 
           {focus === "today" && (
