@@ -12,6 +12,7 @@ interface PageHeaderProps {
   todayExists: boolean;
   focus: FocusPeriod;
   onFocusChange: (focus: FocusPeriod) => void;
+  workspaceName?: string;
 }
 
 export function PageHeader({
@@ -19,6 +20,7 @@ export function PageHeader({
   todayExists,
   focus,
   onFocusChange,
+  workspaceName,
 }: PageHeaderProps) {
   const dateRange = getDateRangeForFocus(focus);
 
@@ -31,6 +33,7 @@ export function PageHeader({
             {formatFocusLabel(focus)}
           </Title>
           <Text size="sm" className="text-text-secondary">
+            {workspaceName && `${workspaceName} · `}
             {formatDateRangeDisplay(focus, dateRange)}
           </Text>
         </div>

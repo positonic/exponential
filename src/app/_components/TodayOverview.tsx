@@ -52,9 +52,10 @@ function formatOutcomeType(type: string): string {
 interface TodayOverviewProps {
   focus?: FocusPeriod;
   dateRange?: DateRange;
+  workspaceId?: string;
 }
 
-export function TodayOverview({ focus = "today", dateRange }: TodayOverviewProps) {
+export function TodayOverview({ focus = "today", dateRange, workspaceId }: TodayOverviewProps) {
   // Use dateRange for queries if provided, otherwise default to today
   const today = new Date();
   const effectiveDateRange = dateRange ?? {
@@ -67,12 +68,13 @@ export function TodayOverview({ focus = "today", dateRange }: TodayOverviewProps
     {
       startDate: effectiveDateRange.startDate,
       endDate: effectiveDateRange.endDate,
+      workspaceId,
     },
     { enabled: focus !== "today" }
   );
 
   const { data: actionsToday = [] } = api.action.getToday.useQuery(
-    undefined,
+    { workspaceId },
     { enabled: focus === "today" }
   );
 
@@ -83,17 +85,18 @@ export function TodayOverview({ focus = "today", dateRange }: TodayOverviewProps
     {
       startDate: effectiveDateRange.startDate,
       endDate: effectiveDateRange.endDate,
+      workspaceId,
     },
     { enabled: focus !== "today" }
   );
 
   const { data: allOutcomes = [] } = api.outcome.getMyOutcomes.useQuery(
-    undefined,
+    { workspaceId },
     { enabled: focus === "today" }
   );
 
   // Goals - always fetch all and filter client-side
-  const { data: goals = [] } = api.goal.getAllMyGoals.useQuery();
+  const { data: goals = [] } = api.goal.getAllMyGoals.useQuery({ workspaceId });
 
   // Filter items based on focus
   const outcomes = focus === "today"

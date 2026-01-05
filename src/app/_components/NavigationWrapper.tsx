@@ -13,6 +13,8 @@ interface NavigationWrapperProps {
   todayExists: boolean;
   initialTab?: string;
   initialFocus?: FocusPeriod;
+  workspaceId?: string;
+  workspaceName?: string;
 }
 
 export function NavigationWrapper({
@@ -20,6 +22,8 @@ export function NavigationWrapper({
   todayExists,
   initialTab,
   initialFocus,
+  workspaceId,
+  workspaceName,
 }: NavigationWrapperProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -64,6 +68,7 @@ export function NavigationWrapper({
         todayExists={todayExists}
         focus={focus}
         onFocusChange={handleFocusChange}
+        workspaceName={workspaceName}
       />
 
       {/* Main Tabbed Content */}
@@ -72,6 +77,7 @@ export function NavigationWrapper({
         initialTab={initialTab}
         focus={focus}
         dateRange={dateRange}
+        workspaceId={workspaceId}
       />
     </>
   );

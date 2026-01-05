@@ -392,49 +392,58 @@ export const actionRouter = createTRPCRouter({
       });
     }),
 
-  getToday: protectedProcedure.query(async ({ ctx }) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  getToday: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const userId = ctx.session.user.id;
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const userId = ctx.session.user.id;
 
-    return ctx.db.action.findMany({
-      where: {
-        OR: [
-          // Created by me AND no assignees
-          { createdById: userId, assignees: { none: {} } },
-          // Assigned to me via ActionAssignee
-          { assignees: { some: { userId: userId } } },
-        ],
-        dueDate: {
-          gte: today,
-          lt: tomorrow,
+      return ctx.db.action.findMany({
+        where: {
+          OR: [
+            // Created by me AND no assignees
+            { createdById: userId, assignees: { none: {} } },
+            // Assigned to me via ActionAssignee
+            { assignees: { some: { userId: userId } } },
+          ],
+          dueDate: {
+            gte: today,
+            lt: tomorrow,
+          },
+          status: "ACTIVE",
+          // Filter by workspace via the action's project
+          ...(input?.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
         },
-        status: "ACTIVE",
-      },
-      include: {
-        project: true,
-        syncs: true, // Include ActionSync records to show sync status
-        assignees: {
-          include: { user: { select: { id: true, name: true, email: true, image: true } } },
+        include: {
+          project: true,
+          syncs: true, // Include ActionSync records to show sync status
+          assignees: {
+            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+          },
+          createdBy: { select: { id: true, name: true, email: true, image: true } },
         },
-        createdBy: { select: { id: true, name: true, email: true, image: true } },
-      },
-      orderBy: {
-        project: {
-          priority: "desc",
+        orderBy: {
+          project: {
+            priority: "desc",
+          },
         },
-      },
-    });
-  }),
+      });
+    }),
 
   getByDateRange: protectedProcedure
     .input(
       z.object({
         startDate: z.date(),
         endDate: z.date(),
+        workspaceId: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -453,6 +462,8 @@ export const actionRouter = createTRPCRouter({
             lt: input.endDate,
           },
           status: "ACTIVE",
+          // Filter by workspace via the action's project
+          ...(input.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
         },
         include: {
           project: true,

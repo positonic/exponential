@@ -37,9 +37,10 @@ interface TodayContentProps {
   initialTab?: string;
   focus: FocusPeriod;
   dateRange: DateRange;
+  workspaceId?: string;
 }
 
-export function TodayContent({ calendarConnected, initialTab, focus, dateRange }: TodayContentProps) {
+export function TodayContent({ calendarConnected, initialTab, focus, dateRange, workspaceId }: TodayContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [chatOpened, setChatOpened] = useState(false);
@@ -294,7 +295,7 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange }
 
           {/* Content Area */}
           <Tabs.Panel value="overview">
-            <TodayOverview focus={focus} dateRange={dateRange} />
+            <TodayOverview focus={focus} dateRange={dateRange} workspaceId={workspaceId} />
           </Tabs.Panel>
 
           <Tabs.Panel value="tasks">
