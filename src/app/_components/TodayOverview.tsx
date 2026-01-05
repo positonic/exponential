@@ -15,11 +15,13 @@ import {
   IconPlus,
   IconActivity,
   IconCalendar,
+  IconTarget,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { ActionList } from "./ActionList";
 import { CreateActionModal } from "./CreateActionModal";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
+import { CreateGoalModal } from "./CreateGoalModal";
 import { isSameDay } from "date-fns";
 
 // Helper function to get outcome type color
@@ -48,24 +50,42 @@ function formatOutcomeType(type: string): string {
 export function TodayOverview() {
   const { data: actions = [] } = api.action.getToday.useQuery();
   const { data: outcomes = [] } = api.outcome.getMyOutcomes.useQuery();
+  const { data: goals = [] } = api.goal.getAllMyGoals.useQuery();
 
-  // Filter outcomes that are due today
+  // Filter items that are due today
   const today = new Date();
   const outcomesToday = outcomes.filter(
     (outcome) => outcome.dueDate && isSameDay(outcome.dueDate, today)
   );
+  const goalsToday = goals.filter(
+    (goal) => goal.dueDate && isSameDay(goal.dueDate, today)
+  );
 
-  // Helper for calendar rendering - get outcomes for a specific date
-  const getOutcomesForDate = (date: Date) => {
+  // Helper for calendar rendering - get items for a specific date
+  const getItemsForDate = (date: Date) => {
     const dateStr = date.toDateString();
-    return outcomes.filter((outcome) =>
-      outcome.dueDate && new Date(outcome.dueDate).toDateString() === dateStr
-    );
+    const items: { type: "goal" | "outcome"; title: string; color: string; subLabel?: string }[] = [];
+
+    // Check goals
+    goals.forEach((goal) => {
+      if (goal.dueDate && new Date(goal.dueDate).toDateString() === dateStr) {
+        items.push({ type: "goal", title: goal.title, color: "yellow", subLabel: goal.lifeDomain?.title });
+      }
+    });
+
+    // Check outcomes
+    outcomes.forEach((outcome) => {
+      if (outcome.dueDate && new Date(outcome.dueDate).toDateString() === dateStr) {
+        items.push({ type: "outcome", title: outcome.description, color: getOutcomeTypeColor(outcome.type ?? ""), subLabel: outcome.type ?? undefined });
+      }
+    });
+
+    return items;
   };
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-8">
-      {/* Left Column - Outcomes Calendar */}
+      {/* Left Column - Calendar */}
       <div className="lg:col-span-2">
         <Card
           withBorder
@@ -77,9 +97,9 @@ export function TodayOverview() {
             <Calendar
               renderDay={(date) => {
                 const day = date.getDate();
-                const dayOutcomes = getOutcomesForDate(date);
+                const items = getItemsForDate(date);
 
-                if (dayOutcomes.length === 0) {
+                if (items.length === 0) {
                   return <div>{day}</div>;
                 }
 
@@ -87,13 +107,13 @@ export function TodayOverview() {
                   <Tooltip
                     label={
                       <Stack gap={4}>
-                        {dayOutcomes.map((outcome) => (
-                          <Group key={outcome.id} gap="xs">
-                            <Badge size="xs" color={getOutcomeTypeColor(outcome.type ?? "")} variant="filled">
-                              {formatOutcomeType(outcome.type ?? "outcome")}
+                        {items.map((item, idx) => (
+                          <Group key={idx} gap="xs">
+                            <Badge size="xs" color={item.color} variant="filled">
+                              {item.type}
                             </Badge>
                             <Text size="xs" lineClamp={1}>
-                              {outcome.description}
+                              {item.title}
                             </Text>
                           </Group>
                         ))}
@@ -103,7 +123,7 @@ export function TodayOverview() {
                     multiline
                     w={220}
                   >
-                    <Indicator size={6} color={getOutcomeTypeColor(dayOutcomes[0]?.type ?? "")} offset={-2}>
+                    <Indicator size={6} color={items[0]?.color ?? "gray"} offset={-2}>
                       <div>{day}</div>
                     </Indicator>
                   </Tooltip>
@@ -114,8 +134,87 @@ export function TodayOverview() {
         </Card>
       </div>
 
-      {/* Middle Column - Today's Outcomes */}
-      <div className="lg:col-span-3">
+      {/* Today's Goals */}
+      <div className="lg:col-span-2">
+        <Card
+          withBorder
+          radius="md"
+          className="border-border-primary bg-surface-secondary"
+        >
+          <Group justify="space-between" mb="md">
+            <Group gap="xs">
+              <IconTarget size={18} className="text-text-primary" />
+              <Text fw={600} size="lg" className="text-text-primary">
+                Today&apos;s Goals
+              </Text>
+            </Group>
+            <CreateGoalModal>
+              <ActionIcon variant="subtle" size="md" aria-label="Add goal">
+                <IconPlus size={16} />
+              </ActionIcon>
+            </CreateGoalModal>
+          </Group>
+
+          <Stack gap="md">
+            {goalsToday.length > 0 ? (
+              goalsToday.map((goal) => (
+                <CreateGoalModal
+                  key={goal.id}
+                  goal={{
+                    id: goal.id,
+                    title: goal.title,
+                    description: goal.description,
+                    whyThisGoal: goal.whyThisGoal,
+                    notes: goal.notes,
+                    dueDate: goal.dueDate,
+                    lifeDomainId: goal.lifeDomainId,
+                    outcomes: goal.outcomes,
+                  }}
+                  trigger={
+                    <div className="cursor-pointer rounded-md p-2 hover:bg-surface-hover">
+                      <Stack gap={2}>
+                        <Text
+                          size="sm"
+                          fw={500}
+                          className="text-text-primary"
+                          lineClamp={2}
+                        >
+                          {goal.title}
+                        </Text>
+                        <Group gap="xs">
+                          {goal.lifeDomain && (
+                            <Badge variant="light" color="yellow" size="xs">
+                              {goal.lifeDomain.title}
+                            </Badge>
+                          )}
+                          {goal.dueDate && (
+                            <Group gap={4} align="center" className="text-xs text-text-muted">
+                              <IconCalendar size={12} />
+                              <span>
+                                {goal.dueDate.toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                })}
+                              </span>
+                            </Group>
+                          )}
+                        </Group>
+                      </Stack>
+                    </div>
+                  }
+                />
+              ))
+            ) : (
+              <Text size="sm" c="dimmed" ta="center" py="md">
+                No goals due today
+              </Text>
+            )}
+          </Stack>
+        </Card>
+      </div>
+
+      {/* Today's Outcomes */}
+      <div className="lg:col-span-2">
         <Card
           withBorder
           radius="md"
@@ -189,8 +288,8 @@ export function TodayOverview() {
         </Card>
       </div>
 
-      {/* Right Column - Today's Actions */}
-      <div className="lg:col-span-3">
+      {/* Today's Actions */}
+      <div className="lg:col-span-2">
         <Card
           withBorder
           radius="md"

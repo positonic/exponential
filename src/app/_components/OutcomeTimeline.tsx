@@ -4,7 +4,7 @@ import React from 'react';
 import { Timeline, Text, Box } from '@mantine/core';
 import { api } from '~/trpc/react';
 import { format, startOfDay, isBefore } from 'date-fns';
-import { IconCalendarEvent, IconClock } from '@tabler/icons-react';
+import { IconCalendarEvent, IconClock, IconTarget } from '@tabler/icons-react';
 import classes from './OutcomeTimeline.module.css';
 
 interface OutcomeTimelineProps {
@@ -19,34 +19,56 @@ interface OutcomeData {
   type: string | null; // Allow null explicitly
 }
 
+// Interface for goal data used in the timeline
+interface GoalData {
+  id: number;
+  title: string;
+  dueDate: Date | null;
+}
+
 // Type for items displayed in the timeline
-type TimelineDisplayItem = 
-  | (OutcomeData & { isTodayMarker: false }) // Regular outcome
+type TimelineDisplayItem =
+  | (OutcomeData & { itemType: 'outcome'; isTodayMarker: false })
+  | (GoalData & { itemType: 'goal'; isTodayMarker: false })
   | { id: string; description: string; dueDate: Date; isTodayMarker: true }; // Today marker
 
 export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
-  const { data: outcomes, isLoading, error } = api.outcome.getProjectOutcomes.useQuery(
+  const { data: outcomes, isLoading: outcomesLoading, error: outcomesError } = api.outcome.getProjectOutcomes.useQuery(
     { projectId },
     {
       refetchOnWindowFocus: false,
       staleTime: 5 * 60 * 1000,
       // Select only the needed fields and cast type
-      select: (data): OutcomeData[] => 
-        data?.map(o => ({ 
-          id: o.id, 
-          description: o.description, 
+      select: (data): OutcomeData[] =>
+        data?.map(o => ({
+          id: o.id,
+          description: o.description,
           dueDate: o.dueDate,
-          type: o.type 
+          type: o.type
         })) ?? [],
     }
   );
 
-  if (isLoading) {
+  const { data: goals, isLoading: goalsLoading, error: goalsError } = api.goal.getProjectGoals.useQuery(
+    { projectId },
+    {
+      refetchOnWindowFocus: false,
+      staleTime: 5 * 60 * 1000,
+      select: (data): GoalData[] =>
+        data?.map(g => ({
+          id: g.id,
+          title: g.title,
+          dueDate: g.dueDate,
+        })) ?? [],
+    }
+  );
+
+  if (outcomesLoading || goalsLoading) {
     return <Text>Loading timeline...</Text>;
   }
 
-  if (error) {
-    return <Text color="red">Error loading timeline: {error.message}</Text>;
+  if (outcomesError ?? goalsError) {
+    return <Text color="red">Error loading timeline: {outcomesError?.message ?? goalsError?.message}</Text>;
   }
 
   const today = startOfDay(new Date());

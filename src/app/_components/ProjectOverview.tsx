@@ -80,7 +80,7 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
     // Check goals
     goals.forEach((goal) => {
       if (goal.dueDate && new Date(goal.dueDate).toDateString() === dateStr) {
-        items.push({ type: "goal", title: goal.title, color: "blue" });
+        items.push({ type: "goal", title: goal.title, color: "yellow" });
       }
     });
 
@@ -205,9 +205,18 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
                                 {goal.title}
                               </Text>
                               {goal.lifeDomain && (
-                                <Badge variant="light" color="blue" size="xs">
+                                <Badge variant="light" color="yellow" size="xs">
                                   {goal.lifeDomain.title}
                                 </Badge>
+                              )}
+                              {goal.dueDate && (
+                                <Text size="xs" className="text-text-disabled">
+                                  Due: {new Date(goal.dueDate).toLocaleDateString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  })}
+                                </Text>
                               )}
                             </Group>
                             {goal.description && (

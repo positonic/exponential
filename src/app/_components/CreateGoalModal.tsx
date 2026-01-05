@@ -8,6 +8,7 @@ import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { CreateProjectModal } from './CreateProjectModal';
 import { CreateOutcomeModal } from './CreateOutcomeModal';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 interface CreateGoalModalProps {
   children?: React.ReactNode;
@@ -43,6 +44,12 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
   const { data: lifeDomains } = api.lifeDomain.getAllLifeDomains.useQuery();
   const { data: projects } = api.project.getAll.useQuery();
   const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
+
+  const { workspace } = useWorkspace();
+  const isPersonalWorkspace = workspace?.type === 'personal';
+
+  // Find Career/Business domain ID for non-personal workspaces
+  const careerDomainId = lifeDomains?.find(d => d.title === 'Career/Business')?.id ?? null;
 
   const createGoal = api.goal.createGoal.useMutation({
     onMutate: async (newGoal) => {
@@ -159,6 +166,13 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
     setSelectedProjectId(projectId);
   }, [projectId]);
 
+  // Auto-set Career/Business domain for non-personal workspaces
+  useEffect(() => {
+    if (!isPersonalWorkspace && careerDomainId && !lifeDomainId) {
+      setLifeDomainId(careerDomainId);
+    }
+  }, [isPersonalWorkspace, careerDomainId, lifeDomainId]);
+
   const lifeDomainOptions = lifeDomains?.map(domain => ({
     value: domain.id.toString(),
     label: domain.title
@@ -263,14 +277,16 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
             </Button>
           </CreateOutcomeModal>
 
-          <Select
-            label="Life Domain"
-            data={lifeDomainOptions}
-            value={lifeDomainId?.toString()}
-            onChange={(value) => setLifeDomainId(value ? parseInt(value) : null)}
-            required
-            mt="md"
-          />
+          {isPersonalWorkspace && (
+            <Select
+              label="Life Domain"
+              data={lifeDomainOptions}
+              value={lifeDomainId?.toString()}
+              onChange={(value) => setLifeDomainId(value ? parseInt(value) : null)}
+              required
+              mt="md"
+            />
+          )}
           
           <div className="mt-4">
             <Text size="sm" fw={500} mb={4}>Due date (optional)</Text>
