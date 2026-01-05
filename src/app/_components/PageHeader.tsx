@@ -1,14 +1,11 @@
 "use client";
 
 import { Group, Text, Title, SegmentedControl } from "@mantine/core";
-import { GoogleCalendarConnect } from "./GoogleCalendarConnect";
-import { TodayPageCalendar } from "./TodayPageCalendar";
 import { TodayButton } from "./TodayButton";
 import type { FocusPeriod } from "~/types/focus";
 import { getDateRangeForFocus, formatFocusLabel, formatDateRangeDisplay } from "~/lib/dateUtils";
 
 interface PageHeaderProps {
-  calendarConnected: boolean;
   todayExists: boolean;
   focus: FocusPeriod;
   onFocusChange: (focus: FocusPeriod) => void;
@@ -16,7 +13,6 @@ interface PageHeaderProps {
 }
 
 export function PageHeader({
-  calendarConnected,
   todayExists,
   focus,
   onFocusChange,
@@ -50,8 +46,6 @@ export function PageHeader({
             ]}
             size="sm"
           />
-          <GoogleCalendarConnect isConnected={calendarConnected} />
-          <TodayPageCalendar isConnected={calendarConnected} />
           {!todayExists && focus === "today" && <TodayButton />}
         </Group>
       </div>

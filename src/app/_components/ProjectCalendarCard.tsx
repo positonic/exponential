@@ -10,6 +10,7 @@ import {
   Badge,
   ActionIcon,
   Button,
+  Tooltip,
 } from "@mantine/core";
 import {
   IconCalendar,
@@ -19,7 +20,9 @@ import {
   IconList,
   IconCalendarTime,
   IconPlus,
+  IconUnlink,
 } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { format, parseISO, startOfDay, endOfDay } from "date-fns";
 import { useState, useRef, useEffect } from "react";
@@ -42,6 +45,27 @@ export function ProjectCalendarCard({ projectId, projectName }: ProjectCalendarC
   // Check calendar connection status
   const { data: connectionStatus, isLoading: statusLoading } =
     api.calendar.getConnectionStatus.useQuery();
+
+  const utils = api.useUtils();
+
+  // Disconnect calendar mutation
+  const disconnectCalendar = api.calendar.disconnect.useMutation({
+    onSuccess: () => {
+      void utils.calendar.getConnectionStatus.invalidate();
+      notifications.show({
+        title: "Calendar Disconnected",
+        message: "Your Google Calendar has been disconnected.",
+        color: "blue",
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to disconnect calendar",
+        color: "red",
+      });
+    },
+  });
 
   // Fetch events for today
   const {
@@ -140,11 +164,25 @@ export function ProjectCalendarCard({ projectId, projectName }: ProjectCalendarC
           </Text>
         </Group>
         {isConnected && (
-          <CreateMeetingModal projectId={projectId} projectName={projectName ?? undefined}>
-            <ActionIcon variant="subtle" size="sm" aria-label="Create meeting">
-              <IconPlus size={14} />
-            </ActionIcon>
-          </CreateMeetingModal>
+          <Group gap={4}>
+            <CreateMeetingModal projectId={projectId} projectName={projectName ?? undefined}>
+              <ActionIcon variant="subtle" size="sm" aria-label="Create meeting">
+                <IconPlus size={14} />
+              </ActionIcon>
+            </CreateMeetingModal>
+            <Tooltip label="Disconnect calendar" position="bottom">
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                color="gray"
+                aria-label="Disconnect calendar"
+                onClick={() => disconnectCalendar.mutate()}
+                loading={disconnectCalendar.isPending}
+              >
+                <IconUnlink size={14} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
         )}
       </Group>
 
