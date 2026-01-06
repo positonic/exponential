@@ -407,8 +407,72 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     });
   };
 
+  // Helper to detect focus views (today, this week, this month)
+  const isFocusView = (name: string) => {
+    const focusViews = ['today', 'this-week', 'this-month', 'tomorrow'];
+    return focusViews.includes(name.toLowerCase());
+  };
 
+  // Handle focus view bulk reschedule (today, this week, this month)
+  const handleFocusBulkReschedule = async (date: Date | null, actionIds: string[]) => {
+    if (actionIds.length === 0) return;
 
+    const totalCount = actionIds.length;
+
+    // Show initial notification
+    notifications.show({
+      id: 'bulk-reschedule-focus',
+      title: 'Rescheduling...',
+      message: `Updating ${totalCount} action${totalCount !== 1 ? 's' : ''}...`,
+      loading: true,
+      autoClose: false,
+    });
+
+    try {
+      // Process mutations sequentially to avoid overwhelming database connection pool
+      for (let i = 0; i < actionIds.length; i++) {
+        const actionId = actionIds[i]!;
+        await bulkUpdateMutation.mutateAsync({
+          id: actionId,
+          dueDate: date ?? undefined
+        });
+
+        // Small delay between mutations
+        if (i < actionIds.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+
+      // Invalidate queries
+      await utils.action.getAll.invalidate();
+      await utils.action.getToday.invalidate();
+
+      notifications.update({
+        id: 'bulk-reschedule-focus',
+        title: 'Rescheduled',
+        message: `Successfully updated ${totalCount} action${totalCount !== 1 ? 's' : ''}`,
+        loading: false,
+        autoClose: 3000,
+        color: 'green',
+      });
+    } catch {
+      notifications.update({
+        id: 'bulk-reschedule-focus',
+        title: 'Error',
+        message: 'Failed to reschedule some actions',
+        loading: false,
+        autoClose: 5000,
+        color: 'red',
+      });
+    }
+  };
+
+  // Handle focus view bulk delete
+  const handleFocusBulkDelete = (actionIds: string[]) => {
+    bulkDeleteMutation.mutate({
+      actionIds,
+    });
+  };
 
 
 
@@ -698,6 +762,9 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           onOverdueBulkReschedule={handleOverdueBulkReschedule}
           enableBulkEditForProject={!!projectId}
           onProjectBulkDelete={handleProjectBulkDelete}
+          enableBulkEditForFocus={!projectId && isFocusView(viewName)}
+          onFocusBulkDelete={handleFocusBulkDelete}
+          onFocusBulkReschedule={handleFocusBulkReschedule}
         />
       )}
       <div className="mt-6">
