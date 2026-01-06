@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import {
-  Container,
   Title,
   Text,
   TextInput,
@@ -188,59 +187,89 @@ export default function OrganizationsPage() {
 
   if (workspaceLoading) {
     return (
-      <Container size="xl" className="py-8">
-        <Skeleton height={40} width={200} mb="lg" />
+      <div className="space-y-6">
+        <Skeleton height={40} width={200} />
         <Skeleton height={400} />
-      </Container>
+      </div>
     );
   }
 
   if (!workspace) {
     return (
-      <Container size="xl" className="py-8">
+      <div className="space-y-6">
         <Text className="text-text-secondary">Workspace not found</Text>
-      </Container>
+      </div>
     );
   }
 
   const basePath = `/w/${workspace.slug}/crm`;
 
   return (
-    <Container size="xl" className="py-8">
-      <Group justify="space-between" mb="lg">
-        <Title order={1} className="text-text-primary">
-          Organizations
-        </Title>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <Title order={2} className="text-text-primary">
+            Organizations
+          </Title>
+          <Text className="text-text-muted">
+            Manage companies and organizations
+          </Text>
+        </div>
         <Button leftSection={<IconPlus size={16} />} onClick={openCreateModal}>
           Add Organization
         </Button>
-      </Group>
+      </div>
 
       <TextInput
         placeholder="Search organizations..."
         leftSection={<IconSearch size={16} />}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        mb="md"
         className="max-w-md"
       />
 
       {isLoading ? (
-        <Stack gap="sm">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <Skeleton key={i} height={60} />
-          ))}
-        </Stack>
-      ) : data?.organizations && data.organizations.length > 0 ? (
-        <Table.ScrollContainer minWidth={800}>
-          <Table highlightOnHover>
-            <Table.Thead>
+        <div className="overflow-hidden rounded-lg border border-border-primary">
+          <Table>
+            <Table.Thead className="bg-surface-secondary">
               <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Website</Table.Th>
-                <Table.Th>Industry</Table.Th>
-                <Table.Th>Size</Table.Th>
-                <Table.Th>Contacts</Table.Th>
+                <Table.Th className="text-text-muted">Name</Table.Th>
+                <Table.Th className="text-text-muted">Website</Table.Th>
+                <Table.Th className="text-text-muted">Industry</Table.Th>
+                <Table.Th className="text-text-muted">Size</Table.Th>
+                <Table.Th className="text-text-muted">Contacts</Table.Th>
+                <Table.Th></Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Table.Tr key={i}>
+                  <Table.Td>
+                    <Group gap="sm">
+                      <Skeleton circle height={32} />
+                      <Skeleton height={20} width={120} />
+                    </Group>
+                  </Table.Td>
+                  <Table.Td><Skeleton height={20} width={100} /></Table.Td>
+                  <Table.Td><Skeleton height={20} width={80} /></Table.Td>
+                  <Table.Td><Skeleton height={20} width={60} /></Table.Td>
+                  <Table.Td><Skeleton height={20} width={40} /></Table.Td>
+                  <Table.Td><Skeleton height={20} width={30} /></Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </div>
+      ) : data?.organizations && data.organizations.length > 0 ? (
+        <div className="overflow-hidden rounded-lg border border-border-primary">
+          <Table highlightOnHover>
+            <Table.Thead className="bg-surface-secondary">
+              <Table.Tr>
+                <Table.Th className="text-text-muted">Name</Table.Th>
+                <Table.Th className="text-text-muted">Website</Table.Th>
+                <Table.Th className="text-text-muted">Industry</Table.Th>
+                <Table.Th className="text-text-muted">Size</Table.Th>
+                <Table.Th className="text-text-muted">Contacts</Table.Th>
                 <Table.Th></Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -256,7 +285,7 @@ export default function OrganizationsPage() {
                       <Avatar size="sm" radius="md" src={org.logoUrl}>
                         {org.name[0]}
                       </Avatar>
-                      <Text className="text-text-primary">{org.name}</Text>
+                      <Text size="sm" className="text-text-primary">{org.name}</Text>
                     </Group>
                   </Table.Td>
                   <Table.Td>
@@ -267,25 +296,25 @@ export default function OrganizationsPage() {
                           href={org.websiteUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-text-secondary hover:text-brand-primary"
+                          className="text-text-secondary hover:text-brand-primary text-sm"
                         >
                           {new URL(org.websiteUrl).hostname}
                         </a>
                       </Group>
                     ) : (
-                      <Text className="text-text-muted">-</Text>
+                      <Text size="sm" className="text-text-muted">-</Text>
                     )}
                   </Table.Td>
                   <Table.Td>
-                    <Text className="text-text-secondary">{org.industry ?? '-'}</Text>
+                    <Text size="sm" className="text-text-secondary">{org.industry ?? '-'}</Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text className="text-text-secondary">{org.size ?? '-'}</Text>
+                    <Text size="sm" className="text-text-secondary">{org.size ?? '-'}</Text>
                   </Table.Td>
                   <Table.Td>
                     <Group gap="xs">
                       <IconUsers size={14} className="text-text-muted" />
-                      <Text className="text-text-secondary">{org._count.contacts}</Text>
+                      <Text size="sm" className="text-text-secondary">{org._count.contacts}</Text>
                     </Group>
                   </Table.Td>
                   <Table.Td onClick={(e) => e.stopPropagation()}>
@@ -325,11 +354,13 @@ export default function OrganizationsPage() {
               ))}
             </Table.Tbody>
           </Table>
-        </Table.ScrollContainer>
+        </div>
       ) : (
-        <Text className="text-text-muted text-center py-8">
-          {search ? 'No organizations found matching your search' : 'No organizations yet. Create your first organization!'}
-        </Text>
+        <div className="rounded-lg border border-border-primary bg-surface-secondary py-12 text-center">
+          <Text className="text-text-muted">
+            {search ? 'No organizations found matching your search' : 'No organizations yet. Create your first organization!'}
+          </Text>
+        </div>
       )}
 
       {/* Create Organization Modal */}
@@ -340,6 +371,6 @@ export default function OrganizationsPage() {
           onCancel={closeCreateModal}
         />
       </Modal>
-    </Container>
+    </div>
   );
 }

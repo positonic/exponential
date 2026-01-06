@@ -3,16 +3,13 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  Container,
   Title,
   Text,
-  Paper,
   Group,
   Stack,
   Avatar,
   Badge,
   Button,
-  Tabs,
   TextInput,
   Textarea,
   Select,
@@ -21,6 +18,7 @@ import {
   Timeline,
   Modal,
   Divider,
+  Card,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -171,26 +169,26 @@ export default function ContactDetailPage() {
 
   if (workspaceLoading || isLoading) {
     return (
-      <Container size="xl" className="py-8">
-        <Skeleton height={40} width={200} mb="lg" />
+      <div className="space-y-6">
+        <Skeleton height={40} width={200} />
         <Skeleton height={300} />
-      </Container>
+      </div>
     );
   }
 
   if (!workspace) {
     return (
-      <Container size="xl" className="py-8">
+      <div className="space-y-6">
         <Text className="text-text-secondary">Workspace not found</Text>
-      </Container>
+      </div>
     );
   }
 
   if (!contact) {
     return (
-      <Container size="xl" className="py-8">
+      <div className="space-y-6">
         <Text className="text-text-secondary">Contact not found</Text>
-      </Container>
+      </div>
     );
   }
 
@@ -198,31 +196,36 @@ export default function ContactDetailPage() {
   const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Unknown Contact';
 
   return (
-    <Container size="xl" className="py-8">
+    <div className="space-y-6">
       {/* Header */}
-      <Group mb="lg">
+      <div className="flex items-center gap-3">
         <ActionIcon
           variant="subtle"
           onClick={() => router.push(`${basePath}/contacts`)}
         >
           <IconArrowLeft size={20} />
         </ActionIcon>
-        <Title order={1} className="text-text-primary">
-          Contact Details
-        </Title>
-      </Group>
+        <div>
+          <Title order={2} className="text-text-primary">
+            Contact Details
+          </Title>
+          <Text className="text-text-muted">
+            View and manage contact information
+          </Text>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Info */}
-        <div className="lg:col-span-2">
-          <Paper p="lg" radius="md" className="bg-surface-secondary border border-border-primary mb-6">
+        <div className="lg:col-span-2 space-y-6">
+          <Card className="border border-border-primary bg-surface-secondary">
             <Group justify="space-between" mb="md">
               <Group>
                 <Avatar size="xl" radius="xl">
                   {contact.firstName?.[0] ?? contact.lastName?.[0] ?? '?'}
                 </Avatar>
                 <Stack gap={0}>
-                  <Title order={2} className="text-text-primary">
+                  <Title order={3} className="text-text-primary">
                     {fullName}
                   </Title>
                   {contact.organization && (
@@ -238,7 +241,7 @@ export default function ContactDetailPage() {
                   )}
                 </Stack>
               </Group>
-              <Button leftSection={<IconEdit size={16} />} variant="light">
+              <Button leftSection={<IconEdit size={16} />} variant="light" size="sm">
                 Edit
               </Button>
             </Group>
@@ -248,7 +251,7 @@ export default function ContactDetailPage() {
               {contact.email && (
                 <Group gap="sm">
                   <IconMail size={16} className="text-text-muted" />
-                  <a href={`mailto:${contact.email}`} className="text-text-primary hover:text-brand-primary">
+                  <a href={`mailto:${contact.email}`} className="text-text-primary hover:text-brand-primary text-sm">
                     {contact.email}
                   </a>
                 </Group>
@@ -256,7 +259,7 @@ export default function ContactDetailPage() {
               {contact.phone && (
                 <Group gap="sm">
                   <IconPhone size={16} className="text-text-muted" />
-                  <a href={`tel:${contact.phone}`} className="text-text-primary hover:text-brand-primary">
+                  <a href={`tel:${contact.phone}`} className="text-text-primary hover:text-brand-primary text-sm">
                     {contact.phone}
                   </a>
                 </Group>
@@ -264,7 +267,7 @@ export default function ContactDetailPage() {
               {contact.linkedIn && (
                 <Group gap="sm">
                   <IconBrandLinkedin size={16} className="text-text-muted" />
-                  <a href={contact.linkedIn} target="_blank" rel="noopener noreferrer" className="text-text-primary hover:text-brand-primary">
+                  <a href={contact.linkedIn} target="_blank" rel="noopener noreferrer" className="text-text-primary hover:text-brand-primary text-sm">
                     LinkedIn Profile
                   </a>
                 </Group>
@@ -272,19 +275,19 @@ export default function ContactDetailPage() {
               {contact.telegram && (
                 <Group gap="sm">
                   <IconBrandTelegram size={16} className="text-text-muted" />
-                  <Text className="text-text-primary">{contact.telegram}</Text>
+                  <Text size="sm" className="text-text-primary">{contact.telegram}</Text>
                 </Group>
               )}
               {contact.twitter && (
                 <Group gap="sm">
                   <IconBrandTwitter size={16} className="text-text-muted" />
-                  <Text className="text-text-primary">{contact.twitter}</Text>
+                  <Text size="sm" className="text-text-primary">{contact.twitter}</Text>
                 </Group>
               )}
               {contact.github && (
                 <Group gap="sm">
                   <IconBrandGithub size={16} className="text-text-muted" />
-                  <a href={`https://github.com/${contact.github}`} target="_blank" rel="noopener noreferrer" className="text-text-primary hover:text-brand-primary">
+                  <a href={`https://github.com/${contact.github}`} target="_blank" rel="noopener noreferrer" className="text-text-primary hover:text-brand-primary text-sm">
                     {contact.github}
                   </a>
                 </Group>
@@ -297,7 +300,7 @@ export default function ContactDetailPage() {
                 <Divider my="md" />
                 <Group gap="xs">
                   {contact.tags.map((tag) => (
-                    <Badge key={tag} variant="light">
+                    <Badge key={tag} variant="light" size="sm">
                       {tag}
                     </Badge>
                   ))}
@@ -309,15 +312,15 @@ export default function ContactDetailPage() {
             {contact.about && (
               <>
                 <Divider my="md" />
-                <Text className="text-text-secondary whitespace-pre-wrap">{contact.about}</Text>
+                <Text size="sm" className="text-text-secondary whitespace-pre-wrap">{contact.about}</Text>
               </>
             )}
-          </Paper>
+          </Card>
 
           {/* Activity Timeline */}
-          <Paper p="lg" radius="md" className="bg-surface-secondary border border-border-primary">
+          <Card className="border border-border-primary bg-surface-secondary">
             <Group justify="space-between" mb="md">
-              <Title order={3} className="text-text-primary">
+              <Title order={4} className="text-text-primary">
                 Activity
               </Title>
               <Button leftSection={<IconPlus size={16} />} size="xs" onClick={openInteractionModal}>
@@ -333,7 +336,7 @@ export default function ContactDetailPage() {
                     bullet={interactionIcons[interaction.type] ?? <IconMessage size={14} />}
                     title={
                       <Group gap="xs">
-                        <Text fw={500} className="text-text-primary">
+                        <Text fw={500} size="sm" className="text-text-primary">
                           {interaction.type.replace('_', ' ')}
                         </Text>
                         <Badge size="xs" variant="light" color={interaction.direction === 'INBOUND' ? 'green' : 'blue'}>
@@ -362,14 +365,16 @@ export default function ContactDetailPage() {
                 ))}
               </Timeline>
             ) : (
-              <Text className="text-text-muted text-center py-4">No interactions recorded yet</Text>
+              <div className="rounded-lg border border-border-primary bg-background-primary py-8 text-center">
+                <Text className="text-text-muted">No interactions recorded yet</Text>
+              </div>
             )}
-          </Paper>
+          </Card>
         </div>
 
         {/* Sidebar */}
         <div className="lg:col-span-1">
-          <Paper p="lg" radius="md" className="bg-surface-secondary border border-border-primary">
+          <Card className="border border-border-primary bg-surface-secondary">
             <Title order={4} className="text-text-primary mb-4">
               Quick Info
             </Title>
@@ -378,7 +383,7 @@ export default function ContactDetailPage() {
                 <Text size="xs" className="text-text-muted">
                   Created
                 </Text>
-                <Text className="text-text-primary">
+                <Text size="sm" className="text-text-primary">
                   {new Date(contact.createdAt).toLocaleDateString()}
                 </Text>
               </div>
@@ -386,7 +391,7 @@ export default function ContactDetailPage() {
                 <Text size="xs" className="text-text-muted">
                   Last Interaction
                 </Text>
-                <Text className="text-text-primary">
+                <Text size="sm" className="text-text-primary">
                   {contact.lastInteractionAt
                     ? new Date(contact.lastInteractionAt).toLocaleDateString()
                     : 'Never'}
@@ -397,7 +402,7 @@ export default function ContactDetailPage() {
                   <Text size="xs" className="text-text-muted">
                     Last Interaction Type
                   </Text>
-                  <Text className="text-text-primary">
+                  <Text size="sm" className="text-text-primary">
                     {contact.lastInteractionType.replace('_', ' ')}
                   </Text>
                 </div>
@@ -406,12 +411,12 @@ export default function ContactDetailPage() {
                 <Text size="xs" className="text-text-muted">
                   Created By
                 </Text>
-                <Text className="text-text-primary">
+                <Text size="sm" className="text-text-primary">
                   {contact.createdBy.name ?? contact.createdBy.email}
                 </Text>
               </div>
             </Stack>
-          </Paper>
+          </Card>
         </div>
       </div>
 
@@ -423,6 +428,6 @@ export default function ContactDetailPage() {
           onCancel={closeInteractionModal}
         />
       </Modal>
-    </Container>
+    </div>
   );
 }

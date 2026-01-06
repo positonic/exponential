@@ -2,10 +2,8 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import {
-  Container,
   Title,
   Text,
-  Paper,
   Group,
   Stack,
   Avatar,
@@ -15,6 +13,7 @@ import {
   ActionIcon,
   Table,
   Divider,
+  Card,
 } from '@mantine/core';
 import {
   IconArrowLeft,
@@ -40,67 +39,72 @@ export default function OrganizationDetailPage() {
 
   if (workspaceLoading || isLoading) {
     return (
-      <Container size="xl" className="py-8">
-        <Skeleton height={40} width={200} mb="lg" />
+      <div className="space-y-6">
+        <Skeleton height={40} width={200} />
         <Skeleton height={300} />
-      </Container>
+      </div>
     );
   }
 
   if (!workspace) {
     return (
-      <Container size="xl" className="py-8">
+      <div className="space-y-6">
         <Text className="text-text-secondary">Workspace not found</Text>
-      </Container>
+      </div>
     );
   }
 
   if (!organization) {
     return (
-      <Container size="xl" className="py-8">
+      <div className="space-y-6">
         <Text className="text-text-secondary">Organization not found</Text>
-      </Container>
+      </div>
     );
   }
 
   const basePath = `/w/${workspace.slug}/crm`;
 
   return (
-    <Container size="xl" className="py-8">
+    <div className="space-y-6">
       {/* Header */}
-      <Group mb="lg">
+      <div className="flex items-center gap-3">
         <ActionIcon
           variant="subtle"
           onClick={() => router.push(`${basePath}/organizations`)}
         >
           <IconArrowLeft size={20} />
         </ActionIcon>
-        <Title order={1} className="text-text-primary">
-          Organization Details
-        </Title>
-      </Group>
+        <div>
+          <Title order={2} className="text-text-primary">
+            Organization Details
+          </Title>
+          <Text className="text-text-muted">
+            View and manage organization information
+          </Text>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Info */}
-        <div className="lg:col-span-2">
-          <Paper p="lg" radius="md" className="bg-surface-secondary border border-border-primary mb-6">
+        <div className="lg:col-span-2 space-y-6">
+          <Card className="border border-border-primary bg-surface-secondary">
             <Group justify="space-between" mb="md">
               <Group>
                 <Avatar size="xl" radius="md" src={organization.logoUrl}>
                   <IconBuilding size={32} />
                 </Avatar>
                 <Stack gap={0}>
-                  <Title order={2} className="text-text-primary">
+                  <Title order={3} className="text-text-primary">
                     {organization.name}
                   </Title>
                   {organization.industry && (
-                    <Badge variant="light" mt={4}>
+                    <Badge variant="light" size="sm" mt={4}>
                       {organization.industry}
                     </Badge>
                   )}
                 </Stack>
               </Group>
-              <Button leftSection={<IconEdit size={16} />} variant="light">
+              <Button leftSection={<IconEdit size={16} />} variant="light" size="sm">
                 Edit
               </Button>
             </Group>
@@ -114,7 +118,7 @@ export default function OrganizationDetailPage() {
                     href={organization.websiteUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-text-primary hover:text-brand-primary"
+                    className="text-text-primary hover:text-brand-primary text-sm"
                   >
                     {organization.websiteUrl}
                   </a>
@@ -123,7 +127,7 @@ export default function OrganizationDetailPage() {
               {organization.size && (
                 <Group gap="sm">
                   <IconUsers size={16} className="text-text-muted" />
-                  <Text className="text-text-primary">{organization.size} employees</Text>
+                  <Text size="sm" className="text-text-primary">{organization.size} employees</Text>
                 </Group>
               )}
             </Stack>
@@ -132,17 +136,17 @@ export default function OrganizationDetailPage() {
             {organization.description && (
               <>
                 <Divider my="md" />
-                <Text className="text-text-secondary whitespace-pre-wrap">
+                <Text size="sm" className="text-text-secondary whitespace-pre-wrap">
                   {organization.description}
                 </Text>
               </>
             )}
-          </Paper>
+          </Card>
 
           {/* Contacts */}
-          <Paper p="lg" radius="md" className="bg-surface-secondary border border-border-primary">
+          <Card className="border border-border-primary bg-surface-secondary">
             <Group justify="space-between" mb="md">
-              <Title order={3} className="text-text-primary">
+              <Title order={4} className="text-text-primary">
                 Contacts ({organization._count.contacts})
               </Title>
               <Button
@@ -156,13 +160,13 @@ export default function OrganizationDetailPage() {
             </Group>
 
             {organization.contacts && organization.contacts.length > 0 ? (
-              <Table.ScrollContainer minWidth={500}>
+              <div className="overflow-hidden rounded-lg border border-border-primary">
                 <Table highlightOnHover>
-                  <Table.Thead>
+                  <Table.Thead className="bg-background-primary">
                     <Table.Tr>
-                      <Table.Th>Name</Table.Th>
-                      <Table.Th>Email</Table.Th>
-                      <Table.Th>Last Interaction</Table.Th>
+                      <Table.Th className="text-text-muted">Name</Table.Th>
+                      <Table.Th className="text-text-muted">Email</Table.Th>
+                      <Table.Th className="text-text-muted">Last Interaction</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
@@ -177,16 +181,16 @@ export default function OrganizationDetailPage() {
                             <Avatar size="sm" radius="xl">
                               {contact.firstName?.[0] ?? contact.lastName?.[0] ?? '?'}
                             </Avatar>
-                            <Text className="text-text-primary">
+                            <Text size="sm" className="text-text-primary">
                               {[contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Unknown'}
                             </Text>
                           </Group>
                         </Table.Td>
                         <Table.Td>
-                          <Text className="text-text-secondary">{contact.email ?? '-'}</Text>
+                          <Text size="sm" className="text-text-secondary">{contact.email ?? '-'}</Text>
                         </Table.Td>
                         <Table.Td>
-                          <Text className="text-text-muted" size="sm">
+                          <Text size="sm" className="text-text-muted">
                             {contact.lastInteractionAt
                               ? new Date(contact.lastInteractionAt).toLocaleDateString()
                               : 'Never'}
@@ -196,18 +200,20 @@ export default function OrganizationDetailPage() {
                     ))}
                   </Table.Tbody>
                 </Table>
-              </Table.ScrollContainer>
+              </div>
             ) : (
-              <Text className="text-text-muted text-center py-4">
-                No contacts associated with this organization
-              </Text>
+              <div className="rounded-lg border border-border-primary bg-background-primary py-8 text-center">
+                <Text className="text-text-muted">
+                  No contacts associated with this organization
+                </Text>
+              </div>
             )}
-          </Paper>
+          </Card>
         </div>
 
         {/* Sidebar */}
         <div className="lg:col-span-1">
-          <Paper p="lg" radius="md" className="bg-surface-secondary border border-border-primary">
+          <Card className="border border-border-primary bg-surface-secondary">
             <Title order={4} className="text-text-primary mb-4">
               Quick Info
             </Title>
@@ -216,7 +222,7 @@ export default function OrganizationDetailPage() {
                 <Text size="xs" className="text-text-muted">
                   Created
                 </Text>
-                <Text className="text-text-primary">
+                <Text size="sm" className="text-text-primary">
                   {new Date(organization.createdAt).toLocaleDateString()}
                 </Text>
               </div>
@@ -224,20 +230,20 @@ export default function OrganizationDetailPage() {
                 <Text size="xs" className="text-text-muted">
                   Total Contacts
                 </Text>
-                <Text className="text-text-primary">{organization._count.contacts}</Text>
+                <Text size="sm" className="text-text-primary">{organization._count.contacts}</Text>
               </div>
               <div>
                 <Text size="xs" className="text-text-muted">
                   Created By
                 </Text>
-                <Text className="text-text-primary">
+                <Text size="sm" className="text-text-primary">
                   {organization.createdBy.name ?? organization.createdBy.email}
                 </Text>
               </div>
             </Stack>
-          </Paper>
+          </Card>
         </div>
       </div>
-    </Container>
+    </div>
   );
 }
