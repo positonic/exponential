@@ -35,6 +35,8 @@ import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
 import { workspaceRouter } from "./routers/workspace";
 import { resourceRouter } from "./routers/resource";
+import { crmContactRouter } from "./routers/crmContact";
+import { crmOrganizationRouter } from "./routers/crmOrganization";
 /**
  * This is the primary router for your server.
  *
@@ -77,6 +79,8 @@ export const appRouter = createTRPCRouter({
   habit: habitRouter,
   workspace: workspaceRouter,
   resource: resourceRouter,
+  crmContact: crmContactRouter,
+  crmOrganization: crmOrganizationRouter,
 });
 
 // export type definition of API
