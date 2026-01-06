@@ -1,7 +1,7 @@
 /**
  * Time-based focus period for filtering content on the Today page
  */
-export type FocusPeriod = "today" | "week" | "month";
+export type FocusPeriod = "today" | "tomorrow" | "week" | "month";
 
 /**
  * Date range for filtering actions and outcomes
@@ -14,7 +14,7 @@ export interface DateRange {
 /**
  * Valid focus periods for runtime validation
  */
-export const VALID_FOCUS_PERIODS: FocusPeriod[] = ["today", "week", "month"];
+export const VALID_FOCUS_PERIODS: FocusPeriod[] = ["today", "tomorrow", "week", "month"];
 
 /**
  * Type guard to check if a string is a valid FocusPeriod
