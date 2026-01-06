@@ -8,6 +8,7 @@ import {
   IconCalendarTime,
   IconHome,
   IconBriefcase,
+  IconUsers,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
@@ -60,9 +61,8 @@ export function NavLinks() {
 
   // Generate workspace-aware paths
   const homePath = workspaceSlug ? `/w/${workspaceSlug}/home` : '/home';
-
-  // Generate workspace-aware paths
   const workspacePath = workspaceSlug ? `/w/${workspaceSlug}/workspace` : null;
+  const crmPath = workspaceSlug ? `/w/${workspaceSlug}/crm` : null;
 
   return (
     <div className="space-y-1">
@@ -72,6 +72,11 @@ export function NavLinks() {
       {workspacePath && (
         <NavLink href={workspacePath} icon={IconBriefcase}>
           Workspace
+        </NavLink>
+      )}
+      {crmPath && (
+        <NavLink href={crmPath} icon={IconUsers}>
+          CRM
         </NavLink>
       )}
       <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>

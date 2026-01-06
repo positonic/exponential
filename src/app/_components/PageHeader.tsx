@@ -41,6 +41,7 @@ export function PageHeader({
             onChange={(value) => onFocusChange(value as FocusPeriod)}
             data={[
               { label: "Today", value: "today" },
+              { label: "Tomorrow", value: "tomorrow" },
               { label: "Week", value: "week" },
               { label: "Month", value: "month" },
             ]}

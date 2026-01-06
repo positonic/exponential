@@ -125,7 +125,10 @@ export function ActionList({
   onOverdueBulkAction,
   onOverdueBulkReschedule,
   enableBulkEditForProject = false,
-  onProjectBulkDelete
+  onProjectBulkDelete,
+  enableBulkEditForFocus = false,
+  onFocusBulkDelete,
+  onFocusBulkReschedule
 }: {
   viewName: string,
   actions: Action[],
@@ -136,7 +139,10 @@ export function ActionList({
   onOverdueBulkAction?: (action: 'delete', actionIds: string[]) => void,
   onOverdueBulkReschedule?: (date: Date | null, actionIds: string[]) => void,
   enableBulkEditForProject?: boolean,
-  onProjectBulkDelete?: (actionIds: string[]) => void
+  onProjectBulkDelete?: (actionIds: string[]) => void,
+  enableBulkEditForFocus?: boolean,
+  onFocusBulkDelete?: (actionIds: string[]) => void,
+  onFocusBulkReschedule?: (date: Date | null, actionIds: string[]) => void
 }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
@@ -147,6 +153,8 @@ export function ActionList({
   const [selectedOverdueActionIds, setSelectedOverdueActionIds] = useState<Set<string>>(new Set());
   const [bulkEditProjectMode, setBulkEditProjectMode] = useState(false);
   const [selectedProjectActionIds, setSelectedProjectActionIds] = useState<Set<string>>(new Set());
+  const [bulkEditFocusMode, setBulkEditFocusMode] = useState(false);
+  const [selectedFocusActionIds, setSelectedFocusActionIds] = useState<Set<string>>(new Set());
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
   const utils = api.useUtils();
@@ -411,6 +419,33 @@ export function ActionList({
     }
   };
 
+  // Helper functions for focus view bulk operations (today, this week, this month)
+  const handleSelectAllFocus = () => {
+    const allFocusIds = filteredActions.map(action => action.id);
+    setSelectedFocusActionIds(new Set(allFocusIds));
+  };
+
+  const handleSelectNoneFocus = () => {
+    setSelectedFocusActionIds(new Set());
+  };
+
+  const handleFocusBulkDelete = () => {
+    if (selectedFocusActionIds.size === 0 || !onFocusBulkDelete) return;
+
+    if (window.confirm(`Are you sure you want to delete ${selectedFocusActionIds.size} actions?`)) {
+      onFocusBulkDelete(Array.from(selectedFocusActionIds));
+      setSelectedFocusActionIds(new Set());
+      setBulkEditFocusMode(false);
+    }
+  };
+
+  const handleFocusBulkReschedule = (date: Date | null) => {
+    if (selectedFocusActionIds.size === 0 || !onFocusBulkReschedule) return;
+
+    onFocusBulkReschedule(date, Array.from(selectedFocusActionIds));
+    setSelectedFocusActionIds(new Set());
+  };
+
   // Helper to render a single action item (used for both lists)
   const renderActionItem = (action: Action, isOverdue: boolean) => (
     <Paper
@@ -502,6 +537,25 @@ export function ActionList({
                     newSelected.delete(action.id);
                   }
                   setSelectedProjectActionIds(newSelected);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+          {/* Bulk selection checkbox for focus view actions when bulk edit is enabled */}
+          {!isOverdue && bulkEditFocusMode && enableBulkEditForFocus && (
+            <div className="bulk-checkbox-wrapper">
+              <Checkbox
+                size="sm"
+                checked={selectedFocusActionIds.has(action.id)}
+                onChange={(event) => {
+                  const newSelected = new Set(selectedFocusActionIds);
+                  if (event.currentTarget.checked) {
+                    newSelected.add(action.id);
+                  } else {
+                    newSelected.delete(action.id);
+                  }
+                  setSelectedFocusActionIds(newSelected);
                 }}
                 onClick={(e) => e.stopPropagation()}
               />
@@ -822,16 +876,21 @@ export function ActionList({
         >
           Show: {filter === "ACTIVE" ? "Active" : "Completed"}
         </button>
-        {enableBulkEditForProject && (
+        {(enableBulkEditForProject || enableBulkEditForFocus) && (
           <Button
             size="xs"
             variant="subtle"
             onClick={() => {
-              setBulkEditProjectMode(!bulkEditProjectMode);
-              setSelectedProjectActionIds(new Set());
+              if (enableBulkEditForProject) {
+                setBulkEditProjectMode(!bulkEditProjectMode);
+                setSelectedProjectActionIds(new Set());
+              } else if (enableBulkEditForFocus) {
+                setBulkEditFocusMode(!bulkEditFocusMode);
+                setSelectedFocusActionIds(new Set());
+              }
             }}
           >
-            {bulkEditProjectMode ? "Exit" : "Bulk edit"}
+            {(bulkEditProjectMode || bulkEditFocusMode) ? "Exit" : "Bulk edit"}
           </Button>
         )}
       </Group>
@@ -853,6 +912,38 @@ export function ActionList({
             leftSection={<IconTrash size={12} />}
             disabled={selectedProjectActionIds.size === 0}
             onClick={handleProjectBulkDelete}
+          >
+            Delete Selected
+          </Button>
+        </Group>
+      )}
+
+      {/* Bulk actions toolbar for focus view tasks (today, this week, this month) */}
+      {bulkEditFocusMode && enableBulkEditForFocus && (
+        <Group mb="md" gap="sm">
+          <Button size="xs" variant="light" onClick={handleSelectAllFocus}>
+            Select All
+          </Button>
+          <Button size="xs" variant="light" onClick={handleSelectNoneFocus}>
+            Select None
+          </Button>
+          <Badge>{selectedFocusActionIds.size} selected</Badge>
+          <UnifiedDatePicker
+            value={null}
+            onChange={(date) => handleFocusBulkReschedule(date)}
+            mode="bulk"
+            selectedCount={selectedFocusActionIds.size}
+            triggerText="Reschedule"
+            notificationContext="action"
+            disabled={selectedFocusActionIds.size === 0}
+          />
+          <Button
+            size="xs"
+            variant="filled"
+            color="red"
+            leftSection={<IconTrash size={12} />}
+            disabled={selectedFocusActionIds.size === 0}
+            onClick={handleFocusBulkDelete}
           >
             Delete Selected
           </Button>

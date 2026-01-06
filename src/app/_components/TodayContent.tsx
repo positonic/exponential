@@ -113,6 +113,8 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
     switch (focus) {
       case "today":
         return "No events today";
+      case "tomorrow":
+        return "No events tomorrow";
       case "week":
         return "No events this week";
       case "month":

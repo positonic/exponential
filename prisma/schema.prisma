@@ -46,63 +46,69 @@ model Session {
 }
 
 model User {
-  id                      String                     @id @default(cuid())
-  name                    String?
-  email                   String?                    @unique
-  emailVerified           DateTime?
-  image                   String?
-  onboardingCompletedAt   DateTime?
-  onboardingStep          Int                        @default(1)
-  projectSetupCompletedAt DateTime?
-  selectedTools           String[]
-  usageType               String?
-  userRole                String?
-  isAdmin                 Boolean                    @default(false)
-  emailMarketingOptIn     Boolean                    @default(true)
-  workRole                String?
-  workFunction            String[]
-  usagePurposes           String[]
-  lastLogin               DateTime?
-  defaultWorkspaceId      String?
-  accounts                Account[]
-  actions                 Action[]
-  actionAssignees         ActionAssignee[]           @relation("ActionAssignees")
-  aiInteractionHistory    AiInteractionHistory[]
-  feedback                Feedback[]
-  goals                   Goal[]
-  integrations            Integration[]
-  permissionsGrantedBy    IntegrationPermission[]    @relation("PermissionGrantedBy")
-  permissionsGrantedTo    IntegrationPermission[]    @relation("PermissionGrantedTo")
-  permissionsRevokedBy    IntegrationPermission[]    @relation("PermissionRevokedBy")
-  integrationMappings     IntegrationUserMapping[]
-  notes                   Note[]
-  notificationPreferences NotificationPreference?
-  navigationPreference    NavigationPreference?
-  outcomes                Outcome[]
-  posts                   Post[]
-  projects                Project[]
-  projectMemberships      ProjectMember[]
-  scheduledNotifications  ScheduledNotification[]
-  sessions                Session[]
-  slackChannelsConfigured SlackChannelConfig[]
-  slackMessageHistory     SlackMessageHistory[]
-  slackRegistrations      SlackRegistrationToken[]
-  teams                   TeamUser[]
-  transcriptionSessions   TranscriptionSession[]
-  exercises               UserExercise[]
-  verificationTokens      VerificationToken[]
-  whatsappConversations   WhatsAppConversation[]
-  workflows               Workflow[]
-  weeklyOutcomesCreated   WeeklyOutcome[]            @relation("WeeklyOutcomeCreated")
-  weeklyOutcomeAssignees  WeeklyOutcomeAssignee[]    @relation("WeeklyOutcomeAssignee")
-  teamCapacities          TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
-  weeklyReviewSharing     WeeklyReviewSharing[]
-  wheelOfLifeAssessments  WheelOfLifeAssessment[]
-  habits                  Habit[]
-  ownedWorkspaces              Workspace[]                @relation("WorkspaceOwner")
-  workspaceMemberships         WorkspaceUser[]
-  resources                    Resource[]
-  workspaceInvitationsCreated  WorkspaceInvitation[]      @relation("InvitationCreator")
+  id                          String                     @id @default(cuid())
+  name                        String?
+  email                       String?                    @unique
+  emailVerified               DateTime?
+  image                       String?
+  onboardingCompletedAt       DateTime?
+  onboardingStep              Int                        @default(1)
+  projectSetupCompletedAt     DateTime?
+  selectedTools               String[]
+  usageType                   String?
+  userRole                    String?
+  isAdmin                     Boolean                    @default(false)
+  emailMarketingOptIn         Boolean                    @default(true)
+  workRole                    String?
+  workFunction                String[]
+  usagePurposes               String[]
+  lastLogin                   DateTime?
+  defaultWorkspaceId          String?
+  accounts                    Account[]
+  actions                     Action[]
+  actionAssignees             ActionAssignee[]           @relation("ActionAssignees")
+  aiInteractionHistory        AiInteractionHistory[]
+  feedback                    Feedback[]
+  goals                       Goal[]
+  integrations                Integration[]
+  permissionsGrantedBy        IntegrationPermission[]    @relation("PermissionGrantedBy")
+  permissionsGrantedTo        IntegrationPermission[]    @relation("PermissionGrantedTo")
+  permissionsRevokedBy        IntegrationPermission[]    @relation("PermissionRevokedBy")
+  integrationMappings         IntegrationUserMapping[]
+  notes                       Note[]
+  notificationPreferences     NotificationPreference?
+  navigationPreference        NavigationPreference?
+  outcomes                    Outcome[]
+  posts                       Post[]
+  projects                    Project[]
+  projectMemberships          ProjectMember[]
+  scheduledNotifications      ScheduledNotification[]
+  sessions                    Session[]
+  slackChannelsConfigured     SlackChannelConfig[]
+  slackMessageHistory         SlackMessageHistory[]
+  slackRegistrations          SlackRegistrationToken[]
+  teams                       TeamUser[]
+  transcriptionSessions       TranscriptionSession[]
+  exercises                   UserExercise[]
+  verificationTokens          VerificationToken[]
+  whatsappConversations       WhatsAppConversation[]
+  workflows                   Workflow[]
+  weeklyOutcomesCreated       WeeklyOutcome[]            @relation("WeeklyOutcomeCreated")
+  weeklyOutcomeAssignees      WeeklyOutcomeAssignee[]    @relation("WeeklyOutcomeAssignee")
+  teamCapacities              TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
+  weeklyReviewSharing         WeeklyReviewSharing[]
+  wheelOfLifeAssessments      WheelOfLifeAssessment[]
+  habits                      Habit[]
+  ownedWorkspaces             Workspace[]                @relation("WorkspaceOwner")
+  workspaceMemberships        WorkspaceUser[]
+  resources                   Resource[]
+  workspaceInvitationsCreated WorkspaceInvitation[]      @relation("InvitationCreator")
+  // CRM relations
+  crmContactsCreated          CrmContact[]               @relation("CrmContactCreatedBy")
+  crmOrganizationsCreated     CrmOrganization[]          @relation("CrmOrganizationCreatedBy")
+  crmInteractions             CrmContactInteraction[]    @relation("CrmInteractionUser")
+  crmCommunicationsCreated    CrmCommunication[]         @relation("CrmCommunicationCreatedBy")
+  crmTemplatesCreated         CrmCommunicationTemplate[] @relation("CrmTemplateCreatedBy")
 }
 
 model VerificationToken {
@@ -130,15 +136,20 @@ model Workspace {
   updatedAt   DateTime @updatedAt
   ownerId     String
 
-  owner     User            @relation("WorkspaceOwner", fields: [ownerId], references: [id])
-  members   WorkspaceUser[]
-  projects  Project[]
-  goals     Goal[]
-  outcomes  Outcome[]
-  actions   Action[]
-  teams       Team[]
-  resources   Resource[]
-  invitations WorkspaceInvitation[]
+  owner             User                       @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members           WorkspaceUser[]
+  projects          Project[]
+  goals             Goal[]
+  outcomes          Outcome[]
+  actions           Action[]
+  teams             Team[]
+  resources         Resource[]
+  invitations       WorkspaceInvitation[]
+  // CRM relations
+  crmContacts       CrmContact[]
+  crmOrganizations  CrmOrganization[]
+  crmCommunications CrmCommunication[]
+  crmTemplates      CrmCommunicationTemplate[]
 
   @@index([slug])
   @@index([ownerId])
@@ -1325,4 +1336,143 @@ model KnowledgeChunk {
   @@index([sourceType, sourceId])
   @@index([userId])
   @@index([projectId])
+}
+
+// ============================================
+// CRM Models
+// ============================================
+
+model CrmContact {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  firstName           String?
+  lastName            String?
+  email               String?
+  phone               String?
+  linkedIn            String?
+  telegram            String?
+  twitter             String?
+  github              String?
+  about               String?   @db.Text
+  skills              String[]
+  tags                String[]
+  lastInteractionAt   DateTime?
+  lastInteractionType String?
+  organizationId      String?
+  createdById         String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  workspace      Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  organization   CrmOrganization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  createdBy      User                    @relation("CrmContactCreatedBy", fields: [createdById], references: [id])
+  interactions   CrmContactInteraction[]
+  communications CrmCommunication[]
+
+  @@index([workspaceId])
+  @@index([organizationId])
+  @@index([createdById])
+  @@index([email])
+  @@index([lastInteractionAt])
+}
+
+model CrmOrganization {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  websiteUrl  String?
+  logoUrl     String?
+  description String?  @db.Text
+  industry    String?
+  size        String? // "1-10" | "11-50" | "51-200" | "201-500" | "501-1000" | "1000+"
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User         @relation("CrmOrganizationCreatedBy", fields: [createdById], references: [id])
+  contacts  CrmContact[]
+
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([name])
+}
+
+model CrmContactInteraction {
+  id        String   @id @default(cuid())
+  contactId String
+  userId    String
+  type      String // EMAIL, TELEGRAM, PHONE_CALL, MEETING, NOTE, LINKEDIN, OTHER
+  direction String // INBOUND, OUTBOUND
+  subject   String?
+  notes     String?  @db.Text
+  metadata  Json? // Additional data like email thread ID, call duration, etc.
+  createdAt DateTime @default(now())
+
+  contact CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  user    User       @relation("CrmInteractionUser", fields: [userId], references: [id])
+
+  @@index([contactId])
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model CrmCommunication {
+  id           String    @id @default(cuid())
+  contactId    String?
+  workspaceId  String
+  type         String // EMAIL, TELEGRAM, SMS
+  fromEmail    String?
+  toEmail      String?
+  fromTelegram String?
+  toTelegram   String?
+  subject      String?
+  textContent  String?   @db.Text
+  htmlContent  String?   @db.Text
+  status       String    @default("DRAFT") // DRAFT, QUEUED, SENT, FAILED, CANCELLED
+  sentAt       DateTime?
+  openedAt     DateTime?
+  clickedAt    DateTime?
+  bouncedAt    DateTime?
+  errorMessage String?
+  externalId   String? // ID from external service (e.g., Postmark message ID)
+  metadata     Json? // Additional tracking data
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  contact   CrmContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User        @relation("CrmCommunicationCreatedBy", fields: [createdById], references: [id])
+
+  @@index([contactId])
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([status])
+  @@index([type])
+  @@index([sentAt])
+}
+
+model CrmCommunicationTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  subject     String?
+  textContent String?  @db.Text
+  htmlContent String?  @db.Text
+  type        String // EMAIL, TELEGRAM, SMS
+  variables   String[] // Template variable names like ["firstName", "companyName"]
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("CrmTemplateCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@index([type])
+  @@index([isActive])
 }

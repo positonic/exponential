@@ -28,6 +28,7 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
   const deleteOutcomeMutation = api.outcome.deleteOutcome.useMutation({
     onSuccess: () => {
       void utils.outcome.getMyOutcomes.invalidate();
+      void utils.outcome.getProjectOutcomes.invalidate();
       notifications.show({
         title: 'Success',
         message: 'Outcome deleted successfully',
@@ -46,6 +47,7 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
   const bulkDeleteMutation = api.outcome.deleteOutcomes.useMutation({
     onSuccess: () => {
       void utils.outcome.getMyOutcomes.invalidate();
+      void utils.outcome.getProjectOutcomes.invalidate();
       setSelectedOutcomes(new Set());
       setBulkEditMode(false);
       notifications.show({
@@ -92,11 +94,15 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
   };
   
   const handleDeleteSelected = () => {
-    bulkDeleteMutation.mutate({ ids: Array.from(selectedOutcomes) });
+    if (confirm(`Are you sure you want to delete ${selectedOutcomes.size} outcome${selectedOutcomes.size !== 1 ? 's' : ''}?`)) {
+      bulkDeleteMutation.mutate({ ids: Array.from(selectedOutcomes) });
+    }
   };
-  
+
   const handleDeleteOutcome = (id: string) => {
-    deleteOutcomeMutation.mutate({ id });
+    if (confirm("Are you sure you want to delete this outcome?")) {
+      deleteOutcomeMutation.mutate({ id });
+    }
   };
 
   return (

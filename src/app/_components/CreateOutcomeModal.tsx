@@ -179,16 +179,6 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
     }
   });
 
-  const outcomeTypes = [
-    { value: 'daily', label: 'Daily' },
-    { value: 'weekly', label: 'Weekly' },
-    { value: 'monthly', label: 'Monthly' },
-    { value: 'quarterly', label: 'Quarterly' },
-    { value: 'annual', label: 'Annual' },
-    { value: 'life', label: 'Life' },
-    { value: 'problem', label: 'Problem' }
-  ] as const;
-
   const resetForm = () => {
     setDescription("");
     setDueDate(null);
@@ -312,30 +302,6 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
                 borderColor: 'var(--color-border-primary)',
               },
               label: {
-                color: 'var(--color-text-primary)',
-              },
-            }}
-          />
-
-          <Select
-            label="Outcome Type"
-            data={outcomeTypes}
-            value={type}
-            onChange={(value) => setType((value ?? "daily") as OutcomeType)}
-            required
-            mt="md"
-            styles={{
-              input: {
-                backgroundColor: 'var(--color-surface-secondary)',
-                color: 'var(--color-text-primary)',
-                borderColor: 'var(--color-border-primary)',
-              },
-              label: {
-                color: 'var(--color-text-primary)',
-              },
-              dropdown: {
-                backgroundColor: 'var(--color-surface-secondary)',
-                borderColor: 'var(--color-border-primary)',
                 color: 'var(--color-text-primary)',
               },
             }}

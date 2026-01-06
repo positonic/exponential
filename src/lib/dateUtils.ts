@@ -8,6 +8,7 @@ import {
   format,
   isSameMonth,
   isSameYear,
+  addDays,
 } from "date-fns";
 import type { FocusPeriod, DateRange } from "~/types/focus";
 
@@ -21,6 +22,13 @@ export function getDateRangeForFocus(focus: FocusPeriod, referenceDate: Date = n
         startDate: startOfDay(referenceDate),
         endDate: endOfDay(referenceDate),
       };
+    case "tomorrow": {
+      const tomorrow = addDays(referenceDate, 1);
+      return {
+        startDate: startOfDay(tomorrow),
+        endDate: endOfDay(tomorrow),
+      };
+    }
     case "week":
       return {
         startDate: startOfWeek(referenceDate, { weekStartsOn: 1 }), // Monday
@@ -41,6 +49,8 @@ export function formatFocusLabel(focus: FocusPeriod): string {
   switch (focus) {
     case "today":
       return "Today";
+    case "tomorrow":
+      return "Tomorrow";
     case "week":
       return "This Week";
     case "month":
@@ -54,6 +64,8 @@ export function formatFocusLabel(focus: FocusPeriod): string {
 export function formatDateRangeDisplay(focus: FocusPeriod, dateRange: DateRange): string {
   switch (focus) {
     case "today":
+      return format(dateRange.startDate, "EEEE, MMMM d, yyyy");
+    case "tomorrow":
       return format(dateRange.startDate, "EEEE, MMMM d, yyyy");
     case "week": {
       const start = dateRange.startDate;
@@ -78,6 +90,8 @@ export function getFocusSectionTitle(focus: FocusPeriod, baseTitle: string): str
   switch (focus) {
     case "today":
       return `Today's ${baseTitle}`;
+    case "tomorrow":
+      return `Tomorrow's ${baseTitle}`;
     case "week":
       return `This Week's ${baseTitle}`;
     case "month":

@@ -340,11 +340,13 @@ export function ProjectContent({
                 className="mx-auto w-full bg-surface-secondary"
               >
                 <GoalsTable goals={goalsQuery.data ?? []} />
-                <CreateGoalModal projectId={projectId}>
-                  <Button variant="filled" color="dark" leftSection="+">
-                    Add Goal
-                  </Button>
-                </CreateGoalModal>
+                <div className="mt-4">
+                  <CreateGoalModal projectId={projectId}>
+                    <Button variant="filled" color="dark" leftSection="+">
+                      Add Goal
+                    </Button>
+                  </CreateGoalModal>
+                </div>
               </Paper>
             </Tabs.Panel>
 
@@ -355,11 +357,13 @@ export function ProjectContent({
                 className="mx-auto w-full bg-surface-secondary"
               >
                 <OutcomesTable outcomes={outcomesQuery.data ?? []} />
-                <CreateOutcomeModal projectId={projectId}>
-                  <Button variant="filled" color="dark" leftSection="+">
-                    Add Outcome
-                  </Button>
-                </CreateOutcomeModal>
+                <div className="mt-4">
+                  <CreateOutcomeModal projectId={projectId}>
+                    <Button variant="filled" color="dark" leftSection="+">
+                      Add Outcome
+                    </Button>
+                  </CreateOutcomeModal>
+                </div>
               </Paper>
             </Tabs.Panel>
 

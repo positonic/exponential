@@ -4,6 +4,7 @@ import { Text, Stack, Group, Checkbox, Badge, ActionIcon } from '@mantine/core';
 import { IconPlus, IconFolder } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { CreateActionModal } from '../CreateActionModal';
+import { HTMLContent } from '~/app/_components/HTMLContent';
 
 interface NextActionsProps {
   workspaceId?: string;
@@ -115,7 +116,10 @@ export function NextActions({ workspaceId, limit = 5 }: NextActionsProps) {
                 className={action.status === 'COMPLETED' ? 'text-text-muted line-through' : 'text-text-primary'}
                 lineClamp={1}
               >
-                {action.name}
+                <HTMLContent
+                  html={action.name}
+                  className={action.status === 'COMPLETED' ? 'text-text-muted' : 'text-text-primary'}
+                />
               </Text>
               {action.project && (
                 <Group gap={4}>

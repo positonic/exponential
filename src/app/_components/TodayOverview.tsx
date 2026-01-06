@@ -154,7 +154,7 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
   };
 
   const getEmptyMessage = (type: "goals" | "outcomes" | "actions") => {
-    const periodText = focus === "today" ? "today" : focus === "week" ? "this week" : "this month";
+    const periodText = focus === "today" ? "today" : focus === "tomorrow" ? "tomorrow" : focus === "week" ? "this week" : "this month";
     return `No ${type} due ${periodText}`;
   };
 
