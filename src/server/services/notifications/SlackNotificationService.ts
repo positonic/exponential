@@ -145,13 +145,20 @@ export class SlackNotificationService extends NotificationService {
       }
     });
 
-    // Main message content
+    // Main message content - Slack section blocks have a 3000 char limit
     if (payload.message) {
+      const maxLength = 2900; // Leave buffer for safety
+      let messageText = payload.message;
+
+      if (messageText.length > maxLength) {
+        messageText = messageText.substring(0, maxLength) + '\n\n_...content truncated_';
+      }
+
       blocks.push({
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: payload.message
+          text: messageText
         }
       });
     }
