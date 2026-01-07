@@ -17,6 +17,7 @@ import {
   Select,
   Textarea,
 } from '@mantine/core';
+import { modals } from '@mantine/modals';
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconSearch,
@@ -147,6 +148,21 @@ function OrganizationForm({
       </Stack>
     </form>
   );
+}
+
+function getInitialFromName(name?: string | null) {
+  const trimmed = name?.trim();
+  if (!trimmed || trimmed.length === 0) return '?';
+  return trimmed[0]!.toUpperCase();
+}
+
+function getHostnameFromUrl(url?: string | null) {
+  if (!url) return '';
+  try {
+    return new URL(url).hostname;
+  } catch (_e) {
+    return '';
+  }
 }
 
 export default function OrganizationsPage() {
@@ -283,7 +299,7 @@ export default function OrganizationsPage() {
                   <Table.Td>
                     <Group gap="sm">
                       <Avatar size="sm" radius="md" src={org.logoUrl}>
-                        {org.name[0]}
+                        {getInitialFromName(org.name)}
                       </Avatar>
                       <Text size="sm" className="text-text-primary">{org.name}</Text>
                     </Group>
@@ -298,7 +314,7 @@ export default function OrganizationsPage() {
                           rel="noopener noreferrer"
                           className="text-text-secondary hover:text-brand-primary text-sm"
                         >
-                          {new URL(org.websiteUrl).hostname}
+                          {getHostnameFromUrl(org.websiteUrl)}
                         </a>
                       </Group>
                     ) : (
@@ -343,7 +359,15 @@ export default function OrganizationsPage() {
                         <Menu.Item
                           leftSection={<IconTrash size={14} />}
                           color="red"
-                          onClick={() => deleteOrganization.mutate({ id: org.id })}
+                          onClick={() =>
+                            modals.openConfirmModal({
+                              title: 'Delete Organization',
+                              children: <Text size="sm">Are you sure you want to delete this organization? This action cannot be undone.</Text>,
+                              labels: { confirm: 'Delete', cancel: 'Cancel' },
+                              confirmProps: { color: 'red' },
+                              onConfirm: () => deleteOrganization.mutate({ id: org.id }),
+                            })
+                          }
                         >
                           Delete
                         </Menu.Item>

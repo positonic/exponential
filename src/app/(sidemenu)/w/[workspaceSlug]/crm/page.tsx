@@ -52,12 +52,12 @@ function StatCard({ title, value, icon, isLoading, href }: StatCardProps) {
 export default function CRMDashboardPage() {
   const { workspace, workspaceId, isLoading: workspaceLoading } = useWorkspace();
 
-  const { data: contactStats, isLoading: contactStatsLoading } = api.crmContact.getStats.useQuery(
+  const { data: contactStats, isLoading: contactStatsLoading, error: contactStatsError } = api.crmContact.getStats.useQuery(
     { workspaceId: workspaceId! },
     { enabled: !!workspaceId }
   );
 
-  const { data: orgStats, isLoading: orgStatsLoading } = api.crmOrganization.getStats.useQuery(
+  const { data: orgStats, isLoading: orgStatsLoading, error: orgStatsError } = api.crmOrganization.getStats.useQuery(
     { workspaceId: workspaceId! },
     { enabled: !!workspaceId }
   );
@@ -79,6 +79,14 @@ export default function CRMDashboardPage() {
     return (
       <div className="space-y-6">
         <Text className="text-text-secondary">Workspace not found</Text>
+      </div>
+    );
+  }
+
+  if (contactStatsError || orgStatsError) {
+    return (
+      <div className="space-y-6">
+        <Text className="text-text-secondary">Failed to load dashboard data</Text>
       </div>
     );
   }

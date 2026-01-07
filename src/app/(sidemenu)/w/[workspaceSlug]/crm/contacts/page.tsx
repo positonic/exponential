@@ -42,8 +42,8 @@ function getRelativeTime(date: Date | null): string {
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffMinutes = Math.floor(diffMs / (1000 * 60));
 
-  if (diffMinutes < 60) return `${diffMinutes} minutes ago`;
-  if (diffHours < 24) return `${diffHours} hours ago`;
+  if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
   if (diffDays === 1) return 'yesterday';
   if (diffDays < 7) return `${diffDays} days ago`;
   if (diffDays < 30) return `about ${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;

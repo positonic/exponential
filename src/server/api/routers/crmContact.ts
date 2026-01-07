@@ -4,7 +4,31 @@ import {
   protectedProcedure,
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import type { Prisma } from "@prisma/client";
+import { encryptString, decryptBuffer } from '~/server/utils/encryption';
+import type { Prisma, CrmContact } from "@prisma/client";
+
+// Type for decrypted contact - replaces Bytes fields with string | null
+type DecryptedContact<T extends CrmContact> = Omit<T, 'email' | 'phone' | 'linkedIn' | 'telegram' | 'twitter' | 'github'> & {
+  email: string | null;
+  phone: string | null;
+  linkedIn: string | null;
+  telegram: string | null;
+  twitter: string | null;
+  github: string | null;
+};
+
+// Helper to decrypt PII fields and return properly typed contact
+function decryptContactPII<T extends CrmContact>(contact: T): DecryptedContact<T> {
+  return {
+    ...contact,
+    email: decryptBuffer(contact.email) ?? null,
+    phone: decryptBuffer(contact.phone) ?? null,
+    linkedIn: decryptBuffer(contact.linkedIn) ?? null,
+    telegram: decryptBuffer(contact.telegram) ?? null,
+    twitter: decryptBuffer(contact.twitter) ?? null,
+    github: decryptBuffer(contact.github) ?? null,
+  };
+}
 
 // Input schemas
 const createContactInput = z.object({
@@ -106,7 +130,7 @@ export const crmContactRouter = createTRPCRouter({
                 OR: [
                   { firstName: { contains: search, mode: "insensitive" } },
                   { lastName: { contains: search, mode: "insensitive" } },
-                  { email: { contains: search, mode: "insensitive" } },
+                  // Note: email is encrypted and cannot be searched
                 ],
               }
             : {}),
@@ -138,6 +162,17 @@ export const crmContactRouter = createTRPCRouter({
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       });
 
+      // Decrypt PII fields before returning
+      const decrypted = contacts.map((c) => {
+        try {
+          return decryptContactPII(c);
+        } catch (e) {
+          console.error('PII decryption failed for contact', c.id, e);
+          // Return with null PII fields on decryption failure
+          return { ...c, email: null, phone: null, linkedIn: null, telegram: null, twitter: null, github: null };
+        }
+      });
+
       let nextCursor: string | undefined;
       if (contacts.length > limit) {
         const nextItem = contacts.pop();
@@ -145,7 +180,7 @@ export const crmContactRouter = createTRPCRouter({
       }
 
       return {
-        contacts,
+        contacts: decrypted,
         nextCursor,
       };
     }),
@@ -162,8 +197,12 @@ export const crmContactRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const { id, includeInteractions, includeCommunications } = input;
 
-      const contact = await ctx.db.crmContact.findUnique({
-        where: { id },
+      // Combine existence + access: only return the contact if the current user has workspace access
+      const contact = await ctx.db.crmContact.findFirst({
+        where: {
+          id,
+          workspace: { members: { some: { userId: ctx.session.user.id } } },
+        },
         include: {
           organization: true,
           createdBy: {
@@ -199,28 +238,20 @@ export const crmContactRouter = createTRPCRouter({
       });
 
       if (!contact) {
+        // Return a single generic NOT_FOUND to avoid leaking existence or access details
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "Contact not found",
+          message: "Contact not found or inaccessible",
         });
       }
 
-      // Verify user has access to this contact's workspace
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId: contact.workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this contact",
-        });
+      // Decrypt PII fields before returning
+      try {
+        return decryptContactPII(contact);
+      } catch (e) {
+        console.error('PII decryption failed for contact', contact.id, e);
+        return { ...contact, email: null, phone: null, linkedIn: null, telegram: null, twitter: null, github: null };
       }
-
-      return contact;
     }),
 
   // Create a new contact
@@ -244,14 +275,42 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
+      // If an organizationId is provided, ensure it belongs to the same workspace
+      if (contactData.organizationId) {
+        const organization = await ctx.db.crmOrganization.findUnique({
+          where: { id: contactData.organizationId },
+          select: { workspaceId: true },
+        });
+
+        if (!organization || organization.workspaceId !== workspaceId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Organization must belong to the same workspace',
+          });
+        }
+      }
+
+      // Prepare encrypted PII fields for storage
+      const dbData: any = {
+        workspaceId,
+        createdById: ctx.session.user.id,
+        skills: contactData.skills ?? [],
+        tags: contactData.tags ?? [],
+        firstName: contactData.firstName ?? undefined,
+        lastName: contactData.lastName ?? undefined,
+        about: contactData.about ?? undefined,
+        organizationId: contactData.organizationId ?? undefined,
+      };
+
+      if (contactData.email) dbData.email = encryptString(contactData.email);
+      if (contactData.phone) dbData.phone = encryptString(contactData.phone);
+      if (contactData.linkedIn) dbData.linkedIn = encryptString(contactData.linkedIn);
+      if (contactData.telegram) dbData.telegram = encryptString(contactData.telegram);
+      if (contactData.twitter) dbData.twitter = encryptString(contactData.twitter);
+      if (contactData.github) dbData.github = encryptString(contactData.github);
+
       const contact = await ctx.db.crmContact.create({
-        data: {
-          ...contactData,
-          workspaceId,
-          createdById: ctx.session.user.id,
-          skills: contactData.skills ?? [],
-          tags: contactData.tags ?? [],
-        },
+        data: dbData,
         include: {
           organization: true,
           createdBy: {
@@ -265,7 +324,13 @@ export const crmContactRouter = createTRPCRouter({
         },
       });
 
-      return contact;
+      // Decrypt fields for the response
+      try {
+        return decryptContactPII(contact);
+      } catch (e) {
+        console.error('PII decryption failed after create for contact', contact.id, e);
+        return { ...contact, email: null, phone: null, linkedIn: null, telegram: null, twitter: null, github: null };
+      }
     }),
 
   // Update a contact
@@ -301,9 +366,35 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
+      // Encrypt any PII fields present in updateData
+      const dbUpdate: any = { ...updateData };
+      try {
+        if (updateData.email !== undefined) {
+          dbUpdate.email = updateData.email ? encryptString(updateData.email) : null;
+        }
+        if (updateData.phone !== undefined) {
+          dbUpdate.phone = updateData.phone ? encryptString(updateData.phone) : null;
+        }
+        if (updateData.linkedIn !== undefined) {
+          dbUpdate.linkedIn = updateData.linkedIn ? encryptString(updateData.linkedIn) : null;
+        }
+        if (updateData.telegram !== undefined) {
+          dbUpdate.telegram = updateData.telegram ? encryptString(updateData.telegram) : null;
+        }
+        if (updateData.twitter !== undefined) {
+          dbUpdate.twitter = updateData.twitter ? encryptString(updateData.twitter) : null;
+        }
+        if (updateData.github !== undefined) {
+          dbUpdate.github = updateData.github ? encryptString(updateData.github) : null;
+        }
+      } catch (e) {
+        console.error('Failed to encrypt PII on update for contact', id, e);
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to process PII' });
+      }
+
       const contact = await ctx.db.crmContact.update({
         where: { id },
-        data: updateData,
+        data: dbUpdate,
         include: {
           organization: true,
           createdBy: {
@@ -317,7 +408,13 @@ export const crmContactRouter = createTRPCRouter({
         },
       });
 
-      return contact;
+      // Decrypt for response
+      try {
+        return decryptContactPII(contact);
+      } catch (e) {
+        console.error('PII decryption failed after update for contact', contact.id, e);
+        return { ...contact, email: null, phone: null, linkedIn: null, telegram: null, twitter: null, github: null };
+      }
     }),
 
   // Delete a contact

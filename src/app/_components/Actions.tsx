@@ -430,16 +430,18 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
     try {
       // Process mutations sequentially to avoid overwhelming database connection pool
+      let successes = 0;
       for (let i = 0; i < actionIds.length; i++) {
         const actionId = actionIds[i]!;
         await bulkUpdateMutation.mutateAsync({
           id: actionId,
-          dueDate: date ?? undefined
+          dueDate: date ?? undefined,
         });
+        successes += 1;
 
         // Small delay between mutations
         if (i < actionIds.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
       }
 
@@ -450,16 +452,25 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       notifications.update({
         id: 'bulk-reschedule-focus',
         title: 'Rescheduled',
-        message: `Successfully updated ${totalCount} action${totalCount !== 1 ? 's' : ''}`,
+        message: `Successfully updated ${successes} of ${totalCount} action${totalCount !== 1 ? 's' : ''}`,
         loading: false,
         autoClose: 3000,
         color: 'green',
       });
-    } catch {
+    } catch (err) {
+      // Surface the underlying error and log it for debugging
+      const errMsg = (err && (err as any).message) ? (err as any).message : String(err);
+      console.error('Bulk reschedule error:', err);
+
+      const isConnectionError = /connect|ECONN|timeout/i.test(errMsg);
+      const message = isConnectionError
+        ? 'Connection error while rescheduling — please check your network and try again.'
+        : `Failed to reschedule some actions: ${errMsg}`;
+
       notifications.update({
         id: 'bulk-reschedule-focus',
         title: 'Error',
-        message: 'Failed to reschedule some actions',
+        message,
         loading: false,
         autoClose: 5000,
         color: 'red',

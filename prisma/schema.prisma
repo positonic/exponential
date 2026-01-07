@@ -1347,25 +1347,25 @@ model CrmContact {
   workspaceId         String
   firstName           String?
   lastName            String?
-  email               String?
-  phone               String?
-  linkedIn            String?
-  telegram            String?
-  twitter             String?
-  github              String?
+  email               Bytes?   @map("email_encrypted") @db.ByteA
+  phone               Bytes?   @map("phone_encrypted") @db.ByteA
+  linkedIn            Bytes?   @map("linkedIn_encrypted") @db.ByteA
+  telegram            Bytes?   @map("telegram_encrypted") @db.ByteA
+  twitter             Bytes?   @map("twitter_encrypted") @db.ByteA
+  github              Bytes?   @map("github_encrypted") @db.ByteA
   about               String?   @db.Text
   skills              String[]
   tags                String[]
   lastInteractionAt   DateTime?
   lastInteractionType String?
   organizationId      String?
-  createdById         String
+  createdById         String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
   workspace      Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   organization   CrmOrganization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  createdBy      User                    @relation("CrmContactCreatedBy", fields: [createdById], references: [id])
+  createdBy      User?                   @relation("CrmContactCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   interactions   CrmContactInteraction[]
   communications CrmCommunication[]
 
@@ -1385,12 +1385,12 @@ model CrmOrganization {
   description String?  @db.Text
   industry    String?
   size        String? // "1-10" | "11-50" | "51-200" | "201-500" | "501-1000" | "1000+"
-  createdById String
+  createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy User         @relation("CrmOrganizationCreatedBy", fields: [createdById], references: [id])
+  createdBy User?        @relation("CrmOrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   contacts  CrmContact[]
 
   @@index([workspaceId])
@@ -1401,7 +1401,7 @@ model CrmOrganization {
 model CrmContactInteraction {
   id        String   @id @default(cuid())
   contactId String
-  userId    String
+  userId    String?
   type      String // EMAIL, TELEGRAM, PHONE_CALL, MEETING, NOTE, LINKEDIN, OTHER
   direction String // INBOUND, OUTBOUND
   subject   String?
@@ -1410,7 +1410,7 @@ model CrmContactInteraction {
   createdAt DateTime @default(now())
 
   contact CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  user    User       @relation("CrmInteractionUser", fields: [userId], references: [id])
+  user    User?      @relation("CrmInteractionUser", fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([contactId])
   @@index([userId])
@@ -1423,10 +1423,10 @@ model CrmCommunication {
   contactId    String?
   workspaceId  String
   type         String // EMAIL, TELEGRAM, SMS
-  fromEmail    String?
-  toEmail      String?
-  fromTelegram String?
-  toTelegram   String?
+  fromEmail    Bytes?   @map("from_email_encrypted") @db.ByteA
+  toEmail      Bytes?   @map("to_email_encrypted") @db.ByteA
+  fromTelegram Bytes?   @map("from_telegram_encrypted") @db.ByteA
+  toTelegram   Bytes?   @map("to_telegram_encrypted") @db.ByteA
   subject      String?
   textContent  String?   @db.Text
   htmlContent  String?   @db.Text
@@ -1435,16 +1435,17 @@ model CrmCommunication {
   openedAt     DateTime?
   clickedAt    DateTime?
   bouncedAt    DateTime?
-  errorMessage String?
+  errorMessage String?  @map("error_message_redacted")
+  errorCode    String?  @map("error_code")
   externalId   String? // ID from external service (e.g., Postmark message ID)
   metadata     Json? // Additional tracking data
-  createdById  String
+  createdById  String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   contact   CrmContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
   workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy User        @relation("CrmCommunicationCreatedBy", fields: [createdById], references: [id])
+  createdBy User?       @relation("CrmCommunicationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([contactId])
   @@index([workspaceId])
@@ -1464,12 +1465,12 @@ model CrmCommunicationTemplate {
   type        String // EMAIL, TELEGRAM, SMS
   variables   String[] // Template variable names like ["firstName", "companyName"]
   isActive    Boolean  @default(true)
-  createdById String
+  createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy User      @relation("CrmTemplateCreatedBy", fields: [createdById], references: [id])
+  createdBy User?     @relation("CrmTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
