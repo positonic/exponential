@@ -99,13 +99,11 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
               variant={syncStatus?.estimatedNewCount ? "filled" : "light"}
               color={syncStatus?.estimatedNewCount ? "blue" : "gray"}
               loading={isSyncing}
-              disabled={isLoading || isSyncing}
+              disabled={isLoading || isSyncing || (syncStatus?.estimatedNewCount === 0 && !!syncStatus?.lastSyncAt)}
               onClick={() => onSync(integration.id)}
               leftSection={
-                successMessage ? (
+                syncStatus?.estimatedNewCount === 0 && syncStatus?.lastSyncAt ? (
                   <IconCheck size={12} />
-                ) : syncStatus?.estimatedNewCount ? (
-                  <IconRefresh size={12} />
                 ) : (
                   <IconRefresh size={12} />
                 )
@@ -115,6 +113,8 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
                 ? 'Syncing...'
                 : syncStatus?.estimatedNewCount
                 ? `Sync ${syncStatus.estimatedNewCount}`
+                : syncStatus?.lastSyncAt
+                ? 'Up to date'
                 : 'Sync Now'
               }
             </Button>
@@ -137,13 +137,6 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
           </Alert>
         )}
 
-        {/* Status indicators */}
-        {syncStatus?.estimatedNewCount === 0 && syncStatus.lastSyncAt && (
-          <Group gap="xs">
-            <IconCheck size={14} color="green" />
-            <Text size="xs" c="green">Up to date</Text>
-          </Group>
-        )}
       </Stack>
     </Card>
   );
@@ -185,8 +178,9 @@ export function FirefliesSyncPanel({ onSyncComplete }: FirefliesSyncPanelProps) 
         });
       }, 3000);
 
-      // Refresh transcriptions list
+      // Refresh transcriptions list and sync status
       void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getFirefliesSyncStatus.invalidate({ integrationId });
       
       // Call callback if provided
       onSyncComplete?.();
