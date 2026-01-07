@@ -113,8 +113,8 @@ export class SlackChannelResolver {
    * Validate that a user has permission to send to a specific channel config
    */
   static async validateUserAccess(
-    userId: string, 
-    projectId?: string, 
+    userId: string,
+    projectId?: string,
     teamId?: string
   ): Promise<boolean> {
     if (projectId) {
@@ -122,7 +122,11 @@ export class SlackChannelResolver {
         where: {
           id: projectId,
           OR: [
+            // User is the project creator
             { createdById: userId },
+            // User is a member of the project's team
+            { team: { members: { some: { userId } } } },
+            // User is a direct project member
             { projectMembers: { some: { userId } } }
           ]
         }
