@@ -650,6 +650,7 @@ export function MeetingsContent() {
                                 
                                 <Group gap="xs">
                                   <Select
+                                    searchable
                                     placeholder="Assign to project"
                                     value={session.projectId || ''}
                                     onChange={(value) => void handleProjectAssignment(session.id, value)}
