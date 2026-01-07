@@ -1,0 +1,44 @@
+import crypto from 'crypto';
+
+const KEY_ENV = process.env.DATABASE_ENCRYPTION_KEY || '';
+if (!KEY_ENV) {
+  console.warn('DATABASE_ENCRYPTION_KEY not set - encryption will not be available in production');
+}
+
+// Expect the key to be base64 or raw 32-byte string. Normalize to Buffer of length 32.
+function getKey(): Buffer {
+  if (!KEY_ENV) throw new Error('DATABASE_ENCRYPTION_KEY is not defined');
+  try {
+    const buf = Buffer.from(KEY_ENV, 'base64');
+    if (buf.length === 32) return buf;
+  } catch {
+    // fallthrough - try raw encoding
+  }
+  const raw = Buffer.from(KEY_ENV);
+  if (raw.length === 32) return raw;
+  throw new Error('DATABASE_ENCRYPTION_KEY must be 32 bytes (raw) or base64-encoded 32 bytes');
+}
+
+export function encryptString(plaintext: string): Buffer {
+  const key = getKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(Buffer.from(plaintext, 'utf8')), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  // store as iv + tag + encrypted
+  return Buffer.concat([iv, tag, encrypted]);
+}
+
+export function decryptBuffer(buf: Buffer | Uint8Array | null | undefined): string | null {
+  if (!buf) return null;
+  const data = Buffer.from(buf);
+  if (data.length < 28) return null; // iv(12) + tag(16) at least
+  const iv = data.slice(0, 12);
+  const tag = data.slice(12, 28);
+  const encrypted = data.slice(28);
+  const key = getKey();
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return decrypted.toString('utf8');
+}

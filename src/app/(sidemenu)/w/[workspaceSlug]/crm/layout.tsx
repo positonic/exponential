@@ -34,7 +34,8 @@ export default function CRMLayout({
 }) {
   const pathname = usePathname();
   const { workspace } = useWorkspace();
-  const basePath = workspace ? `/w/${workspace.slug}/crm` : '';
+  if (!workspace) return null;
+  const basePath = `/w/${workspace.slug}/crm`;
 
   return (
     <div className="-m-4 flex min-h-screen lg:-m-8">
@@ -59,10 +60,7 @@ export default function CRMLayout({
               <ul className="space-y-1">
                 {section.items.map((item) => {
                   const href = item.href !== null ? `${basePath}${item.href}` : null;
-                  const isActive = href !== null && (
-                    pathname === href ||
-                    (item.href !== '' && pathname.startsWith(href))
-                  );
+                  const isActive = href !== null && (pathname === href || pathname.startsWith(href + '/'));
                   const Icon = item.icon;
 
                   return (

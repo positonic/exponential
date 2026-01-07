@@ -38,6 +38,21 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import Link from 'next/link';
 
+function getInitialFromName(name?: string | null) {
+  const trimmed = name?.trim();
+  if (!trimmed || trimmed.length === 0) return '?';
+  return trimmed[0]!.toUpperCase();
+}
+
+function getHostnameFromUrl(url?: string | null) {
+  if (!url) return '';
+  try {
+    return new URL(url).hostname;
+  } catch (_e) {
+    return '';
+  }
+}
+
 // Stat card for the highlights section
 function HighlightCard({
   icon,
@@ -53,7 +68,8 @@ function HighlightCard({
   onClick?: () => void;
 }) {
   return (
-    <div
+    <button
+      type="button"
       className={`rounded-lg border border-border-primary bg-surface-secondary p-4 ${
         onClick ? 'cursor-pointer hover:border-border-focus transition-colors' : ''
       }`}
@@ -69,7 +85,7 @@ function HighlightCard({
         </div>
       </div>
       <div className="mt-2 text-xs text-text-muted">{label}</div>
-    </div>
+    </button>
   );
 }
 
@@ -86,7 +102,7 @@ function ActivityItem({
   basePath: string;
 }) {
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Unknown';
-  const initial = contact.firstName?.[0] ?? contact.lastName?.[0] ?? '?';
+  const initial = getInitialFromName(contact.firstName ?? contact.lastName);
 
   return (
     <div className="flex items-start gap-3 py-3">
@@ -321,7 +337,7 @@ export default function OrganizationDetailPage() {
             </ActionIcon>
           </Tooltip>
 
-          {navigationInfo.total > 0 && (
+          {navigationInfo.total > 0 && navigationInfo.currentIndex >= 0 && (
             <Text size="xs" className="text-text-muted ml-2">
               {navigationInfo.currentIndex + 1} of {navigationInfo.total} organizations
             </Text>
@@ -721,7 +737,7 @@ export default function OrganizationDetailPage() {
                           className="text-brand-primary hover:underline text-sm flex items-center gap-1"
                         >
                           <IconWorld size={12} />
-                          {new URL(organization.websiteUrl).hostname}
+                          {getHostnameFromUrl(organization.websiteUrl)}
                         </a>
                       }
                     />
@@ -771,7 +787,7 @@ export default function OrganizationDetailPage() {
                   />
                   <DetailRow
                     label="Created By"
-                    value={organization.createdBy.name ?? organization.createdBy.email ?? 'Unknown'}
+                    value={organization.createdBy?.name ?? organization.createdBy?.email ?? 'Unknown'}
                   />
                 </Stack>
               </CollapsibleSection>

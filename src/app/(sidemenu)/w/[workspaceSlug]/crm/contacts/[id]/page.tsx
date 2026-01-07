@@ -61,13 +61,31 @@ function getRelativeTime(date: Date): string {
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffMinutes = Math.floor(diffMs / (1000 * 60));
 
-  if (diffMinutes < 60) return `${diffMinutes} minutes ago`;
-  if (diffHours < 24) return `${diffHours} hours ago`;
+  if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
   if (diffDays === 1) return '1 day ago';
   if (diffDays < 30) return `${diffDays} days ago`;
   if (diffDays < 60) return '1 month ago';
   if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
   return new Date(date).toLocaleDateString();
+}
+
+// Safely derive an initial from a name, return '?' as fallback
+function getInitialFromName(name?: string | null) {
+  const trimmed = name?.trim();
+  if (!trimmed || trimmed.length === 0) return '?';
+  return trimmed[0]!.toUpperCase();
+}
+
+// Safely extract hostname from a URL string
+function getHostnameFromUrl(url?: string | null) {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.replace(/^www\./, '');
+  } catch (_e) {
+    return '';
+  }
 }
 
 // Highlight card component
@@ -266,7 +284,9 @@ function AddInteractionForm({
               { value: 'OTHER', label: 'Other' },
             ]}
             value={formData.type}
-            onChange={(value) => setFormData({ ...formData, type: value as typeof formData.type })}
+            onChange={(value) => {
+              if (value !== null) setFormData((prev) => ({ ...prev, type: value as typeof prev.type }));
+            }}
             required
           />
           <Select
@@ -276,9 +296,9 @@ function AddInteractionForm({
               { value: 'INBOUND', label: 'Inbound' },
             ]}
             value={formData.direction}
-            onChange={(value) =>
-              setFormData({ ...formData, direction: value as typeof formData.direction })
-            }
+            onChange={(value) => {
+              if (value !== null) setFormData((prev) => ({ ...prev, direction: value as typeof prev.direction }));
+            }}
             required
           />
         </div>
@@ -485,7 +505,7 @@ export default function ContactDetailPage() {
       {/* Contact Header */}
       <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-6 py-4">
         <Avatar size="lg" radius="xl">
-          {contact.firstName?.[0]?.toUpperCase() ?? contact.lastName?.[0]?.toUpperCase() ?? '?'}
+          {getInitialFromName(contact.firstName ?? contact.lastName)}
         </Avatar>
         <div className="flex-1">
           <div className="flex items-center gap-2">
@@ -616,7 +636,7 @@ export default function ContactDetailPage() {
                             {contact.organization.name}
                           </Text>
                           <Avatar size="xs" radius="sm" color="cyan">
-                            {contact.organization.name[0]}
+                            {getInitialFromName(contact.organization?.name)}
                           </Avatar>
                         </div>
                       ) : (
@@ -738,7 +758,7 @@ export default function ContactDetailPage() {
                       .map((email) => (
                         <div key={email.id} className="py-3 flex items-start gap-3">
                           <Avatar size="sm" radius="xl">
-                            {contact.firstName?.[0]?.toUpperCase() ?? '?'}
+                            {getInitialFromName(contact.firstName ?? contact.lastName)}
                           </Avatar>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-baseline justify-between gap-2">
@@ -823,8 +843,8 @@ export default function ContactDetailPage() {
                     .filter((i) => i.type === 'EMAIL')
                     .map((email) => (
                       <div key={email.id} className="p-4 flex items-start gap-3">
-                        <Avatar size="md" radius="xl">
-                          {contact.firstName?.[0]?.toUpperCase() ?? '?'}
+                          <Avatar size="md" radius="xl">
+                          {getInitialFromName(contact.firstName ?? contact.lastName)}
                         </Avatar>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-baseline justify-between gap-2 mb-1">
@@ -873,8 +893,8 @@ export default function ContactDetailPage() {
                     .map((msg) => (
                       <div key={msg.id} className="p-4 flex items-start gap-3">
                         <Avatar size="md" radius="xl">
-                          {contact.firstName?.[0]?.toUpperCase() ?? '?'}
-                        </Avatar>
+                            {getInitialFromName(contact.firstName ?? contact.lastName)}
+                          </Avatar>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-baseline justify-between gap-2 mb-1">
                             <Text size="sm" className="font-semibold text-text-primary">
@@ -912,12 +932,45 @@ export default function ContactDetailPage() {
               <Title order={4} className="text-text-primary">
                 Calls
               </Title>
-              <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
-                <IconPhoneCall size={40} className="text-text-muted mx-auto mb-3" />
-                <Text size="sm" className="text-text-muted">
-                  No calls yet
-                </Text>
-              </div>
+              {contact.interactions?.filter((i) => i.type === 'PHONE_CALL').length ? (
+                <div className="rounded-lg border border-border-primary bg-surface-secondary divide-y divide-border-primary">
+                  {contact.interactions
+                    .filter((i) => i.type === 'PHONE_CALL')
+                    .map((call) => (
+                      <div key={call.id} className="p-4 flex items-start gap-3">
+                        <Avatar size="md" radius="xl">
+                          {getInitialFromName(contact.firstName ?? contact.lastName)}
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline justify-between gap-2 mb-1">
+                            <Text size="sm" className="font-semibold text-text-primary">
+                              {call.subject ?? 'Call'}
+                            </Text>
+                            <Text size="xs" className="text-text-muted shrink-0">
+                              {new Date(call.createdAt).toLocaleDateString('en-US', {
+                                day: 'numeric',
+                                month: 'short',
+                              })}
+                            </Text>
+                          </div>
+                          <Text size="sm" className="text-text-muted">
+                            {fullName}
+                          </Text>
+                          {call.notes && (
+                            <Text size="sm" className="text-text-muted mt-1 line-clamp-2">
+                              {call.notes}
+                            </Text>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+                  <IconPhoneCall size={40} className="text-text-muted mx-auto mb-3" />
+                  <Text size="sm" className="text-text-muted">No calls yet</Text>
+                </div>
+              )}
             </div>
           )}
 
@@ -938,11 +991,11 @@ export default function ContactDetailPage() {
                     <Text className="font-medium text-text-primary text-lg">
                       {contact.organization.name}
                     </Text>
-                    {contact.organization.websiteUrl && (
+                    {getHostnameFromUrl(contact.organization.websiteUrl) ? (
                       <Text size="sm" className="text-text-muted">
-                        {new URL(contact.organization.websiteUrl).hostname.replace('www.', '')}
+                        {getHostnameFromUrl(contact.organization.websiteUrl)}
                       </Text>
-                    )}
+                    ) : null}
                   </div>
                 </Link>
               ) : (
@@ -1100,7 +1153,7 @@ export default function ContactDetailPage() {
                       contact.organization ? (
                         <div className="flex items-center gap-1.5">
                           <Avatar size="xs" color="cyan" radius="sm">
-                            {contact.organization.name[0]}
+                            {getInitialFromName(contact.organization?.name)}
                           </Avatar>
                           <Anchor
                             component={Link}
