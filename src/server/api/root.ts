@@ -38,6 +38,9 @@ import { workspaceRouter } from "./routers/workspace";
 import { resourceRouter } from "./routers/resource";
 import { crmContactRouter } from "./routers/crmContact";
 import { crmOrganizationRouter } from "./routers/crmOrganization";
+// Plugin system
+import { pluginConfigRouter } from "./routers/pluginConfig";
+import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
 /**
  * This is the primary router for your server.
  *
@@ -83,6 +86,9 @@ export const appRouter = createTRPCRouter({
   resource: resourceRouter,
   crmContact: crmContactRouter,
   crmOrganization: crmOrganizationRouter,
+  // Plugin system
+  pluginConfig: pluginConfigRouter,
+  okr: keyResultRouter,
 });
 
 // export type definition of API

@@ -23,7 +23,7 @@ function generateGatewayJWT(user: {
       exp: Math.floor(Date.now() / 1000) + 60 * 60, // 1 hour
       jti: crypto.randomUUID(),
       tokenType: "whatsapp-gateway",
-      aud: "whatsapp-gateway",
+      aud: "mastra-agents",
       iss: "todo-app",
     },
     process.env.AUTH_SECRET ?? ""
@@ -78,12 +78,17 @@ export const whatsappGatewayRouter = createTRPCRouter({
     const data = (await response.json()) as { sessionId: string };
     const sessionId = data.sessionId;
 
-    // Create database record
-    const session = await ctx.db.whatsAppGatewaySession.create({
-      data: {
+    // Create or update database record (upsert handles reconnection attempts)
+    const session = await ctx.db.whatsAppGatewaySession.upsert({
+      where: { sessionId },
+      create: {
         sessionId,
         userId: ctx.session.user.id,
         status: "PENDING",
+      },
+      update: {
+        status: "PENDING",
+        connectedAt: null,
       },
     });
 
@@ -313,7 +318,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  // Delete session record (cleanup)
+  // Delete session record (cleanup) - also removes from gateway
   deleteSession: protectedProcedure
     .input(
       z.object({
@@ -333,6 +338,22 @@ export const whatsappGatewayRouter = createTRPCRouter({
           code: "NOT_FOUND",
           message: "Session not found",
         });
+      }
+
+      // Also delete from gateway if configured
+      if (WHATSAPP_GATEWAY_URL) {
+        const authToken = generateGatewayJWT(ctx.session.user);
+        try {
+          await fetch(`${WHATSAPP_GATEWAY_URL}/sessions/${session.sessionId}`, {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+            },
+          });
+        } catch (error) {
+          console.error("[whatsappGateway] Gateway delete failed:", error);
+          // Continue with database deletion even if gateway call fails
+        }
       }
 
       await ctx.db.whatsAppGatewaySession.delete({

@@ -17,6 +17,7 @@ import {
   IconRocket
 } from '@tabler/icons-react';
 import Link from 'next/link';
+import { PluginWidgets } from './PluginWidgets';
 
 interface HomeContentProps {
   userName: string;
@@ -434,6 +435,9 @@ export function HomeContent({
             </Group>
           </SimpleGrid>
         </Paper>
+
+        {/* Plugin Dashboard Widgets */}
+        <PluginWidgets />
 
         {/* Getting Started */}
         <Paper

@@ -177,7 +177,8 @@ export function WhatsAppGatewayModal({
 
   const connectedSessions =
     sessions?.filter((s: GatewaySession) => s.status === "CONNECTED") ?? [];
-  const pendingSessions = sessions?.filter((s: GatewaySession) => s.status === "PENDING") ?? [];
+  // Show all non-connected sessions (PENDING, DISCONNECTED, ERROR, etc.) so users can clean them up
+  const otherSessions = sessions?.filter((s: GatewaySession) => s.status !== "CONNECTED") ?? [];
 
   // If gateway is not configured, show setup message
   if (opened && configData && !configData.configured) {
@@ -228,7 +229,7 @@ export function WhatsAppGatewayModal({
                   Loading sessions...
                 </Text>
               </Group>
-            ) : connectedSessions.length === 0 ? (
+            ) : connectedSessions.length === 0 && otherSessions.length === 0 ? (
               <Stack align="center" py="xl" gap="md">
                 <IconBrandWhatsapp size={48} className="text-text-muted" />
                 <Text c="dimmed" ta="center">
@@ -286,13 +287,13 @@ export function WhatsAppGatewayModal({
                   </Paper>
                 ))}
 
-                {/* Show pending sessions that can be cleaned up */}
-                {pendingSessions.length > 0 && (
+                {/* Show other sessions that can be cleaned up */}
+                {otherSessions.length > 0 && (
                   <div className="mt-4">
                     <Text size="sm" c="dimmed" mb="xs">
-                      Pending sessions:
+                      Other sessions:
                     </Text>
-                    {pendingSessions.map((session: GatewaySession) => (
+                    {otherSessions.map((session: GatewaySession) => (
                       <Paper
                         key={session.id}
                         p="sm"
@@ -300,10 +301,14 @@ export function WhatsAppGatewayModal({
                         className="bg-surface-secondary mb-2"
                       >
                         <Group justify="space-between">
-                          <Text size="sm" c="dimmed">
-                            Session started{" "}
-                            {new Date(session.createdAt).toLocaleString()}
-                          </Text>
+                          <Group gap="xs">
+                            <Badge size="xs" color="gray" variant="light">
+                              {session.status}
+                            </Badge>
+                            <Text size="sm" c="dimmed">
+                              {new Date(session.createdAt).toLocaleString()}
+                            </Text>
+                          </Group>
                           <Tooltip label="Delete">
                             <ActionIcon
                               variant="subtle"

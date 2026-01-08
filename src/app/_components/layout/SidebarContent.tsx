@@ -4,18 +4,41 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings, IconDatabase } from "@tabler/icons-react";
+import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { usePluginNavigation } from "~/hooks/usePluginNavigation";
+
+// Map of icon names to components for plugin navigation
+const iconMap = {
+  IconTargetArrow,
+  IconTarget,
+  IconCircleCheck,
+  IconUsers,
+  IconSettings,
+  IconKey,
+  IconDatabase,
+} as const;
+
+type IconMapKey = keyof typeof iconMap;
 
 export function SidebarContent() {
   const { isSectionVisible, isItemVisible } = useNavigationPreferences();
   const { workspaceSlug } = useWorkspace();
+  const { itemsBySection } = usePluginNavigation();
 
   // Use workspace-aware paths when in a workspace context
   const projectsPath = workspaceSlug ? `/w/${workspaceSlug}/projects` : '/projects';
+
+  // Helper to get icon component from name
+  const getIcon = (iconName: string) => {
+    if (iconName in iconMap) {
+      return iconMap[iconName as IconMapKey];
+    }
+    return IconTarget;
+  };
 
   return (
     <div className="space-y-0.5">
@@ -72,6 +95,15 @@ export function SidebarContent() {
             </Accordion.Control>
             <Accordion.Panel>
               {isItemVisible("alignment/goals") && <GoalList />}
+              {/* Plugin navigation items for alignment section */}
+              {itemsBySection.alignment?.map((item) => {
+                const IconComponent = getIcon(item.icon);
+                return (
+                  <NavLink key={item.id} href={item.href} icon={IconComponent}>
+                    {item.label}
+                  </NavLink>
+                );
+              })}
               {isItemVisible("alignment/wheel-of-life") && (
                 <NavLink href="/wheel-of-life" icon={IconCircleCheck}>
                   Wheel of Life

@@ -1,0 +1,420 @@
+import { z } from "zod";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { TRPCError } from "@trpc/server";
+
+// Input validation schemas
+const createKeyResultInput = z.object({
+  goalId: z.number(),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  targetValue: z.number(),
+  startValue: z.number().default(0),
+  currentValue: z.number().default(0),
+  unit: z
+    .enum(["percent", "count", "currency", "hours", "custom"])
+    .default("percent"),
+  unitLabel: z.string().optional(),
+  period: z.string(), // e.g., "Q1-2025"
+  periodStart: z.date().optional(),
+  periodEnd: z.date().optional(),
+  workspaceId: z.string().optional(),
+});
+
+const updateKeyResultInput = z.object({
+  id: z.string(),
+  title: z.string().min(1).optional(),
+  description: z.string().optional(),
+  targetValue: z.number().optional(),
+  currentValue: z.number().optional(),
+  startValue: z.number().optional(),
+  unit: z.enum(["percent", "count", "currency", "hours", "custom"]).optional(),
+  unitLabel: z.string().optional(),
+  status: z
+    .enum(["on-track", "at-risk", "off-track", "achieved"])
+    .optional(),
+  confidence: z.number().min(0).max(100).optional(),
+});
+
+const checkInInput = z.object({
+  keyResultId: z.string(),
+  newValue: z.number(),
+  notes: z.string().optional(),
+});
+
+export const keyResultRouter = createTRPCRouter({
+  // Get all key results for a workspace/user
+  getAll: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+          goalId: z.number().optional(),
+          period: z.string().optional(),
+          status: z
+            .enum(["on-track", "at-risk", "off-track", "achieved"])
+            .optional(),
+        })
+        .optional()
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.db.keyResult.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(input?.goalId ? { goalId: input.goalId } : {}),
+          ...(input?.period ? { period: input.period } : {}),
+          ...(input?.status ? { status: input.status } : {}),
+        },
+        include: {
+          goal: {
+            include: {
+              lifeDomain: true,
+            },
+          },
+          checkIns: {
+            orderBy: { createdAt: "desc" },
+            take: 5,
+          },
+        },
+        orderBy: [{ goal: { title: "asc" } }, { createdAt: "desc" }],
+      });
+    }),
+
+  // Get key results grouped by objective (goal)
+  getByObjective: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+        period: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const goals = await ctx.db.goal.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          keyResults: {
+            some: input.period ? { period: input.period } : {},
+          },
+        },
+        include: {
+          lifeDomain: true,
+          keyResults: {
+            where: input.period ? { period: input.period } : {},
+            include: {
+              checkIns: {
+                orderBy: { createdAt: "desc" },
+                take: 1,
+              },
+            },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+        orderBy: { title: "asc" },
+      });
+
+      // Calculate progress for each objective
+      return goals.map((goal) => {
+        const keyResults = goal.keyResults;
+        const avgProgress =
+          keyResults.length > 0
+            ? keyResults.reduce((acc, kr) => {
+                const range = kr.targetValue - kr.startValue;
+                const progress =
+                  range > 0
+                    ? ((kr.currentValue - kr.startValue) / range) * 100
+                    : 0;
+                return acc + Math.min(100, Math.max(0, progress));
+              }, 0) / keyResults.length
+            : 0;
+
+        const statusCounts = {
+          "on-track": keyResults.filter((kr) => kr.status === "on-track")
+            .length,
+          "at-risk": keyResults.filter((kr) => kr.status === "at-risk").length,
+          "off-track": keyResults.filter((kr) => kr.status === "off-track")
+            .length,
+          achieved: keyResults.filter((kr) => kr.status === "achieved").length,
+        };
+
+        return {
+          ...goal,
+          progress: Math.round(avgProgress),
+          statusCounts,
+        };
+      });
+    }),
+
+  // Get a single key result
+  getById: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: {
+          id: input.id,
+          userId: ctx.session.user.id,
+        },
+        include: {
+          goal: {
+            include: {
+              lifeDomain: true,
+            },
+          },
+          checkIns: {
+            orderBy: { createdAt: "desc" },
+            include: {
+              createdBy: {
+                select: { id: true, name: true, image: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!keyResult) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      return keyResult;
+    }),
+
+  // Create a new key result
+  create: protectedProcedure
+    .input(createKeyResultInput)
+    .mutation(async ({ ctx, input }) => {
+      // Verify goal belongs to user
+      const goal = await ctx.db.goal.findFirst({
+        where: {
+          id: input.goalId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!goal) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Goal not found or access denied",
+        });
+      }
+
+      return ctx.db.keyResult.create({
+        data: {
+          ...input,
+          userId: ctx.session.user.id,
+        },
+        include: {
+          goal: true,
+        },
+      });
+    }),
+
+  // Update a key result
+  update: protectedProcedure
+    .input(updateKeyResultInput)
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...updateData } = input;
+
+      // Verify ownership
+      const existing = await ctx.db.keyResult.findFirst({
+        where: { id, userId: ctx.session.user.id },
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      return ctx.db.keyResult.update({
+        where: { id },
+        data: updateData,
+        include: {
+          goal: true,
+        },
+      });
+    }),
+
+  // Record a check-in (progress update)
+  checkIn: protectedProcedure
+    .input(checkInInput)
+    .mutation(async ({ ctx, input }) => {
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: {
+          id: input.keyResultId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!keyResult) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      // Determine new status based on progress
+      const range = keyResult.targetValue - keyResult.startValue;
+      const progress =
+        range > 0
+          ? ((input.newValue - keyResult.startValue) / range) * 100
+          : 0;
+
+      let newStatus = keyResult.status;
+      if (progress >= 100) {
+        newStatus = "achieved";
+      } else if (progress >= 70) {
+        newStatus = "on-track";
+      } else if (progress >= 40) {
+        newStatus = "at-risk";
+      } else {
+        newStatus = "off-track";
+      }
+
+      // Create check-in and update key result in transaction
+      const [checkIn] = await ctx.db.$transaction([
+        ctx.db.keyResultCheckIn.create({
+          data: {
+            keyResultId: input.keyResultId,
+            previousValue: keyResult.currentValue,
+            newValue: input.newValue,
+            notes: input.notes,
+            createdById: ctx.session.user.id,
+          },
+        }),
+        ctx.db.keyResult.update({
+          where: { id: input.keyResultId },
+          data: {
+            currentValue: input.newValue,
+            status: newStatus,
+          },
+        }),
+      ]);
+
+      return checkIn;
+    }),
+
+  // Delete a key result
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.keyResult.findFirst({
+        where: { id: input.id, userId: ctx.session.user.id },
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      await ctx.db.keyResult.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  // Get available periods (quarters)
+  getPeriods: protectedProcedure.query(() => {
+    const currentYear = new Date().getFullYear();
+    const periods = [];
+
+    // Generate quarters for current and next year
+    for (const year of [currentYear, currentYear + 1]) {
+      periods.push(
+        { value: `Q1-${year}`, label: `Q1 ${year} (Jan-Mar)` },
+        { value: `Q2-${year}`, label: `Q2 ${year} (Apr-Jun)` },
+        { value: `Q3-${year}`, label: `Q3 ${year} (Jul-Sep)` },
+        { value: `Q4-${year}`, label: `Q4 ${year} (Oct-Dec)` },
+        { value: `H1-${year}`, label: `H1 ${year} (Jan-Jun)` },
+        { value: `H2-${year}`, label: `H2 ${year} (Jul-Dec)` },
+        { value: `Annual-${year}`, label: `Annual ${year}` }
+      );
+    }
+
+    return periods;
+  }),
+
+  // Get OKR statistics for dashboard
+  getStats: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+        period: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const where = {
+        userId: ctx.session.user.id,
+        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        ...(input.period ? { period: input.period } : {}),
+      };
+
+      const [totalKeyResults, onTrack, atRisk, offTrack, achieved, objectives] =
+        await Promise.all([
+          ctx.db.keyResult.count({ where }),
+          ctx.db.keyResult.count({ where: { ...where, status: "on-track" } }),
+          ctx.db.keyResult.count({ where: { ...where, status: "at-risk" } }),
+          ctx.db.keyResult.count({ where: { ...where, status: "off-track" } }),
+          ctx.db.keyResult.count({ where: { ...where, status: "achieved" } }),
+          ctx.db.goal.count({
+            where: {
+              userId: ctx.session.user.id,
+              ...(input.workspaceId
+                ? { workspaceId: input.workspaceId }
+                : {}),
+              keyResults: {
+                some: input.period ? { period: input.period } : {},
+              },
+            },
+          }),
+        ]);
+
+      // Calculate average progress
+      const keyResults = await ctx.db.keyResult.findMany({
+        where,
+        select: { currentValue: true, startValue: true, targetValue: true },
+      });
+
+      const avgProgress =
+        keyResults.length > 0
+          ? keyResults.reduce((acc, kr) => {
+              const range = kr.targetValue - kr.startValue;
+              const progress =
+                range > 0
+                  ? ((kr.currentValue - kr.startValue) / range) * 100
+                  : 0;
+              return acc + Math.min(100, Math.max(0, progress));
+            }, 0) / keyResults.length
+          : 0;
+
+      return {
+        totalObjectives: objectives,
+        totalKeyResults,
+        statusBreakdown: { onTrack, atRisk, offTrack, achieved },
+        averageProgress: Math.round(avgProgress),
+      };
+    }),
+
+  // Get goals that can be used as objectives (for selection in forms)
+  getAvailableGoals: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.db.goal.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        include: {
+          lifeDomain: true,
+        },
+        orderBy: { title: "asc" },
+      });
+    }),
+});

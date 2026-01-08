@@ -110,6 +110,10 @@ model User {
   crmInteractions             CrmContactInteraction[]    @relation("CrmInteractionUser")
   crmCommunicationsCreated    CrmCommunication[]         @relation("CrmCommunicationCreatedBy")
   crmTemplatesCreated         CrmCommunicationTemplate[] @relation("CrmTemplateCreatedBy")
+  // Plugin and OKR relations
+  pluginConfigs               PluginConfig[]
+  keyResults                  KeyResult[]
+  keyResultCheckIns           KeyResultCheckIn[]         @relation("KeyResultCheckInCreator")
 }
 
 model VerificationToken {
@@ -151,6 +155,9 @@ model Workspace {
   crmOrganizations  CrmOrganization[]
   crmCommunications CrmCommunication[]
   crmTemplates      CrmCommunicationTemplate[]
+  // Plugin and OKR relations
+  pluginConfigs     PluginConfig[]
+  keyResults        KeyResult[]
 
   @@index([slug])
   @@index([ownerId])
@@ -368,6 +375,7 @@ model Goal {
   outcomes     Outcome[]  @relation("GoalOutcomes")
   projects     Project[]  @relation("GoalProjects")
   habits       Habit[] // Habits linked to this goal
+  keyResults   KeyResult[] // OKR key results for this goal (objective)
 
   @@index([lifeDomainId])
   @@index([userId])
@@ -1498,4 +1506,79 @@ model CrmCommunicationTemplate {
   @@index([workspaceId])
   @@index([type])
   @@index([isActive])
+}
+
+// ============================================
+// Plugin System Models
+// ============================================
+
+model PluginConfig {
+  id          String    @id @default(cuid())
+  pluginId    String
+  workspaceId String?
+  userId      String
+  enabled     Boolean   @default(true)
+  settings    Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pluginId, workspaceId, userId])
+  @@index([pluginId])
+  @@index([workspaceId])
+  @@index([userId])
+}
+
+// ============================================
+// OKR (Objectives & Key Results) Models
+// ============================================
+
+model KeyResult {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  targetValue  Float
+  currentValue Float     @default(0)
+  startValue   Float     @default(0)
+  unit         String    @default("percent") // "percent", "count", "currency", "hours", "custom"
+  unitLabel    String? // Custom label like "$" or "users"
+  period       String // "Q1-2025", "H1-2025", "Annual-2025"
+  periodStart  DateTime?
+  periodEnd    DateTime?
+  status       String    @default("on-track") // "on-track", "at-risk", "off-track", "achieved"
+  confidence   Int? // 0-100 confidence score
+  goalId       Int
+  userId       String
+  workspaceId  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  goal      Goal                @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace?          @relation(fields: [workspaceId], references: [id])
+  checkIns  KeyResultCheckIn[]
+
+  @@index([goalId])
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([period])
+  @@index([status])
+}
+
+model KeyResultCheckIn {
+  id            String   @id @default(cuid())
+  keyResultId   String
+  previousValue Float
+  newValue      Float
+  notes         String?
+  createdAt     DateTime @default(now())
+  createdById   String
+
+  keyResult KeyResult @relation(fields: [keyResultId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("KeyResultCheckInCreator", fields: [createdById], references: [id])
+
+  @@index([keyResultId])
+  @@index([createdAt])
 }
