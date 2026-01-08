@@ -207,6 +207,80 @@ export const transcriptionRouter = createTRPCRouter({
       return session;
     }),
 
+  updateDetails: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        description: z.string().optional(),
+        transcription: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify the transcription belongs to the user
+      const existing = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (existing.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this transcription",
+        });
+      }
+
+      const updateData: { description?: string; transcription?: string; updatedAt: Date } = {
+        updatedAt: new Date(),
+      };
+
+      if (input.description !== undefined) {
+        updateData.description = input.description;
+      }
+      if (input.transcription !== undefined) {
+        updateData.transcription = input.transcription;
+      }
+
+      const session = await ctx.db.transcriptionSession.update({
+        where: { id: input.id },
+        data: updateData,
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              taskManagementTool: true,
+              taskManagementConfig: true,
+            },
+          },
+          screenshots: true,
+          sourceIntegration: {
+            select: {
+              id: true,
+              provider: true,
+              name: true,
+            },
+          },
+          actions: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              status: true,
+              priority: true,
+              dueDate: true,
+            },
+          },
+        },
+      });
+      return session;
+    }),
+
   updateTitle: protectedProcedure
     .input(
       z.object({

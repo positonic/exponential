@@ -567,6 +567,7 @@ export function ProjectContent({
         opened={drawerOpened}
         onClose={() => setDrawerOpened(false)}
         transcription={selectedTranscription}
+        onTranscriptionUpdate={(updated) => setSelectedTranscription(updated)}
       />
 
       {/* Project Chat Drawer */}

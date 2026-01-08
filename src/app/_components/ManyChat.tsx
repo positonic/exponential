@@ -17,7 +17,8 @@ import {
   Tooltip,
   Accordion
 } from '@mantine/core';
-import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
+import { IconSend, IconMicrophone, IconMicrophoneOff, IconBrandWhatsapp } from '@tabler/icons-react';
+import { WhatsAppGatewayModal } from './WhatsAppGatewayModal';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 
 interface Message {
@@ -167,6 +168,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const [cursorPosition, setCursorPosition] = useState(0);
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
   const [conversationId, setConversationId] = useState<string>("");
+  const [whatsappModalOpened, setWhatsappModalOpened] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -841,6 +843,19 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                     </Text>
                   </div>
                 )}
+                <Tooltip label="Connect WhatsApp">
+                  <ActionIcon
+                    variant="subtle"
+                    color="green"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setWhatsappModalOpened(true);
+                    }}
+                  >
+                    <IconBrandWhatsapp size={18} />
+                  </ActionIcon>
+                </Tooltip>
               </div>
             </Accordion.Control>
             <Accordion.Panel>
@@ -1198,6 +1213,12 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           )}
         </div>
       </div>
+
+      {/* WhatsApp Gateway Modal */}
+      <WhatsAppGatewayModal
+        opened={whatsappModalOpened}
+        onClose={() => setWhatsappModalOpened(false)}
+      />
     </div>
   );
 } 

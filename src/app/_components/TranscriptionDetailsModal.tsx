@@ -14,11 +14,15 @@ import {
   Button,
   Checkbox,
   List,
+  Textarea,
+  ActionIcon,
 } from "@mantine/core";
+import { IconPencil, IconCheck, IconX } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { SmartContentRenderer } from "./SmartContentRenderer";
 import { notifications } from "@mantine/notifications";
 import { HTMLContent } from "./HTMLContent";
+import { api } from "~/trpc/react";
 
 interface TranscriptionDetailsModalProps {
   opened: boolean;
@@ -27,6 +31,7 @@ interface TranscriptionDetailsModalProps {
   workflows?: any[];
   onSyncToIntegration?: (workflowId: string) => void;
   syncingToIntegration?: string | null;
+  onTranscriptionUpdate?: (updated: any) => void;
 }
 
 export function TranscriptionDetailsModal({
@@ -36,8 +41,72 @@ export function TranscriptionDetailsModal({
   workflows,
   onSyncToIntegration,
   syncingToIntegration,
+  onTranscriptionUpdate,
 }: TranscriptionDetailsModalProps) {
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
+
+  // Edit state
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [editingTranscription, setEditingTranscription] = useState(false);
+  const [editedDescription, setEditedDescription] = useState("");
+  const [editedTranscriptionText, setEditedTranscriptionText] = useState("");
+
+  // Update mutation
+  const updateDetailsMutation = api.transcription.updateDetails.useMutation({
+    onSuccess: (updated) => {
+      notifications.show({
+        title: "Saved",
+        message: "Changes saved successfully",
+        color: "green",
+      });
+      setEditingDescription(false);
+      setEditingTranscription(false);
+      onTranscriptionUpdate?.(updated);
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to save changes",
+        color: "red",
+      });
+    },
+  });
+
+  const handleStartEditDescription = () => {
+    setEditedDescription(transcription?.description ?? "");
+    setEditingDescription(true);
+  };
+
+  const handleSaveDescription = () => {
+    if (!transcription) return;
+    updateDetailsMutation.mutate({
+      id: transcription.id,
+      description: editedDescription,
+    });
+  };
+
+  const handleCancelEditDescription = () => {
+    setEditingDescription(false);
+    setEditedDescription("");
+  };
+
+  const handleStartEditTranscription = () => {
+    setEditedTranscriptionText(transcription?.transcription ?? "");
+    setEditingTranscription(true);
+  };
+
+  const handleSaveTranscription = () => {
+    if (!transcription) return;
+    updateDetailsMutation.mutate({
+      id: transcription.id,
+      transcription: editedTranscriptionText,
+    });
+  };
+
+  const handleCancelEditTranscription = () => {
+    setEditingTranscription(false);
+    setEditedTranscriptionText("");
+  };
 
   const handleClose = () => {
     setSelectedActionIds(new Set()); // Clear selection when modal closes
@@ -176,26 +245,122 @@ export function TranscriptionDetailsModal({
           {/* Accordion for main content sections */}
           <Accordion multiple defaultValue={defaultOpenSections}>
             {/* Description Section - Now Primary */}
-            {transcription.description && (
-              <Accordion.Item value="description">
-                <Accordion.Control>
+            <Accordion.Item value="description">
+              <Accordion.Control>
+                <Group justify="space-between" style={{ width: '100%' }}>
                   <Title order={5}>Description</Title>
-                </Accordion.Control>
-                <Accordion.Panel>
-                  <Paper p="md" radius="sm" className="bg-surface-tertiary">
+                  {!editingDescription && (
+                    <ActionIcon
+                      variant="subtle"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStartEditDescription();
+                      }}
+                    >
+                      <IconPencil size={16} />
+                    </ActionIcon>
+                  )}
+                </Group>
+              </Accordion.Control>
+              <Accordion.Panel>
+                <Paper p="md" radius="sm" className="bg-surface-tertiary">
+                  {editingDescription ? (
+                    <Stack gap="sm">
+                      <Textarea
+                        value={editedDescription}
+                        onChange={(e) => setEditedDescription(e.currentTarget.value)}
+                        minRows={6}
+                        autosize
+                        maxRows={20}
+                        placeholder="Enter description..."
+                      />
+                      <Group justify="flex-end" gap="xs">
+                        <ActionIcon
+                          variant="subtle"
+                          color="gray"
+                          onClick={handleCancelEditDescription}
+                          disabled={updateDetailsMutation.isPending}
+                        >
+                          <IconX size={18} />
+                        </ActionIcon>
+                        <ActionIcon
+                          variant="filled"
+                          color="blue"
+                          onClick={handleSaveDescription}
+                          loading={updateDetailsMutation.isPending}
+                        >
+                          <IconCheck size={18} />
+                        </ActionIcon>
+                      </Group>
+                    </Stack>
+                  ) : transcription.description ? (
                     <SmartContentRenderer content={transcription.description} />
-                  </Paper>
-                </Accordion.Panel>
-              </Accordion.Item>
-            )}
+                  ) : (
+                    <Text size="sm" c="dimmed" fs="italic">
+                      No description. Click the edit icon to add one.
+                    </Text>
+                  )}
+                </Paper>
+              </Accordion.Panel>
+            </Accordion.Item>
 
             {/* Transcription Section - Now Secondary/Collapsed */}
-            {transcription.transcription && (
-              <Accordion.Item value="transcription">
-                <Accordion.Control>
+            <Accordion.Item value="transcription">
+              <Accordion.Control>
+                <Group justify="space-between" style={{ width: '100%' }}>
                   <Title order={5}>Full Transcription</Title>
-                </Accordion.Control>
-                <Accordion.Panel>
+                  {!editingTranscription && (
+                    <ActionIcon
+                      variant="subtle"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStartEditTranscription();
+                      }}
+                    >
+                      <IconPencil size={16} />
+                    </ActionIcon>
+                  )}
+                </Group>
+              </Accordion.Control>
+              <Accordion.Panel>
+                {editingTranscription ? (
+                  <Stack gap="sm">
+                    <Textarea
+                      value={editedTranscriptionText}
+                      onChange={(e) => setEditedTranscriptionText(e.currentTarget.value)}
+                      minRows={10}
+                      autosize
+                      maxRows={30}
+                      placeholder="Enter transcription..."
+                      styles={{
+                        input: {
+                          fontFamily: 'monospace',
+                          fontSize: '13px',
+                        },
+                      }}
+                    />
+                    <Group justify="flex-end" gap="xs">
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        onClick={handleCancelEditTranscription}
+                        disabled={updateDetailsMutation.isPending}
+                      >
+                        <IconX size={18} />
+                      </ActionIcon>
+                      <ActionIcon
+                        variant="filled"
+                        color="blue"
+                        onClick={handleSaveTranscription}
+                        loading={updateDetailsMutation.isPending}
+                      >
+                        <IconCheck size={18} />
+                      </ActionIcon>
+                    </Group>
+                  </Stack>
+                ) : transcription.transcription ? (
                   <div
                     style={{
                       maxHeight: '500px',
@@ -212,9 +377,13 @@ export function TranscriptionDetailsModal({
                       isPreview={false}
                     />
                   </div>
-                </Accordion.Panel>
-              </Accordion.Item>
-            )}
+                ) : (
+                  <Text size="sm" c="dimmed" fs="italic">
+                    No transcription. Click the edit icon to add one.
+                  </Text>
+                )}
+              </Accordion.Panel>
+            </Accordion.Item>
 
             {/* Associated Actions Section */}
             <Accordion.Item value="actions">

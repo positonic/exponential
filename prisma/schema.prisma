@@ -92,6 +92,7 @@ model User {
   exercises                   UserExercise[]
   verificationTokens          VerificationToken[]
   whatsappConversations       WhatsAppConversation[]
+  whatsappGatewaySessions     WhatsAppGatewaySession[]
   workflows                   Workflow[]
   weeklyOutcomesCreated       WeeklyOutcome[]            @relation("WeeklyOutcomeCreated")
   weeklyOutcomeAssignees      WeeklyOutcomeAssignee[]    @relation("WeeklyOutcomeAssignee")
@@ -1112,6 +1113,27 @@ model WhatsAppWebhookDelivery {
   @@index([whatsappConfigId, status])
   @@index([receivedAt])
   @@index([webhookId])
+}
+
+// WhatsApp Gateway Sessions (for self-hosted WhatsApp Web bridge)
+model WhatsAppGatewaySession {
+  id           String    @id @default(cuid())
+  sessionId    String    @unique // Session ID from the gateway
+  phoneNumber  String? // Phone number once connected
+  userId       String
+  status       String    @default("PENDING") // PENDING, CONNECTED, DISCONNECTED, ERROR
+  connectedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastPingAt   DateTime?
+  errorMessage String?
+  metadata     Json? // Store additional gateway info
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([sessionId])
 }
 
 enum ActionStatus {
