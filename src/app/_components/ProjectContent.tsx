@@ -45,11 +45,11 @@ import {
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
-import { TranscriptionRenderer } from "./TranscriptionRenderer";
+import { SmartContentRenderer } from "./SmartContentRenderer";
 import { ProjectIntegrations } from "./ProjectIntegrations";
 import { ProjectSyncStatus } from "./ProjectSyncStatus";
 import { ProjectSyncConfiguration } from "./ProjectSyncConfiguration";
-import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
+import { TranscriptionDetailsModal } from "./TranscriptionDetailsModal";
 import { TeamWeeklyReview } from "./TeamWeeklyReview";
 import { WeeklyOutcomes } from "./WeeklyOutcomes";
 import { ProjectFirefliesSyncPanel } from "./ProjectFirefliesSyncPanel";
@@ -493,12 +493,11 @@ export function ProjectContent({
                             </Stack>
                           </Group>
 
-                          {/* Transcription Preview */}
-                          {session.transcription && (
-                            <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800">
-                              <TranscriptionRenderer
-                                transcription={session.transcription}
-                                provider={session.sourceIntegration?.provider}
+                          {/* Description Preview */}
+                          {session.description && (
+                            <Paper p="sm" radius="sm" className="bg-surface-secondary">
+                              <SmartContentRenderer
+                                content={session.description}
                                 isPreview={true}
                                 maxLines={3}
                               />
@@ -563,8 +562,8 @@ export function ProjectContent({
         </Tabs>
       </div>
 
-      {/* Transcription Details Drawer */}
-      <TranscriptionDetailsDrawer
+      {/* Transcription Details Modal */}
+      <TranscriptionDetailsModal
         opened={drawerOpened}
         onClose={() => setDrawerOpened(false)}
         transcription={selectedTranscription}
