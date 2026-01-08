@@ -40,7 +40,7 @@ function generateId(text: string): string {
 
 const markdownComponents: Partial<Components> = {
   h1: ({ children }) => (
-    <Title order={1} className="mb-4 mt-8 first:mt-0">
+    <Title order={1} className="mb-6 mt-12 first:mt-0">
       {children}
     </Title>
   ),
@@ -48,7 +48,7 @@ const markdownComponents: Partial<Components> = {
     const text = getTextFromChildren(children);
     const id = generateId(text);
     return (
-      <Title order={2} id={id} className="mb-3 mt-8 scroll-mt-4">
+      <Title order={2} id={id} className="mb-4 mt-12 scroll-mt-4 first:mt-0">
         <a href={`#${id}`} className="hover:underline">
           {children}
         </a>
@@ -59,7 +59,7 @@ const markdownComponents: Partial<Components> = {
     const text = getTextFromChildren(children);
     const id = generateId(text);
     return (
-      <Title order={3} id={id} className="mb-2 mt-6 scroll-mt-4">
+      <Title order={3} id={id} className="mb-3 mt-8 scroll-mt-4">
         <a href={`#${id}`} className="hover:underline">
           {children}
         </a>
@@ -67,26 +67,26 @@ const markdownComponents: Partial<Components> = {
     );
   },
   h4: ({ children }) => (
-    <Title order={4} className="mb-2 mt-4">
+    <Title order={4} className="mb-3 mt-6">
       {children}
     </Title>
   ),
   p: ({ children }) => (
-    <Text size="md" className="mb-4 leading-relaxed text-text-secondary">
+    <Text size="md" className="mb-5 leading-7 text-text-secondary">
       {children}
     </Text>
   ),
   ul: ({ children }) => (
-    <ul className="mb-4 list-disc space-y-2 pl-6 text-text-secondary">
+    <ul className="mb-6 list-disc space-y-3 pl-6 text-text-secondary">
       {children}
     </ul>
   ),
   ol: ({ children }) => (
-    <ol className="mb-4 list-decimal space-y-2 pl-6 text-text-secondary">
+    <ol className="mb-6 list-decimal space-y-3 pl-6 text-text-secondary">
       {children}
     </ol>
   ),
-  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  li: ({ children }) => <li className="leading-7 pl-1">{children}</li>,
   a: ({ href, children }) => (
     <a
       href={href}
@@ -148,6 +148,15 @@ const markdownComponents: Partial<Components> = {
   strong: ({ children }) => (
     <strong className="font-semibold text-text-primary">{children}</strong>
   ),
+  img: ({ src, alt }) => (
+    <span className="my-8 block">
+      <img
+        src={src}
+        alt={alt ?? ""}
+        className="w-full rounded-lg border border-border-primary shadow-sm"
+      />
+    </span>
+  ),
 };
 
 export function DocsContent({ doc }: DocsContentProps) {
@@ -157,12 +166,12 @@ export function DocsContent({ doc }: DocsContentProps) {
         <DocsBreadcrumb />
 
         {/* Page header */}
-        <header className="mb-8">
-          <Title order={1} className="mb-2">
+        <header className="mb-10 border-b border-border-primary pb-8">
+          <Title order={1} className="mb-3">
             {doc.meta.title}
           </Title>
           {doc.meta.description && (
-            <Text size="lg" className="text-text-secondary">
+            <Text size="lg" className="leading-7 text-text-secondary">
               {doc.meta.description}
             </Text>
           )}

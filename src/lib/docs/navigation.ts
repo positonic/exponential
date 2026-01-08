@@ -8,6 +8,15 @@ import {
   IconBook,
   IconSettings,
   IconDeviceMobile,
+  IconFolders,
+  IconChecklist,
+  IconTargetArrow,
+  IconNotebook,
+  IconInbox,
+  IconCalendarWeek,
+  IconCircles,
+  IconSunrise,
+  IconRepeat,
 } from "@tabler/icons-react";
 import type { DocNavSection, DocBreadcrumb } from "./types";
 
@@ -44,6 +53,51 @@ export const docsNavigation: DocNavSection[] = [
         title: "Overview",
         href: "/docs/features",
         icon: IconRocket,
+      },
+      {
+        title: "Projects",
+        href: "/docs/features/projects",
+        icon: IconFolders,
+      },
+      {
+        title: "Actions & Tasks",
+        href: "/docs/features/actions",
+        icon: IconChecklist,
+      },
+      {
+        title: "Goals & Outcomes",
+        href: "/docs/features/goals-outcomes",
+        icon: IconTargetArrow,
+      },
+      {
+        title: "Inbox & Today",
+        href: "/docs/features/inbox-today",
+        icon: IconInbox,
+      },
+      {
+        title: "Daily Journal",
+        href: "/docs/features/journal",
+        icon: IconNotebook,
+      },
+      {
+        title: "Weekly Review",
+        href: "/docs/features/weekly-review",
+        icon: IconCalendarWeek,
+      },
+      {
+        title: "Wheel of Life",
+        href: "/docs/features/wheel-of-life",
+        icon: IconCircles,
+      },
+      {
+        title: "Routines",
+        href: "/docs/features/routines",
+        icon: IconSunrise,
+      },
+      {
+        title: "Habits",
+        href: "/docs/features/habits",
+        icon: IconRepeat,
       },
       {
         title: "Slack Integration",
