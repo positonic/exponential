@@ -2,6 +2,7 @@ import {
   IconRocket,
   IconBolt,
   IconBrandSlack,
+  IconBrandWhatsapp,
   IconFlame,
   IconNetwork,
   IconPlug,
@@ -103,6 +104,11 @@ export const docsNavigation: DocNavSection[] = [
         title: "Slack Integration",
         href: "/docs/features/slack",
         icon: IconBrandSlack,
+      },
+      {
+        title: "WhatsApp Integration",
+        href: "/docs/features/whatsapp-gateway",
+        icon: IconBrandWhatsapp,
       },
       {
         title: "Fireflies Workflow",
