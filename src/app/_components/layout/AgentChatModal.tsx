@@ -21,6 +21,7 @@ export function AgentChatModal() {
     <Modal
       opened={isOpen}
       onClose={closeModal}
+      keepMounted
       centered
       size="700px"
       radius="lg"

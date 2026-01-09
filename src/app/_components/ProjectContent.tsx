@@ -22,6 +22,7 @@ import {
   Stack,
   Text,
   Drawer,
+  Modal,
   Badge,
   ActionIcon,
   Card,
@@ -601,49 +602,42 @@ export function ProjectContent({
         onTranscriptionUpdate={(updated) => setSelectedTranscription(updated)}
       />
 
-      {/* Project Chat Drawer */}
-      <Drawer.Root
+      {/* Project Chat Modal */}
+      <Modal
         opened={activeDrawer === 'chat'}
         onClose={() => setActiveDrawer(null)}
-        position="right"
-        size="lg"
-        trapFocus={false}
-        lockScroll={false}
+        keepMounted
+        centered
+        size="700px"
+        radius="lg"
+        padding={0}
+        withCloseButton={false}
+        overlayProps={{
+          backgroundOpacity: 0.7,
+          blur: 4,
+        }}
+        styles={{
+          content: {
+            backgroundColor: 'var(--color-bg-modal)',
+            border: '1px solid var(--color-border-primary)',
+            height: '80vh',
+            maxHeight: '800px',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          },
+          body: {
+            padding: 0,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
       >
-        <Drawer.Content 
-          style={{ 
-            height: "100vh",
-            backgroundColor: 'transparent'
-          }}
-        >
-          <div className="flex h-full flex-col bg-primary">
-            {/* Custom Header integrated with ManyChat design */}
-            <div className="bg-background-secondary/90 backdrop-blur-lg border-b border-border-primary/30 p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-brand-success rounded-full animate-pulse"></div>
-                  <Text size="lg" fw={600} className="text-primary">
-                    Project Chat
-                  </Text>
-                </div>
-                <ActionIcon
-                  variant="subtle"
-                  size="lg"
-                  onClick={() => setActiveDrawer(null)}
-                  c="dimmed"
-                  className="hover:bg-surface-hover/50 transition-colors"
-                >
-                  <IconX size={20} />
-                </ActionIcon>
-              </div>
-            </div>
-            
-            <div className="flex-1 h-full overflow-hidden">
-              <ManyChat projectId={projectId} />
-            </div>
-          </div>
-        </Drawer.Content>
-      </Drawer.Root>
+        <div className="flex h-full flex-col overflow-hidden">
+          <ManyChat projectId={projectId} />
+        </div>
+      </Modal>
 
       {/* Project Settings Drawer */}
       <Drawer

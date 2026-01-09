@@ -373,6 +373,7 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
       <Modal
         opened={chatOpened}
         onClose={() => setChatOpened(false)}
+        keepMounted
         centered
         size="700px"
         radius="lg"
