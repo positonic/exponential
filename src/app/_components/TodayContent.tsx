@@ -77,6 +77,36 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
     }
   );
 
+  // Fetch scheduled actions for the date range
+  const { data: scheduledActions } = api.action.getScheduledByDateRange.useQuery(
+    {
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate,
+      workspaceId,
+    },
+    {
+      enabled: activeTab === "calendar",
+      staleTime: 2 * 60 * 1000,
+    }
+  );
+
+  const utils = api.useUtils();
+
+  // Handle action status change from calendar view
+  const updateAction = api.action.update.useMutation({
+    onSuccess: async () => {
+      await utils.action.getScheduledByDateRange.invalidate();
+      await utils.action.getToday.invalidate();
+    },
+  });
+
+  const handleActionStatusChange = (actionId: string, completed: boolean) => {
+    updateAction.mutate({
+      id: actionId,
+      status: completed ? "COMPLETED" : "ACTIVE",
+    });
+  };
+
   const handleTabChange = useCallback((value: string | null) => {
     if (value && isValidTab(value)) {
       // Don't allow switching to journal if not today focus
@@ -200,7 +230,22 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
               {format(today, "EEEE, MMMM d")}
             </Text>
             <ScrollArea h={600}>
-              {events && <CalendarDayView events={events} selectedDate={today} />}
+              {events && (
+                <CalendarDayView
+                  events={events}
+                  selectedDate={today}
+                  scheduledActions={scheduledActions?.map(a => ({
+                    id: a.id,
+                    name: a.name,
+                    scheduledStart: a.scheduledStart!,
+                    scheduledEnd: a.scheduledEnd,
+                    duration: a.duration,
+                    status: a.status,
+                    project: a.project,
+                  })).filter(a => a.scheduledStart) ?? []}
+                  onActionStatusChange={handleActionStatusChange}
+                />
+              )}
             </ScrollArea>
           </Paper>
         </div>

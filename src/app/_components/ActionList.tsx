@@ -1,5 +1,5 @@
 import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button, Avatar, HoverCard, ActionIcon, Menu } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots, IconBrandNotion, IconUserShare } from '@tabler/icons-react';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots, IconBrandNotion, IconUserShare, IconClock } from '@tabler/icons-react';
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
@@ -23,6 +23,12 @@ type Action = Omit<ActionWithSyncs, 'createdBy'> & {
 const formatDate = (date: Date | null | undefined): string => {
   if (!date) return '';
   return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+};
+
+// Helper function to format scheduled time like "9:00 AM"
+const formatScheduledTime = (date: Date | null | undefined): string => {
+  if (!date) return '';
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 };
 
 // Helper function to get sync status for an action
@@ -599,6 +605,25 @@ export function ActionList({
                   <span>{formatDate(action.dueDate)}</span>
                 </Group>
               )}
+              {/* Scheduled time indicator */}
+              {(() => {
+                const actionWithSchedule = action as typeof action & { scheduledStart?: Date | null; duration?: number | null };
+                if (actionWithSchedule.scheduledStart) {
+                  return (
+                    <Tooltip label={`Scheduled${actionWithSchedule.duration ? ` for ${actionWithSchedule.duration} min` : ''}`}>
+                      <Badge
+                        size="sm"
+                        variant="light"
+                        color="blue"
+                        leftSection={<IconClock size={10} />}
+                      >
+                        {formatScheduledTime(actionWithSchedule.scheduledStart)}
+                      </Badge>
+                    </Tooltip>
+                  );
+                }
+                return null;
+              })()}
               <SyncStatusIndicator action={action} />
 
               {/* Show "From [Creator]" indicator if task was created by someone else */}

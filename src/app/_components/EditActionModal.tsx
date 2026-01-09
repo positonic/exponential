@@ -24,6 +24,8 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
   const [projectId, setProjectId] = useState("");
   const [priority, setPriority] = useState<ActionPriority>("Quick");
   const [dueDate, setDueDate] = useState<Date | null>(null);
+  const [scheduledStart, setScheduledStart] = useState<Date | null>(null);
+  const [duration, setDuration] = useState<number | null>(null);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
 
   const utils = api.useUtils();
@@ -44,6 +46,13 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       setProjectId(currentAction.projectId ?? "");
       setPriority(currentAction.priority as ActionPriority);
       setDueDate(currentAction.dueDate ? new Date(currentAction.dueDate) : null);
+      // Load scheduling fields - cast to access new fields
+      const actionWithSchedule = currentAction as typeof currentAction & {
+        scheduledStart?: Date | null;
+        duration?: number | null;
+      };
+      setScheduledStart(actionWithSchedule.scheduledStart ? new Date(actionWithSchedule.scheduledStart) : null);
+      setDuration(actionWithSchedule.duration ?? null);
     }
   }, [currentAction]);
 
@@ -65,6 +74,8 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       projectId: projectId || undefined,
       priority,
       dueDate: dueDate, // Pass null explicitly to clear the date
+      scheduledStart: scheduledStart,
+      duration: duration,
     });
   };
 
@@ -106,6 +117,10 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
         setProjectId={(value: string | undefined) => setProjectId(value || "")}
         dueDate={dueDate}
         setDueDate={setDueDate}
+        scheduledStart={scheduledStart}
+        setScheduledStart={setScheduledStart}
+        duration={duration}
+        setDuration={setDuration}
         selectedAssigneeIds={selectedAssigneeIds}
         actionId={currentAction?.id}
         onAssigneeClick={handleAssigneeClick}

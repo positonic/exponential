@@ -206,6 +206,9 @@ model Action {
   name                   String
   description            String?
   dueDate                DateTime?
+  scheduledStart         DateTime?             // When to start this action (time-blocking)
+  scheduledEnd           DateTime?             // When to end this action (optional)
+  duration               Int?                  // Duration in minutes (alternative to scheduledEnd)
   status                 String                @default("ACTIVE")
   priority               String                @default("Quick")
   projectId              String?

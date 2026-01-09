@@ -30,6 +30,8 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     }
     return null;
   });
+  const [scheduledStart, setScheduledStart] = useState<Date | null>(null);
+  const [duration, setDuration] = useState<number | null>(null);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
   const [createdActionId, setCreatedActionId] = useState<string | null>(null);
@@ -70,6 +72,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         projectId: newAction.projectId ?? null,
         createdById: session?.user?.id ?? previousState.projects?.[0]?.createdById ?? "",
         dueDate: newAction.dueDate ? new Date(newAction.dueDate) : null,
+        scheduledStart: newAction.scheduledStart ? new Date(newAction.scheduledStart) : null,
+        scheduledEnd: null,
+        duration: newAction.duration ?? null,
         transcriptionSessionId: null,
         teamId: null,
         workspaceId: null,
@@ -215,6 +220,8 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         }
         return null;
       });
+      setScheduledStart(null);
+      setDuration(null);
       setSelectedAssigneeIds([]);
       close();
     },
@@ -229,6 +236,8 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       projectId: projectId || undefined,
       priority: priority || "Quick",
       dueDate: dueDate || undefined,
+      scheduledStart: scheduledStart || undefined,
+      duration: duration || undefined,
     };
 
     createAction.mutate(actionData);
@@ -289,6 +298,10 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           setProjectId={setProjectId}
           dueDate={dueDate}
           setDueDate={setDueDate}
+          scheduledStart={scheduledStart}
+          setScheduledStart={setScheduledStart}
+          duration={duration}
+          setDuration={setDuration}
           selectedAssigneeIds={selectedAssigneeIds}
           actionId={createdActionId || undefined}
           onAssigneeClick={handleAssigneeClick}

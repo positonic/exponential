@@ -1,15 +1,29 @@
 "use client";
 
-import { Text, Stack, Tooltip } from "@mantine/core";
+import { Text, Stack, Tooltip, Checkbox } from "@mantine/core";
 import { format, parseISO, isToday, isSameDay } from "date-fns";
 import { type CalendarEvent } from "~/server/services/GoogleCalendarService";
 import { useMemo } from "react";
 import { stripHtml } from "~/lib/utils";
 
+// Type for scheduled actions
+interface ScheduledAction {
+  id: string;
+  name: string;
+  scheduledStart: Date;
+  scheduledEnd?: Date | null;
+  duration?: number | null;
+  status: string;
+  project?: { id: string; name: string } | null;
+}
+
 interface CalendarDayViewProps {
   events: CalendarEvent[];
+  scheduledActions?: ScheduledAction[];
   selectedDate: Date;
   className?: string;
+  onActionClick?: (actionId: string) => void;
+  onActionStatusChange?: (actionId: string, completed: boolean) => void;
 }
 
 interface PositionedEvent extends CalendarEvent {
@@ -20,7 +34,23 @@ interface PositionedEvent extends CalendarEvent {
   zIndex: number;
 }
 
-export function CalendarDayView({ events, selectedDate, className = "" }: CalendarDayViewProps) {
+interface PositionedAction {
+  action: ScheduledAction;
+  top: number;
+  height: number;
+  left: number;
+  width: number;
+  zIndex: number;
+}
+
+export function CalendarDayView({
+  events,
+  scheduledActions = [],
+  selectedDate,
+  className = "",
+  onActionClick,
+  onActionStatusChange,
+}: CalendarDayViewProps) {
   const hours = Array.from({ length: 24 }, (_, i) => i);
   const HOUR_HEIGHT = 60; // pixels per hour
   const MINUTES_PER_HOUR = 60;
@@ -107,6 +137,51 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
 
     return sortedEvents;
   }, [events, selectedDate]);
+
+  // Calculate positioned scheduled actions
+  const positionedActions = useMemo(() => {
+    // Filter actions for the selected date
+    const dayActions = scheduledActions.filter(action => {
+      if (!action.scheduledStart) return false;
+      const actionDate = new Date(action.scheduledStart);
+      return isSameDay(actionDate, selectedDate);
+    });
+
+    // Convert actions to positioned actions
+    const positioned: PositionedAction[] = dayActions.map(action => {
+      const startTime = new Date(action.scheduledStart);
+      const startMinutes = startTime.getHours() * 60 + startTime.getMinutes();
+
+      // Calculate end time based on duration or scheduledEnd
+      let endMinutes = startMinutes + 30; // Default 30 minutes
+      if (action.duration) {
+        endMinutes = startMinutes + action.duration;
+      } else if (action.scheduledEnd) {
+        const endTime = new Date(action.scheduledEnd);
+        endMinutes = endTime.getHours() * 60 + endTime.getMinutes();
+      }
+
+      const top = (startMinutes / MINUTES_PER_HOUR) * HOUR_HEIGHT;
+      const height = Math.max(((endMinutes - startMinutes) / MINUTES_PER_HOUR) * HOUR_HEIGHT, 25);
+
+      return {
+        action,
+        top,
+        height,
+        left: 60,
+        width: 0,
+        zIndex: 10,
+      };
+    });
+
+    // Simple positioning - place actions to the right of calendar events
+    positioned.forEach(pos => {
+      pos.left = 60;
+      pos.width = 290;
+    });
+
+    return positioned;
+  }, [scheduledActions, selectedDate, HOUR_HEIGHT, MINUTES_PER_HOUR]);
 
   const formatEventTime = (event: CalendarEvent) => {
     if (event.start.dateTime) {
@@ -249,6 +324,85 @@ export function CalendarDayView({ events, selectedDate, className = "" }: Calend
                     </Text>
                   )}
                 </Stack>
+              </div>
+            </Tooltip>
+          ))}
+
+          {/* Scheduled Actions */}
+          {positionedActions.map(({ action, top, height, left, width, zIndex }) => (
+            <Tooltip
+              key={action.id}
+              label={
+                <Stack gap={4}>
+                  <Text size="sm" fw={600}>{action.name}</Text>
+                  <Text size="xs">
+                    {format(new Date(action.scheduledStart), 'h:mm a')}
+                    {action.duration && ` (${action.duration} min)`}
+                  </Text>
+                  {action.project && <Text size="xs">📁 {action.project.name}</Text>}
+                </Stack>
+              }
+              multiline
+              position="right"
+              withArrow
+            >
+              <div
+                className={`absolute cursor-pointer border transition-all hover:brightness-110 p-2 rounded-md ${
+                  action.status === 'COMPLETED'
+                    ? 'bg-green-900/40 border-green-700 text-green-100 line-through opacity-60'
+                    : 'bg-brand-primary/20 border-brand-primary/50 text-text-primary'
+                }`}
+                style={{
+                  top,
+                  left,
+                  width,
+                  height,
+                  zIndex,
+                  minHeight: '25px',
+                }}
+                onClick={() => onActionClick?.(action.id)}
+              >
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    size="xs"
+                    radius="xl"
+                    checked={action.status === 'COMPLETED'}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      onActionStatusChange?.(action.id, e.currentTarget.checked);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    styles={{
+                      input: {
+                        backgroundColor: 'transparent',
+                        borderColor: 'var(--color-brand-primary)',
+                      },
+                    }}
+                  />
+                  <Stack gap={2} className="flex-1 min-w-0">
+                    <Text
+                      size="xs"
+                      fw={600}
+                      className="leading-tight"
+                      style={{
+                        fontSize: '11px',
+                        lineHeight: '1.2',
+                        display: '-webkit-box',
+                        WebkitLineClamp: height < 40 ? 1 : 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {action.name}
+                    </Text>
+
+                    {height >= 35 && (
+                      <Text size="xs" c="dimmed" style={{ fontSize: '10px' }}>
+                        {format(new Date(action.scheduledStart), 'h:mm a')}
+                      </Text>
+                    )}
+                  </Stack>
+                </div>
               </div>
             </Tooltip>
           ))}

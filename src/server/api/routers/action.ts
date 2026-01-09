@@ -227,6 +227,9 @@ export const actionRouter = createTRPCRouter({
         description: z.string().optional(),
         projectId: z.string().optional(),
         dueDate: z.date().optional(),
+        scheduledStart: z.date().optional(),
+        scheduledEnd: z.date().optional(),
+        duration: z.number().min(1).optional(), // Duration in minutes
         priority: z.enum(PRIORITY_VALUES).default("Quick"),
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED"]).default("ACTIVE"),
       }),
@@ -308,6 +311,9 @@ export const actionRouter = createTRPCRouter({
         description: z.string().optional(),
         projectId: z.string().optional(),
         dueDate: z.date().nullable().optional(), // nullable allows explicitly setting to null
+        scheduledStart: z.date().nullable().optional(),
+        scheduledEnd: z.date().nullable().optional(),
+        duration: z.number().min(1).nullable().optional(), // Duration in minutes
         priority: z.enum(PRIORITY_VALUES).optional(),
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED"]).optional(),
         kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]).optional(),
@@ -474,6 +480,84 @@ export const actionRouter = createTRPCRouter({
           createdBy: { select: { id: true, name: true, email: true, image: true } },
         },
         orderBy: { dueDate: "asc" },
+      });
+    }),
+
+  // Get scheduled actions for calendar display
+  getScheduledByDate: protectedProcedure
+    .input(
+      z.object({
+        date: z.date(),
+        workspaceId: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Get start and end of the day
+      const startOfDay = new Date(input.date);
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const endOfDay = new Date(input.date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      return ctx.db.action.findMany({
+        where: {
+          OR: [
+            { createdById: userId, assignees: { none: {} } },
+            { assignees: { some: { userId: userId } } },
+          ],
+          scheduledStart: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+          status: "ACTIVE",
+          ...(input.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
+        },
+        include: {
+          project: true,
+          assignees: {
+            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+          },
+          createdBy: { select: { id: true, name: true, email: true, image: true } },
+        },
+        orderBy: { scheduledStart: "asc" },
+      });
+    }),
+
+  // Get scheduled actions for a date range (calendar week/month view)
+  getScheduledByDateRange: protectedProcedure
+    .input(
+      z.object({
+        startDate: z.date(),
+        endDate: z.date(),
+        workspaceId: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      return ctx.db.action.findMany({
+        where: {
+          OR: [
+            { createdById: userId, assignees: { none: {} } },
+            { assignees: { some: { userId: userId } } },
+          ],
+          scheduledStart: {
+            gte: input.startDate,
+            lte: input.endDate,
+          },
+          status: "ACTIVE",
+          ...(input.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
+        },
+        include: {
+          project: true,
+          assignees: {
+            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+          },
+          createdBy: { select: { id: true, name: true, email: true, image: true } },
+        },
+        orderBy: { scheduledStart: "asc" },
       });
     }),
 

@@ -20,6 +20,8 @@ export function GlobalAddTaskButton() {
   const [projectId, setProjectId] = useState<string | undefined>(undefined);
   const [priority, setPriority] = useState<ActionPriority>("Quick");
   const [dueDate, setDueDate] = useState<Date | null>(null);
+  const [scheduledStart, setScheduledStart] = useState<Date | null>(null);
+  const [duration, setDuration] = useState<number | null>(null);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
   const [createdActionId, setCreatedActionId] = useState<string | null>(null);
@@ -61,6 +63,9 @@ export function GlobalAddTaskButton() {
         createdById:
           session?.user?.id ?? previousState.projects?.[0]?.createdById ?? "",
         dueDate: newAction.dueDate ? new Date(newAction.dueDate) : null,
+        scheduledStart: null,
+        scheduledEnd: null,
+        duration: null,
         transcriptionSessionId: null,
         teamId: null,
         workspaceId: null,
@@ -180,6 +185,8 @@ export function GlobalAddTaskButton() {
       setProjectId(undefined);
       setPriority("Quick");
       setDueDate(null);
+      setScheduledStart(null);
+      setDuration(null);
       setSelectedAssigneeIds([]);
       close();
     },
@@ -250,6 +257,10 @@ export function GlobalAddTaskButton() {
           setProjectId={setProjectId}
           dueDate={dueDate}
           setDueDate={setDueDate}
+          scheduledStart={scheduledStart}
+          setScheduledStart={setScheduledStart}
+          duration={duration}
+          setDuration={setDuration}
           selectedAssigneeIds={selectedAssigneeIds}
           actionId={createdActionId || undefined}
           onAssigneeClick={handleAssigneeClick}
