@@ -7,18 +7,14 @@ import remarkGfm from 'remark-gfm';
 import {
   Paper,
   TextInput,
-  Button,
   ScrollArea,
   Avatar,
   Group,
   Text,
   Box,
   ActionIcon,
-  Tooltip,
-  Accordion
 } from '@mantine/core';
-import { IconSend, IconMicrophone, IconMicrophoneOff, IconBrandWhatsapp } from '@tabler/icons-react';
-import { WhatsAppGatewayModal } from './WhatsAppGatewayModal';
+import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 
 interface Message {
@@ -163,12 +159,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const viewport = useRef<HTMLDivElement>(null);
-  const [agentFilter, setAgentFilter] = useState<string>('');
   const [showAgentDropdown, setShowAgentDropdown] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
   const [conversationId, setConversationId] = useState<string>("");
-  const [whatsappModalOpened, setWhatsappModalOpened] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -196,7 +190,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   );
 
   // Fetch Mastra agents
-  const { data: mastraAgents, isLoading: isLoadingAgents, error: agentsError } = 
+  const { data: mastraAgents } =
     api.mastra.getMastraAgents.useQuery(
       undefined, // No input needed for this query
       {
@@ -724,288 +718,21 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
 
   const getInitials = (name = '') => name.split(' ').map(n => n[0]).join('').toUpperCase();
 
-  const renderAgentAvatars = () => {
-    if (isLoadingAgents) {
-      return (
-        <div className="flex gap-3">
-          <div className="flex items-center gap-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="w-9 h-9 rounded-full bg-surface-secondary animate-pulse"></div>
-            ))}
-          </div>
-          <div className="flex items-center text-xs text-text-muted animate-pulse">
-            Loading agents...
-          </div>
-        </div>
-      );
-    }
-    if (agentsError) {
-      return (
-        <div className="flex items-center gap-2 p-3 bg-error-bg border border-error-border rounded-lg">
-          <div className="w-2 h-2 bg-brand-error rounded-full"></div>
-          <Text size="xs" c="red">Error loading agents</Text>
-        </div>
-      );
-    }
-    if (!mastraAgents || mastraAgents.length === 0) {
-      return (
-        <div className="flex items-center gap-2 p-3 bg-warning-bg border border-warning-border rounded-lg">
-          <div className="w-2 h-2 bg-brand-warning rounded-full"></div>
-          <Text size="xs" c="yellow">No agents available</Text>
-        </div>
-      );
-    }
-
-    // Filter agents by name or instructions
-    const filteredAgents = mastraAgents.filter(agent => {
-      const term = agentFilter.trim().toLowerCase();
-      if (!term) return true;
-      const nameMatch = agent.name.toLowerCase().includes(term);
-      const instr = (agent as any).instructions as string | undefined;
-      const instructionsMatch = instr?.toLowerCase().includes(term) ?? false;
-      return nameMatch || instructionsMatch;
-    });
-    
-    if (filteredAgents.length === 0) {
-      return (
-        <div className="flex items-center gap-2 p-3 bg-surface-secondary border border-border-primary rounded-lg">
-          <div className="w-2 h-2 bg-text-muted rounded-full"></div>
-          <Text size="xs" c="dimmed">No agents match &quot;{agentFilter}&quot;</Text>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-wrap gap-3 py-2">
-        {filteredAgents.map((agent, index) => (
-          <Tooltip 
-            key={agent.id} 
-            label={
-              <div className="p-2">
-                <div className="font-semibold text-sm text-secondary">{agent.name}</div>
-                <div className="text-xs opacity-75 mt-1 text-secondary">
-                  {(agent as any).instructions ? 
-                    (agent as any).instructions.slice(0, 100) + '...' : 
-                    'AI Agent'
-                  }
-                </div>
-              </div>
-            } 
-            position="bottom" 
-            withArrow
-            styles={{
-              tooltip: {
-                backgroundColor: 'var(--color-background-primary)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid var(--color-border-primary)',
-                // maxWidth: '200px'
-              }
-            }}
-          >
-            <div 
-              className="relative group cursor-pointer transform transition-all duration-300 hover:scale-110"
-              style={{ animationDelay: `${index * 50}ms` }}
-            >
-              <Avatar 
-                size="md" 
-                radius="xl"
-                className="ring-2 ring-border-primary transition-all duration-300 group-hover:ring-brand-primary group-hover:shadow-lg group-hover:shadow-brand-primary/25"
-                styles={{
-                  root: {
-                    background: `linear-gradient(135deg, 
-                      ${index % 4 === 0 ? 'var(--color-brand-primary), var(--color-brand-info), var(--color-brand-info)' : 
-                        index % 4 === 1 ? 'var(--color-brand-primary), var(--color-brand-primary), var(--color-brand-primary)' :
-                        index % 4 === 2 ? 'var(--color-brand-error), var(--color-brand-error), var(--color-brand-error)' :
-                        'var(--color-brand-success), var(--color-brand-success), var(--color-brand-success)'})`,
-                  }
-                }}
-              >
-                {getInitials(agent.name)}
-              </Avatar>
-              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-brand-success rounded-full ring-1 ring-background-primary opacity-90"></div>
-              <div className="absolute inset-0 rounded-full bg-gradient-to-t from-transparent to-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            </div>
-          </Tooltip>
-        ))}
-        
-        {/* Agent Count Badge */}
-        <div className="flex items-center ml-2">
-          <div className="px-2 py-1 bg-brand-primary/20 border border-brand-primary/30 rounded-full">
-            <Text size="xs" fw={600} c="blue">
-              {filteredAgents.length} online
-            </Text>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div className="relative flex flex-col h-full">
-      {/* Enhanced Agent Discovery Header - Accordion */}
-      <div className="bg-surface-secondary backdrop-blur-sm border-b border-border-primary">
-        <Accordion
-          variant="filled"
-          styles={{
-            root: {
-              backgroundColor: 'transparent',
-            },
-            item: {
-              backgroundColor: 'transparent',
-              border: 'none',
-            },
-            control: {
-              backgroundColor: 'transparent',
-              padding: '12px 16px',
-              '&:hover': {
-                backgroundColor: 'var(--color-surface-hover)',
-              },
-            },
-            content: {
-              padding: '0 16px 16px 16px',
-            },
-            chevron: {
-              color: 'var(--color-text-muted)',
-            },
-          }}
-        >
-          <Accordion.Item value="agents">
-            <Accordion.Control>
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-brand-success rounded-full animate-pulse"></div>
-                <Text size="sm" fw={600} c="blue">
-                  Available Agents
-                </Text>
-                {mastraAgents && (
-                  <div className="px-2 py-0.5 bg-brand-primary/20 border border-brand-primary/30 rounded-full">
-                    <Text size="xs" fw={600} c="blue">
-                      {mastraAgents.length} online
-                    </Text>
-                  </div>
-                )}
-                <Tooltip label="Connect WhatsApp">
-                  <ActionIcon
-                    variant="subtle"
-                    color="green"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setWhatsappModalOpened(true);
-                    }}
-                  >
-                    <IconBrandWhatsapp size={18} />
-                  </ActionIcon>
-                </Tooltip>
-              </div>
-            </Accordion.Control>
-            <Accordion.Panel>
-              <TextInput
-                placeholder="Filter agents by name or skill..."
-                size="sm"
-                value={agentFilter}
-                onChange={e => setAgentFilter(e.currentTarget.value)}
-                mb="sm"
-                styles={{
-                  input: {
-                    backgroundColor: 'var(--color-surface-secondary)',
-                    border: '1px solid var(--color-border-primary)',
-                    color: 'var(--color-text-primary)',
-                    '&:focus': {
-                      borderColor: 'var(--color-brand-primary)',
-                      boxShadow: '0 0 0 3px var(--color-brand-primary-opacity)'
-                    },
-                    '&::placeholder': {
-                      color: 'var(--color-text-muted)'
-                    }
-                  }
-                }}
-              />
-              <div className="space-y-3">
-                <div className="overflow-x-auto">
-                  {renderAgentAvatars()}
-                </div>
-
-                {/* Enhanced Agent List */}
-                {mastraAgents && mastraAgents.length > 0 && (
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {mastraAgents
-                      .filter(agent => {
-                        const term = agentFilter.trim().toLowerCase();
-                        if (!term) return true;
-                        const nameMatch = agent.name.toLowerCase().includes(term);
-                        const instr = (agent as any).instructions as string | undefined;
-                        const instructionsMatch = instr?.toLowerCase().includes(term) ?? false;
-                        return nameMatch || instructionsMatch;
-                      })
-                      .map((agent, index) => (
-                        <div
-                          key={agent.id}
-                          className="flex items-center gap-3 p-2 rounded-lg bg-surface-secondary border border-border-primary transition-all duration-200 hover:bg-surface-hover hover:border-brand-primary group"
-                          style={{ animationDelay: `${index * 30}ms` }}
-                        >
-                          <div className="relative">
-                            <Avatar
-                              size="xs"
-                              radius="xl"
-                              className="ring-1 ring-border-primary group-hover:ring-brand-primary transition-all duration-200"
-                              styles={{
-                                root: {
-                                  background: `linear-gradient(135deg,
-                                    ${index % 4 === 0 ? 'var(--color-brand-primary), var(--color-brand-info)' :
-                                      index % 4 === 1 ? 'var(--color-brand-primary), var(--color-brand-primary)' :
-                                      index % 4 === 2 ? 'var(--color-brand-error), var(--color-brand-error)' :
-                                      'var(--color-brand-success), var(--color-brand-success)'})`,
-                                }
-                              }}
-                            >
-                              {getInitials(agent.name)}
-                            </Avatar>
-                            <div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-brand-success rounded-full ring-1 ring-background-primary"></div>
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <Text size="xs" fw={600} className="text-text-primary group-hover:text-brand-primary transition-colors">
-                                {agent.name}
-                              </Text>
-                              <div className="px-1.5 py-0.5 bg-brand-success/20 border border-brand-success/30 rounded text-xs font-medium text-brand-success">
-                                online
-                              </div>
-                            </div>
-                            <Text size="xs" c="dimmed" className="truncate mt-0.5">
-                              {(agent as any).instructions ?
-                                (agent as any).instructions.slice(0, 60) + '...' :
-                                'AI Agent ready to assist'
-                              }
-                            </Text>
-                          </div>
-
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Text size="xs" c="blue" fw={500}>
-                              @{agent.name.toLowerCase()}
-                            </Text>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </div>
-            </Accordion.Panel>
-          </Accordion.Item>
-        </Accordion>
-      </div>
-      
+    <div
+      className="relative flex flex-col h-full"
+      style={{ fontFamily: 'ui-sans-serif, -apple-system, "system-ui", "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol"' }}
+    >
       {buttons && buttons.length > 0 && (
-        <div className="px-4 py-2 border-b border-gray-700/30">
+        <div className="px-4 py-2 border-b border-border-primary">
           <Group justify="flex-end">
             {buttons}
           </Group>
         </div>
       )}
-      
-      {/* Enhanced Messages Area */}
+
+      {/* Messages Area */}
       <div className="flex-1 h-full overflow-hidden relative">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background-primary/20 to-transparent pointer-events-none"></div>
         <ScrollArea className="h-full" viewportRef={viewport} p="lg" scrollbars="y">
           <div className="space-y-6">
             {messages.filter(message => message.type !== 'system').map((message, index) => (
@@ -1015,119 +742,31 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 style={{ animationDelay: `${index * 50}ms` }}
               >
                 {message.type === 'ai' ? (
-                  <div className="flex items-start gap-3 max-w-[85%] group">
-                    <Tooltip 
-                      label={message.agentName || 'Agent'} 
-                      position="left" 
-                      withArrow
-                      styles={{
-                        tooltip: {
-                          backgroundColor: 'var(--color-background-primary)',
-                          backdropFilter: 'blur(8px)',
-                          border: '1px solid var(--color-border-primary)'
-                        }
-                      }}
+                  <div className="max-w-[85%]">
+                    <div
+                      className="text-text-primary text-sm leading-relaxed"
                     >
-                      <div className="relative">
-                        <Avatar 
-                          size="md" 
-                          radius="xl" 
-                          alt={message.agentName || 'AI'}
-                          className="ring-2 ring-brand-primary/20 transition-all duration-300 group-hover:ring-brand-primary/40 group-hover:scale-105"
-                          styles={{
-                            root: {
-                              background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-info) 50%, var(--color-brand-info) 100%)',
-                            }
-                          }}
-                        >
-                          {getInitials(message.agentName || 'AI')}
-                        </Avatar>
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-brand-success rounded-full ring-2 ring-background-primary"></div>
-                      </div>
-                    </Tooltip>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Text size="xs" fw={500} c="blue">
-                          {message.agentName || 'Agent'}
-                        </Text>
-                        <div className="w-1 h-1 bg-text-muted rounded-full"></div>
-                        <Text size="xs" c="dimmed">
-                          just now
-                        </Text>
-                      </div>
-                      <Paper
-                        p="md"
-                        radius="xl"
-                        className="bg-surface-secondary backdrop-blur-sm border border-border-primary shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01]"
-                      >
-                        <div
-                          className="text-text-primary text-sm leading-relaxed"
-                        >
-                          {renderMessageContent(message.content, message.type)}
-                        </div>
-                      </Paper>
-                      {/* Feedback component for AI messages */}
-                      {message.interactionId && (
-                        <AgentMessageFeedback
-                          aiInteractionId={message.interactionId}
-                          conversationId={conversationId}
-                          agentName={message.agentName}
-                        />
-                      )}
+                      {renderMessageContent(message.content, message.type)}
                     </div>
+                    {/* Feedback/action buttons for AI messages */}
+                    {message.interactionId && (
+                      <AgentMessageFeedback
+                        aiInteractionId={message.interactionId}
+                        conversationId={conversationId}
+                        agentName={message.agentName}
+                      />
+                    )}
                   </div>
                 ) : (
-                  <div className="flex items-start gap-3 max-w-[85%] group">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-end gap-2 mb-1">
-                        <Text size="xs" c="dimmed">
-                          just now
-                        </Text>
-                        <div className="w-1 h-1 bg-text-muted rounded-full"></div>
-                        <Text size="xs" fw={500} c="dimmed">
-                          You
-                        </Text>
-                      </div>
-                      <Paper
-                        p="md"
-                        radius="xl"
-                        className="bg-brand-primary shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01] ml-auto"
-                      >
-                        <div className="text-primary whitespace-pre-wrap text-sm leading-relaxed">
-                          {renderMessageContent(message.content, message.type)}
-                        </div>
-                      </Paper>
+                  <Paper
+                    p="sm"
+                    radius="xl"
+                    className="bg-surface-tertiary"
+                  >
+                    <div className="text-text-primary whitespace-pre-wrap text-sm">
+                      {renderMessageContent(message.content, message.type)}
                     </div>
-                    <Tooltip 
-                      label="You" 
-                      position="right" 
-                      withArrow
-                      styles={{
-                        tooltip: {
-                          backgroundColor: 'var(--color-background-primary)',
-                          backdropFilter: 'blur(8px)',
-                          border: '1px solid var(--color-border-primary)'
-                        }
-                      }}
-                    >
-                      <div className="relative">
-                        <Avatar 
-                          size="md" 
-                          radius="xl" 
-                          alt="User"
-                          className="ring-2 ring-brand-primary/20 transition-all duration-300 group-hover:ring-brand-primary/40 group-hover:scale-105"
-                          styles={{
-                            root: {
-                              background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary) 50%, var(--color-brand-primary) 100%)',
-                            }
-                          }}
-                        >
-                          {getInitials('User')}
-                        </Avatar>
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-brand-success rounded-full ring-2 ring-background-primary"></div>
-                      </div>
-                    </Tooltip>
-                  </div>
+                  </Paper>
                 )}
               </div>
             ))}
@@ -1144,24 +783,22 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="💬 Type your message... (Paddy will respond, or use @agent to mention others)"
-              radius="xl"
+              placeholder="Ask anything"
+              radius="md"
               size="lg"
               styles={{
                 input: {
-                  backgroundColor: 'var(--color-surface-secondary)',
+                  backgroundColor: 'transparent',
                   border: '1px solid var(--color-border-primary)',
                   color: 'var(--color-text-primary)',
-                  paddingRight: '120px',
-                  fontSize: '14px',
-                  transition: 'all 0.3s ease',
+                  paddingRight: '100px',
+                  fontSize: '16px',
+                  fontFamily: 'inherit',
                   '&:focus': {
-                    borderColor: 'var(--color-brand-primary)',
-                    boxShadow: '0 0 0 4px var(--color-brand-primary-opacity)',
-                    backgroundColor: 'var(--color-surface-primary)'
+                    borderColor: 'var(--color-border-focus)',
                   },
                   '&::placeholder': {
-                    color: 'var(--color-text-muted)'
+                    color: 'var(--color-text-muted)',
                   }
                 }
               }}
@@ -1170,10 +807,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               <ActionIcon
                 onClick={handleMicClick}
                 variant={isRecording ? "filled" : "subtle"}
-                color={isRecording ? "red" : "blue"}
+                color={isRecording ? "red" : undefined}
                 size="lg"
                 radius="xl"
-                className={`transition-all duration-300 hover:scale-110 ${isRecording ? "animate-pulse shadow-lg shadow-brand-error/25" : "hover:bg-brand-primary/10"}`}
+                className={`${isRecording ? "animate-pulse" : "text-text-primary hover:bg-surface-hover"}`}
               >
                 {isRecording ? (
                   <IconMicrophoneOff size={18} />
@@ -1181,17 +818,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   <IconMicrophone size={18} />
                 )}
               </ActionIcon>
-              <Button 
-                type="submit" 
+              <ActionIcon
+                type="submit"
+                variant="subtle"
+                size="lg"
                 radius="xl"
-                size="md"
-                variant="gradient"
-                gradient={{ from: 'blue', to: 'indigo', deg: 45 }}
-                className="transition-all duration-300 hover:scale-105 shadow-lg shadow-brand-primary/25"
                 disabled={!input.trim() && !isRecording}
+                className="text-text-primary hover:bg-surface-hover"
               >
-                <IconSend size={16} />
-              </Button>
+                <IconSend size={18} />
+              </ActionIcon>
             </div>
             
             {/* Enhanced Agent Autocomplete Dropdown */}
@@ -1239,26 +875,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           </div>
         </form>
         
-        {/* Typing Indicator Area */}
-        <div className="mt-2 h-4 flex items-center">
-          {(isStreaming || chooseAgent.isPending) && (
-            <div className="flex items-center gap-2 text-xs text-text-muted">
-              <div className="flex gap-1">
-                <div className="w-1 h-1 bg-brand-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                <div className="w-1 h-1 bg-brand-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                <div className="w-1 h-1 bg-brand-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-              </div>
-              <Text size="xs" c="dimmed">AI is thinking...</Text>
-            </div>
-          )}
-        </div>
+        {/* Typing Indicator */}
+        {(isStreaming || chooseAgent.isPending) && (
+          <div className="mt-2 flex items-center gap-1">
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          </div>
+        )}
       </div>
 
-      {/* WhatsApp Gateway Modal */}
-      <WhatsAppGatewayModal
-        opened={whatsappModalOpened}
-        onClose={() => setWhatsappModalOpened(false)}
-      />
     </div>
   );
 } 

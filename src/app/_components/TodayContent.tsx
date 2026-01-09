@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Tabs, Stack, Paper, Text, Group, ScrollArea, ActionIcon, Drawer } from "@mantine/core";
+import { Tabs, Stack, Paper, Text, Group, ScrollArea, ActionIcon, Modal } from "@mantine/core";
 import {
   IconHome,
   IconLayoutKanban,
@@ -10,7 +10,6 @@ import {
   IconClock,
   IconNotebook,
   IconMessageCircle,
-  IconX,
   IconFolder,
 } from "@tabler/icons-react";
 import { Actions } from "./Actions";
@@ -370,49 +369,41 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
         </Stack>
       </Tabs>
 
-      {/* Chat Drawer */}
-      <Drawer.Root
+      {/* Chat Modal */}
+      <Modal
         opened={chatOpened}
         onClose={() => setChatOpened(false)}
-        position="right"
-        size="lg"
-        trapFocus={false}
-        lockScroll={false}
+        centered
+        size="700px"
+        radius="lg"
+        padding={0}
+        withCloseButton={false}
+        overlayProps={{
+          backgroundOpacity: 0.7,
+          blur: 4,
+        }}
+        styles={{
+          content: {
+            backgroundColor: 'var(--color-bg-modal)',
+            border: '1px solid var(--color-border-primary)',
+            height: '80vh',
+            maxHeight: '800px',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          },
+          body: {
+            padding: 0,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
       >
-        <Drawer.Content
-          style={{
-            height: "100vh",
-            backgroundColor: "transparent",
-          }}
-        >
-          <div className="bg-primary flex h-full flex-col">
-            {/* Custom Header */}
-            <div className="border-border-primary/30 bg-background-secondary/90 border-b p-4 backdrop-blur-lg">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="bg-brand-success h-2 w-2 animate-pulse rounded-full"></div>
-                  <Text size="lg" fw={600} className="text-primary">
-                    Daily Chat
-                  </Text>
-                </div>
-                <ActionIcon
-                  variant="subtle"
-                  size="lg"
-                  onClick={() => setChatOpened(false)}
-                  c="dimmed"
-                  className="hover:bg-surface-hover/50 transition-colors"
-                >
-                  <IconX size={20} />
-                </ActionIcon>
-              </div>
-            </div>
-
-            <div className="h-full flex-1 overflow-hidden">
-              <ManyChat />
-            </div>
-          </div>
-        </Drawer.Content>
-      </Drawer.Root>
+        <div className="flex h-full flex-col overflow-hidden">
+          <ManyChat />
+        </div>
+      </Modal>
     </div>
   );
 }

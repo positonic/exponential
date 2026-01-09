@@ -11,6 +11,7 @@
     --color-bg-tertiary: #e9ecef;
     --color-bg-elevated: #ffffff;
     --color-bg-overlay: rgba(0, 0, 0, 0.5);
+    --color-bg-modal: #ffffff;
 
     /* Surface colors */
     --color-surface-primary: #ffffff;
@@ -60,6 +61,7 @@
     --color-bg-tertiary: #2c2e33;
     --color-bg-elevated: #25262b;
     --color-bg-overlay: rgba(0, 0, 0, 0.7);
+    --color-bg-modal: #212121;
 
     /* Surface colors */
     --color-surface-primary: #25262b;
@@ -109,6 +111,7 @@
     --color-bg-tertiary: #2c2e33;
     --color-bg-elevated: #25262b;
     --color-bg-overlay: rgba(0, 0, 0, 0.7);
+    --color-bg-modal: #212121;
 
     /* Surface colors */
     --color-surface-primary: #25262b;

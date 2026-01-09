@@ -15,7 +15,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dates/styles.css';
 import { ThemeProvider } from '~/providers/ThemeProvider';
-import { AgentDrawerProvider } from '~/providers/AgentDrawerProvider';
+import { AgentModalProvider } from '~/providers/AgentModalProvider';
 import { themes } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { Analytics } from '@vercel/analytics/next';
@@ -52,7 +52,7 @@ export default async function RootLayout({
           <TRPCReactProvider>
             <SessionProvider>
               <MantineRootProvider>
-                <AgentDrawerProvider>
+                <AgentModalProvider>
                   <ColorSchemeProvider>
                     <WorkspaceProvider>
                       <Layout domain={domain}>
@@ -62,7 +62,7 @@ export default async function RootLayout({
                       <FloatingFeedbackButton />
                     </WorkspaceProvider>
                   </ColorSchemeProvider>
-                </AgentDrawerProvider>
+                </AgentModalProvider>
               </MantineRootProvider>
             </SessionProvider>
           </TRPCReactProvider>

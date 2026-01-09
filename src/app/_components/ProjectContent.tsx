@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Actions } from "./Actions";
 import ProjectDetails from "./ProjectDetails";
@@ -135,15 +135,46 @@ export function ProjectContent({
     }
   }, [router, searchParams]);
 
-  const handleTranscriptionClick = (transcription: any) => {
+  const handleTranscriptionClick = useCallback((transcription: any) => {
     setSelectedTranscription(transcription);
     setDrawerOpened(true);
-  };
+
+    // Add transcription sessionId to URL
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("transcription", transcription.sessionId);
+    const newUrl = `?${params.toString()}`;
+    router.push(newUrl, { scroll: false });
+  }, [router, searchParams]);
+
+  const handleTranscriptionClose = useCallback(() => {
+    setDrawerOpened(false);
+    setSelectedTranscription(null);
+
+    // Remove transcription param from URL
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("transcription");
+    const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+    router.push(newUrl, { scroll: false });
+  }, [router, searchParams]);
 
   // Check if project has active Fireflies workflow
   const hasFirefliesWorkflow = projectWorkflows?.some(
     workflow => workflow.template?.id === 'fireflies-meeting-transcription' && workflow.status === 'ACTIVE'
   ) || false;
+
+  // Auto-open transcription from URL param
+  useEffect(() => {
+    const transcriptionParam = searchParams.get("transcription");
+    if (transcriptionParam && project?.transcriptionSessions && !drawerOpened) {
+      const transcription = project.transcriptionSessions.find(
+        (session) => session.sessionId === transcriptionParam
+      );
+      if (transcription) {
+        setSelectedTranscription(transcription);
+        setDrawerOpened(true);
+      }
+    }
+  }, [searchParams, project?.transcriptionSessions, drawerOpened]);
 
   if (isLoading) {
     return <div>Loading project...</div>;
@@ -565,7 +596,7 @@ export function ProjectContent({
       {/* Transcription Details Modal */}
       <TranscriptionDetailsModal
         opened={drawerOpened}
-        onClose={() => setDrawerOpened(false)}
+        onClose={handleTranscriptionClose}
         transcription={selectedTranscription}
         onTranscriptionUpdate={(updated) => setSelectedTranscription(updated)}
       />

@@ -5,7 +5,7 @@ import { auth } from "~/server/auth";
 import { ThemeWrapper } from "./ThemeWrapper";
 import { type ValidDomain } from "~/config/themes";
 import { MobileBottomNav } from "./MobileBottomNav";
-import { AgentChatDrawer } from "./AgentChatDrawer";
+import { AgentChatModal } from "./AgentChatModal";
 import { GlobalAddTaskButton } from "./GlobalAddTaskButton";
 
 export default async function Layout({ children, domain, showSidebar = true }: PropsWithChildren<{ domain: ValidDomain, showSidebar?: boolean }>) {
@@ -32,7 +32,7 @@ export default async function Layout({ children, domain, showSidebar = true }: P
         <GlobalAddTaskButton />
       </div>
       <MobileBottomNav />
-      <AgentChatDrawer />
+      <AgentChatModal />
     </ThemeWrapper>
   );
 } 

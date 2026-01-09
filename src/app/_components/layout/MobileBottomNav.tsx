@@ -9,7 +9,7 @@ import {
   IconMessageCircle,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
-import { useAgentDrawer } from '~/providers/AgentDrawerProvider';
+import { useAgentModal } from '~/providers/AgentModalProvider';
 
 interface NavItemProps {
   href?: string;
@@ -45,7 +45,7 @@ function NavItem({ href, icon: Icon, label, isActive, onClick }: NavItemProps) {
 
 export function MobileBottomNav() {
   const pathname = usePathname();
-  const { isOpen, openDrawer } = useAgentDrawer();
+  const { isOpen, openModal } = useAgentModal();
 
   const navItems = [
     { href: '/today', icon: IconCalendarEvent, label: 'Today' },
@@ -69,7 +69,7 @@ export function MobileBottomNav() {
           icon={IconMessageCircle}
           label="Agent"
           isActive={isOpen}
-          onClick={() => openDrawer()}
+          onClick={() => openModal()}
         />
       </div>
     </nav>
