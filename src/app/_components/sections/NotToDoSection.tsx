@@ -32,9 +32,20 @@ export const NotToDoSection = memo(({
             onChange={(e) => setNewNotToDo(e.target.value)}
             size="md"
             className="flex-grow bg-surface-secondary"
+            onKeyDown={(e) => {
+              if (
+                e.key === 'Enter' &&
+                e.metaKey &&
+                newNotToDo.trim()
+              ) {
+                e.preventDefault();
+                addNotToDo();
+              }
+            }}
           />
-          <Button onClick={addNotToDo}>Add</Button>
+          <Button onClick={addNotToDo} disabled={!newNotToDo.trim()}>Add</Button>
         </Group>
+        <Text size="xs" c="dimmed">⌘↵ to add</Text>
         <List spacing="sm">
           {notToDo.map((item: string, index: number) => (
             <List.Item key={index}>
