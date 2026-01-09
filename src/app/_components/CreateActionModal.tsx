@@ -168,20 +168,19 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         invalidatePromises.push(utils.action.getProjectActions.invalidate({ projectId }));
       }
 
-      // Invalidate Today view if relevant
-      const settledLowerView = viewName.toLowerCase();
-      if (isTodayAction || settledLowerView === 'today' || settledLowerView === 'workspace') {
-        invalidatePromises.push(utils.action.getToday.invalidate());
-      }
-
       // Invalidate Inbox/All view if it has no project (or if it's the default view)
       if (!projectId || viewName.toLowerCase() === 'inbox') {
           // Assuming 'inbox' relies on action.getAll or a specific inbox query
          invalidatePromises.push(utils.action.getAll.invalidate());
       }
 
+      // Always invalidate today and scheduled action queries
+      invalidatePromises.push(utils.action.getToday.invalidate());
+      invalidatePromises.push(utils.action.getScheduledByDate.invalidate());
+      invalidatePromises.push(utils.action.getScheduledByDateRange.invalidate());
+
       // Avoid invalidating project.getAll unless absolutely necessary
-      // invalidatePromises.push(utils.project.getAll.invalidate()); 
+      // invalidatePromises.push(utils.project.getAll.invalidate());
 
       await Promise.all(invalidatePromises);
       console.log(`[CreateActionModal onSettled] Invalidations complete for newActionId: ${data?.id ?? 'optimistic'}`);

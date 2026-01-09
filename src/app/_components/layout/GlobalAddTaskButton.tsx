@@ -142,10 +142,6 @@ export function GlobalAddTaskButton() {
 
     onSettled: async (data, error, variables) => {
       const projectId = variables.projectId;
-      const isTodayAction =
-        variables.dueDate &&
-        new Date(variables.dueDate).toDateString() === new Date().toDateString();
-
       const invalidatePromises: Promise<unknown>[] = [];
 
       if (projectId) {
@@ -154,13 +150,14 @@ export function GlobalAddTaskButton() {
         );
       }
 
-      if (isTodayAction) {
-        invalidatePromises.push(utils.action.getToday.invalidate());
-      }
-
       if (!projectId) {
         invalidatePromises.push(utils.action.getAll.invalidate());
       }
+
+      // Always invalidate today and scheduled action queries
+      invalidatePromises.push(utils.action.getToday.invalidate());
+      invalidatePromises.push(utils.action.getScheduledByDate.invalidate());
+      invalidatePromises.push(utils.action.getScheduledByDateRange.invalidate());
 
       await Promise.all(invalidatePromises);
     },
@@ -201,6 +198,8 @@ export function GlobalAddTaskButton() {
       projectId: projectId || undefined,
       priority: priority || "Quick",
       dueDate: dueDate || undefined,
+      scheduledStart: scheduledStart || undefined,
+      duration: duration || undefined,
     };
 
     createAction.mutate(actionData);

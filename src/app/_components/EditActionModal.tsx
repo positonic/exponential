@@ -60,6 +60,9 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
     onSuccess: async () => {
       await utils.action.getAll.invalidate();
       await utils.action.getProjectActions.invalidate();
+      await utils.action.getToday.invalidate();
+      await utils.action.getScheduledByDate.invalidate();
+      await utils.action.getScheduledByDateRange.invalidate();
       onClose();
     },
   });

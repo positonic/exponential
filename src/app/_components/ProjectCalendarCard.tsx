@@ -31,6 +31,7 @@ import { CalendarDayViewSkeleton, CalendarEventsSkeleton } from "./CalendarSkele
 import { GoogleCalendarConnect } from "./GoogleCalendarConnect";
 import { CreateMeetingModal } from "./CreateMeetingModal";
 import { stripHtml } from "~/lib/utils";
+import { Checkbox } from "@mantine/core";
 
 interface ProjectCalendarCardProps {
   projectId?: string;
@@ -86,6 +87,31 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
       refetchOnWindowFocus: false,
     }
   );
+
+  // Fetch scheduled actions for the selected date
+  const { data: scheduledActions } = api.action.getScheduledByDate.useQuery(
+    {
+      date: selectedDate,
+    },
+    {
+      staleTime: 2 * 60 * 1000,
+    }
+  );
+
+  // Handle action status change
+  const updateAction = api.action.update.useMutation({
+    onSuccess: async () => {
+      await utils.action.getScheduledByDate.invalidate();
+      await utils.action.getToday.invalidate();
+    },
+  });
+
+  const handleActionStatusChange = (actionId: string, completed: boolean) => {
+    updateAction.mutate({
+      id: actionId,
+      status: completed ? "COMPLETED" : "ACTIVE",
+    });
+  };
 
   // Scroll to center on current time when day view is opened
   useEffect(() => {
@@ -251,8 +277,8 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
             </Paper>
           )}
 
-          {/* No events */}
-          {events && events.length === 0 && !isLoading && !error && (
+          {/* No events and no scheduled actions */}
+          {events && events.length === 0 && (!scheduledActions || scheduledActions.length === 0) && !isLoading && !error && (
             <Paper
               p="md"
               radius="md"
@@ -272,23 +298,89 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
           )}
 
           {/* Day View */}
-          {events && events.length > 0 && viewMode === "dayview" && (
+          {((events && events.length > 0) || (scheduledActions && scheduledActions.length > 0)) && viewMode === "dayview" && (
             <ScrollArea h={300} ref={scrollAreaRef} scrollbarSize={6}>
               <Paper withBorder className="bg-surface-tertiary" p="xs">
-                <CalendarDayView events={events} selectedDate={selectedDate} />
+                <CalendarDayView
+                  events={events ?? []}
+                  selectedDate={selectedDate}
+                  scheduledActions={scheduledActions?.map(a => ({
+                    id: a.id,
+                    name: a.name,
+                    scheduledStart: a.scheduledStart!,
+                    scheduledEnd: a.scheduledEnd,
+                    duration: a.duration,
+                    status: a.status,
+                    project: a.project,
+                  })).filter(a => a.scheduledStart) ?? []}
+                  onActionStatusChange={handleActionStatusChange}
+                />
               </Paper>
             </ScrollArea>
           )}
 
           {/* List View */}
-          {events && events.length > 0 && viewMode === "list" && (
+          {((events && events.length > 0) || (scheduledActions && scheduledActions.length > 0)) && viewMode === "list" && (
             <ScrollArea h={300} scrollbarSize={6}>
               <Stack gap="xs">
                 <Text size="xs" c="dimmed">
-                  {events.length} event{events.length !== 1 ? "s" : ""}
+                  {(events?.length ?? 0) + (scheduledActions?.length ?? 0)} item{((events?.length ?? 0) + (scheduledActions?.length ?? 0)) !== 1 ? "s" : ""}
                 </Text>
 
-                {events
+                {/* Scheduled Actions */}
+                {scheduledActions?.filter(a => a.scheduledStart).map((action) => (
+                  <Paper
+                    key={action.id}
+                    p="sm"
+                    radius="sm"
+                    className="border-border-primary bg-brand-primary/10 transition-all hover:bg-surface-hover"
+                  >
+                    <Stack gap={4}>
+                      <Group justify="space-between" align="start" wrap="nowrap">
+                        <Group gap="xs" wrap="nowrap">
+                          <Checkbox
+                            size="xs"
+                            radius="xl"
+                            checked={action.status === "COMPLETED"}
+                            onChange={(e) => handleActionStatusChange(action.id, e.currentTarget.checked)}
+                            styles={{
+                              input: {
+                                backgroundColor: 'transparent',
+                                borderColor: 'var(--color-brand-primary)',
+                              },
+                            }}
+                          />
+                          <Text
+                            size="sm"
+                            fw={500}
+                            className={`text-text-primary ${action.status === "COMPLETED" ? "line-through opacity-60" : ""}`}
+                            lineClamp={1}
+                          >
+                            {action.name}
+                          </Text>
+                        </Group>
+                        <Badge size="xs" variant="light" color="blue">
+                          Action
+                        </Badge>
+                      </Group>
+                      <Group gap="xs">
+                        <IconClock size={12} style={{ color: "var(--mantine-color-blue-5)" }} />
+                        <Text size="xs" c="dimmed">
+                          {format(new Date(action.scheduledStart!), "h:mm a")}
+                          {action.duration && ` (${action.duration} min)`}
+                        </Text>
+                      </Group>
+                      {action.project && (
+                        <Text size="xs" c="dimmed">
+                          📁 {action.project.name}
+                        </Text>
+                      )}
+                    </Stack>
+                  </Paper>
+                ))}
+
+                {/* Calendar Events */}
+                {(events ?? [])
                   .sort((a, b) => {
                     if (!a.start.dateTime && b.start.dateTime) return -1;
                     if (a.start.dateTime && !b.start.dateTime) return 1;
