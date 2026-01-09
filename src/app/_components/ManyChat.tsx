@@ -16,15 +16,10 @@ import {
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
+import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
 
-interface Message {
-    type: 'system' | 'human' | 'ai' | 'tool';
-    content: string;
-    tool_call_id?: string;
-    name?: string; // Used for tool responses
-    agentName?: string; // Added: Name of the AI agent sending the message
-    interactionId?: string; // Added: ID for feedback tracking
-}
+// Use ChatMessage from provider for consistency
+type Message = ChatMessage;
 
 interface ManyChatProps {
   initialMessages?: Message[];
@@ -151,9 +146,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     ];
   }, [projectId, githubSettings]);
 
-  const [messages, setMessages] = useState<Message[]>(
-    initialMessages ?? generateInitialMessages()
-  );
+  // Get messages and conversationId from context to persist across navigation
+  const { messages, setMessages, conversationId, setConversationId } = useAgentModal();
+
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -162,7 +157,6 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const [showAgentDropdown, setShowAgentDropdown] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
-  const [conversationId, setConversationId] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -221,28 +215,42 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     if (!conversationId) {
       void initConversation();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- setConversationId is stable from context
   }, [projectId, startConversation, conversationId]);
   
-  // Update messages when project data is loaded - but only if messages are still initial
+  // Update system message with project context when project data loads
+  // This preserves conversation history while adding project context
   useEffect(() => {
-    if (projectData && projectActions && !initialMessages && messages.length <= 2) {
-      // Only reset messages if we still have just the initial welcome messages
+    if (projectData && projectActions && !initialMessages) {
       // Security audit logging
-      console.log('🔒 [SECURITY AUDIT] Generating agent context:', {
+      console.log('🔒 [SECURITY AUDIT] Updating agent context:', {
         projectId: projectData.id,
         projectName: projectData.name,
         actionsCount: projectActions.length,
         transcriptionsCount: projectTranscriptions?.length ?? 0,
         timestamp: new Date().toISOString(),
-        hasInitialMessages: !!initialMessages,
         contextScope: 'single-project-only',
         currentMessageCount: messages.length
       });
 
-      const newMessages = generateInitialMessages(projectData, projectActions, projectTranscriptions);
-      setMessages(newMessages);
+      // Generate updated system message with project context
+      const updatedMessages = generateInitialMessages(projectData, projectActions, projectTranscriptions);
+      const newSystemMessage = updatedMessages[0];
+
+      // Only update the system message (first message) with project context
+      // Preserve all other messages in the conversation
+      if (newSystemMessage) {
+        setMessages(prev => {
+          // If first message is system, replace it; otherwise prepend
+          if (prev.length > 0 && prev[0]?.type === 'system') {
+            return [newSystemMessage, ...prev.slice(1)];
+          }
+          return [newSystemMessage, ...prev];
+        });
+      }
     }
-  }, [projectData, projectActions, projectTranscriptions, initialMessages, generateInitialMessages, messages.length]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- setMessages is stable from context, messages.length would cause infinite loop
+  }, [projectData, projectActions, projectTranscriptions, initialMessages, generateInitialMessages]);
   
   // Parse agent mentions from input
   const parseAgentMention = (text: string): { agentId: string | null; cleanMessage: string } => {
