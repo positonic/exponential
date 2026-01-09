@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Actions } from "./Actions";
 import ProjectDetails from "./ProjectDetails";
 //import Chat from "./Chat";
-import ManyChat from "./ManyChat";
 import { Team } from "./Team";
 // import { Plan } from "./Plan";
 import { GoalsTable } from "./GoalsTable";
@@ -22,7 +21,6 @@ import {
   Stack,
   Text,
   Drawer,
-  Modal,
   Badge,
   ActionIcon,
   Card,
@@ -57,6 +55,7 @@ import { ProjectFirefliesSyncPanel } from "./ProjectFirefliesSyncPanel";
 import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
+import { useAgentModal } from "~/providers/AgentModalProvider";
 import Link from "next/link";
 
 type TabValue =
@@ -109,7 +108,8 @@ export function ProjectContent({
       : "overview";
 
   const [drawerOpened, setDrawerOpened] = useState(false);
-  const [activeDrawer, setActiveDrawer] = useState<'chat' | 'settings' | null>(null);
+  const [activeDrawer, setActiveDrawer] = useState<'settings' | null>(null);
+  const { openModal: openChatModal, isOpen: chatModalOpen } = useAgentModal();
   const [selectedTranscription, setSelectedTranscription] = useState<unknown>(null);
   const [syncStatusOpened, setSyncStatusOpened] = useState(false);
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
@@ -228,16 +228,16 @@ export function ProjectContent({
               </ActionIcon>
             </CreateProjectModal>
             <ActionIcon
-              variant={activeDrawer === 'chat' ? 'gradient' : 'filled'}
-              gradient={activeDrawer === 'chat' ? { from: 'blue', to: 'indigo', deg: 45 } : undefined}
+              variant={chatModalOpen ? 'gradient' : 'filled'}
+              gradient={chatModalOpen ? { from: 'blue', to: 'indigo', deg: 45 } : undefined}
               size="lg"
-              onClick={() => setActiveDrawer(activeDrawer === 'chat' ? null : 'chat')}
-              title={activeDrawer === 'chat' ? 'Close Project Chat' : 'Open Project Chat'}
-              className={activeDrawer === 'chat' ? 'shadow-lg scale-105' : 'hover:scale-105'}
+              onClick={() => openChatModal(projectId)}
+              title={chatModalOpen ? 'Close Project Chat' : 'Open Project Chat'}
+              className={chatModalOpen ? 'shadow-lg scale-105' : 'hover:scale-105'}
               style={{
                 transition: 'all 0.2s ease',
-                transform: activeDrawer === 'chat' ? 'scale(1.05)' : 'scale(1)',
-                boxShadow: activeDrawer === 'chat' ? '0 4px 12px rgba(59, 130, 246, 0.3)' : undefined,
+                transform: chatModalOpen ? 'scale(1.05)' : 'scale(1)',
+                boxShadow: chatModalOpen ? '0 4px 12px rgba(59, 130, 246, 0.3)' : undefined,
               }}
             >
               <IconMessageCircle size={20} />
@@ -601,43 +601,6 @@ export function ProjectContent({
         transcription={selectedTranscription}
         onTranscriptionUpdate={(updated) => setSelectedTranscription(updated)}
       />
-
-      {/* Project Chat Modal */}
-      <Modal
-        opened={activeDrawer === 'chat'}
-        onClose={() => setActiveDrawer(null)}
-        keepMounted
-        centered
-        size="700px"
-        radius="lg"
-        padding={0}
-        withCloseButton={false}
-        overlayProps={{
-          backgroundOpacity: 0.7,
-          blur: 4,
-        }}
-        styles={{
-          content: {
-            backgroundColor: 'var(--color-bg-modal)',
-            border: '1px solid var(--color-border-primary)',
-            height: '80vh',
-            maxHeight: '800px',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          },
-          body: {
-            padding: 0,
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-          },
-        }}
-      >
-        <div className="flex h-full flex-col overflow-hidden">
-          <ManyChat projectId={projectId} />
-        </div>
-      </Modal>
 
       {/* Project Settings Drawer */}
       <Drawer

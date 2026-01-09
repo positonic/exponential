@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Tabs, Stack, Paper, Text, Group, ScrollArea, ActionIcon, Modal } from "@mantine/core";
+import { Tabs, Stack, Paper, Text, Group, ScrollArea, ActionIcon } from "@mantine/core";
 import {
   IconHome,
   IconLayoutKanban,
@@ -15,7 +15,7 @@ import {
 import { Actions } from "./Actions";
 import { TodayOverview } from "./TodayOverview";
 import { StartupRoutineForm } from "./StartupRoutineForm";
-import ManyChat from "./ManyChat";
+import { useAgentModal } from "~/providers/AgentModalProvider";
 import { api } from "~/trpc/react";
 import { format, parseISO } from "date-fns";
 import { CalendarDayView } from "./CalendarDayView";
@@ -44,7 +44,7 @@ interface TodayContentProps {
 export function TodayContent({ calendarConnected, initialTab, focus, dateRange, workspaceId }: TodayContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [chatOpened, setChatOpened] = useState(false);
+  const { openModal, isOpen: chatOpened } = useAgentModal();
 
   // Get tab from URL or use initial/default
   const tabFromUrl = searchParams.get("tab");
@@ -332,7 +332,7 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
               variant={chatOpened ? "gradient" : "filled"}
               gradient={chatOpened ? { from: "blue", to: "indigo", deg: 45 } : undefined}
               size="lg"
-              onClick={() => setChatOpened(!chatOpened)}
+              onClick={() => openModal()}
               title={chatOpened ? "Close Chat" : "Open Chat"}
               style={{
                 transition: "all 0.2s ease",
@@ -368,43 +368,6 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
           )}
         </Stack>
       </Tabs>
-
-      {/* Chat Modal */}
-      <Modal
-        opened={chatOpened}
-        onClose={() => setChatOpened(false)}
-        keepMounted
-        centered
-        size="700px"
-        radius="lg"
-        padding={0}
-        withCloseButton={false}
-        overlayProps={{
-          backgroundOpacity: 0.7,
-          blur: 4,
-        }}
-        styles={{
-          content: {
-            backgroundColor: 'var(--color-bg-modal)',
-            border: '1px solid var(--color-border-primary)',
-            height: '80vh',
-            maxHeight: '800px',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          },
-          body: {
-            padding: 0,
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-          },
-        }}
-      >
-        <div className="flex h-full flex-col overflow-hidden">
-          <ManyChat />
-        </div>
-      </Modal>
     </div>
   );
 }
