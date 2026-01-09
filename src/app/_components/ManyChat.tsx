@@ -172,8 +172,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const [isStreaming, setIsStreaming] = useState(false);
   const transcribeAudio = api.tools.transcribe.useMutation();
-  const callAgent = api.mastra.callAgent.useMutation();
   const chooseAgent = api.mastra.chooseAgent.useMutation();
   const logInteraction = api.aiInteraction.logInteraction.useMutation();
   const startConversation = api.aiInteraction.startConversation.useMutation();
@@ -485,21 +485,60 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       }
       
       const startTime = Date.now();
-      
-      const result = await callAgent.mutateAsync({
-        agentId: targetAgentId,
-        messages: [
-          { role: 'system', content: messages.find(m => m.type === 'system')?.content || '' },
-          { role: 'user', content: messageToSend }
-        ],
+
+      // Get agent name for display
+      const agentName = mastraAgents?.find(a => a.id === targetAgentId)?.name ?? 'Agent';
+
+      // Add empty AI message that will be filled by streaming
+      setMessages(prev => [...prev, { type: 'ai', agentName, content: '' }]);
+      setIsStreaming(true);
+
+      const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: messages.find(m => m.type === 'system')?.content ?? '' },
+            { role: 'user', content: messageToSend }
+          ],
+          agentId: targetAgentId,
+        }),
       });
 
-      const responseTime = Date.now() - startTime;
-      const aiResponseText = typeof result.response === 'string' 
-        ? result.response 
-        : JSON.stringify(result.response);
+      if (!response.ok) {
+        throw new Error('Stream request failed');
+      }
 
-      // Log the successful interaction first to get the interaction ID
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          fullResponse += chunk;
+
+          setMessages(prev => {
+            const updated = [...prev];
+            const lastMessage = updated[updated.length - 1];
+            if (lastMessage && lastMessage.type === 'ai') {
+              updated[updated.length - 1] = {
+                ...lastMessage,
+                content: fullResponse,
+              };
+            }
+            return updated;
+          });
+        }
+      }
+
+      setIsStreaming(false);
+      const responseTime = Date.now() - startTime;
+
+      // Log the successful interaction after streaming completes
       let interactionId: string | undefined;
       try {
         const logResult = await logInteraction.mutateAsync({
@@ -507,38 +546,39 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           conversationId: conversationId || undefined,
           userMessage: input,
           cleanMessage: messageToSend !== input ? messageToSend : undefined,
-          aiResponse: aiResponseText,
+          aiResponse: fullResponse,
           agentId: targetAgentId,
-          agentName: result.agentName || undefined,
+          agentName: agentName,
           model: "mastra-agents",
           messageType: mentionedAgentId ? "command" : "question",
           responseTime,
           projectId: projectId || undefined,
-          toolsUsed: result.toolCalls?.map((tool: any) => tool.name || tool.function?.name).filter(Boolean) || [],
-          actionsTaken: result.toolResults?.map((toolResult: any) => ({
-            action: toolResult.name || "unknown",
-            result: toolResult.success ? "success" : "error",
-            data: toolResult.content || toolResult.text,
-          })) || [],
+          toolsUsed: [],
+          actionsTaken: [],
           hadError: false,
         });
         interactionId = logResult.interactionId;
       } catch (logError) {
         console.warn("Failed to log AI interaction:", logError);
-        // Don't throw error to avoid breaking the chat flow
       }
 
-      const aiResponse: Message = {
-        type: 'ai',
-        agentName: result.agentName || 'Agent',
-        content: aiResponseText,
-        interactionId, // Include interaction ID for feedback tracking
-      };
-      setMessages(prev => [...prev, aiResponse]);
+      // Update the message with interaction ID for feedback
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMessage = updated[updated.length - 1];
+        if (lastMessage && lastMessage.type === 'ai') {
+          updated[updated.length - 1] = {
+            ...lastMessage,
+            interactionId,
+          };
+        }
+        return updated;
+      });
 
     } catch (error) {
+      setIsStreaming(false);
       console.error('Chat error:', error);
-      
+
       // Enhanced error detection and reporting
       let errorMessage = 'Sorry, I encountered an error processing your request.';
       let errorType = 'Unknown';
@@ -1201,7 +1241,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         
         {/* Typing Indicator Area */}
         <div className="mt-2 h-4 flex items-center">
-          {(callAgent.isPending || chooseAgent.isPending) && (
+          {(isStreaming || chooseAgent.isPending) && (
             <div className="flex items-center gap-2 text-xs text-text-muted">
               <div className="flex gap-1">
                 <div className="w-1 h-1 bg-brand-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
