@@ -279,6 +279,80 @@ export const aiInteractionRouter = createTRPCRouter({
   }),
 
   /**
+   * Get list of conversations for sidebar (unique conversationIds with first message as title)
+   */
+  getConversationList: protectedProcedure
+    .input(
+      z.object({
+        limit: z.number().min(1).max(50).default(20),
+        search: z.string().optional(),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const limit = input?.limit ?? 20;
+      const search = input?.search;
+
+      // Build where clause
+      const whereClause: any = {
+        systemUserId: userId,
+        conversationId: { not: null },
+      };
+
+      if (search) {
+        whereClause.userMessage = { contains: search, mode: 'insensitive' };
+      }
+
+      // Get conversations with their first message (oldest) for title
+      // Group by conversationId and get the earliest message
+      const conversations = await ctx.db.aiInteractionHistory.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'asc' },
+        distinct: ['conversationId'],
+        select: {
+          conversationId: true,
+          userMessage: true,
+          createdAt: true,
+          agentName: true,
+        },
+      });
+
+      // Get latest activity for each conversation
+      const conversationIds = conversations.map(c => c.conversationId).filter(Boolean) as string[];
+
+      const latestActivities = await ctx.db.aiInteractionHistory.groupBy({
+        by: ['conversationId'],
+        where: {
+          conversationId: { in: conversationIds },
+        },
+        _max: {
+          createdAt: true,
+        },
+      });
+
+      // Combine and sort by latest activity
+      const result = conversations
+        .filter(c => c.conversationId)
+        .map(conv => {
+          const lastActivity = latestActivities.find(
+            l => l.conversationId === conv.conversationId
+          )?._max.createdAt;
+
+          return {
+            conversationId: conv.conversationId!,
+            title: conv.userMessage.slice(0, 50) + (conv.userMessage.length > 50 ? '...' : ''),
+            createdAt: conv.createdAt,
+            lastActivity: lastActivity ?? conv.createdAt,
+            agentName: conv.agentName,
+          };
+        })
+        .sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime())
+        .slice(0, limit);
+
+      return result;
+    }),
+
+  /**
    * Start a new conversation and return conversation ID
    */
   startConversation: protectedProcedure

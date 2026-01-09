@@ -30,9 +30,10 @@ interface ManyChatProps {
   };
   buttons?: React.ReactNode[];
   projectId?: string;
+  initialInput?: string;
 }
 
-export default function ManyChat({ initialMessages, githubSettings, buttons, projectId }: ManyChatProps) {
+export default function ManyChat({ initialMessages, githubSettings, buttons, projectId, initialInput }: ManyChatProps) {
   // Function to generate initial messages with project context
   const generateInitialMessages = useCallback((projectData?: any, projectActions?: any[], transcriptions?: any[]): Message[] => {
     // Format transcription context
@@ -313,6 +314,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Handle initialInput prop for agent selection from sidebar
+  useEffect(() => {
+    if (initialInput) {
+      setInput(initialInput);
+      // Focus the input after setting value
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
+    }
+  }, [initialInput]);
 
   // Handle input changes and autocomplete
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {

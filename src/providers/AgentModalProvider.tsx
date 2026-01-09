@@ -45,6 +45,7 @@ interface AgentModalContextValue {
   openModal: (projectId?: string) => void;
   closeModal: () => void;
   clearChat: () => void;
+  loadConversation: (conversationId: string, messages: ChatMessage[]) => void;
 }
 
 const AgentModalContext = createContext<AgentModalContextValue>({
@@ -57,6 +58,7 @@ const AgentModalContext = createContext<AgentModalContextValue>({
   openModal: () => undefined,
   closeModal: () => undefined,
   clearChat: () => undefined,
+  loadConversation: () => undefined,
 });
 
 export function useAgentModal() {
@@ -116,6 +118,15 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     localStorage.removeItem(CONVERSATION_STORAGE_KEY);
   }, []);
 
+  const loadConversation = useCallback((newConversationId: string, newMessages: ChatMessage[]) => {
+    // Prepend system message to loaded messages
+    const messagesWithSystem = [DEFAULT_SYSTEM_MESSAGE, ...newMessages];
+    setConversationId(newConversationId);
+    setMessages(messagesWithSystem);
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messagesWithSystem));
+    localStorage.setItem(CONVERSATION_STORAGE_KEY, newConversationId);
+  }, []);
+
   const value: AgentModalContextValue = {
     isOpen,
     projectId,
@@ -126,6 +137,7 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     openModal,
     closeModal,
     clearChat,
+    loadConversation,
   };
 
   return (
