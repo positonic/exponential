@@ -33,7 +33,7 @@ export function HeroSection({ id }: HeroSectionProps) {
           {/* Headline */}
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-text-primary mb-6 leading-tight">
             Stop managing work.{" "}
-            <span className="text-accent-indigo">Start doing it.</span>
+            <span className="text-accent-indigo whitespace-nowrap">Start doing it.</span>
           </h1>
 
           {/* Subheadline */}
