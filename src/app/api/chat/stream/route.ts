@@ -1,4 +1,5 @@
 import { MastraClient } from "@mastra/client-js";
+import type { CoreMessage } from "ai";
 import { auth } from "~/server/auth";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
@@ -15,7 +16,7 @@ export async function POST(req: Request) {
     }
 
     const { messages, agentId } = (await req.json()) as {
-      messages: { role: string; content: string }[];
+      messages: CoreMessage[];
       agentId?: string;
     };
 
