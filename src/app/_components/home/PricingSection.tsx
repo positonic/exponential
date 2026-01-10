@@ -24,7 +24,7 @@ export function PricingSection({ id }: PricingSectionProps) {
             Pricing
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-text-primary">
-            Free to use. Forever.
+            Start free. Scale when ready.
           </h2>
         </div>
 
@@ -43,7 +43,7 @@ export function PricingSection({ id }: PricingSectionProps) {
           <div className="relative z-10">
             {/* Badge */}
             <span className="inline-block px-4 py-1 rounded-full bg-accent-indigo/10 text-accent-indigo text-sm font-semibold mb-6">
-              FREE FOREVER
+              START FREE
             </span>
 
             {/* Price */}
