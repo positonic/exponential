@@ -4,7 +4,6 @@ import {
   IconBrandSlack,
   IconBrandWhatsapp,
   IconFlame,
-  IconNetwork,
   IconPlug,
   IconBook,
   IconSettings,
@@ -18,6 +17,15 @@ import {
   IconCircles,
   IconSunrise,
   IconRepeat,
+  IconDatabase,
+  IconTarget,
+  IconAddressBook,
+  IconBuildingSkyscraper,
+  IconUsers,
+  IconRobot,
+  IconKey,
+  IconPlayerPlay,
+  IconLayoutNavbar,
 } from "@tabler/icons-react";
 import type { DocNavSection, DocBreadcrumb } from "./types";
 
@@ -116,19 +124,64 @@ export const docsNavigation: DocNavSection[] = [
         icon: IconFlame,
       },
       {
+        title: "Knowledge Base",
+        href: "/docs/features/knowledge-base",
+        icon: IconDatabase,
+      },
+      {
         title: "Integrations",
         href: "/docs/features/integrations",
         icon: IconPlug,
       },
+      {
+        title: "Workspaces",
+        href: "/docs/features/workspaces",
+        icon: IconBuildingSkyscraper,
+      },
+      {
+        title: "Teams",
+        href: "/docs/features/teams",
+        icon: IconUsers,
+      },
+      {
+        title: "AI Assistant",
+        href: "/docs/features/ai-assistant",
+        icon: IconRobot,
+      },
+      {
+        title: "Workflows",
+        href: "/docs/features/workflows",
+        icon: IconPlayerPlay,
+      },
+      {
+        title: "API Access",
+        href: "/docs/features/api-access",
+        icon: IconKey,
+      },
+      {
+        title: "Settings",
+        href: "/docs/features/settings",
+        icon: IconLayoutNavbar,
+      },
     ],
   },
   {
-    title: "ARCHITECTURE",
+    title: "PLUGINS",
     items: [
       {
-        title: "Data Flow",
-        href: "/docs/architecture/data-flow",
-        icon: IconNetwork,
+        title: "Plugins Overview",
+        href: "/docs/features/plugins",
+        icon: IconPlug,
+      },
+      {
+        title: "OKRs",
+        href: "/docs/features/okr",
+        icon: IconTarget,
+      },
+      {
+        title: "CRM",
+        href: "/docs/features/crm",
+        icon: IconAddressBook,
       },
     ],
   },
