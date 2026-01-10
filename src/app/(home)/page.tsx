@@ -1,10 +1,10 @@
 // page.tsx
-import { IconCode, IconUsers, IconRocket } from "@tabler/icons-react";
+import { IconTarget, IconCalendarWeek, IconBrain } from "@tabler/icons-react";
 import { GetStartedButton } from '~/app/_components/GetStartedButton';
 import { ThemeToggle } from '~/app/_components/ThemeToggle';
 import { FeaturesSection } from '~/app/_components/FeaturesSection';
 import { ValuePropositionSection } from '~/app/_components/ValuePropositionSection';
-import { ProductRoadmapSection } from '~/app/_components/ProductRoadmapSection';
+import { HowItWorksSection } from '~/app/_components/HowItWorksSection';
 import { auth } from "~/server/auth";
 import { HeaderAuthButtons } from "~/app/_components/HeaderAuthButtons";
 import { LogoDisplay } from "~/app/_components/layout/LogoDisplay";
@@ -26,9 +26,9 @@ export default async function Home() {
 
         <nav className="hidden md:flex items-center space-x-8">
           <a href="#" className="text-purple-400 hover:text-white transition-colors">Home</a>
-          <a href="#features" className="text-purple-400 hover:text-white transition-colors">What</a>
+          <a href="#features" className="text-purple-400 hover:text-white transition-colors">Features</a>
           <a href="#why" className="text-purple-400 hover:text-white transition-colors">Why</a>
-          <a href="#roadmap" className="text-purple-400 hover:text-white transition-colors">How</a>
+          <a href="#how-it-works" className="text-purple-400 hover:text-white transition-colors">How It Works</a>
         </nav>
 
         <div className="flex items-center gap-2">
@@ -45,18 +45,18 @@ export default async function Home() {
           <div className="max-w-3xl mx-auto">
             <div className="mb-12">
               <span className="inline-block px-4 py-2 rounded-full bg-purple-900/30 text-purple-300 text-sm font-medium mb-6 border border-[rgb(107,33,168)]">
-                The AI Co-Founder for Solo Entrepreneurs
+                For founders who think strategically
               </span>
               <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent mb-6">
-                Turn Your Ideas Into Working Products
+                Know what to work on. Know why it matters.
               </h1>
               <p className="text-gray-300 text-lg mb-8">
-                Exponential helps solo founders execute faster and smarter. Plan, build, and iterate with AI support every step of the way.
+                Exponential connects your daily tasks to your bigger goals — so you stop drowning in busywork and start making real progress.
               </p>
               <div className="flex flex-wrap justify-center gap-4">
                 <GetStartedButton />
-                <a href="#" className="px-6 py-3 bg-transparent border border-gray-700 text-gray-300 font-medium rounded-md hover:bg-gray-800 transition-colors">
-                  Learn More
+                <a href="#features" className="px-6 py-3 bg-transparent border border-gray-700 text-gray-300 font-medium rounded-md hover:bg-gray-800 transition-colors">
+                  See How It Works
                 </a>
               </div>
             </div>
@@ -65,25 +65,25 @@ export default async function Home() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
               {[
                 {
-                  icon: <IconRocket size={36} stroke={1.5} />,
+                  icon: <IconTarget size={36} stroke={1.5} />,
                   iconBg: 'var(--color-surface-secondary)',
                   iconColor: 'var(--color-brand-primary)',
-                  title: 'Product Execution Engine',
-                  description: 'Go from idea to launch with AI-assisted planning and iteration.'
+                  title: 'Goals \u2192 Outcomes \u2192 Actions',
+                  description: 'See exactly how your daily work connects to what you\'re trying to achieve.'
                 },
                 {
-                  icon: <IconUsers size={36} stroke={1.5} />,
+                  icon: <IconCalendarWeek size={36} stroke={1.5} />,
                   iconBg: 'var(--color-surface-secondary)',
                   iconColor: 'var(--color-brand-info)',
-                  title: "Solo Doesn't Mean Alone",
-                  description: 'Work with your AI partner to build, track, and execute faster.'
+                  title: 'Daily & Weekly Rhythms',
+                  description: 'Start each day focused. End each week knowing what moved the needle.'
                 },
                 {
-                  icon: <IconCode size={36} stroke={1.5} />,
+                  icon: <IconBrain size={36} stroke={1.5} />,
                   iconBg: 'var(--color-surface-secondary)',
                   iconColor: 'var(--color-brand-primary)',
-                  title: 'Integrated With GitHub',
-                  description: 'Sync issues, milestones, and development tasks effortlessly.'
+                  title: 'AI That Knows Your Context',
+                  description: 'Get help from AI that understands your goals, not generic advice.'
                 }
               ].map((feature, index) => (
                 <div key={index} style={{ background: 'linear-gradient(180deg, rgba(14, 23, 47, 0.5) 0%, rgba(11, 15, 36, 0.7) 100%)', backdropFilter: 'blur(10px)', borderColor: 'rgba(255, 255, 255, 0.1)', borderWidth: '1px', borderStyle: 'solid', borderRadius: '12px' }} className="p-6 transition-all duration-300 hover:border-opacity-20">
@@ -106,15 +106,15 @@ export default async function Home() {
         {/* Value Proposition Section */}
         <ValuePropositionSection id="why"/>
 
-        {/* Product Roadmap Section */}
-        <ProductRoadmapSection id="roadmap" />
+        {/* How It Works Section */}
+        <HowItWorksSection id="how-it-works" />
       </main>
 
       {/* Footer */}
       <footer className="border-t border-border-primary py-8 px-8">
         <div className="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-text-muted text-sm">
-            © {new Date().getFullYear()} Funding the Commons. All rights reserved.
+            © {new Date().getFullYear()} Exponential. All rights reserved.
           </p>
           <nav className="flex items-center gap-6">
             <a

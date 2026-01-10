@@ -1,12 +1,10 @@
 import React from "react";
 import { Container, Title/*, Text*/, SimpleGrid } from "@mantine/core";
-import { 
-  IconGitPullRequest, 
-  IconUsers, 
-  IconCode, 
-  IconBriefcase, 
-  IconChartBar, 
-  IconWorld 
+import {
+  IconTarget,
+  IconSun,
+  IconCalendarWeek,
+  IconBrain
 } from "@tabler/icons-react";
 
 interface FeatureCardProps {
@@ -36,43 +34,31 @@ const FeatureCard: React.FC<FeatureCardProps> = ({
 );
 
 export const FeaturesSection: React.FC<FeaturesSectionProps> = ({ id }) => {
-  // Feature data
+  // Feature data aligned to Jobs-To-Be-Done
   const features: FeatureCardProps[] = [
     {
-      icon: <IconGitPullRequest size={32} stroke={1.5} />,
-      iconColor: "var(--color-brand-primary)", // Brand primary
-      title: "Project Management",
-      description: "AI-assisted tracking of tasks, milestones, and progress with GitHub integration for seamless workflow."
+      icon: <IconTarget size={32} stroke={1.5} />,
+      iconColor: "var(--color-brand-primary)",
+      title: "Strategic Alignment",
+      description: "Every task links to a goal. Never ask 'why am I doing this?' again. See the full hierarchy from vision to execution."
     },
     {
-      icon: <IconUsers size={32} stroke={1.5} />,
-      iconColor: "var(--color-brand-info)", // Brand info
-      title: "Team Management",
-      description: "Coordinate human and AI contributors efficiently, ensuring everyone works together harmoniously."
+      icon: <IconSun size={32} stroke={1.5} />,
+      iconColor: "var(--color-brand-warning)",
+      title: "Daily Focus",
+      description: "Your morning starts with clarity. See today's priorities connected to this week's outcomes. No more planning paralysis."
     },
     {
-      icon: <IconCode size={32} stroke={1.5} />,
-      iconColor: "var(--color-brand-primary)", // Brand primary
-      title: "Human/AI Coordination Layer",
-      description: "Automate workflow optimization with AI agents that help manage tasks and improve productivity."
+      icon: <IconCalendarWeek size={32} stroke={1.5} />,
+      iconColor: "var(--color-brand-info)",
+      title: "Weekly Reset",
+      description: "Built-in weekly review. See what you accomplished and what actually moved the needle. Course-correct before it's too late."
     },
     {
-      icon: <IconBriefcase size={32} stroke={1.5} />,
-      iconColor: "var(--color-brand-success)", // Brand success
-      title: "Virtual Scalable Next-Gen VC",
-      description: "Create a funding ecosystem for OSS projects that helps them grow from zero to one and beyond."
-    },
-    {
-      icon: <IconChartBar size={32} stroke={1.5} />,
-      iconColor: "var(--color-brand-warning)", // Brand warning
-      title: "Fair Compensation",
-      description: "Ensure contributors are rewarded based on their impact with transparent evaluation mechanisms."
-    },
-    {
-      icon: <IconWorld size={32} stroke={1.5} />,
-      iconColor: "var(--color-brand-error)", // Brand error
-      title: "Self-Sovereign Software",
-      description: "Enable teams to work in an autonomous, transparent, and fair ecosystem with decentralized governance."
+      icon: <IconBrain size={32} stroke={1.5} />,
+      iconColor: "var(--color-brand-success)",
+      title: "AI Thought Partner",
+      description: "Ask for help and get answers that understand your specific goals and projects. Not generic advice from a chatbot."
     }
   ];
 
@@ -80,21 +66,20 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({ id }) => {
     <section id={id} className="py-24 w-full bg-background-primary">
       <Container size="lg">
         <div className="mb-16 text-center">
-          <Title 
+          <Title
             order={2}
             className="text-4xl md:text-5xl font-bold mb-6"
-            style={{ color: "var(--color-brand-primary)" }} // Brand primary color
+            style={{ color: "var(--color-brand-primary)" }}
           >
-            Key Features & Differentiators
+            Finally, a System That Connects the Dots
           </Title>
           <p className="text-gray-300 text-lg mb-8 max-w-[60%] mx-auto">
-            Exponential combines AI-driven project coordination, decentralized funding, and a 
-            governance model that rewards contributions fairly.
+            Designed around how strategic thinkers actually work. Not just another task list.
           </p>
         </div>
 
         <SimpleGrid
-          cols={{ base: 1, md: 2, lg: 3 }}
+          cols={{ base: 1, md: 2 }}
           spacing={{ base: 16, md: 24 }}
           verticalSpacing={{ base: 16, md: 24 }}
         >
