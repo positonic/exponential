@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -57,21 +57,19 @@ const KANBAN_COLUMNS: { id: ActionStatus; title: string; color: string }[] = [
   { id: "CANCELLED", title: "Cancelled", color: "red" },
 ];
 
+// Priority order mapping (matching ActionList.tsx for consistency)
+const priorityOrder: Record<string, number> = {
+  '1st Priority': 1, '2nd Priority': 2, '3rd Priority': 3, '4th Priority': 4,
+  '5th Priority': 5, 'Quick': 6, 'Scheduled': 7, 'Errand': 8,
+  'Remember': 9, 'Watch': 10
+};
+
 export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
   const [activeTask, setActiveTask] = useState<Action | null>(null);
   const [optimisticUpdates, setOptimisticUpdates] = useState<Record<string, ActionStatus>>({});
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
 
   const utils = api.useUtils();
-
-  // Mutation for initializing kanban orders for existing tasks
-  const initializeOrdersMutation = api.action.initializeKanbanOrders.useMutation({
-    onSuccess: () => {
-      if (projectId) {
-        void utils.action.getProjectActions.invalidate({ projectId });
-      }
-    },
-  });
 
   // Mutation for updating kanban status with ordering
   const updateKanbanStatusMutation = api.action.updateKanbanStatusWithOrder.useMutation({
@@ -127,20 +125,6 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
     },
   });
 
-  // Check if we need to initialize orders for existing tasks
-  useEffect(() => {
-    if (projectId && actions.length > 0) {
-      const tasksWithoutOrder = actions.filter(action => 
-        action.projectId && action.kanbanOrder === null
-      );
-      
-      if (tasksWithoutOrder.length > 0 && !initializeOrdersMutation.isPending) {
-        console.log(`Initializing kanban orders for ${tasksWithoutOrder.length} existing tasks`);
-        initializeOrdersMutation.mutate({ projectId });
-      }
-    }
-  }, [projectId, actions, initializeOrdersMutation]);
-
   // Apply optimistic updates to actions
   const actionsWithOptimisticUpdates = useMemo(() => {
     return actions.map(action => ({
@@ -150,25 +134,37 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
   }, [actions, optimisticUpdates]);
 
   // Filter actions that have kanban status or assign default status
-  const kanbanActions = actionsWithOptimisticUpdates.filter(action => 
+  const kanbanActions = actionsWithOptimisticUpdates.filter(action =>
     action.projectId && (action.kanbanStatus || action.kanbanStatus === null)
   );
 
-  // Group actions by status and sort by kanbanOrder
+  // Group actions by status and sort by priority (with manual kanbanOrder override)
   const actionsByStatus = useMemo(() => {
     return KANBAN_COLUMNS.reduce((acc, column) => {
       const columnActions = kanbanActions.filter(
-        action => action.kanbanStatus === column.id || 
+        action => action.kanbanStatus === column.id ||
         (column.id === "TODO" && !action.kanbanStatus) // Default to TODO if no status
       );
-      
-      // Sort by kanbanOrder, with nulls at the end
+
+      // Sort: manually positioned tasks (with kanbanOrder) first, then by priority
       acc[column.id] = columnActions.sort((a, b) => {
-        const orderA = a.kanbanOrder ?? Number.MAX_SAFE_INTEGER;
-        const orderB = b.kanbanOrder ?? Number.MAX_SAFE_INTEGER;
-        return orderA - orderB;
+        const aOrder = a.kanbanOrder;
+        const bOrder = b.kanbanOrder;
+
+        // If both have kanbanOrder (manually positioned), sort by that
+        if (aOrder != null && bOrder != null) {
+          return aOrder - bOrder;
+        }
+        // Manually positioned tasks come before auto-sorted ones
+        if (aOrder != null) return -1;
+        if (bOrder != null) return 1;
+
+        // Neither has kanbanOrder - use priority + ID (matching list view)
+        const priorityDiff = (priorityOrder[a.priority] ?? 999) - (priorityOrder[b.priority] ?? 999);
+        if (priorityDiff !== 0) return priorityDiff;
+        return a.id.localeCompare(b.id);
       });
-      
+
       return acc;
     }, {} as Record<ActionStatus, Action[]>);
   }, [kanbanActions]);
