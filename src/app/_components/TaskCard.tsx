@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Card, Text, Group, Badge, Avatar, Stack, ActionIcon, Menu, Tooltip, HoverCard, Modal, Button, Divider } from "@mantine/core";
-import { IconGripVertical, IconDots, IconEdit, IconTrash, IconArrowsMaximize } from "@tabler/icons-react";
+import { IconDots, IconEdit, IconTrash, IconArrowsMaximize } from "@tabler/icons-react";
 import { AssignActionModal } from "./AssignActionModal";
 import { EditActionModal } from "./EditActionModal";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
@@ -89,9 +89,9 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
 
   const handleCardClick = (e: React.MouseEvent) => {
-    // Only open modal if we're not interacting with drag handles, menus, or action buttons
+    // Only open modal if we're not interacting with menus or action buttons
     const target = e.target as HTMLElement;
-    if (!target.closest('[data-dnd-handle]') && !target.closest('[data-no-modal]')) {
+    if (!target.closest('[data-no-modal]')) {
       e.stopPropagation();
       setEditModalOpen(true);
     }
@@ -121,16 +121,8 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
         onClick={handleCardClick}
       >
       <Stack gap="xs">
-        {/* Header with drag handle and menu */}
-        <Group justify="space-between" wrap="nowrap">
-          <div 
-            className="p-1 -ml-1"
-            aria-label="Drag handle"
-            data-dnd-handle
-          >
-            <IconGripVertical size={16} className="text-text-muted" />
-          </div>
-          
+        {/* Header with menu */}
+        <Group justify="flex-end" wrap="nowrap">
           <Menu shadow="md" width={150} position="bottom-end">
             <Menu.Target>
               <ActionIcon 
