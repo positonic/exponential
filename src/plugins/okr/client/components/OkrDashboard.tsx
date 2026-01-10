@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Container,
   Title,
@@ -24,6 +24,7 @@ import { IconTargetArrow, IconPlus } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
+import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 
 // Status badge colors
 const statusColors: Record<string, string> = {
@@ -63,6 +64,13 @@ export function OkrDashboard() {
   });
 
   const utils = api.useUtils();
+
+  // Sync selected period to form data
+  useEffect(() => {
+    if (selectedPeriod) {
+      setFormData((prev) => ({ ...prev, period: selectedPeriod }));
+    }
+  }, [selectedPeriod]);
 
   // Fetch periods
   const { data: periods } = api.okr.getPeriods.useQuery();
@@ -160,6 +168,11 @@ export function OkrDashboard() {
               clearable
               className="w-48"
             />
+            <CreateGoalModal onSuccess={() => void utils.okr.getAvailableGoals.invalidate()}>
+              <Button variant="outline" leftSection={<IconPlus size={16} />}>
+                Create Objective
+              </Button>
+            </CreateGoalModal>
             <Button
               leftSection={<IconPlus size={16} />}
               onClick={openCreateModal}
