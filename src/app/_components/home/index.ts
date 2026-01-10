@@ -1,4 +1,6 @@
 export { HeroSection } from "./HeroSection";
+export { FeaturesMenu } from "./FeaturesMenu";
+export { ResourcesMenu } from "./ResourcesMenu";
 export { ProblemStatementSection } from "./ProblemStatementSection";
 export { SolutionIntroSection } from "./SolutionIntroSection";
 export { ProductDemoSection } from "./ProductDemoSection";

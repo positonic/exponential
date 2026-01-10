@@ -17,6 +17,8 @@ import {
   PricingSection,
   FinalCTASection,
   FooterSection,
+  FeaturesMenu,
+  ResourcesMenu,
 } from "~/app/_components/home";
 
 export default async function Home() {
@@ -35,12 +37,7 @@ export default async function Home() {
             </div>
 
             <nav className="hidden md:flex items-center space-x-8">
-              <Link
-                href="#features"
-                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
-              >
-                Features
-              </Link>
+              <FeaturesMenu />
               <Link
                 href="#how-it-works"
                 className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
@@ -53,6 +50,7 @@ export default async function Home() {
               >
                 Pricing
               </Link>
+              <ResourcesMenu />
             </nav>
 
             <div className="flex items-center gap-3">
