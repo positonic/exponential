@@ -67,9 +67,7 @@ export function OkrDashboard() {
 
   // Sync selected period to form data
   useEffect(() => {
-    if (selectedPeriod) {
-      setFormData((prev) => ({ ...prev, period: selectedPeriod }));
-    }
+    setFormData((prev) => ({ ...prev, period: selectedPeriod ?? "" }));
   }, [selectedPeriod]);
 
   // Fetch periods
