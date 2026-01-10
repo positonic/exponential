@@ -226,6 +226,7 @@ export const actionRouter = createTRPCRouter({
         name: z.string().min(1),
         description: z.string().optional(),
         projectId: z.string().optional(),
+        workspaceId: z.string().optional(),
         dueDate: z.date().optional(),
         scheduledStart: z.date().optional(),
         scheduledEnd: z.date().optional(),
@@ -310,6 +311,7 @@ export const actionRouter = createTRPCRouter({
         name: z.string().min(1).optional(),
         description: z.string().optional(),
         projectId: z.string().optional(),
+        workspaceId: z.string().nullable().optional(),
         dueDate: z.date().nullable().optional(), // nullable allows explicitly setting to null
         scheduledStart: z.date().nullable().optional(),
         scheduledEnd: z.date().nullable().optional(),

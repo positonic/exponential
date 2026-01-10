@@ -1,7 +1,7 @@
-import { Modal } from '@mantine/core';
+import { Modal, Select } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useViewportSize } from '@mantine/hooks';
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
@@ -9,6 +9,7 @@ import { AssignActionModal } from './AssignActionModal';
 import { IconPlus } from '@tabler/icons-react';
 import type { ActionStatus } from '@prisma/client';
 import { useSession } from 'next-auth/react';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 export function CreateActionModal({ viewName, projectId: propProjectId, children }: { viewName: string; projectId?: string; children?: React.ReactNode }) {
   const { data: session } = useSession();
@@ -35,6 +36,18 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
   const [createdActionId, setCreatedActionId] = useState<string | null>(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
+
+  // Workspace context and list
+  const { workspaceId: currentWorkspaceId } = useWorkspace();
+  const { data: workspaces } = api.workspace.list.useQuery();
+
+  // Auto-set workspace when in workspace context
+  useEffect(() => {
+    if (currentWorkspaceId && selectedWorkspaceId === null) {
+      setSelectedWorkspaceId(currentWorkspaceId);
+    }
+  }, [currentWorkspaceId, selectedWorkspaceId]);
 
   const utils = api.useUtils();
   
@@ -77,7 +90,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         duration: newAction.duration ?? null,
         transcriptionSessionId: null,
         teamId: null,
-        workspaceId: null,
+        workspaceId: selectedWorkspaceId,
         kanbanStatus: newAction.projectId ? "TODO" as ActionStatus : null, // Set kanban status for project actions
         kanbanOrder: null, // Will be set by the server
         completedAt: null, // New field for completion timestamp
@@ -222,6 +235,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       setScheduledStart(null);
       setDuration(null);
       setSelectedAssigneeIds([]);
+      setSelectedWorkspaceId(currentWorkspaceId ?? null);
       close();
     },
   });
@@ -233,6 +247,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       name,
       description: description || undefined,
       projectId: projectId || undefined,
+      workspaceId: selectedWorkspaceId ?? undefined,
       priority: priority || "Quick",
       dueDate: dueDate || undefined,
       scheduledStart: scheduledStart || undefined,
@@ -267,8 +282,8 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         </button>
       )}
 
-      <Modal 
-        opened={opened} 
+      <Modal
+        opened={opened}
         onClose={close}
         size="lg"
         radius="md"
@@ -286,6 +301,36 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           }
         }}
       >
+        {/* Show workspace selector only when not in a workspace context */}
+        {!currentWorkspaceId && workspaces && workspaces.length > 0 && (
+          <div className="px-4 pt-4">
+            <Select
+              data={[
+                { value: '', label: 'No Workspace (Personal)' },
+                ...workspaces.map(ws => ({
+                  value: ws.id,
+                  label: ws.name
+                }))
+              ]}
+              value={selectedWorkspaceId ?? ''}
+              onChange={(value) => setSelectedWorkspaceId(value === '' ? null : value)}
+              label="Workspace"
+              placeholder="Select a workspace"
+              styles={{
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+                dropdown: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  borderColor: 'var(--color-border-primary)',
+                  color: 'var(--color-text-primary)',
+                },
+              }}
+            />
+          </div>
+        )}
         <ActionModalForm
           name={name}
           setName={setName}

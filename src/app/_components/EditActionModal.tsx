@@ -1,4 +1,4 @@
-import { Modal } from '@mantine/core';
+import { Modal, Select } from '@mantine/core';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { type RouterOutputs } from "~/trpc/react";
@@ -27,8 +27,10 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
   const [scheduledStart, setScheduledStart] = useState<Date | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
 
   const utils = api.useUtils();
+  const { data: workspaces } = api.workspace.list.useQuery();
 
   // Query to get fresh action data including assignees
   const { data: freshAction } = api.action.getAll.useQuery(undefined, {
@@ -46,6 +48,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       setProjectId(currentAction.projectId ?? "");
       setPriority(currentAction.priority as ActionPriority);
       setDueDate(currentAction.dueDate ? new Date(currentAction.dueDate) : null);
+      setWorkspaceId(currentAction.workspaceId ?? null);
       // Load scheduling fields - cast to access new fields
       const actionWithSchedule = currentAction as typeof currentAction & {
         scheduledStart?: Date | null;
@@ -75,6 +78,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       name,
       description: description || undefined,
       projectId: projectId || undefined,
+      workspaceId: workspaceId,
       priority,
       dueDate: dueDate, // Pass null explicitly to clear the date
       scheduledStart: scheduledStart,
@@ -94,8 +98,8 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
 
   return (
     <>
-    <Modal 
-      opened={opened} 
+    <Modal
+      opened={opened}
       onClose={onClose}
       size="lg"
       radius="md"
@@ -109,6 +113,36 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
         }
       }}
     >
+      {/* Show workspace selector only when action has a workspace */}
+      {currentAction?.workspaceId && workspaces && workspaces.length > 0 && (
+        <div className="px-4 pt-4">
+          <Select
+            data={[
+              { value: '', label: 'No Workspace (Personal)' },
+              ...workspaces.map(ws => ({
+                value: ws.id,
+                label: ws.name
+              }))
+            ]}
+            value={workspaceId ?? ''}
+            onChange={(value) => setWorkspaceId(value === '' ? null : value)}
+            label="Workspace"
+            description="Move this action to a different workspace"
+            styles={{
+              input: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+              dropdown: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+                color: 'var(--color-text-primary)',
+              },
+            }}
+          />
+        </div>
+      )}
       <ActionModalForm
         name={name}
         setName={setName}
