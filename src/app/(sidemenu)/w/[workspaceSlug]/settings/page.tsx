@@ -19,7 +19,8 @@ import {
   Divider,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight } from '@tabler/icons-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
@@ -283,6 +284,29 @@ export default function WorkspaceSettingsPage() {
             workspaceId={workspaceId!}
             canManage={canManageMembers}
           />
+        </Card>
+
+        {/* Plugins */}
+        <Card
+          className="bg-surface-secondary border-border-primary cursor-pointer hover:bg-surface-hover transition-colors"
+          withBorder
+          component={Link}
+          href={`/w/${workspace.slug}/settings/plugins`}
+        >
+          <Group justify="space-between">
+            <Group gap="md">
+              <IconPlug size={24} className="text-text-muted" />
+              <div>
+                <Title order={3} className="text-text-primary">
+                  Plugins
+                </Title>
+                <Text size="sm" className="text-text-muted">
+                  Enable or disable plugins for this workspace
+                </Text>
+              </div>
+            </Group>
+            <IconChevronRight size={20} className="text-text-muted" />
+          </Group>
         </Card>
 
         {/* Teams */}
