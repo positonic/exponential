@@ -19,7 +19,7 @@ interface CreateGoalModalProps {
     whyThisGoal: string | null;
     notes: string | null;
     dueDate: Date | null;
-    lifeDomainId: number;
+    lifeDomainId: number | null;
     outcomes?: { id: string; description: string }[];
     workspaceId?: string | null;
   };
@@ -45,18 +45,11 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
   );
 
   const utils = api.useUtils();
-  const { data: lifeDomains } = api.lifeDomain.getAllLifeDomains.useQuery();
   const { data: projects } = api.project.getAll.useQuery();
   const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
   const { data: workspaces } = api.workspace.list.useQuery();
 
-  const { workspace, workspaceId: currentWorkspaceId } = useWorkspace();
-  const isPersonalWorkspace = workspace?.type === 'personal';
-
-  // Find Career/Business domain ID for non-personal workspaces, or fall back to first domain
-  const careerDomainId = lifeDomains?.find(d => d.title === 'Career/Business')?.id
-    ?? lifeDomains?.[0]?.id
-    ?? null;
+  const { workspaceId: currentWorkspaceId } = useWorkspace();
 
   const createGoal = api.goal.createGoal.useMutation({
     onMutate: async (newGoal) => {
@@ -71,10 +64,10 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
           whyThisGoal: newGoal.whyThisGoal ?? null,
           notes: newGoal.notes ?? null,
           dueDate: newGoal.dueDate ?? null,
-          lifeDomainId: newGoal.lifeDomainId,
+          lifeDomainId: newGoal.lifeDomainId ?? null,
           userId: "",
           workspaceId: null,
-          lifeDomain: {
+          lifeDomain: newGoal.lifeDomainId ? {
             id: newGoal.lifeDomainId,
             title: "Loading...",
             description: null,
@@ -82,7 +75,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
             color: null,
             displayOrder: 0,
             isActive: true,
-          },
+          } : null,
           projects: [],
           outcomes: [],
           habits: [],
@@ -125,7 +118,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
           whyThisGoal: updatedGoal.whyThisGoal ?? null,
           notes: updatedGoal.notes ?? null,
           dueDate: updatedGoal.dueDate ?? null,
-          lifeDomainId: updatedGoal.lifeDomainId,
+          lifeDomainId: updatedGoal.lifeDomainId ?? null,
         } : g);
       });
 
@@ -182,17 +175,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
     setSelectedProjectId(projectId);
   }, [projectId]);
 
-  // Auto-set Career/Business domain for non-personal workspaces
-  useEffect(() => {
-    if (!isPersonalWorkspace && careerDomainId && !lifeDomainId) {
-      setLifeDomainId(careerDomainId);
-    }
-  }, [isPersonalWorkspace, careerDomainId, lifeDomainId]);
-
-  const lifeDomainOptions = lifeDomains?.map(domain => ({
-    value: domain.id.toString(),
-    label: domain.title
-  })) ?? [];
 
   return (
     <>
@@ -216,7 +198,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!title || !lifeDomainId) return;
+            if (!title) return;
             
             const goalData = {
               title,
@@ -224,7 +206,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
               whyThisGoal: whyThisGoal || undefined,
               notes: notes || undefined,
               dueDate: dueDate ?? undefined,
-              lifeDomainId,
+              lifeDomainId: lifeDomainId ?? undefined,
               projectId: selectedProjectId,
               outcomeIds: selectedOutcomeIds.length > 0 ? selectedOutcomeIds : undefined,
               workspaceId: selectedWorkspaceId ?? undefined,
@@ -294,16 +276,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
             </Button>
           </CreateOutcomeModal>
 
-          {(isPersonalWorkspace || (!lifeDomainId && !careerDomainId)) && (
-            <Select
-              label="Life Domain"
-              data={lifeDomainOptions}
-              value={lifeDomainId?.toString()}
-              onChange={(value) => setLifeDomainId(value ? parseInt(value) : null)}
-              required
-              mt="md"
-            />
-          )}
           
           <div className="mt-4">
             <Text size="sm" fw={500} mb={4}>Due date (optional)</Text>
@@ -367,7 +339,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
             <Button 
               type="submit"
               loading={createGoal.isPending || updateGoal.isPending}
-              disabled={!title || !lifeDomainId}
+              disabled={!title}
             >
               {goal ? 'Update Goal' : 'Create Goal'}
             </Button>

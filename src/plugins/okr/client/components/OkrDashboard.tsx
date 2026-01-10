@@ -219,12 +219,14 @@ export function OkrDashboard() {
                 <Group justify="space-between" mb="md">
                   <div>
                     <Group gap="xs">
-                      <Badge
-                        color={objective.lifeDomain.color ?? "gray"}
-                        variant="light"
-                      >
-                        {objective.lifeDomain.title}
-                      </Badge>
+                      {objective.lifeDomain && (
+                        <Badge
+                          color={objective.lifeDomain.color ?? "gray"}
+                          variant="light"
+                        >
+                          {objective.lifeDomain.title}
+                        </Badge>
+                      )}
                       <Title order={4} className="text-text-primary">
                         {objective.title}
                       </Title>

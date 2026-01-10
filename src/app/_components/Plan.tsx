@@ -15,7 +15,7 @@ interface Goal {
   title: string;
   description: string | null;
   dueDate: Date | null;
-  lifeDomainId: number;
+  lifeDomainId: number | null;
   userId: string;
 }
 

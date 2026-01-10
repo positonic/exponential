@@ -34,7 +34,7 @@ interface GoalInput {
   whyThisGoal?: string;
   notes?: string;
   dueDate?: Date;
-  lifeDomainId: number;
+  lifeDomainId?: number;
   projectId?: string;
   outcomeIds?: string[];
   workspaceId?: string;

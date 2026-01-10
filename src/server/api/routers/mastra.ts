@@ -566,11 +566,11 @@ export const mastraRouter = createTRPCRouter({
           title: goal.title,
           description: goal.description,
           dueDate: goal.dueDate?.toISOString(),
-          lifeDomain: {
+          lifeDomain: goal.lifeDomain ? {
             id: goal.lifeDomain.id,
             title: goal.lifeDomain.title,
             description: goal.lifeDomain.description,
-          },
+          } : null,
           projects: goal.projects.map(project => ({
             id: project.id,
             name: project.name,
@@ -659,10 +659,10 @@ export const mastraRouter = createTRPCRouter({
           title: goal.title,
           description: goal.description,
           dueDate: goal.dueDate?.toISOString(),
-          lifeDomain: {
+          lifeDomain: goal.lifeDomain ? {
             title: goal.lifeDomain.title,
             description: goal.lifeDomain.description,
-          },
+          } : null,
         })),
         outcomes: project.outcomes.map(outcome => ({
           id: outcome.id,

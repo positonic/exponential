@@ -369,10 +369,10 @@ model Goal {
   whyThisGoal  String? // "Why this value goal?" motivation text
   notes        String? // Notes field for each goal
   dueDate      DateTime?
-  lifeDomainId Int
+  lifeDomainId Int?
   userId       String
   workspaceId  String?
-  lifeDomain   LifeDomain @relation(fields: [lifeDomainId], references: [id])
+  lifeDomain   LifeDomain? @relation(fields: [lifeDomainId], references: [id])
   user         User       @relation(fields: [userId], references: [id])
   workspace    Workspace? @relation(fields: [workspaceId], references: [id])
   outcomes     Outcome[]  @relation("GoalOutcomes")
