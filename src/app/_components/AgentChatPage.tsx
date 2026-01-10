@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ChatSidebar } from './agent/ChatSidebar';
 import ManyChat from './ManyChat';
-import { useAgentModal } from '~/providers/AgentModalProvider';
+import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
 import { api } from '~/trpc/react';
 import { Avatar, Menu } from '@mantine/core';
 import { IconChevronDown } from '@tabler/icons-react';
