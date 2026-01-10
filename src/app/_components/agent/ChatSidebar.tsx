@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { IconPlus, IconSearch, IconChevronDown, IconChevronRight } from '@tabler/icons-react';
+import { IconPlus, IconSearch, IconChevronDown, IconChevronRight, IconBrandWhatsapp } from '@tabler/icons-react';
 import { TextInput, Avatar, Collapse } from '@mantine/core';
 import { api } from '~/trpc/react';
+import { WhatsAppGatewayModal } from '../WhatsAppGatewayModal';
 
 interface ChatSidebarProps {
   onSelectConversation: (conversationId: string) => void;
@@ -22,6 +23,7 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [agentsExpanded, setAgentsExpanded] = useState(true); // Default expanded
+  const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
 
   const { data: conversations } = api.aiInteraction.getConversationList.useQuery({
     search: searchQuery || undefined,
@@ -135,6 +137,22 @@ export function ChatSidebar({
             </ul>
           </Collapse>
         </div>
+
+        {/* WhatsApp Connection */}
+        <div className="mb-6">
+          <button
+            onClick={() => setWhatsappModalOpen(true)}
+            className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+          >
+            <IconBrandWhatsapp size={16} className="text-green-500" />
+            <span>Connect WhatsApp</span>
+          </button>
+        </div>
+
+        <WhatsAppGatewayModal
+          opened={whatsappModalOpen}
+          onClose={() => setWhatsappModalOpen(false)}
+        />
       </div>
     </nav>
   );
