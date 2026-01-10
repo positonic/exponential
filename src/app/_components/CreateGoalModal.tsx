@@ -53,8 +53,10 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
   const { workspace, workspaceId: currentWorkspaceId } = useWorkspace();
   const isPersonalWorkspace = workspace?.type === 'personal';
 
-  // Find Career/Business domain ID for non-personal workspaces
-  const careerDomainId = lifeDomains?.find(d => d.title === 'Career/Business')?.id ?? null;
+  // Find Career/Business domain ID for non-personal workspaces, or fall back to first domain
+  const careerDomainId = lifeDomains?.find(d => d.title === 'Career/Business')?.id
+    ?? lifeDomains?.[0]?.id
+    ?? null;
 
   const createGoal = api.goal.createGoal.useMutation({
     onMutate: async (newGoal) => {
@@ -292,7 +294,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
             </Button>
           </CreateOutcomeModal>
 
-          {isPersonalWorkspace && (
+          {(isPersonalWorkspace || (!lifeDomainId && !careerDomainId)) && (
             <Select
               label="Life Domain"
               data={lifeDomainOptions}
