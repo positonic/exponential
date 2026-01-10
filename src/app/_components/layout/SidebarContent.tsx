@@ -96,14 +96,16 @@ export function SidebarContent() {
             <Accordion.Panel>
               {isItemVisible("alignment/goals") && <GoalList />}
               {/* Plugin navigation items for alignment section */}
-              {itemsBySection.alignment?.map((item) => {
-                const IconComponent = getIcon(item.icon);
-                return (
-                  <NavLink key={item.id} href={item.href} icon={IconComponent}>
-                    {item.label}
-                  </NavLink>
-                );
-              })}
+              {itemsBySection.alignment
+                ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
+                .map((item) => {
+                  const IconComponent = getIcon(item.icon);
+                  return (
+                    <NavLink key={item.id} href={item.href} icon={IconComponent}>
+                      {item.label}
+                    </NavLink>
+                  );
+                })}
               {isItemVisible("alignment/wheel-of-life") && (
                 <NavLink href="/wheel-of-life" icon={IconCircleCheck}>
                   Wheel of Life
