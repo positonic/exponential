@@ -32,6 +32,18 @@ Automatically capture action items from your meetings. [Learn more](/docs/featur
 ### More Integrations
 Connect with additional services through our integration framework. [Learn more](/docs/features/integrations)
 
+## Plugins
+
+Extend Exponential with modular plugins that can be enabled per workspace.
+
+### OKRs (Objectives & Key Results)
+Track objectives and measurable key results aligned with your goals. [Learn more](/docs/features/okr)
+
+### CRM (Contact Management)
+Manage contacts, organizations, and interactions with encrypted data storage. [Learn more](/docs/features/crm)
+
+[View all plugins](/docs/features/plugins)
+
 ## AI Features
 
 ### Smart Suggestions
