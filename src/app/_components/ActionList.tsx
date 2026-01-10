@@ -331,7 +331,10 @@ export function ActionList({
           '5th Priority': 5, 'Quick': 6, 'Scheduled': 7, 'Errand': 8,
           'Remember': 9, 'Watch': 10
         };
-        return (priorityOrder[a.priority as Priority] || 999) - (priorityOrder[b.priority as Priority] || 999);
+        const priorityDiff = (priorityOrder[a.priority as Priority] || 999) - (priorityOrder[b.priority as Priority] || 999);
+        if (priorityDiff !== 0) return priorityDiff;
+        // Secondary sort by id for stable ordering across all views
+        return a.id.localeCompare(b.id);
       });
     console.log("[ActionList] Final Filtered Actions:", finalFiltered);
     return finalFiltered;
