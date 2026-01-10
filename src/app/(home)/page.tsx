@@ -1,15 +1,23 @@
-// page.tsx
-import { IconTarget, IconCalendarWeek, IconBrain } from "@tabler/icons-react";
-import { GetStartedButton } from '~/app/_components/GetStartedButton';
-import { ThemeToggle } from '~/app/_components/ThemeToggle';
-import { FeaturesSection } from '~/app/_components/FeaturesSection';
-import { ValuePropositionSection } from '~/app/_components/ValuePropositionSection';
-import { HowItWorksSection } from '~/app/_components/HowItWorksSection';
+import Link from "next/link";
 import { auth } from "~/server/auth";
 import { HeaderAuthButtons } from "~/app/_components/HeaderAuthButtons";
 import { LogoDisplay } from "~/app/_components/layout/LogoDisplay";
+import { ThemeToggle } from "~/app/_components/ThemeToggle";
 import { themes } from "~/config/themes";
-import { getThemeDomain } from '~/config/site';
+import { getThemeDomain } from "~/config/site";
+import {
+  HeroSection,
+  ProblemStatementSection,
+  SolutionIntroSection,
+  ProductDemoSection,
+  HowItWorksSection,
+  KeyFeaturesSection,
+  PersonaSection,
+  TestimonialsSection,
+  PricingSection,
+  FinalCTASection,
+  FooterSection,
+} from "~/app/_components/home";
 
 export default async function Home() {
   const session = await auth();
@@ -19,119 +27,79 @@ export default async function Home() {
   return (
     <div className="min-h-screen bg-background-primary text-text-primary">
       {/* Navigation */}
-      <header className="relative z-10 flex justify-between items-center py-6 px-8 border-b border-border-primary">
-        <div className="flex items-center">
-          <LogoDisplay theme={theme} href="/" className="text-xl" />
-        </div>
-
-        <nav className="hidden md:flex items-center space-x-8">
-          <a href="#" className="text-purple-400 hover:text-white transition-colors">Home</a>
-          <a href="#features" className="text-purple-400 hover:text-white transition-colors">Features</a>
-          <a href="#why" className="text-purple-400 hover:text-white transition-colors">Why</a>
-          <a href="#how-it-works" className="text-purple-400 hover:text-white transition-colors">How It Works</a>
-        </nav>
-
-        <div className="flex items-center gap-2">
-          <HeaderAuthButtons session={session} />
-          <ThemeToggle />
-        </div>
-      </header>
-
-      {/* Hero Section */}
-      <main className="min-h-screen relative">
-        <div className="absolute inset-0 bg-gradient-custom" />
-
-        <div className="container mx-auto px-4 py-20 flex flex-col items-center text-center" style={{ background: `radial-gradient(circle at center, rgba(59, 130, 246, 0.2) 0%, rgba(55, 48, 163, 0.1) 45%, rgba(30, 27, 75, 0.05) 70%, rgba(15, 23, 42, 0) 100%)`, position: 'relative', zIndex: 10 }}>
-          <div className="max-w-3xl mx-auto">
-            <div className="mb-12">
-              <span className="inline-block px-4 py-2 rounded-full bg-purple-900/30 text-purple-300 text-sm font-medium mb-6 border border-[rgb(107,33,168)]">
-                For founders who think strategically
-              </span>
-              <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent mb-6">
-                Know what to work on. Know why it matters.
-              </h1>
-              <p className="text-gray-300 text-lg mb-8">
-                Exponential connects your daily tasks to your bigger goals — so you stop drowning in busywork and start making real progress.
-              </p>
-              <div className="flex flex-wrap justify-center gap-4">
-                <GetStartedButton />
-                <a href="#features" className="px-6 py-3 bg-transparent border border-gray-700 text-gray-300 font-medium rounded-md hover:bg-gray-800 transition-colors">
-                  See How It Works
-                </a>
-              </div>
+      <header className="fixed top-0 left-0 right-0 z-50 bg-background-primary/80 backdrop-blur-md border-b border-border-primary">
+        <div className="container mx-auto px-4 md:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center">
+              <LogoDisplay theme={theme} href="/" className="text-xl" />
             </div>
 
-            {/* Feature Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
-              {[
-                {
-                  icon: <IconTarget size={36} stroke={1.5} />,
-                  iconBg: 'var(--color-surface-secondary)',
-                  iconColor: 'var(--color-brand-primary)',
-                  title: 'Goals \u2192 Outcomes \u2192 Actions',
-                  description: 'See exactly how your daily work connects to what you\'re trying to achieve.'
-                },
-                {
-                  icon: <IconCalendarWeek size={36} stroke={1.5} />,
-                  iconBg: 'var(--color-surface-secondary)',
-                  iconColor: 'var(--color-brand-info)',
-                  title: 'Daily & Weekly Rhythms',
-                  description: 'Start each day focused. End each week knowing what moved the needle.'
-                },
-                {
-                  icon: <IconBrain size={36} stroke={1.5} />,
-                  iconBg: 'var(--color-surface-secondary)',
-                  iconColor: 'var(--color-brand-primary)',
-                  title: 'AI That Knows Your Context',
-                  description: 'Get help from AI that understands your goals, not generic advice.'
-                }
-              ].map((feature, index) => (
-                <div key={index} style={{ background: 'linear-gradient(180deg, rgba(14, 23, 47, 0.5) 0%, rgba(11, 15, 36, 0.7) 100%)', backdropFilter: 'blur(10px)', borderColor: 'rgba(255, 255, 255, 0.1)', borderWidth: '1px', borderStyle: 'solid', borderRadius: '12px' }} className="p-6 transition-all duration-300 hover:border-opacity-20">
-                  <div className="flex flex-col items-center text-center">
-                    <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ backgroundColor: feature.iconBg, boxShadow: `0 4px 16px rgba(79, 70, 229, 0.25)`, color: feature.iconColor }}>
-                      {feature.icon}
-                    </div>
-                    <h3 className="text-xl font-semibold text-white mb-2">{feature.title}</h3>
-                    <p className="text-gray-400">{feature.description}</p>
-                  </div>
-                </div>
-              ))}
+            <nav className="hidden md:flex items-center space-x-8">
+              <Link
+                href="#features"
+                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
+              >
+                Features
+              </Link>
+              <Link
+                href="#how-it-works"
+                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
+              >
+                How It Works
+              </Link>
+              <Link
+                href="#pricing"
+                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
+              >
+                Pricing
+              </Link>
+            </nav>
+
+            <div className="flex items-center gap-3">
+              <HeaderAuthButtons session={session} />
+              <ThemeToggle />
             </div>
           </div>
         </div>
+      </header>
 
-        {/* Features Section */}
-        <FeaturesSection id="features" />
+      {/* Spacer for fixed header */}
+      <div className="h-16" />
 
-        {/* Value Proposition Section */}
-        <ValuePropositionSection id="why"/>
+      <main>
+        {/* Section 1: Hero */}
+        <HeroSection />
 
-        {/* How It Works Section */}
+        {/* Section 2: Problem Statement */}
+        <ProblemStatementSection />
+
+        {/* Section 3: Solution Introduction */}
+        <SolutionIntroSection />
+
+        {/* Section 4: Product Demo */}
+        <ProductDemoSection id="demo" />
+
+        {/* Section 5: How It Works */}
         <HowItWorksSection id="how-it-works" />
+
+        {/* Section 6: Key Features */}
+        <KeyFeaturesSection id="features" />
+
+        {/* Section 7: Who It's For */}
+        <PersonaSection id="personas" />
+
+        {/* Section 8: Testimonials */}
+        <TestimonialsSection id="testimonials" />
+
+        {/* Section 9: Pricing */}
+        <PricingSection id="pricing" />
+
+        {/* Section 10: Final CTA */}
+        <FinalCTASection />
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-border-primary py-8 px-8">
-        <div className="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-text-muted text-sm">
-            © {new Date().getFullYear()} Exponential. All rights reserved.
-          </p>
-          <nav className="flex items-center gap-6">
-            <a
-              href="/terms"
-              className="text-text-muted text-sm hover:text-text-primary transition-colors"
-            >
-              Terms of Service
-            </a>
-            <a
-              href="/privacy"
-              className="text-text-muted text-sm hover:text-text-primary transition-colors"
-            >
-              Privacy Policy
-            </a>
-          </nav>
-        </div>
-      </footer>
+      {/* Section 11: Footer */}
+      <FooterSection />
     </div>
   );
 }
