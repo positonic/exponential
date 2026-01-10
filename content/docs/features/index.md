@@ -5,52 +5,141 @@ description: Explore the powerful features of Exponential
 
 ## Features
 
-Exponential provides a comprehensive set of features to help you stay productive and organized.
+Exponential provides a comprehensive set of features to help you stay productive and organized. This page gives you an overview of everything available.
 
-## Core Features
+## Core Productivity
 
-### Project Management
-Organize your work into projects with customizable status, priority, and progress tracking.
+### Projects
+Organize your work into projects with status tracking, priority levels, and progress monitoring. Link projects to goals to stay aligned with your strategy.
 
-### Action Management
-Create and manage tasks with flexible scheduling, priority levels, and project assignments.
+[Learn more about Projects](/docs/features/projects)
+
+### Actions & Tasks
+Create and manage tasks with flexible scheduling, priority levels, and project assignments. Use the Today view for daily focus.
+
+[Learn more about Actions](/docs/features/actions)
+
+### Inbox & Today
+Capture ideas quickly in Inbox. Focus on what matters with the Today view that shows your daily tasks and schedule.
+
+[Learn more about Inbox & Today](/docs/features/inbox-today)
 
 ### Goals & Outcomes
-Align your daily work with strategic goals using our hierarchical goal-outcome-action system.
+Align your daily work with strategic goals using a hierarchical system. Set goals, define measurable outcomes, and track progress over time.
+
+[Learn more about Goals & Outcomes](/docs/features/goals-outcomes)
+
+## Reflection & Planning
 
 ### Daily Journal
-Reflect on your day, plan ahead, and track your progress with integrated journaling.
+Reflect on your day, capture gratitude, and plan ahead. The journal integrates with your tasks and outcomes for context.
+
+[Learn more about Journal](/docs/features/journal)
+
+### Weekly Review
+Review your week, celebrate wins, and plan the next one. Share reviews with your team for alignment.
+
+[Learn more about Weekly Review](/docs/features/weekly-review)
+
+### Wheel of Life
+Assess and balance different areas of your life. Get a visual representation of where to focus for personal growth.
+
+[Learn more about Wheel of Life](/docs/features/wheel-of-life)
+
+### Habits
+Build and track daily habits. See your streaks and maintain consistency over time.
+
+[Learn more about Habits](/docs/features/habits)
+
+### Routines
+Structured morning and evening routines to start and end your day productively.
+
+[Learn more about Routines](/docs/features/routines)
+
+## Collaboration
+
+### Workspaces
+Organize your work into separate containers. Keep personal, team, and client work isolated.
+
+[Learn more about Workspaces](/docs/features/workspaces)
+
+### Teams
+Collaborate with colleagues on shared projects. Assign work, track progress, and conduct team reviews.
+
+[Learn more about Teams](/docs/features/teams)
+
+## AI & Automation
+
+### AI Assistant
+Chat with intelligent AI agents to get help with tasks, projects, and productivity. Natural language interface.
+
+[Learn more about AI Assistant](/docs/features/ai-assistant)
+
+### Workflows
+Automate repetitive tasks with connected services and guided processes. Capture meeting actions automatically.
+
+[Learn more about Workflows](/docs/features/workflows)
+
+### Knowledge Base
+Store and search your team's knowledge. AI-powered semantic search finds relevant information.
+
+[Learn more about Knowledge Base](/docs/features/knowledge-base)
 
 ## Integrations
 
-### Slack Integration
-Receive notifications and interact with Exponential directly from Slack. [Learn more](/docs/features/slack)
+### Slack
+Receive notifications and interact with Exponential directly from Slack. Create tasks from messages.
 
-### Fireflies Integration
-Automatically capture action items from your meetings. [Learn more](/docs/features/fireflies)
+[Learn more about Slack](/docs/features/slack)
 
-### More Integrations
-Connect with additional services through our integration framework. [Learn more](/docs/features/integrations)
+### Fireflies
+Automatically capture action items from meeting transcripts. AI extracts tasks and sends them to the right projects.
+
+[Learn more about Fireflies](/docs/features/fireflies)
+
+### WhatsApp
+Interact with Exponential via WhatsApp messages. Create tasks, get updates, and chat with your AI assistant.
+
+[Learn more about WhatsApp](/docs/features/whatsapp-gateway)
+
+### API Access
+Generate tokens for webhooks and custom integrations. Connect external tools to your workflow.
+
+[Learn more about API Access](/docs/features/api-access)
+
+[View all integrations](/docs/features/integrations)
 
 ## Plugins
 
-Extend Exponential with modular plugins that can be enabled per workspace.
+Extend Exponential with modular plugins. Enable per workspace based on your needs.
 
 ### OKRs (Objectives & Key Results)
-Track objectives and measurable key results aligned with your goals. [Learn more](/docs/features/okr)
+Track objectives and measurable key results. Align team efforts with company goals.
+
+[Learn more about OKRs](/docs/features/okr)
 
 ### CRM (Contact Management)
-Manage contacts, organizations, and interactions with encrypted data storage. [Learn more](/docs/features/crm)
+Manage contacts, organizations, and interactions. Encrypted storage keeps data secure.
+
+[Learn more about CRM](/docs/features/crm)
 
 [View all plugins](/docs/features/plugins)
 
-## AI Features
+## Customization
 
-### Smart Suggestions
-Get AI-powered suggestions for task prioritization and scheduling.
+### Settings
+Customize your navigation sidebar. Hide features you don't use to stay focused.
 
-### Natural Language Input
-Create tasks and projects using natural language commands.
+[Learn more about Settings](/docs/features/settings)
 
-### Meeting Analysis
-Extract action items and summaries from meeting transcripts automatically.
+## Quick Links
+
+| I want to... | Go to... |
+|-------------|----------|
+| Manage my daily tasks | [Inbox & Today](/docs/features/inbox-today) |
+| Organize projects | [Projects](/docs/features/projects) |
+| Set strategic goals | [Goals & Outcomes](/docs/features/goals-outcomes) |
+| Collaborate with team | [Teams](/docs/features/teams) |
+| Connect external tools | [Integrations](/docs/features/integrations) |
+| Chat with AI | [AI Assistant](/docs/features/ai-assistant) |
+| Manage contacts | [CRM](/docs/features/crm) |
