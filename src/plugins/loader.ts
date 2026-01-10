@@ -3,10 +3,12 @@ import type { PluginManifest } from "./types";
 
 // Import all plugin manifests statically for type safety
 import { okrManifest } from "./okr/manifest";
+import { crmManifest } from "./crm/manifest";
 
 // List of all available plugins
 const AVAILABLE_PLUGINS: PluginManifest[] = [
   okrManifest,
+  crmManifest,
   // Add more plugins here as they are created
 ];
 

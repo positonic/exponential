@@ -14,6 +14,16 @@ import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { UpcomingCount } from "./UpcomingCount";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { usePluginNavigation } from "~/hooks/usePluginNavigation";
+
+// Icon map for plugin navigation items in main nav
+const mainNavIconMap = {
+  IconUsers,
+  IconHome,
+  IconBriefcase,
+} as const;
+
+type MainNavIconKey = keyof typeof mainNavIconMap;
 
 // Reusable NavLink component
 export function NavLink({ href, icon: Icon, children, count }: { 
@@ -58,11 +68,24 @@ export function NavLink({ href, icon: Icon, children, count }: {
 
 export function NavLinks() {
   const { workspaceSlug } = useWorkspace();
+  const { itemsBySection } = usePluginNavigation();
 
   // Generate workspace-aware paths
   const homePath = workspaceSlug ? `/w/${workspaceSlug}/home` : '/home';
   const workspacePath = workspaceSlug ? `/w/${workspaceSlug}/workspace` : null;
-  const crmPath = workspaceSlug ? `/w/${workspaceSlug}/crm` : null;
+
+  // Helper to get icon component from name
+  const getIcon = (iconName: string) => {
+    if (iconName in mainNavIconMap) {
+      return mainNavIconMap[iconName as MainNavIconKey];
+    }
+    return IconUsers; // Default fallback
+  };
+
+  // Get plugin items for "main" section, filtered by workspace availability
+  const mainPluginItems = itemsBySection.main
+    ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
+    .sort((a, b) => a.order - b.order) ?? [];
 
   return (
     <div className="space-y-1">
@@ -74,11 +97,15 @@ export function NavLinks() {
           Workspace
         </NavLink>
       )}
-      {crmPath && (
-        <NavLink href={crmPath} icon={IconUsers}>
-          CRM
-        </NavLink>
-      )}
+      {/* Plugin navigation items for main section */}
+      {mainPluginItems.map((item) => {
+        const IconComponent = getIcon(item.icon);
+        return (
+          <NavLink key={item.id} href={item.href} icon={IconComponent}>
+            {item.label}
+          </NavLink>
+        );
+      })}
       <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>
         Inbox
       </NavLink>
