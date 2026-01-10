@@ -54,9 +54,9 @@ export const goalRouter = createTRPCRouter({
           whyThisGoal: input.whyThisGoal,
           notes: input.notes,
           dueDate: input.dueDate,
-          lifeDomainId: input.lifeDomainId,
+          lifeDomainId: input.lifeDomainId ?? null,
           userId: ctx.session.user.id,
-          workspaceId: input.workspaceId,
+          workspaceId: input.workspaceId ?? null,
           projects: input.projectId
             ? { connect: [{ id: input.projectId }] }
             : undefined,

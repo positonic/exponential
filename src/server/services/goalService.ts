@@ -52,8 +52,9 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
       whyThisGoal: input.whyThisGoal,
       notes: input.notes,
       dueDate: input.dueDate,
-      lifeDomainId: input.lifeDomainId,
+      lifeDomainId: input.lifeDomainId ?? null,
       userId: ctx.session.user.id,
+      workspaceId: input.workspaceId ?? null,
       projects: input.projectId ? {
         connect: [{ id: input.projectId }]
       } : undefined,
@@ -100,8 +101,8 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
       whyThisGoal: input.whyThisGoal,
       notes: input.notes,
       dueDate: input.dueDate,
-      lifeDomainId: input.lifeDomainId,
-      workspaceId: input.workspaceId,
+      lifeDomainId: input.lifeDomainId ?? null,
+      workspaceId: input.workspaceId ?? null,
       projects: input.projectId ? {
         set: [], // Clear existing connections
         connect: [{ id: input.projectId }]
