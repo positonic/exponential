@@ -15,6 +15,7 @@ import {
   Checkbox,
   List,
   Textarea,
+  TextInput,
   ActionIcon,
 } from "@mantine/core";
 import { IconPencil, IconCheck, IconX } from "@tabler/icons-react";
@@ -46,12 +47,33 @@ export function TranscriptionDetailsModal({
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
 
   // Edit state
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState("");
   const [editingDescription, setEditingDescription] = useState(false);
   const [editingTranscription, setEditingTranscription] = useState(false);
   const [editedDescription, setEditedDescription] = useState("");
   const [editedTranscriptionText, setEditedTranscriptionText] = useState("");
 
-  // Update mutation
+  // Update mutations
+  const updateTitleMutation = api.transcription.updateTitle.useMutation({
+    onSuccess: (updated) => {
+      notifications.show({
+        title: "Saved",
+        message: "Title updated successfully",
+        color: "green",
+      });
+      setEditingTitle(false);
+      onTranscriptionUpdate?.(updated);
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to update title",
+        color: "red",
+      });
+    },
+  });
+
   const updateDetailsMutation = api.transcription.updateDetails.useMutation({
     onSuccess: (updated) => {
       notifications.show({
@@ -71,6 +93,24 @@ export function TranscriptionDetailsModal({
       });
     },
   });
+
+  const handleStartEditTitle = () => {
+    setEditedTitle(transcription?.title ?? "");
+    setEditingTitle(true);
+  };
+
+  const handleSaveTitle = () => {
+    if (!transcription) return;
+    updateTitleMutation.mutate({
+      id: transcription.id,
+      title: editedTitle,
+    });
+  };
+
+  const handleCancelEditTitle = () => {
+    setEditingTitle(false);
+    setEditedTitle("");
+  };
 
   const handleStartEditDescription = () => {
     setEditedDescription(transcription?.description ?? "");
@@ -208,10 +248,52 @@ export function TranscriptionDetailsModal({
           <Paper p="md" radius="sm" className="bg-surface-secondary">
             <Stack gap="sm">
               <Group justify="space-between">
-                {transcription.title && (
-                  <Title order={5}>
-                    <strong>Title:</strong> {transcription.title}
-                  </Title>
+                {editingTitle ? (
+                  <Group gap="xs" style={{ flex: 1 }}>
+                    <TextInput
+                      value={editedTitle}
+                      onChange={(e) => setEditedTitle(e.currentTarget.value)}
+                      placeholder="Enter title..."
+                      style={{ flex: 1 }}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleSaveTitle();
+                        } else if (e.key === "Escape") {
+                          handleCancelEditTitle();
+                        }
+                      }}
+                    />
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      onClick={handleCancelEditTitle}
+                      disabled={updateTitleMutation.isPending}
+                    >
+                      <IconX size={18} />
+                    </ActionIcon>
+                    <ActionIcon
+                      variant="filled"
+                      color="blue"
+                      onClick={handleSaveTitle}
+                      loading={updateTitleMutation.isPending}
+                    >
+                      <IconCheck size={18} />
+                    </ActionIcon>
+                  </Group>
+                ) : (
+                  <Group gap="xs">
+                    <Title order={5}>
+                      {transcription.title ?? "Untitled Transcription"}
+                    </Title>
+                    <ActionIcon
+                      variant="subtle"
+                      size="sm"
+                      onClick={handleStartEditTitle}
+                    >
+                      <IconPencil size={16} />
+                    </ActionIcon>
+                  </Group>
                 )}
                 {transcription.sourceIntegration && (
                   <Badge variant="outline" color="gray">
