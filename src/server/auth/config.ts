@@ -3,6 +3,7 @@ import { type DefaultSession, type NextAuthConfig } from "next-auth";
 import DiscordProvider from "next-auth/providers/discord";
 import GoogleProvider from "next-auth/providers/google";
 import NotionProvider from "next-auth/providers/notion";
+import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
 
@@ -60,6 +61,10 @@ export const authConfig = {
         },
         redirectUri: process.env.NOTION_REDIRECT_URI!,
       }
+    }),
+    Postmark({
+      apiKey: process.env.POSTMARK_SERVER_TOKEN,
+      from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
     }),
   ],
   adapter: PrismaAdapter(db),
