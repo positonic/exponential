@@ -26,6 +26,14 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 
+// Helper to get current quarter period string
+function getCurrentQuarterPeriod(): string {
+  const now = new Date();
+  const quarter = Math.ceil((now.getMonth() + 1) / 3);
+  const year = now.getFullYear();
+  return `Q${quarter}-${year}`;
+}
+
 // Status badge colors
 const statusColors: Record<string, string> = {
   "on-track": "green",
@@ -45,7 +53,7 @@ const unitOptions = [
 
 export function OkrDashboard() {
   const { workspaceId, workspaceSlug } = useWorkspace();
-  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(getCurrentQuarterPeriod());
   const [
     createModalOpened,
     { open: openCreateModal, close: closeCreateModal },
@@ -166,7 +174,11 @@ export function OkrDashboard() {
               clearable
               className="w-48"
             />
-            <CreateGoalModal onSuccess={() => void utils.okr.getAvailableGoals.invalidate()}>
+            <CreateGoalModal onSuccess={() => {
+              void utils.okr.getAvailableGoals.invalidate();
+              void utils.okr.getByObjective.invalidate();
+              void utils.okr.getStats.invalidate();
+            }}>
               <Button variant="outline" leftSection={<IconPlus size={16} />}>
                 Create Objective
               </Button>
@@ -368,7 +380,7 @@ export function OkrDashboard() {
             </Text>
             <Group justify="center" gap="md">
               <Button component={Link} href={goalsPath} variant="light">
-                View Goals
+                View Objectives
               </Button>
               <Button
                 leftSection={<IconPlus size={16} />}
