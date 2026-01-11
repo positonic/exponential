@@ -183,4 +183,13 @@ export const authConfig = {
       }
     },
   },
+  events: {
+    createUser: async ({ user }) => {
+      // Set lastLogin for newly created users
+      await db.user.update({
+        where: { id: user.id },
+        data: { lastLogin: new Date() },
+      });
+    },
+  },
 } satisfies NextAuthConfig;
