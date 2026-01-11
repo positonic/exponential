@@ -6,6 +6,7 @@ import NotionProvider from "next-auth/providers/notion";
 import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
+import { sendMagicLinkEmail, sendWelcomeEmail } from "~/server/services/EmailService";
 
 /**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
@@ -66,6 +67,10 @@ export const authConfig = {
     Postmark({
       apiKey: process.env.POSTMARK_SERVER_TOKEN,
       from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
+      sendVerificationRequest: async ({ identifier, url }) => {
+        const host = new URL(url).host;
+        await sendMagicLinkEmail(identifier, url, host);
+      },
     }),
   ],
   adapter: PrismaAdapter(db),
@@ -126,6 +131,10 @@ export const authConfig = {
 
       // If no user exists, allow sign in (new user - will need onboarding)
       if (!existingUser) {
+        // Send welcome email to new users (fire and forget - don't block sign in)
+        sendWelcomeEmail(user.email, user.name).catch((error) => {
+          console.error("[Auth] Failed to send welcome email:", error);
+        });
         return true;
       }
 
