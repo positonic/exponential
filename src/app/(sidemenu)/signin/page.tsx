@@ -5,9 +5,17 @@ import {
   Text,
   Stack,
 } from "@mantine/core";
+import { redirect } from "next/navigation";
 import { SignInButtons } from "./SignInButtons";
+import { auth } from "~/server/auth";
 
-export default function SignIn() {
+export default async function SignIn() {
+  const session = await auth();
+
+  if (session?.user) {
+    redirect("/home");
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background-secondary to-background-primary">
       <Container size="sm" className="min-h-screen flex items-center justify-center py-10">
