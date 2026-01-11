@@ -26,6 +26,7 @@ import {
   IconBrandDiscord,
   IconBrandGithub,
   IconBrandGitlab,
+  IconBrandWhatsapp,
   IconCalendar,
   IconTargetArrow,
   IconTimeline,
@@ -122,6 +123,7 @@ const usagePurposeOptions = [
 const TOOLS = [
   { name: 'Slack', icon: IconBrandSlack },
   { name: 'Discord', icon: IconBrandDiscord },
+  { name: 'WhatsApp', icon: IconBrandWhatsapp },
   { name: 'Asana', icon: IconTargetArrow },
   { name: 'Monday', icon: IconCalendarWeek },
   { name: 'GitHub', icon: IconBrandGithub },
@@ -260,11 +262,11 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
         name: data.name,
         emailMarketingOptIn: data.emailMarketingOptIn
       });
-      setCurrentStep(2);
+      setCurrentStep(3);
 
       notifications.show({
         title: 'Profile saved!',
-        message: 'Tell us about your work.',
+        message: 'Now let\'s see what tools you use.',
         color: 'green',
         icon: <IconCheck size={16} />
       });
@@ -568,94 +570,94 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     );
   }
 
-  // Step 2: Tell us about your work - Asana-style two-column layout
-  if (currentStep === 2) {
-    return (
-      <div className="min-h-screen flex">
-        {/* Left column - Form */}
-        <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
-          <div>
-            <div className="mb-12">
-              <Title order={3} className="text-brand-primary font-bold">
-                Exponential
-              </Title>
-            </div>
+  // Step 2: Tell us about your work - COMMENTED OUT
+  // if (currentStep === 2) {
+  //   return (
+  //     <div className="min-h-screen flex">
+  //       {/* Left column - Form */}
+  //       <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+  //         <div>
+  //           <div className="mb-12">
+  //             <Title order={3} className="text-brand-primary font-bold">
+  //               Exponential
+  //             </Title>
+  //           </div>
 
-            <div className="mb-8">
-              <Title order={1} className="text-3xl lg:text-4xl font-bold mb-2 text-text-primary">
-                Tell us about your work
-              </Title>
-              <Text className="text-text-secondary">
-                This will help us tailor Exponential for you.
-              </Text>
-            </div>
+  //           <div className="mb-8">
+  //             <Title order={1} className="text-3xl lg:text-4xl font-bold mb-2 text-text-primary">
+  //               Tell us about your work
+  //             </Title>
+  //             <Text className="text-text-secondary">
+  //               This will help us tailor Exponential for you.
+  //             </Text>
+  //           </div>
 
-            <Stack gap="lg">
-              <Select
-                label="What's your role?"
-                placeholder="Select your role"
-                data={workRoleOptions}
-                value={data.workRole}
-                onChange={(value) => setData(prev => ({ ...prev, workRole: value }))}
-                size="md"
-                clearable
-                classNames={{
-                  input: 'bg-background-primary border-border-primary'
-                }}
-              />
+  //           <Stack gap="lg">
+  //             <Select
+  //               label="What's your role?"
+  //               placeholder="Select your role"
+  //               data={workRoleOptions}
+  //               value={data.workRole}
+  //               onChange={(value) => setData(prev => ({ ...prev, workRole: value }))}
+  //               size="md"
+  //               clearable
+  //               classNames={{
+  //                 input: 'bg-background-primary border-border-primary'
+  //               }}
+  //             />
 
-              <MultiSelect
-                label="Which function best describes your work?"
-                placeholder="Select all that apply"
-                data={workFunctionOptions}
-                value={data.workFunction}
-                onChange={(value) => setData(prev => ({ ...prev, workFunction: value }))}
-                size="md"
-                clearable
-                searchable
-                classNames={{
-                  input: 'bg-background-primary border-border-primary'
-                }}
-              />
+  //             <MultiSelect
+  //               label="Which function best describes your work?"
+  //               placeholder="Select all that apply"
+  //               data={workFunctionOptions}
+  //               value={data.workFunction}
+  //               onChange={(value) => setData(prev => ({ ...prev, workFunction: value }))}
+  //               size="md"
+  //               clearable
+  //               searchable
+  //               classNames={{
+  //                 input: 'bg-background-primary border-border-primary'
+  //               }}
+  //             />
 
-              <MultiSelect
-                label="What do you want to use Exponential for?"
-                placeholder="Select all that apply"
-                data={usagePurposeOptions}
-                value={data.usagePurposes}
-                onChange={(value) => setData(prev => ({ ...prev, usagePurposes: value }))}
-                size="md"
-                clearable
-                searchable
-                classNames={{
-                  input: 'bg-background-primary border-border-primary'
-                }}
-              />
-            </Stack>
-          </div>
+  //             <MultiSelect
+  //               label="What do you want to use Exponential for?"
+  //               placeholder="Select all that apply"
+  //               data={usagePurposeOptions}
+  //               value={data.usagePurposes}
+  //               onChange={(value) => setData(prev => ({ ...prev, usagePurposes: value }))}
+  //               size="md"
+  //               clearable
+  //               searchable
+  //               classNames={{
+  //                 input: 'bg-background-primary border-border-primary'
+  //               }}
+  //             />
+  //           </Stack>
+  //         </div>
 
-          <div className="mt-8">
-            <Button
-              fullWidth
-              size="lg"
-              onClick={handleWorkProfileSubmit}
-              loading={isLoading}
-            >
-              Continue
-            </Button>
-          </div>
-        </div>
+  //         <div className="mt-8">
+  //           <Button
+  //             fullWidth
+  //             size="lg"
+  //             onClick={handleWorkProfileSubmit}
+  //             loading={isLoading}
+  //           >
+  //             Continue
+  //           </Button>
+  //         </div>
+  //       </div>
 
-        {/* Right column - Illustration */}
-        <div
-          className="hidden lg:flex w-[55%] items-center justify-center p-12"
-          style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
-        >
-          <OnboardingWorkIllustration />
-        </div>
-      </div>
-    );
-  }
+  //       {/* Right column - Illustration */}
+  //       <div
+  //         className="hidden lg:flex w-[55%] items-center justify-center p-12"
+  //         style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
+  //       >
+  //         <OnboardingWorkIllustration />
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
   // Step 3: Tools Selection - Asana-style two-column layout
   if (currentStep === 3) {
@@ -678,7 +680,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               <Group gap="xs" className="mb-4">
                 <ActionIcon
                   variant="subtle"
-                  onClick={() => setCurrentStep(2)}
+                  onClick={() => setCurrentStep(1)}
                   className="text-text-secondary hover:text-text-primary"
                 >
                   <IconArrowLeft size={20} />
