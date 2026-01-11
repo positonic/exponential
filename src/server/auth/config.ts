@@ -30,7 +30,8 @@ declare module "next-auth" {
 export const authConfig = {
   pages: {
     signIn: '/signin',
-    error: '/signin', // Custom error page
+    error: '/signin',
+    verifyRequest: '/auth/verify-request',
   },
   providers: [
     DiscordProvider({
