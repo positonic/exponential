@@ -150,6 +150,58 @@ async function main() {
     }
   }
 
+  // Seed system tags for actions (global tags available in all workspaces)
+  const systemTags = [
+    { slug: 'bug', name: 'Bug', color: 'avatar-red', description: 'Something is not working correctly' },
+    { slug: 'agenda-item', name: 'Agenda Item', color: 'avatar-blue', description: 'To be discussed in a meeting' },
+    { slug: 'feature', name: 'Feature', color: 'avatar-green', description: 'New functionality request' },
+    { slug: 'enhancement', name: 'Enhancement', color: 'avatar-teal', description: 'Improvement to existing functionality' },
+    { slug: 'question', name: 'Question', color: 'avatar-yellow', description: 'Needs clarification or answer' },
+    { slug: 'documentation', name: 'Documentation', color: 'avatar-lightBlue', description: 'Related to documentation' },
+    { slug: 'urgent', name: 'Urgent', color: 'brand-error', description: 'Requires immediate attention' },
+    { slug: 'blocked', name: 'Blocked', color: 'avatar-orange', description: 'Cannot proceed due to dependency' },
+    { slug: 'needs-review', name: 'Needs Review', color: 'avatar-lavender', description: 'Ready for review' },
+    { slug: 'meeting-followup', name: 'Meeting Follow-up', color: 'avatar-plum', description: 'Action from a meeting' },
+    { slug: 'research', name: 'Research', color: 'avatar-mint', description: 'Requires investigation' },
+    { slug: 'idea', name: 'Idea', color: 'avatar-lightYellow', description: 'Potential future work' },
+  ];
+
+  console.log('Seeding system tags...');
+  for (const tag of systemTags) {
+    // Check if tag already exists (findFirst since null in composite unique is tricky)
+    const existingTag = await prisma.tag.findFirst({
+      where: {
+        slug: tag.slug,
+        workspaceId: null,
+      },
+    });
+
+    if (existingTag) {
+      await prisma.tag.update({
+        where: { id: existingTag.id },
+        data: {
+          name: tag.name,
+          color: tag.color,
+          description: tag.description,
+          isSystem: true,
+        },
+      });
+    } else {
+      await prisma.tag.create({
+        data: {
+          slug: tag.slug,
+          name: tag.name,
+          color: tag.color,
+          description: tag.description,
+          isSystem: true,
+          workspaceId: null,
+          createdById: null,
+        },
+      });
+    }
+  }
+  console.log('System tags seeded.');
+
   // Create or find a default user for seeding (you may want to replace with actual user ID)
   const defaultUser = await prisma.user.findFirst();
   if (defaultUser) {

@@ -93,6 +93,7 @@ export const actionRouter = createTRPCRouter({
           include: { user: { select: { id: true, name: true, email: true, image: true } } },
         },
         createdBy: { select: { id: true, name: true, email: true, image: true } },
+        tags: { include: { tag: true } },
       },
       orderBy: {
         project: {
@@ -134,6 +135,7 @@ export const actionRouter = createTRPCRouter({
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
+          tags: { include: { tag: true } },
         },
         orderBy: [
           { kanbanOrder: { sort: "asc", nulls: "last" } },
@@ -211,6 +213,7 @@ export const actionRouter = createTRPCRouter({
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
+          tags: { include: { tag: true } },
         },
         orderBy: [
           { kanbanStatus: "asc" }, // Order by kanban status first
@@ -301,6 +304,7 @@ export const actionRouter = createTRPCRouter({
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
           project: { select: { id: true, name: true } },
+          tags: { include: { tag: true } },
         },
       });
     }),
@@ -438,6 +442,7 @@ export const actionRouter = createTRPCRouter({
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
+          tags: { include: { tag: true } },
         },
         orderBy: {
           project: {
@@ -481,6 +486,7 @@ export const actionRouter = createTRPCRouter({
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
+          tags: { include: { tag: true } },
         },
         orderBy: { dueDate: "asc" },
       });
@@ -523,6 +529,7 @@ export const actionRouter = createTRPCRouter({
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
+          tags: { include: { tag: true } },
         },
         orderBy: { scheduledStart: "asc" },
       });
@@ -559,6 +566,7 @@ export const actionRouter = createTRPCRouter({
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
+          tags: { include: { tag: true } },
         },
         orderBy: { scheduledStart: "asc" },
       });

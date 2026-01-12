@@ -114,6 +114,8 @@ model User {
   pluginConfigs               PluginConfig[]
   keyResults                  KeyResult[]
   keyResultCheckIns           KeyResultCheckIn[]         @relation("KeyResultCheckInCreator")
+  // Tag relations
+  tagsCreated                 Tag[]                      @relation("TagCreator")
 }
 
 model VerificationToken {
@@ -158,6 +160,8 @@ model Workspace {
   // Plugin and OKR relations
   pluginConfigs     PluginConfig[]
   keyResults        KeyResult[]
+  // Tag relations
+  tags              Tag[]
 
   @@index([slug])
   @@index([ownerId])
@@ -228,6 +232,7 @@ model Action {
   syncs                  ActionSync[]
   assignees              ActionAssignee[]
   weeklyOutcomes         WeeklyOutcome[]       @relation("WeeklyOutcomeActions")
+  tags                   ActionTag[]
 
   @@index([projectId])
   @@index([createdById])
@@ -1145,6 +1150,48 @@ model WhatsAppGatewaySession {
   @@index([userId])
   @@index([status])
   @@index([sessionId])
+}
+
+// ============================================
+// Action Tagging Models
+// ============================================
+
+model Tag {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String
+  color       String    // Semantic color key (e.g., "avatar-red", "brand-primary")
+  description String?
+  isSystem    Boolean   @default(false) // System tags cannot be deleted
+  workspaceId String?   // null = global tag, available in all workspaces
+  createdById String?   // null for system tags
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User?      @relation("TagCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  actions   ActionTag[]
+
+  // Global tags: unique by slug (when workspaceId is null)
+  // Workspace tags: unique by slug within workspace
+  @@unique([slug, workspaceId])
+  @@index([workspaceId])
+  @@index([isSystem])
+  @@index([slug])
+}
+
+model ActionTag {
+  id        String   @id @default(cuid())
+  actionId  String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  action Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, tagId])
+  @@index([actionId])
+  @@index([tagId])
 }
 
 enum ActionStatus {
