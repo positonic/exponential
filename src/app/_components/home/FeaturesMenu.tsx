@@ -219,7 +219,7 @@ export function FeaturesMenu() {
                   {integrations.map((integration) => (
                     <span
                       key={integration.name}
-                      className="flex items-center gap-1.5 text-text-secondary text-sm hover:text-text-primary transition-colors cursor-pointer"
+                      className="flex items-center gap-1.5 text-text-secondary text-sm"
                     >
                       <span>{integration.icon}</span>
                       {integration.name}

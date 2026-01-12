@@ -32,7 +32,10 @@ export function DailyOutcomeCapture() {
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Submit on Enter (without Shift) or Cmd/Ctrl + Enter
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (
+      (e.key === "Enter" && !e.shiftKey) ||
+      (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+    ) {
       e.preventDefault();
       handleSubmit();
     }

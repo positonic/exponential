@@ -65,7 +65,7 @@ export const authConfig = {
       }
     }),
     Postmark({
-      apiKey: process.env.POSTMARK_SERVER_TOKEN,
+      apiKey: process.env.POSTMARK_SERVER_TOKEN!, // Required for email auth
       from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
       sendVerificationRequest: async ({ identifier, url }) => {
         const host = new URL(url).host;

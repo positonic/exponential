@@ -60,19 +60,6 @@ export default async function SignIn() {
 
             {/* Sign-in Options */}
             <SignInButtons />
-
-            {/* Already have account */}
-            <Text size="sm" className="text-text-secondary text-center">
-              Already have an account?{" "}
-              <Text
-                component="a"
-                href="/signin"
-                className="text-brand-primary hover:text-brand-primary/80 font-medium transition-colors"
-                inherit
-              >
-                Log in
-              </Text>
-            </Text>
           </Stack>
 
           {/* Help Footer */}

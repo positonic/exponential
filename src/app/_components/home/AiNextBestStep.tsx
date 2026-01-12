@@ -27,7 +27,9 @@ export function AiNextBestStep() {
     workspaceId: workspaceId ?? undefined,
   });
   const { data: activeProjects } =
-    api.project.getActiveWithDetails.useQuery();
+    api.project.getActiveWithDetails.useQuery({
+      workspaceId: workspaceId ?? undefined,
+    });
 
   const getNextBestStep = api.mastra.getNextBestStep.useMutation({
     onSuccess: (data) => {
@@ -98,8 +100,8 @@ export function AiNextBestStep() {
         isSunday,
       },
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getNextBestStep.mutate is stable, including the mutation object causes infinite re-renders
   }, [
-    getNextBestStep,
     pendingActionsCount,
     calendarEventsCount,
     dailyOutcomesCount,

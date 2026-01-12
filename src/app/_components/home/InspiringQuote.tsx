@@ -25,8 +25,7 @@ export function InspiringQuote() {
     setIsVisible(false);
   };
 
-  if (!isVisible) return null;
-
+  // Let Transition handle visibility via mounted prop for proper exit animation
   return (
     <Transition mounted={isVisible} transition="fade" duration={200}>
       {(styles) => (

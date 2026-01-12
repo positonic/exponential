@@ -28,12 +28,12 @@ export function ProblemStatementSection({ id }: ProblemStatementSectionProps) {
             {painPoints.map((point, index) => (
               <div
                 key={index}
-                className="flex items-start gap-4 text-gray-300 text-lg"
+                className="flex items-start gap-4 text-text-secondary text-lg"
               >
                 <IconSquare
                   size={24}
                   stroke={1.5}
-                  className="text-gray-500 flex-shrink-0 mt-0.5"
+                  className="text-text-muted flex-shrink-0 mt-0.5"
                 />
                 <span>{point}</span>
               </div>
@@ -41,8 +41,8 @@ export function ProblemStatementSection({ id }: ProblemStatementSectionProps) {
           </div>
 
           {/* Transition Line */}
-          <div className="border-t border-gray-700 pt-12 mt-12">
-            <p className="text-xl md:text-2xl text-gray-400 italic max-w-2xl mx-auto">
+          <div className="border-t border-border-primary pt-12 mt-12">
+            <p className="text-xl md:text-2xl text-text-muted italic max-w-2xl mx-auto">
               Task management was built for a slower world.
               <br />
               <span className="text-white font-medium">

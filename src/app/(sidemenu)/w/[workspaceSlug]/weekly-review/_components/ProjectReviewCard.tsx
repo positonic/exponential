@@ -23,6 +23,12 @@ import {
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { NextActionCapture } from "./NextActionCapture";
+import {
+  PROJECT_STATUS_OPTIONS,
+  PROJECT_PRIORITY_OPTIONS,
+  type ProjectStatus,
+  type ProjectPriority,
+} from "~/types/project";
 
 interface ProjectChanges {
   statusChanged: boolean;
@@ -62,19 +68,6 @@ interface ProjectReviewCardProps {
   workspaceId: string | null;
 }
 
-const STATUS_OPTIONS = [
-  { value: "ACTIVE", label: "Active" },
-  { value: "ON_HOLD", label: "On Hold" },
-  { value: "COMPLETED", label: "Completed" },
-  { value: "CANCELLED", label: "Cancelled" },
-];
-
-const PRIORITY_OPTIONS = [
-  { value: "HIGH", label: "High" },
-  { value: "MEDIUM", label: "Medium" },
-  { value: "LOW", label: "Low" },
-  { value: "NONE", label: "None" },
-];
 
 function calculateHealthIndicators(project: ProjectWithDetails) {
   const sevenDaysAgo = new Date();
@@ -140,8 +133,8 @@ export function ProjectReviewCard({
       await updateProject.mutateAsync({
         id: project.id,
         name: project.name,
-        status: status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
-        priority: priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
+        status: status as ProjectStatus,
+        priority: priority as ProjectPriority,
       });
     }
 
@@ -278,13 +271,13 @@ export function ProjectReviewCard({
       <Group grow className="mb-6">
         <Select
           label="Status"
-          data={STATUS_OPTIONS}
+          data={[...PROJECT_STATUS_OPTIONS]}
           value={status}
           onChange={(val) => val && setStatus(val)}
         />
         <Select
           label="Priority"
-          data={PRIORITY_OPTIONS}
+          data={[...PROJECT_PRIORITY_OPTIONS]}
           value={priority}
           onChange={(val) => val && setPriority(val)}
         />

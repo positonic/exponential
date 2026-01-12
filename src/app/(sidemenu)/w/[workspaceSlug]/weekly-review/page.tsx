@@ -30,7 +30,9 @@ export default function WeeklyReviewPage() {
   );
 
   const { data: projects, isLoading } =
-    api.project.getActiveWithDetails.useQuery();
+    api.project.getActiveWithDetails.useQuery({
+      workspaceId: workspaceId ?? undefined,
+    });
 
   const activeProjects = useMemo(() => {
     return projects ?? [];
@@ -113,6 +115,7 @@ export default function WeeklyReviewPage() {
             reviewedCount={reviewedProjects.size}
           />
           <ProjectReviewCard
+            key={currentProject.id}
             project={currentProject}
             isReviewed={reviewedProjects.has(currentProject.id)}
             onMarkReviewed={(projectChanges) =>

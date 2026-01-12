@@ -60,6 +60,10 @@
     --color-gradient-problem-bg: #0F172A;
     --color-accent-periwinkle: #849BE5;
     --color-accent-indigo: #4F46E5;
+
+    /* CTA overlay colors */
+    --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
+    --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
   }
 
   /* Dark theme colors */
@@ -119,6 +123,10 @@
     --color-gradient-problem-bg: #0F172A;
     --color-accent-periwinkle: #A5B4FC;
     --color-accent-indigo: #6366F1;
+
+    /* CTA overlay colors */
+    --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
+    --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
   }
 
   /* Also support Tailwind's dark mode class */
@@ -173,6 +181,10 @@
     --color-gradient-problem-bg: #0F172A;
     --color-accent-periwinkle: #A5B4FC;
     --color-accent-indigo: #6366F1;
+
+    /* CTA overlay colors */
+    --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
+    --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
   }
 }
 

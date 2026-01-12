@@ -318,10 +318,10 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
             autosize
           />
 
-          {goal && workspaces && workspaces.length > 0 && (
+          {workspaces && workspaces.length > 0 && (
             <Select
               label="Workspace"
-              description="Move this goal to a different workspace"
+              description={goal ? "Move this goal to a different workspace" : "Save this goal to a workspace"}
               data={[
                 { value: '', label: 'No Workspace (Personal)' },
                 ...workspaces.map(ws => ({ value: ws.id, label: ws.name }))

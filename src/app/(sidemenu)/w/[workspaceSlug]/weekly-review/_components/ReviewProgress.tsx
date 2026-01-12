@@ -13,7 +13,9 @@ export function ReviewProgress({
   total,
   reviewedCount,
 }: ReviewProgressProps) {
-  const progressPercent = (current / total) * 100;
+  const progressPercent = total > 0
+    ? Math.min(Math.max((current / total) * 100, 0), 100)
+    : 0;
 
   return (
     <div className="mb-6">

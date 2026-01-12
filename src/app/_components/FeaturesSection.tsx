@@ -73,7 +73,7 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({ id }) => {
           >
             Finally, a System That Connects the Dots
           </Title>
-          <p className="text-gray-300 text-lg mb-8 max-w-[60%] mx-auto">
+          <p className="text-text-secondary text-lg mb-8 max-w-[60%] mx-auto">
             Designed around how strategic thinkers actually work. Not just another task list.
           </p>
         </div>

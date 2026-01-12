@@ -353,11 +353,15 @@ export const projectRouter = createTRPCRouter({
     }),
 
   getActiveWithDetails: protectedProcedure
-    .query(async ({ ctx }) => {
+    .input(z.object({
+      workspaceId: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
       return await ctx.db.project.findMany({
         where: {
           createdById: ctx.session.user.id,
           status: "ACTIVE",
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
         },
         include: {
           actions: {

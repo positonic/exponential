@@ -13,14 +13,14 @@ export function FinalCTASection({ id }: FinalCTASectionProps) {
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(circle at 20% 50%, rgba(255,255,255,0.1) 0%, transparent 40%)",
+            "radial-gradient(circle at 20% 50%, var(--color-cta-overlay-light) 0%, transparent 40%)",
         }}
       />
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(circle at 80% 50%, rgba(255,255,255,0.08) 0%, transparent 40%)",
+            "radial-gradient(circle at 80% 50%, var(--color-cta-overlay-lighter) 0%, transparent 40%)",
         }}
       />
 
