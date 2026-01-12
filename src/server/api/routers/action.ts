@@ -6,6 +6,7 @@ import {
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { PRIORITY_VALUES } from "~/types/priority";
+import { parseActionInput } from "~/server/services/parsing";
 
 // Middleware to check API key for external integrations (iOS shortcuts, etc.)
 const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
@@ -1398,46 +1399,13 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      // Initialize parsed values
-      let finalName = input.name;
-      let finalDueDate: Date | null = null;
-      let finalProjectId = input.projectId;
-      let parsingMetadata: Record<string, unknown> | null = null;
+      // Parse natural language input using shared helper
+      const parsed = await parseActionInput(input.name, userId, ctx.db, {
+        projectId: input.projectId,
+        parseNaturalLanguage: input.parseNaturalLanguage,
+      });
 
-      // Parse natural language if enabled
-      if (input.parseNaturalLanguage) {
-        // Fetch user's active projects for matching
-        const userProjects = await ctx.db.project.findMany({
-          where: {
-            createdById: userId,
-            status: { not: "COMPLETED" },
-          },
-          select: {
-            id: true,
-            name: true,
-          },
-        });
-
-        const { parseDictation } = await import("~/server/services/parsing");
-        const parsed = parseDictation(input.name, userProjects);
-
-        finalName = parsed.cleanedName;
-        finalDueDate = parsed.dueDate;
-
-        // Use matched project only if no explicit projectId provided
-        if (!input.projectId && parsed.matchedProject) {
-          finalProjectId = parsed.matchedProject.id;
-        }
-
-        parsingMetadata = {
-          originalInput: parsed.originalInput,
-          datePhrase: parsed.extractionDetails.datePhrase,
-          projectPhrase: parsed.extractionDetails.projectPhrase,
-          matchedProject: parsed.matchedProject,
-        };
-      }
-
-      // If projectId provided, verify it belongs to the user
+      // If explicit projectId provided, verify it belongs to the user
       if (input.projectId) {
         const project = await ctx.db.project.findFirst({
           where: {
@@ -1457,14 +1425,14 @@ export const actionRouter = createTRPCRouter({
       // Create the action
       const action = await ctx.db.action.create({
         data: {
-          name: finalName,
-          projectId: finalProjectId,
+          name: parsed.name,
+          projectId: parsed.projectId,
           priority: input.priority,
           status: "ACTIVE",
           createdById: userId,
-          dueDate: finalDueDate,
+          dueDate: parsed.dueDate,
           source: input.source,
-          kanbanStatus: finalProjectId ? "TODO" : null,
+          kanbanStatus: parsed.projectId ? "TODO" : null,
         },
         select: {
           id: true,
@@ -1484,7 +1452,7 @@ export const actionRouter = createTRPCRouter({
       return {
         success: true,
         action,
-        parsing: parsingMetadata,
+        parsing: parsed.parsingMetadata,
       };
     }),
 }); 
