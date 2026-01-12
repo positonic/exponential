@@ -1422,6 +1422,20 @@ export const actionRouter = createTRPCRouter({
         }
       }
 
+      // Calculate kanban order if this is a project action
+      let kanbanOrder: number | null = null;
+      if (parsed.projectId) {
+        const maxOrderAction = await ctx.db.action.findFirst({
+          where: {
+            projectId: parsed.projectId,
+            kanbanOrder: { not: null },
+          },
+          orderBy: { kanbanOrder: "desc" },
+          select: { kanbanOrder: true },
+        });
+        kanbanOrder = (maxOrderAction?.kanbanOrder ?? 0) + 1;
+      }
+
       // Create the action
       const action = await ctx.db.action.create({
         data: {
@@ -1433,6 +1447,7 @@ export const actionRouter = createTRPCRouter({
           dueDate: parsed.dueDate,
           source: input.source,
           kanbanStatus: parsed.projectId ? "TODO" : null,
+          kanbanOrder,
         },
         select: {
           id: true,
