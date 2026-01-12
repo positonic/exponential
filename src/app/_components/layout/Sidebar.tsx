@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { themes, type ValidDomain } from "~/config/themes";
 import { LogoDisplay } from "./LogoDisplay";
 import { ThemeToggle } from "../ThemeToggle";
+import { SidebarFeedback } from "./SidebarFeedback";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false); // Default to closed
@@ -91,13 +92,16 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         {/* Fixed bottom section */}
         <div className="flex-shrink-0 flex flex-col gap-2 border-t border-border-primary pt-4 px-4 pb-4">
           <div className="flex items-center justify-between px-3 py-2">
-            <Link
-              href="https://github.com/positonic/ai-todo"
-              onClick={() => setIsMenuOpen(false)}
-              className="text-text-secondary hover:text-text-primary transition-colors"
-            >
-              <GithubIcon className="h-6 w-6" />
-            </Link>
+            <div className="flex items-center gap-3">
+              <SidebarFeedback onClose={() => setIsMenuOpen(false)} />
+              <Link
+                href="https://github.com/positonic/ai-todo"
+                onClick={() => setIsMenuOpen(false)}
+                className="text-text-secondary hover:text-text-primary transition-colors"
+              >
+                <GithubIcon className="h-6 w-6" />
+              </Link>
+            </div>
             <ThemeToggle />
           </div>
           <Link

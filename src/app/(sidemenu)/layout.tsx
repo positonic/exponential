@@ -19,7 +19,7 @@ import { AgentModalProvider } from '~/providers/AgentModalProvider';
 import { themes } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { Analytics } from '@vercel/analytics/next';
-import { FloatingFeedbackButton } from '~/app/_components/FloatingFeedbackButton';
+import { FloatingChatButton } from '~/app/_components/FloatingChatButton';
 import { ColorSchemeScript } from '~/app/_components/layout/ColorSchemeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
 import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvider';
@@ -59,7 +59,7 @@ export default async function RootLayout({
                         {children}
                         <Analytics />
                       </Layout>
-                      <FloatingFeedbackButton />
+                      <FloatingChatButton />
                     </WorkspaceProvider>
                   </ColorSchemeProvider>
                 </AgentModalProvider>
