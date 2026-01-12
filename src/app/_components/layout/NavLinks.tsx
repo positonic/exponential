@@ -27,11 +27,12 @@ const mainNavIconMap = {
 type MainNavIconKey = keyof typeof mainNavIconMap;
 
 // Reusable NavLink component
-export function NavLink({ href, icon: Icon, children, count }: { 
-  href: string; 
+export function NavLink({ href, icon: Icon, children, count, onClick }: {
+  href: string;
   icon?: React.ComponentType<any>;
   children: React.ReactNode;
   count?: React.ReactNode;
+  onClick?: () => void;
 }) {
   const pathname = usePathname();
   const isActive = pathname === href;
@@ -39,9 +40,10 @@ export function NavLink({ href, icon: Icon, children, count }: {
   return (
     <Link
       href={href}
+      onClick={onClick}
       className={`group relative flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
-        isActive 
-          ? 'bg-surface-secondary text-text-primary' 
+        isActive
+          ? 'bg-surface-secondary text-text-primary'
           : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
       }`}
     >
@@ -67,7 +69,7 @@ export function NavLink({ href, icon: Icon, children, count }: {
   );
 }
 
-export function NavLinks() {
+export function NavLinks({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { workspaceSlug } = useWorkspace();
   const { itemsBySection } = usePluginNavigation();
 
@@ -91,16 +93,16 @@ export function NavLinks() {
 
   return (
     <div className="space-y-1">
-      <NavLink href={homePath} icon={IconHome}>
+      <NavLink href={homePath} icon={IconHome} onClick={onNavigate}>
         Home
       </NavLink>
       {workspacePath && (
-        <NavLink href={workspacePath} icon={IconBriefcase}>
+        <NavLink href={workspacePath} icon={IconBriefcase} onClick={onNavigate}>
           Workspace
         </NavLink>
       )}
       {weeklyReviewPath && (
-        <NavLink href={weeklyReviewPath} icon={IconCalendarWeek}>
+        <NavLink href={weeklyReviewPath} icon={IconCalendarWeek} onClick={onNavigate}>
           Weekly Review
         </NavLink>
       )}
@@ -108,18 +110,18 @@ export function NavLinks() {
       {mainPluginItems.map((item) => {
         const IconComponent = getIcon(item.icon);
         return (
-          <NavLink key={item.id} href={item.href} icon={IconComponent}>
+          <NavLink key={item.id} href={item.href} icon={IconComponent} onClick={onNavigate}>
             {item.label}
           </NavLink>
         );
       })}
-      <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>
+      <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />} onClick={onNavigate}>
         Inbox
       </NavLink>
-      <NavLink href="/today" icon={IconCalendarEvent} count={<TodayCount />}>
+      <NavLink href="/today" icon={IconCalendarEvent} count={<TodayCount />} onClick={onNavigate}>
         Today
       </NavLink>
-      <NavLink href="/upcoming" icon={IconCalendarTime} count={<UpcomingCount />}>
+      <NavLink href="/upcoming" icon={IconCalendarTime} count={<UpcomingCount />} onClick={onNavigate}>
         Upcoming
       </NavLink>
     </div>

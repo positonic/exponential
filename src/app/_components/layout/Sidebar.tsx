@@ -83,10 +83,10 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         {/* Scrollable content area */}
         <nav className="flex-1 overflow-y-auto px-1 py-4 space-y-6">
           <div className="space-y-2">
-            <NavLinks />
+            <NavLinks onNavigate={() => setIsMenuOpen(false)} />
           </div>
 
-          <SidebarContent />
+          <SidebarContent onNavigate={() => setIsMenuOpen(false)} />
         </nav>
 
         {/* Fixed bottom section */}

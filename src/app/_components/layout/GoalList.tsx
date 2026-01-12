@@ -5,7 +5,7 @@ import { NavLink } from "./NavLinks";
 import { IconTarget, IconNumber, IconFlame } from "@tabler/icons-react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
-export function GoalList() {
+export function GoalList({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { workspaceSlug, workspaceId } = useWorkspace();
 
   const { data: goals } = api.goal.getAllMyGoals.useQuery(
@@ -25,9 +25,9 @@ export function GoalList() {
 
   return (
     <div className="mt-1 space-y-1">
-      <NavLink href={goalsPath} icon={IconTarget}>Goals</NavLink>
-      <NavLink href="/habits" icon={IconFlame}>Habits</NavLink>
-      <NavLink href={outcomesPath} icon={IconNumber}>Outcomes</NavLink>
+      <NavLink href={goalsPath} icon={IconTarget} onClick={onNavigate}>Goals</NavLink>
+      <NavLink href="/habits" icon={IconFlame} onClick={onNavigate}>Habits</NavLink>
+      <NavLink href={outcomesPath} icon={IconNumber} onClick={onNavigate}>Outcomes</NavLink>
           
       {/* {goals.map((goal) => {
         const goalPath = `/goals/${slugify(goal.title)}-${goal.id}`;

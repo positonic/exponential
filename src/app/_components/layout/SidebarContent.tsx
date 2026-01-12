@@ -24,7 +24,7 @@ const iconMap = {
 
 type IconMapKey = keyof typeof iconMap;
 
-export function SidebarContent() {
+export function SidebarContent({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { isSectionVisible, isItemVisible } = useNavigationPreferences();
   const { workspaceSlug } = useWorkspace();
   const { itemsBySection } = usePluginNavigation();
@@ -73,11 +73,11 @@ export function SidebarContent() {
             </Accordion.Control>
             <Accordion.Panel>
               {isItemVisible("projects/my-projects") && (
-                <NavLink href={projectsPath} icon={IconDeviceProjector}>
+                <NavLink href={projectsPath} icon={IconDeviceProjector} onClick={onNavigate}>
                   My Projects
                 </NavLink>
               )}
-              {isItemVisible("projects/project-list") && <ProjectList />}
+              {isItemVisible("projects/project-list") && <ProjectList onNavigate={onNavigate} />}
               {isItemVisible("projects/add-project") && <AddProjectButton />}
             </Accordion.Panel>
           </Accordion.Item>
@@ -94,20 +94,20 @@ export function SidebarContent() {
               </div>
             </Accordion.Control>
             <Accordion.Panel>
-              {isItemVisible("alignment/goals") && <GoalList />}
+              {isItemVisible("alignment/goals") && <GoalList onNavigate={onNavigate} />}
               {/* Plugin navigation items for alignment section */}
               {itemsBySection.alignment
                 ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
                 .map((item) => {
                   const IconComponent = getIcon(item.icon);
                   return (
-                    <NavLink key={item.id} href={item.href} icon={IconComponent}>
+                    <NavLink key={item.id} href={item.href} icon={IconComponent} onClick={onNavigate}>
                       {item.label}
                     </NavLink>
                   );
                 })}
               {isItemVisible("alignment/wheel-of-life") && (
-                <NavLink href="/wheel-of-life" icon={IconCircleCheck}>
+                <NavLink href="/wheel-of-life" icon={IconCircleCheck} onClick={onNavigate}>
                   Wheel of Life
                 </NavLink>
               )}
@@ -127,12 +127,12 @@ export function SidebarContent() {
             </Accordion.Control>
             <Accordion.Panel>
               {isItemVisible("teams/my-teams") && (
-                <NavLink href="/teams" icon={IconUsers}>
+                <NavLink href="/teams" icon={IconUsers} onClick={onNavigate}>
                   My Teams
                 </NavLink>
               )}
               {isItemVisible("teams/weekly-review") && (
-                <NavLink href="/weekly-review" icon={IconUsers}>
+                <NavLink href="/weekly-review" icon={IconUsers} onClick={onNavigate}>
                   Weekly Project Review
                 </NavLink>
               )}
@@ -153,63 +153,63 @@ export function SidebarContent() {
             <Accordion.Panel>
               <div className="space-y-1">
                 {isItemVisible("tools/days") && (
-                  <NavLink href="/days" icon={IconCalendarEvent}>
+                  <NavLink href="/days" icon={IconCalendarEvent} onClick={onNavigate}>
                     Days
                   </NavLink>
                 )}
                 {isItemVisible("tools/media") && (
-                  <NavLink href="/videos" icon={IconVideo}>
+                  <NavLink href="/videos" icon={IconVideo} onClick={onNavigate}>
                     Media
                     <VideoCount />
                   </NavLink>
                 )}
                 {isItemVisible("tools/journal") && (
-                  <NavLink href="/journal" icon={IconWriting}>
+                  <NavLink href="/journal" icon={IconWriting} onClick={onNavigate}>
                     Journal
                   </NavLink>
                 )}
                 {isItemVisible("tools/meetings") && (
-                  <NavLink href="/meetings" icon={IconMicrophone}>
+                  <NavLink href="/meetings" icon={IconMicrophone} onClick={onNavigate}>
                     Meetings
                   </NavLink>
                 )}
                 {isItemVisible("tools/workflows") && (
-                  <NavLink href="/workflows" icon={IconGitBranch}>
+                  <NavLink href="/workflows" icon={IconGitBranch} onClick={onNavigate}>
                     Workflows
                   </NavLink>
                 )}
                 {isItemVisible("tools/ai-sales-demo") && (
-                  <NavLink href="/ai-sales-demo" icon={IconSparkles}>
+                  <NavLink href="/ai-sales-demo" icon={IconSparkles} onClick={onNavigate}>
                     AI Sales Demo
                   </NavLink>
                 )}
                 {isItemVisible("tools/ai-automation") && (
-                  <NavLink href="/ai-automation" icon={IconRobot}>
+                  <NavLink href="/ai-automation" icon={IconRobot} onClick={onNavigate}>
                     AI Automation
                   </NavLink>
                 )}
                 {isItemVisible("tools/connect-services") && (
-                  <NavLink href="/integrations" icon={IconPlug}>
+                  <NavLink href="/integrations" icon={IconPlug} onClick={onNavigate}>
                     Connect Services
                   </NavLink>
                 )}
                 {isItemVisible("tools/ai-history") && (
-                  <NavLink href="/ai-history" icon={IconBrain}>
+                  <NavLink href="/ai-history" icon={IconBrain} onClick={onNavigate}>
                     AI History
                   </NavLink>
                 )}
                 {isItemVisible("tools/knowledge-base") && (
-                  <NavLink href={workspaceSlug ? `/w/${workspaceSlug}/knowledge-base` : '/knowledge-base'} icon={IconDatabase}>
+                  <NavLink href={workspaceSlug ? `/w/${workspaceSlug}/knowledge-base` : '/knowledge-base'} icon={IconDatabase} onClick={onNavigate}>
                     Knowledge Base
                   </NavLink>
                 )}
                 {isItemVisible("tools/api-access") && (
-                  <NavLink href="/tokens" icon={IconKey}>
+                  <NavLink href="/tokens" icon={IconKey} onClick={onNavigate}>
                     API Access
                   </NavLink>
                 )}
                 {/* Settings link - always visible */}
-                <NavLink href="/settings" icon={IconSettings}>
+                <NavLink href="/settings" icon={IconSettings} onClick={onNavigate}>
                   Settings
                 </NavLink>
               </div>
@@ -220,7 +220,7 @@ export function SidebarContent() {
         {/* Settings fallback when Tools section is hidden */}
         {!isSectionVisible("tools") && (
           <div className="px-1 pt-2">
-            <NavLink href="/settings" icon={IconSettings}>
+            <NavLink href="/settings" icon={IconSettings} onClick={onNavigate}>
               Settings
             </NavLink>
           </div>

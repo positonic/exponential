@@ -78,6 +78,9 @@ export default function KnowledgeBasePage() {
     description: '',
   });
 
+  // Get utils for cache invalidation
+  const utils = api.useUtils();
+
   // Queries
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = api.mastra.getEmbeddingStats.useQuery(
     {},
@@ -117,7 +120,8 @@ export default function KnowledgeBasePage() {
         totalFailed: prev.totalFailed + data.failed,
       }));
 
-      // Refetch stats to check if more remain
+      // Invalidate cache and refetch stats to get fresh data
+      await utils.mastra.getEmbeddingStats.invalidate();
       const result = await refetchStats();
       const pending = result.data?.transcriptions.pendingEmbeddings ?? 0;
 

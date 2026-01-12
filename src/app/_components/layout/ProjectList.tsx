@@ -13,7 +13,7 @@ const priorityOrder: Record<Priority, number> = {
   NONE: 3,
 };
 
-export function ProjectList() {
+export function ProjectList({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { workspaceSlug, workspaceId } = useWorkspace();
 
   const { data: projects } = api.project.getAll.useQuery({
@@ -49,6 +49,7 @@ export function ProjectList() {
             key={project.id}
             href={projectPath}
             count={activeActionsCount > 0 ? activeActionsCount : undefined}
+            onClick={onNavigate}
           >
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-gray-500 flex-shrink-0">#</span>

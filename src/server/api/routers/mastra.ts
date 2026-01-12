@@ -1140,37 +1140,49 @@ export const mastraRouter = createTRPCRouter({
         }
       }
 
-      // Find transcriptions that need embedding
-      const whereClause: Record<string, unknown> = {
+      // Build where clause for transcriptions that need embedding (exclude empty content)
+      const baseWhere = {
         userId,
-        transcription: { not: null },
+        AND: [
+          { transcription: { not: null } },
+          { transcription: { not: '' } },
+        ],
         ...(input.projectId && { projectId: input.projectId }),
       };
 
-      // Get all user's transcriptions
-      const transcriptions = await ctx.db.transcriptionSession.findMany({
-        where: whereClause,
-        orderBy: { createdAt: 'desc' },
-        take: input.limit * 2, // Get extra to filter
-        select: { id: true, title: true },
-      });
+      let toProcess: { id: string; title: string | null }[];
 
-      // If skipExisting, filter out those that already have chunks
-      let toProcess = transcriptions;
       if (input.skipExisting) {
-        const existingChunks = await ctx.db.knowledgeChunk.groupBy({
-          by: ['sourceId'],
+        // First, get all transcription IDs that already have chunks
+        const existingChunks = await ctx.db.knowledgeChunk.findMany({
           where: {
             sourceType: 'transcription',
-            sourceId: { in: transcriptions.map(t => t.id) },
+            userId,
           },
+          select: { sourceId: true },
+          distinct: ['sourceId'],
         });
-        const existingIds = new Set(existingChunks.map(c => c.sourceId));
-        toProcess = transcriptions.filter(t => !existingIds.has(t.id));
-      }
+        const existingIds = existingChunks.map(c => c.sourceId);
 
-      // Limit to requested amount
-      toProcess = toProcess.slice(0, input.limit);
+        // Query transcriptions that DON'T have chunks yet
+        toProcess = await ctx.db.transcriptionSession.findMany({
+          where: {
+            ...baseWhere,
+            id: { notIn: existingIds },
+          },
+          orderBy: { createdAt: 'asc' }, // Process oldest first
+          take: input.limit,
+          select: { id: true, title: true },
+        });
+      } else {
+        // Get transcriptions without filtering by existing chunks
+        toProcess = await ctx.db.transcriptionSession.findMany({
+          where: baseWhere,
+          orderBy: { createdAt: 'asc' },
+          take: input.limit,
+          select: { id: true, title: true },
+        });
+      }
 
       // Process each transcription
       const knowledgeService = getKnowledgeService(ctx.db);
@@ -1211,11 +1223,14 @@ export const mastraRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Count transcriptions with/without embeddings
+      // Count transcriptions with/without embeddings (exclude empty content)
       const totalTranscriptions = await ctx.db.transcriptionSession.count({
         where: {
           userId,
-          transcription: { not: null },
+          AND: [
+            { transcription: { not: null } },
+            { transcription: { not: '' } },
+          ],
           ...(input.projectId && { projectId: input.projectId }),
         },
       });
