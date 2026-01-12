@@ -9,6 +9,7 @@ import {
   IconHome,
   IconBriefcase,
   IconUsers,
+  IconCalendarWeek,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
@@ -73,6 +74,7 @@ export function NavLinks() {
   // Generate workspace-aware paths
   const homePath = workspaceSlug ? `/w/${workspaceSlug}/home` : '/home';
   const workspacePath = workspaceSlug ? `/w/${workspaceSlug}/workspace` : null;
+  const weeklyReviewPath = workspaceSlug ? `/w/${workspaceSlug}/weekly-review` : null;
 
   // Helper to get icon component from name
   const getIcon = (iconName: string) => {
@@ -95,6 +97,11 @@ export function NavLinks() {
       {workspacePath && (
         <NavLink href={workspacePath} icon={IconBriefcase}>
           Workspace
+        </NavLink>
+      )}
+      {weeklyReviewPath && (
+        <NavLink href={weeklyReviewPath} icon={IconCalendarWeek}>
+          Weekly Review
         </NavLink>
       )}
       {/* Plugin navigation items for main section */}
