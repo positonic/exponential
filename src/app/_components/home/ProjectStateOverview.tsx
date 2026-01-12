@@ -117,7 +117,7 @@ function HealthRing({ score, size = 32 }: { score: number; size?: number }) {
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
         <Text size="xs" fw={600} className={colorClass}>
-          {score / 20}
+          {score / 10}
         </Text>
       </div>
     </div>
@@ -182,8 +182,8 @@ export function ProjectStateOverview() {
             <Tooltip
               label={
                 <div className="space-y-1 text-xs">
-                  <div className="font-semibold">Health Score (0-5)</div>
-                  <div>Each indicator adds 1 point:</div>
+                  <div className="font-semibold">Health Score (0-10)</div>
+                  <div>Each indicator adds 2 points:</div>
                   <div>• Weekly Planning - Has weekly outcomes</div>
                   <div>• Recent Activity - Actions done in 7 days</div>
                   <div>• Momentum - Has active actions</div>
