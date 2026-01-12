@@ -4,6 +4,7 @@ import { db } from '~/server/db';
 import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
 import { createCallerFactory } from '~/server/api/trpc';
 import { appRouter } from '~/server/api/root';
+import { parseActionInput } from '~/server/services/parsing';
 
 // Slack API client
 const SLACK_API_BASE = 'https://slack.com/api';
@@ -1224,28 +1225,48 @@ You can also mention me (@Exponential) in any channel to chat with Paddy!`
 
 async function createActionFromSlack(title: string, user: any, channelId: string, integrationData: any) {
   try {
+    // Parse natural language input for dates and project references
+    const parsed = await parseActionInput(title, user.id, db);
 
-    // Get action processors for this user
-    const processors = await ActionProcessorFactory.createProcessors(user.id);
-    
+    // Get action processors for this user (with parsed projectId if found)
+    const processors = await ActionProcessorFactory.createProcessors(
+      user.id,
+      parsed.projectId ?? undefined
+    );
+
     const actionItem = {
-      text: title,
+      text: parsed.name,
       priority: 'medium' as const,
       context: 'Created from Slack',
+      dueDate: parsed.dueDate ?? undefined,
     };
 
-    // let totalCreated = 0;
     for (const processor of processors) {
       await processor.processActionItems([actionItem]);
-      // totalCreated += result.processedCount;
     }
 
-    // Send confirmation back to Slack
-    await sendSlackResponse(
-      `✅ Created action: *${title}*\n_Added to your Exponential inbox_`,
-      channelId,
-      integrationData
-    );
+    // Build confirmation message with parsing details
+    let confirmationMessage = `✅ Created action: *${parsed.name}*`;
+
+    const details: string[] = [];
+    if (parsed.dueDate) {
+      const dateStr = parsed.dueDate.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric'
+      });
+      details.push(`📅 Due: ${dateStr}`);
+    }
+    if (parsed.parsingMetadata?.matchedProject) {
+      details.push(`📁 Project: ${parsed.parsingMetadata.matchedProject.name}`);
+    }
+
+    if (details.length > 0) {
+      confirmationMessage += '\n' + details.join(' • ');
+    }
+    confirmationMessage += '\n_Added to your Exponential inbox_';
+
+    await sendSlackResponse(confirmationMessage, channelId, integrationData);
 
   } catch (error) {
     console.error('❌ Error creating action from Slack:', error);
