@@ -1212,6 +1212,12 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
 • \`/expo chat [message]\` - Chat with Paddy, your AI assistant
 • \`/expo help\` - Show this help message
 
+*Smart parsing:* Add dates and projects naturally!
+• \`/expo create Call John tomorrow\` - due tomorrow
+• \`/expo create Review docs today\` - due today
+• \`/expo create Fix bug for Acme project\` - linked to "Acme" project
+• \`/expo create Send report tomorrow for Sales project\` - both!
+
 You can also mention me (@Exponential) in any channel to chat with Paddy!`
       };
 
