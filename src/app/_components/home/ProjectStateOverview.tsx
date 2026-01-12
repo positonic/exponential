@@ -15,6 +15,7 @@ import {
   IconPlayerPlay,
   IconCalendarCheck,
   IconTrendingUp,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import Link from "next/link";
@@ -178,6 +179,27 @@ export function ProjectStateOverview() {
             <Text fw={600} size="sm" className="text-text-primary">
               Active Projects ({projects.length})
             </Text>
+            <Tooltip
+              label={
+                <div className="space-y-1 text-xs">
+                  <div className="font-semibold">Health Score (0-5)</div>
+                  <div>Each indicator adds 1 point:</div>
+                  <div>• Weekly Planning - Has weekly outcomes</div>
+                  <div>• Recent Activity - Actions done in 7 days</div>
+                  <div>• Momentum - Has active actions</div>
+                  <div>• On Track - No overdue actions</div>
+                  <div>• Progress - Has tracked progress</div>
+                </div>
+              }
+              withArrow
+              multiline
+              w={240}
+            >
+              <IconInfoCircle
+                size={14}
+                className="cursor-help text-text-muted"
+              />
+            </Tooltip>
           </Group>
         </Group>
 
