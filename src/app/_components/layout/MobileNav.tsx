@@ -24,7 +24,7 @@ export default function MobileNav({ children }: PropsWithChildren) {
       <div className="fixed top-4 left-4 z-50">
         <button
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-3 rounded-xl bg-gray-800 hover:bg-gray-700 active:bg-gray-600 transition-colors shadow-lg"
+          className="p-3 rounded-xl bg-surface-secondary hover:bg-surface-hover active:bg-surface-active transition-colors shadow-lg"
           aria-label="Toggle menu"
         >
           <IconMenu2 className="h-7 w-7" />

@@ -4,9 +4,10 @@ import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
+import { getKnowledgeService } from "~/server/services/KnowledgeService";
+import { generateAgentJWT } from "~/server/utils/jwt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { getKnowledgeService } from "~/server/services/KnowledgeService";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -87,30 +88,6 @@ function parseExpiration(expiresIn: string): number {
   }
 }
 
-// Helper function to generate JWT for agent contexts
-function generateAgentJWT(user: { id: string; email?: string | null; name?: string | null; image?: string | null }, expiryMinutes = 30): string {
-  // Security fix deployment timestamp - invalidates all JWTs issued before this fix
-  const securityFixTimestamp = Math.floor(new Date('2025-08-06T15:45:00Z').getTime() / 1000);
-  
-  return jwt.sign(
-    {
-      userId: user.id,
-      sub: user.id,
-      email: user.email,
-      name: user.name,
-      picture: user.image,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (60 * expiryMinutes),
-      nbf: securityFixTimestamp, // Not valid before security fix deployment
-      jti: crypto.randomUUID(),
-      tokenType: 'agent-context',
-      aud: 'mastra-agents',
-      iss: 'todo-app',
-      securityVersion: 1 // Version to track security fixes
-    },
-    process.env.AUTH_SECRET ?? ''
-  );
-}
 
 export const mastraRouter = createTRPCRouter({
   getMastraAgents: publicProcedure
@@ -417,7 +394,7 @@ export const mastraRouter = createTRPCRouter({
           name: name,
           expiresAt: token.expires.toISOString(),
           expiresIn: expiresIn,
-          userId: token.userId,
+          userId: token.userId ?? ctx.session.user.id, // Use session userId as fallback (tokens are filtered by userId)
           type: isJWT ? 'jwt' : 'hex', // Add token type
         };
       });
@@ -1292,7 +1269,172 @@ export const mastraRouter = createTRPCRouter({
         totalChunks,
       };
     }),
+
+  // AI Next Best Step - Get a gentle suggestion for what to focus on
+  getNextBestStep: protectedProcedure
+    .input(
+      z.object({
+        context: z.object({
+          pendingActionsCount: z.number(),
+          overdueActionsCount: z.number(),
+          calendarEventsCount: z.number(),
+          dailyOutcomesCount: z.number(),
+          weeklyOutcomesCount: z.number(),
+          completedHabitsCount: z.number(),
+          totalHabitsCount: z.number(),
+          staleProjectIds: z.array(z.string()),
+          dayOfWeek: z.string(),
+          isMonday: z.boolean(),
+          isSunday: z.boolean(),
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { context } = input;
+
+      // Build a gentle, non-judgmental prompt
+      const promptParts = [
+        `You are a supportive productivity assistant. Based on today's context (${context.dayOfWeek}), suggest ONE gentle, optional action that might help the user feel successful today.`,
+        "",
+        "Today's context:",
+        `- ${context.pendingActionsCount} action${context.pendingActionsCount !== 1 ? "s" : ""} scheduled for today`,
+        context.overdueActionsCount > 0
+          ? `- ${context.overdueActionsCount} action${context.overdueActionsCount !== 1 ? "s" : ""} from earlier days (no judgment - just information)`
+          : null,
+        `- ${context.calendarEventsCount} calendar event${context.calendarEventsCount !== 1 ? "s" : ""} today`,
+        `- ${context.dailyOutcomesCount} daily outcome${context.dailyOutcomesCount !== 1 ? "s" : ""} set for today`,
+        `- ${context.weeklyOutcomesCount} weekly outcome${context.weeklyOutcomesCount !== 1 ? "s" : ""} this week`,
+        `- Habits: ${context.completedHabitsCount}/${context.totalHabitsCount} completed`,
+        context.staleProjectIds.length > 0
+          ? `- ${context.staleProjectIds.length} project${context.staleProjectIds.length !== 1 ? "s" : ""} haven't had recent activity`
+          : null,
+        context.isMonday ? "- It's Monday - start of a fresh week" : null,
+        context.isSunday ? "- It's Sunday - a good day for reflection or light planning" : null,
+        "",
+        "Guidelines for your response:",
+        "- Keep it to 1-2 sentences maximum",
+        "- Use warm, supportive language",
+        "- Focus on what might feel good to accomplish, not what 'should' be done",
+        "- Never use guilt, pressure, or 'should have' language",
+        "- If the day looks clear, suggest something restorative or intentional",
+        "- Make the suggestion feel optional, not urgent",
+      ].filter(Boolean);
+
+      const prompt = promptParts.join("\n");
+
+      try {
+        // Generate JWT for agent authentication
+        const agentJWT = generateAgentJWT(ctx.session.user, 30);
+
+        // Call the ash agent for a gentle suggestion
+        const res = await fetch(
+          `${MASTRA_API_URL}/api/agents/ashagent/generate`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: [{ role: "user", content: prompt }],
+              runtimeContext: {
+                authToken: agentJWT,
+                userId: ctx.session.user.id,
+                userEmail: ctx.session.user.email,
+                todoAppBaseUrl:
+                  process.env.TODO_APP_BASE_URL ??
+                  process.env.NEXTAUTH_URL ??
+                  "http://localhost:3000",
+              },
+            }),
+          }
+        );
+
+        const text = await res.text();
+
+        if (!res.ok) {
+          console.error(
+            `[getNextBestStep] Mastra generate failed with status ${res.status}: ${text}`
+          );
+          // Return a fallback suggestion instead of throwing
+          return {
+            suggestion: getFallbackSuggestion(context),
+            source: "fallback",
+          };
+        }
+
+        try {
+          const responseData = JSON.parse(text);
+          const suggestion =
+            responseData.text ??
+            responseData.content ??
+            (typeof responseData === "string" ? responseData : null);
+
+          if (suggestion) {
+            return { suggestion, source: "ai" };
+          }
+
+          return {
+            suggestion: getFallbackSuggestion(context),
+            source: "fallback",
+          };
+        } catch {
+          // If response is plain text
+          if (text && text.length < 500) {
+            return { suggestion: text, source: "ai" };
+          }
+          return {
+            suggestion: getFallbackSuggestion(context),
+            source: "fallback",
+          };
+        }
+      } catch (error) {
+        console.error("[getNextBestStep] Error calling Mastra:", error);
+        return {
+          suggestion: getFallbackSuggestion(context),
+          source: "fallback",
+        };
+      }
+    }),
 }); 
+
+// Helper function for fallback AI suggestions
+function getFallbackSuggestion(context: {
+  pendingActionsCount: number;
+  overdueActionsCount: number;
+  calendarEventsCount: number;
+  dailyOutcomesCount: number;
+  weeklyOutcomesCount: number;
+  completedHabitsCount: number;
+  totalHabitsCount: number;
+  staleProjectIds: string[];
+  isMonday: boolean;
+  isSunday: boolean;
+}): string {
+  // Provide contextual fallback suggestions when AI is unavailable
+  if (context.dailyOutcomesCount === 0) {
+    return "Consider setting one small intention for today - what would make it feel meaningful?";
+  }
+
+  if (context.pendingActionsCount === 0 && context.calendarEventsCount === 0) {
+    return "Your day looks open. This might be a good time for something restorative or a project you've been curious about.";
+  }
+
+  if (context.isMonday && context.weeklyOutcomesCount === 0) {
+    return "It's a fresh week! You might enjoy taking a few minutes to think about what would make this week feel successful.";
+  }
+
+  if (context.isSunday) {
+    return "Sundays can be great for light reflection. What went well this week that you'd like to continue?";
+  }
+
+  if (context.pendingActionsCount > 0) {
+    return "You have some actions lined up for today. Starting with the one that feels most approachable can build nice momentum.";
+  }
+
+  if (context.completedHabitsCount < context.totalHabitsCount) {
+    return "You're making progress on your habits. Keep going at your own pace.";
+  }
+
+  return "Take a moment to appreciate what you've already accomplished. Small wins matter.";
+}
 
 // Helper functions for meeting insights extraction
 function determineContextType(content: string): 'decision' | 'action_item' | 'deadline' | 'blocker' | 'discussion' | 'update' {

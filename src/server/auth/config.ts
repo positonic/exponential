@@ -3,8 +3,10 @@ import { type DefaultSession, type NextAuthConfig } from "next-auth";
 import DiscordProvider from "next-auth/providers/discord";
 import GoogleProvider from "next-auth/providers/google";
 import NotionProvider from "next-auth/providers/notion";
+import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
+import { sendMagicLinkEmail, sendWelcomeEmail } from "~/server/services/EmailService";
 
 /**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
@@ -29,7 +31,8 @@ declare module "next-auth" {
 export const authConfig = {
   pages: {
     signIn: '/signin',
-    error: '/signin', // Custom error page
+    error: '/signin',
+    verifyRequest: '/auth/verify-request',
   },
   providers: [
     DiscordProvider({
@@ -60,6 +63,14 @@ export const authConfig = {
         },
         redirectUri: process.env.NOTION_REDIRECT_URI!,
       }
+    }),
+    Postmark({
+      apiKey: process.env.POSTMARK_SERVER_TOKEN!, // Required for email auth
+      from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
+      sendVerificationRequest: async ({ identifier, url }) => {
+        const host = new URL(url).host;
+        await sendMagicLinkEmail(identifier, url, host);
+      },
     }),
   ],
   adapter: PrismaAdapter(db),
@@ -120,6 +131,10 @@ export const authConfig = {
 
       // If no user exists, allow sign in (new user - will need onboarding)
       if (!existingUser) {
+        // Send welcome email to new users (fire and forget - don't block sign in)
+        sendWelcomeEmail(user.email, user.name).catch((error) => {
+          console.error("[Auth] Failed to send welcome email:", error);
+        });
         return true;
       }
 
@@ -166,6 +181,15 @@ export const authConfig = {
         console.error("Error in redirect callback:", error);
         return "/home"; // Fallback to home
       }
+    },
+  },
+  events: {
+    createUser: async ({ user }) => {
+      // Set lastLogin for newly created users
+      await db.user.update({
+        where: { id: user.id },
+        data: { lastLogin: new Date() },
+      });
     },
   },
 } satisfies NextAuthConfig;

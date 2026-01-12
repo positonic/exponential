@@ -53,7 +53,7 @@ async function findValidApiKeyAndUser(payload: string, signature: string) {
 
     // Try each API key to see if it validates the signature
     for (const keyRecord of activeApiKeys) {
-      if (verifySignatureWithApiKey(payload, signature, keyRecord.token)) {
+      if (verifySignatureWithApiKey(payload, signature, keyRecord.token) && keyRecord.user) {
         return {
           apiKey: keyRecord.token,
           user: keyRecord.user,

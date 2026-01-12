@@ -1,6 +1,8 @@
 import { MastraClient } from "@mastra/client-js";
+import { RuntimeContext } from "@mastra/core/runtime-context";
 import type { CoreMessage } from "ai";
 import { auth } from "~/server/auth";
+import { generateAgentJWT } from "~/server/utils/jwt";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
@@ -24,8 +26,32 @@ export async function POST(req: Request) {
       baseUrl: MASTRA_API_URL,
     });
 
+    // Generate JWT for agent authentication (enables tools to callback to this app)
+    const agentJWT = generateAgentJWT({
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      image: session.user.image,
+    });
+
+    // Create RuntimeContext with auth data for agent tools
+    const runtimeContext = new RuntimeContext([
+      ["authToken", agentJWT],
+      ["userId", session.user.id],
+      ["userEmail", session.user.email ?? ""],
+      [
+        "todoAppBaseUrl",
+        process.env.TODO_APP_BASE_URL ??
+          process.env.NEXTAUTH_URL ??
+          "http://localhost:3000",
+      ],
+    ]);
+
     const agent = client.getAgent(agentId ?? "projectManagerAgent");
-    const response = await agent.stream({ messages });
+    const response = await agent.stream({
+      messages,
+      runtimeContext,
+    });
 
     // Transform stream to extract text content from AI SDK format
     const transformStream = new TransformStream({

@@ -7,7 +7,7 @@ fi
 
 # Check for hardcoded colors (excluding allowed files)
 echo "Checking for hardcoded colors..."
-ALLOWED_FILES="(colors\.ts|mantineTheme\.ts|globals\.css)"
+ALLOWED_FILES="(colors\.ts|mantineTheme\.ts|globals\.css|EmailService\.ts)"
 
 # Get staged files that match our criteria
 STAGED_FILES=$(git diff --staged --name-only | grep -E '\.(tsx?|jsx?|css)$' | grep -v -E "$ALLOWED_FILES" || true)

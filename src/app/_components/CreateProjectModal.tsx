@@ -9,9 +9,7 @@ import { api } from "~/trpc/react";
 import { CreateGoalModal } from './CreateGoalModal';
 import { notifications } from '@mantine/notifications';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
-
-type ProjectStatus = "ACTIVE" | "COMPLETED" | "ON_HOLD" | "CANCELLED";
-type ProjectPriority = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+import type { ProjectStatus, ProjectPriority } from '~/types/project';
 
 type ProjectWithRelations = Project & {
   goals?: Goal[];

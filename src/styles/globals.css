@@ -51,6 +51,19 @@
     --color-macos-close: #FF5F56;
     --color-macos-minimize: #FFBD2E;
     --color-macos-maximize: #27CA40;
+
+    /* Hero/Landing page gradient colors */
+    --color-gradient-hero-start: #F0F4FF;
+    --color-gradient-hero-end: #FFFFFF;
+    --color-gradient-cta-start: #4F46E5;
+    --color-gradient-cta-end: #7C3AED;
+    --color-gradient-problem-bg: #0F172A;
+    --color-accent-periwinkle: #849BE5;
+    --color-accent-indigo: #4F46E5;
+
+    /* CTA overlay colors */
+    --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
+    --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
   }
 
   /* Dark theme colors */
@@ -101,6 +114,19 @@
     --color-macos-close: #FF5F56;
     --color-macos-minimize: #FFBD2E;
     --color-macos-maximize: #27CA40;
+
+    /* Hero/Landing page gradient colors (dark mode) */
+    --color-gradient-hero-start: #1E1B4B;
+    --color-gradient-hero-end: #1a1b1e;
+    --color-gradient-cta-start: #4F46E5;
+    --color-gradient-cta-end: #7C3AED;
+    --color-gradient-problem-bg: #0F172A;
+    --color-accent-periwinkle: #A5B4FC;
+    --color-accent-indigo: #6366F1;
+
+    /* CTA overlay colors */
+    --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
+    --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
   }
 
   /* Also support Tailwind's dark mode class */
@@ -146,6 +172,19 @@
     /* Onboarding */
     --color-onboarding-illustration-bg: #2c2e33;
     --color-onboarding-accent: #f87171;
+
+    /* Hero/Landing page gradient colors (dark mode) */
+    --color-gradient-hero-start: #1E1B4B;
+    --color-gradient-hero-end: #1a1b1e;
+    --color-gradient-cta-start: #4F46E5;
+    --color-gradient-cta-end: #7C3AED;
+    --color-gradient-problem-bg: #0F172A;
+    --color-accent-periwinkle: #A5B4FC;
+    --color-accent-indigo: #6366F1;
+
+    /* CTA overlay colors */
+    --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
+    --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
   }
 }
 

@@ -1,7 +1,9 @@
 'use client';
 
-import { Text, Stack, Group, Checkbox } from '@mantine/core';
+import { Text, Stack, Group, Checkbox, ActionIcon } from '@mantine/core';
+import { IconPlus } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
+import { CreateHabitModal } from '~/app/_components/CreateHabitModal';
 
 export function HabitsDueToday() {
   const { data: habitStatus, isLoading } = api.habit.getTodayStatus.useQuery();
@@ -32,9 +34,18 @@ export function HabitsDueToday() {
   if (!habitStatus || habitStatus.length === 0) {
     return (
       <Stack gap="xs">
-        <Text size="sm" fw={500} className="text-text-secondary">
-          Habits
-        </Text>
+        <Group justify="space-between">
+          <Text size="sm" fw={500} className="text-text-secondary">
+            Habits
+          </Text>
+          <CreateHabitModal
+            trigger={
+              <ActionIcon variant="subtle" size="xs" aria-label="Add habit">
+                <IconPlus size={14} />
+              </ActionIcon>
+            }
+          />
+        </Group>
         <Text size="sm" className="text-text-muted">
           No habits set up yet. Create habits linked to your goals for daily practice.
         </Text>
@@ -44,9 +55,18 @@ export function HabitsDueToday() {
 
   return (
     <Stack gap="xs">
-      <Text size="sm" fw={500} className="text-text-secondary">
-        Habits
-      </Text>
+      <Group justify="space-between">
+        <Text size="sm" fw={500} className="text-text-secondary">
+          Habits
+        </Text>
+        <CreateHabitModal
+          trigger={
+            <ActionIcon variant="subtle" size="xs" aria-label="Add habit">
+              <IconPlus size={14} />
+            </ActionIcon>
+          }
+        />
+      </Group>
       <Stack gap="xs">
         {habitStatus.map((habit) => (
           <Group

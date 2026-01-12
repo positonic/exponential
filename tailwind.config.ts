@@ -67,6 +67,25 @@ export default {
           bg: 'var(--color-warning-bg)',
           border: 'var(--color-warning-border)',
         },
+        // Accent colors for landing page
+        accent: {
+          periwinkle: 'var(--color-accent-periwinkle)',
+          indigo: 'var(--color-accent-indigo)',
+        },
+        // Gradient color references
+        gradient: {
+          'hero-start': 'var(--color-gradient-hero-start)',
+          'hero-end': 'var(--color-gradient-hero-end)',
+          'cta-start': 'var(--color-gradient-cta-start)',
+          'cta-end': 'var(--color-gradient-cta-end)',
+          'problem-bg': 'var(--color-gradient-problem-bg)',
+        },
+      },
+      // Background image gradients
+      backgroundImage: {
+        'hero-gradient': 'linear-gradient(180deg, var(--color-gradient-hero-start), var(--color-gradient-hero-end))',
+        'cta-gradient': 'linear-gradient(135deg, var(--color-gradient-cta-start), var(--color-gradient-cta-end))',
+        'problem-gradient': 'radial-gradient(circle at top, var(--color-gradient-problem-bg) 0%, var(--color-bg-primary) 100%)',
       },
       backgroundColor: {
         // Shortcuts for common background usage

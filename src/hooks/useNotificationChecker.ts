@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
+import { useSession } from 'next-auth/react';
 
 /**
  * Metadata structure for transcription completion notifications
@@ -56,10 +57,15 @@ function isValidTranscriptionMetadata(metadata: unknown): metadata is Transcript
  * Uses the existing notification system to show pending notifications as UI notifications
  */
 export function useNotificationChecker() {
+  const { data: session } = useSession();
+
   // Get pending notifications that haven't been shown yet
+  // Only query when authenticated
   const { data: pendingNotifications, refetch } = api.notification.getScheduledNotifications.useQuery({
     status: 'pending',
     limit: 10,
+  }, {
+    enabled: !!session?.user,
   });
 
   // Mutation to mark notifications as read
