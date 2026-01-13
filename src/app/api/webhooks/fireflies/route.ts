@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
 import { db } from '~/server/db';
 import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
+import { getEmbeddingTriggerService } from '~/server/services/embedding';
 // import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
 // import { NotificationServiceFactory } from '~/server/services/notifications/NotificationServiceFactory';
 
@@ -291,7 +292,8 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
         where: { sessionId },
         data: {
           ...sessionData,
-          description: `${existingSession.description || ''}\n\nUpdated from Fireflies webhook: ${meetingId}`,
+          description: `${existingSession.description ?? ''}\n\nUpdated from Fireflies webhook: ${meetingId}`,
+          embeddingStatus: 'pending', // Reset for re-embedding
         }
       });
       console.log(`✅ Updated existing transcription session: ${sessionId}`);
@@ -303,6 +305,7 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
           ...sessionData,
           description: `Auto-imported from Fireflies. Meeting ID: ${meetingId}`,
           userId: user.id,
+          embeddingStatus: 'pending',
         }
       });
       console.log(`✅ Created new transcription session: ${sessionId}`);
@@ -336,14 +339,21 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       console.log(`🔔 Created notification for new transcription: ${title}`);
     }
 
-    // 6. Skip action processing from webhook
+    // 6. Trigger embedding for knowledge base (fire-and-forget)
+    if (transcriptionSession.transcription) {
+      const embeddingTrigger = getEmbeddingTriggerService(db);
+      embeddingTrigger.triggerTranscriptionEmbedding(transcriptionSession.id);
+      console.log(`🧠 Triggered background embedding for transcription: ${transcriptionSession.id}`);
+    }
+
+    // 7. Skip action processing from webhook
     // Actions will be processed when user manually associates with a project
-    console.log(`📌 Transcription saved. Awaiting project association for processing ${processedData?.actionItems.length || 0} action items`);
-    
+    console.log(`📌 Transcription saved. Awaiting project association for processing ${processedData?.actionItems.length ?? 0} action items`);
+
     // Mark as unprocessed
     await db.transcriptionSession.update({
       where: { id: transcriptionSession.id },
-      data: { 
+      data: {
         processedAt: null,
         slackNotificationAt: null
       }

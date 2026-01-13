@@ -554,6 +554,13 @@ model TranscriptionSession {
   slackNotificationAt DateTime?
   archivedAt          DateTime?
   sourceIntegrationId String?
+
+  // Embedding status tracking for knowledge base
+  embeddingStatus     String?      @default("none") // none|pending|processing|completed|failed
+  embeddingError      String?
+  embeddedAt          DateTime?
+  chunkCount          Int?
+
   actions             Action[]
   screenshots         Screenshot[]
   project             Project?     @relation(fields: [projectId], references: [id])
@@ -564,6 +571,7 @@ model TranscriptionSession {
   @@index([userId])
   @@index([projectId])
   @@index([sourceIntegrationId])
+  @@index([embeddingStatus])
 }
 
 model Screenshot {

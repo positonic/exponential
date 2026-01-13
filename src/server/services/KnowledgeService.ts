@@ -1,10 +1,17 @@
 import { OpenAIEmbeddings } from "@langchain/openai";
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "crypto";
+import type {
+  EmbeddingSource,
+  EmbeddingResult,
+  EmbeddingOptions,
+  EmbeddingSourceType,
+} from "./embedding/types";
 
 const DEFAULT_CHUNK_SIZE = 500; // tokens
 const DEFAULT_CHUNK_OVERLAP = 50; // tokens
 const APPROX_CHARS_PER_TOKEN = 4;
+const BATCH_SIZE = 20; // Embed 20 chunks at a time for efficiency
 
 interface Chunk {
   text: string;
@@ -55,6 +62,183 @@ export class KnowledgeService {
     } catch (error) {
       console.error("[KnowledgeService] Failed to generate embedding:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Generate embeddings for multiple texts in batch (more efficient than N+1)
+   */
+  async generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) return [];
+
+    try {
+      // LangChain's embedDocuments handles batching internally
+      const embeddings = await this.embeddings.embedDocuments(texts);
+      return embeddings;
+    } catch (error) {
+      console.error("[KnowledgeService] Batch embedding failed:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generic method to embed any source that implements EmbeddingSource.
+   * Eliminates duplication between embedTranscription() and embedResource().
+   */
+  async embedSource(
+    source: EmbeddingSource,
+    options: EmbeddingOptions = {}
+  ): Promise<EmbeddingResult> {
+    const startTime = Date.now();
+    const {
+      useBatchEmbedding = true,
+      maxTokensPerChunk = DEFAULT_CHUNK_SIZE,
+      chunkOverlap = DEFAULT_CHUNK_OVERLAP,
+    } = options;
+
+    const sourceType = source.getSourceType();
+    const sourceId = source.getSourceId();
+    const userId = source.getUserId();
+    const projectId = source.getProjectId();
+    const content = source.getContent();
+
+    if (!content) {
+      console.warn(
+        `[KnowledgeService] Source ${sourceType}:${sourceId} has no content`
+      );
+      return { success: true, chunkCount: 0 };
+    }
+
+    if (!userId) {
+      console.warn(
+        `[KnowledgeService] Source ${sourceType}:${sourceId} has no userId`
+      );
+      return { success: false, chunkCount: 0, error: "No userId" };
+    }
+
+    try {
+      // Delete existing chunks (idempotent operation)
+      await this.deleteChunks(sourceType, sourceId);
+
+      // Chunk the content
+      const chunks = this.chunkText(content, maxTokensPerChunk, chunkOverlap);
+
+      if (chunks.length === 0) {
+        return { success: true, chunkCount: 0 };
+      }
+
+      if (useBatchEmbedding) {
+        // Process in batches for efficiency
+        await this.embedChunksBatch(
+          chunks,
+          sourceType,
+          sourceId,
+          userId,
+          projectId
+        );
+      } else {
+        // Sequential embedding (fallback)
+        await this.embedChunksSequential(
+          chunks,
+          sourceType,
+          sourceId,
+          userId,
+          projectId
+        );
+      }
+
+      const processingTimeMs = Date.now() - startTime;
+      console.log(
+        `[KnowledgeService] Embedded ${sourceType} ${sourceId}: ${chunks.length} chunks in ${processingTimeMs}ms`
+      );
+
+      return {
+        success: true,
+        chunkCount: chunks.length,
+        processingTimeMs,
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      console.error(
+        `[KnowledgeService] Failed to embed ${sourceType}:${sourceId}:`,
+        error
+      );
+      return {
+        success: false,
+        chunkCount: 0,
+        error: errorMessage,
+        processingTimeMs: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
+   * Batch embed chunks for better performance
+   */
+  private async embedChunksBatch(
+    chunks: Chunk[],
+    sourceType: EmbeddingSourceType,
+    sourceId: string,
+    userId: string,
+    projectId: string | null
+  ): Promise<void> {
+    // Process in batches
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const batchChunks = chunks.slice(i, i + BATCH_SIZE);
+      const texts = batchChunks.map((c) => c.text);
+
+      // Get embeddings for entire batch in one API call
+      const embeddings = await this.generateBatchEmbeddings(texts);
+
+      // Store all chunks in batch
+      for (let j = 0; j < batchChunks.length; j++) {
+        const chunk = batchChunks[j]!;
+        const embedding = embeddings[j]!;
+        const embeddingStr = `[${embedding.join(",")}]`;
+
+        await this.db.$executeRaw`
+          INSERT INTO "KnowledgeChunk" (
+            id, content, embedding, "sourceType", "sourceId",
+            "chunkIndex", "tokenCount", "startPos", "endPos",
+            "userId", "projectId", "createdAt"
+          ) VALUES (
+            ${randomUUID()}, ${chunk.text}, ${embeddingStr}::vector,
+            ${sourceType}, ${sourceId},
+            ${chunk.index}, ${chunk.tokenCount}, ${chunk.startPos}, ${chunk.endPos},
+            ${userId}, ${projectId}, NOW()
+          )
+        `;
+      }
+    }
+  }
+
+  /**
+   * Sequential embedding (N+1 pattern, for fallback)
+   */
+  private async embedChunksSequential(
+    chunks: Chunk[],
+    sourceType: EmbeddingSourceType,
+    sourceId: string,
+    userId: string,
+    projectId: string | null
+  ): Promise<void> {
+    for (const chunk of chunks) {
+      const embedding = await this.generateEmbedding(chunk.text);
+      const embeddingStr = `[${embedding.join(",")}]`;
+
+      await this.db.$executeRaw`
+        INSERT INTO "KnowledgeChunk" (
+          id, content, embedding, "sourceType", "sourceId",
+          "chunkIndex", "tokenCount", "startPos", "endPos",
+          "userId", "projectId", "createdAt"
+        ) VALUES (
+          ${randomUUID()}, ${chunk.text}, ${embeddingStr}::vector,
+          ${sourceType}, ${sourceId},
+          ${chunk.index}, ${chunk.tokenCount}, ${chunk.startPos}, ${chunk.endPos},
+          ${userId}, ${projectId}, NOW()
+        )
+      `;
     }
   }
 
@@ -190,7 +374,8 @@ export class KnowledgeService {
   }
 
   /**
-   * Process and embed content from a Resource
+   * Process and embed content from a Resource.
+   * Delegates to embedSource() for the actual embedding work.
    */
   async embedResource(resourceId: string): Promise<number> {
     const resource = await this.db.resource.findUnique({
@@ -201,48 +386,20 @@ export class KnowledgeService {
       throw new Error(`Resource not found: ${resourceId}`);
     }
 
-    const textToEmbed = resource.content ?? resource.rawContent;
-    if (!textToEmbed) {
-      console.warn(`[KnowledgeService] Resource ${resourceId} has no content`);
-      return 0;
+    const { ResourceSource } = await import("./embedding/sources/ResourceSource");
+    const source = ResourceSource.fromEntity(resource);
+    const result = await this.embedSource(source);
+
+    if (!result.success && result.error) {
+      throw new Error(result.error);
     }
 
-    // Delete existing chunks for this resource
-    await this.db.$executeRaw`
-      DELETE FROM "KnowledgeChunk"
-      WHERE "sourceType" = 'resource' AND "sourceId" = ${resourceId}
-    `;
-
-    // Chunk the content
-    const chunks = this.chunkText(textToEmbed);
-
-    // Generate embeddings and store
-    for (const chunk of chunks) {
-      const embedding = await this.generateEmbedding(chunk.text);
-      const embeddingStr = `[${embedding.join(",")}]`;
-
-      await this.db.$executeRaw`
-        INSERT INTO "KnowledgeChunk" (
-          id, content, embedding, "sourceType", "sourceId",
-          "chunkIndex", "tokenCount", "startPos", "endPos",
-          "userId", "projectId", "createdAt"
-        ) VALUES (
-          ${randomUUID()}, ${chunk.text}, ${embeddingStr}::vector,
-          'resource', ${resourceId},
-          ${chunk.index}, ${chunk.tokenCount}, ${chunk.startPos}, ${chunk.endPos},
-          ${resource.userId}, ${resource.projectId}, NOW()
-        )
-      `;
-    }
-
-    console.log(
-      `[KnowledgeService] Embedded resource ${resourceId}: ${chunks.length} chunks`
-    );
-    return chunks.length;
+    return result.chunkCount;
   }
 
   /**
-   * Process and embed content from a TranscriptionSession
+   * Process and embed content from a TranscriptionSession.
+   * Delegates to embedSource() for the actual embedding work.
    */
   async embedTranscription(transcriptionId: string): Promise<number> {
     const transcription = await this.db.transcriptionSession.findUnique({
@@ -253,46 +410,17 @@ export class KnowledgeService {
       throw new Error(`Transcription not found: ${transcriptionId}`);
     }
 
-    const textToEmbed = transcription.transcription;
-    if (!textToEmbed) {
-      console.warn(
-        `[KnowledgeService] Transcription ${transcriptionId} has no content`
-      );
-      return 0;
-    }
-
-    // Delete existing chunks for this transcription
-    await this.db.$executeRaw`
-      DELETE FROM "KnowledgeChunk"
-      WHERE "sourceType" = 'transcription' AND "sourceId" = ${transcriptionId}
-    `;
-
-    // Chunk the content
-    const chunks = this.chunkText(textToEmbed);
-
-    // Generate embeddings and store
-    for (const chunk of chunks) {
-      const embedding = await this.generateEmbedding(chunk.text);
-      const embeddingStr = `[${embedding.join(",")}]`;
-
-      await this.db.$executeRaw`
-        INSERT INTO "KnowledgeChunk" (
-          id, content, embedding, "sourceType", "sourceId",
-          "chunkIndex", "tokenCount", "startPos", "endPos",
-          "userId", "projectId", "createdAt"
-        ) VALUES (
-          ${randomUUID()}, ${chunk.text}, ${embeddingStr}::vector,
-          'transcription', ${transcriptionId},
-          ${chunk.index}, ${chunk.tokenCount}, ${chunk.startPos}, ${chunk.endPos},
-          ${transcription.userId}, ${transcription.projectId}, NOW()
-        )
-      `;
-    }
-
-    console.log(
-      `[KnowledgeService] Embedded transcription ${transcriptionId}: ${chunks.length} chunks`
+    const { TranscriptionSource } = await import(
+      "./embedding/sources/TranscriptionSource"
     );
-    return chunks.length;
+    const source = TranscriptionSource.fromEntity(transcription);
+    const result = await this.embedSource(source);
+
+    if (!result.success && result.error) {
+      throw new Error(result.error);
+    }
+
+    return result.chunkCount;
   }
 
   /**
