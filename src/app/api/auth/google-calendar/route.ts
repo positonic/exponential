@@ -3,7 +3,12 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import type { NextRequest } from "next/server";
 
-const GOOGLE_CALENDAR_SCOPES = "https://www.googleapis.com/auth/calendar.events";
+// Combined scopes for Calendar, Contacts, and Gmail
+const GOOGLE_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/contacts.readonly",
+  "https://www.googleapis.com/auth/gmail.readonly",
+].join(" ");
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -32,9 +37,9 @@ export async function GET(request: NextRequest) {
     client_id: process.env.GOOGLE_CLIENT_ID!,
     redirect_uri: `${baseUrl}/api/auth/google-calendar/callback`,
     response_type: "code",
-    scope: GOOGLE_CALENDAR_SCOPES,
+    scope: GOOGLE_SCOPES,
     access_type: "offline",
-    prompt: "consent", // Force consent screen to ensure we get calendar permissions
+    prompt: "consent", // Force consent screen to ensure we get all permissions
     state,
   });
 
