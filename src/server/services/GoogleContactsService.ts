@@ -117,7 +117,7 @@ export class GoogleContactsService {
   }
 
   /**
-   * Fetch calendar events within a date range
+   * Fetch calendar events within a date range (handles pagination)
    */
   static async fetchCalendarEvents(
     userId: string,
@@ -126,20 +126,35 @@ export class GoogleContactsService {
   ): Promise<GoogleCalendarEvent[]> {
     const accessToken = await GoogleTokenManager.getValidAccessToken(userId);
 
-    const calendar = google.calendar({ version: "v3" });
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET
+    );
+    oauth2Client.setCredentials({ access_token: accessToken });
+
+    const calendar = google.calendar({ version: "v3", auth: oauth2Client });
 
     try {
-      const response = await calendar.events.list({
-        calendarId: "primary",
-        timeMin: timeMin.toISOString(),
-        timeMax: timeMax.toISOString(),
-        maxResults: 2500,
-        singleEvents: true,
-        orderBy: "startTime",
-        access_token: accessToken,
-      });
+      const allEvents: GoogleCalendarEvent[] = [];
+      let pageToken: string | undefined;
 
-      return (response.data.items ?? []) as GoogleCalendarEvent[];
+      do {
+        const response = await calendar.events.list({
+          calendarId: "primary",
+          timeMin: timeMin.toISOString(),
+          timeMax: timeMax.toISOString(),
+          maxResults: 2500,
+          singleEvents: true,
+          orderBy: "startTime",
+          pageToken,
+        });
+
+        const items = response.data.items ?? [];
+        allEvents.push(...(items as GoogleCalendarEvent[]));
+        pageToken = response.data.nextPageToken ?? undefined;
+      } while (pageToken);
+
+      return allEvents;
     } catch (error) {
       console.error("Error fetching calendar events:", error);
       throw new Error(`Failed to fetch calendar events: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -167,7 +182,7 @@ export class GoogleContactsService {
         }
 
         // Skip resource calendars (rooms, equipment)
-        if (attendee.email.includes("resource.calendar.google.com")) {
+        if (email.includes("resource.calendar.google.com")) {
           continue;
         }
 
@@ -229,7 +244,7 @@ export class GoogleContactsService {
     );
 
     return {
-      email: primaryEmail.value,
+      email: primaryEmail.value.toLowerCase().trim(),
       firstName: names?.givenName,
       lastName: names?.familyName,
       phone: phoneNumbers[0]?.value,
