@@ -1,14 +1,17 @@
 import { z } from "zod";
-import {
-  createTRPCRouter,
-  protectedProcedure,
-} from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { encryptString, decryptBuffer } from '~/server/utils/encryption';
+import { encryptString, decryptBuffer } from "~/server/utils/encryption";
 import type { Prisma, CrmContact } from "@prisma/client";
+import { ContactSyncService } from "~/server/services/ContactSyncService";
+import { ConnectionStrengthCalculator } from "~/server/services/ConnectionStrengthCalculator";
+import { GoogleTokenManager } from "~/server/services/GoogleTokenManager";
 
 // Type for decrypted contact - replaces Bytes fields with string | null
-type DecryptedContact<T extends CrmContact> = Omit<T, 'email' | 'phone' | 'linkedIn' | 'telegram' | 'twitter' | 'github'> & {
+type DecryptedContact<T extends CrmContact> = Omit<
+  T,
+  "email" | "phone" | "linkedIn" | "telegram" | "twitter" | "github"
+> & {
   email: string | null;
   phone: string | null;
   linkedIn: string | null;
@@ -18,7 +21,9 @@ type DecryptedContact<T extends CrmContact> = Omit<T, 'email' | 'phone' | 'linke
 };
 
 // Helper to decrypt PII fields and return properly typed contact
-function decryptContactPII<T extends CrmContact>(contact: T): DecryptedContact<T> {
+function decryptContactPII<T extends CrmContact>(
+  contact: T,
+): DecryptedContact<T> {
   return {
     ...contact,
     email: decryptBuffer(contact.email) ?? null,
@@ -93,7 +98,7 @@ export const crmContactRouter = createTRPCRouter({
         organizationId: z.string().optional(),
         limit: z.number().min(1).max(100).optional(),
         cursor: z.string().optional(),
-      })
+      }),
     )
     .query(async ({ ctx, input }) => {
       const {
@@ -167,9 +172,17 @@ export const crmContactRouter = createTRPCRouter({
         try {
           return decryptContactPII(c);
         } catch (e) {
-          console.error('PII decryption failed for contact', c.id, e);
+          console.error("PII decryption failed for contact", c.id, e);
           // Return with null PII fields on decryption failure
-          return { ...c, email: null, phone: null, linkedIn: null, telegram: null, twitter: null, github: null };
+          return {
+            ...c,
+            email: null,
+            phone: null,
+            linkedIn: null,
+            telegram: null,
+            twitter: null,
+            github: null,
+          };
         }
       });
 
@@ -192,7 +205,7 @@ export const crmContactRouter = createTRPCRouter({
         id: z.string(),
         includeInteractions: z.boolean().optional(),
         includeCommunications: z.boolean().optional(),
-      })
+      }),
     )
     .query(async ({ ctx, input }) => {
       const { id, includeInteractions, includeCommunications } = input;
@@ -249,8 +262,16 @@ export const crmContactRouter = createTRPCRouter({
       try {
         return decryptContactPII(contact);
       } catch (e) {
-        console.error('PII decryption failed for contact', contact.id, e);
-        return { ...contact, email: null, phone: null, linkedIn: null, telegram: null, twitter: null, github: null };
+        console.error("PII decryption failed for contact", contact.id, e);
+        return {
+          ...contact,
+          email: null,
+          phone: null,
+          linkedIn: null,
+          telegram: null,
+          twitter: null,
+          github: null,
+        };
       }
     }),
 
@@ -284,8 +305,8 @@ export const crmContactRouter = createTRPCRouter({
 
         if (!organization || organization.workspaceId !== workspaceId) {
           throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'Organization must belong to the same workspace',
+            code: "BAD_REQUEST",
+            message: "Organization must belong to the same workspace",
           });
         }
       }
@@ -304,9 +325,12 @@ export const crmContactRouter = createTRPCRouter({
 
       if (contactData.email) dbData.email = encryptString(contactData.email);
       if (contactData.phone) dbData.phone = encryptString(contactData.phone);
-      if (contactData.linkedIn) dbData.linkedIn = encryptString(contactData.linkedIn);
-      if (contactData.telegram) dbData.telegram = encryptString(contactData.telegram);
-      if (contactData.twitter) dbData.twitter = encryptString(contactData.twitter);
+      if (contactData.linkedIn)
+        dbData.linkedIn = encryptString(contactData.linkedIn);
+      if (contactData.telegram)
+        dbData.telegram = encryptString(contactData.telegram);
+      if (contactData.twitter)
+        dbData.twitter = encryptString(contactData.twitter);
       if (contactData.github) dbData.github = encryptString(contactData.github);
 
       const contact = await ctx.db.crmContact.create({
@@ -328,8 +352,20 @@ export const crmContactRouter = createTRPCRouter({
       try {
         return decryptContactPII(contact);
       } catch (e) {
-        console.error('PII decryption failed after create for contact', contact.id, e);
-        return { ...contact, email: null, phone: null, linkedIn: null, telegram: null, twitter: null, github: null };
+        console.error(
+          "PII decryption failed after create for contact",
+          contact.id,
+          e,
+        );
+        return {
+          ...contact,
+          email: null,
+          phone: null,
+          linkedIn: null,
+          telegram: null,
+          twitter: null,
+          github: null,
+        };
       }
     }),
 
@@ -370,26 +406,41 @@ export const crmContactRouter = createTRPCRouter({
       const dbUpdate: any = { ...updateData };
       try {
         if (updateData.email !== undefined) {
-          dbUpdate.email = updateData.email ? encryptString(updateData.email) : null;
+          dbUpdate.email = updateData.email
+            ? encryptString(updateData.email)
+            : null;
         }
         if (updateData.phone !== undefined) {
-          dbUpdate.phone = updateData.phone ? encryptString(updateData.phone) : null;
+          dbUpdate.phone = updateData.phone
+            ? encryptString(updateData.phone)
+            : null;
         }
         if (updateData.linkedIn !== undefined) {
-          dbUpdate.linkedIn = updateData.linkedIn ? encryptString(updateData.linkedIn) : null;
+          dbUpdate.linkedIn = updateData.linkedIn
+            ? encryptString(updateData.linkedIn)
+            : null;
         }
         if (updateData.telegram !== undefined) {
-          dbUpdate.telegram = updateData.telegram ? encryptString(updateData.telegram) : null;
+          dbUpdate.telegram = updateData.telegram
+            ? encryptString(updateData.telegram)
+            : null;
         }
         if (updateData.twitter !== undefined) {
-          dbUpdate.twitter = updateData.twitter ? encryptString(updateData.twitter) : null;
+          dbUpdate.twitter = updateData.twitter
+            ? encryptString(updateData.twitter)
+            : null;
         }
         if (updateData.github !== undefined) {
-          dbUpdate.github = updateData.github ? encryptString(updateData.github) : null;
+          dbUpdate.github = updateData.github
+            ? encryptString(updateData.github)
+            : null;
         }
       } catch (e) {
-        console.error('Failed to encrypt PII on update for contact', id, e);
-        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to process PII' });
+        console.error("Failed to encrypt PII on update for contact", id, e);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to process PII",
+        });
       }
 
       const contact = await ctx.db.crmContact.update({
@@ -412,8 +463,20 @@ export const crmContactRouter = createTRPCRouter({
       try {
         return decryptContactPII(contact);
       } catch (e) {
-        console.error('PII decryption failed after update for contact', contact.id, e);
-        return { ...contact, email: null, phone: null, linkedIn: null, telegram: null, twitter: null, github: null };
+        console.error(
+          "PII decryption failed after update for contact",
+          contact.id,
+          e,
+        );
+        return {
+          ...contact,
+          email: null,
+          phone: null,
+          linkedIn: null,
+          telegram: null,
+          twitter: null,
+          github: null,
+        };
       }
     }),
 
@@ -463,7 +526,7 @@ export const crmContactRouter = createTRPCRouter({
       z.object({
         ids: z.array(z.string()),
         workspaceId: z.string(),
-      })
+      }),
     )
     .mutation(async ({ ctx, input }) => {
       const { ids, workspaceId } = input;
@@ -535,8 +598,11 @@ export const crmContactRouter = createTRPCRouter({
             direction: interactionData.direction,
             subject: interactionData.subject,
             notes: interactionData.notes,
-            metadata: interactionData.metadata as Prisma.InputJsonValue | undefined,
+            metadata: interactionData.metadata as
+              | Prisma.InputJsonValue
+              | undefined,
             contactId,
+            workspaceId: contact.workspaceId,
             userId: ctx.session.user.id,
           },
           include: {
@@ -569,7 +635,7 @@ export const crmContactRouter = createTRPCRouter({
         contactId: z.string(),
         limit: z.number().min(1).max(100).optional(),
         cursor: z.string().optional(),
-      })
+      }),
     )
     .query(async ({ ctx, input }) => {
       const { contactId, limit = 20, cursor } = input;
@@ -636,7 +702,7 @@ export const crmContactRouter = createTRPCRouter({
       z.object({
         contactId: z.string(),
         organizationId: z.string().nullable(),
-      })
+      }),
     )
     .mutation(async ({ ctx, input }) => {
       const { contactId, organizationId } = input;
@@ -744,5 +810,261 @@ export const crmContactRouter = createTRPCRouter({
         contactsWithEmail,
         recentInteractions,
       };
+    }),
+
+  // Import contacts from Gmail/Calendar
+  importContacts: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        source: z.enum(["GMAIL", "CALENDAR", "BOTH"]),
+        dateRange: z
+          .object({
+            start: z.date(),
+            end: z.date(),
+          })
+          .optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { workspaceId, source, dateRange } = input;
+
+      // Verify user has access to workspace
+      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!workspaceAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this workspace",
+        });
+      }
+
+      // Check if user has Google OAuth connection
+      const connection = await GoogleTokenManager.getConnection(
+        ctx.session.user.id
+      );
+
+      if (!connection) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Google OAuth connection not found. Please connect your Google account first.",
+        });
+      }
+
+      // Get user's email for filtering calendar events
+      const userEmail = ctx.session.user.email ?? undefined;
+
+      // Start async import
+      const batchId = await ContactSyncService.importContacts(
+        workspaceId,
+        ctx.session.user.id,
+        source,
+        { dateRange, userEmail },
+      );
+
+      return { batchId };
+    }),
+
+  // Get import batch status
+  getImportStatus: protectedProcedure
+    .input(z.object({ batchId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { batchId } = input;
+
+      // Get the batch
+      const batch = await ctx.db.contactImportBatch.findUnique({
+        where: { id: batchId },
+      });
+
+      if (!batch) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Import batch not found",
+        });
+      }
+
+      // Verify user has access to the workspace
+      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: batch.workspaceId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!workspaceAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this import batch",
+        });
+      }
+
+      return batch;
+    }),
+
+  // Get Google OAuth connection status
+  getGoogleConnection: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { workspaceId } = input;
+
+      // Verify user has access to workspace
+      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!workspaceAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this workspace",
+        });
+      }
+
+      const connection = await GoogleTokenManager.getConnection(
+        ctx.session.user.id
+      );
+
+      if (!connection) {
+        return null;
+      }
+
+      // Check if account has all required scopes
+      const requiredScopes = [
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/contacts.readonly",
+        "https://www.googleapis.com/auth/gmail.readonly",
+      ];
+
+      const hasAllScopes = GoogleTokenManager.hasRequiredScopes(
+        connection,
+        requiredScopes
+      );
+
+      // Return connection info without tokens
+      return {
+        id: connection.id,
+        provider: connection.provider,
+        scope: connection.scope,
+        expires_at: connection.expires_at,
+        hasAllScopes,
+        hasRefreshToken: !!connection.refresh_token,
+      };
+    }),
+
+  // Recalculate connection score for a single contact
+  recalculateScore: protectedProcedure
+    .input(z.object({ contactId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { contactId } = input;
+
+      // Get the contact and verify access
+      const contact = await ctx.db.crmContact.findUnique({
+        where: { id: contactId },
+        select: { workspaceId: true },
+      });
+
+      if (!contact) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Contact not found",
+        });
+      }
+
+      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: contact.workspaceId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!workspaceAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this contact",
+        });
+      }
+
+      // Calculate and update score
+      const score =
+        await ConnectionStrengthCalculator.calculateScore(contactId);
+      await ctx.db.crmContact.update({
+        where: { id: contactId },
+        data: { connectionScore: score },
+      });
+
+      return { score };
+    }),
+
+  // Get detailed score breakdown for a contact
+  getScoreBreakdown: protectedProcedure
+    .input(z.object({ contactId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { contactId } = input;
+
+      // Get the contact and verify access
+      const contact = await ctx.db.crmContact.findUnique({
+        where: { id: contactId },
+        select: { workspaceId: true },
+      });
+
+      if (!contact) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Contact not found",
+        });
+      }
+
+      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: contact.workspaceId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!workspaceAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this contact",
+        });
+      }
+
+      return await ConnectionStrengthCalculator.getScoreBreakdown(contactId);
+    }),
+
+  // Recalculate all scores for a workspace
+  recalculateAllScores: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { workspaceId } = input;
+
+      // Verify user has access to workspace
+      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!workspaceAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this workspace",
+        });
+      }
+
+      // Start async recalculation (in production, this should be a background job)
+      ContactSyncService.recalculateAllScores(workspaceId).catch((error) => {
+        console.error("Error recalculating all scores:", error);
+      });
+
+      return { success: true, message: "Score recalculation started" };
     }),
 });

@@ -26,12 +26,15 @@ import {
   IconEye,
   IconEdit,
   IconTrash,
+  IconUpload,
 } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
+import { ImportDialog } from './_components/ImportDialog';
+import { ConnectionScoreBadge } from './_components/ConnectionScoreGauge';
 
 // Helper function to get relative time
 function getRelativeTime(date: Date | null): string {
@@ -51,25 +54,6 @@ function getRelativeTime(date: Date | null): string {
   return `about ${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? 's' : ''} ago`;
 }
 
-// Connection strength component
-function ConnectionStrength({ interactionCount }: { interactionCount: number }) {
-  const strength = interactionCount > 5 ? 'Strong' : interactionCount > 0 ? 'Moderate' : 'Very weak';
-  const colorClass =
-    interactionCount > 5
-      ? 'bg-blue-500'
-      : interactionCount > 0
-        ? 'bg-yellow-500'
-        : 'bg-red-500';
-
-  return (
-    <div className="flex items-center gap-2">
-      <div className={`h-2 w-2 rounded-full ${colorClass}`} />
-      <Text size="sm" className="text-text-primary">
-        {strength}
-      </Text>
-    </div>
-  );
-}
 
 function ContactForm({
   workspaceId,
@@ -192,6 +176,8 @@ export default function ContactsPage() {
   const { workspace, workspaceId, isLoading: workspaceLoading } = useWorkspace();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [createModalOpened, { open: openCreateModal, close: closeCreateModal }] =
+    useDisclosure(false);
+  const [importDialogOpened, { open: openImportDialog, close: closeImportDialog }] =
     useDisclosure(false);
 
   const { data, isLoading } = api.crmContact.getAll.useQuery(
@@ -335,9 +321,18 @@ export default function ContactsPage() {
               </button>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item>Import contacts</Menu.Item>
-              <Menu.Item>Export to CSV</Menu.Item>
-              <Menu.Item>Export to Excel</Menu.Item>
+              <Menu.Item
+                leftSection={<IconUpload size={14} />}
+                onClick={openImportDialog}
+              >
+                Import contacts from Gmail/Calendar
+              </Menu.Item>
+              <Menu.Item leftSection={<IconDownload size={14} />}>
+                Export to CSV
+              </Menu.Item>
+              <Menu.Item leftSection={<IconDownload size={14} />}>
+                Export to Excel
+              </Menu.Item>
             </Menu.Dropdown>
           </Menu>
 
@@ -398,7 +393,7 @@ export default function ContactsPage() {
                   <div className="flex items-center gap-2">
                     <div className="h-3 w-3 rounded-full border-2 border-text-muted" />
                     <Text size="sm" className="font-medium text-text-muted">
-                      Connection stren...
+                      Connection Score
                     </Text>
                   </div>
                 </th>
@@ -429,8 +424,9 @@ export default function ContactsPage() {
             <tbody>
               {contacts.map((contact) => {
                 const fullName =
-                  [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Unknown';
-                const interactionCount = contact.interactions?.length ?? 0;
+                  [contact.firstName, contact.lastName].filter(Boolean).join(' ') ||
+                  contact.email ||
+                  'Unknown Contact';
 
                 return (
                   <tr
@@ -449,6 +445,7 @@ export default function ContactsPage() {
                         <Avatar size="sm" radius="xl">
                           {contact.firstName?.[0]?.toUpperCase() ??
                             contact.lastName?.[0]?.toUpperCase() ??
+                            contact.email?.[0]?.toUpperCase() ??
                             '?'}
                         </Avatar>
                         <Text size="sm" className="font-medium text-text-primary">
@@ -457,7 +454,7 @@ export default function ContactsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <ConnectionStrength interactionCount={interactionCount} />
+                      <ConnectionScoreBadge score={contact.connectionScore} />
                     </td>
                     <td className="px-4 py-3">
                       <Text size="sm" className="text-text-muted">
@@ -527,6 +524,15 @@ export default function ContactsPage() {
           onCancel={closeCreateModal}
         />
       </Modal>
+
+      {/* Import Dialog */}
+      {workspaceId && (
+        <ImportDialog
+          opened={importDialogOpened}
+          onClose={closeImportDialog}
+          workspaceId={workspaceId}
+        />
+      )}
     </div>
   );
 }

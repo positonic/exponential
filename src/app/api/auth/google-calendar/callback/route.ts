@@ -85,7 +85,21 @@ export async function GET(request: NextRequest) {
     }
 
     const tokens = await tokenResponse.json();
-    
+
+    console.log("📦 Received tokens:", {
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      expiresIn: tokens.expires_in,
+      scope: tokens.scope,
+    });
+
+    if (!tokens.refresh_token) {
+      console.error("⚠️ No refresh token received from Google. This might mean:");
+      console.error("  1. User already authorized this app before");
+      console.error("  2. Need to revoke access at https://myaccount.google.com/permissions");
+      console.error("  3. Or the prompt=consent parameter didn't work");
+    }
+
     // Store tokens in the database
     // First, find or create a Google account record for this user
     const existingAccount = await db.account.findFirst({
@@ -97,20 +111,67 @@ export async function GET(request: NextRequest) {
 
     if (existingAccount) {
       // Update existing account with calendar tokens
+      // IMPORTANT: Only update refresh_token if we got a new one
+      const updateData: {
+        access_token: string;
+        refresh_token?: string;
+        expires_at: number | null;
+        scope: string;
+      } = {
+        access_token: tokens.access_token,
+        expires_at: tokens.expires_in ? Math.floor(Date.now() / 1000) + tokens.expires_in : null,
+        scope: tokens.scope,
+      };
+
+      // Only update refresh_token if Google sent a new one
+      if (tokens.refresh_token) {
+        updateData.refresh_token = tokens.refresh_token;
+      }
+
       await db.account.update({
         where: {
           id: existingAccount.id,
         },
+        data: updateData,
+      });
+
+      console.log("✅ Updated existing Google account with new tokens");
+    } else {
+      // User doesn't have a Google account yet (e.g., signed in with Discord)
+      // Create a new Google Account record
+      if (!tokens.refresh_token) {
+        console.error("❌ Cannot create Google account without refresh token!");
+        redirect(`${returnUrl}?calendar_error=no_refresh_token`);
+      }
+
+      // Get provider account ID from Google
+      const userInfoResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
+      });
+
+      if (!userInfoResponse.ok) {
+        throw new Error("Failed to fetch Google user info");
+      }
+
+      const userInfo = await userInfoResponse.json();
+
+      await db.account.create({
         data: {
+          userId: session.user.id,
+          type: "oauth",
+          provider: "google",
+          providerAccountId: userInfo.id,
           access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token || existingAccount.refresh_token,
+          refresh_token: tokens.refresh_token,
           expires_at: tokens.expires_in ? Math.floor(Date.now() / 1000) + tokens.expires_in : null,
+          token_type: tokens.token_type ?? "Bearer",
           scope: tokens.scope,
         },
       });
-    } else {
-      // This shouldn't happen if user signed in with Google, but handle gracefully
-      redirect(`${returnUrl}?calendar_error=no_google_account`);
+
+      console.log("✅ Created new Google account record for user");
     }
 
     console.log("✅ Calendar tokens stored successfully!");

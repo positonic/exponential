@@ -111,6 +111,7 @@ model User {
   crmInteractions             CrmContactInteraction[]    @relation("CrmInteractionUser")
   crmCommunicationsCreated    CrmCommunication[]         @relation("CrmCommunicationCreatedBy")
   crmTemplatesCreated         CrmCommunicationTemplate[] @relation("CrmTemplateCreatedBy")
+  crmImportBatchesCreated     ContactImportBatch[]       @relation("CrmImportBatchCreatedBy")
   // Plugin and OKR relations
   pluginConfigs               PluginConfig[]
   keyResults                  KeyResult[]
@@ -156,8 +157,10 @@ model Workspace {
   // CRM relations
   crmContacts       CrmContact[]
   crmOrganizations  CrmOrganization[]
+  crmInteractions   CrmContactInteraction[]
   crmCommunications CrmCommunication[]
   crmTemplates      CrmCommunicationTemplate[]
+  crmImportBatches  ContactImportBatch[]
   // Plugin and OKR relations
   pluginConfigs            PluginConfig[]
   keyResults               KeyResult[]
@@ -1473,6 +1476,13 @@ model CrmContact {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
+  // Gmail/Calendar import fields
+  connectionScore     Int?      @default(0)  // 0-100 calculated score
+  emailHash          String?   @unique      // SHA-256 for deduplication
+  importSource       String?                // "GMAIL", "CALENDAR", "MANUAL"
+  googleContactId    String?                // Google People API ID
+  lastSyncedAt       DateTime?              // Last import sync time
+
   workspace      Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   organization   CrmOrganization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   createdBy      User?                   @relation("CrmContactCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -1484,6 +1494,9 @@ model CrmContact {
   @@index([createdById])
   @@index([email])
   @@index([lastInteractionAt])
+  @@index([emailHash])
+  @@index([connectionScore])
+  @@index([workspaceId, importSource])
 }
 
 model CrmOrganization {
@@ -1509,22 +1522,27 @@ model CrmOrganization {
 }
 
 model CrmContactInteraction {
-  id        String   @id @default(cuid())
-  contactId String
-  userId    String?
-  type      String // EMAIL, TELEGRAM, PHONE_CALL, MEETING, NOTE, LINKEDIN, OTHER
-  direction String // INBOUND, OUTBOUND
-  subject   String?
-  notes     String?  @db.Text
-  metadata  Json? // Additional data like email thread ID, call duration, etc.
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  contactId  String
+  workspaceId String
+  userId     String?
+  type       String // EMAIL, TELEGRAM, PHONE_CALL, MEETING, NOTE, LINKEDIN, OTHER
+  direction  String // INBOUND, OUTBOUND, BIDIRECTIONAL
+  subject    String?
+  notes      String?  @db.Text
+  metadata   Json? // Additional data like email thread ID, call duration, etc.
+  occurredAt DateTime @default(now()) // When interaction happened
+  createdAt  DateTime @default(now())
 
-  contact CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  user    User?      @relation("CrmInteractionUser", fields: [userId], references: [id], onDelete: SetNull)
+  contact   CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?      @relation("CrmInteractionUser", fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([contactId])
+  @@index([workspaceId])
   @@index([userId])
   @@index([type])
+  @@index([occurredAt])
   @@index([createdAt])
 }
 
@@ -1586,6 +1604,31 @@ model CrmCommunicationTemplate {
   @@index([workspaceId])
   @@index([type])
   @@index([isActive])
+}
+
+model ContactImportBatch {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  status             String    // PENDING, IN_PROGRESS, COMPLETED, FAILED, PARTIAL_SUCCESS
+  source             String    // GMAIL, CALENDAR, BOTH
+  totalContacts      Int       @default(0)
+  processedContacts  Int       @default(0)
+  newContacts        Int       @default(0)
+  updatedContacts    Int       @default(0)
+  errorCount         Int       @default(0)
+  googleSyncToken    String?   // For incremental syncs
+  metadata           Json?     // Error messages, warnings
+  createdById        String
+  createdAt          DateTime  @default(now())
+  completedAt        DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("CrmImportBatchCreatedBy", fields: [createdById], references: [id])
+
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([status])
+  @@index([createdAt])
 }
 
 // ============================================
