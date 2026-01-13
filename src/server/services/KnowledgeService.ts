@@ -1,5 +1,5 @@
 import { OpenAIEmbeddings } from "@langchain/openai";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { randomUUID } from "crypto";
 import type {
   EmbeddingSource,
@@ -117,35 +117,41 @@ export class KnowledgeService {
     }
 
     try {
-      // Delete existing chunks (idempotent operation)
-      await this.deleteChunks(sourceType, sourceId);
-
-      // Chunk the content
+      // Chunk the content before starting transaction
       const chunks = this.chunkText(content, maxTokensPerChunk, chunkOverlap);
 
       if (chunks.length === 0) {
         return { success: true, chunkCount: 0 };
       }
 
-      if (useBatchEmbedding) {
-        // Process in batches for efficiency
-        await this.embedChunksBatch(
-          chunks,
-          sourceType,
-          sourceId,
-          userId,
-          projectId
-        );
-      } else {
-        // Sequential embedding (fallback)
-        await this.embedChunksSequential(
-          chunks,
-          sourceType,
-          sourceId,
-          userId,
-          projectId
-        );
-      }
+      // Wrap delete + insert in a transaction for atomicity
+      // If embedding fails, the deletion is rolled back to prevent data loss
+      await this.db.$transaction(async (tx) => {
+        // Delete existing chunks within transaction
+        await this.deleteChunks(sourceType, sourceId, tx);
+
+        if (useBatchEmbedding) {
+          // Process in batches for efficiency
+          await this.embedChunksBatch(
+            chunks,
+            sourceType,
+            sourceId,
+            userId,
+            projectId,
+            tx
+          );
+        } else {
+          // Sequential embedding (fallback)
+          await this.embedChunksSequential(
+            chunks,
+            sourceType,
+            sourceId,
+            userId,
+            projectId,
+            tx
+          );
+        }
+      });
 
       const processingTimeMs = Date.now() - startTime;
       console.log(
@@ -181,8 +187,11 @@ export class KnowledgeService {
     sourceType: EmbeddingSourceType,
     sourceId: string,
     userId: string,
-    projectId: string | null
+    projectId: string | null,
+    tx?: Prisma.TransactionClient
   ): Promise<void> {
+    const client = tx ?? this.db;
+
     // Process in batches
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
       const batchChunks = chunks.slice(i, i + BATCH_SIZE);
@@ -193,11 +202,20 @@ export class KnowledgeService {
 
       // Store all chunks in batch
       for (let j = 0; j < batchChunks.length; j++) {
-        const chunk = batchChunks[j]!;
-        const embedding = embeddings[j]!;
+        const chunk = batchChunks[j];
+        const embedding = embeddings[j];
+
+        if (!chunk || !embedding) {
+          throw new Error(
+            `Batch embedding alignment error at index ${j}: ` +
+              `batchChunks has ${batchChunks.length} items, ` +
+              `generateBatchEmbeddings returned ${embeddings.length} embeddings`
+          );
+        }
+
         const embeddingStr = `[${embedding.join(",")}]`;
 
-        await this.db.$executeRaw`
+        await client.$executeRaw`
           INSERT INTO "KnowledgeChunk" (
             id, content, embedding, "sourceType", "sourceId",
             "chunkIndex", "tokenCount", "startPos", "endPos",
@@ -221,13 +239,16 @@ export class KnowledgeService {
     sourceType: EmbeddingSourceType,
     sourceId: string,
     userId: string,
-    projectId: string | null
+    projectId: string | null,
+    tx?: Prisma.TransactionClient
   ): Promise<void> {
+    const client = tx ?? this.db;
+
     for (const chunk of chunks) {
       const embedding = await this.generateEmbedding(chunk.text);
       const embeddingStr = `[${embedding.join(",")}]`;
 
-      await this.db.$executeRaw`
+      await client.$executeRaw`
         INSERT INTO "KnowledgeChunk" (
           id, content, embedding, "sourceType", "sourceId",
           "chunkIndex", "tokenCount", "startPos", "endPos",
@@ -514,9 +535,11 @@ export class KnowledgeService {
    */
   async deleteChunks(
     sourceType: "transcription" | "resource",
-    sourceId: string
+    sourceId: string,
+    tx?: Prisma.TransactionClient
   ): Promise<void> {
-    await this.db.$executeRaw`
+    const client = tx ?? this.db;
+    await client.$executeRaw`
       DELETE FROM "KnowledgeChunk"
       WHERE "sourceType" = ${sourceType} AND "sourceId" = ${sourceId}
     `;
