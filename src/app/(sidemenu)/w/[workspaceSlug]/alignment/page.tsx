@@ -59,7 +59,19 @@ function Step({ number, title, description }: { number: number; title: string; d
 
 export default function AlignmentPage() {
   const { workspaceSlug } = useWorkspace();
-  const basePath = workspaceSlug ? `/w/${workspaceSlug}` : '';
+  
+  // Guard: Only compute basePath when workspaceSlug is available
+  if (!workspaceSlug) {
+    return (
+      <Container size="lg" py="xl">
+        <Stack gap="xs" className="text-center">
+          <Text className="text-text-secondary">Loading workspace...</Text>
+        </Stack>
+      </Container>
+    );
+  }
+  
+  const basePath = `/w/${workspaceSlug}`;
 
   return (
     <Container size="lg" py="xl">
