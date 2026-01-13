@@ -94,6 +94,11 @@ export function SidebarContent() {
               </div>
             </Accordion.Control>
             <Accordion.Panel>
+              {isItemVisible("alignment/overview") && (
+                <NavLink href={workspaceSlug ? `/w/${workspaceSlug}/alignment` : '/alignment'} icon={IconTarget}>
+                  Overview
+                </NavLink>
+              )}
               {isItemVisible("alignment/goals") && <GoalList />}
               {/* Plugin navigation items for alignment section */}
               {itemsBySection.alignment
