@@ -20,10 +20,13 @@ export function CommandCenter({ userName, workspaceId }: CommandCenterProps) {
       {/* 1. Greeting (simplified) */}
       <GreetingHeader userName={userName} />
 
-      {/* 2. Inspiring Quote (dismissible) */}
+      {/* 2. AI Suggested Focus */}
+      <AiNextBestStep />
+
+      {/* 3. Inspiring Quote (dismissible) */}
       <InspiringQuote />
 
-      {/* 3. Daily Outcome Capture */}
+      {/* 4. Daily Outcome Capture */}
       <DailyOutcomeCapture />
 
       {/* Main content grid */}
@@ -34,13 +37,10 @@ export function CommandCenter({ userName, workspaceId }: CommandCenterProps) {
           <HabitsDueToday />
         </div>
 
-        {/* Main content - projects + AI */}
+        {/* Main content - projects */}
         <div className="space-y-6 lg:col-span-9">
-          {/* 4. Project State Overview */}
+          {/* 5. Project State Overview */}
           <ProjectStateOverview />
-
-          {/* 5. AI Next Best Step */}
-          <AiNextBestStep />
         </div>
       </div>
     </Container>

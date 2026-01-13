@@ -26,9 +26,17 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
   const [dueDate, setDueDate] = useState<Date | null>(null);
   const [scheduledStart, setScheduledStart] = useState<Date | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
 
   const utils = api.useUtils();
+
+  // Tag mutation for saving tags
+  const setTagsMutation = api.tag.setActionTags.useMutation({
+    onError: (error) => {
+      console.error('Setting tags failed:', error);
+    },
+  });
 
   // Query to get fresh action data including assignees
   const { data: freshAction } = api.action.getAll.useQuery(undefined, {
@@ -53,6 +61,15 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       };
       setScheduledStart(actionWithSchedule.scheduledStart ? new Date(actionWithSchedule.scheduledStart) : null);
       setDuration(actionWithSchedule.duration ?? null);
+      // Load tags - cast to access tags field
+      const actionWithTags = currentAction as typeof currentAction & {
+        tags?: Array<{ tag: { id: string } }>;
+      };
+      if (actionWithTags.tags) {
+        setSelectedTagIds(actionWithTags.tags.map(t => t.tag.id));
+      } else {
+        setSelectedTagIds([]);
+      }
     }
   }, [currentAction]);
 
@@ -67,7 +84,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
     },
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!name || !currentAction) return;
 
     updateAction.mutate({
@@ -80,6 +97,16 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       scheduledStart: scheduledStart,
       duration: duration,
     });
+
+    // Update tags
+    try {
+      await setTagsMutation.mutateAsync({
+        actionId: currentAction.id,
+        tagIds: selectedTagIds,
+      });
+    } catch (error) {
+      console.error('Failed to update tags:', error);
+    }
   };
 
   const handleAssigneeClick = () => {
@@ -125,7 +152,10 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
         duration={duration}
         setDuration={setDuration}
         selectedAssigneeIds={selectedAssigneeIds}
+        selectedTagIds={selectedTagIds}
+        onTagChange={setSelectedTagIds}
         actionId={currentAction?.id}
+        workspaceId={currentAction?.workspaceId ?? undefined}
         onAssigneeClick={handleAssigneeClick}
         onSubmit={handleSubmit}
         onClose={onClose}

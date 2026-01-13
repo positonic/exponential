@@ -7,6 +7,7 @@ import { Card, Text, Group, Badge, Avatar, Stack, ActionIcon, Menu, Tooltip, Hov
 import { IconDots, IconEdit, IconTrash, IconArrowsMaximize } from "@tabler/icons-react";
 import { AssignActionModal } from "./AssignActionModal";
 import { EditActionModal } from "./EditActionModal";
+import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
 type ActionStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
@@ -26,6 +27,14 @@ interface Task {
       name: string | null;
       email: string | null;
       image: string | null;
+    };
+  }>;
+  tags?: Array<{
+    tag: {
+      id: string;
+      name: string;
+      slug: string;
+      color: string;
     };
   }>;
   project?: {
@@ -231,6 +240,15 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               >
                 {formatDate(task.dueDate)}
               </Badge>
+            )}
+
+            {/* Tags */}
+            {task.tags && task.tags.length > 0 && (
+              <TagBadgeList
+                tags={task.tags.map(t => t.tag)}
+                maxDisplay={2}
+                size="xs"
+              />
             )}
           </Group>
 

@@ -6,6 +6,7 @@ import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { RichTextInput } from './RichTextInput';
 import { AssigneeSelector } from './AssigneeSelector';
+import { TagSelector } from './TagSelector';
 import { CreateProjectModal } from './CreateProjectModal';
 import { useRef, useState } from 'react';
 
@@ -25,7 +26,10 @@ interface ActionModalFormProps {
   duration: number | null;
   setDuration: (value: number | null) => void;
   selectedAssigneeIds: string[];
+  selectedTagIds: string[];
+  onTagChange: (tagIds: string[]) => void;
   actionId?: string;
+  workspaceId?: string;
   onAssigneeClick: () => void;
   onSubmit: () => void;
   onClose: () => void;
@@ -49,7 +53,10 @@ export function ActionModalForm({
   duration,
   setDuration,
   selectedAssigneeIds,
+  selectedTagIds,
+  onTagChange,
   actionId,
+  workspaceId,
   onAssigneeClick,
   onSubmit,
   onClose,
@@ -238,6 +245,11 @@ export function ActionModalForm({
             </Stack>
           </Popover.Dropdown>
         </Popover>
+        <TagSelector
+          selectedTagIds={selectedTagIds}
+          onChange={onTagChange}
+          workspaceId={workspaceId}
+        />
         {actionId && (
           <AssigneeSelector
             selectedAssigneeIds={selectedAssigneeIds}

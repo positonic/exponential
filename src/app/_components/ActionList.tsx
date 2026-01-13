@@ -8,6 +8,7 @@ import React from "react";
 import { useSession } from 'next-auth/react';
 import { EditActionModal } from "./EditActionModal";
 import { AssignActionModal } from "./AssignActionModal";
+import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
 import type { Priority } from "~/types/action";
@@ -628,6 +629,23 @@ export function ActionList({
                 return null;
               })()}
               <SyncStatusIndicator action={action} />
+
+              {/* Tags */}
+              {(() => {
+                const actionWithTags = action as typeof action & {
+                  tags?: Array<{ tag: { id: string; name: string; slug: string; color: string } }>;
+                };
+                if (actionWithTags.tags && actionWithTags.tags.length > 0) {
+                  return (
+                    <TagBadgeList
+                      tags={actionWithTags.tags.map(t => t.tag)}
+                      maxDisplay={2}
+                      size="xs"
+                    />
+                  );
+                }
+                return null;
+              })()}
 
               {/* Show "From [Creator]" indicator if task was created by someone else */}
               {currentUserId && action.createdById !== currentUserId && action.createdBy && (

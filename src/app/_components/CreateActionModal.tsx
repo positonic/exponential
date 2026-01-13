@@ -34,6 +34,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const [scheduledStart, setScheduledStart] = useState<Date | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
   const [createdActionId, setCreatedActionId] = useState<string | null>(null);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
@@ -55,6 +56,13 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const assignMutation = api.action.assign.useMutation({
     onError: (error) => {
       console.error('Assignment failed:', error);
+    },
+  });
+
+  // Tag mutation for post-creation tagging
+  const setTagsMutation = api.tag.setActionTags.useMutation({
+    onError: (error) => {
+      console.error('Setting tags failed:', error);
     },
   });
   
@@ -202,7 +210,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     onSuccess: async (data) => {
       // Store the created action ID for assignment
       setCreatedActionId(data.id);
-      
+
       // If there are assignees, assign them
       if (selectedAssigneeIds.length > 0) {
         try {
@@ -215,7 +223,20 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           // Continue with success flow even if assignment fails
         }
       }
-      
+
+      // If there are tags, set them
+      if (selectedTagIds.length > 0) {
+        try {
+          await setTagsMutation.mutateAsync({
+            actionId: data.id,
+            tagIds: selectedTagIds,
+          });
+        } catch (error) {
+          console.error('Failed to set tags:', error);
+          // Continue with success flow even if tagging fails
+        }
+      }
+
       // Reset form state
       setName("");
       setDescription("");
@@ -235,6 +256,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       setScheduledStart(null);
       setDuration(null);
       setSelectedAssigneeIds([]);
+      setSelectedTagIds([]);
       setSelectedWorkspaceId(currentWorkspaceId ?? null);
       close();
     },
@@ -347,7 +369,10 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           duration={duration}
           setDuration={setDuration}
           selectedAssigneeIds={selectedAssigneeIds}
+          selectedTagIds={selectedTagIds}
+          onTagChange={setSelectedTagIds}
           actionId={createdActionId || undefined}
+          workspaceId={selectedWorkspaceId ?? undefined}
           onAssigneeClick={handleAssigneeClick}
           onSubmit={handleSubmit}
           onClose={close}
