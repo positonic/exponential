@@ -10,16 +10,11 @@ import { HabitsDueToday } from "./HabitsDueToday";
 import { ProjectStateOverview } from "./ProjectStateOverview";
 import { AiNextBestStep } from "./AiNextBestStep";
 
-interface CommandCenterProps {
-  userName: string;
-  workspaceId?: string;
-}
-
-export function CommandCenter({ userName, workspaceId }: CommandCenterProps) {
+export function CommandCenter() {
   return (
     <Container size="lg" py="lg" className="min-h-screen">
       {/* 1. Greeting (simplified) */}
-      <GreetingHeader userName={userName} />
+      <GreetingHeader />
 
       {/* 2. Weekly Review Reminder (if not completed this week) */}
       <WeeklyReviewBanner />
@@ -37,7 +32,7 @@ export function CommandCenter({ userName, workspaceId }: CommandCenterProps) {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Left sidebar - momentum + habits */}
         <div className="space-y-6 lg:col-span-3">
-          <MomentumWidget workspaceId={workspaceId} />
+          <MomentumWidget />
           <HabitsDueToday />
         </div>
 

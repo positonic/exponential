@@ -1,10 +1,7 @@
 "use client";
 
 import { Text } from "@mantine/core";
-
-interface GreetingHeaderProps {
-  userName: string;
-}
+import { api } from "~/trpc/react";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -13,8 +10,10 @@ function getGreeting(): string {
   return "Good evening";
 }
 
-export function GreetingHeader({ userName }: GreetingHeaderProps) {
+export function GreetingHeader() {
+  const { data: currentUser } = api.user.getCurrentUser.useQuery();
   const greeting = getGreeting();
+  const userName = currentUser?.name ?? "there";
   const firstName = userName.split(" ")[0] ?? userName;
 
   return (

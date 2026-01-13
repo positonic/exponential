@@ -3,14 +3,12 @@
 import { Card, Text, Stack, Group, Progress } from '@mantine/core';
 import { IconCheck, IconTarget } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
-interface MomentumWidgetProps {
-  workspaceId?: string;
-}
-
-export function MomentumWidget({ workspaceId }: MomentumWidgetProps) {
+export function MomentumWidget() {
+  const { workspaceId } = useWorkspace();
   const { data: habitStatus, isLoading: habitsLoading } = api.habit.getTodayStatus.useQuery();
-  const { data: todayActions, isLoading: actionsLoading } = api.action.getToday.useQuery({ workspaceId });
+  const { data: todayActions, isLoading: actionsLoading } = api.action.getToday.useQuery({ workspaceId: workspaceId ?? undefined });
 
   const isLoading = habitsLoading || actionsLoading;
 

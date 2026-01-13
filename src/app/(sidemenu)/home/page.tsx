@@ -5,7 +5,6 @@ import { CommandCenter } from "~/app/_components/home/CommandCenter";
 
 export default async function HomePage() {
   const session = await auth();
-  const userName = session?.user?.name ?? 'there';
 
   if (session?.user?.id) {
     // Check if user has completed onboarding
@@ -22,5 +21,5 @@ export default async function HomePage() {
     }
   }
 
-  return <CommandCenter userName={userName} />;
+  return <CommandCenter />;
 }
