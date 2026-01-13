@@ -11,7 +11,7 @@ interface TagSelectorProps {
   workspaceId?: string;
 }
 
-export function TagSelector({ selectedTagIds, onChange, workspaceId }: TagSelectorProps) {
+export function TagSelector({ selectedTagIds = [], onChange, workspaceId }: TagSelectorProps) {
   const [opened, setOpened] = useState(false);
 
   const { data: tags, isLoading } = api.tag.list.useQuery(
@@ -27,7 +27,8 @@ export function TagSelector({ selectedTagIds, onChange, workspaceId }: TagSelect
     }
   };
 
-  const selectedTags = tags?.filter(tag => selectedTagIds.includes(tag.id)) ?? [];
+  const allTags = tags?.allTags ?? [];
+  const selectedTags = allTags.filter(tag => selectedTagIds.includes(tag.id));
 
   return (
     <Popover
@@ -68,11 +69,11 @@ export function TagSelector({ selectedTagIds, onChange, workspaceId }: TagSelect
             <Group justify="center" p="md">
               <Loader size="sm" />
             </Group>
-          ) : tags && tags.length > 0 ? (
+          ) : allTags.length > 0 ? (
             <ScrollArea.Autosize mah={250}>
               <Chip.Group multiple value={selectedTagIds} onChange={onChange}>
                 <Group gap="xs">
-                  {tags.map(tag => (
+                  {allTags.map(tag => (
                     <Chip
                       key={tag.id}
                       value={tag.id}
