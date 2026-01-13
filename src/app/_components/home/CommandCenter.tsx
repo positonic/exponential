@@ -2,6 +2,7 @@
 
 import { Container } from "@mantine/core";
 import { GreetingHeader } from "./GreetingHeader";
+import { WeeklyReviewBanner } from "./WeeklyReviewBanner";
 import { InspiringQuote } from "./InspiringQuote";
 import { DailyOutcomeCapture } from "./DailyOutcomeCapture";
 import { MomentumWidget } from "./MomentumWidget";
@@ -20,13 +21,16 @@ export function CommandCenter({ userName, workspaceId }: CommandCenterProps) {
       {/* 1. Greeting (simplified) */}
       <GreetingHeader userName={userName} />
 
-      {/* 2. AI Suggested Focus */}
+      {/* 2. Weekly Review Reminder (if not completed this week) */}
+      <WeeklyReviewBanner />
+
+      {/* 3. AI Suggested Focus */}
       <AiNextBestStep />
 
-      {/* 3. Inspiring Quote (dismissible) */}
+      {/* 4. Inspiring Quote (dismissible) */}
       <InspiringQuote />
 
-      {/* 4. Daily Outcome Capture */}
+      {/* 5. Daily Outcome Capture */}
       <DailyOutcomeCapture />
 
       {/* Main content grid */}
@@ -39,7 +43,7 @@ export function CommandCenter({ userName, workspaceId }: CommandCenterProps) {
 
         {/* Main content - projects */}
         <div className="space-y-6 lg:col-span-9">
-          {/* 5. Project State Overview */}
+          {/* 6. Project State Overview */}
           <ProjectStateOverview />
         </div>
       </div>

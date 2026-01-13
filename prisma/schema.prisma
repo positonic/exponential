@@ -98,6 +98,7 @@ model User {
   weeklyOutcomeAssignees      WeeklyOutcomeAssignee[]    @relation("WeeklyOutcomeAssignee")
   teamCapacities              TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
   weeklyReviewSharing         WeeklyReviewSharing[]
+  weeklyReviewCompletions     WeeklyReviewCompletion[]
   wheelOfLifeAssessments      WheelOfLifeAssessment[]
   habits                      Habit[]
   ownedWorkspaces             Workspace[]                @relation("WorkspaceOwner")
@@ -158,10 +159,11 @@ model Workspace {
   crmCommunications CrmCommunication[]
   crmTemplates      CrmCommunicationTemplate[]
   // Plugin and OKR relations
-  pluginConfigs     PluginConfig[]
-  keyResults        KeyResult[]
+  pluginConfigs            PluginConfig[]
+  keyResults               KeyResult[]
   // Tag relations
-  tags              Tag[]
+  tags                     Tag[]
+  weeklyReviewCompletions  WeeklyReviewCompletion[]
 
   @@index([slug])
   @@index([ownerId])
@@ -1282,6 +1284,26 @@ model WeeklyReviewSharing {
   @@index([userId])
   @@index([teamId])
   @@index([isEnabled])
+}
+
+model WeeklyReviewCompletion {
+  id               String    @id @default(cuid())
+  userId           String
+  workspaceId      String?
+  weekStartDate    DateTime  @db.Date // Sunday of the week
+  completedAt      DateTime  @default(now())
+  projectsReviewed Int       @default(0)
+  statusChanges    Int       @default(0)
+  priorityChanges  Int       @default(0)
+  actionsAdded     Int       @default(0)
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId, weekStartDate])
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([weekStartDate])
 }
 
 // ============================================

@@ -1,9 +1,11 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Card, Text, Stack, Button, Group } from "@mantine/core";
 import { IconCheck, IconHome, IconRefresh } from "@tabler/icons-react";
 import Link from "next/link";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { api } from "~/trpc/react";
 
 interface ProjectChanges {
   statusChanged: boolean;
@@ -25,7 +27,8 @@ export function ReviewCompletion({
   changes,
   onRestart,
 }: ReviewCompletionProps) {
-  const { workspace } = useWorkspace();
+  const { workspace, workspaceId } = useWorkspace();
+  const hasMarkedComplete = useRef(false);
 
   // Calculate summary stats
   let statusChanges = 0;
@@ -39,6 +42,22 @@ export function ReviewCompletion({
     if (change.actionAdded) actionsAdded++;
     if (change.outcomesChanged) outcomesChanged++;
   });
+
+  // Mark review as complete when component mounts
+  const markComplete = api.weeklyReview.markComplete.useMutation();
+
+  useEffect(() => {
+    if (!hasMarkedComplete.current && workspaceId) {
+      hasMarkedComplete.current = true;
+      markComplete.mutate({
+        workspaceId,
+        projectsReviewed: reviewedCount,
+        statusChanges,
+        priorityChanges,
+        actionsAdded,
+      });
+    }
+  }, [workspaceId, reviewedCount, statusChanges, priorityChanges, actionsAdded, markComplete]);
 
   const hasChanges =
     statusChanges > 0 ||

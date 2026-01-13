@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { WeeklyReviewSummaryService } from "~/server/services/WeeklyReviewSummaryService";
 import { SlackNotificationService } from "~/server/services/notifications/SlackNotificationService";
 import { SlackChannelResolver } from "~/server/services/SlackChannelResolver";
+import { getSundayWeekStart } from "~/lib/weekUtils";
 
 export const weeklyReviewRouter = createTRPCRouter({
   
@@ -467,5 +468,85 @@ export const weeklyReviewRouter = createTRPCRouter({
       
       const channels = await slackService.getAvailableChannels();
       return channels;
+    }),
+
+  /**
+   * Mark weekly review as complete for the current week
+   */
+  markComplete: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+        projectsReviewed: z.number().optional(),
+        statusChanges: z.number().optional(),
+        priorityChanges: z.number().optional(),
+        actionsAdded: z.number().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const weekStartDate = getSundayWeekStart(new Date());
+
+      // Find existing completion for this week
+      const existing = await ctx.db.weeklyReviewCompletion.findFirst({
+        where: {
+          userId,
+          workspaceId: input.workspaceId ?? null,
+          weekStartDate,
+        },
+      });
+
+      if (existing) {
+        return ctx.db.weeklyReviewCompletion.update({
+          where: { id: existing.id },
+          data: {
+            completedAt: new Date(),
+            projectsReviewed: input.projectsReviewed ?? 0,
+            statusChanges: input.statusChanges ?? 0,
+            priorityChanges: input.priorityChanges ?? 0,
+            actionsAdded: input.actionsAdded ?? 0,
+          },
+        });
+      }
+
+      return ctx.db.weeklyReviewCompletion.create({
+        data: {
+          userId,
+          workspaceId: input.workspaceId,
+          weekStartDate,
+          projectsReviewed: input.projectsReviewed ?? 0,
+          statusChanges: input.statusChanges ?? 0,
+          priorityChanges: input.priorityChanges ?? 0,
+          actionsAdded: input.actionsAdded ?? 0,
+        },
+      });
+    }),
+
+  /**
+   * Check if the current week's review is complete
+   */
+  isCompletedThisWeek: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const weekStartDate = getSundayWeekStart(new Date());
+
+      const completion = await ctx.db.weeklyReviewCompletion.findFirst({
+        where: {
+          userId,
+          workspaceId: input.workspaceId ?? null,
+          weekStartDate,
+        },
+      });
+
+      return {
+        isCompleted: !!completion,
+        completedAt: completion?.completedAt ?? null,
+        weekStartDate,
+      };
     }),
 });
