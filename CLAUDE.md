@@ -429,6 +429,16 @@ The project uses Serena MCP server for enhanced code intelligence. See `/docs/SE
 - After `git pull` with 10+ file changes → Auto re-index
 - When user reports "can't find symbol" → Re-index and retry
 
+## Reusable Agent Prompts
+
+The project includes reusable system prompts for specialized Claude agents in `.claude/prompts/`. These are pre-configured personas that can be loaded into new Claude sessions for specific tasks.
+
+### Available Agents
+- **Product Strategist** (`.claude/prompts/product-strategist.md`) - Sense-making for early-stage products. Builds mental models, identifies value propositions, assesses narrative readiness.
+
+### Usage
+Copy the prompt content into a new Claude session, then provide your inputs. See `.claude/prompts/README.md` for detailed instructions and a template for creating new agent prompts.
+
 ## Task Master AI Instructions
 **Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
 @./.taskmaster/CLAUDE.md
