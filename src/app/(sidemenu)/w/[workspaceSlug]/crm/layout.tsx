@@ -60,7 +60,10 @@ export default function CRMLayout({
               <ul className="space-y-1">
                 {section.items.map((item) => {
                   const href = item.href !== null ? `${basePath}${item.href}` : null;
-                  const isActive = href !== null && (pathname === href || pathname.startsWith(href + '/'));
+                  // Dashboard (empty href) should only be active on exact match
+                  const isActive = href !== null && (item.href === ''
+                    ? pathname === href
+                    : pathname === href || pathname.startsWith(href + '/'));
                   const Icon = item.icon;
 
                   return (
