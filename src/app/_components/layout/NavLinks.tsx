@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   IconInbox,
   IconCalendarEvent,
-  IconCalendarTime,
   IconHome,
   IconBriefcase,
   IconUsers,
@@ -13,7 +12,6 @@ import {
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
-import { UpcomingCount } from "./UpcomingCount";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { usePluginNavigation } from "~/hooks/usePluginNavigation";
 
@@ -116,11 +114,8 @@ export function NavLinks() {
       <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>
         Inbox
       </NavLink>
-      <NavLink href="/today" icon={IconCalendarEvent} count={<TodayCount />}>
-        Today
-      </NavLink>
-      <NavLink href="/upcoming" icon={IconCalendarTime} count={<UpcomingCount />}>
-        Upcoming
+      <NavLink href="/plan" icon={IconCalendarEvent} count={<TodayCount />}>
+        Plan
       </NavLink>
     </div>
   );

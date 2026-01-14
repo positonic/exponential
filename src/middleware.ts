@@ -18,7 +18,7 @@ export async function middleware(request: NextRequest) {
   const protectedRoutes = [
     '/home',
     '/inbox', 
-    '/today',
+    '/plan',
     '/projects',
     '/goals',
     '/outcomes',

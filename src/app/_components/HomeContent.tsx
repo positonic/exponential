@@ -47,7 +47,7 @@ export function HomeContent({
 }: HomeContentProps) {
   // Generate workspace-aware paths
   const projectsPath = workspaceSlug ? `/w/${workspaceSlug}/projects` : '/projects';
-  const workspacePath = workspaceSlug ? `/w/${workspaceSlug}/workspace` : '/today';
+  const workspacePath = workspaceSlug ? `/w/${workspaceSlug}/workspace` : '/plan';
   const goalsPath = workspaceSlug ? `/w/${workspaceSlug}/goals` : '/goals';
   const inboxPath = workspaceSlug ? `/w/${workspaceSlug}/inbox` : '/inbox';
 

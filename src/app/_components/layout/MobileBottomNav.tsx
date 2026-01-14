@@ -48,7 +48,7 @@ export function MobileBottomNav() {
   const { isOpen, openModal } = useAgentModal();
 
   const navItems = [
-    { href: '/today', icon: IconCalendarEvent, label: 'Today' },
+    { href: '/plan', icon: IconCalendarEvent, label: 'Plan' },
     { href: '/projects', icon: IconLayoutKanban, label: 'Projects' },
     { href: '/goals', icon: IconTargetArrow, label: 'Goals' },
   ];
