@@ -8,6 +8,7 @@ import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { testFirefliesConnection } from "./integration";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -772,6 +773,59 @@ export const mastraRouter = createTRPCRouter({
       };
     }),
 
+  // Natural language action creation - parses dates and matches project names
+  quickCreateAction: protectedProcedure
+    .input(z.object({
+      text: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Use the same parsing logic as action.quickCreate
+      const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
+      const parsed = await parseActionInput(input.text, userId, ctx.db);
+
+      // Get kanban order if project specified
+      let kanbanOrder: number | null = null;
+      if (parsed.projectId) {
+        const highestOrder = await ctx.db.action.findFirst({
+          where: { projectId: parsed.projectId, kanbanOrder: { not: null } },
+          orderBy: { kanbanOrder: 'desc' },
+          select: { kanbanOrder: true },
+        });
+        kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
+      }
+
+      const action = await ctx.db.action.create({
+        data: {
+          name: parsed.name,
+          projectId: parsed.projectId,
+          priority: "Quick",
+          status: "ACTIVE",
+          createdById: userId,
+          dueDate: parsed.dueDate,
+          source: "whatsapp",
+          kanbanStatus: parsed.projectId ? "TODO" : null,
+          kanbanOrder,
+        },
+        include: {
+          project: { select: { id: true, name: true } },
+        },
+      });
+
+      return {
+        success: true,
+        action: {
+          id: action.id,
+          name: action.name,
+          priority: action.priority,
+          dueDate: action.dueDate?.toISOString(),
+          project: action.project,
+        },
+        parsing: parsed.parsingMetadata,
+      };
+    }),
+
   updateProjectStatus: protectedProcedure
     .input(z.object({
       projectId: z.string(),
@@ -1267,6 +1321,214 @@ export const mastraRouter = createTRPCRouter({
           pendingEmbeddings: totalResources - resourceChunks.length,
         },
         totalChunks,
+      };
+    }),
+
+  // ============================================
+  // FIREFLIES INTEGRATION WIZARD ENDPOINTS
+  // These endpoints are designed for the AI agent to guide users through
+  // Fireflies configuration via conversational chat
+  // ============================================
+
+  // Check if user already has Fireflies configured
+  firefliesCheckExisting: protectedProcedure
+    .input(z.object({
+      teamId: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Look for existing Fireflies integration
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          provider: 'fireflies',
+          status: 'ACTIVE',
+          OR: [
+            { userId: userId },
+            ...(input?.teamId ? [{ teamId: input.teamId }] : []),
+          ],
+        },
+        include: {
+          credentials: {
+            where: { keyType: 'API_KEY' },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (!integration) {
+        return {
+          exists: false,
+          integrationId: null,
+          name: null,
+          createdAt: null,
+          scope: null,
+        };
+      }
+
+      return {
+        exists: true,
+        integrationId: integration.id,
+        name: integration.name,
+        createdAt: integration.createdAt.toISOString(),
+        scope: integration.teamId ? 'team' : 'personal',
+      };
+    }),
+
+  // Test a Fireflies API key without saving it
+  firefliesTestApiKey: protectedProcedure
+    .input(z.object({
+      apiKey: z.string().min(1, "API key is required"),
+    }))
+    .mutation(async ({ input }) => {
+      const result = await testFirefliesConnection(input.apiKey);
+      return {
+        success: result.success,
+        error: result.error,
+        // SECURITY: Never return the API key back
+      };
+    }),
+
+  // Create Fireflies integration with tested API key
+  firefliesCreateIntegration: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1, "Integration name is required"),
+      apiKey: z.string().min(1, "API key is required"),
+      description: z.string().optional(),
+      scope: z.enum(['personal', 'team']).default('personal'),
+      teamId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Test connection first
+      const testResult = await testFirefliesConnection(input.apiKey);
+      if (!testResult.success) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Fireflies connection failed: ${testResult.error}`,
+        });
+      }
+
+      // If team scope, verify user has access to the team
+      if (input.scope === 'team' && input.teamId) {
+        const teamUser = await ctx.db.teamUser.findUnique({
+          where: {
+            userId_teamId: {
+              userId: userId,
+              teamId: input.teamId,
+            },
+          },
+        });
+
+        if (!teamUser) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You do not have access to this team',
+          });
+        }
+      }
+
+      // Create the integration
+      const integration = await ctx.db.integration.create({
+        data: {
+          name: input.name,
+          type: 'API_KEY',
+          provider: 'fireflies',
+          description: input.description ?? `Fireflies integration created via AI agent`,
+          userId: input.scope === 'personal' ? userId : null,
+          teamId: input.scope === 'team' ? input.teamId : null,
+          status: 'ACTIVE',
+        },
+      });
+
+      // Create the credential
+      await ctx.db.integrationCredential.create({
+        data: {
+          key: input.apiKey,
+          keyType: 'API_KEY',
+          isEncrypted: false, // TODO: implement encryption
+          integrationId: integration.id,
+        },
+      });
+
+      return {
+        integrationId: integration.id,
+        name: integration.name,
+        status: integration.status,
+        scope: input.scope,
+      };
+    }),
+
+  // Generate webhook token for Fireflies webhook authentication
+  firefliesGenerateWebhookToken: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+      expiresIn: z.string().default('90d'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Verify integration belongs to user or their team
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          id: input.integrationId,
+          provider: 'fireflies',
+          OR: [
+            { userId: userId },
+            {
+              teamId: { not: null },
+              team: {
+                members: {
+                  some: { userId: userId },
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Fireflies integration not found or access denied',
+        });
+      }
+
+      // Generate hex token (32 characters)
+      const apiKey = crypto.randomBytes(16).toString('hex');
+      const expirationMs = parseExpiration(input.expiresIn);
+      const expiresAt = new Date(Date.now() + expirationMs);
+
+      // Store token for webhook validation
+      await ctx.db.verificationToken.create({
+        data: {
+          identifier: `api-key:Fireflies Webhook - ${integration.name}`,
+          token: apiKey,
+          expires: expiresAt,
+          userId: userId,
+        },
+      });
+
+      return {
+        token: apiKey,
+        expiresAt: expiresAt.toISOString(),
+        tokenLength: apiKey.length,
+      };
+    }),
+
+  // Get the webhook URL for user's environment
+  firefliesGetWebhookUrl: protectedProcedure
+    .query(async () => {
+      const baseUrl = process.env.TODO_APP_BASE_URL ??
+                      process.env.NEXTAUTH_URL ??
+                      'http://localhost:3000';
+
+      return {
+        webhookUrl: `${baseUrl}/api/webhooks/fireflies`,
+        baseUrl,
+        isProduction: baseUrl.includes('vercel.app') || !baseUrl.includes('localhost'),
       };
     }),
 
