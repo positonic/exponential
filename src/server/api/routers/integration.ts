@@ -7,6 +7,7 @@ import {
 import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
+import { encryptCredential } from "~/server/utils/credentialHelper";
 
 // Test Fireflies API connection
 export async function testFirefliesConnection(
@@ -494,12 +495,13 @@ export const integrationRouter = createTRPCRouter({
           },
         });
 
-        // Create the credential
+        // Create the credential with encryption
+        const encryptedApiKey = encryptCredential(input.apiKey);
         await ctx.db.integrationCredential.create({
           data: {
-            key: input.apiKey,
+            key: encryptedApiKey.key,
             keyType: "API_KEY",
-            isEncrypted: false, // We'll implement encryption later
+            isEncrypted: encryptedApiKey.isEncrypted,
             integrationId: integration.id,
           },
         });
@@ -629,21 +631,24 @@ export const integrationRouter = createTRPCRouter({
           },
         });
 
-        // Create the credentials
+        // Create the credentials with encryption for sensitive values
+        const encryptedBotToken = encryptCredential(input.botToken);
+        const encryptedSigningSecret = encryptCredential(input.signingSecret);
         const credentials = [
           {
-            key: input.botToken,
+            key: encryptedBotToken.key,
             keyType: "BOT_TOKEN",
-            isEncrypted: false,
+            isEncrypted: encryptedBotToken.isEncrypted,
             integrationId: integration.id,
           },
           {
-            key: input.signingSecret,
+            key: encryptedSigningSecret.key,
             keyType: "SIGNING_SECRET",
-            isEncrypted: false,
+            isEncrypted: encryptedSigningSecret.isEncrypted,
             integrationId: integration.id,
           },
           {
+            // Team ID is not sensitive - store in plaintext
             key: slackTeamId,
             keyType: "TEAM_ID",
             isEncrypted: false,
@@ -651,7 +656,7 @@ export const integrationRouter = createTRPCRouter({
           },
         ];
 
-        // Add APP_ID if provided
+        // Add APP_ID if provided (not sensitive - store in plaintext)
         if (input.appId) {
           credentials.push({
             key: input.appId,
@@ -662,10 +667,11 @@ export const integrationRouter = createTRPCRouter({
         }
 
         if (input.userToken) {
+          const encryptedUserToken = encryptCredential(input.userToken);
           credentials.push({
-            key: input.userToken,
+            key: encryptedUserToken.key,
             keyType: "USER_TOKEN",
-            isEncrypted: false,
+            isEncrypted: encryptedUserToken.isEncrypted,
             integrationId: integration.id,
           });
         }
@@ -770,30 +776,34 @@ export const integrationRouter = createTRPCRouter({
           },
         });
 
-        // Create the credentials
+        // Create the credentials with encryption for sensitive values
+        const encryptedAccessToken = encryptCredential(input.accessToken);
+        const encryptedWebhookVerifyToken = encryptCredential(input.webhookVerifyToken);
         const credentials = [
           {
-            key: input.accessToken,
+            key: encryptedAccessToken.key,
             keyType: "ACCESS_TOKEN",
-            isEncrypted: false,
+            isEncrypted: encryptedAccessToken.isEncrypted,
             integrationId: integration.id,
           },
           {
+            // Phone Number ID is an identifier, not a secret
             key: input.phoneNumberId,
             keyType: "PHONE_NUMBER_ID",
             isEncrypted: false,
             integrationId: integration.id,
           },
           {
+            // Business Account ID is an identifier, not a secret
             key: input.businessAccountId,
             keyType: "BUSINESS_ACCOUNT_ID",
             isEncrypted: false,
             integrationId: integration.id,
           },
           {
-            key: input.webhookVerifyToken,
+            key: encryptedWebhookVerifyToken.key,
             keyType: "WEBHOOK_VERIFY_TOKEN",
-            isEncrypted: false,
+            isEncrypted: encryptedWebhookVerifyToken.isEncrypted,
             integrationId: integration.id,
           },
         ];

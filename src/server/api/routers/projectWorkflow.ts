@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { notionSyncService } from "~/server/services/notion-sync";
 import { mondaySyncService } from "~/server/services/monday-sync";
 import { MondayService } from "~/server/services/MondayService";
+import { encryptCredential } from "~/server/utils/credentialHelper";
 
 // Define the workflow template structure (hardcoded templates)
 const WORKFLOW_TEMPLATES = {
@@ -445,12 +446,13 @@ export const projectWorkflowRouter = createTRPCRouter({
         },
       });
 
-      // Create the credential
+      // Create the credential with encryption
+      const encryptedApiKey = encryptCredential(apiKey);
       await ctx.db.integrationCredential.create({
         data: {
-          key: apiKey,
+          key: encryptedApiKey.key,
           keyType: "API_KEY",
-          isEncrypted: false,
+          isEncrypted: encryptedApiKey.isEncrypted,
           integrationId: integration.id,
         },
       });
