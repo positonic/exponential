@@ -5,6 +5,7 @@ import type {
   IntegrationCredential,
   Workflow,
 } from "@prisma/client";
+import { encryptCredential } from "~/server/utils/credentialHelper";
 
 interface GitHubIssue {
   id: number;
@@ -105,12 +106,13 @@ class GitHubIntegrationService {
     });
 
     // Store access token as encrypted credential
+    const encryptedToken = encryptCredential(accessToken);
     await db.integrationCredential.create({
       data: {
         integrationId: integration.id,
-        key: accessToken, // This will be encrypted by the crypto utility
+        key: encryptedToken.key,
         keyType: "access_token",
-        isEncrypted: false,
+        isEncrypted: encryptedToken.isEncrypted,
       },
     });
 

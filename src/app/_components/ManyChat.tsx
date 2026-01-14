@@ -113,9 +113,48 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   - ALWAYS report tool failures to user (never fail silently)
                   - Use format: "⚠️ Tool Error: [action] failed - [reason]. Working with available context instead."
                   - Context shows current/recent data only - use tools for historical/complete data
-                  - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue, get_project_context, get-meeting-transcriptions, query-meeting-context, get-meeting-insights
+                  - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue, get_project_context, get-meeting-transcriptions, query-meeting-context, get-meeting-insights, firefliesCheckExisting, firefliesTestApiKey, firefliesCreateIntegration, firefliesGenerateWebhookToken, firefliesGetWebhookUrl
                   - For project goals and outcomes: use get_project_context tool with the project ID
                   - If authentication fails, inform user and suggest checking token validity
+
+                  🔧 FIREFLIES INTEGRATION WIZARD:
+                  When user wants to connect Fireflies, set up meeting transcription, or asks about Fireflies configuration:
+
+                  1. CHECK EXISTING: First use firefliesCheckExisting tool to see if they already have Fireflies
+                     - If exists: Inform them and ask if they want to set up a new integration or configure webhooks
+
+                  2. GUIDE API KEY SETUP: If no integration exists, guide user to get their API key:
+                     - Tell them: "To connect Fireflies, you'll need your API key from the Fireflies dashboard"
+                     - Provide link: https://app.fireflies.ai/integrations/custom
+                     - Wait for them to share the key
+
+                  3. TEST THE KEY: When user provides an API key (long string, often starts with "ff_"):
+                     - Use firefliesTestApiKey tool to validate it
+                     - CRITICAL: NEVER echo the API key back to the user - this is a security requirement
+                     - On success: Proceed to integration creation
+                     - On failure: Explain the error and ask them to check the key
+
+                  4. CREATE INTEGRATION: After successful test:
+                     - Ask user to name their integration (suggest: "My Fireflies" or their workspace name)
+                     - Ask about scope: "Should this be just for you (personal), or available workspace-wide?"
+                     - Use firefliesCreateIntegration with the tested key, name, and scope
+
+                  5. WEBHOOK SETUP (after integration created):
+                     - Use firefliesGenerateWebhookToken to create a webhook secret
+                     - Use firefliesGetWebhookUrl to get the correct webhook URL
+                     - Provide CLEAR step-by-step instructions:
+                       a. Go to https://app.fireflies.ai/integrations/custom
+                       b. Click "Add Webhook" or find the webhook settings
+                       c. Enter the webhook URL provided
+                       d. Set authentication method to "Signature"
+                       e. Use the secret token provided
+                       f. Select event: "Transcription completed"
+                       g. Save the webhook
+
+                  6. CONFIRMATION: After setup, explain:
+                     - New meeting transcriptions will automatically appear in the app
+                     - They can test by having a short meeting or triggering a test from Fireflies
+                     - Offer to help with anything else
 
                   📝 TRANSCRIPTION SEARCH (RAG):
                   - The transcription summaries in context show recent meetings - use them for quick reference

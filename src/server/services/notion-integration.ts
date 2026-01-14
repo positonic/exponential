@@ -1,5 +1,6 @@
 import { db } from '~/server/db';
 import type { Integration, IntegrationCredential } from '@prisma/client';
+import { encryptCredential } from '~/server/utils/credentialHelper';
 
 interface NotionIntegration extends Integration {
   credentials: IntegrationCredential[];
@@ -98,12 +99,13 @@ class NotionIntegrationService {
     });
 
     // Store access token as encrypted credential
+    const encryptedToken = encryptCredential(accessToken);
     await db.integrationCredential.create({
       data: {
         integrationId: integration.id,
-        key: accessToken,
+        key: encryptedToken.key,
         keyType: 'access_token',
-        isEncrypted: true,
+        isEncrypted: encryptedToken.isEncrypted,
       },
     });
 

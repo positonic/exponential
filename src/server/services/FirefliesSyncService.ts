@@ -1,5 +1,6 @@
 import { db } from '~/server/db';
 import { FirefliesService, type FirefliesTranscript } from './FirefliesService';
+import { getDecryptedKey } from '~/server/utils/credentialHelper';
 // import { ActionProcessorFactory } from './processors/ActionProcessorFactory';
 // import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
 
@@ -29,9 +30,12 @@ export class FirefliesSyncService {
       const integration = await db.integration.findFirst({
         where: {
           id: integrationId,
-          userId: userId,
           provider: 'fireflies',
           status: 'ACTIVE',
+          OR: [
+            { userId: userId },
+            { team: { members: { some: { userId } } } },
+          ],
         },
         include: {
           credentials: {
@@ -47,10 +51,17 @@ export class FirefliesSyncService {
         return null;
       }
 
+      const credential = integration.credentials[0]!;
+      const apiKey = getDecryptedKey(credential);
+      if (!apiKey) {
+        console.error('Failed to decrypt Fireflies API key');
+        return null;
+      }
+
       return {
         id: integration.id,
         name: integration.name,
-        apiKey: integration.credentials[0]!.key,
+        apiKey,
         lastSyncAt: integration.lastSyncAt,
       };
     } catch (error) {
@@ -65,9 +76,12 @@ export class FirefliesSyncService {
   static async getUserFirefliesIntegrations(userId: string) {
     return await db.integration.findMany({
       where: {
-        userId: userId,
         provider: 'fireflies',
         status: 'ACTIVE',
+        OR: [
+          { userId: userId },
+          { team: { members: { some: { userId } } } },
+        ],
       },
       include: {
         credentials: {

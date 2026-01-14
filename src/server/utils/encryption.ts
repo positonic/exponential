@@ -42,3 +42,35 @@ export function decryptBuffer(buf: Buffer | Uint8Array | null | undefined): stri
   const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
   return decrypted.toString('utf8');
 }
+
+/**
+ * Encrypt a string and return it as a base64-encoded string.
+ * Useful for storing encrypted data in String database fields.
+ */
+export function encryptToBase64(plaintext: string): string {
+  const encrypted = encryptString(plaintext);
+  return encrypted.toString('base64');
+}
+
+/**
+ * Decrypt a base64-encoded encrypted string.
+ * Useful for reading encrypted data from String database fields.
+ */
+export function decryptFromBase64(base64Encrypted: string | null | undefined): string | null {
+  if (!base64Encrypted) return null;
+  try {
+    const buf = Buffer.from(base64Encrypted, 'base64');
+    return decryptBuffer(buf);
+  } catch {
+    // If decryption fails, the value might be stored in plaintext (legacy)
+    return null;
+  }
+}
+
+/**
+ * Check if DATABASE_ENCRYPTION_KEY is configured.
+ * Returns true if encryption is available.
+ */
+export function isEncryptionAvailable(): boolean {
+  return !!KEY_ENV;
+}
