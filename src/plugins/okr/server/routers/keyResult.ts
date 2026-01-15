@@ -89,13 +89,12 @@ export const keyResultRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
+      // Show all goals in workspace - including those without key results
+      // so users can add key results to them
       const goals = await ctx.db.goal.findMany({
         where: {
           userId: ctx.session.user.id,
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
-          keyResults: {
-            some: input.period ? { period: input.period } : {},
-          },
         },
         include: {
           lifeDomain: true,
@@ -365,9 +364,6 @@ export const keyResultRouter = createTRPCRouter({
               ...(input.workspaceId
                 ? { workspaceId: input.workspaceId }
                 : {}),
-              keyResults: {
-                some: input.period ? { period: input.period } : {},
-              },
             },
           }),
         ]);

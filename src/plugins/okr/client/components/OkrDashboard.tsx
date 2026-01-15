@@ -26,12 +26,10 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 
-// Helper to get current quarter period string
-function getCurrentQuarterPeriod(): string {
-  const now = new Date();
-  const quarter = Math.ceil((now.getMonth() + 1) / 3);
-  const year = now.getFullYear();
-  return `Q${quarter}-${year}`;
+// Helper to get current annual period string
+function getCurrentAnnualPeriod(): string {
+  const year = new Date().getFullYear();
+  return `Annual-${year}`;
 }
 
 // Status badge colors
@@ -53,7 +51,7 @@ const unitOptions = [
 
 export function OkrDashboard() {
   const { workspaceId, workspaceSlug } = useWorkspace();
-  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(getCurrentQuarterPeriod());
+  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(getCurrentAnnualPeriod());
   const [
     createModalOpened,
     { open: openCreateModal, close: closeCreateModal },
