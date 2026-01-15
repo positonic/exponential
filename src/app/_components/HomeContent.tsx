@@ -49,7 +49,7 @@ export function HomeContent({
   const projectsPath = workspaceSlug ? `/w/${workspaceSlug}/projects` : '/projects';
   const workspacePath = workspaceSlug ? `/w/${workspaceSlug}/workspace` : '/plan';
   const goalsPath = workspaceSlug ? `/w/${workspaceSlug}/goals` : '/goals';
-  const inboxPath = workspaceSlug ? `/w/${workspaceSlug}/inbox` : '/inbox';
+  const inboxPath = workspaceSlug ? `/w/${workspaceSlug}/act` : '/act';
 
   // For the recent project link, use workspace context if available, otherwise fall back to project's workspace
   const getProjectPath = (project: { id: string; slug: string; workspace?: { slug: string } | null }) => {

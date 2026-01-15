@@ -111,11 +111,11 @@ export function NavLinks() {
           </NavLink>
         );
       })}
-      <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>
-        Inbox
-      </NavLink>
       <NavLink href="/plan" icon={IconCalendarEvent} count={<TodayCount />}>
         Plan
+      </NavLink>
+      <NavLink href="/act" icon={IconInbox} count={<InboxCount />}>
+        Act
       </NavLink>
     </div>
   );

@@ -180,7 +180,7 @@ export class SlackNotificationService extends NotificationService {
             },
             style: 'primary',
             action_id: 'view_all_actions',
-            url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/inbox`
+            url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/act`
           },
           {
             type: 'button',
