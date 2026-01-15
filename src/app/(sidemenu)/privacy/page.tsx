@@ -238,22 +238,112 @@ export default function PrivacyPolicy() {
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">How We Use Your Information</h2>
-        <p className="text-text-secondary mb-4">We use your data to:</p>
-        <ul className="list-disc pl-5 text-text-secondary space-y-2">
-          <li>Provide, maintain, and improve our service</li>
-          <li>Communicate important updates and promotions</li>
-          <li>Ensure compliance with legal obligations</li>
-          <li>Enhance user experience through analytics</li>
-        </ul>
+        <h2 className="text-2xl font-semibold mb-4">How We Store Your Data</h2>
+        <p className="text-text-secondary mb-4">
+          We take the security of your data seriously. Here is how we store and protect your information:
+        </p>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Infrastructure</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li><strong>Application Hosting:</strong> Our application is hosted on Vercel, a secure cloud platform with SOC 2 Type 2 compliance.</li>
+            <li><strong>Database:</strong> Your data is stored in a PostgreSQL database hosted on Railway with automated backups.</li>
+            <li><strong>Data Location:</strong> Our primary infrastructure is located in the United States and European Union regions.</li>
+          </ul>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Security Measures</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li><strong>Encryption in Transit:</strong> All data transmitted between your browser and our servers is encrypted using TLS/HTTPS.</li>
+            <li><strong>Encryption at Rest:</strong> Sensitive data such as contact information and integration tokens is encrypted using AES-256-GCM before storage.</li>
+            <li><strong>Access Controls:</strong> Your data is isolated to your account and workspace. Only authenticated users can access their own data.</li>
+            <li><strong>Authentication Security:</strong> We use industry-standard OAuth 2.0 for authentication and store only secure session tokens.</li>
+          </ul>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Backups</h3>
+          <p className="text-text-secondary">
+            Our database is automatically backed up daily. Backups are encrypted and retained for disaster recovery purposes.
+          </p>
+        </div>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">Data Sharing and Security</h2>
+        <h2 className="text-2xl font-semibold mb-4">How We Use Your Information</h2>
         <p className="text-text-secondary mb-4">
-          We do not sell your personal data. We may share your information only with trusted third parties
-          (such as our hosting providers) or as required by law. We use industry-standard security measures
-          including encryption at rest and in transit to safeguard your information.
+          We use the information we collect for the following specific purposes:
+        </p>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Service Delivery</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li>Display your projects, goals, outcomes, and actions in the application</li>
+            <li>Sync and display your calendar events from connected integrations</li>
+            <li>Store and retrieve your journal entries and daily planning notes</li>
+            <li>Manage your workspaces and organizational structure</li>
+          </ul>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Personalization</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li>Remember your preferences and workspace settings</li>
+            <li>Provide personalized views based on your usage patterns</li>
+            <li>Maintain your session across visits</li>
+          </ul>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Communication</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li>Send account-related notifications (password resets, security alerts)</li>
+            <li>Notify you of important service updates or changes</li>
+            <li>Respond to your support requests and inquiries</li>
+          </ul>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Security and Compliance</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li>Detect and prevent fraudulent activity or abuse</li>
+            <li>Ensure compliance with applicable laws and regulations</li>
+            <li>Enforce our Terms of Service</li>
+          </ul>
+        </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-2xl font-semibold mb-4">Data Retention</h2>
+        <p className="text-text-secondary mb-4">
+          We retain your data for as long as necessary to provide our services and fulfill the purposes described in this policy:
+        </p>
+        <ul className="list-disc pl-5 text-text-secondary space-y-2">
+          <li><strong>Account Data:</strong> Retained until you delete your account or request deletion.</li>
+          <li><strong>Content You Create:</strong> Projects, goals, actions, and journal entries are retained until you delete them or delete your account.</li>
+          <li><strong>Usage Logs:</strong> Retained for up to 90 days for security and debugging purposes, then automatically deleted.</li>
+          <li><strong>Integration Data:</strong> Google Calendar events are cached for up to 15 minutes. Imported contacts are retained until you delete them.</li>
+          <li><strong>Backups:</strong> Database backups containing your data are retained for up to 30 days.</li>
+        </ul>
+        <p className="text-text-secondary mt-4">
+          When you request account deletion, we will remove your personal data within 30 days, except where retention is required by law or for legitimate business purposes (such as fraud prevention).
+        </p>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-2xl font-semibold mb-4">Data Sharing</h2>
+        <p className="text-text-secondary mb-4">
+          We do not sell, rent, or trade your personal data. We only share your information in the following limited circumstances:
+        </p>
+        <ul className="list-disc pl-5 text-text-secondary space-y-2">
+          <li><strong>Service Providers:</strong> We use trusted third-party services (Vercel for hosting, Railway for database) to operate our platform. These providers only have access to data necessary to perform their services and are bound by data protection agreements.</li>
+          <li><strong>Legal Requirements:</strong> We may disclose data if required by law, court order, or government request.</li>
+          <li><strong>Business Transfers:</strong> In the event of a merger, acquisition, or sale of assets, your data may be transferred as part of that transaction. We will notify you of any such change.</li>
+          <li><strong>With Your Consent:</strong> We may share data with third parties when you explicitly authorize us to do so.</li>
+        </ul>
+        <p className="text-text-secondary mt-4">
+          We use industry-standard security measures including encryption at rest and in transit to safeguard your information.
         </p>
       </section>
 
