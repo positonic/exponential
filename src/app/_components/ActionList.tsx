@@ -263,9 +263,12 @@ export function ActionList({
   today.setHours(0, 0, 0, 0); // Normalize today to the start of the day
 
   // Find overdue actions (due before today, status ACTIVE)
-  const overdueActions = actions.filter(action => 
-    action.dueDate && action.dueDate < today && action.status === 'ACTIVE'
-  ).sort((a, b) => (a.dueDate?.getTime() ?? 0) - (b.dueDate?.getTime() ?? 0)); // Sort by oldest first
+  const overdueActions = actions.filter(action => {
+    if (!action.dueDate || action.status !== 'ACTIVE') return false;
+    const normalizedDueDate = new Date(action.dueDate);
+    normalizedDueDate.setHours(0, 0, 0, 0);
+    return normalizedDueDate < today;
+  }).sort((a, b) => (a.dueDate?.getTime() ?? 0) - (b.dueDate?.getTime() ?? 0)); // Sort by oldest first
   console.log("[ActionList] Calculated Overdue Actions:", overdueActions);
   
   // Debug log for overdue actions with selection context
@@ -301,15 +304,23 @@ export function ActionList({
         normalizedActionDueDate.setHours(0, 0, 0, 0);
       }
 
+      // Calculate tomorrow for filtering
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
       switch (viewName.toLowerCase()) {
         case 'inbox':
-          return !action.projectId;
+          // Show untriaged actions (no due date)
+          return !action.dueDate;
         case 'today':
           // Check if the normalized action due date matches normalized today
           return normalizedActionDueDate?.getTime() === today.getTime();
+        case 'tomorrow':
+          // Check if the normalized action due date matches tomorrow
+          return normalizedActionDueDate?.getTime() === tomorrow.getTime();
         case 'upcoming':
-          // Check if the action due date is today or later
-          return action.dueDate && action.dueDate >= today;
+          // Check if the action due date is after tomorrow (day after tomorrow and later)
+          return normalizedActionDueDate && normalizedActionDueDate > tomorrow;
         default:
           if (viewName.startsWith('project-')) {
             // Extract project ID by splitting from the last hyphen (more robust)
@@ -810,8 +821,8 @@ export function ActionList({
 
   return (
     <>
-      {/* Overdue Section */} 
-      {overdueActions.length > 0 && (
+      {/* Overdue Section - hidden for inbox view since inbox shows untriaged (no date) items */}
+      {overdueActions.length > 0 && viewName.toLowerCase() !== 'inbox' && (
         <Accordion 
           defaultValue="overdue" 
           radius="md" 

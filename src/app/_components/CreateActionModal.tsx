@@ -1,7 +1,7 @@
-import { Modal, Select } from '@mantine/core';
+import { Modal } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useViewportSize } from '@mantine/hooks';
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
@@ -37,18 +37,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
   const [createdActionId, setCreatedActionId] = useState<string | null>(null);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
 
-  // Workspace context and list
+  // Workspace context
   const { workspaceId: currentWorkspaceId } = useWorkspace();
-  const { data: workspaces } = api.workspace.list.useQuery();
-
-  // Auto-set workspace when in workspace context
-  useEffect(() => {
-    if (currentWorkspaceId && selectedWorkspaceId === null) {
-      setSelectedWorkspaceId(currentWorkspaceId);
-    }
-  }, [currentWorkspaceId, selectedWorkspaceId]);
 
   const utils = api.useUtils();
   
@@ -98,7 +89,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         duration: newAction.duration ?? null,
         transcriptionSessionId: null,
         teamId: null,
-        workspaceId: selectedWorkspaceId,
+        workspaceId: currentWorkspaceId,
         kanbanStatus: newAction.projectId ? "TODO" as ActionStatus : null, // Set kanban status for project actions
         kanbanOrder: null, // Will be set by the server
         completedAt: null, // New field for completion timestamp
@@ -257,7 +248,6 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       setDuration(null);
       setSelectedAssigneeIds([]);
       setSelectedTagIds([]);
-      setSelectedWorkspaceId(currentWorkspaceId ?? null);
       close();
     },
   });
@@ -269,7 +259,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       name,
       description: description || undefined,
       projectId: projectId || undefined,
-      workspaceId: selectedWorkspaceId ?? undefined,
+      workspaceId: currentWorkspaceId ?? undefined,
       priority: priority || "Quick",
       dueDate: dueDate || undefined,
       scheduledStart: scheduledStart || undefined,
@@ -323,36 +313,6 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           }
         }}
       >
-        {/* Show workspace selector only when not in a workspace context */}
-        {!currentWorkspaceId && workspaces && workspaces.length > 0 && (
-          <div className="px-4 pt-4">
-            <Select
-              data={[
-                { value: '', label: 'No Workspace (Personal)' },
-                ...workspaces.map(ws => ({
-                  value: ws.id,
-                  label: ws.name
-                }))
-              ]}
-              value={selectedWorkspaceId ?? ''}
-              onChange={(value) => setSelectedWorkspaceId(value === '' ? null : value)}
-              label="Workspace"
-              placeholder="Select a workspace"
-              styles={{
-                input: {
-                  backgroundColor: 'var(--color-surface-secondary)',
-                  color: 'var(--color-text-primary)',
-                  borderColor: 'var(--color-border-primary)',
-                },
-                dropdown: {
-                  backgroundColor: 'var(--color-surface-secondary)',
-                  borderColor: 'var(--color-border-primary)',
-                  color: 'var(--color-text-primary)',
-                },
-              }}
-            />
-          </div>
-        )}
         <ActionModalForm
           name={name}
           setName={setName}
@@ -372,7 +332,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           selectedTagIds={selectedTagIds}
           onTagChange={setSelectedTagIds}
           actionId={createdActionId || undefined}
-          workspaceId={selectedWorkspaceId ?? undefined}
+          workspaceId={currentWorkspaceId ?? undefined}
           onAssigneeClick={handleAssigneeClick}
           onSubmit={handleSubmit}
           onClose={close}

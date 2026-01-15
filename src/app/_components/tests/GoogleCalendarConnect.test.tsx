@@ -66,7 +66,7 @@ describe('GoogleCalendarConnect', () => {
       window.location = {
         ...originalLocation,
         href: '',
-        pathname: '/today',
+        pathname: '/plan',
         search: '',
       } as Location;
 
@@ -76,7 +76,7 @@ describe('GoogleCalendarConnect', () => {
       fireEvent.click(button);
 
       // URL should include returnUrl parameter with encoded current path
-      expect(window.location.href).toBe('/api/auth/google-calendar?returnUrl=%2Ftoday');
+      expect(window.location.href).toBe('/api/auth/google-calendar?returnUrl=%2Fplan');
 
       // Restore original location
       window.location = originalLocation;

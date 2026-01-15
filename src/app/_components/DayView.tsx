@@ -30,7 +30,7 @@ export function DayView({ day }: DayViewProps) {
           <Button 
             variant="subtle" 
             rightSection={<IconArrowRight size={16} />} 
-            onClick={() => router.push('/today')}
+            onClick={() => router.push('/plan')}
           >
             Today&apos;s Actions
           </Button>

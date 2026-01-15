@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
   // Get return URL from query params (where to redirect after OAuth)
   const { searchParams } = new URL(request.url);
-  const returnUrl = searchParams.get("returnUrl") ?? "/today";
+  const returnUrl = searchParams.get("returnUrl") ?? "/plan";
 
   // Get the host from the request headers to handle different ports
   const headersList = await headers();

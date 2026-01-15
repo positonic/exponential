@@ -1,6 +1,7 @@
 "use client";
 
-import { Group, Text, Title, SegmentedControl } from "@mantine/core";
+import { Group, Text, Title, SegmentedControl, ActionIcon } from "@mantine/core";
+import { IconFilter } from "@tabler/icons-react";
 import { TodayButton } from "./TodayButton";
 import type { FocusPeriod } from "~/types/focus";
 import { getDateRangeForFocus, formatFocusLabel, formatDateRangeDisplay } from "~/lib/dateUtils";
@@ -47,6 +48,14 @@ export function PageHeader({
             ]}
             size="sm"
           />
+          <ActionIcon
+            variant="subtle"
+            size="lg"
+            aria-label="Filter"
+            className="text-text-secondary hover:text-text-primary"
+          >
+            <IconFilter size={18} />
+          </ActionIcon>
           {!todayExists && focus === "today" && <TodayButton />}
         </Group>
       </div>

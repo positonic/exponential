@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
   // Parse state to get userId and returnUrl
   const state = parseState(stateParam);
-  const returnUrl = state?.returnUrl ?? "/today";
+  const returnUrl = state?.returnUrl ?? "/plan";
 
   if (error) {
     redirect(`${returnUrl}?calendar_error=access_denied`);

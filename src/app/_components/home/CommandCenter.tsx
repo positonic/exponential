@@ -109,14 +109,14 @@ export function CommandCenter() {
 
         <Paper
           component={Link}
-          href={`${basePath}/today`}
+          href={`${basePath}/plan`}
           p="md"
           radius="md"
           className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
         >
           <IconCalendarEvent size={24} className="text-yellow-500 mb-2" />
           <Text fw={500} size="sm" className="text-text-primary">
-            Today
+            Plan
           </Text>
         </Paper>
 
