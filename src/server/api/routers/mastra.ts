@@ -5,7 +5,7 @@ import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
-import { generateAgentJWT } from "~/server/utils/jwt";
+import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
@@ -281,29 +281,21 @@ export const mastraRouter = createTRPCRouter({
 
       try {
         let apiKey: string;
-        const tokenId = crypto.randomUUID(); // Unique identifier for tracking
+        let tokenId: string;
 
         if (input.type === 'jwt') {
-          // Generate JWT token for API authentication
-          const payload = {
-            userId: ctx.session.user.id,
-            sub: ctx.session.user.id,
-            email: ctx.session.user.email,
-            name: ctx.session.user.name,
-            iat: Math.floor(Date.now() / 1000),
-            exp: Math.floor(expiresAt.getTime() / 1000),
-            jti: tokenId,
-            tokenType: 'api-token',
+          // Generate JWT token for API authentication using unified function
+          apiKey = generateJWT(ctx.session.user, {
+            tokenType: "api-token",
+            expiryMinutes: Math.floor(expirationMs / 60000),
             tokenName: input.name,
-            picture: ctx.session.user.image,
-            aud: 'mastra-agents',
-            iss: 'todo-app'
-          };
+          });
 
-          // Sign JWT with AUTH_SECRET
-          apiKey = jwt.sign(payload, process.env.AUTH_SECRET ?? '');
-          
-          // For JWT tokens, store the tokenId (jti) in the database, not the full JWT
+          // Extract the jti from the generated JWT for database storage and tracking
+          const decoded = jwt.decode(apiKey) as { jti?: string } | null;
+          tokenId = decoded?.jti ?? crypto.randomUUID();
+
+          // For JWT tokens, store the jti in the database for revocation
           await ctx.db.verificationToken.create({
             data: {
               identifier: `jwt-token:${input.name}`,
@@ -315,7 +307,8 @@ export const mastraRouter = createTRPCRouter({
         } else {
           // Generate a secure 32-character hex key (perfect for webhooks like Fireflies)
           apiKey = crypto.randomBytes(16).toString('hex'); // 32 characters
-          
+          tokenId = crypto.randomUUID(); // For UI tracking
+
           // Store hex API key and metadata in VerificationToken table
           await ctx.db.verificationToken.create({
             data: {
@@ -327,7 +320,7 @@ export const mastraRouter = createTRPCRouter({
           });
         }
 
-        return { 
+        return {
           token: apiKey, // Return either hex key or JWT
           tokenId: tokenId, // For UI tracking
           expiresAt: expiresAt.toISOString(),

@@ -22,18 +22,57 @@ export default function PrivacyPolicy() {
 
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Information We Collect</h2>
-        <ul className="list-disc pl-5 text-text-secondary space-y-2">
-          <li>
-            <strong>Personal Information:</strong> Such as your name, email address, and any details you voluntarily provide.
-          </li>
-          <li>
-            <strong>Usage Data:</strong> Information about how you interact with our service, including logs and cookies,
-            to help us improve the service.
-          </li>
-          <li>
-            <strong>Third-Party Integrations:</strong> Data from services you connect, such as Google (see detailed section below).
-          </li>
-        </ul>
+        <p className="text-text-secondary mb-4">
+          We collect the following types of information when you use Exponential:
+        </p>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Account Information</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li><strong>Name and Email:</strong> Provided when you sign up or sign in via an authentication provider (Google, Discord, Notion).</li>
+            <li><strong>Profile Picture:</strong> Retrieved from your authentication provider if available.</li>
+            <li><strong>Authentication Provider:</strong> Which service you use to sign in (Google, Discord, or Notion).</li>
+          </ul>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Content You Create</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li><strong>Projects:</strong> Project names, descriptions, statuses, and priority levels you create.</li>
+            <li><strong>Goals and Outcomes:</strong> Strategic goals and measurable outcomes you define.</li>
+            <li><strong>Actions:</strong> Tasks and action items you create and track.</li>
+            <li><strong>Journal Entries:</strong> Daily reflections and planning notes you write.</li>
+            <li><strong>Workspace Data:</strong> Workspace names, settings, and organizational structure.</li>
+          </ul>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Usage Data</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li><strong>Device Information:</strong> Browser type, operating system, and device type.</li>
+            <li><strong>Log Data:</strong> Pages visited, features used, and timestamps of your activity.</li>
+            <li><strong>Session Information:</strong> Login times and session duration.</li>
+          </ul>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Third-Party Integration Data</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li><strong>Google:</strong> Calendar events, contacts, and profile information (see detailed Google section below).</li>
+            <li><strong>Fireflies.ai:</strong> Meeting transcripts and notes if you connect this integration.</li>
+          </ul>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Cookies and Similar Technologies</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li><strong>Session Cookies:</strong> Essential cookies to maintain your login session and preferences.</li>
+            <li><strong>Authentication Tokens:</strong> Secure tokens to verify your identity across requests.</li>
+          </ul>
+          <p className="text-text-secondary mt-2">
+            We do not use third-party advertising or tracking cookies.
+          </p>
+        </div>
       </section>
 
       {/* Google User Data Section - Required by Google API Services User Data Policy */}

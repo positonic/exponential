@@ -15,6 +15,7 @@ import { type Session } from "next-auth";
 
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
+import { SECURITY_FIX_TIMESTAMP, CURRENT_SECURITY_VERSION } from "~/server/utils/jwt";
 
 /**
  * 1. CONTEXT
@@ -55,14 +56,22 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           securityVersion?: number;
         };
 
-        // Additional security validation for post-fix JWTs
-        const securityFixTimestamp = Math.floor(new Date('2025-08-06T15:45:00Z').getTime() / 1000);
-        
-        if (decoded.nbf && decoded.nbf < securityFixTimestamp) {
+        // Security validation - require security claims on all tokens
+        // Tokens without nbf or securityVersion are rejected (closes security gap)
+        if (decoded.nbf === undefined || decoded.securityVersion === undefined) {
+          console.warn('🚨 [JWT SECURITY] Token missing required security claims', {
+            tokenType: decoded.tokenType,
+            hasNbf: decoded.nbf !== undefined,
+            hasSecurityVersion: decoded.securityVersion !== undefined,
+          });
+          throw new Error('JWT missing required security claims');
+        }
+
+        if (decoded.nbf < SECURITY_FIX_TIMESTAMP) {
           throw new Error('JWT issued before security fix - token invalidated');
         }
-        
-        if (decoded.securityVersion && decoded.securityVersion < 1) {
+
+        if (decoded.securityVersion < CURRENT_SECURITY_VERSION) {
           throw new Error('JWT security version too old - token invalidated');
         }
 
