@@ -1,34 +1,10 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import jwt from "jsonwebtoken";
-import crypto from "crypto";
+import { generateJWT } from "~/server/utils/jwt";
 
 // Environment variable for gateway URL
 const WHATSAPP_GATEWAY_URL = process.env.WHATSAPP_GATEWAY_URL;
-
-// Helper function to generate JWT for gateway auth
-function generateGatewayJWT(user: {
-  id: string;
-  email?: string | null;
-  name?: string | null;
-}): string {
-  return jwt.sign(
-    {
-      userId: user.id,
-      sub: user.id,
-      email: user.email,
-      name: user.name,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 60 * 60, // 1 hour
-      jti: crypto.randomUUID(),
-      tokenType: "whatsapp-gateway",
-      aud: "mastra-agents",
-      iss: "todo-app",
-    },
-    process.env.AUTH_SECRET ?? ""
-  );
-}
 
 export const whatsappGatewayRouter = createTRPCRouter({
   // Check if gateway is configured
@@ -47,7 +23,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
       });
     }
 
-    const authToken = generateGatewayJWT(ctx.session.user);
+    const authToken = generateJWT(ctx.session.user, { tokenType: "whatsapp-gateway" });
 
     const response = await fetch(`${WHATSAPP_GATEWAY_URL}/login`, {
       method: "POST",
@@ -128,7 +104,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
         });
       }
 
-      const authToken = generateGatewayJWT(ctx.session.user);
+      const authToken = generateJWT(ctx.session.user, { tokenType: "whatsapp-gateway" });
 
       const response = await fetch(
         `${WHATSAPP_GATEWAY_URL}/login/${input.sessionId}/qr`,
@@ -193,7 +169,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
         });
       }
 
-      const authToken = generateGatewayJWT(ctx.session.user);
+      const authToken = generateJWT(ctx.session.user, { tokenType: "whatsapp-gateway" });
 
       const response = await fetch(
         `${WHATSAPP_GATEWAY_URL}/login/${input.sessionId}/status`,
@@ -292,7 +268,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
         });
       }
 
-      const authToken = generateGatewayJWT(ctx.session.user);
+      const authToken = generateJWT(ctx.session.user, { tokenType: "whatsapp-gateway" });
 
       // Call gateway to disconnect
       try {
@@ -342,7 +318,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
 
       // Also delete from gateway if configured
       if (WHATSAPP_GATEWAY_URL) {
-        const authToken = generateGatewayJWT(ctx.session.user);
+        const authToken = generateJWT(ctx.session.user, { tokenType: "whatsapp-gateway" });
         try {
           await fetch(`${WHATSAPP_GATEWAY_URL}/sessions/${session.sessionId}`, {
             method: "DELETE",

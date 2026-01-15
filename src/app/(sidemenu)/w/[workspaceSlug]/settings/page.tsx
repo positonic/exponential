@@ -19,7 +19,7 @@ import {
   Divider,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconBrandZoom } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -27,6 +27,7 @@ import { api } from '~/trpc/react';
 import { InviteMemberModal } from '~/app/_components/InviteMemberModal';
 import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTable';
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
+import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 
 const roleIcons = {
   owner: IconCrown,
@@ -48,6 +49,7 @@ export default function WorkspaceSettingsPage() {
   const [description, setDescription] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [inviteModalOpened, { open: openInviteModal, close: closeInviteModal }] = useDisclosure(false);
+  const [firefliesModalOpened, { open: openFirefliesModal, close: closeFirefliesModal }] = useDisclosure(false);
 
   const utils = api.useUtils();
 
@@ -309,6 +311,34 @@ export default function WorkspaceSettingsPage() {
           </Group>
         </Card>
 
+        {/* Integrations */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Title order={3} className="text-text-primary mb-4">
+            Integrations
+          </Title>
+          <Stack gap="md">
+            <Group justify="space-between" className="p-3 rounded-md bg-surface-primary border border-border-primary">
+              <Group gap="md">
+                <IconBrandZoom size={24} className="text-text-muted" />
+                <div>
+                  <Text fw={500} className="text-text-primary">
+                    Fireflies
+                  </Text>
+                  <Text size="sm" className="text-text-muted">
+                    Sync meeting transcriptions automatically
+                  </Text>
+                </div>
+              </Group>
+              <Button
+                variant="light"
+                onClick={openFirefliesModal}
+              >
+                Configure
+              </Button>
+            </Group>
+          </Stack>
+        </Card>
+
         {/* Teams */}
         <WorkspaceTeamsSection
           workspaceId={workspaceId!}
@@ -324,6 +354,13 @@ export default function WorkspaceSettingsPage() {
         onSuccess={() => {
           refetchWorkspace();
         }}
+      />
+
+      {/* Fireflies Wizard Modal */}
+      <FirefliesWizardModal
+        opened={firefliesModalOpened}
+        onClose={closeFirefliesModal}
+        teamId={workspaceId ?? undefined}
       />
     </Container>
   );
