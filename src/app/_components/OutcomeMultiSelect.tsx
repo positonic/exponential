@@ -28,7 +28,7 @@ interface OutcomeMultiSelectProps {
   isSharedView?: boolean;
   sharedViewUserId?: string;
   sharedViewTeamId?: string;
-  onOutcomesChanged?: () => void;
+  onOutcomesChanged?: (updatedOutcomes?: OutcomeBasic[]) => void;
 }
 
 export function OutcomeMultiSelect({
@@ -237,6 +237,7 @@ export function OutcomeMultiSelect({
         
         // Now update the project with the real outcome IDs
         const outcomeIds = [...currentOutcomeIds, newOutcome.id];
+        const outcomesForCallback = [...currentOutcomes, { id: newOutcome.id, description: newOutcome.description, type: newOutcome.type, dueDate: newOutcome.dueDate }];
         updateProject.mutate({
           id: projectId,
           name: projectName,
@@ -251,7 +252,7 @@ export function OutcomeMultiSelect({
               message: `${newOutcome.description} has been added to ${projectName}`,
               color: 'green',
             });
-            onOutcomesChanged?.();
+            onOutcomesChanged?.(outcomesForCallback);
           },
           onSettled: () => {
             // Use smart invalidation based on view context
@@ -324,6 +325,15 @@ export function OutcomeMultiSelect({
             // Don't update the project yet, wait for the mutation to succeed
           } else {
             // Update project with selected outcomes
+            // Build the updated outcomes list for the callback
+            const updatedOutcomes = values.map(id => {
+              const existing = currentOutcomes.find(o => o.id === id);
+              if (existing) return existing;
+              const fromAll = allOutcomes.find(o => o.id === id);
+              if (fromAll) return { id: fromAll.id, description: fromAll.description, type: fromAll.type, dueDate: fromAll.dueDate };
+              return { id, description: 'Unknown outcome' };
+            });
+
             updateProject.mutate({
               id: projectId,
               name: projectName,
@@ -332,7 +342,7 @@ export function OutcomeMultiSelect({
               outcomeIds: values,
             }, {
               onSuccess: () => {
-                onOutcomesChanged?.();
+                onOutcomesChanged?.(updatedOutcomes);
               },
             });
           }

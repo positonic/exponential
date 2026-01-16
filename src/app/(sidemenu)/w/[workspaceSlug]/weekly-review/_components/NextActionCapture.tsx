@@ -2,29 +2,47 @@
 
 import { useState } from "react";
 import { TextInput, Button, Group, Text, Stack } from "@mantine/core";
-import { IconPlus, IconCheck } from "@tabler/icons-react";
+import { IconPlus, IconCircle } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
+
+interface ExistingAction {
+  id: string;
+  name: string;
+  status: string;
+}
+
+interface CreatedAction {
+  id: string;
+  name: string;
+}
 
 interface NextActionCaptureProps {
   projectId: string;
   workspaceId: string | null;
+  existingActions?: ExistingAction[];
   onActionAdded: () => void;
 }
 
 export function NextActionCapture({
   projectId,
   workspaceId,
+  existingActions = [],
   onActionAdded,
 }: NextActionCaptureProps) {
   const [actionTitle, setActionTitle] = useState("");
-  const [isAdded, setIsAdded] = useState(false);
+  const [createdActions, setCreatedActions] = useState<CreatedAction[]>([]);
 
   const utils = api.useUtils();
 
+  // Filter existing actions to show only active ones
+  const activeExistingActions = existingActions.filter(
+    (a) => a.status === "ACTIVE" || a.status === "TODO"
+  );
+
   const createAction = api.action.create.useMutation({
-    onSuccess: () => {
-      setIsAdded(true);
+    onSuccess: (data) => {
+      setCreatedActions((prev) => [...prev, { id: data.id, name: data.name }]);
       setActionTitle("");
       onActionAdded();
       void utils.project.getActiveWithDetails.invalidate();
@@ -51,6 +69,7 @@ export function NextActionCapture({
       projectId,
       workspaceId: workspaceId ?? undefined,
       status: "ACTIVE",
+      priority: "1st Priority",
     });
   };
 
@@ -61,45 +80,54 @@ export function NextActionCapture({
     }
   };
 
+  const allActions = [
+    ...activeExistingActions.map((a) => ({ ...a, isNew: false })),
+    ...createdActions.map((a) => ({ ...a, isNew: true })),
+  ];
+
   return (
     <Stack gap="xs">
       <Text size="sm" fw={500} className="text-text-secondary">
         Next Action
       </Text>
 
-      {isAdded ? (
-        <Group gap="xs" className="rounded-md bg-green-500/10 p-3">
-          <IconCheck size={16} className="text-green-500" />
-          <Text size="sm" className="text-green-500">
-            Action added
-          </Text>
-          <Button
-            variant="subtle"
-            size="xs"
-            onClick={() => setIsAdded(false)}
-          >
-            Add another
-          </Button>
-        </Group>
-      ) : (
-        <Group gap="sm">
-          <TextInput
-            placeholder="What's the next step for this project?"
-            value={actionTitle}
-            onChange={(e) => setActionTitle(e.target.value)}
-            onKeyDown={handleKeyDown}
-            style={{ flex: 1 }}
-          />
-          <Button
-            leftSection={<IconPlus size={16} />}
-            onClick={handleSubmit}
-            loading={createAction.isPending}
-            disabled={!actionTitle.trim()}
-          >
-            Add
-          </Button>
-        </Group>
+      {/* Display existing and newly created actions */}
+      {allActions.length > 0 && (
+        <Stack gap={4} className="mb-2">
+          {allActions.map((action) => (
+            <Group key={action.id} gap="xs" className="text-text-secondary">
+              <IconCircle size={8} className="text-text-muted" />
+              <Text size="sm" className={action.isNew ? "text-green-500" : ""}>
+                {action.name}
+                {action.isNew && (
+                  <Text component="span" size="xs" className="ml-2 text-green-500/70">
+                    (just added)
+                  </Text>
+                )}
+              </Text>
+            </Group>
+          ))}
+        </Stack>
       )}
+
+      {/* Input for adding new action */}
+      <Group gap="sm">
+        <TextInput
+          placeholder="What's the next step for this project?"
+          value={actionTitle}
+          onChange={(e) => setActionTitle(e.target.value)}
+          onKeyDown={handleKeyDown}
+          style={{ flex: 1 }}
+        />
+        <Button
+          leftSection={<IconPlus size={16} />}
+          onClick={handleSubmit}
+          loading={createAction.isPending}
+          disabled={!actionTitle.trim()}
+        >
+          Add
+        </Button>
+      </Group>
     </Stack>
   );
 }

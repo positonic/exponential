@@ -23,7 +23,7 @@ interface CreateOutcomeModalProps {
     workspaceId?: string | null;
   };
   trigger?: React.ReactNode; // For clicking on existing outcomes
-  onSuccess?: (outcomeId: string) => void; // Callback when outcome is created/updated
+  onSuccess?: (outcomeId: string, outcomeData?: { id: string; description: string; type: string | null }) => void; // Callback when outcome is created/updated
 }
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
@@ -119,8 +119,12 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
       console.log('🟢 Invalidating all outcomes');
       await utils.outcome.getMyOutcomes.invalidate();
 
-      // Call onSuccess callback if provided
-      onSuccess?.(newOutcome.id);
+      // Call onSuccess callback if provided with full outcome data
+      onSuccess?.(newOutcome.id, {
+        id: newOutcome.id,
+        description: newOutcome.description,
+        type: newOutcome.type,
+      });
 
       // Reset form and close modal
       setDescription("");

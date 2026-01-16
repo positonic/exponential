@@ -57,10 +57,10 @@ export function WeeklyReviewBanner() {
           <IconCalendarCheck size={24} className="text-blue-400" />
           <div>
             <Text fw={600} size="sm" className="text-text-primary">
-              Time for your weekly review
+              🧘 Time for your weekly review
             </Text>
             <Text size="xs" className="text-text-secondary">
-              Review your projects and plan for the week ahead.
+              Step back, regain clarity, and set your next actions. 🔒 Trust your system.
             </Text>
           </div>
         </Group>

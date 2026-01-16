@@ -24,7 +24,7 @@ export function WeeklyReviewIntro({
           <IconCalendarWeek size={48} className="text-brand-primary" />
         </div>
 
-        <Stack gap="xs" align="center">
+        <Stack gap="md" align="center">
           <Text size="xl" fw={600} className="text-text-primary">
             Weekly Review
           </Text>
@@ -32,9 +32,14 @@ export function WeeklyReviewIntro({
             size="sm"
             className="max-w-md text-center text-text-secondary"
           >
-            Take a few minutes to review each of your active projects. Update
-            their status, set priorities, and plan outcomes for the week ahead.
+            🧘 Step back from daily firefighting. Review each project, set your
+            next actions, and regain clarity on all your commitments.
           </Text>
+          <Stack gap={4} className="text-text-muted">
+            <Text size="xs" className="text-center">
+              🔒 Trust your system. 🧠 Make intuitive choices with a clear mind.
+            </Text>
+          </Stack>
         </Stack>
 
         {projectCount === 0 ? (

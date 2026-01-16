@@ -51,6 +51,7 @@ interface ProjectWithDetails {
   progress: number;
   actions: Array<{
     id: string;
+    name: string;
     status: string;
     completedAt: Date | null;
     dueDate: Date | null;
@@ -116,6 +117,8 @@ export function ProjectReviewCard({
   const [actionAdded, setActionAdded] = useState(false);
   const [outcomesChanged, setOutcomesChanged] = useState(false);
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
+  // Track local outcomes to handle updates during review (since we use a snapshot)
+  const [localOutcomes, setLocalOutcomes] = useState(project.outcomes);
 
   const updateProject = api.project.update.useMutation({
     // Note: Don't invalidate here - let the page handle invalidation after review completes
@@ -130,6 +133,12 @@ export function ProjectReviewCard({
   });
 
   const indicators = calculateHealthIndicators(project);
+
+  // Check if project has at least one active action (existing or newly added)
+  const hasExistingActiveAction = project.actions.some(
+    (a) => a.status === "ACTIVE" || a.status === "TODO"
+  );
+  const hasNextAction = hasExistingActiveAction || actionAdded;
 
   const handleMarkReviewed = async () => {
     const statusChanged = status !== project.status;
@@ -295,41 +304,59 @@ export function ProjectReviewCard({
         <NextActionCapture
           projectId={project.id}
           workspaceId={workspaceId}
+          existingActions={project.actions}
           onActionAdded={handleActionAdded}
         />
       </div>
 
       {/* Outcomes */}
       <div className="mb-6">
-        <Group justify="space-between" className="mb-2">
-          <Text size="sm" fw={500} className="text-text-secondary">
-            Outcomes
-          </Text>
-          <CreateOutcomeModal
-            projectId={project.id}
-            onSuccess={() => setOutcomesChanged(true)}
-          >
-            <Button
-              variant="subtle"
-              size="xs"
-              leftSection={<IconPlus size={14} />}
-            >
-              Create New
-            </Button>
-          </CreateOutcomeModal>
-        </Group>
+        <Text size="sm" fw={500} className="mb-2 text-text-secondary">
+          Outcomes
+        </Text>
         <OutcomeMultiSelect
           projectId={project.id}
           projectName={project.name}
           projectStatus={project.status as ProjectStatus}
           projectPriority={(project.priority ?? "NONE") as ProjectPriority}
-          currentOutcomes={project.outcomes}
+          currentOutcomes={localOutcomes}
           allOutcomes={allOutcomes}
           searchValue={outcomeSearchValue}
           onSearchChange={setOutcomeSearchValue}
           size="sm"
-          onOutcomesChanged={() => setOutcomesChanged(true)}
+          onOutcomesChanged={(updatedOutcomes) => {
+            setOutcomesChanged(true);
+            if (updatedOutcomes) {
+              setLocalOutcomes(updatedOutcomes.map(o => ({
+                id: o.id,
+                type: o.type ?? null,
+                description: o.description ?? '',
+              })));
+            }
+          }}
         />
+        <CreateOutcomeModal
+          projectId={project.id}
+          onSuccess={(_id, outcomeData) => {
+            setOutcomesChanged(true);
+            if (outcomeData) {
+              setLocalOutcomes(prev => [...prev, {
+                id: outcomeData.id,
+                type: outcomeData.type,
+                description: outcomeData.description,
+              }]);
+            }
+          }}
+        >
+          <Button
+            variant="subtle"
+            size="xs"
+            leftSection={<IconPlus size={14} />}
+            className="mt-2"
+          >
+            Create New Outcome
+          </Button>
+        </CreateOutcomeModal>
       </div>
 
       {/* Actions */}
@@ -337,13 +364,20 @@ export function ProjectReviewCard({
         <Button variant="subtle" onClick={onSkip}>
           Skip
         </Button>
-        <Button
-          onClick={handleMarkReviewed}
-          loading={updateProject.isPending}
-          leftSection={<IconCheck size={16} />}
+        <Tooltip
+          label="Add at least one next action before marking as reviewed"
+          disabled={hasNextAction}
+          withArrow
         >
-          Mark Reviewed
-        </Button>
+          <Button
+            onClick={handleMarkReviewed}
+            loading={updateProject.isPending}
+            leftSection={<IconCheck size={16} />}
+            disabled={!hasNextAction}
+          >
+            Mark Reviewed
+          </Button>
+        </Tooltip>
       </Group>
     </Card>
   );
