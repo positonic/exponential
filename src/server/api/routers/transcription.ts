@@ -407,9 +407,10 @@ export const transcriptionRouter = createTRPCRouter({
 
       return ctx.db.transcriptionSession.findMany({
         where: whereClause,
-        orderBy: {
-          createdAt: "desc",
-        },
+        orderBy: [
+          { meetingDate: { sort: "desc", nulls: "last" } },
+          { createdAt: "desc" },
+        ],
         include: {
           project: {
             select: {

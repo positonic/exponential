@@ -624,7 +624,7 @@ export function MeetingsContent() {
                                   
                                   <Group gap="md" c="dimmed">
                                     <Text size="sm">
-                                      {new Date(session.createdAt).toLocaleDateString('en-US', {
+                                      {new Date(session.meetingDate ?? session.createdAt).toLocaleDateString('en-US', {
                                         weekday: 'short',
                                         year: 'numeric',
                                         month: 'short',
@@ -632,7 +632,7 @@ export function MeetingsContent() {
                                       })}
                                     </Text>
                                     <Text size="sm">
-                                      {new Date(session.createdAt).toLocaleTimeString('en-US', {
+                                      {new Date(session.meetingDate ?? session.createdAt).toLocaleTimeString('en-US', {
                                         hour: '2-digit',
                                         minute: '2-digit',
                                       })}
