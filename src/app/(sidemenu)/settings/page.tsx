@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { api } from "~/trpc/react";
 import {
   Container,
@@ -14,6 +14,7 @@ import {
   Button,
   Accordion,
   Badge,
+  Card,
 } from "@mantine/core";
 import {
   IconArrowLeft,
@@ -27,6 +28,8 @@ import {
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { notifications } from "@mantine/notifications";
+import { FirefliesIntegrationsList } from "~/app/_components/integrations/FirefliesIntegrationsList";
+import { FirefliesWizardModal } from "~/app/_components/integrations/FirefliesWizardModal";
 
 // Define menu structure for rendering
 const MENU_STRUCTURE = {
@@ -77,6 +80,7 @@ type SectionKey = keyof typeof MENU_STRUCTURE;
 
 export default function NavigationSettingsPage() {
   const utils = api.useUtils();
+  const [firefliesModalOpened, setFirefliesModalOpened] = useState(false);
 
   const { data: preferences, isLoading } =
     api.navigationPreference.getPreferences.useQuery();
@@ -272,7 +276,35 @@ export default function NavigationSettingsPage() {
             );
           })}
         </Accordion>
+
+        {/* Integrations Section */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder p="lg">
+          <Group justify="space-between" align="center" mb="md">
+            <div>
+              <Title order={4} className="text-text-primary">
+                Integrations
+              </Title>
+              <Text size="sm" c="dimmed">
+                Manage your connected services
+              </Text>
+            </div>
+            <Button
+              variant="light"
+              size="sm"
+              onClick={() => setFirefliesModalOpened(true)}
+            >
+              Add Fireflies
+            </Button>
+          </Group>
+          <FirefliesIntegrationsList />
+        </Card>
       </Stack>
+
+      {/* Fireflies Wizard Modal */}
+      <FirefliesWizardModal
+        opened={firefliesModalOpened}
+        onClose={() => setFirefliesModalOpened(false)}
+      />
     </Container>
   );
 }
