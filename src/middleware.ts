@@ -33,11 +33,6 @@ export async function middleware(request: NextRequest) {
     '/multi-agent',
     '/agent',
     '/actions',
-    '/docs',
-    '/features',
-    '/roadmap',
-    '/privacy',
-    '/terms'
   ];
 
   // Skip authentication check for certain paths
