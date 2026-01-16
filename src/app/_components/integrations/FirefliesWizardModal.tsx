@@ -47,12 +47,15 @@ interface FirefliesWizardModalProps {
   opened: boolean;
   onClose: () => void;
   teamId?: string;
+  /** If provided, the modal will be in "edit mode" for updating an existing integration */
+  editIntegrationId?: string;
 }
 
 export function FirefliesWizardModal({
   opened,
   onClose,
   teamId,
+  editIntegrationId,
 }: FirefliesWizardModalProps) {
   // Wizard state
   const [step, setStep] = useState<WizardStep>("checking");
@@ -74,6 +77,9 @@ export function FirefliesWizardModal({
     name: string;
     createdAt: string;
   } | null>(null);
+
+  // Track the integration ID being edited (either from prop or from reconfigure flow)
+  const [editingIntegrationId, setEditingIntegrationId] = useState<string | null>(null);
 
   // tRPC queries and mutations
   const checkExisting = api.mastra.firefliesCheckExisting.useQuery(
@@ -109,6 +115,19 @@ export function FirefliesWizardModal({
         integrationId: result.integrationId,
         expiresIn: "90d",
       });
+    },
+    onError: (err) => {
+      setError(err.message);
+      setStep("configure");
+    },
+  });
+
+  const updateIntegration = api.mastra.firefliesUpdateIntegration.useMutation({
+    onSuccess: (result) => {
+      setCreatedIntegrationId(result.integrationId);
+      setError(null);
+      // For updates, go straight to complete (webhook already configured)
+      setStep("complete");
     },
     onError: (err) => {
       setError(err.message);
@@ -163,7 +182,14 @@ export function FirefliesWizardModal({
   // Reset state when modal opens
   useEffect(() => {
     if (opened) {
-      setStep("checking");
+      // If editIntegrationId is provided, we're in edit mode - skip to API key step
+      if (editIntegrationId) {
+        setEditingIntegrationId(editIntegrationId);
+        setStep("api-key");
+      } else {
+        setEditingIntegrationId(null);
+        setStep("checking");
+      }
       setApiKey("");
       setIntegrationName("Fireflies");
       setScope("personal");
@@ -173,7 +199,7 @@ export function FirefliesWizardModal({
       setWebhookUrl(null);
       setExistingIntegration(null);
     }
-  }, [opened]);
+  }, [opened, editIntegrationId]);
 
   const handleTestApiKey = () => {
     if (!apiKey.trim()) {
@@ -192,15 +218,29 @@ export function FirefliesWizardModal({
     }
     setError(null);
     setStep("creating");
-    createIntegration.mutate({
-      name: integrationName.trim(),
-      apiKey: apiKey.trim(),
-      scope,
-      teamId: scope === "team" ? teamId : undefined,
-    });
+
+    // If we have an existing integration ID, update instead of create
+    if (editingIntegrationId) {
+      updateIntegration.mutate({
+        integrationId: editingIntegrationId,
+        apiKey: apiKey.trim(),
+        name: integrationName.trim(),
+      });
+    } else {
+      createIntegration.mutate({
+        name: integrationName.trim(),
+        apiKey: apiKey.trim(),
+        scope,
+        teamId: scope === "team" ? teamId : undefined,
+      });
+    }
   };
 
   const handleReconfigure = () => {
+    // Keep the integration ID for updating instead of creating a new one
+    if (existingIntegration) {
+      setEditingIntegrationId(existingIntegration.id);
+    }
     setExistingIntegration(null);
     setStep("api-key");
   };
@@ -593,6 +633,7 @@ export function FirefliesWizardModal({
         step !== "complete" && (
           <Stepper
             active={getActiveStep()}
+            mt="md"
             mb="xl"
             size="sm"
             allowNextStepsSelect={false}

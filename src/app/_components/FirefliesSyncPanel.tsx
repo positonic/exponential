@@ -37,9 +37,10 @@ interface IntegrationCardProps {
   isSyncing: boolean;
   successMessage?: string;
   onSync: (integrationId: string) => void;
+  onSettingsClick?: (integrationId: string) => void;
 }
 
-function IntegrationCard({ integration, isSyncing, successMessage, onSync }: IntegrationCardProps) {
+function IntegrationCard({ integration, isSyncing, successMessage, onSync, onSettingsClick }: IntegrationCardProps) {
   // Individual hook call for this specific integration
   const { data: syncStatus, isLoading } = api.transcription.getFirefliesSyncStatus.useQuery(
     { integrationId: integration.id },
@@ -103,6 +104,7 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
               color="gray"
               size="sm"
               title="Integration settings"
+              onClick={() => onSettingsClick?.(integration.id)}
             >
               <IconSettings size={14} />
             </ActionIcon>
@@ -157,9 +159,10 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
 
 interface FirefliesSyncPanelProps {
   onSyncComplete?: () => void;
+  onSettingsClick?: (integrationId: string) => void;
 }
 
-export function FirefliesSyncPanel({ onSyncComplete }: FirefliesSyncPanelProps) {
+export function FirefliesSyncPanel({ onSyncComplete, onSettingsClick }: FirefliesSyncPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [syncingIntegrations, setSyncingIntegrations] = useState<Set<string>>(new Set());
   const [successMessages, setSuccessMessages] = useState<Record<string, string>>({});
@@ -267,6 +270,7 @@ export function FirefliesSyncPanel({ onSyncComplete }: FirefliesSyncPanelProps) 
                 isSyncing={syncingIntegrations.has(integration.id)}
                 successMessage={successMessages[integration.id]}
                 onSync={handleSync}
+                onSettingsClick={onSettingsClick}
               />
             ))}
 

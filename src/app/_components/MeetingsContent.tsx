@@ -39,6 +39,7 @@ import {
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 // import { ActionList } from "./ActionList";
 import { FirefliesSyncPanel } from "./FirefliesSyncPanel";
+import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 import { HTMLContent } from "./HTMLContent";
 
@@ -71,7 +72,11 @@ export function MeetingsContent() {
   // Slack Summary Modal state
   const [slackModalOpened, setSlackModalOpened] = useState(false);
   const [selectedMeetingForSlack, setSelectedMeetingForSlack] = useState<any>(null);
-  
+
+  // Fireflies settings modal state
+  const [firefliesModalOpened, setFirefliesModalOpened] = useState(false);
+  const [selectedFirefliesIntegrationId, setSelectedFirefliesIntegrationId] = useState<string | null>(null);
+
   // New state for filtering and bulk operations
   const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
@@ -450,10 +455,14 @@ export function MeetingsContent() {
             <Tabs.Panel value="transcriptions">
               <Stack gap="md">
                 {/* Fireflies Sync Panel */}
-                <FirefliesSyncPanel 
+                <FirefliesSyncPanel
                   onSyncComplete={() => {
                     // Refresh transcriptions when sync completes
                     void utils.transcription.getAllTranscriptions.invalidate();
+                  }}
+                  onSettingsClick={(integrationId) => {
+                    setSelectedFirefliesIntegrationId(integrationId);
+                    setFirefliesModalOpened(true);
                   }}
                 />
 
@@ -1080,6 +1089,16 @@ export function MeetingsContent() {
         meetingTitle={selectedMeetingForSlack?.title || 'Untitled Meeting'}
         projectId={selectedMeetingForSlack?.projectId}
         teamId={selectedMeetingForSlack?.project?.teamId}
+      />
+
+      {/* Fireflies Settings Modal */}
+      <FirefliesWizardModal
+        opened={firefliesModalOpened}
+        onClose={() => {
+          setFirefliesModalOpened(false);
+          setSelectedFirefliesIntegrationId(null);
+        }}
+        editIntegrationId={selectedFirefliesIntegrationId ?? undefined}
       />
     </>
   );

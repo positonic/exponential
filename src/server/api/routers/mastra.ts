@@ -1455,6 +1455,97 @@ export const mastraRouter = createTRPCRouter({
       };
     }),
 
+  // Update an existing Fireflies integration (for reconfiguring)
+  firefliesUpdateIntegration: protectedProcedure
+    .input(z.object({
+      integrationId: z.string(),
+      apiKey: z.string().min(1, "API key is required"),
+      name: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Find the existing integration and verify ownership
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          id: input.integrationId,
+          provider: 'fireflies',
+          OR: [
+            { userId: userId },
+            {
+              teamId: { not: null },
+              team: {
+                members: {
+                  some: { userId: userId },
+                },
+              },
+            },
+          ],
+        },
+        include: {
+          credentials: true,
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Fireflies integration not found or access denied',
+        });
+      }
+
+      // Test the new API key first
+      const testResult = await testFirefliesConnection(input.apiKey);
+      if (!testResult.success) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Fireflies connection failed: ${testResult.error}`,
+        });
+      }
+
+      // Delete old credentials
+      await ctx.db.integrationCredential.deleteMany({
+        where: { integrationId: integration.id },
+      });
+
+      // Create new API key credential
+      await ctx.db.integrationCredential.create({
+        data: {
+          key: input.apiKey,
+          keyType: 'API_KEY',
+          isEncrypted: false,
+          integrationId: integration.id,
+        },
+      });
+
+      // Store email if available from test result
+      if (testResult.email) {
+        await ctx.db.integrationCredential.create({
+          data: {
+            key: testResult.email,
+            keyType: 'EMAIL',
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+        });
+      }
+
+      // Update name if provided
+      if (input.name) {
+        await ctx.db.integration.update({
+          where: { id: integration.id },
+          data: { name: input.name },
+        });
+      }
+
+      return {
+        integrationId: integration.id,
+        name: input.name ?? integration.name,
+        status: integration.status,
+        updated: true,
+      };
+    }),
+
   // Generate webhook token for Fireflies webhook authentication
   firefliesGenerateWebhookToken: protectedProcedure
     .input(z.object({
