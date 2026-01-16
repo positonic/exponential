@@ -8,6 +8,7 @@ import { WeeklyReviewIntro } from "./_components/WeeklyReviewIntro";
 import { ProjectReviewCard } from "./_components/ProjectReviewCard";
 import { ReviewProgress } from "./_components/ReviewProgress";
 import { ReviewCompletion } from "./_components/ReviewCompletion";
+import { WeeklyReviewExplainer } from "./_components/WeeklyReviewExplainer";
 
 type ReviewStep = "intro" | "reviewing" | "complete";
 
@@ -139,6 +140,8 @@ export default function WeeklyReviewPage() {
           onRestart={handleRestartReview}
         />
       )}
+
+      <WeeklyReviewExplainer />
     </Container>
   );
 }
