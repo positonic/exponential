@@ -4,7 +4,7 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow } from "@tabler/icons-react";
+import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
@@ -20,6 +20,7 @@ const iconMap = {
   IconSettings,
   IconKey,
   IconDatabase,
+  IconBriefcase,
 } as const;
 
 type IconMapKey = keyof typeof iconMap;
@@ -61,6 +62,37 @@ export function SidebarContent() {
           }
         }}
       >
+        {/* Workspace accordion - only visible when in a workspace */}
+        {workspaceSlug && (
+          <Accordion.Item value="workspace">
+            <Accordion.Control>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <IconBriefcase size={16} className="text-text-muted" />
+                  <span className="text-sm font-medium text-text-primary">Workspace</span>
+                </div>
+              </div>
+            </Accordion.Control>
+            <Accordion.Panel>
+              <NavLink href={`/w/${workspaceSlug}/home`} icon={IconBriefcase}>
+                Workspace Home
+              </NavLink>
+              {/* Plugin navigation items for workspace section */}
+              {itemsBySection.workspace
+                ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
+                .sort((a, b) => a.order - b.order)
+                .map((item) => {
+                  const IconComponent = getIcon(item.icon);
+                  return (
+                    <NavLink key={item.id} href={item.href} icon={IconComponent}>
+                      {item.label}
+                    </NavLink>
+                  );
+                })}
+            </Accordion.Panel>
+          </Accordion.Item>
+        )}
+
         {isSectionVisible("projects") && (
           <Accordion.Item value="projects">
             <Accordion.Control>

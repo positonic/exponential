@@ -19,8 +19,8 @@ export const crmManifest: PluginManifest = {
         label: "CRM",
         icon: "IconUsers",
         href: "/w/:workspaceSlug/crm",
-        section: "main",
-        order: 3, // After Workspace (order ~2)
+        section: "workspace",
+        order: 2, // Second item in workspace accordion (after Workspace Home)
         workspaceScoped: true,
       },
     ],

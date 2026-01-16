@@ -6,7 +6,6 @@ import {
   IconInbox,
   IconCalendarEvent,
   IconHome,
-  IconBriefcase,
   IconUsers,
   IconCalendarWeek,
 } from "@tabler/icons-react";
@@ -19,7 +18,6 @@ import { usePluginNavigation } from "~/hooks/usePluginNavigation";
 const mainNavIconMap = {
   IconUsers,
   IconHome,
-  IconBriefcase,
 } as const;
 
 type MainNavIconKey = keyof typeof mainNavIconMap;
@@ -69,9 +67,8 @@ export function NavLinks() {
   const { workspaceSlug } = useWorkspace();
   const { itemsBySection } = usePluginNavigation();
 
-  // Generate workspace-aware paths
-  const homePath = workspaceSlug ? `/w/${workspaceSlug}/home` : '/home';
-  const workspacePath = workspaceSlug ? `/w/${workspaceSlug}/workspace` : null;
+  // Home always goes to /home regardless of workspace context
+  const homePath = '/home';
   const weeklyReviewPath = workspaceSlug ? `/w/${workspaceSlug}/weekly-review` : null;
 
   // Helper to get icon component from name
@@ -92,11 +89,6 @@ export function NavLinks() {
       <NavLink href={homePath} icon={IconHome}>
         Home
       </NavLink>
-      {workspacePath && (
-        <NavLink href={workspacePath} icon={IconBriefcase}>
-          Workspace
-        </NavLink>
-      )}
       {weeklyReviewPath && (
         <NavLink href={weeklyReviewPath} icon={IconCalendarWeek}>
           Weekly Review
