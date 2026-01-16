@@ -37,4 +37,13 @@ export const userRouter = createTRPCRouter({
 
       return user;
     }),
+
+  getSelectedTools: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await ctx.db.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: { selectedTools: true },
+      });
+      return user?.selectedTools ?? [];
+    }),
 });

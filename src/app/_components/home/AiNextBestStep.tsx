@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Card, Text, Stack, Group, Button, Skeleton } from "@mantine/core";
-import { IconSparkles, IconRefresh } from "@tabler/icons-react";
+import { IconSparkles, IconRefresh, IconCheck } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { startOfWeek, endOfWeek, isSameDay, getDay } from "date-fns";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -125,6 +125,29 @@ export function AiNextBestStep() {
       fetchSuggestion();
     }
   }, [hasFetched, todayActions, habitStatus, weekOutcomes, fetchSuggestion]);
+
+  // If user has set daily outcome(s), show "focused" state instead of AI suggestion
+  if (dailyOutcomesCount > 0) {
+    return (
+      <Card
+        withBorder
+        radius="md"
+        className="border-green-600/30 bg-surface-secondary"
+      >
+        <Stack gap="sm">
+          <Group gap="xs">
+            <IconCheck size={18} className="text-green-600" />
+            <Text fw={600} size="sm" className="text-text-primary">
+              Today&apos;s Focus Set
+            </Text>
+          </Group>
+          <Text size="sm" className="text-text-secondary">
+            You have {dailyOutcomesCount} intention{dailyOutcomesCount > 1 ? "s" : ""} for today. Stay focused!
+          </Text>
+        </Stack>
+      </Card>
+    );
+  }
 
   return (
     <Card

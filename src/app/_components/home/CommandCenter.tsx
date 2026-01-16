@@ -11,6 +11,7 @@ import { MomentumWidget } from "./MomentumWidget";
 import { HabitsDueToday } from "./HabitsDueToday";
 import { ProjectStateOverview } from "./ProjectStateOverview";
 import { AiNextBestStep } from "./AiNextBestStep";
+import { IntegrationSuggestions } from "./IntegrationSuggestions";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 export function CommandCenter() {
@@ -37,6 +38,9 @@ export function CommandCenter() {
 
       {/* 5. Daily Outcome Capture */}
       <DailyOutcomeCapture />
+
+      {/* 6. Integration Suggestions */}
+      <IntegrationSuggestions />
 
       {/* Main content grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
