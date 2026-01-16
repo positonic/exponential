@@ -1490,8 +1490,8 @@ export const mastraRouter = createTRPCRouter({
         });
       }
 
-      // Generate hex token (64 characters for enhanced security)
-      const apiKey = crypto.randomBytes(32).toString('hex');
+      // Generate a secure 32-character hex key (matches generateApiToken pattern, ideal for Fireflies webhooks)
+      const apiKey = crypto.randomBytes(16).toString('hex'); // 32 characters
       const expirationMs = parseExpiration(input.expiresIn);
       const expiresAt = new Date(Date.now() + expirationMs);
 
