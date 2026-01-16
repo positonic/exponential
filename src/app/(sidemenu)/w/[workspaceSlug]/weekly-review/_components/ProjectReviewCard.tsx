@@ -19,11 +19,13 @@ import {
   IconCalendarCheck,
   IconTrendingUp,
   IconCheck,
+  IconPlus,
 } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { NextActionCapture } from "./NextActionCapture";
 import { OutcomeMultiSelect } from "~/app/_components/OutcomeMultiSelect";
+import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import {
   PROJECT_STATUS_OPTIONS,
   PROJECT_PRIORITY_OPTIONS,
@@ -299,9 +301,23 @@ export function ProjectReviewCard({
 
       {/* Outcomes */}
       <div className="mb-6">
-        <Text size="sm" fw={500} className="mb-2 text-text-secondary">
-          Outcomes
-        </Text>
+        <Group justify="space-between" className="mb-2">
+          <Text size="sm" fw={500} className="text-text-secondary">
+            Outcomes
+          </Text>
+          <CreateOutcomeModal
+            projectId={project.id}
+            onSuccess={() => setOutcomesChanged(true)}
+          >
+            <Button
+              variant="subtle"
+              size="xs"
+              leftSection={<IconPlus size={14} />}
+            >
+              Create New
+            </Button>
+          </CreateOutcomeModal>
+        </Group>
         <OutcomeMultiSelect
           projectId={project.id}
           projectName={project.name}
