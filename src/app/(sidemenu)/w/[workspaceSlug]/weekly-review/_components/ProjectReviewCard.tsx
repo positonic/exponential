@@ -20,15 +20,18 @@ import {
   IconTrendingUp,
   IconCheck,
 } from "@tabler/icons-react";
-import { api } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { NextActionCapture } from "./NextActionCapture";
+import { OutcomeMultiSelect } from "~/app/_components/OutcomeMultiSelect";
 import {
   PROJECT_STATUS_OPTIONS,
   PROJECT_PRIORITY_OPTIONS,
   type ProjectStatus,
   type ProjectPriority,
 } from "~/types/project";
+
+type Outcome = RouterOutputs["outcome"]["getMyOutcomes"][number];
 
 interface ProjectChanges {
   statusChanged: boolean;
@@ -53,6 +56,7 @@ interface ProjectWithDetails {
   outcomes: Array<{
     id: string;
     type: string | null;
+    description: string;
   }>;
 }
 
@@ -66,6 +70,7 @@ interface ProjectReviewCardProps {
   hasPrevious: boolean;
   hasNext: boolean;
   workspaceId: string | null;
+  allOutcomes?: Outcome[];
 }
 
 
@@ -102,10 +107,13 @@ export function ProjectReviewCard({
   hasPrevious,
   hasNext,
   workspaceId,
+  allOutcomes,
 }: ProjectReviewCardProps) {
   const [status, setStatus] = useState(project.status);
   const [priority, setPriority] = useState(project.priority ?? "NONE");
   const [actionAdded, setActionAdded] = useState(false);
+  const [outcomesChanged, setOutcomesChanged] = useState(false);
+  const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
 
   const updateProject = api.project.update.useMutation({
     // Note: Don't invalidate here - let the page handle invalidation after review completes
@@ -139,7 +147,7 @@ export function ProjectReviewCard({
       statusChanged,
       priorityChanged,
       actionAdded,
-      outcomesChanged: false, // TODO: Track outcome changes
+      outcomesChanged,
     });
   };
 
@@ -286,6 +294,25 @@ export function ProjectReviewCard({
           projectId={project.id}
           workspaceId={workspaceId}
           onActionAdded={handleActionAdded}
+        />
+      </div>
+
+      {/* Outcomes */}
+      <div className="mb-6">
+        <Text size="sm" fw={500} className="mb-2 text-text-secondary">
+          Outcomes
+        </Text>
+        <OutcomeMultiSelect
+          projectId={project.id}
+          projectName={project.name}
+          projectStatus={project.status as ProjectStatus}
+          projectPriority={(project.priority ?? "NONE") as ProjectPriority}
+          currentOutcomes={project.outcomes}
+          allOutcomes={allOutcomes}
+          searchValue={outcomeSearchValue}
+          onSearchChange={setOutcomeSearchValue}
+          size="sm"
+          onOutcomesChanged={() => setOutcomesChanged(true)}
         />
       </div>
 

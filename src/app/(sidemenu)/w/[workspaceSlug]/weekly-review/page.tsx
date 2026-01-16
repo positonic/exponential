@@ -44,6 +44,11 @@ export default function WeeklyReviewPage() {
       workspaceId: workspaceId ?? undefined,
     });
 
+  // Fetch all outcomes for the outcome linking feature
+  const { data: allOutcomes } = api.outcome.getMyOutcomes.useQuery({
+    workspaceId: workspaceId ?? undefined,
+  });
+
   const activeProjects = useMemo(() => {
     return projects ?? [];
   }, [projects]);
@@ -149,6 +154,7 @@ export default function WeeklyReviewPage() {
             hasPrevious={currentProjectIndex > 0}
             hasNext={currentProjectIndex < reviewSessionProjects.length - 1}
             workspaceId={workspaceId}
+            allOutcomes={allOutcomes}
           />
         </>
       )}

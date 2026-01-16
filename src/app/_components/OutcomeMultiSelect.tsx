@@ -7,12 +7,20 @@ import { type RouterOutputs } from "~/trpc/react";
 
 type Outcome = RouterOutputs["outcome"]["getMyOutcomes"][0];
 
+// Minimal outcome type for currentOutcomes - allows passing partial outcome data
+interface OutcomeBasic {
+  id: string;
+  description?: string;
+  type?: string | null;
+  dueDate?: Date | null;
+}
+
 interface OutcomeMultiSelectProps {
   projectId: string;
   projectName: string;
   projectStatus: "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED";
   projectPriority: "HIGH" | "MEDIUM" | "LOW" | "NONE";
-  currentOutcomes?: Outcome[];
+  currentOutcomes?: OutcomeBasic[];
   searchValue: string;
   onSearchChange: (value: string) => void;
   allOutcomes?: Outcome[];
@@ -20,6 +28,7 @@ interface OutcomeMultiSelectProps {
   isSharedView?: boolean;
   sharedViewUserId?: string;
   sharedViewTeamId?: string;
+  onOutcomesChanged?: () => void;
 }
 
 export function OutcomeMultiSelect({
@@ -35,6 +44,7 @@ export function OutcomeMultiSelect({
   isSharedView = false,
   sharedViewUserId,
   sharedViewTeamId,
+  onOutcomesChanged,
 }: OutcomeMultiSelectProps) {
   const utils = api.useUtils();
   
@@ -241,6 +251,7 @@ export function OutcomeMultiSelect({
               message: `${newOutcome.description} has been added to ${projectName}`,
               color: 'green',
             });
+            onOutcomesChanged?.();
           },
           onSettled: () => {
             // Use smart invalidation based on view context
@@ -273,7 +284,7 @@ export function OutcomeMultiSelect({
     if (!allOutcomeData.find(o => o.value === outcome.id)) {
       allOutcomeData.push({
         value: outcome.id,
-        label: outcome.description
+        label: outcome.description ?? 'Untitled outcome'
       });
     }
   });
@@ -319,6 +330,10 @@ export function OutcomeMultiSelect({
               status: projectStatus,
               priority: projectPriority,
               outcomeIds: values,
+            }, {
+              onSuccess: () => {
+                onOutcomesChanged?.();
+              },
             });
           }
         }}

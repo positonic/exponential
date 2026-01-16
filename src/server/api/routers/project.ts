@@ -377,9 +377,6 @@ export const projectRouter = createTRPCRouter({
             },
           },
           outcomes: {
-            where: {
-              type: 'weekly',
-            },
             orderBy: {
               dueDate: 'asc',
             },
