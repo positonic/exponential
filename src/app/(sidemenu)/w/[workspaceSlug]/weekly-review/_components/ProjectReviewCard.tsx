@@ -107,12 +107,9 @@ export function ProjectReviewCard({
   const [priority, setPriority] = useState(project.priority ?? "NONE");
   const [actionAdded, setActionAdded] = useState(false);
 
-  const utils = api.useUtils();
-
   const updateProject = api.project.update.useMutation({
-    onSuccess: () => {
-      void utils.project.getActiveWithDetails.invalidate();
-    },
+    // Note: Don't invalidate here - let the page handle invalidation after review completes
+    // This prevents the blank screen bug when changing project status during review
     onError: (error) => {
       notifications.show({
         title: "Error",

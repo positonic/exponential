@@ -9,8 +9,12 @@ import { ProjectReviewCard } from "./_components/ProjectReviewCard";
 import { ReviewProgress } from "./_components/ReviewProgress";
 import { ReviewCompletion } from "./_components/ReviewCompletion";
 import { WeeklyReviewExplainer } from "./_components/WeeklyReviewExplainer";
+import { type RouterOutputs } from "~/trpc/react";
 
 type ReviewStep = "intro" | "reviewing" | "complete";
+
+// Type for the projects array from the getActiveWithDetails query
+type ProjectsArray = RouterOutputs["project"]["getActiveWithDetails"];
 
 interface ProjectChanges {
   statusChanged: boolean;
@@ -21,6 +25,7 @@ interface ProjectChanges {
 
 export default function WeeklyReviewPage() {
   const { workspaceId } = useWorkspace();
+  const utils = api.useUtils();
   const [step, setStep] = useState<ReviewStep>("intro");
   const [currentProjectIndex, setCurrentProjectIndex] = useState(0);
   const [reviewedProjects, setReviewedProjects] = useState<Set<string>>(
@@ -29,6 +34,10 @@ export default function WeeklyReviewPage() {
   const [changes, setChanges] = useState<Map<string, ProjectChanges>>(
     new Map()
   );
+  // Snapshot of projects when review starts - prevents blank screen if projects change mid-review
+  const [reviewSessionProjects, setReviewSessionProjects] = useState<
+    ProjectsArray
+  >([]);
 
   const { data: projects, isLoading } =
     api.project.getActiveWithDetails.useQuery({
@@ -39,9 +48,15 @@ export default function WeeklyReviewPage() {
     return projects ?? [];
   }, [projects]);
 
-  const currentProject = activeProjects[currentProjectIndex];
+  // Use snapshot during review, live data otherwise
+  const currentProjects =
+    step === "reviewing" ? reviewSessionProjects : activeProjects;
+
+  const currentProject = currentProjects[currentProjectIndex];
 
   const handleStartReview = () => {
+    // Snapshot the projects at the start of the review session
+    setReviewSessionProjects([...activeProjects]);
     setStep("reviewing");
     setCurrentProjectIndex(0);
   };
@@ -50,17 +65,21 @@ export default function WeeklyReviewPage() {
     setReviewedProjects((prev) => new Set(prev).add(projectId));
     setChanges((prev) => new Map(prev).set(projectId, projectChanges));
 
-    if (currentProjectIndex < activeProjects.length - 1) {
+    if (currentProjectIndex < reviewSessionProjects.length - 1) {
       setCurrentProjectIndex((prev) => prev + 1);
     } else {
+      // Review complete - refresh the projects list now that all changes are done
+      void utils.project.getActiveWithDetails.invalidate();
       setStep("complete");
     }
   };
 
   const handleSkip = () => {
-    if (currentProjectIndex < activeProjects.length - 1) {
+    if (currentProjectIndex < reviewSessionProjects.length - 1) {
       setCurrentProjectIndex((prev) => prev + 1);
     } else {
+      // Review complete - refresh the projects list
+      void utils.project.getActiveWithDetails.invalidate();
       setStep("complete");
     }
   };
@@ -72,12 +91,14 @@ export default function WeeklyReviewPage() {
   };
 
   const handleNext = () => {
-    if (currentProjectIndex < activeProjects.length - 1) {
+    if (currentProjectIndex < reviewSessionProjects.length - 1) {
       setCurrentProjectIndex((prev) => prev + 1);
     }
   };
 
   const handleRestartReview = () => {
+    // Refresh the projects list to get latest data before restarting
+    void utils.project.getActiveWithDetails.invalidate();
     setStep("intro");
     setCurrentProjectIndex(0);
     setReviewedProjects(new Set());
@@ -112,7 +133,7 @@ export default function WeeklyReviewPage() {
         <>
           <ReviewProgress
             current={currentProjectIndex + 1}
-            total={activeProjects.length}
+            total={reviewSessionProjects.length}
             reviewedCount={reviewedProjects.size}
           />
           <ProjectReviewCard
@@ -126,7 +147,7 @@ export default function WeeklyReviewPage() {
             onPrevious={handlePrevious}
             onNext={handleNext}
             hasPrevious={currentProjectIndex > 0}
-            hasNext={currentProjectIndex < activeProjects.length - 1}
+            hasNext={currentProjectIndex < reviewSessionProjects.length - 1}
             workspaceId={workspaceId}
           />
         </>
@@ -134,7 +155,7 @@ export default function WeeklyReviewPage() {
 
       {step === "complete" && (
         <ReviewCompletion
-          totalProjects={activeProjects.length}
+          totalProjects={reviewSessionProjects.length}
           reviewedCount={reviewedProjects.size}
           changes={changes}
           onRestart={handleRestartReview}
