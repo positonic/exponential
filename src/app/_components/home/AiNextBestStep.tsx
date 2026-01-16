@@ -12,6 +12,10 @@ export function AiNextBestStep() {
   const [hasFetched, setHasFetched] = useState(false);
   const { workspaceId } = useWorkspace();
 
+  // Check user preference
+  const { data: preferences, isLoading: preferencesLoading } =
+    api.navigationPreference.getPreferences.useQuery();
+
   const today = new Date();
   const dayOfWeek = today.toLocaleDateString("en-US", { weekday: "long" });
   const isMonday = getDay(today) === 1;
@@ -125,6 +129,15 @@ export function AiNextBestStep() {
       fetchSuggestion();
     }
   }, [hasFetched, todayActions, habitStatus, weekOutcomes, fetchSuggestion]);
+
+  // Don't render if preference is disabled
+  if (preferencesLoading) {
+    return null;
+  }
+
+  if (preferences?.showSuggestedFocus === false) {
+    return null;
+  }
 
   // If user has set daily outcome(s), show "focused" state instead of AI suggestion
   if (dailyOutcomesCount > 0) {

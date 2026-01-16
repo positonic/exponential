@@ -39,12 +39,16 @@ export const navigationPreferenceRouter = createTRPCRouter({
       return {
         hiddenSections: [] as string[],
         hiddenItems: [] as string[],
+        showInspiringQuote: true,
+        showSuggestedFocus: true,
       };
     }
 
     return {
       hiddenSections: preferences.hiddenSections,
       hiddenItems: preferences.hiddenItems,
+      showInspiringQuote: preferences.showInspiringQuote,
+      showSuggestedFocus: preferences.showSuggestedFocus,
     };
   }),
 
@@ -161,4 +165,36 @@ export const navigationPreferenceRouter = createTRPCRouter({
       },
     });
   }),
+
+  // Toggle inspiring quote visibility
+  toggleInspiringQuote: protectedProcedure
+    .input(z.object({ visible: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.navigationPreference.upsert({
+        where: { userId: ctx.session.user.id },
+        update: { showInspiringQuote: input.visible },
+        create: {
+          userId: ctx.session.user.id,
+          hiddenSections: [],
+          hiddenItems: [],
+          showInspiringQuote: input.visible,
+        },
+      });
+    }),
+
+  // Toggle suggested focus visibility
+  toggleSuggestedFocus: protectedProcedure
+    .input(z.object({ visible: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.navigationPreference.upsert({
+        where: { userId: ctx.session.user.id },
+        update: { showSuggestedFocus: input.visible },
+        create: {
+          userId: ctx.session.user.id,
+          hiddenSections: [],
+          hiddenItems: [],
+          showSuggestedFocus: input.visible,
+        },
+      });
+    }),
 });

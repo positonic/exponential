@@ -25,6 +25,10 @@ import {
   IconRefresh,
   IconCheck,
   IconAlertCircle,
+  IconHome,
+  IconQuote,
+  IconSparkles,
+  IconChevronRight,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { notifications } from "@mantine/notifications";
@@ -138,6 +142,48 @@ export default function NavigationSettingsPage() {
       });
     },
   });
+
+  const toggleInspiringQuote =
+    api.navigationPreference.toggleInspiringQuote.useMutation({
+      onSuccess: () => {
+        void utils.navigationPreference.getPreferences.invalidate();
+        notifications.show({
+          title: "Updated",
+          message: "Home screen preference saved",
+          color: "green",
+          icon: <IconCheck size={16} />,
+        });
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Error",
+          message: error.message ?? "Failed to update preference",
+          color: "red",
+          icon: <IconAlertCircle size={16} />,
+        });
+      },
+    });
+
+  const toggleSuggestedFocus =
+    api.navigationPreference.toggleSuggestedFocus.useMutation({
+      onSuccess: () => {
+        void utils.navigationPreference.getPreferences.invalidate();
+        notifications.show({
+          title: "Updated",
+          message: "Home screen preference saved",
+          color: "green",
+          icon: <IconCheck size={16} />,
+        });
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Error",
+          message: error.message ?? "Failed to update preference",
+          color: "red",
+          icon: <IconAlertCircle size={16} />,
+        });
+      },
+    });
 
   const isSectionHidden = (section: string) =>
     preferences?.hiddenSections?.includes(section) ?? false;
@@ -276,6 +322,103 @@ export default function NavigationSettingsPage() {
             );
           })}
         </Accordion>
+
+        {/* Home Screen Section */}
+        <Card
+          className="bg-surface-secondary border-border-primary"
+          withBorder
+          p="lg"
+        >
+          <Group gap="sm" mb="md">
+            <IconHome size={20} className="text-text-muted" />
+            <div>
+              <Title order={4} className="text-text-primary">
+                Home Screen
+              </Title>
+              <Text size="sm" c="dimmed">
+                Customize what appears on your home screen
+              </Text>
+            </div>
+          </Group>
+
+          <Stack gap="sm">
+            {/* Daily Quote Toggle */}
+            <Paper p="sm" withBorder className="bg-surface-primary">
+              <Group justify="space-between">
+                <Group gap="sm">
+                  <IconQuote size={18} className="text-text-muted" />
+                  <div>
+                    <Text size="sm" fw={500}>
+                      Daily Inspiring Quote
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      Show a motivational quote each day
+                    </Text>
+                  </div>
+                </Group>
+                <Switch
+                  checked={preferences?.showInspiringQuote ?? true}
+                  onChange={(e) =>
+                    toggleInspiringQuote.mutate({
+                      visible: e.currentTarget.checked,
+                    })
+                  }
+                  disabled={toggleInspiringQuote.isPending}
+                />
+              </Group>
+            </Paper>
+
+            {/* Suggested Focus Toggle */}
+            <Paper p="sm" withBorder className="bg-surface-primary">
+              <Group justify="space-between">
+                <Group gap="sm">
+                  <IconSparkles size={18} className="text-text-muted" />
+                  <div>
+                    <Text size="sm" fw={500}>
+                      AI Suggested Focus
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      Show AI-powered daily focus suggestions
+                    </Text>
+                  </div>
+                </Group>
+                <Switch
+                  checked={preferences?.showSuggestedFocus ?? true}
+                  onChange={(e) =>
+                    toggleSuggestedFocus.mutate({
+                      visible: e.currentTarget.checked,
+                    })
+                  }
+                  disabled={toggleSuggestedFocus.isPending}
+                />
+              </Group>
+            </Paper>
+
+            {/* Browse Quotes Link */}
+            <Paper
+              p="sm"
+              withBorder
+              className="bg-surface-primary cursor-pointer hover:bg-surface-secondary transition-colors"
+              component={Link}
+              href="/quotes"
+            >
+              <Group justify="space-between">
+                <Group gap="sm">
+                  <IconQuote size={18} className="text-text-muted" />
+                  <div>
+                    <Text size="sm" fw={500}>
+                      Browse All Quotes
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      View our collection of inspirational quotes
+                    </Text>
+                  </div>
+                </Group>
+                <IconChevronRight size={18} className="text-text-muted" />
+              </Group>
+            </Paper>
+          </Stack>
+        </Card>
 
         {/* Integrations Section */}
         <Card className="bg-surface-secondary border-border-primary" withBorder p="lg">

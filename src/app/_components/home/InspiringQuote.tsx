@@ -4,12 +4,16 @@ import { useState, useEffect } from "react";
 import { Paper, Text, Group, CloseButton, Transition } from "@mantine/core";
 import { IconQuote } from "@tabler/icons-react";
 import { getQuoteOfTheDay } from "./quotes";
+import { api } from "~/trpc/react";
 
 const QUOTE_DISMISSAL_KEY = "quote-dismissed-date";
 
 export function InspiringQuote() {
   const [isVisible, setIsVisible] = useState(false);
   const [quote, setQuote] = useState(getQuoteOfTheDay());
+
+  const { data: preferences, isLoading: preferencesLoading } =
+    api.navigationPreference.getPreferences.useQuery();
 
   useEffect(() => {
     // Check if already dismissed today
@@ -18,6 +22,15 @@ export function InspiringQuote() {
     setIsVisible(dismissedDate !== today);
     setQuote(getQuoteOfTheDay());
   }, []);
+
+  // Don't render if preference is disabled
+  if (preferencesLoading) {
+    return null;
+  }
+
+  if (preferences?.showInspiringQuote === false) {
+    return null;
+  }
 
   const handleDismiss = () => {
     const today = new Date().toISOString().split("T")[0];
