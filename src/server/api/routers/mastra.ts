@@ -9,6 +9,7 @@ import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
+import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -1647,6 +1648,87 @@ export const mastraRouter = createTRPCRouter({
           source: "fallback",
         };
       }
+    }),
+
+  // Calendar Endpoints for Mastra agents
+  getCalendarEvents: protectedProcedure
+    .input(z.object({
+      timeframe: z.enum(['today', 'upcoming', 'custom']).default('today'),
+      days: z.number().min(1).max(30).optional().default(7),
+      timeMin: z.string().optional(),
+      timeMax: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const calendarService = new GoogleCalendarService();
+      const userId = ctx.session.user.id;
+
+      try {
+        let events;
+        if (input.timeframe === 'today') {
+          events = await calendarService.getTodayEvents(userId);
+        } else if (input.timeframe === 'upcoming') {
+          events = await calendarService.getUpcomingEvents(userId, input.days);
+        } else {
+          events = await calendarService.getEvents(userId, {
+            timeMin: input.timeMin ? new Date(input.timeMin) : undefined,
+            timeMax: input.timeMax ? new Date(input.timeMax) : undefined,
+          });
+        }
+
+        return {
+          events: events.map((e: any) => ({
+            id: e.id || '',
+            summary: e.summary || 'No title',
+            description: e.description || undefined,
+            start: e.start?.dateTime || e.start?.date || '',
+            end: e.end?.dateTime || e.end?.date || '',
+            location: e.location || undefined,
+            attendees: e.attendees?.map((a: any) => a.email || a.displayName) || [],
+            htmlLink: e.htmlLink || undefined,
+            status: e.status || undefined,
+          })),
+          calendarConnected: true,
+        };
+      } catch (error: any) {
+        // Check if it's a "not connected" error
+        if (error.message?.includes('not connected') || error.message?.includes('No Google account')) {
+          return {
+            events: [],
+            calendarConnected: false,
+            error: 'Google Calendar not connected. Please connect your calendar in Settings.',
+          };
+        }
+        throw error;
+      }
+    }),
+
+  getCalendarConnectionStatus: protectedProcedure
+    .query(async ({ ctx }) => {
+      const account = await ctx.db.account.findFirst({
+        where: {
+          userId: ctx.session.user.id,
+          provider: "google",
+        },
+        select: {
+          access_token: true,
+          refresh_token: true,
+          scope: true,
+          expires_at: true,
+        },
+      });
+
+      if (!account?.access_token) {
+        return { isConnected: false, hasCalendarScope: false };
+      }
+
+      const hasCalendarScope = account.scope?.includes("calendar.events") ?? false;
+      const tokenNotExpired = !account.expires_at || account.expires_at > Math.floor(Date.now() / 1000) + 300;
+      const canRefresh = !!account.refresh_token;
+
+      return {
+        isConnected: hasCalendarScope && (tokenNotExpired || canRefresh),
+        hasCalendarScope,
+      };
     }),
 });
 
