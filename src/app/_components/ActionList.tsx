@@ -12,6 +12,7 @@ import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
 import type { Priority } from "~/types/action";
+import { SchedulingSuggestion, type SchedulingSuggestionData } from "./SchedulingSuggestion";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
 type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
@@ -135,7 +136,14 @@ export function ActionList({
   onProjectBulkDelete,
   enableBulkEditForFocus = false,
   onFocusBulkDelete,
-  onFocusBulkReschedule
+  onFocusBulkReschedule,
+  schedulingSuggestions,
+  schedulingSuggestionsLoading = false,
+  _schedulingSuggestionsError,
+  _calendarConnected = true,
+  onApplySchedulingSuggestion,
+  onDismissSchedulingSuggestion,
+  applyingSuggestionId
 }: {
   viewName: string,
   actions: Action[],
@@ -149,7 +157,15 @@ export function ActionList({
   onProjectBulkDelete?: (actionIds: string[]) => void,
   enableBulkEditForFocus?: boolean,
   onFocusBulkDelete?: (actionIds: string[]) => void,
-  onFocusBulkReschedule?: (date: Date | null, actionIds: string[]) => void
+  onFocusBulkReschedule?: (date: Date | null, actionIds: string[]) => void,
+  // AI Scheduling suggestions props
+  schedulingSuggestions?: Map<string, SchedulingSuggestionData>,
+  schedulingSuggestionsLoading?: boolean,
+  _schedulingSuggestionsError?: string | null,
+  _calendarConnected?: boolean,
+  onApplySchedulingSuggestion?: (actionId: string, suggestedDate: string, suggestedTime: string) => void,
+  onDismissSchedulingSuggestion?: (actionId: string) => void,
+  applyingSuggestionId?: string | null
 }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
@@ -816,6 +832,16 @@ export function ActionList({
           </Menu.Dropdown>
         </Menu>
       </Group>
+
+      {/* AI Scheduling Suggestion - only shown for overdue actions with suggestions */}
+      {isOverdue && schedulingSuggestions?.has(action.id) && onApplySchedulingSuggestion && onDismissSchedulingSuggestion && (
+        <SchedulingSuggestion
+          suggestion={schedulingSuggestions.get(action.id)!}
+          onApply={onApplySchedulingSuggestion}
+          onDismiss={onDismissSchedulingSuggestion}
+          isApplying={applyingSuggestionId === action.id}
+        />
+      )}
     </Paper>
   );
 
@@ -843,6 +869,19 @@ export function ActionList({
                   <Badge variant="filled" color="red" size="sm">
                     {overdueActions.length}
                   </Badge>
+                  {/* AI Scheduling indicator */}
+                  {schedulingSuggestionsLoading && (
+                    <Badge variant="light" color="blue" size="xs">
+                      AI analyzing...
+                    </Badge>
+                  )}
+                  {!schedulingSuggestionsLoading && schedulingSuggestions && schedulingSuggestions.size > 0 && (
+                    <Tooltip label="AI scheduling suggestions available">
+                      <Badge variant="light" color="green" size="xs">
+                        {schedulingSuggestions.size} AI suggestions
+                      </Badge>
+                    </Tooltip>
+                  )}
                 </Group>
               </Accordion.Control>
               {/* Show bulk edit toggle for overdue actions - outside Accordion.Control to avoid nested buttons */}

@@ -6,10 +6,11 @@ import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
 import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge } from "@mantine/core";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { notifications } from "@mantine/notifications";
+import type { SchedulingSuggestionData } from "./SchedulingSuggestion";
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
@@ -101,6 +102,89 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
   // Count of unassigned Notion imports (for badge)
   const notionUnassignedCount = notionUnassignedQuery.data?.length ?? 0;
+
+  // State for dismissed scheduling suggestions
+  const [dismissedSuggestionIds, setDismissedSuggestionIds] = useState<Set<string>>(new Set());
+  const [applyingSuggestionId, setApplyingSuggestionId] = useState<string | null>(null);
+
+  // Determine if we have overdue actions (for enabling scheduling suggestions query)
+  const hasOverdueActions = useMemo(() => {
+    if (!actions) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return actions.some(action => {
+      if (!action.dueDate || action.status !== 'ACTIVE') return false;
+      const dueDate = new Date(action.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+      return dueDate < today;
+    });
+  }, [actions]);
+
+  // Query for AI scheduling suggestions (only for non-project "today" view with overdue actions)
+  const shouldFetchSchedulingSuggestions = !projectId && viewName.toLowerCase() === 'today' && hasOverdueActions;
+  const schedulingSuggestionsQuery = api.scheduling.getSchedulingSuggestions.useQuery(
+    { days: 7 },
+    {
+      enabled: shouldFetchSchedulingSuggestions,
+      staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  // Filter out dismissed suggestions and create a map by actionId
+  const schedulingSuggestionsMap = useMemo(() => {
+    const map = new Map<string, SchedulingSuggestionData>();
+    if (schedulingSuggestionsQuery.data?.suggestions) {
+      for (const suggestion of schedulingSuggestionsQuery.data.suggestions) {
+        if (!dismissedSuggestionIds.has(suggestion.actionId)) {
+          map.set(suggestion.actionId, suggestion);
+        }
+      }
+    }
+    return map;
+  }, [schedulingSuggestionsQuery.data?.suggestions, dismissedSuggestionIds]);
+
+  // Handler for applying a scheduling suggestion
+  const handleApplySchedulingSuggestion = async (actionId: string, suggestedDate: string, suggestedTime: string) => {
+    setApplyingSuggestionId(actionId);
+    try {
+      // Parse the date and time
+      const [hours, minutes] = suggestedTime.split(':').map(Number);
+      const scheduledStart = new Date(suggestedDate + 'T00:00:00');
+      scheduledStart.setHours(hours ?? 9, minutes ?? 0, 0, 0);
+
+      const dueDate = new Date(suggestedDate + 'T00:00:00');
+
+      await bulkUpdateMutation.mutateAsync({
+        id: actionId,
+        dueDate,
+        scheduledStart,
+      });
+
+      // Remove the suggestion after applying
+      setDismissedSuggestionIds(prev => new Set([...prev, actionId]));
+
+      notifications.show({
+        title: 'Task Scheduled',
+        message: `Scheduled for ${scheduledStart.toLocaleDateString()} at ${suggestedTime}`,
+        color: 'green',
+        autoClose: 3000,
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Failed to Schedule',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        color: 'red',
+      });
+    } finally {
+      setApplyingSuggestionId(null);
+    }
+  };
+
+  // Handler for dismissing a scheduling suggestion
+  const handleDismissSchedulingSuggestion = (actionId: string) => {
+    setDismissedSuggestionIds(prev => new Set([...prev, actionId]));
+  };
 
   // Bulk update mutation for rescheduling
   const bulkUpdateMutation = api.action.update.useMutation({
@@ -776,6 +860,13 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           enableBulkEditForFocus={!projectId && isFocusView(viewName)}
           onFocusBulkDelete={handleFocusBulkDelete}
           onFocusBulkReschedule={handleFocusBulkReschedule}
+          schedulingSuggestions={schedulingSuggestionsMap}
+          schedulingSuggestionsLoading={schedulingSuggestionsQuery.isLoading}
+          _schedulingSuggestionsError={schedulingSuggestionsQuery.error?.message}
+          _calendarConnected={schedulingSuggestionsQuery.data?.calendarConnected}
+          onApplySchedulingSuggestion={handleApplySchedulingSuggestion}
+          onDismissSchedulingSuggestion={handleDismissSchedulingSuggestion}
+          applyingSuggestionId={applyingSuggestionId}
         />
       )}
       <div className="mt-6">
