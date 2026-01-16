@@ -569,9 +569,77 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     });
   };
 
+  // Handle inbox bulk schedule (assign due date to untriaged actions)
+  const handleInboxBulkSchedule = async (date: Date | null, actionIds: string[]) => {
+    if (actionIds.length === 0) return;
 
+    const totalCount = actionIds.length;
 
-  
+    // Show initial notification
+    notifications.show({
+      id: 'bulk-schedule-inbox',
+      title: 'Scheduling...',
+      message: `Updating ${totalCount} action${totalCount !== 1 ? 's' : ''}...`,
+      loading: true,
+      autoClose: false,
+    });
+
+    try {
+      // Process mutations sequentially to avoid overwhelming database connection pool
+      let successes = 0;
+      for (let i = 0; i < actionIds.length; i++) {
+        const actionId = actionIds[i]!;
+        await bulkUpdateMutation.mutateAsync({
+          id: actionId,
+          dueDate: date ?? undefined,
+        });
+        successes += 1;
+
+        // Small delay between mutations
+        if (i < actionIds.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+
+      // Invalidate queries
+      await utils.action.getAll.invalidate();
+      await utils.action.getToday.invalidate();
+
+      notifications.update({
+        id: 'bulk-schedule-inbox',
+        title: 'Scheduled',
+        message: `Successfully updated ${successes} of ${totalCount} action${totalCount !== 1 ? 's' : ''}`,
+        loading: false,
+        autoClose: 3000,
+        color: 'green',
+      });
+    } catch (err) {
+      const errMsg = (err && (err as { message?: string }).message) ? (err as { message: string }).message : String(err);
+      console.error('Bulk schedule error:', err);
+
+      const isConnectionError = /connect|ECONN|timeout/i.test(errMsg);
+      const message = isConnectionError
+        ? 'Connection error while scheduling — please check your network and try again.'
+        : `Failed to schedule some actions: ${errMsg}`;
+
+      notifications.update({
+        id: 'bulk-schedule-inbox',
+        title: 'Error',
+        message,
+        loading: false,
+        autoClose: 5000,
+        color: 'red',
+      });
+    }
+  };
+
+  // Handle inbox bulk delete
+  const handleInboxBulkDelete = async (actionIds: string[]) => {
+    bulkDeleteMutation.mutate({
+      actionIds,
+    });
+  };
+
   // Use the appropriate query based on whether we have a projectId
   const outcomes = projectId 
     ? api.outcome.getProjectOutcomes.useQuery(
@@ -860,6 +928,9 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           enableBulkEditForFocus={!projectId && isFocusView(viewName)}
           onFocusBulkDelete={handleFocusBulkDelete}
           onFocusBulkReschedule={handleFocusBulkReschedule}
+          enableBulkEditForInbox={viewName.toLowerCase() === 'inbox'}
+          onInboxBulkSchedule={handleInboxBulkSchedule}
+          onInboxBulkDelete={handleInboxBulkDelete}
           schedulingSuggestions={schedulingSuggestionsMap}
           schedulingSuggestionsLoading={schedulingSuggestionsQuery.isLoading}
           _schedulingSuggestionsError={schedulingSuggestionsQuery.error?.message}

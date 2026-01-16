@@ -137,6 +137,9 @@ export function ActionList({
   enableBulkEditForFocus = false,
   onFocusBulkDelete,
   onFocusBulkReschedule,
+  enableBulkEditForInbox = false,
+  onInboxBulkSchedule,
+  onInboxBulkDelete,
   schedulingSuggestions,
   schedulingSuggestionsLoading = false,
   _schedulingSuggestionsError,
@@ -158,6 +161,9 @@ export function ActionList({
   enableBulkEditForFocus?: boolean,
   onFocusBulkDelete?: (actionIds: string[]) => void,
   onFocusBulkReschedule?: (date: Date | null, actionIds: string[]) => void,
+  enableBulkEditForInbox?: boolean,
+  onInboxBulkSchedule?: (date: Date | null, actionIds: string[]) => Promise<void>,
+  onInboxBulkDelete?: (actionIds: string[]) => Promise<void>,
   // AI Scheduling suggestions props
   schedulingSuggestions?: Map<string, SchedulingSuggestionData>,
   schedulingSuggestionsLoading?: boolean,
@@ -178,6 +184,8 @@ export function ActionList({
   const [selectedProjectActionIds, setSelectedProjectActionIds] = useState<Set<string>>(new Set());
   const [bulkEditFocusMode, setBulkEditFocusMode] = useState(false);
   const [selectedFocusActionIds, setSelectedFocusActionIds] = useState<Set<string>>(new Set());
+  const [bulkEditInboxMode, setBulkEditInboxMode] = useState(false);
+  const [selectedInboxActionIds, setSelectedInboxActionIds] = useState<Set<string>>(new Set());
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
   const utils = api.useUtils();
@@ -326,8 +334,8 @@ export function ActionList({
 
       switch (viewName.toLowerCase()) {
         case 'inbox':
-          // Show untriaged actions (no due date)
-          return !action.dueDate;
+          // Show untriaged actions (no due date AND no project assigned)
+          return !action.dueDate && !action.projectId;
         case 'today':
           // Check if the normalized action due date matches normalized today
           return normalizedActionDueDate?.getTime() === today.getTime();
@@ -483,6 +491,35 @@ export function ActionList({
     setSelectedFocusActionIds(new Set());
   };
 
+  // Helper functions for inbox bulk operations
+  const handleSelectAllInbox = () => {
+    const inboxActionIds = filteredActions
+      .filter(a => !a.dueDate && !a.projectId)
+      .map(a => a.id);
+    setSelectedInboxActionIds(new Set(inboxActionIds));
+  };
+
+  const handleSelectNoneInbox = () => {
+    setSelectedInboxActionIds(new Set());
+  };
+
+  const handleInboxBulkDelete = async () => {
+    if (selectedInboxActionIds.size === 0 || !onInboxBulkDelete) return;
+
+    if (window.confirm(`Are you sure you want to delete ${selectedInboxActionIds.size} actions?`)) {
+      await onInboxBulkDelete(Array.from(selectedInboxActionIds));
+      setSelectedInboxActionIds(new Set());
+      setBulkEditInboxMode(false);
+    }
+  };
+
+  const handleInboxBulkSchedule = async (date: Date | null) => {
+    if (selectedInboxActionIds.size === 0 || !onInboxBulkSchedule) return;
+
+    await onInboxBulkSchedule(date, Array.from(selectedInboxActionIds));
+    setSelectedInboxActionIds(new Set());
+  };
+
   // Helper to render a single action item (used for both lists)
   const renderActionItem = (action: Action, isOverdue: boolean) => (
     <Paper
@@ -593,6 +630,25 @@ export function ActionList({
                     newSelected.delete(action.id);
                   }
                   setSelectedFocusActionIds(newSelected);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+          {/* Bulk selection checkbox for inbox actions when bulk edit is enabled */}
+          {!isOverdue && bulkEditInboxMode && enableBulkEditForInbox && !action.dueDate && (
+            <div className="bulk-checkbox-wrapper">
+              <Checkbox
+                size="sm"
+                checked={selectedInboxActionIds.has(action.id)}
+                onChange={(event) => {
+                  const newSelected = new Set(selectedInboxActionIds);
+                  if (event.currentTarget.checked) {
+                    newSelected.add(action.id);
+                  } else {
+                    newSelected.delete(action.id);
+                  }
+                  setSelectedInboxActionIds(newSelected);
                 }}
                 onClick={(e) => e.stopPropagation()}
               />
@@ -972,7 +1028,7 @@ export function ActionList({
         >
           Show: {filter === "ACTIVE" ? "Active" : "Completed"}
         </button>
-        {(enableBulkEditForProject || enableBulkEditForFocus) && (
+        {(enableBulkEditForProject || enableBulkEditForFocus || enableBulkEditForInbox) && (
           <Button
             size="xs"
             variant="subtle"
@@ -983,10 +1039,13 @@ export function ActionList({
               } else if (enableBulkEditForFocus) {
                 setBulkEditFocusMode(!bulkEditFocusMode);
                 setSelectedFocusActionIds(new Set());
+              } else if (enableBulkEditForInbox) {
+                setBulkEditInboxMode(!bulkEditInboxMode);
+                setSelectedInboxActionIds(new Set());
               }
             }}
           >
-            {(bulkEditProjectMode || bulkEditFocusMode) ? "Exit" : "Bulk edit"}
+            {(bulkEditProjectMode || bulkEditFocusMode || bulkEditInboxMode) ? "Exit" : "Bulk edit"}
           </Button>
         )}
       </Group>
@@ -1040,6 +1099,38 @@ export function ActionList({
             leftSection={<IconTrash size={12} />}
             disabled={selectedFocusActionIds.size === 0}
             onClick={handleFocusBulkDelete}
+          >
+            Delete Selected
+          </Button>
+        </Group>
+      )}
+
+      {/* Bulk actions toolbar for inbox tasks */}
+      {bulkEditInboxMode && enableBulkEditForInbox && (
+        <Group mb="md" gap="sm">
+          <Button size="xs" variant="light" onClick={handleSelectAllInbox}>
+            Select All
+          </Button>
+          <Button size="xs" variant="light" onClick={handleSelectNoneInbox}>
+            Select None
+          </Button>
+          <Badge>{selectedInboxActionIds.size} selected</Badge>
+          <UnifiedDatePicker
+            value={null}
+            onChange={(date) => void handleInboxBulkSchedule(date)}
+            mode="bulk"
+            selectedCount={selectedInboxActionIds.size}
+            triggerText="Schedule"
+            notificationContext="action"
+            disabled={selectedInboxActionIds.size === 0}
+          />
+          <Button
+            size="xs"
+            variant="filled"
+            color="red"
+            leftSection={<IconTrash size={12} />}
+            disabled={selectedInboxActionIds.size === 0}
+            onClick={() => void handleInboxBulkDelete()}
           >
             Delete Selected
           </Button>

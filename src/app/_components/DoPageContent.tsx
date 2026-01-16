@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Group, Title, SegmentedControl, ActionIcon } from "@mantine/core";
+import { Group, Title, SegmentedControl, ActionIcon, Text } from "@mantine/core";
 import { IconFilter } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 
@@ -81,6 +81,11 @@ export function DoPageContent({ initialFilter = "inbox" }: DoPageContentProps) {
             <Title order={2} size="h3" className="text-text-primary">
               {getTitle(filter)}
             </Title>
+            {filter === "inbox" && (
+              <Text size="sm" c="dimmed" mt={4}>
+                Actions without a date or project assigned
+              </Text>
+            )}
           </div>
 
           {/* Right side: Filter selector */}
