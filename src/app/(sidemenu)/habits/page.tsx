@@ -5,6 +5,7 @@ import { IconFlame, IconCheck, IconCalendar, IconPlus } from "@tabler/icons-reac
 import { CreateHabitModal } from "~/app/_components/CreateHabitModal";
 import { HabitList, TodayHabits } from "~/app/_components/HabitList";
 import { HabitStreakCalendar } from "~/app/_components/HabitStreakCalendar";
+import { WeeklyReviewHabitCard } from "~/app/_components/WeeklyReviewHabitCard";
 import { api } from "~/trpc/react";
 import { subDays, startOfDay } from "date-fns";
 import { useMemo } from "react";
@@ -101,6 +102,12 @@ export default function HabitsPage() {
             </Group>
           </Paper>
         </SimpleGrid>
+
+        {/* Weekly Rituals */}
+        <Stack gap="xs">
+          <Text fw={500} size="sm" c="dimmed">Weekly Rituals</Text>
+          <WeeklyReviewHabitCard />
+        </Stack>
 
         {/* Today's Habits */}
         <Paper withBorder p="md" radius="md">

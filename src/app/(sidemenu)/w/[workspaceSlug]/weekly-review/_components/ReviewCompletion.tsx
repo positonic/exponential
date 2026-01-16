@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Card, Text, Stack, Button, Group } from "@mantine/core";
-import { IconCheck, IconHome, IconRefresh } from "@tabler/icons-react";
+import { Card, Text, Stack, Button, Group, Badge } from "@mantine/core";
+import {
+  IconCheck,
+  IconHome,
+  IconRefresh,
+  IconFlame,
+  IconTrophy,
+} from "@tabler/icons-react";
 import Link from "next/link";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
@@ -21,6 +27,17 @@ interface ReviewCompletionProps {
   onRestart: () => void;
 }
 
+// Milestone thresholds
+const MILESTONES = [4, 12, 26, 52];
+
+function getMilestoneMessage(streak: number): string | null {
+  if (streak === 4) return "1 month of consistency!";
+  if (streak === 12) return "3 months strong!";
+  if (streak === 26) return "Half a year!";
+  if (streak === 52) return "A full year of weekly reviews!";
+  return null;
+}
+
 export function ReviewCompletion({
   totalProjects,
   reviewedCount,
@@ -29,6 +46,7 @@ export function ReviewCompletion({
 }: ReviewCompletionProps) {
   const { workspace, workspaceId } = useWorkspace();
   const hasMarkedComplete = useRef(false);
+  const utils = api.useUtils();
 
   // Calculate summary stats
   let statusChanges = 0;
@@ -44,7 +62,18 @@ export function ReviewCompletion({
   });
 
   // Mark review as complete when component mounts
-  const markComplete = api.weeklyReview.markComplete.useMutation();
+  const markComplete = api.weeklyReview.markComplete.useMutation({
+    onSuccess: () => {
+      // Invalidate streak query to get updated data
+      void utils.weeklyReview.getStreak.invalidate();
+    },
+  });
+
+  // Fetch streak data (will update after marking complete)
+  const { data: streakData } = api.weeklyReview.getStreak.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspaceId }
+  );
 
   useEffect(() => {
     if (!hasMarkedComplete.current && workspaceId) {
@@ -57,13 +86,26 @@ export function ReviewCompletion({
         actionsAdded,
       });
     }
-  }, [workspaceId, reviewedCount, statusChanges, priorityChanges, actionsAdded, markComplete]);
+  }, [
+    workspaceId,
+    reviewedCount,
+    statusChanges,
+    priorityChanges,
+    actionsAdded,
+    markComplete,
+  ]);
 
   const hasChanges =
     statusChanges > 0 ||
     priorityChanges > 0 ||
     actionsAdded > 0 ||
     outcomesChanged > 0;
+
+  const currentStreak = streakData?.currentStreak ?? 0;
+  const longestStreak = streakData?.longestStreak ?? 0;
+  const isNewRecord = currentStreak > 0 && currentStreak === longestStreak;
+  const milestoneMessage = getMilestoneMessage(currentStreak);
+  const isMilestone = MILESTONES.includes(currentStreak);
 
   return (
     <Card
@@ -86,6 +128,45 @@ export function ReviewCompletion({
             {totalProjects !== 1 ? "s" : ""}
           </Text>
         </Stack>
+
+        {/* Streak Celebration */}
+        {currentStreak > 0 && (
+          <Card
+            withBorder
+            radius="sm"
+            className={`w-full max-w-sm border-orange-500/30 ${isMilestone ? "bg-orange-500/10" : "bg-orange-500/5"}`}
+            p="md"
+          >
+            <Stack gap="sm" align="center">
+              <Group gap="xs">
+                <IconFlame size={24} className="text-orange-500" />
+                <Text size="lg" fw={600} className="text-text-primary">
+                  {currentStreak} week streak!
+                </Text>
+                {isNewRecord && currentStreak > 1 && (
+                  <Badge
+                    size="sm"
+                    color="yellow"
+                    leftSection={<IconTrophy size={12} />}
+                  >
+                    New Record
+                  </Badge>
+                )}
+              </Group>
+              {milestoneMessage && (
+                <Text size="sm" fw={500} className="text-orange-500">
+                  {milestoneMessage}
+                </Text>
+              )}
+              {!isMilestone && currentStreak > 1 && (
+                <Text size="xs" className="text-text-muted">
+                  Keep it going! Next milestone:{" "}
+                  {MILESTONES.find((m) => m > currentStreak)} weeks
+                </Text>
+              )}
+            </Stack>
+          </Card>
+        )}
 
         {hasChanges && (
           <Card

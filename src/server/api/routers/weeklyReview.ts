@@ -549,4 +549,100 @@ export const weeklyReviewRouter = createTRPCRouter({
         weekStartDate,
       };
     }),
+
+  /**
+   * Get streak data for weekly reviews
+   */
+  getStreak: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Get all completions ordered by week descending
+      const completions = await ctx.db.weeklyReviewCompletion.findMany({
+        where: {
+          userId,
+          workspaceId: input.workspaceId ?? null,
+        },
+        orderBy: { weekStartDate: "desc" },
+        select: { weekStartDate: true },
+      });
+
+      if (completions.length === 0) {
+        return {
+          currentStreak: 0,
+          longestStreak: 0,
+          totalReviews: 0,
+          thisWeekComplete: false,
+        };
+      }
+
+      // Calculate current streak (consecutive weeks from now or last week)
+      const now = new Date();
+      const thisWeekStart = getSundayWeekStart(now);
+      const lastWeekStart = new Date(thisWeekStart);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+      let currentStreak = 0;
+      let expectedWeek = thisWeekStart;
+
+      // Check if this week is done or last week is done
+      const weekDates = completions.map((c) => c.weekStartDate.getTime());
+      const thisWeekDone = weekDates.includes(thisWeekStart.getTime());
+      const lastWeekDone = weekDates.includes(lastWeekStart.getTime());
+
+      if (!thisWeekDone && !lastWeekDone) {
+        currentStreak = 0; // Streak broken
+      } else {
+        expectedWeek = thisWeekDone ? thisWeekStart : lastWeekStart;
+
+        for (const completion of completions) {
+          const weekTime = completion.weekStartDate.getTime();
+          if (weekTime === expectedWeek.getTime()) {
+            currentStreak++;
+            expectedWeek = new Date(expectedWeek);
+            expectedWeek.setDate(expectedWeek.getDate() - 7);
+          } else if (weekTime < expectedWeek.getTime()) {
+            break; // Gap found, streak ends
+          }
+        }
+      }
+
+      // Calculate longest streak (scan all completions)
+      let longestStreak = 0;
+      let tempStreak = 0;
+      let prevWeek: Date | null = null;
+
+      // Sort by date ascending for longest streak calc
+      const sortedCompletions = [...completions].sort(
+        (a, b) => a.weekStartDate.getTime() - b.weekStartDate.getTime()
+      );
+
+      for (const completion of sortedCompletions) {
+        if (!prevWeek) {
+          tempStreak = 1;
+        } else {
+          const expectedNext = new Date(prevWeek);
+          expectedNext.setDate(expectedNext.getDate() + 7);
+          if (completion.weekStartDate.getTime() === expectedNext.getTime()) {
+            tempStreak++;
+          } else {
+            tempStreak = 1;
+          }
+        }
+        longestStreak = Math.max(longestStreak, tempStreak);
+        prevWeek = completion.weekStartDate;
+      }
+
+      return {
+        currentStreak,
+        longestStreak,
+        totalReviews: completions.length,
+        thisWeekComplete: thisWeekDone,
+      };
+    }),
 });

@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Container, Title } from "@mantine/core";
+import { useState, useMemo, useRef, useCallback } from "react";
+import { Container, Title, Group, ActionIcon, Tooltip } from "@mantine/core";
+import { useHotkeys, useDisclosure } from "@mantine/hooks";
+import { IconKeyboard } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { WeeklyReviewIntro } from "./_components/WeeklyReviewIntro";
@@ -9,18 +11,63 @@ import { ProjectReviewCard } from "./_components/ProjectReviewCard";
 import { ReviewProgress } from "./_components/ReviewProgress";
 import { ReviewCompletion } from "./_components/ReviewCompletion";
 import { WeeklyReviewExplainer } from "./_components/WeeklyReviewExplainer";
+import { KeyboardShortcutsHelp } from "./_components/KeyboardShortcutsHelp";
 import { type RouterOutputs } from "~/trpc/react";
 
 type ReviewStep = "intro" | "reviewing" | "complete";
 
 // Type for the projects array from the getActiveWithDetails query
 type ProjectsArray = RouterOutputs["project"]["getActiveWithDetails"];
+type Project = ProjectsArray[number];
 
 interface ProjectChanges {
   statusChanged: boolean;
   priorityChanged: boolean;
   actionAdded: boolean;
   outcomesChanged: boolean;
+}
+
+/**
+ * Calculate project health score (0-100)
+ * Lower scores = more issues = should be reviewed first
+ */
+function calculateProjectHealthScore(project: Project): number {
+  let score = 100;
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // -30 if no active action (no next action defined)
+  const hasActiveAction = project.actions.some((a) => a.status === "ACTIVE");
+  if (!hasActiveAction) score -= 30;
+
+  // -25 if no recent activity (no completions in 7 days)
+  const hasRecentActivity = project.actions.some(
+    (a) => a.completedAt && new Date(a.completedAt) > sevenDaysAgo
+  );
+  if (!hasRecentActivity) score -= 25;
+
+  // -20 if has overdue actions
+  const hasOverdue = project.actions.some(
+    (a) =>
+      a.dueDate &&
+      new Date(a.dueDate) < today &&
+      a.status !== "COMPLETED" &&
+      a.status !== "DONE"
+  );
+  if (hasOverdue) score -= 20;
+
+  // -15 if no weekly outcome linked
+  const hasWeeklyOutcome = project.outcomes.some((o) => o.type === "weekly");
+  if (!hasWeeklyOutcome) score -= 15;
+
+  // -10 if status is stuck or blocked
+  if (project.status === "STUCK" || project.status === "BLOCKED") {
+    score -= 10;
+  }
+
+  return Math.max(0, score);
 }
 
 export default function WeeklyReviewPage() {
@@ -39,6 +86,13 @@ export default function WeeklyReviewPage() {
     ProjectsArray
   >([]);
 
+  // Keyboard shortcuts help modal
+  const [helpOpened, { open: openHelp, close: closeHelp }] =
+    useDisclosure(false);
+
+  // Ref for focusing the next action input
+  const nextActionInputRef = useRef<HTMLInputElement>(null);
+
   const { data: projects, isLoading } =
     api.project.getActiveWithDetails.useQuery({
       workspaceId: workspaceId ?? undefined,
@@ -49,9 +103,26 @@ export default function WeeklyReviewPage() {
     workspaceId: workspaceId ?? undefined,
   });
 
+  // Fetch streak data for motivation display
+  const { data: streakData } = api.weeklyReview.getStreak.useQuery({
+    workspaceId: workspaceId ?? undefined,
+  });
+
+  // Sort projects by health score (lowest first = needs most attention)
   const activeProjects = useMemo(() => {
-    return projects ?? [];
+    const projectList = projects ?? [];
+    return [...projectList].sort((a, b) => {
+      const scoreA = calculateProjectHealthScore(a);
+      const scoreB = calculateProjectHealthScore(b);
+      return scoreA - scoreB; // Lower scores (more issues) first
+    });
   }, [projects]);
+
+  // Count projects that need attention (health score < 70)
+  const projectsNeedingAttention = useMemo(() => {
+    return activeProjects.filter((p) => calculateProjectHealthScore(p) < 70)
+      .length;
+  }, [activeProjects]);
 
   // Use snapshot during review, live data otherwise
   const currentProjects =
@@ -110,6 +181,56 @@ export default function WeeklyReviewPage() {
     setChanges(new Map());
   };
 
+  // Focus next action input
+  const focusNextActionInput = useCallback(() => {
+    nextActionInputRef.current?.focus();
+  }, []);
+
+  // Keyboard shortcuts (only active during review step)
+  useHotkeys(
+    [
+      [
+        "j",
+        () => {
+          if (step === "reviewing") handleNext();
+        },
+      ],
+      [
+        "ArrowRight",
+        () => {
+          if (step === "reviewing") handleNext();
+        },
+      ],
+      [
+        "k",
+        () => {
+          if (step === "reviewing") handlePrevious();
+        },
+      ],
+      [
+        "ArrowLeft",
+        () => {
+          if (step === "reviewing") handlePrevious();
+        },
+      ],
+      [
+        "s",
+        () => {
+          if (step === "reviewing") handleSkip();
+        },
+      ],
+      [
+        "n",
+        () => {
+          if (step === "reviewing") focusNextActionInput();
+        },
+      ],
+      ["shift+?", openHelp],
+      ["Escape", closeHelp],
+    ],
+    []
+  );
+
   if (isLoading) {
     return (
       <Container size="md" py="xl">
@@ -123,14 +244,25 @@ export default function WeeklyReviewPage() {
 
   return (
     <Container size="md" py="xl">
-      <Title order={2} className="mb-6 text-text-primary">
-        Weekly Review
-      </Title>
+      <Group justify="space-between" className="mb-6">
+        <Title order={2} className="text-text-primary">
+          Weekly Review
+        </Title>
+        <Tooltip label="Keyboard shortcuts (?)">
+          <ActionIcon variant="subtle" size="lg" onClick={openHelp}>
+            <IconKeyboard size={20} />
+          </ActionIcon>
+        </Tooltip>
+      </Group>
+
+      <KeyboardShortcutsHelp opened={helpOpened} onClose={closeHelp} />
 
       {step === "intro" && (
         <WeeklyReviewIntro
           projectCount={activeProjects.length}
+          projectsNeedingAttention={projectsNeedingAttention}
           onStart={handleStartReview}
+          streakData={streakData}
         />
       )}
 
@@ -155,6 +287,7 @@ export default function WeeklyReviewPage() {
             hasNext={currentProjectIndex < reviewSessionProjects.length - 1}
             workspaceId={workspaceId}
             allOutcomes={allOutcomes}
+            nextActionInputRef={nextActionInputRef}
           />
         </>
       )}

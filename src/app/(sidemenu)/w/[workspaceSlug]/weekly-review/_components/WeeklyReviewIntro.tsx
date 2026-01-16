@@ -2,16 +2,30 @@
 
 import { Card, Text, Stack, Button, Group } from "@mantine/core";
 import { IconCalendarWeek, IconArrowRight } from "@tabler/icons-react";
+import { StreakDisplay } from "./StreakDisplay";
 
 interface WeeklyReviewIntroProps {
   projectCount: number;
+  projectsNeedingAttention?: number;
   onStart: () => void;
+  streakData?: {
+    currentStreak: number;
+    longestStreak: number;
+    totalReviews: number;
+    thisWeekComplete: boolean;
+  };
 }
 
 export function WeeklyReviewIntro({
   projectCount,
+  projectsNeedingAttention = 0,
   onStart,
+  streakData,
 }: WeeklyReviewIntroProps) {
+  const hasActiveStreak = streakData && streakData.currentStreak > 0;
+  const canExtendStreak =
+    hasActiveStreak && !streakData?.thisWeekComplete;
+
   return (
     <Card
       withBorder
@@ -28,16 +42,33 @@ export function WeeklyReviewIntro({
           <Text size="xl" fw={600} className="text-text-primary">
             Weekly Review
           </Text>
+
+          {streakData && streakData.totalReviews > 0 && (
+            <StreakDisplay
+              currentStreak={streakData.currentStreak}
+              longestStreak={streakData.longestStreak}
+              totalReviews={streakData.totalReviews}
+              thisWeekComplete={streakData.thisWeekComplete}
+              size="md"
+            />
+          )}
+
+          {canExtendStreak && (
+            <Text size="sm" fw={500} className="text-orange-500">
+              Keep your {streakData.currentStreak}-week streak alive!
+            </Text>
+          )}
+
           <Text
             size="sm"
             className="max-w-md text-center text-text-secondary"
           >
-            🧘 Step back from daily firefighting. Review each project, set your
+            Step back from daily firefighting. Review each project, set your
             next actions, and regain clarity on all your commitments.
           </Text>
           <Stack gap={4} className="text-text-muted">
             <Text size="xs" className="text-center">
-              🔒 Trust your system. 🧠 Make intuitive choices with a clear mind.
+              Trust your system. Make intuitive choices with a clear mind.
             </Text>
           </Stack>
         </Stack>
@@ -56,6 +87,14 @@ export function WeeklyReviewIntro({
                 active project{projectCount !== 1 ? "s" : ""} to review
               </Text>
             </Group>
+
+            {projectsNeedingAttention > 0 && (
+              <Text size="sm" fw={500} className="text-yellow-600">
+                {projectsNeedingAttention} project
+                {projectsNeedingAttention !== 1 ? "s" : ""} need
+                {projectsNeedingAttention === 1 ? "s" : ""} attention
+              </Text>
+            )}
 
             <Button
               size="lg"
