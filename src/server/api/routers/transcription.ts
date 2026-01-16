@@ -573,9 +573,10 @@ export const transcriptionRouter = createTRPCRouter({
               include: {
                 credentials: {
                   where: {
-                    keyType: "API_KEY",
+                    keyType: {
+                      in: ["API_KEY", "EMAIL"],
+                    },
                   },
-                  take: 1,
                 },
               },
             },
@@ -597,7 +598,7 @@ export const transcriptionRouter = createTRPCRouter({
             credentials: workflow.integration.credentials,
           }));
       } else {
-        // Fallback to all user integrations for backward compatibility
+        // Fallback to all user integrations for backend compatibility
         return FirefliesSyncService.getUserFirefliesIntegrations(
           ctx.session.user.id,
         );

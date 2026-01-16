@@ -14,6 +14,7 @@ import {
   Collapse,
   ActionIcon,
   Alert,
+  Tooltip,
 } from "@mantine/core";
 import {
   IconMicrophone,
@@ -45,6 +46,10 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
     { enabled: !!integration.id }
   );
 
+  // Extract email from credentials if available
+  const emailCredential = integration.credentials.find(c => c.keyType === 'EMAIL');
+  const email = emailCredential?.key;
+
   return (
     <Card key={integration.id} withBorder padding="md" radius="sm">
       <Stack gap="sm">
@@ -55,9 +60,17 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
             </ThemeIcon>
             <div>
               <Group gap="xs" align="center">
-                <Text fw={600} size="sm">
-                  {integration.name}
-                </Text>
+                {email ? (
+                  <Tooltip label={email} position="top" withArrow>
+                    <Text fw={600} size="sm" style={{ cursor: 'help' }}>
+                      {integration.name}
+                    </Text>
+                  </Tooltip>
+                ) : (
+                  <Text fw={600} size="sm">
+                    {integration.name}
+                  </Text>
+                )}
                 <Badge variant="dot" color="teal" size="xs">
                   Fireflies
                 </Badge>

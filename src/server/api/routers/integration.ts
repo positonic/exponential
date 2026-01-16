@@ -12,7 +12,7 @@ import { encryptCredential } from "~/server/utils/credentialHelper";
 // Test Fireflies API connection
 export async function testFirefliesConnection(
   apiKey: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; email?: string }> {
   try {
     const response = await fetch("https://api.fireflies.ai/graphql", {
       method: "POST",
@@ -49,7 +49,7 @@ export async function testFirefliesConnection(
       };
     }
 
-    return { success: true };
+    return { success: true, email: data.data.user.email };
   } catch (error) {
     console.error("Fireflies connection test error:", error);
     return {
@@ -460,6 +460,7 @@ export const integrationRouter = createTRPCRouter({
       }
 
       // Test connection for Fireflies
+      let firefliesEmail: string | undefined;
       if (input.provider === "fireflies") {
         const testResult = await testFirefliesConnection(input.apiKey);
         if (!testResult.success) {
@@ -468,6 +469,7 @@ export const integrationRouter = createTRPCRouter({
             message: `Fireflies connection failed: ${testResult.error}`,
           });
         }
+        firefliesEmail = testResult.email;
       }
 
       // Test connection for Monday.com
@@ -505,6 +507,18 @@ export const integrationRouter = createTRPCRouter({
             integrationId: integration.id,
           },
         });
+
+        // Store Fireflies email as a credential (unencrypted since it's not sensitive)
+        if (firefliesEmail) {
+          await ctx.db.integrationCredential.create({
+            data: {
+              key: firefliesEmail,
+              keyType: "EMAIL",
+              isEncrypted: false,
+              integrationId: integration.id,
+            },
+          });
+        }
 
         return {
           integration: {

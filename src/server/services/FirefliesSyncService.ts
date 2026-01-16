@@ -86,9 +86,10 @@ export class FirefliesSyncService {
       include: {
         credentials: {
           where: {
-            keyType: 'API_KEY',
+            keyType: {
+              in: ['API_KEY', 'EMAIL'],
+            },
           },
-          take: 1,
         },
       },
     });
