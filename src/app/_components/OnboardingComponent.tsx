@@ -15,8 +15,7 @@ import {
   Checkbox,
   Avatar,
   ActionIcon,
-  Loader,
-  MultiSelect
+  Loader
 } from '@mantine/core';
 import {
   IconCheck,
@@ -36,7 +35,6 @@ import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { OnboardingIllustration } from './OnboardingIllustration';
-import { OnboardingProjectIllustration } from './OnboardingProjectIllustration';
 import { GoogleCalendarConnect } from './GoogleCalendarConnect';
 
 // New flow: 1=Profile+Attribution, 2=Video, 3=Calendar, 4=WorkHours, 5=Project+Tasks
@@ -775,13 +773,13 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     );
   }
 
-  // Step 5: Tasks - Asana-style two-column layout
+  // Step 5: Project + Tasks - Combined step with enhanced task input
   const previewTasks = tasks.filter(t => t.name.trim().length > 0);
 
   return (
     <div className="min-h-screen flex">
       {/* Left column - Form */}
-      <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+      <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12 overflow-y-auto">
         <div>
           <div className="mb-8">
             <Title order={3} className="text-brand-primary font-bold">
@@ -789,7 +787,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
             </Title>
           </div>
 
-          <div className="mb-8">
+          <div className="mb-6">
             <Group gap="xs" className="mb-4">
               <ActionIcon
                 variant="subtle"
@@ -799,64 +797,114 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                 <IconArrowLeft size={20} />
               </ActionIcon>
               <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
-                What are a few tasks you need to do?
+                Create your first project
               </Title>
             </Group>
             <Text className="text-text-secondary">
-              Add some initial tasks for {data.projectName || 'your project'}. You can always add more later.
+              What are you working on? Add a project and some initial tasks.
             </Text>
           </div>
 
-          <Stack gap="md">
-            {tasks.map((task, index) => (
-              <Group key={task.id} gap="sm">
-                <TextInput
-                  placeholder={
-                    index === 0
-                      ? 'e.g., Research competitors'
-                      : index === 1
-                        ? 'e.g., Create wireframes'
-                        : 'e.g., Review with team'
-                  }
-                  value={task.name}
-                  onChange={(e) => handleTaskChange(task.id, e.target.value)}
-                  className="flex-1"
-                  size="md"
-                  classNames={{
-                    input: 'bg-background-primary border-border-primary'
-                  }}
-                />
-                {tasks.length > 1 && (
-                  <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    onClick={() => handleRemoveTask(task.id)}
-                    disabled={isLoading}
-                  >
-                    <IconX size={16} />
-                  </ActionIcon>
-                )}
-              </Group>
-            ))}
+          {/* Project Name */}
+          <div className="mb-6">
+            <TextInput
+              label="Project name"
+              placeholder="e.g., Website Redesign, Q1 Marketing Campaign"
+              value={data.projectName}
+              onChange={(e) => setData(prev => ({ ...prev, projectName: e.target.value }))}
+              size="md"
+              classNames={{
+                input: 'bg-background-primary border-border-primary'
+              }}
+            />
+          </div>
 
-            <Button
-              variant="subtle"
-              leftSection={<IconPlus size={16} />}
-              onClick={handleAddTask}
-              className="w-fit"
-              disabled={isLoading}
-            >
-              Add another task
-            </Button>
-          </Stack>
+          {/* Tasks with due dates and durations */}
+          <div className="mb-4">
+            <Text fw={500} className="mb-3 text-text-primary">What tasks do you need to complete?</Text>
+            <Stack gap="sm">
+              {tasks.map((task, index) => (
+                <div key={task.id} className="bg-surface-primary border border-border-primary rounded-lg p-3">
+                  <Group gap="sm" className="mb-2">
+                    <TextInput
+                      placeholder={
+                        index === 0
+                          ? 'e.g., Research competitors'
+                          : index === 1
+                            ? 'e.g., Create wireframes'
+                            : 'e.g., Review with team'
+                      }
+                      value={task.name}
+                      onChange={(e) => handleTaskChange(task.id, 'name', e.target.value)}
+                      className="flex-1"
+                      size="sm"
+                      classNames={{
+                        input: 'bg-background-primary border-border-primary'
+                      }}
+                    />
+                    {tasks.length > 1 && (
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        onClick={() => handleRemoveTask(task.id)}
+                        disabled={isLoading}
+                        size="sm"
+                      >
+                        <IconX size={14} />
+                      </ActionIcon>
+                    )}
+                  </Group>
+                  <Group gap="sm">
+                    <Select
+                      placeholder="Duration"
+                      value={task.durationMinutes?.toString() ?? null}
+                      onChange={(value) => handleTaskChange(task.id, 'durationMinutes', value ? parseInt(value) : null)}
+                      data={durationOptions}
+                      size="xs"
+                      className="w-28"
+                      leftSection={<IconClock size={12} />}
+                      classNames={{
+                        input: 'bg-background-primary border-border-primary'
+                      }}
+                      clearable
+                    />
+                    <TextInput
+                      type="date"
+                      placeholder="Due date"
+                      value={task.dueDate ? task.dueDate.toISOString().split('T')[0] : ''}
+                      onChange={(e) => handleTaskChange(task.id, 'dueDate', e.target.value ? new Date(e.target.value) : null)}
+                      size="xs"
+                      className="w-36"
+                      leftSection={<IconCalendarEvent size={12} />}
+                      classNames={{
+                        input: 'bg-background-primary border-border-primary'
+                      }}
+                    />
+                  </Group>
+                </div>
+              ))}
+
+              <Button
+                variant="subtle"
+                leftSection={<IconPlus size={16} />}
+                onClick={handleAddTask}
+                className="w-fit"
+                disabled={isLoading}
+                size="sm"
+              >
+                Add another task
+              </Button>
+            </Stack>
+          </div>
         </div>
 
-        <div className="mt-8">
+        <div className="mt-6">
           <Button
             fullWidth
             size="lg"
             onClick={handleCompleteOnboarding}
             loading={isLoading}
+            disabled={!data.projectName.trim()}
             rightSection={<IconCheck size={18} />}
           >
             Complete Setup
@@ -894,19 +942,35 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
             <Stack gap="sm">
               {previewTasks.length > 0 ? (
                 previewTasks.map(task => (
-                  <Group key={task.id} gap="sm" className="py-2">
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
-                    <Text className="text-text-primary">{task.name}</Text>
-                  </Group>
+                  <div key={task.id} className="py-2">
+                    <Group gap="sm">
+                      <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
+                      <Text className="text-text-primary flex-1">{task.name}</Text>
+                    </Group>
+                    {(task.durationMinutes ?? task.dueDate) && (
+                      <Group gap="xs" className="ml-7 mt-1">
+                        {task.durationMinutes && (
+                          <Text size="xs" className="text-text-muted">
+                            {durationOptions.find(d => d.value === task.durationMinutes?.toString())?.label}
+                          </Text>
+                        )}
+                        {task.dueDate && (
+                          <Text size="xs" className="text-text-muted">
+                            Due {task.dueDate.toLocaleDateString()}
+                          </Text>
+                        )}
+                      </Group>
+                    )}
+                  </div>
                 ))
               ) : (
                 <>
-                  {[1, 2, 3, 4, 5].map(i => (
+                  {[1, 2, 3].map(i => (
                     <Group key={i} gap="sm" className="py-2">
                       <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
                       <div
                         className="h-4 rounded bg-surface-tertiary"
-                        style={{ width: `${60 + Math.random() * 80}px` }}
+                        style={{ width: `${80 + Math.random() * 60}px` }}
                       />
                     </Group>
                   ))}

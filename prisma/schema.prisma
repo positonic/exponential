@@ -118,6 +118,15 @@ model User {
   keyResultCheckIns           KeyResultCheckIn[]         @relation("KeyResultCheckInCreator")
   // Tag relations
   tagsCreated                 Tag[]                      @relation("TagCreator")
+
+  // Onboarding: Attribution
+  attributionSource           String?                    // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
+
+  // Onboarding: Work Hours
+  workHoursEnabled            Boolean                    @default(true)
+  workDaysJson                String?                    // JSON array: ["monday","tuesday","wednesday","thursday","friday"]
+  workHoursStart              String?                    @default("09:00")
+  workHoursEnd                String?                    @default("17:00")
 }
 
 model VerificationToken {

@@ -22,6 +22,12 @@ export const onboardingRouter = createTRPCRouter({
         selectedTools: true,
         onboardingCompletedAt: true,
         onboardingStep: true,
+        // New fields for enhanced onboarding
+        attributionSource: true,
+        workHoursEnabled: true,
+        workDaysJson: true,
+        workHoursStart: true,
+        workHoursEnd: true,
       },
     });
 
@@ -44,21 +50,28 @@ export const onboardingRouter = createTRPCRouter({
       onboardingCompletedAt: user.onboardingCompletedAt,
       onboardingStep: user.onboardingStep,
       isCompleted: !!user.onboardingCompletedAt,
+      // New fields for enhanced onboarding
+      attributionSource: user.attributionSource,
+      workHoursEnabled: user.workHoursEnabled,
+      workDaysJson: user.workDaysJson,
+      workHoursStart: user.workHoursStart,
+      workHoursEnd: user.workHoursEnd,
     };
   }),
 
   /**
-   * Update user's profile (name, email opt-in) and advance to step 2
+   * Update user's profile (name, email opt-in, attribution) and advance to step 2
    */
   updateProfile: protectedProcedure
     .input(
       z.object({
         name: z.string().min(1).max(100),
         emailMarketingOptIn: z.boolean(),
+        attributionSource: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { name, emailMarketingOptIn } = input;
+      const { name, emailMarketingOptIn, attributionSource } = input;
       const userId = ctx.session.user.id;
 
       const updatedUser = await ctx.db.user.update({
@@ -66,11 +79,13 @@ export const onboardingRouter = createTRPCRouter({
         data: {
           name,
           emailMarketingOptIn,
+          attributionSource,
           onboardingStep: 2,
         },
         select: {
           name: true,
           emailMarketingOptIn: true,
+          attributionSource: true,
           onboardingStep: true,
         },
       });
@@ -79,6 +94,7 @@ export const onboardingRouter = createTRPCRouter({
         success: true,
         name: updatedUser.name,
         emailMarketingOptIn: updatedUser.emailMarketingOptIn,
+        attributionSource: updatedUser.attributionSource,
         nextStep: updatedUser.onboardingStep,
       };
     }),
@@ -232,6 +248,47 @@ export const onboardingRouter = createTRPCRouter({
     }),
 
   /**
+   * Update user's work hours settings
+   */
+  updateWorkHours: protectedProcedure
+    .input(
+      z.object({
+        workHoursEnabled: z.boolean(),
+        workDays: z.array(z.string()), // ["monday", "tuesday", ...]
+        workHoursStart: z.string().regex(/^\d{2}:\d{2}$/), // "09:00"
+        workHoursEnd: z.string().regex(/^\d{2}:\d{2}$/), // "17:00"
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { workHoursEnabled, workDays, workHoursStart, workHoursEnd } = input;
+      const userId = ctx.session.user.id;
+
+      const updatedUser = await ctx.db.user.update({
+        where: { id: userId },
+        data: {
+          workHoursEnabled,
+          workDaysJson: JSON.stringify(workDays),
+          workHoursStart,
+          workHoursEnd,
+        },
+        select: {
+          workHoursEnabled: true,
+          workDaysJson: true,
+          workHoursStart: true,
+          workHoursEnd: true,
+        },
+      });
+
+      return {
+        success: true,
+        workHoursEnabled: updatedUser.workHoursEnabled,
+        workDays: updatedUser.workDaysJson ? JSON.parse(updatedUser.workDaysJson) as string[] : [],
+        workHoursStart: updatedUser.workHoursStart,
+        workHoursEnd: updatedUser.workHoursEnd,
+      };
+    }),
+
+  /**
    * Complete onboarding by creating first project and marking as completed
    */
   completeOnboarding: protectedProcedure
@@ -241,7 +298,11 @@ export const onboardingRouter = createTRPCRouter({
         projectDescription: z.string().max(500).optional(),
         projectPriority: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
         template: z.enum(["personal", "work", "learning", "scratch"]).optional(),
-        tasks: z.array(z.object({ name: z.string().min(1).max(200) })).optional(),
+        tasks: z.array(z.object({
+          name: z.string().min(1).max(200),
+          dueDate: z.date().optional(),
+          durationMinutes: z.number().min(5).max(480).optional(), // 5 min to 8 hours
+        })).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -304,7 +365,7 @@ export const onboardingRouter = createTRPCRouter({
         });
 
         // Create tasks (Actions) if provided
-        let createdTasks: { id: string; name: string }[] = [];
+        let createdTasks: { id: string; name: string; dueDate: Date | null; duration: number | null }[] = [];
         if (tasks && tasks.length > 0) {
           createdTasks = await Promise.all(
             tasks.map((task) =>
@@ -314,11 +375,15 @@ export const onboardingRouter = createTRPCRouter({
                   projectId: project.id,
                   createdById: userId,
                   priority: "MEDIUM",
+                  dueDate: task.dueDate,
+                  duration: task.durationMinutes,
                   status: "TODO",
                 },
                 select: {
                   id: true,
                   name: true,
+                  dueDate: true,
+                  duration: true,
                 },
               })
             )
