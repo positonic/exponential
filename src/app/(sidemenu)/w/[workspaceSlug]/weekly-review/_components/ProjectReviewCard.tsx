@@ -117,8 +117,9 @@ export function ProjectReviewCard({
   const [actionAdded, setActionAdded] = useState(false);
   const [outcomesChanged, setOutcomesChanged] = useState(false);
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
-  // Track local outcomes to handle updates during review (since we use a snapshot)
+  // Track local state to handle updates during review (since we use a snapshot)
   const [localOutcomes, setLocalOutcomes] = useState(project.outcomes);
+  const [localActions, setLocalActions] = useState(project.actions);
 
   const updateProject = api.project.update.useMutation({
     // Note: Don't invalidate here - let the page handle invalidation after review completes
@@ -132,10 +133,14 @@ export function ProjectReviewCard({
     },
   });
 
-  const indicators = calculateHealthIndicators(project);
+  const indicators = calculateHealthIndicators({
+    ...project,
+    actions: localActions,
+    outcomes: localOutcomes,
+  });
 
   // Check if project has at least one active action (existing or newly added)
-  const hasExistingActiveAction = project.actions.some(
+  const hasExistingActiveAction = localActions.some(
     (a) => a.status === "ACTIVE" || a.status === "TODO"
   );
   const hasNextAction = hasExistingActiveAction || actionAdded;
@@ -162,8 +167,13 @@ export function ProjectReviewCard({
     });
   };
 
-  const handleActionAdded = () => {
+  const handleActionAdded = (newAction: { id: string; name: string; status: string }) => {
     setActionAdded(true);
+    setLocalActions(prev => [...prev, {
+      ...newAction,
+      completedAt: null,
+      dueDate: null,
+    }]);
   };
 
   return (

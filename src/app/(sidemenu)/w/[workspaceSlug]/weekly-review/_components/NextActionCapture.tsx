@@ -21,7 +21,7 @@ interface NextActionCaptureProps {
   projectId: string;
   workspaceId: string | null;
   existingActions?: ExistingAction[];
-  onActionAdded: () => void;
+  onActionAdded: (newAction: { id: string; name: string; status: string }) => void;
 }
 
 export function NextActionCapture({
@@ -44,7 +44,7 @@ export function NextActionCapture({
     onSuccess: (data) => {
       setCreatedActions((prev) => [...prev, { id: data.id, name: data.name }]);
       setActionTitle("");
-      onActionAdded();
+      onActionAdded({ id: data.id, name: data.name, status: "ACTIVE" });
       void utils.project.getActiveWithDetails.invalidate();
       notifications.show({
         title: "Action added",
