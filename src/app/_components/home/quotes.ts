@@ -271,6 +271,16 @@ export const CURATED_QUOTES: Quote[] = [
     author: "Unknown",
     category: "resilience",
   },
+  {
+    text: "You cannot escape the responsibility of tomorrow by evading it today.",
+    author: "Abraham Lincoln",
+    category: "resilience",
+  },
+  {
+    text: "The fool, with all his other faults, has this also—he is always getting ready to live.",
+    author: "Seneca (quoting Epicurus)",
+    category: "wisdom",
+  },
 ];
 
 /**

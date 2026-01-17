@@ -1318,6 +1318,8 @@ model WeeklyReviewCompletion {
   statusChanges    Int       @default(0)
   priorityChanges  Int       @default(0)
   actionsAdded     Int       @default(0)
+  reviewMode       String?   // "full" | "quick"
+  durationMinutes  Int?      // Actual time taken to complete review
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

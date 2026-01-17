@@ -57,6 +57,7 @@ export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure
     .input(z.object({
       assigneeId: z.string().optional(),
+      workspaceId: z.string().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
     console.log("in getAll")
@@ -73,6 +74,8 @@ export const actionRouter = createTRPCRouter({
       status: {
         not: "DELETED",
       },
+      // Filter by workspace via the action's project
+      ...(input?.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
     };
 
     // Add additional assignee filtering if specified (for filtering within user's tasks)
@@ -720,6 +723,29 @@ export const actionRouter = createTRPCRouter({
       return {
         count: result.count,
         message: `Deleted ${result.count} action${result.count === 1 ? '' : 's'}`,
+      };
+    }),
+
+  // Bulk reschedule actions (update dueDate)
+  bulkReschedule: protectedProcedure
+    .input(z.object({
+      actionIds: z.array(z.string()),
+      dueDate: z.date().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.db.action.updateMany({
+        where: {
+          id: { in: input.actionIds },
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          dueDate: input.dueDate,
+        },
+      });
+
+      return {
+        count: result.count,
+        actionIds: input.actionIds,
       };
     }),
 
