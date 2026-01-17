@@ -57,6 +57,7 @@ export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure
     .input(z.object({
       assigneeId: z.string().optional(),
+      workspaceId: z.string().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
     console.log("in getAll")
@@ -73,6 +74,8 @@ export const actionRouter = createTRPCRouter({
       status: {
         not: "DELETED",
       },
+      // Filter by workspace via the action's project
+      ...(input?.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
     };
 
     // Add additional assignee filtering if specified (for filtering within user's tasks)

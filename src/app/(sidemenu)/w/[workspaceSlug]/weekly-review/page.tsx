@@ -103,17 +103,13 @@ export default function WeeklyReviewPage() {
     workspaceId: workspaceId ?? undefined,
   });
 
-  // Fetch inbox count for display
-  const { data: allActions } = api.action.getAll.useQuery();
+  // Fetch inbox count for display (server-filtered by workspace)
+  const { data: allActions } = api.action.getAll.useQuery({ workspaceId: workspaceId ?? undefined });
   const inboxCount = useMemo(() => {
     return allActions?.filter(
-      (action) =>
-        !action.projectId &&
-        action.status === "ACTIVE" &&
-        // Filter by workspace if set
-        (workspaceId ? action.workspaceId === workspaceId : true)
+      (action) => !action.projectId && action.status === "ACTIVE"
     ).length ?? 0;
-  }, [allActions, workspaceId]);
+  }, [allActions]);
 
   // Sort projects by health score (lowest first = needs most attention)
   const activeProjects = useMemo(() => {
