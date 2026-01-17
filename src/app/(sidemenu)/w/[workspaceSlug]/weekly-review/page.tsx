@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Container, Title } from "@mantine/core";
+import { useState, useMemo, useRef } from "react";
+import { Container, Title, Group } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { WeeklyReviewIntro } from "./_components/WeeklyReviewIntro";
+import { WeeklyReviewIntro, type ReviewMode, type TimerDuration } from "./_components/WeeklyReviewIntro";
 import { ProjectReviewCard } from "./_components/ProjectReviewCard";
 import { ReviewProgress } from "./_components/ReviewProgress";
 import { ReviewCompletion } from "./_components/ReviewCompletion";
+import { ReviewTimer } from "./_components/ReviewTimer";
 import { WeeklyReviewExplainer } from "./_components/WeeklyReviewExplainer";
 import { type RouterOutputs } from "~/trpc/react";
 
@@ -82,6 +83,10 @@ export default function WeeklyReviewPage() {
   const [reviewSessionProjects, setReviewSessionProjects] = useState<
     ProjectsArray
   >([]);
+  // Review mode and timer state
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("quick");
+  const [timerMinutes, setTimerMinutes] = useState<TimerDuration>(15);
+  const reviewStartTime = useRef<Date | null>(null);
 
   const { data: projects, isLoading } =
     api.project.getActiveWithDetails.useQuery({
@@ -98,6 +103,18 @@ export default function WeeklyReviewPage() {
     workspaceId: workspaceId ?? undefined,
   });
 
+  // Fetch inbox count for display
+  const { data: allActions } = api.action.getAll.useQuery();
+  const inboxCount = useMemo(() => {
+    return allActions?.filter(
+      (action) =>
+        !action.projectId &&
+        action.status === "ACTIVE" &&
+        // Filter by workspace if set
+        (workspaceId ? action.workspaceId === workspaceId : true)
+    ).length ?? 0;
+  }, [allActions, workspaceId]);
+
   // Sort projects by health score (lowest first = needs most attention)
   const activeProjects = useMemo(() => {
     const projectList = projects ?? [];
@@ -108,9 +125,9 @@ export default function WeeklyReviewPage() {
     });
   }, [projects]);
 
-  // Count projects that need attention (health score < 70)
+  // Count projects that need attention (health score < 50 for quick mode threshold)
   const projectsNeedingAttention = useMemo(() => {
-    return activeProjects.filter((p) => calculateProjectHealthScore(p) < 70)
+    return activeProjects.filter((p) => calculateProjectHealthScore(p) < 50)
       .length;
   }, [activeProjects]);
 
@@ -120,9 +137,19 @@ export default function WeeklyReviewPage() {
 
   const currentProject = currentProjects[currentProjectIndex];
 
-  const handleStartReview = () => {
+  const handleStartReview = (mode: ReviewMode, timer: TimerDuration) => {
+    // Store selected mode and timer
+    setReviewMode(mode);
+    setTimerMinutes(timer);
+    reviewStartTime.current = new Date();
+
     // Snapshot the projects at the start of the review session
-    setReviewSessionProjects([...activeProjects]);
+    // For quick mode, only include projects needing attention
+    const projectsToReview = mode === "quick"
+      ? activeProjects.filter((p) => calculateProjectHealthScore(p) < 50)
+      : [...activeProjects];
+
+    setReviewSessionProjects(projectsToReview);
     setStep("reviewing");
     setCurrentProjectIndex(0);
   };
@@ -182,11 +209,26 @@ export default function WeeklyReviewPage() {
     );
   }
 
+  // Calculate duration when review completes
+  const getReviewDuration = (): number | null => {
+    if (!reviewStartTime.current) return null;
+    const endTime = new Date();
+    return Math.round((endTime.getTime() - reviewStartTime.current.getTime()) / 60000);
+  };
+
   return (
     <Container size="md" py="xl">
-      <Title order={2} className="mb-6 text-text-primary">
-        Weekly Review
-      </Title>
+      <Group justify="space-between" align="center" className="mb-6">
+        <Title order={2} className="text-text-primary">
+          Weekly Review
+        </Title>
+        {step === "reviewing" && timerMinutes && (
+          <ReviewTimer
+            initialMinutes={timerMinutes}
+            isActive={step === "reviewing"}
+          />
+        )}
+      </Group>
 
       {step === "intro" && (
         <WeeklyReviewIntro
@@ -194,6 +236,7 @@ export default function WeeklyReviewPage() {
           projectsNeedingAttention={projectsNeedingAttention}
           onStart={handleStartReview}
           streakData={streakData}
+          inboxCount={inboxCount}
         />
       )}
 
@@ -222,12 +265,26 @@ export default function WeeklyReviewPage() {
         </>
       )}
 
+      {step === "reviewing" && reviewSessionProjects.length === 0 && (
+        <ReviewCompletion
+          totalProjects={activeProjects.length}
+          reviewedCount={0}
+          changes={changes}
+          onRestart={handleRestartReview}
+          reviewMode={reviewMode}
+          durationMinutes={getReviewDuration()}
+          quickModeNoProjects
+        />
+      )}
+
       {step === "complete" && (
         <ReviewCompletion
           totalProjects={reviewSessionProjects.length}
           reviewedCount={reviewedProjects.size}
           changes={changes}
           onRestart={handleRestartReview}
+          reviewMode={reviewMode}
+          durationMinutes={getReviewDuration()}
         />
       )}
 

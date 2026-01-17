@@ -8,10 +8,14 @@ import {
   IconRefresh,
   IconFlame,
   IconTrophy,
+  IconRocket,
+  IconClock,
+  IconSparkles,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import { type ReviewMode } from "./WeeklyReviewIntro";
 
 interface ProjectChanges {
   statusChanged: boolean;
@@ -25,6 +29,9 @@ interface ReviewCompletionProps {
   reviewedCount: number;
   changes: Map<string, ProjectChanges>;
   onRestart: () => void;
+  reviewMode?: ReviewMode;
+  durationMinutes?: number | null;
+  quickModeNoProjects?: boolean;
 }
 
 // Milestone thresholds
@@ -43,6 +50,9 @@ export function ReviewCompletion({
   reviewedCount,
   changes,
   onRestart,
+  reviewMode = "full",
+  durationMinutes,
+  quickModeNoProjects = false,
 }: ReviewCompletionProps) {
   const { workspace, workspaceId } = useWorkspace();
   const hasMarkedComplete = useRef(false);
@@ -84,6 +94,8 @@ export function ReviewCompletion({
         statusChanges,
         priorityChanges,
         actionsAdded,
+        reviewMode,
+        durationMinutes: durationMinutes ?? undefined,
       });
     }
   }, [
@@ -93,6 +105,8 @@ export function ReviewCompletion({
     priorityChanges,
     actionsAdded,
     markComplete,
+    reviewMode,
+    durationMinutes,
   ]);
 
   const hasChanges =
@@ -115,19 +129,58 @@ export function ReviewCompletion({
       p="xl"
     >
       <Stack gap="lg" align="center" className="py-8">
-        <div className="rounded-full bg-green-500/10 p-4">
-          <IconCheck size={48} className="text-green-500" />
-        </div>
-
-        <Stack gap="xs" align="center">
-          <Text size="xl" fw={600} className="text-text-primary">
-            Review Complete
-          </Text>
-          <Text size="sm" className="text-text-secondary">
-            You reviewed {reviewedCount} of {totalProjects} project
-            {totalProjects !== 1 ? "s" : ""}
-          </Text>
-        </Stack>
+        {quickModeNoProjects ? (
+          // Special celebration for when quick sweep finds nothing to review
+          <>
+            <div className="rounded-full bg-green-500/10 p-4">
+              <IconSparkles size={48} className="text-green-500" />
+            </div>
+            <Stack gap="xs" align="center">
+              <Text size="xl" fw={600} className="text-text-primary">
+                All Projects Healthy!
+              </Text>
+              <Text size="sm" className="text-center text-text-secondary">
+                Your {totalProjects} project{totalProjects !== 1 ? "s are" : " is"} in good shape.
+                <br />
+                Nothing needs immediate attention.
+              </Text>
+              {reviewMode === "quick" && (
+                <Badge
+                  variant="light"
+                  color="green"
+                  leftSection={<IconRocket size={12} />}
+                  className="mt-2"
+                >
+                  Quick Sweep Complete
+                </Badge>
+              )}
+            </Stack>
+          </>
+        ) : (
+          // Normal completion message
+          <>
+            <div className="rounded-full bg-green-500/10 p-4">
+              <IconCheck size={48} className="text-green-500" />
+            </div>
+            <Stack gap="xs" align="center">
+              <Text size="xl" fw={600} className="text-text-primary">
+                {reviewMode === "quick" ? "Quick Sweep Complete" : "Review Complete"}
+              </Text>
+              <Text size="sm" className="text-text-secondary">
+                You reviewed {reviewedCount} of {totalProjects} project
+                {totalProjects !== 1 ? "s" : ""}
+              </Text>
+              {durationMinutes !== null && durationMinutes !== undefined && durationMinutes > 0 && (
+                <Group gap="xs" className="mt-1">
+                  <IconClock size={14} className="text-text-muted" />
+                  <Text size="xs" className="text-text-muted">
+                    Completed in {durationMinutes} minute{durationMinutes !== 1 ? "s" : ""}
+                  </Text>
+                </Group>
+              )}
+            </Stack>
+          </>
+        )}
 
         {/* Streak Celebration */}
         {currentStreak > 0 && (

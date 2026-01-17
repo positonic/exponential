@@ -481,6 +481,8 @@ export const weeklyReviewRouter = createTRPCRouter({
         statusChanges: z.number().optional(),
         priorityChanges: z.number().optional(),
         actionsAdded: z.number().optional(),
+        reviewMode: z.enum(["full", "quick"]).optional(),
+        durationMinutes: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -505,6 +507,8 @@ export const weeklyReviewRouter = createTRPCRouter({
             statusChanges: input.statusChanges ?? 0,
             priorityChanges: input.priorityChanges ?? 0,
             actionsAdded: input.actionsAdded ?? 0,
+            reviewMode: input.reviewMode,
+            durationMinutes: input.durationMinutes,
           },
         });
       }
@@ -518,6 +522,8 @@ export const weeklyReviewRouter = createTRPCRouter({
           statusChanges: input.statusChanges ?? 0,
           priorityChanges: input.priorityChanges ?? 0,
           actionsAdded: input.actionsAdded ?? 0,
+          reviewMode: input.reviewMode,
+          durationMinutes: input.durationMinutes,
         },
       });
     }),
