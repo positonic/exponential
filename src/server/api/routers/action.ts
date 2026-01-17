@@ -749,6 +749,31 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
+  // Bulk assign project to multiple actions
+  bulkAssignProject: protectedProcedure
+    .input(z.object({
+      actionIds: z.array(z.string()),
+      projectId: z.string().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.db.action.updateMany({
+        where: {
+          id: { in: input.actionIds },
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          projectId: input.projectId,
+          kanbanStatus: input.projectId ? "TODO" : null,
+        },
+      });
+
+      return {
+        count: result.count,
+        actionIds: input.actionIds,
+        projectId: input.projectId,
+      };
+    }),
+
   // Assign users to an action
   assign: protectedProcedure
     .input(z.object({

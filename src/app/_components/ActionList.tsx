@@ -1,4 +1,4 @@
-import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button, Avatar, HoverCard, ActionIcon, Menu } from '@mantine/core';
+import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button, Avatar, HoverCard, ActionIcon, Menu, Select } from '@mantine/core';
 import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots, IconBrandNotion, IconUserShare, IconClock } from '@tabler/icons-react';
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { type RouterOutputs } from "~/trpc/react";
@@ -155,6 +155,7 @@ export function ActionList({
   enableBulkEditForInbox = false,
   onInboxBulkSchedule,
   onInboxBulkDelete,
+  onInboxBulkAssignProject,
   schedulingSuggestions,
   schedulingSuggestionsLoading = false,
   _schedulingSuggestionsError,
@@ -180,6 +181,7 @@ export function ActionList({
   enableBulkEditForInbox?: boolean,
   onInboxBulkSchedule?: (date: Date | null, actionIds: string[]) => Promise<void>,
   onInboxBulkDelete?: (actionIds: string[]) => Promise<void>,
+  onInboxBulkAssignProject?: (projectId: string, actionIds: string[]) => Promise<void>,
   // AI Scheduling suggestions props
   schedulingSuggestions?: Map<string, SchedulingSuggestionData>,
   schedulingSuggestionsLoading?: boolean,
@@ -202,9 +204,15 @@ export function ActionList({
   const [selectedFocusActionIds, setSelectedFocusActionIds] = useState<Set<string>>(new Set());
   const [bulkEditInboxMode, setBulkEditInboxMode] = useState(false);
   const [selectedInboxActionIds, setSelectedInboxActionIds] = useState<Set<string>>(new Set());
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
   const utils = api.useUtils();
+
+  // Fetch projects for bulk assignment dropdown (only when inbox bulk edit is enabled)
+  const projectsQuery = api.project.getAll.useQuery(undefined, {
+    enabled: enableBulkEditForInbox,
+  });
   
   const updateAction = api.action.update.useMutation({
     onMutate: async ({ id, status }) => {
@@ -524,6 +532,15 @@ export function ActionList({
 
     await onInboxBulkSchedule(date, Array.from(selectedInboxActionIds));
     setSelectedInboxActionIds(new Set());
+  };
+
+  const handleInboxBulkAssignProject = async () => {
+    if (selectedInboxActionIds.size === 0 || !selectedProjectId || !onInboxBulkAssignProject) return;
+
+    await onInboxBulkAssignProject(selectedProjectId, Array.from(selectedInboxActionIds));
+    setSelectedInboxActionIds(new Set());
+    setSelectedProjectId(null);
+    setBulkEditInboxMode(false);
   };
 
   // Helper to render a single action item (used for both lists)
@@ -1128,6 +1145,26 @@ export function ActionList({
             Select None
           </Button>
           <Badge>{selectedInboxActionIds.size} selected</Badge>
+          <Select
+            placeholder="Assign to project"
+            size="xs"
+            data={projectsQuery.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
+            value={selectedProjectId}
+            onChange={setSelectedProjectId}
+            disabled={selectedInboxActionIds.size === 0}
+            clearable
+            searchable
+            w={180}
+          />
+          {selectedProjectId && selectedInboxActionIds.size > 0 && (
+            <Button
+              size="xs"
+              variant="filled"
+              onClick={() => void handleInboxBulkAssignProject()}
+            >
+              Assign
+            </Button>
+          )}
           <UnifiedDatePicker
             value={null}
             onChange={(date) => void handleInboxBulkSchedule(date)}

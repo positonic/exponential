@@ -315,6 +315,39 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     },
   });
 
+  // Fetch projects for bulk assignment dropdown
+  const projectsQuery = api.project.getAll.useQuery();
+
+  // Bulk assign project mutation
+  const bulkAssignProjectMutation = api.action.bulkAssignProject.useMutation({
+    onMutate: async ({ actionIds, projectId: newProjectId }) => {
+      await utils.action.getAll.cancel();
+      const previousData = utils.action.getAll.getData();
+
+      if (previousData) {
+        utils.action.getAll.setData(undefined, (old) => {
+          if (!old) return [];
+          return old.map((action) =>
+            actionIds.includes(action.id)
+              ? { ...action, projectId: newProjectId }
+              : action
+          );
+        });
+      }
+
+      return { previousData };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousData) {
+        utils.action.getAll.setData(undefined, context.previousData);
+      }
+    },
+    onSettled: () => {
+      void utils.action.getAll.invalidate();
+      void utils.action.getToday.invalidate();
+    },
+  });
+
   // Handle overdue bulk reschedule (non-project pages only)
   const handleOverdueBulkReschedule = async (date: Date | null, actionIds: string[]) => {
     if (actionIds.length === 0) return;
@@ -509,6 +542,48 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     bulkDeleteMutation.mutate({
       actionIds,
     });
+  };
+
+  // Handle inbox bulk assign to project
+  const handleInboxBulkAssignProject = async (projectId: string, actionIds: string[]) => {
+    if (actionIds.length === 0) return;
+
+    const totalCount = actionIds.length;
+    const projectName = projectsQuery.data?.find(p => p.id === projectId)?.name ?? 'project';
+
+    notifications.show({
+      id: 'bulk-assign-project',
+      title: 'Assigning to project...',
+      message: `Updating ${totalCount} action${totalCount !== 1 ? 's' : ''}...`,
+      loading: true,
+      autoClose: false,
+    });
+
+    try {
+      const result = await bulkAssignProjectMutation.mutateAsync({
+        actionIds,
+        projectId,
+      });
+
+      notifications.update({
+        id: 'bulk-assign-project',
+        title: 'Project Assigned',
+        message: `Successfully assigned ${result.count} action${result.count !== 1 ? 's' : ''} to ${projectName}`,
+        loading: false,
+        autoClose: 3000,
+        color: 'green',
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      notifications.update({
+        id: 'bulk-assign-project',
+        title: 'Error',
+        message: `Failed to assign project: ${errMsg}`,
+        loading: false,
+        autoClose: 5000,
+        color: 'red',
+      });
+    }
   };
 
   // Use the appropriate query based on whether we have a projectId
@@ -803,6 +878,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           enableBulkEditForInbox={viewName.toLowerCase() === 'inbox'}
           onInboxBulkSchedule={handleInboxBulkSchedule}
           onInboxBulkDelete={handleInboxBulkDelete}
+          onInboxBulkAssignProject={handleInboxBulkAssignProject}
           schedulingSuggestions={schedulingSuggestionsMap}
           schedulingSuggestionsLoading={schedulingSuggestionsQuery.isLoading}
           _schedulingSuggestionsError={schedulingSuggestionsQuery.error?.message}
