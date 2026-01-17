@@ -284,36 +284,43 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     },
   });
 
+  // Bulk reschedule mutation - single API call for multiple actions
+  const bulkRescheduleMutation = api.action.bulkReschedule.useMutation({
+    onMutate: async ({ actionIds, dueDate }) => {
+      await utils.action.getAll.cancel();
+      const previousData = utils.action.getAll.getData();
+
+      // Optimistically update ALL selected actions at once
+      if (previousData) {
+        utils.action.getAll.setData(undefined, (old) => {
+          if (!old) return [];
+          return old.map((action) =>
+            actionIds.includes(action.id)
+              ? { ...action, dueDate: dueDate ?? null }
+              : action
+          );
+        });
+      }
+
+      return { previousData };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousData) {
+        utils.action.getAll.setData(undefined, context.previousData);
+      }
+    },
+    onSettled: () => {
+      void utils.action.getAll.invalidate();
+      void utils.action.getToday.invalidate();
+    },
+  });
+
   // Handle overdue bulk reschedule (non-project pages only)
   const handleOverdueBulkReschedule = async (date: Date | null, actionIds: string[]) => {
-    const startTime = Date.now();
-    console.log('🔧 [BULK DEBUG] handleOverdueBulkReschedule started:', {
-      date: date?.toISOString(),
-      actionIds,
-      totalCount: actionIds.length,
-      timestamp: new Date().toISOString()
-    });
+    if (actionIds.length === 0) return;
 
-    if (actionIds.length === 0) {
-      console.log('🔧 [BULK DEBUG] No actions to reschedule - exiting early');
-      return;
-    }
-    
     const totalCount = actionIds.length;
 
-    // Log current cache state before starting
-    const currentCache = utils.action.getAll.getData();
-    const currentActions = currentCache?.filter(action => actionIds.includes(action.id));
-    console.log('🔧 [BULK DEBUG] Current cache state for selected actions:', {
-      selectedActions: currentActions?.map(a => ({ 
-        id: a.id, 
-        name: a.name, 
-        currentDueDate: a.dueDate?.toISOString() 
-      })),
-      totalCacheActions: currentCache?.length
-    });
-    
-    // Show initial notification
     notifications.show({
       id: 'bulk-reschedule',
       title: 'Rescheduling...',
@@ -321,96 +328,17 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       loading: true,
       autoClose: false,
     });
-    
+
     try {
-      console.log('🔧 [BULK DEBUG] Starting SEQUENTIAL mutations to avoid database connection pool exhaustion...');
-      const results: Array<{actionId: string, success: boolean, result?: any, error?: string}> = [];
-      
-      // Process mutations sequentially to avoid overwhelming database connection pool
-      for (let i = 0; i < actionIds.length; i++) {
-        const actionId = actionIds[i]!;
-        const index = i + 1;
-        
-        console.log(`🔧 [BULK DEBUG] Processing mutation ${index}/${totalCount} for action ${actionId}`);
-        
-        try {
-          const result = await bulkUpdateMutation.mutateAsync({
-            id: actionId,
-            dueDate: date ?? undefined
-          });
-          
-          console.log(`🔧 [BULK DEBUG] Mutation ${index}/${totalCount} SUCCESS for action ${actionId}:`, result);
-          results.push({ actionId, success: true, result });
-          
-          // Small delay between mutations to prevent overwhelming the database
-          if (i < actionIds.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-          
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          console.error(`🔧 [BULK DEBUG] Mutation ${index}/${totalCount} FAILED for action ${actionId}:`, errorMessage);
-          results.push({ actionId, success: false, error: errorMessage });
-          
-          // Check if this is a connection reset error
-          if (errorMessage.includes('Server has closed the connection') || 
-              errorMessage.includes('Connection reset by peer')) {
-            console.error('🔧 [BULK DEBUG] Database connection lost - stopping bulk operation');
-            // Stop processing more actions as connection is lost
-            break;
-          }
-          
-          // Continue with next mutation for other types of errors
-        }
-      }
-      
-      console.log('🔧 [BULK DEBUG] All mutations completed:', {
-        results,
-        successful: results.filter(r => r.success).length,
-        failed: results.filter(r => !r.success).length,
-        duration: Date.now() - startTime + 'ms'
+      const result = await bulkRescheduleMutation.mutateAsync({
+        actionIds,
+        dueDate: date,
       });
 
-      const failedResults = results.filter(r => !r.success);
-      const successfulResults = results.filter(r => r.success);
+      const message = date
+        ? `Rescheduled ${result.count} action${result.count !== 1 ? 's' : ''} to ${date.toDateString()}`
+        : `Removed due date from ${result.count} action${result.count !== 1 ? 's' : ''}`;
 
-      // Check if any failures were due to connection issues
-      const connectionErrors = failedResults.filter(r => 
-        r.error?.includes('Server has closed the connection') || 
-        r.error?.includes('Connection reset by peer')
-      );
-
-      if (failedResults.length > 0) {
-        console.error('🔧 [BULK DEBUG] Some mutations failed:', failedResults);
-        
-        if (connectionErrors.length > 0) {
-          throw new Error(
-            `Database connection was lost during bulk update. ` +
-            `${successfulResults.length} of ${totalCount} actions were updated successfully. ` +
-            `Please try again for the remaining ${failedResults.length} actions.`
-          );
-        } else {
-          throw new Error(`${failedResults.length} out of ${totalCount} mutations failed`);
-        }
-      }
-      
-      // Log cache state after mutations
-      const updatedCache = utils.action.getAll.getData();
-      const updatedActions = updatedCache?.filter(action => actionIds.includes(action.id));
-      console.log('🔧 [BULK DEBUG] Cache state after mutations:', {
-        updatedActions: updatedActions?.map(a => ({ 
-          id: a.id, 
-          name: a.name, 
-          newDueDate: a.dueDate?.toISOString() 
-        })),
-        expectedDueDate: date?.toISOString() || null
-      });
-
-      // Success notification
-      const message = date 
-        ? `Successfully rescheduled ${successfulResults.length} action${successfulResults.length !== 1 ? 's' : ''} to ${date.toDateString()}`
-        : `Successfully removed due date from ${successfulResults.length} action${successfulResults.length !== 1 ? 's' : ''}`;
-      
       notifications.update({
         id: 'bulk-reschedule',
         title: date ? 'Bulk Reschedule Complete' : 'Due Date Removed',
@@ -419,35 +347,21 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         loading: false,
         autoClose: 3000,
       });
-      
-      console.log('🔧 [BULK DEBUG] Starting cache invalidation...');
-      // Force immediate UI update
-      await Promise.all([
-        utils.action.getAll.invalidate(),
-        utils.action.getToday.invalidate(),
-        projectId ? utils.action.getProjectActions.invalidate({ projectId }) : Promise.resolve()
-      ]);
-      console.log('🔧 [BULK DEBUG] Cache invalidation complete');
-      
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      console.error('🔧 [BULK DEBUG] Bulk reschedule failed:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        duration: duration + 'ms',
-        actionIds
-      });
 
+      // Invalidate project actions if on project page
+      if (projectId) {
+        void utils.action.getProjectActions.invalidate({ projectId });
+      }
+    } catch (error) {
       notifications.update({
         id: 'bulk-reschedule',
         title: 'Bulk Update Failed',
-        message: `Failed to update actions. Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: error instanceof Error ? error.message : 'Unknown error',
         color: 'red',
         loading: false,
         autoClose: 5000,
       });
     }
-
-    console.log('🔧 [BULK DEBUG] handleOverdueBulkReschedule finished, total duration:', Date.now() - startTime + 'ms');
   };
 
   // Bulk delete mutation for overdue actions (non-project pages only)
@@ -503,7 +417,6 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
     const totalCount = actionIds.length;
 
-    // Show initial notification
     notifications.show({
       id: 'bulk-reschedule-focus',
       title: 'Rescheduling...',
@@ -513,48 +426,27 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     });
 
     try {
-      // Process mutations sequentially to avoid overwhelming database connection pool
-      let successes = 0;
-      for (let i = 0; i < actionIds.length; i++) {
-        const actionId = actionIds[i]!;
-        await bulkUpdateMutation.mutateAsync({
-          id: actionId,
-          dueDate: date ?? undefined,
-        });
-        successes += 1;
-
-        // Small delay between mutations
-        if (i < actionIds.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-      }
-
-      // Invalidate queries
-      await utils.action.getAll.invalidate();
-      await utils.action.getToday.invalidate();
+      const result = await bulkRescheduleMutation.mutateAsync({
+        actionIds,
+        dueDate: date,
+      });
 
       notifications.update({
         id: 'bulk-reschedule-focus',
         title: 'Rescheduled',
-        message: `Successfully updated ${successes} of ${totalCount} action${totalCount !== 1 ? 's' : ''}`,
+        message: `Successfully updated ${result.count} action${result.count !== 1 ? 's' : ''}`,
         loading: false,
         autoClose: 3000,
         color: 'green',
       });
     } catch (err) {
-      // Surface the underlying error and log it for debugging
-      const errMsg = (err && (err as any).message) ? (err as any).message : String(err);
+      const errMsg = err instanceof Error ? err.message : String(err);
       console.error('Bulk reschedule error:', err);
-
-      const isConnectionError = /connect|ECONN|timeout/i.test(errMsg);
-      const message = isConnectionError
-        ? 'Connection error while rescheduling — please check your network and try again.'
-        : `Failed to reschedule some actions: ${errMsg}`;
 
       notifications.update({
         id: 'bulk-reschedule-focus',
         title: 'Error',
-        message,
+        message: `Failed to reschedule: ${errMsg}`,
         loading: false,
         autoClose: 5000,
         color: 'red',
@@ -575,7 +467,6 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
     const totalCount = actionIds.length;
 
-    // Show initial notification
     notifications.show({
       id: 'bulk-schedule-inbox',
       title: 'Scheduling...',
@@ -585,47 +476,27 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     });
 
     try {
-      // Process mutations sequentially to avoid overwhelming database connection pool
-      let successes = 0;
-      for (let i = 0; i < actionIds.length; i++) {
-        const actionId = actionIds[i]!;
-        await bulkUpdateMutation.mutateAsync({
-          id: actionId,
-          dueDate: date ?? undefined,
-        });
-        successes += 1;
-
-        // Small delay between mutations
-        if (i < actionIds.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-      }
-
-      // Invalidate queries
-      await utils.action.getAll.invalidate();
-      await utils.action.getToday.invalidate();
+      const result = await bulkRescheduleMutation.mutateAsync({
+        actionIds,
+        dueDate: date,
+      });
 
       notifications.update({
         id: 'bulk-schedule-inbox',
         title: 'Scheduled',
-        message: `Successfully updated ${successes} of ${totalCount} action${totalCount !== 1 ? 's' : ''}`,
+        message: `Successfully updated ${result.count} action${result.count !== 1 ? 's' : ''}`,
         loading: false,
         autoClose: 3000,
         color: 'green',
       });
     } catch (err) {
-      const errMsg = (err && (err as { message?: string }).message) ? (err as { message: string }).message : String(err);
+      const errMsg = err instanceof Error ? err.message : String(err);
       console.error('Bulk schedule error:', err);
-
-      const isConnectionError = /connect|ECONN|timeout/i.test(errMsg);
-      const message = isConnectionError
-        ? 'Connection error while scheduling — please check your network and try again.'
-        : `Failed to schedule some actions: ${errMsg}`;
 
       notifications.update({
         id: 'bulk-schedule-inbox',
         title: 'Error',
-        message,
+        message: `Failed to schedule: ${errMsg}`,
         loading: false,
         autoClose: 5000,
         color: 'red',

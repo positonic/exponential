@@ -723,6 +723,29 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
+  // Bulk reschedule actions (update dueDate)
+  bulkReschedule: protectedProcedure
+    .input(z.object({
+      actionIds: z.array(z.string()),
+      dueDate: z.date().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.db.action.updateMany({
+        where: {
+          id: { in: input.actionIds },
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          dueDate: input.dueDate,
+        },
+      });
+
+      return {
+        count: result.count,
+        actionIds: input.actionIds,
+      };
+    }),
+
   // Assign users to an action
   assign: protectedProcedure
     .input(z.object({
