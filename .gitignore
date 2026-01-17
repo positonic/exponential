@@ -21,6 +21,9 @@ next-env.d.ts
 # production
 /build
 
+# electron
+/dist-electron
+
 # misc
 .DS_Store
 *.pem
