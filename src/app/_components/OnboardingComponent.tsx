@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Title,
   Text,
@@ -141,13 +141,24 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     if (onboardingStatus && !onboardingStatus.isCompleted) {
       const step = onboardingStatus.onboardingStep;
       setCurrentStep(step as OnboardingStep);
+      // Safe parsing of workDaysJson
+      let parsedWorkDays: string[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+      if (onboardingStatus.workDaysJson) {
+        try {
+          parsedWorkDays = JSON.parse(onboardingStatus.workDaysJson) as string[];
+        } catch (error) {
+          console.error('Failed to parse workDaysJson:', error);
+          // fallback to default work days
+        }
+      }
+      
       setData(prev => ({
         ...prev,
         name: onboardingStatus.name ?? userName ?? '',
         emailMarketingOptIn: onboardingStatus.emailMarketingOptIn ?? true,
         attributionSource: onboardingStatus.attributionSource ?? null,
         workHoursEnabled: onboardingStatus.workHoursEnabled ?? true,
-        workDays: onboardingStatus.workDaysJson ? JSON.parse(onboardingStatus.workDaysJson) as string[] : ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+        workDays: parsedWorkDays,
         workHoursStart: onboardingStatus.workHoursStart ?? '09:00',
         workHoursEnd: onboardingStatus.workHoursEnd ?? '17:00',
       }));
@@ -713,7 +724,21 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                 <Select
                   label="Start time"
                   value={data.workHoursStart}
-                  onChange={(value) => setData(prev => ({ ...prev, workHoursStart: value ?? '09:00' }))}
+                  onChange={(value) => {
+                    const newStart = value ?? '09:00';
+                    setData(prev => {
+                      // If end time is now before or equal to start, adjust it
+                      const startHour = parseInt(newStart.split(':')[0]!);
+                      const endHour = parseInt(prev.workHoursEnd.split(':')[0]!);
+                      let newEnd = prev.workHoursEnd;
+                      if (endHour <= startHour) {
+                        // Set end to at least 1 hour after start, or default to 17:00
+                        const nextHour = startHour + 1;
+                        newEnd = nextHour <= 21 ? `${nextHour.toString().padStart(2, '0')}:00` : '21:00';
+                      }
+                      return { ...prev, workHoursStart: newStart, workHoursEnd: newEnd };
+                    });
+                  }}
                   data={[
                     { value: '06:00', label: '6:00 AM' },
                     { value: '07:00', label: '7:00 AM' },
@@ -729,15 +754,28 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                   label="End time"
                   value={data.workHoursEnd}
                   onChange={(value) => setData(prev => ({ ...prev, workHoursEnd: value ?? '17:00' }))}
-                  data={[
-                    { value: '15:00', label: '3:00 PM' },
-                    { value: '16:00', label: '4:00 PM' },
-                    { value: '17:00', label: '5:00 PM' },
-                    { value: '18:00', label: '6:00 PM' },
-                    { value: '19:00', label: '7:00 PM' },
-                    { value: '20:00', label: '8:00 PM' },
-                    { value: '21:00', label: '9:00 PM' },
-                  ]}
+                  data={(() => {
+                    // Generate end time options that are after the start time
+                    const allEndOptions = [
+                      { value: '07:00', label: '7:00 AM' },
+                      { value: '08:00', label: '8:00 AM' },
+                      { value: '09:00', label: '9:00 AM' },
+                      { value: '10:00', label: '10:00 AM' },
+                      { value: '11:00', label: '11:00 AM' },
+                      { value: '12:00', label: '12:00 PM' },
+                      { value: '13:00', label: '1:00 PM' },
+                      { value: '14:00', label: '2:00 PM' },
+                      { value: '15:00', label: '3:00 PM' },
+                      { value: '16:00', label: '4:00 PM' },
+                      { value: '17:00', label: '5:00 PM' },
+                      { value: '18:00', label: '6:00 PM' },
+                      { value: '19:00', label: '7:00 PM' },
+                      { value: '20:00', label: '8:00 PM' },
+                      { value: '21:00', label: '9:00 PM' },
+                    ];
+                    const startHour = parseInt(data.workHoursStart.split(':')[0]!);
+                    return allEndOptions.filter(opt => parseInt(opt.value.split(':')[0]!) > startHour);
+                  })()}
                   className="flex-1"
                   classNames={{ input: 'bg-background-primary border-border-primary' }}
                 />
@@ -872,7 +910,19 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                       type="date"
                       placeholder="Due date"
                       value={task.dueDate ? task.dueDate.toISOString().split('T')[0] : ''}
-                      onChange={(e) => handleTaskChange(task.id, 'dueDate', e.target.value ? new Date(e.target.value) : null)}
+                      onChange={(e) => {
+                        if (!e.target.value) {
+                          handleTaskChange(task.id, 'dueDate', null);
+                          return;
+                        }
+                        const parsed = new Date(e.target.value);
+                        // Validate the date is valid
+                        if (!isNaN(parsed.getTime())) {
+                          handleTaskChange(task.id, 'dueDate', parsed);
+                        } else {
+                          handleTaskChange(task.id, 'dueDate', null);
+                        }
+                      }}
                       size="xs"
                       className="w-36"
                       leftSection={<IconCalendarEvent size={12} />}
@@ -965,15 +1015,19 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                 ))
               ) : (
                 <>
-                  {[1, 2, 3].map(i => (
-                    <Group key={i} gap="sm" className="py-2">
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
-                      <div
-                        className="h-4 rounded bg-surface-tertiary"
-                        style={{ width: `${80 + Math.random() * 60}px` }}
-                      />
-                    </Group>
-                  ))}
+                  {(() => {
+                    // Precompute deterministic widths for skeleton
+                    const skeletonWidths = [92, 115, 103];
+                    return [1, 2, 3].map((i, index) => (
+                      <Group key={i} gap="sm" className="py-2">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
+                        <div
+                          className="h-4 rounded bg-surface-tertiary"
+                          style={{ width: `${skeletonWidths[index]}px` }}
+                        />
+                      </Group>
+                    ));
+                  })()}
                 </>
               )}
             </Stack>
