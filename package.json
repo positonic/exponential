@@ -1,8 +1,9 @@
 {
-  "name": "todo",
+  "name": "exponential",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
     "build": "next build",
     "check": "NODE_OPTIONS=\"--max-old-space-size=4096\" next lint && tsc --noEmit",
@@ -22,7 +23,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "NODE_OPTIONS=\"--max-old-space-size=4096\" tsc --noEmit",
-    "prepare": "husky"
+    "prepare": "husky",
+    "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && npm run electron:start\"",
+    "electron:start": "tsc -p electron/tsconfig.json && electron .",
+    "electron:build": "tsc -p electron/tsconfig.json && electron-builder",
+    "electron:build:mac": "npm run electron:build -- --mac",
+    "electron:build:win": "npm run electron:build -- --win",
+    "electron:build:linux": "npm run electron:build -- --linux"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.2",
@@ -92,6 +99,10 @@
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^18.0.1",
+    "concurrently": "^8.2.0",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.0",
+    "wait-on": "^7.2.0",
     "@testing-library/jest-dom": "^6.6.4",
     "@testing-library/react": "^16.3.0",
     "@types/dompurify": "^3.2.0",
