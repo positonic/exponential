@@ -161,6 +161,19 @@ export function ProjectReviewCard({
     } as typeof prev[0]]);
   };
 
+  const handleActionUpdated = async () => {
+    // Refetch fresh project data to update the UI
+    const freshData = await utils.project.getActiveWithDetails.fetch({
+      workspaceId: workspaceId ?? undefined,
+    });
+
+    // Find the current project in fresh data and update localActions
+    const freshProject = freshData?.find(p => p.id === project.id);
+    if (freshProject) {
+      setLocalActions(freshProject.actions);
+    }
+  };
+
   return (
     <Card
       withBorder
@@ -299,12 +312,9 @@ export function ProjectReviewCard({
         <NextActionCapture
           projectId={project.id}
           workspaceId={workspaceId}
-          existingActions={project.actions}
+          existingActions={localActions}
           onActionAdded={handleActionAdded}
-          onActionUpdated={() => {
-            // Refresh local actions state when an action is edited
-            void utils.project.getActiveWithDetails.invalidate();
-          }}
+          onActionUpdated={handleActionUpdated}
         />
       </div>
 
