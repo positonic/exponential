@@ -19,7 +19,7 @@ export const okrManifest: PluginManifest = {
         label: "OKRs",
         icon: "IconTargetArrow",
         href: "/w/:workspaceSlug/okrs",
-        section: "alignment",
+        section: "workspace",
         order: 5,
         workspaceScoped: true,
       },

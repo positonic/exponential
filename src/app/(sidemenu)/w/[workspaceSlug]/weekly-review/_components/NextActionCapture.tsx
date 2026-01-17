@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type RefObject } from "react";
+import { useState } from "react";
 import { TextInput, Button, Group, Text, Stack } from "@mantine/core";
 import { IconPlus, IconCircle } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
@@ -22,7 +22,6 @@ interface NextActionCaptureProps {
   workspaceId: string | null;
   existingActions?: ExistingAction[];
   onActionAdded: () => void;
-  inputRef?: RefObject<HTMLInputElement | null>;
 }
 
 export function NextActionCapture({
@@ -30,7 +29,6 @@ export function NextActionCapture({
   workspaceId,
   existingActions = [],
   onActionAdded,
-  inputRef,
 }: NextActionCaptureProps) {
   const [actionTitle, setActionTitle] = useState("");
   const [createdActions, setCreatedActions] = useState<CreatedAction[]>([]);
@@ -115,7 +113,6 @@ export function NextActionCapture({
       {/* Input for adding new action */}
       <Group gap="sm">
         <TextInput
-          ref={inputRef as React.RefObject<HTMLInputElement>}
           placeholder="What's the next step for this project?"
           value={actionTitle}
           onChange={(e) => setActionTitle(e.target.value)}

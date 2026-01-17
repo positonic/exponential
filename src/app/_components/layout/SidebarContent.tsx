@@ -27,7 +27,7 @@ type IconMapKey = keyof typeof iconMap;
 
 export function SidebarContent() {
   const { isSectionVisible, isItemVisible } = useNavigationPreferences();
-  const { workspaceSlug } = useWorkspace();
+  const { workspaceSlug, workspace } = useWorkspace();
   const { itemsBySection } = usePluginNavigation();
 
   // Use workspace-aware paths when in a workspace context
@@ -115,7 +115,7 @@ export function SidebarContent() {
           </Accordion.Item>
         )}
         
-        {isSectionVisible("alignment") && (
+        {isSectionVisible("alignment") && workspace?.type === "personal" && (
           <Accordion.Item value="goals">
             <Accordion.Control>
               <div className="flex items-center justify-between">

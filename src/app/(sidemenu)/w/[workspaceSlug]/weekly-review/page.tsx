@@ -1,9 +1,7 @@
 "use client";
 
-import { useState, useMemo, useRef, useCallback } from "react";
-import { Container, Title, Group, ActionIcon, Tooltip } from "@mantine/core";
-import { useHotkeys, useDisclosure } from "@mantine/hooks";
-import { IconKeyboard } from "@tabler/icons-react";
+import { useState, useMemo } from "react";
+import { Container, Title } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { WeeklyReviewIntro } from "./_components/WeeklyReviewIntro";
@@ -11,7 +9,6 @@ import { ProjectReviewCard } from "./_components/ProjectReviewCard";
 import { ReviewProgress } from "./_components/ReviewProgress";
 import { ReviewCompletion } from "./_components/ReviewCompletion";
 import { WeeklyReviewExplainer } from "./_components/WeeklyReviewExplainer";
-import { KeyboardShortcutsHelp } from "./_components/KeyboardShortcutsHelp";
 import { type RouterOutputs } from "~/trpc/react";
 
 type ReviewStep = "intro" | "reviewing" | "complete";
@@ -85,13 +82,6 @@ export default function WeeklyReviewPage() {
   const [reviewSessionProjects, setReviewSessionProjects] = useState<
     ProjectsArray
   >([]);
-
-  // Keyboard shortcuts help modal
-  const [helpOpened, { open: openHelp, close: closeHelp }] =
-    useDisclosure(false);
-
-  // Ref for focusing the next action input
-  const nextActionInputRef = useRef<HTMLInputElement>(null);
 
   const { data: projects, isLoading } =
     api.project.getActiveWithDetails.useQuery({
@@ -181,56 +171,6 @@ export default function WeeklyReviewPage() {
     setChanges(new Map());
   };
 
-  // Focus next action input
-  const focusNextActionInput = useCallback(() => {
-    nextActionInputRef.current?.focus();
-  }, []);
-
-  // Keyboard shortcuts (only active during review step)
-  useHotkeys(
-    [
-      [
-        "j",
-        () => {
-          if (step === "reviewing") handleNext();
-        },
-      ],
-      [
-        "ArrowRight",
-        () => {
-          if (step === "reviewing") handleNext();
-        },
-      ],
-      [
-        "k",
-        () => {
-          if (step === "reviewing") handlePrevious();
-        },
-      ],
-      [
-        "ArrowLeft",
-        () => {
-          if (step === "reviewing") handlePrevious();
-        },
-      ],
-      [
-        "s",
-        () => {
-          if (step === "reviewing") handleSkip();
-        },
-      ],
-      [
-        "n",
-        () => {
-          if (step === "reviewing") focusNextActionInput();
-        },
-      ],
-      ["shift+?", openHelp],
-      ["Escape", closeHelp],
-    ],
-    []
-  );
-
   if (isLoading) {
     return (
       <Container size="md" py="xl">
@@ -244,18 +184,9 @@ export default function WeeklyReviewPage() {
 
   return (
     <Container size="md" py="xl">
-      <Group justify="space-between" className="mb-6">
-        <Title order={2} className="text-text-primary">
-          Weekly Review
-        </Title>
-        <Tooltip label="Keyboard shortcuts (?)">
-          <ActionIcon variant="subtle" size="lg" onClick={openHelp}>
-            <IconKeyboard size={20} />
-          </ActionIcon>
-        </Tooltip>
-      </Group>
-
-      <KeyboardShortcutsHelp opened={helpOpened} onClose={closeHelp} />
+      <Title order={2} className="mb-6 text-text-primary">
+        Weekly Review
+      </Title>
 
       {step === "intro" && (
         <WeeklyReviewIntro
@@ -287,7 +218,6 @@ export default function WeeklyReviewPage() {
             hasNext={currentProjectIndex < reviewSessionProjects.length - 1}
             workspaceId={workspaceId}
             allOutcomes={allOutcomes}
-            nextActionInputRef={nextActionInputRef}
           />
         </>
       )}

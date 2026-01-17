@@ -61,11 +61,10 @@ export const features: FeatureData[] = [
     title: "Weekly Review",
     headline: "Reflect, reset, realign—every week.",
     description:
-      "A structured weekly ritual that keeps you connected to your goals. Smart project ordering surfaces what needs attention first. Streak tracking keeps you motivated week after week. Keyboard shortcuts make it fast.",
+      "A structured weekly ritual that keeps you connected to your goals. Smart project ordering surfaces what needs attention first. Streak tracking keeps you motivated week after week.",
     benefits: [
       "Streak tracking with milestone celebrations",
       "Smart project ordering by health score",
-      "Keyboard shortcuts for speed reviewers",
       "Track your habit on the habits page",
       "Guided reflection prompts",
       "Automatic progress summaries",

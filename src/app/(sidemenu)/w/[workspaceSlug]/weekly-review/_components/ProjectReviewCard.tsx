@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type RefObject } from "react";
+import { useState } from "react";
 import {
   Card,
   Text,
@@ -74,7 +74,6 @@ interface ProjectReviewCardProps {
   hasNext: boolean;
   workspaceId: string | null;
   allOutcomes?: Outcome[];
-  nextActionInputRef?: RefObject<HTMLInputElement | null>;
 }
 
 
@@ -112,7 +111,6 @@ export function ProjectReviewCard({
   hasNext,
   workspaceId,
   allOutcomes,
-  nextActionInputRef,
 }: ProjectReviewCardProps) {
   const [status, setStatus] = useState(project.status);
   const [priority, setPriority] = useState(project.priority ?? "NONE");
@@ -308,7 +306,6 @@ export function ProjectReviewCard({
           workspaceId={workspaceId}
           existingActions={project.actions}
           onActionAdded={handleActionAdded}
-          inputRef={nextActionInputRef}
         />
       </div>
 
