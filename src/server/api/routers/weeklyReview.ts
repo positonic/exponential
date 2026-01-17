@@ -651,4 +651,27 @@ export const weeklyReviewRouter = createTRPCRouter({
         thisWeekComplete: thisWeekDone,
       };
     }),
+
+  /**
+   * Get completed weekly reviews history
+   */
+  getCompletedReviews: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+        limit: z.number().optional().default(10),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      return ctx.db.weeklyReviewCompletion.findMany({
+        where: {
+          userId,
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        orderBy: { weekStartDate: "desc" },
+        take: input.limit,
+      });
+    }),
 });

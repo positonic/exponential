@@ -10,6 +10,7 @@ import { ReviewProgress } from "./_components/ReviewProgress";
 import { ReviewCompletion } from "./_components/ReviewCompletion";
 import { ReviewTimer } from "./_components/ReviewTimer";
 import { WeeklyReviewExplainer } from "./_components/WeeklyReviewExplainer";
+import { CompletedReviewsList } from "./_components/CompletedReviewsList";
 import { type RouterOutputs } from "~/trpc/react";
 
 type ReviewStep = "intro" | "reviewing" | "complete";
@@ -227,13 +228,18 @@ export default function WeeklyReviewPage() {
       </Group>
 
       {step === "intro" && (
-        <WeeklyReviewIntro
-          projectCount={activeProjects.length}
-          projectsNeedingAttention={projectsNeedingAttention}
-          onStart={handleStartReview}
-          streakData={streakData}
-          inboxCount={inboxCount}
-        />
+        <>
+          <WeeklyReviewIntro
+            projectCount={activeProjects.length}
+            projectsNeedingAttention={projectsNeedingAttention}
+            onStart={handleStartReview}
+            streakData={streakData}
+            inboxCount={inboxCount}
+          />
+          <div className="mt-8">
+            <CompletedReviewsList />
+          </div>
+        </>
       )}
 
       {step === "reviewing" && currentProject && (
