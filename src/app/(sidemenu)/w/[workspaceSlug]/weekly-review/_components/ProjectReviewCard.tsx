@@ -35,32 +35,14 @@ import {
 
 type Outcome = RouterOutputs["outcome"]["getMyOutcomes"][number];
 
+// Use the actual type from the query for proper type safety with EditActionModal
+type ProjectWithDetails = RouterOutputs["project"]["getActiveWithDetails"][0];
+
 interface ProjectChanges {
   statusChanged: boolean;
   priorityChanged: boolean;
   actionAdded: boolean;
   outcomesChanged: boolean;
-}
-
-interface ProjectWithDetails {
-  id: string;
-  name: string;
-  slug: string;
-  status: string;
-  priority: string | null;
-  progress: number;
-  actions: Array<{
-    id: string;
-    name: string;
-    status: string;
-    completedAt: Date | null;
-    dueDate: Date | null;
-  }>;
-  outcomes: Array<{
-    id: string;
-    type: string | null;
-    description: string;
-  }>;
 }
 
 interface ProjectReviewCardProps {
@@ -121,6 +103,8 @@ export function ProjectReviewCard({
   const [localOutcomes, setLocalOutcomes] = useState(project.outcomes);
   const [localActions, setLocalActions] = useState(project.actions);
 
+  const utils = api.useUtils();
+
   const updateProject = api.project.update.useMutation({
     // Note: Don't invalidate here - let the page handle invalidation after review completes
     // This prevents the blank screen bug when changing project status during review
@@ -169,11 +153,12 @@ export function ProjectReviewCard({
 
   const handleActionAdded = (newAction: { id: string; name: string; status: string }) => {
     setActionAdded(true);
+    // Cast to the full action type - only id/name/status are needed for display
     setLocalActions(prev => [...prev, {
       ...newAction,
       completedAt: null,
       dueDate: null,
-    }]);
+    } as typeof prev[0]]);
   };
 
   return (
@@ -316,6 +301,10 @@ export function ProjectReviewCard({
           workspaceId={workspaceId}
           existingActions={project.actions}
           onActionAdded={handleActionAdded}
+          onActionUpdated={() => {
+            // Refresh local actions state when an action is edited
+            void utils.project.getActiveWithDetails.invalidate();
+          }}
         />
       </div>
 
@@ -337,11 +326,12 @@ export function ProjectReviewCard({
           onOutcomesChanged={(updatedOutcomes) => {
             setOutcomesChanged(true);
             if (updatedOutcomes) {
+              // Cast to match the full outcome type from the query
               setLocalOutcomes(updatedOutcomes.map(o => ({
                 id: o.id,
                 type: o.type ?? null,
                 description: o.description ?? '',
-              })));
+              })) as typeof localOutcomes);
             }
           }}
         />
@@ -350,11 +340,12 @@ export function ProjectReviewCard({
           onSuccess={(_id, outcomeData) => {
             setOutcomesChanged(true);
             if (outcomeData) {
+              // Cast to match the full outcome type from the query
               setLocalOutcomes(prev => [...prev, {
                 id: outcomeData.id,
                 type: outcomeData.type,
                 description: outcomeData.description,
-              }]);
+              } as typeof prev[0]]);
             }
           }}
         >

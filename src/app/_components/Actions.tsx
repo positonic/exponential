@@ -920,6 +920,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         <ActionList
           viewName={viewName}
           actions={actions ?? []}
+          showProject={!projectId}
           enableBulkEditForOverdue={true}
           onOverdueBulkAction={handleOverdueBulkAction}
           onOverdueBulkReschedule={handleOverdueBulkReschedule}

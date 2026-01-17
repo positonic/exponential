@@ -182,7 +182,7 @@ export function ImportDialog({
                   <Text fw={500}>Google Account</Text>
                 </Group>
                 <Text size="sm" c="dimmed">
-                  We'll request access to:
+                  We&apos;ll request access to:
                 </Text>
                 <List size="sm" spacing="xs">
                   <List.Item>

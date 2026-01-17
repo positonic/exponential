@@ -129,6 +129,7 @@ export function ActionList({
   selectedActionIds = new Set(),
   onSelectionChange,
   showCheckboxes = true,
+  showProject = false,
   enableBulkEditForOverdue = false,
   onOverdueBulkAction,
   onOverdueBulkReschedule,
@@ -153,6 +154,7 @@ export function ActionList({
   selectedActionIds?: Set<string>,
   onSelectionChange?: (ids: Set<string>) => void,
   showCheckboxes?: boolean,
+  showProject?: boolean,
   enableBulkEditForOverdue?: boolean,
   onOverdueBulkAction?: (action: 'delete', actionIds: string[]) => void,
   onOverdueBulkReschedule?: (date: Date | null, actionIds: string[]) => void,
@@ -729,6 +731,13 @@ export function ActionList({
                 }
                 return null;
               })()}
+
+              {/* Project badge */}
+              {showProject && action.project && (
+                <Badge size="sm" variant="light" color="gray">
+                  {action.project.name}
+                </Badge>
+              )}
 
               {/* Show "From [Creator]" indicator if task was created by someone else */}
               {currentUserId && action.createdById !== currentUserId && action.createdBy && (

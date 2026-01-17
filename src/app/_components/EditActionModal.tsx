@@ -16,9 +16,10 @@ interface EditActionModalProps {
   action: Action | null;
   opened: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-export function EditActionModal({ action, opened, onClose }: EditActionModalProps) {
+export function EditActionModal({ action, opened, onClose, onSuccess }: EditActionModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
@@ -80,6 +81,7 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
       await utils.action.getToday.invalidate();
       await utils.action.getScheduledByDate.invalidate();
       await utils.action.getScheduledByDateRange.invalidate();
+      onSuccess?.();
       onClose();
     },
   });
