@@ -65,6 +65,20 @@ const getSyncStatus = (action: Action) => {
   return { status: 'not_synced', provider: null };
 };
 
+// Priority order for sorting actions (lower number = higher priority)
+const PRIORITY_ORDER: Record<Priority, number> = {
+  '1st Priority': 1, '2nd Priority': 2, '3rd Priority': 3, '4th Priority': 4,
+  '5th Priority': 5, 'Quick': 6, 'Scheduled': 7, 'Errand': 8,
+  'Remember': 9, 'Watch': 10
+};
+
+// Helper function to sort actions by priority, then by id for stable ordering
+const sortByPriority = (a: Action, b: Action): number => {
+  const priorityDiff = (PRIORITY_ORDER[a.priority as Priority] ?? 999) - (PRIORITY_ORDER[b.priority as Priority] ?? 999);
+  if (priorityDiff !== 0) return priorityDiff;
+  return a.id.localeCompare(b.id);
+};
+
 // Helper component to render sync status indicator
 const SyncStatusIndicator = ({ action }: { action: Action }) => {
   const syncInfo = getSyncStatus(action);
@@ -294,7 +308,7 @@ export function ActionList({
     const normalizedDueDate = new Date(action.dueDate);
     normalizedDueDate.setHours(0, 0, 0, 0);
     return normalizedDueDate < today;
-  }).sort((a, b) => (a.dueDate?.getTime() ?? 0) - (b.dueDate?.getTime() ?? 0)); // Sort by oldest first
+  }).sort(sortByPriority);
   console.log("[ActionList] Calculated Overdue Actions:", overdueActions);
   
   // Debug log for overdue actions with selection context
@@ -363,17 +377,7 @@ export function ActionList({
     // Then filter by status (ACTIVE/COMPLETED) and sort by priority
     const finalFiltered = viewFilteredPreStatus
       .filter((action) => action.status === filter)
-      .sort((a, b) => {
-        const priorityOrder: Record<Priority, number> = {
-          '1st Priority': 1, '2nd Priority': 2, '3rd Priority': 3, '4th Priority': 4,
-          '5th Priority': 5, 'Quick': 6, 'Scheduled': 7, 'Errand': 8,
-          'Remember': 9, 'Watch': 10
-        };
-        const priorityDiff = (priorityOrder[a.priority as Priority] || 999) - (priorityOrder[b.priority as Priority] || 999);
-        if (priorityDiff !== 0) return priorityDiff;
-        // Secondary sort by id for stable ordering across all views
-        return a.id.localeCompare(b.id);
-      });
+      .sort(sortByPriority);
     console.log("[ActionList] Final Filtered Actions:", finalFiltered);
     return finalFiltered;
   })();

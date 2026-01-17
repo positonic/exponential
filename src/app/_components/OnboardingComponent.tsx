@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Title,
   Text,
@@ -15,123 +15,83 @@ import {
   Checkbox,
   Avatar,
   ActionIcon,
-  Loader,
-  MultiSelect
+  Loader
 } from '@mantine/core';
 import {
   IconCheck,
   IconArrowRight,
   IconArrowLeft,
-  IconBrandSlack,
-  IconBrandDiscord,
-  IconBrandGithub,
-  IconBrandGitlab,
-  IconBrandWhatsapp,
   IconCalendar,
-  IconTargetArrow,
-  IconTimeline,
-  IconCalendarWeek,
-  IconSeedling,
-  IconSparkles,
-  IconDots,
   IconCamera,
   IconUser,
   IconX,
   IconPlus,
-  IconList
+  IconList,
+  IconPlayerPlay,
+  IconClock,
+  IconCalendarEvent
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { OnboardingIllustration } from './OnboardingIllustration';
-import { OnboardingWorkIllustration } from './OnboardingWorkIllustration';
-import { OnboardingToolsIllustration } from './OnboardingToolsIllustration';
-import { OnboardingProjectIllustration } from './OnboardingProjectIllustration';
+import { GoogleCalendarConnect } from './GoogleCalendarConnect';
 
+// New flow: 1=Profile+Attribution, 2=Video, 3=Calendar, 4=WorkHours, 5=Project+Tasks
 type OnboardingStep = 1 | 2 | 3 | 4 | 5;
 
 interface TaskInput {
   id: string;
   name: string;
+  dueDate: Date | null;
+  durationMinutes: number | null;
 }
 
 interface OnboardingData {
   name: string;
   emailMarketingOptIn: boolean;
-  workRole: string | null;
-  workFunction: string[];
-  usagePurposes: string[];
-  selectedTools: string[];
+  attributionSource: string | null;
   projectName: string;
+  // Work hours
+  workHoursEnabled: boolean;
+  workDays: string[];
+  workHoursStart: string;
+  workHoursEnd: string;
 }
 
-// Work role options (single select)
-const workRoleOptions = [
-  { value: 'team_member', label: 'Team member / Individual contributor' },
-  { value: 'manager', label: 'Manager' },
-  { value: 'director', label: 'Director' },
-  { value: 'executive', label: 'Executive (e.g. VP or C-suite)' },
-  { value: 'business_owner', label: 'Business owner' },
-  { value: 'freelancer', label: 'Freelancer' },
-  { value: 'student', label: 'Student' },
+// Attribution options (how did you hear about us?)
+const attributionOptions = [
+  { value: 'google', label: 'Google Search' },
+  { value: 'twitter', label: 'Twitter / X' },
+  { value: 'linkedin', label: 'LinkedIn' },
+  { value: 'youtube', label: 'YouTube' },
+  { value: 'podcast', label: 'Podcast' },
+  { value: 'friend', label: 'Friend or colleague' },
+  { value: 'article', label: 'Article or blog' },
   { value: 'other', label: 'Other' },
-  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
 ];
 
-// Work function options (multi-select)
-const workFunctionOptions = [
-  { value: 'administrative_assistant', label: 'Administrative Assistant' },
-  { value: 'communications', label: 'Communications' },
-  { value: 'customer_experience', label: 'Customer Experience' },
-  { value: 'data_analytics', label: 'Data or Analytics' },
-  { value: 'design', label: 'Design' },
-  { value: 'education_professional', label: 'Education Professional' },
-  { value: 'engineering', label: 'Engineering' },
-  { value: 'finance_accounting', label: 'Finance or Accounting' },
-  { value: 'fundraising', label: 'Fundraising' },
-  { value: 'healthcare_professional', label: 'Healthcare Professional' },
-  { value: 'human_resources', label: 'Human Resources' },
-  { value: 'information_technology', label: 'Information Technology (IT)' },
-  { value: 'legal', label: 'Legal' },
-  { value: 'marketing', label: 'Marketing' },
-  { value: 'operations', label: 'Operations' },
-  { value: 'product_management', label: 'Product Management' },
-  { value: 'project_program_management', label: 'Project or Program Management' },
-  { value: 'research_development', label: 'Research and Development' },
-  { value: 'sales', label: 'Sales' },
-  { value: 'other', label: 'Other' },
-  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
+// Work days options
+const workDayOptions = [
+  { value: 'monday', label: 'Monday' },
+  { value: 'tuesday', label: 'Tuesday' },
+  { value: 'wednesday', label: 'Wednesday' },
+  { value: 'thursday', label: 'Thursday' },
+  { value: 'friday', label: 'Friday' },
+  { value: 'saturday', label: 'Saturday' },
+  { value: 'sunday', label: 'Sunday' },
 ];
 
-// Usage purpose options (multi-select)
-const usagePurposeOptions = [
-  { value: 'feature_development', label: 'Feature development' },
-  { value: 'performance_optimization', label: 'Performance optimization' },
-  { value: 'roadmap_planning', label: 'Roadmap planning' },
-  { value: 'sprint_management', label: 'Sprint management' },
-  { value: 'bug_tracking', label: 'Bug intake and tracking' },
-  { value: 'employee_onboarding', label: 'Employee onboarding' },
-  { value: 'project_management', label: 'Project management' },
-  { value: 'portfolio_management', label: 'Portfolio management' },
-  { value: 'workload_management', label: 'Workload management' },
-  { value: 'goal_management', label: 'Goal management' },
-  { value: 'other', label: 'Other' },
-  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
-];
-
-// Flat list of tools for Step 3 (Asana-style chips)
-const TOOLS = [
-  { name: 'Slack', icon: IconBrandSlack },
-  { name: 'Discord', icon: IconBrandDiscord },
-  { name: 'WhatsApp', icon: IconBrandWhatsapp },
-  { name: 'Asana', icon: IconTargetArrow },
-  { name: 'Monday', icon: IconCalendarWeek },
-  { name: 'GitHub', icon: IconBrandGithub },
-  { name: 'Linear', icon: IconTimeline },
-  { name: 'GitLab', icon: IconBrandGitlab },
-  { name: 'Google Calendar', icon: IconCalendar },
-  { name: 'Granola', icon: IconSeedling },
-  { name: 'Fireflies', icon: IconSparkles },
+// Duration options for tasks
+const durationOptions = [
+  { value: '15', label: '15 min' },
+  { value: '30', label: '30 min' },
+  { value: '45', label: '45 min' },
+  { value: '60', label: '1 hour' },
+  { value: '90', label: '1.5 hours' },
+  { value: '120', label: '2 hours' },
+  { value: '180', label: '3 hours' },
+  { value: '240', label: '4 hours' },
 ];
 
 interface OnboardingComponentProps {
@@ -146,32 +106,34 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   const [isLoading, setIsLoading] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
-  const [showOtherInput, setShowOtherInput] = useState(false);
-  const [customToolInput, setCustomToolInput] = useState('');
   const [tasks, setTasks] = useState<TaskInput[]>([
-    { id: '1', name: '' },
-    { id: '2', name: '' },
-    { id: '3', name: '' },
+    { id: '1', name: '', dueDate: null, durationMinutes: 30 },
+    { id: '2', name: '', dueDate: null, durationMinutes: 30 },
+    { id: '3', name: '', dueDate: null, durationMinutes: 30 },
   ]);
 
   const [data, setData] = useState<OnboardingData>({
     name: userName ?? '',
     emailMarketingOptIn: true,
-    workRole: null,
-    workFunction: [],
-    usagePurposes: [],
-    selectedTools: [],
-    projectName: ''
+    attributionSource: null,
+    projectName: '',
+    // Work hours defaults
+    workHoursEnabled: true,
+    workDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+    workHoursStart: '09:00',
+    workHoursEnd: '17:00',
   });
 
   // Get onboarding status
   const { data: onboardingStatus, isLoading: statusLoading } = api.onboarding.getStatus.useQuery();
 
+  // Get calendar connection status
+  const { data: calendarStatus } = api.calendar.getConnectionStatus.useQuery();
+
   // tRPC mutations
   const updateProfile = api.onboarding.updateProfile.useMutation();
   const uploadProfileImage = api.onboarding.uploadProfileImage.useMutation();
-  const updateWorkProfile = api.onboarding.updateWorkProfile.useMutation();
-  const updateTools = api.onboarding.updateTools.useMutation();
+  const updateWorkHours = api.onboarding.updateWorkHours.useMutation();
   const completeOnboarding = api.onboarding.completeOnboarding.useMutation();
 
   // Set initial step based on current progress
@@ -179,14 +141,26 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     if (onboardingStatus && !onboardingStatus.isCompleted) {
       const step = onboardingStatus.onboardingStep;
       setCurrentStep(step as OnboardingStep);
+      // Safe parsing of workDaysJson
+      let parsedWorkDays: string[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+      if (onboardingStatus.workDaysJson) {
+        try {
+          parsedWorkDays = JSON.parse(onboardingStatus.workDaysJson) as string[];
+        } catch (error) {
+          console.error('Failed to parse workDaysJson:', error);
+          // fallback to default work days
+        }
+      }
+      
       setData(prev => ({
         ...prev,
         name: onboardingStatus.name ?? userName ?? '',
         emailMarketingOptIn: onboardingStatus.emailMarketingOptIn ?? true,
-        workRole: onboardingStatus.workRole ?? null,
-        workFunction: onboardingStatus.workFunction ?? [],
-        usagePurposes: onboardingStatus.usagePurposes ?? [],
-        selectedTools: onboardingStatus.selectedTools ?? []
+        attributionSource: onboardingStatus.attributionSource ?? null,
+        workHoursEnabled: onboardingStatus.workHoursEnabled ?? true,
+        workDays: parsedWorkDays,
+        workHoursStart: onboardingStatus.workHoursStart ?? '09:00',
+        workHoursEnd: onboardingStatus.workHoursEnd ?? '17:00',
       }));
       if (onboardingStatus.image) {
         setProfileImageUrl(onboardingStatus.image);
@@ -246,6 +220,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     }
   };
 
+  // Step 1: Profile + Attribution -> Step 2
   const handleProfileSubmit = async () => {
     if (!data.name.trim()) {
       notifications.show({
@@ -260,16 +235,10 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     try {
       await updateProfile.mutateAsync({
         name: data.name,
-        emailMarketingOptIn: data.emailMarketingOptIn
+        emailMarketingOptIn: data.emailMarketingOptIn,
+        attributionSource: data.attributionSource ?? undefined,
       });
-      setCurrentStep(3);
-
-      notifications.show({
-        title: 'Profile saved!',
-        message: 'Now let\'s see what tools you use.',
-        color: 'green',
-        icon: <IconCheck size={16} />
-      });
+      setCurrentStep(2);
     } catch {
       notifications.show({
         title: 'Error',
@@ -281,70 +250,40 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     }
   };
 
-  const handleWorkProfileSubmit = async () => {
+  // Step 2: Video -> Step 3
+  const handleVideoNext = () => {
+    setCurrentStep(3);
+  };
+
+  // Step 3: Calendar -> Step 4
+  const handleCalendarNext = () => {
+    setCurrentStep(4);
+  };
+
+  // Step 4: Work Hours -> Step 5
+  const handleWorkHoursSubmit = async () => {
     setIsLoading(true);
     try {
-      await updateWorkProfile.mutateAsync({
-        workRole: data.workRole ?? undefined,
-        workFunction: data.workFunction,
-        usagePurposes: data.usagePurposes
+      await updateWorkHours.mutateAsync({
+        workHoursEnabled: data.workHoursEnabled,
+        workDays: data.workDays,
+        workHoursStart: data.workHoursStart,
+        workHoursEnd: data.workHoursEnd,
       });
-      setCurrentStep(3);
-
-      notifications.show({
-        title: 'Work profile saved!',
-        message: 'Now let\'s see what tools you use.',
-        color: 'green',
-        icon: <IconCheck size={16} />
-      });
+      setCurrentStep(5);
     } catch {
       notifications.show({
         title: 'Error',
-        message: 'Failed to save your work profile. Please try again.',
+        message: 'Failed to save work hours. Please try again.',
         color: 'red'
       });
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleToolsSelection = async () => {
-    setIsLoading(true);
-    try {
-      await updateTools.mutateAsync({ selectedTools: data.selectedTools });
-      setCurrentStep(4);
-
-      notifications.show({
-        title: 'Tools saved!',
-        message: 'Now let\'s create your first project.',
-        color: 'green',
-        icon: <IconCheck size={16} />
-      });
-    } catch {
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to save your tools. Please try again.',
-        color: 'red'
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleProjectNameContinue = () => {
-    if (!data.projectName.trim()) {
-      notifications.show({
-        title: 'Project name required',
-        message: 'Please enter a name for your project.',
-        color: 'orange'
-      });
-      return;
-    }
-    setCurrentStep(5);
   };
 
   const handleAddTask = () => {
-    setTasks(prev => [...prev, { id: Date.now().toString(), name: '' }]);
+    setTasks(prev => [...prev, { id: Date.now().toString(), name: '', dueDate: null, durationMinutes: 30 }]);
   };
 
   const handleRemoveTask = (id: string) => {
@@ -353,10 +292,11 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     }
   };
 
-  const handleTaskChange = (id: string, name: string) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, name } : t));
+  const handleTaskChange = (id: string, field: keyof TaskInput, value: string | Date | number | null) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
   };
 
+  // Step 5: Complete onboarding
   const handleCompleteOnboarding = async () => {
     const projectName = data.projectName.trim() || 'My First Project';
     const validTasks = tasks.filter(t => t.name.trim().length > 0);
@@ -367,7 +307,11 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
         projectName,
         projectDescription: '',
         projectPriority: 'MEDIUM',
-        tasks: validTasks.map(t => ({ name: t.name.trim() }))
+        tasks: validTasks.map(t => ({
+          name: t.name.trim(),
+          dueDate: t.dueDate ?? undefined,
+          durationMinutes: t.durationMinutes ?? undefined,
+        }))
       });
 
       notifications.show({
@@ -414,34 +358,13 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     }
   };
 
-  const toggleTool = (tool: string) => {
-    if (tool === 'Other') {
-      setShowOtherInput(!showOtherInput);
-      return;
-    }
+  // Toggle work day selection
+  const toggleWorkDay = (day: string) => {
     setData(prev => ({
       ...prev,
-      selectedTools: prev.selectedTools.includes(tool)
-        ? prev.selectedTools.filter(t => t !== tool)
-        : [...prev.selectedTools, tool]
-    }));
-  };
-
-  const addCustomTool = () => {
-    const trimmed = customToolInput.trim();
-    if (trimmed && !data.selectedTools.includes(trimmed)) {
-      setData(prev => ({
-        ...prev,
-        selectedTools: [...prev.selectedTools, trimmed]
-      }));
-      setCustomToolInput('');
-    }
-  };
-
-  const removeCustomTool = (tool: string) => {
-    setData(prev => ({
-      ...prev,
-      selectedTools: prev.selectedTools.filter(t => t !== tool)
+      workDays: prev.workDays.includes(day)
+        ? prev.workDays.filter(d => d !== day)
+        : [...prev.workDays, day]
     }));
   };
 
@@ -527,6 +450,20 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               </div>
             </div>
 
+            <Select
+              label="How did you hear about us?"
+              placeholder="Select an option"
+              data={attributionOptions}
+              value={data.attributionSource}
+              onChange={(value) => setData(prev => ({ ...prev, attributionSource: value }))}
+              size="md"
+              clearable
+              className="mb-6"
+              classNames={{
+                input: 'bg-background-primary border-border-primary'
+              }}
+            />
+
             <Checkbox
               label="Get feature updates and tips via email (recommended)."
               checked={data.emailMarketingOptIn}
@@ -570,107 +507,14 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     );
   }
 
-  // Step 2: Tell us about your work - COMMENTED OUT
-  // if (currentStep === 2) {
-  //   return (
-  //     <div className="min-h-screen flex">
-  //       {/* Left column - Form */}
-  //       <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
-  //         <div>
-  //           <div className="mb-12">
-  //             <Title order={3} className="text-brand-primary font-bold">
-  //               Exponential
-  //             </Title>
-  //           </div>
-
-  //           <div className="mb-8">
-  //             <Title order={1} className="text-3xl lg:text-4xl font-bold mb-2 text-text-primary">
-  //               Tell us about your work
-  //             </Title>
-  //             <Text className="text-text-secondary">
-  //               This will help us tailor Exponential for you.
-  //             </Text>
-  //           </div>
-
-  //           <Stack gap="lg">
-  //             <Select
-  //               label="What's your role?"
-  //               placeholder="Select your role"
-  //               data={workRoleOptions}
-  //               value={data.workRole}
-  //               onChange={(value) => setData(prev => ({ ...prev, workRole: value }))}
-  //               size="md"
-  //               clearable
-  //               classNames={{
-  //                 input: 'bg-background-primary border-border-primary'
-  //               }}
-  //             />
-
-  //             <MultiSelect
-  //               label="Which function best describes your work?"
-  //               placeholder="Select all that apply"
-  //               data={workFunctionOptions}
-  //               value={data.workFunction}
-  //               onChange={(value) => setData(prev => ({ ...prev, workFunction: value }))}
-  //               size="md"
-  //               clearable
-  //               searchable
-  //               classNames={{
-  //                 input: 'bg-background-primary border-border-primary'
-  //               }}
-  //             />
-
-  //             <MultiSelect
-  //               label="What do you want to use Exponential for?"
-  //               placeholder="Select all that apply"
-  //               data={usagePurposeOptions}
-  //               value={data.usagePurposes}
-  //               onChange={(value) => setData(prev => ({ ...prev, usagePurposes: value }))}
-  //               size="md"
-  //               clearable
-  //               searchable
-  //               classNames={{
-  //                 input: 'bg-background-primary border-border-primary'
-  //               }}
-  //             />
-  //           </Stack>
-  //         </div>
-
-  //         <div className="mt-8">
-  //           <Button
-  //             fullWidth
-  //             size="lg"
-  //             onClick={handleWorkProfileSubmit}
-  //             loading={isLoading}
-  //           >
-  //             Continue
-  //           </Button>
-  //         </div>
-  //       </div>
-
-  //       {/* Right column - Illustration */}
-  //       <div
-  //         className="hidden lg:flex w-[55%] items-center justify-center p-12"
-  //         style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
-  //       >
-  //         <OnboardingWorkIllustration />
-  //       </div>
-  //     </div>
-  //   );
-  // }
-
-  // Step 3: Tools Selection - Asana-style two-column layout
-  if (currentStep === 3) {
-    // Get custom tools (tools that are selected but not in the TOOLS list)
-    const standardToolNames = TOOLS.map(t => t.name);
-    const customTools = data.selectedTools.filter(t => !standardToolNames.includes(t));
-
+  // Step 2: Welcome Video (skippable)
+  if (currentStep === 2) {
     return (
       <div className="min-h-screen flex">
-        {/* Left column - Form */}
+        {/* Left column - Content */}
         <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
           <div>
-            <div className="mb-8">
+            <div className="mb-12">
               <Title order={3} className="text-brand-primary font-bold">
                 Exponential
               </Title>
@@ -686,110 +530,46 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                   <IconArrowLeft size={20} />
                 </ActionIcon>
                 <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
-                  What tools do you use?
+                  See how Exponential works
                 </Title>
               </Group>
               <Text className="text-text-secondary">
-                Exponential connects to tools your team uses every day. Understanding your tools will help us tailor Exponential for you.
+                Watch this quick video to learn how Exponential can help you achieve more.
               </Text>
             </div>
 
-            {/* Tool chips */}
-            <div className="flex flex-wrap gap-2 mb-6">
-              {TOOLS.map(tool => (
-                <Button
-                  key={tool.name}
-                  variant={data.selectedTools.includes(tool.name) ? 'filled' : 'outline'}
-                  leftSection={<tool.icon size={16} />}
-                  onClick={() => toggleTool(tool.name)}
-                  className={`transition-all ${
-                    data.selectedTools.includes(tool.name)
-                      ? ''
-                      : 'border-border-primary text-text-primary hover:bg-surface-hover'
-                  }`}
-                  color={data.selectedTools.includes(tool.name) ? 'brand' : 'gray'}
-                >
-                  {tool.name}
-                </Button>
-              ))}
-              {/* Other button */}
-              <Button
-                variant={showOtherInput ? 'filled' : 'outline'}
-                leftSection={<IconDots size={16} />}
-                onClick={() => toggleTool('Other')}
-                className={`transition-all ${
-                  showOtherInput
-                    ? ''
-                    : 'border-border-primary text-text-primary hover:bg-surface-hover'
-                }`}
-                color={showOtherInput ? 'brand' : 'gray'}
-              >
-                Other
-              </Button>
+            {/* Video placeholder */}
+            <div className="bg-surface-secondary border border-border-primary rounded-xl p-8 mb-8">
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="w-20 h-20 rounded-full bg-brand-primary/10 flex items-center justify-center mb-4">
+                  <IconPlayerPlay size={40} className="text-brand-primary" />
+                </div>
+                <Text className="text-text-secondary text-center">
+                  Video coming soon
+                </Text>
+                <Text size="sm" className="text-text-muted text-center mt-2">
+                  We&apos;re preparing a quick intro video for you
+                </Text>
+              </div>
             </div>
-
-            {/* Other input */}
-            {showOtherInput && (
-              <div className="mb-6">
-                <TextInput
-                  placeholder="Enter tool name and press Enter"
-                  value={customToolInput}
-                  onChange={(e) => setCustomToolInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      addCustomTool();
-                    }
-                  }}
-                  rightSection={
-                    <ActionIcon onClick={addCustomTool} variant="subtle">
-                      <IconArrowRight size={16} />
-                    </ActionIcon>
-                  }
-                  classNames={{
-                    input: 'bg-background-primary border-border-primary'
-                  }}
-                />
-              </div>
-            )}
-
-            {/* Custom tools display */}
-            {customTools.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-6">
-                {customTools.map(tool => (
-                  <Button
-                    key={tool}
-                    variant="filled"
-                    color="brand"
-                    rightSection={
-                      <ActionIcon
-                        size="xs"
-                        variant="transparent"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeCustomTool(tool);
-                        }}
-                      >
-                        <IconX size={12} className="text-text-inverse" />
-                      </ActionIcon>
-                    }
-                  >
-                    {tool}
-                  </Button>
-                ))}
-              </div>
-            )}
           </div>
 
           <div>
             <Button
               fullWidth
               size="lg"
-              onClick={handleToolsSelection}
-              loading={isLoading}
+              onClick={handleVideoNext}
+              rightSection={<IconArrowRight size={18} />}
             >
               Continue
             </Button>
+            <Anchor
+              component="button"
+              onClick={handleVideoNext}
+              className="block text-center mt-4 text-text-muted hover:text-text-secondary"
+            >
+              Skip video
+            </Anchor>
           </div>
         </div>
 
@@ -798,20 +578,103 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           className="hidden lg:flex w-[55%] items-center justify-center p-12"
           style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
         >
-          <OnboardingToolsIllustration />
+          <OnboardingIllustration />
         </div>
       </div>
     );
   }
 
-  // Step 4: Project Name - Asana-style two-column layout
+  // Step 3: Calendar Connection (optional)
+  if (currentStep === 3) {
+    return (
+      <div className="min-h-screen flex">
+        {/* Left column - Form */}
+        <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+          <div>
+            <div className="mb-12">
+              <Title order={3} className="text-brand-primary font-bold">
+                Exponential
+              </Title>
+            </div>
+
+            <div className="mb-8">
+              <Group gap="xs" className="mb-4">
+                <ActionIcon
+                  variant="subtle"
+                  onClick={() => setCurrentStep(2)}
+                  className="text-text-secondary hover:text-text-primary"
+                >
+                  <IconArrowLeft size={20} />
+                </ActionIcon>
+                <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
+                  Connect your calendar
+                </Title>
+              </Group>
+              <Text className="text-text-secondary">
+                Connect your calendar to unlock smart scheduling features and see your day at a glance.
+              </Text>
+            </div>
+
+            <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 mb-8">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 rounded-lg bg-brand-primary/10 flex items-center justify-center">
+                  <IconCalendar size={24} className="text-brand-primary" />
+                </div>
+                <div>
+                  <Text fw={500} className="text-text-primary">Google Calendar</Text>
+                  <Text size="sm" className="text-text-secondary">
+                    {calendarStatus?.isConnected ? 'Connected' : 'Not connected'}
+                  </Text>
+                </div>
+              </div>
+              <GoogleCalendarConnect isConnected={calendarStatus?.isConnected} />
+            </div>
+
+            <Text size="sm" className="text-text-muted">
+              We&apos;ll never sell or share your calendar data. Your privacy is important to us.
+            </Text>
+          </div>
+
+          <div>
+            <Button
+              fullWidth
+              size="lg"
+              onClick={handleCalendarNext}
+              rightSection={<IconArrowRight size={18} />}
+            >
+              {calendarStatus?.isConnected ? 'Continue' : 'Continue without calendar'}
+            </Button>
+            {!calendarStatus?.isConnected && (
+              <Anchor
+                component="button"
+                onClick={handleCalendarNext}
+                className="block text-center mt-4 text-text-muted hover:text-text-secondary"
+              >
+                Skip for now
+              </Anchor>
+            )}
+          </div>
+        </div>
+
+        {/* Right column - Illustration */}
+        <div
+          className="hidden lg:flex w-[55%] items-center justify-center p-12"
+          style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
+        >
+          <OnboardingIllustration />
+        </div>
+      </div>
+    );
+  }
+
+  // Step 4: Work Hours Setup
   if (currentStep === 4) {
     return (
       <div className="min-h-screen flex">
         {/* Left column - Form */}
         <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
           <div>
-            <div className="mb-8">
+            <div className="mb-12">
               <Title order={3} className="text-brand-primary font-bold">
                 Exponential
               </Title>
@@ -827,52 +690,113 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                   <IconArrowLeft size={20} />
                 </ActionIcon>
                 <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
-                  Let&apos;s set up your first project
+                  Set your work hours
                 </Title>
               </Group>
               <Text className="text-text-secondary">
-                What&apos;s something you and your team are currently working on?
+                Help us understand when you work so we can optimize your schedule.
               </Text>
             </div>
 
-            <TextInput
-              placeholder="e.g., Website Redesign, Q1 Marketing Campaign"
-              value={data.projectName}
-              onChange={(e) => setData(prev => ({ ...prev, projectName: e.target.value }))}
-              size="lg"
-              classNames={{
-                input: 'bg-background-primary border-border-primary text-xl'
-              }}
-              styles={{
-                input: {
-                  fontSize: '1.25rem',
-                  padding: '1rem',
-                }
-              }}
-              autoFocus
-            />
+            {/* Work days selection */}
+            <div className="mb-6">
+              <Text fw={500} className="mb-3 text-text-primary">Which days do you work?</Text>
+              <div className="flex flex-wrap gap-2">
+                {workDayOptions.map(day => (
+                  <Button
+                    key={day.value}
+                    variant={data.workDays.includes(day.value) ? 'filled' : 'outline'}
+                    onClick={() => toggleWorkDay(day.value)}
+                    size="sm"
+                    className={data.workDays.includes(day.value) ? '' : 'border-border-primary text-text-primary'}
+                    color={data.workDays.includes(day.value) ? 'brand' : 'gray'}
+                  >
+                    {day.label.slice(0, 3)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Work hours */}
+            <div className="mb-6">
+              <Text fw={500} className="mb-3 text-text-primary">What are your typical work hours?</Text>
+              <Group gap="md">
+                <Select
+                  label="Start time"
+                  value={data.workHoursStart}
+                  onChange={(value) => {
+                    const newStart = value ?? '09:00';
+                    setData(prev => {
+                      // If end time is now before or equal to start, adjust it
+                      const startHour = parseInt(newStart.split(':')[0]!);
+                      const endHour = parseInt(prev.workHoursEnd.split(':')[0]!);
+                      let newEnd = prev.workHoursEnd;
+                      if (endHour <= startHour) {
+                        // Set end to at least 1 hour after start, or default to 17:00
+                        const nextHour = startHour + 1;
+                        newEnd = nextHour <= 21 ? `${nextHour.toString().padStart(2, '0')}:00` : '21:00';
+                      }
+                      return { ...prev, workHoursStart: newStart, workHoursEnd: newEnd };
+                    });
+                  }}
+                  data={[
+                    { value: '06:00', label: '6:00 AM' },
+                    { value: '07:00', label: '7:00 AM' },
+                    { value: '08:00', label: '8:00 AM' },
+                    { value: '09:00', label: '9:00 AM' },
+                    { value: '10:00', label: '10:00 AM' },
+                    { value: '11:00', label: '11:00 AM' },
+                  ]}
+                  className="flex-1"
+                  classNames={{ input: 'bg-background-primary border-border-primary' }}
+                />
+                <Select
+                  label="End time"
+                  value={data.workHoursEnd}
+                  onChange={(value) => setData(prev => ({ ...prev, workHoursEnd: value ?? '17:00' }))}
+                  data={(() => {
+                    // Generate end time options that are after the start time
+                    const allEndOptions = [
+                      { value: '07:00', label: '7:00 AM' },
+                      { value: '08:00', label: '8:00 AM' },
+                      { value: '09:00', label: '9:00 AM' },
+                      { value: '10:00', label: '10:00 AM' },
+                      { value: '11:00', label: '11:00 AM' },
+                      { value: '12:00', label: '12:00 PM' },
+                      { value: '13:00', label: '1:00 PM' },
+                      { value: '14:00', label: '2:00 PM' },
+                      { value: '15:00', label: '3:00 PM' },
+                      { value: '16:00', label: '4:00 PM' },
+                      { value: '17:00', label: '5:00 PM' },
+                      { value: '18:00', label: '6:00 PM' },
+                      { value: '19:00', label: '7:00 PM' },
+                      { value: '20:00', label: '8:00 PM' },
+                      { value: '21:00', label: '9:00 PM' },
+                    ];
+                    const startHour = parseInt(data.workHoursStart.split(':')[0]!);
+                    return allEndOptions.filter(opt => parseInt(opt.value.split(':')[0]!) > startHour);
+                  })()}
+                  className="flex-1"
+                  classNames={{ input: 'bg-background-primary border-border-primary' }}
+                />
+              </Group>
+            </div>
+
+            <Text size="sm" className="text-text-muted">
+              You can change these settings anytime in your profile.
+            </Text>
           </div>
 
           <div className="mt-8">
             <Button
               fullWidth
               size="lg"
-              onClick={handleProjectNameContinue}
+              onClick={handleWorkHoursSubmit}
               loading={isLoading}
-              disabled={!data.projectName.trim()}
               rightSection={<IconArrowRight size={18} />}
             >
               Continue
             </Button>
-
-            <Anchor
-              component="button"
-              onClick={handleSkipOnboarding}
-              className="block text-center mt-4 text-text-muted hover:text-text-secondary"
-              disabled={isLoading}
-            >
-              Skip for now
-            </Anchor>
           </div>
         </div>
 
@@ -881,19 +805,19 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           className="hidden lg:flex w-[55%] items-center justify-center p-12"
           style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
         >
-          <OnboardingProjectIllustration />
+          <OnboardingIllustration />
         </div>
       </div>
     );
   }
 
-  // Step 5: Tasks - Asana-style two-column layout
+  // Step 5: Project + Tasks - Combined step with enhanced task input
   const previewTasks = tasks.filter(t => t.name.trim().length > 0);
 
   return (
     <div className="min-h-screen flex">
       {/* Left column - Form */}
-      <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+      <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12 overflow-y-auto">
         <div>
           <div className="mb-8">
             <Title order={3} className="text-brand-primary font-bold">
@@ -901,7 +825,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
             </Title>
           </div>
 
-          <div className="mb-8">
+          <div className="mb-6">
             <Group gap="xs" className="mb-4">
               <ActionIcon
                 variant="subtle"
@@ -911,64 +835,126 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                 <IconArrowLeft size={20} />
               </ActionIcon>
               <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
-                What are a few tasks you need to do?
+                Create your first project
               </Title>
             </Group>
             <Text className="text-text-secondary">
-              Add some initial tasks for {data.projectName || 'your project'}. You can always add more later.
+              What are you working on? Add a project and some initial tasks.
             </Text>
           </div>
 
-          <Stack gap="md">
-            {tasks.map((task, index) => (
-              <Group key={task.id} gap="sm">
-                <TextInput
-                  placeholder={
-                    index === 0
-                      ? 'e.g., Research competitors'
-                      : index === 1
-                        ? 'e.g., Create wireframes'
-                        : 'e.g., Review with team'
-                  }
-                  value={task.name}
-                  onChange={(e) => handleTaskChange(task.id, e.target.value)}
-                  className="flex-1"
-                  size="md"
-                  classNames={{
-                    input: 'bg-background-primary border-border-primary'
-                  }}
-                />
-                {tasks.length > 1 && (
-                  <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    onClick={() => handleRemoveTask(task.id)}
-                    disabled={isLoading}
-                  >
-                    <IconX size={16} />
-                  </ActionIcon>
-                )}
-              </Group>
-            ))}
+          {/* Project Name */}
+          <div className="mb-6">
+            <TextInput
+              label="Project name"
+              placeholder="e.g., Website Redesign, Q1 Marketing Campaign"
+              value={data.projectName}
+              onChange={(e) => setData(prev => ({ ...prev, projectName: e.target.value }))}
+              size="md"
+              classNames={{
+                input: 'bg-background-primary border-border-primary'
+              }}
+            />
+          </div>
 
-            <Button
-              variant="subtle"
-              leftSection={<IconPlus size={16} />}
-              onClick={handleAddTask}
-              className="w-fit"
-              disabled={isLoading}
-            >
-              Add another task
-            </Button>
-          </Stack>
+          {/* Tasks with due dates and durations */}
+          <div className="mb-4">
+            <Text fw={500} className="mb-3 text-text-primary">What tasks do you need to complete?</Text>
+            <Stack gap="sm">
+              {tasks.map((task, index) => (
+                <div key={task.id} className="bg-surface-primary border border-border-primary rounded-lg p-3">
+                  <Group gap="sm" className="mb-2">
+                    <TextInput
+                      placeholder={
+                        index === 0
+                          ? 'e.g., Research competitors'
+                          : index === 1
+                            ? 'e.g., Create wireframes'
+                            : 'e.g., Review with team'
+                      }
+                      value={task.name}
+                      onChange={(e) => handleTaskChange(task.id, 'name', e.target.value)}
+                      className="flex-1"
+                      size="sm"
+                      classNames={{
+                        input: 'bg-background-primary border-border-primary'
+                      }}
+                    />
+                    {tasks.length > 1 && (
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        onClick={() => handleRemoveTask(task.id)}
+                        disabled={isLoading}
+                        size="sm"
+                      >
+                        <IconX size={14} />
+                      </ActionIcon>
+                    )}
+                  </Group>
+                  <Group gap="sm">
+                    <Select
+                      placeholder="Duration"
+                      value={task.durationMinutes?.toString() ?? null}
+                      onChange={(value) => handleTaskChange(task.id, 'durationMinutes', value ? parseInt(value) : null)}
+                      data={durationOptions}
+                      size="xs"
+                      className="w-28"
+                      leftSection={<IconClock size={12} />}
+                      classNames={{
+                        input: 'bg-background-primary border-border-primary'
+                      }}
+                      clearable
+                    />
+                    <TextInput
+                      type="date"
+                      placeholder="Due date"
+                      value={task.dueDate ? task.dueDate.toISOString().split('T')[0] : ''}
+                      onChange={(e) => {
+                        if (!e.target.value) {
+                          handleTaskChange(task.id, 'dueDate', null);
+                          return;
+                        }
+                        const parsed = new Date(e.target.value);
+                        // Validate the date is valid
+                        if (!isNaN(parsed.getTime())) {
+                          handleTaskChange(task.id, 'dueDate', parsed);
+                        } else {
+                          handleTaskChange(task.id, 'dueDate', null);
+                        }
+                      }}
+                      size="xs"
+                      className="w-36"
+                      leftSection={<IconCalendarEvent size={12} />}
+                      classNames={{
+                        input: 'bg-background-primary border-border-primary'
+                      }}
+                    />
+                  </Group>
+                </div>
+              ))}
+
+              <Button
+                variant="subtle"
+                leftSection={<IconPlus size={16} />}
+                onClick={handleAddTask}
+                className="w-fit"
+                disabled={isLoading}
+                size="sm"
+              >
+                Add another task
+              </Button>
+            </Stack>
+          </div>
         </div>
 
-        <div className="mt-8">
+        <div className="mt-6">
           <Button
             fullWidth
             size="lg"
             onClick={handleCompleteOnboarding}
             loading={isLoading}
+            disabled={!data.projectName.trim()}
             rightSection={<IconCheck size={18} />}
           >
             Complete Setup
@@ -1006,22 +992,42 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
             <Stack gap="sm">
               {previewTasks.length > 0 ? (
                 previewTasks.map(task => (
-                  <Group key={task.id} gap="sm" className="py-2">
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
-                    <Text className="text-text-primary">{task.name}</Text>
-                  </Group>
+                  <div key={task.id} className="py-2">
+                    <Group gap="sm">
+                      <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
+                      <Text className="text-text-primary flex-1">{task.name}</Text>
+                    </Group>
+                    {(task.durationMinutes ?? task.dueDate) && (
+                      <Group gap="xs" className="ml-7 mt-1">
+                        {task.durationMinutes && (
+                          <Text size="xs" className="text-text-muted">
+                            {durationOptions.find(d => d.value === task.durationMinutes?.toString())?.label}
+                          </Text>
+                        )}
+                        {task.dueDate && (
+                          <Text size="xs" className="text-text-muted">
+                            Due {task.dueDate.toLocaleDateString()}
+                          </Text>
+                        )}
+                      </Group>
+                    )}
+                  </div>
                 ))
               ) : (
                 <>
-                  {[1, 2, 3, 4, 5].map(i => (
-                    <Group key={i} gap="sm" className="py-2">
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
-                      <div
-                        className="h-4 rounded bg-surface-tertiary"
-                        style={{ width: `${60 + Math.random() * 80}px` }}
-                      />
-                    </Group>
-                  ))}
+                  {(() => {
+                    // Precompute deterministic widths for skeleton
+                    const skeletonWidths = [92, 115, 103];
+                    return [1, 2, 3].map((i, index) => (
+                      <Group key={i} gap="sm" className="py-2">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border-secondary" />
+                        <div
+                          className="h-4 rounded bg-surface-tertiary"
+                          style={{ width: `${skeletonWidths[index]}px` }}
+                        />
+                      </Group>
+                    ));
+                  })()}
                 </>
               )}
             </Stack>
