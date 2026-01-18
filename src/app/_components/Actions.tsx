@@ -864,7 +864,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         />
       ) : (
         <ActionList
-          viewName={viewName}
+          viewName={showNotionUnassigned ? "notion-unassigned" : viewName}
           actions={actions ?? []}
           showProject={!projectId}
           enableBulkEditForOverdue={true}
