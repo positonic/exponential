@@ -4,7 +4,7 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase } from "@tabler/icons-react";
+import { IconCalendarEvent, IconCalendarWeek, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
@@ -76,6 +76,9 @@ export function SidebarContent() {
             <Accordion.Panel>
               <NavLink href={`/w/${workspaceSlug}/home`} icon={IconBriefcase}>
                 Workspace Home
+              </NavLink>
+              <NavLink href={`/w/${workspaceSlug}/weekly-review`} icon={IconCalendarWeek}>
+                Weekly Review
               </NavLink>
               {/* Plugin navigation items for workspace section */}
               {itemsBySection.workspace

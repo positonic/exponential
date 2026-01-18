@@ -7,7 +7,6 @@ import {
   IconCalendarEvent,
   IconHome,
   IconUsers,
-  IconCalendarWeek,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
@@ -69,7 +68,6 @@ export function NavLinks() {
 
   // Home always goes to /home regardless of workspace context
   const homePath = '/home';
-  const weeklyReviewPath = workspaceSlug ? `/w/${workspaceSlug}/weekly-review` : null;
 
   // Helper to get icon component from name
   const getIcon = (iconName: string) => {
@@ -89,11 +87,6 @@ export function NavLinks() {
       <NavLink href={homePath} icon={IconHome}>
         Home
       </NavLink>
-      {weeklyReviewPath && (
-        <NavLink href={weeklyReviewPath} icon={IconCalendarWeek}>
-          Weekly Review
-        </NavLink>
-      )}
       {/* Plugin navigation items for main section */}
       {mainPluginItems.map((item) => {
         const IconComponent = getIcon(item.icon);

@@ -57,9 +57,9 @@ function calculateProjectHealthScore(project: Project): number {
   );
   if (hasOverdue) score -= 20;
 
-  // -15 if no weekly outcome linked
-  const hasWeeklyOutcome = project.outcomes.some((o) => o.type === "weekly");
-  if (!hasWeeklyOutcome) score -= 15;
+  // -15 if no outcome linked
+  const hasOutcome = project.outcomes.length > 0;
+  if (!hasOutcome) score -= 15;
 
   // -10 if status is stuck or blocked
   if (project.status === "STUCK" || project.status === "BLOCKED") {

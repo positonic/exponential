@@ -55,7 +55,7 @@ function calculateProjectHealth(project: ProjectWithDetails): {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const weeklyPlanning = project.outcomes.some((o) => o.type === "weekly");
+  const weeklyPlanning = project.outcomes.length > 0;
   const recentActivity = project.actions.some(
     (a) => a.completedAt && new Date(a.completedAt) > sevenDaysAgo
   );
@@ -253,8 +253,8 @@ export function ProjectStateOverview() {
                     <Tooltip
                       label={
                         indicators.weeklyPlanning
-                          ? "Weekly outcomes set"
-                          : "No weekly outcomes"
+                          ? "Outcomes linked"
+                          : "No outcomes linked"
                       }
                       withArrow
                     >
