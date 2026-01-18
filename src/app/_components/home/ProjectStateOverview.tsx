@@ -85,7 +85,7 @@ function HealthRing({ score, size = 32 }: { score: number; size?: number }) {
       ? "text-green-500"
       : score >= 40
         ? "text-yellow-500"
-        : "text-text-muted";
+        : "text-red-500";
 
   return (
     <div className="relative" style={{ width: size, height: size }}>
@@ -125,9 +125,12 @@ function HealthRing({ score, size = 32 }: { score: number; size?: number }) {
 }
 
 export function ProjectStateOverview() {
-  const { workspace } = useWorkspace();
+  const { workspace, workspaceId } = useWorkspace();
   const { data: projects, isLoading } =
-    api.project.getActiveWithDetails.useQuery();
+    api.project.getActiveWithDetails.useQuery(
+      { workspaceId: workspaceId ?? undefined },
+      { enabled: !!workspaceId }
+    );
 
   if (isLoading) {
     return (
@@ -165,6 +168,13 @@ export function ProjectStateOverview() {
       </Card>
     );
   }
+
+  // Sort projects by health score ascending (unhealthy first)
+  const sortedProjects = [...projects].sort((a, b) => {
+    const healthA = calculateProjectHealth(a).score;
+    const healthB = calculateProjectHealth(b).score;
+    return healthA - healthB;
+  });
 
   return (
     <Card
@@ -204,7 +214,7 @@ export function ProjectStateOverview() {
         </Group>
 
         <Stack gap="sm">
-          {projects.slice(0, 4).map((project) => {
+          {sortedProjects.map((project) => {
             const { score, indicators } = calculateProjectHealth(project);
             const activeActions = project.actions.filter(
               (a) => a.status === "ACTIVE"
@@ -341,15 +351,6 @@ export function ProjectStateOverview() {
             );
           })}
         </Stack>
-
-        {projects.length > 4 && (
-          <Link
-            href={workspace ? `/w/${workspace.slug}/projects` : "/projects"}
-            className="text-center text-xs text-text-muted hover:text-text-secondary"
-          >
-            View all {projects.length} projects
-          </Link>
-        )}
       </Stack>
     </Card>
   );

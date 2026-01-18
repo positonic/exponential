@@ -74,8 +74,10 @@ export function ReviewCompletion({
   // Mark review as complete when component mounts
   const markComplete = api.weeklyReview.markComplete.useMutation({
     onSuccess: () => {
-      // Invalidate streak query to get updated data
+      // Invalidate queries to get updated data
       void utils.weeklyReview.getStreak.invalidate();
+      void utils.weeklyReview.isCompletedThisWeek.invalidate();
+      void utils.weeklyReview.getCompletedReviews.invalidate();
     },
   });
 
