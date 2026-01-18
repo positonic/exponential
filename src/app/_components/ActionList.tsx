@@ -13,6 +13,7 @@ import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/
 import { HTMLContent } from "./HTMLContent";
 import type { Priority } from "~/types/action";
 import { SchedulingSuggestion, type SchedulingSuggestionData } from "./SchedulingSuggestion";
+import { InboxZeroCelebration } from "./InboxZeroCelebration";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
 type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
@@ -1187,9 +1188,11 @@ export function ActionList({
         </Group>
       )}
 
-      {filteredActions.length > 0 
+      {filteredActions.length > 0
         ? filteredActions.map(action => renderActionItem(action, false))
-        : <Text c="dimmed" ta="center" mt="lg">No {filter.toLowerCase()} actions in this view.</Text>
+        : viewName.toLowerCase() === 'inbox' && filter === 'ACTIVE'
+          ? <InboxZeroCelebration />
+          : <Text c="dimmed" ta="center" mt="lg">No {filter.toLowerCase()} actions in this view.</Text>
       }
 
       <EditActionModal

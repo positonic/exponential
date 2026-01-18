@@ -151,9 +151,15 @@ export const actionRouter = createTRPCRouter({
   // Get actions imported from Notion that don't have a project assigned
   getNotionImportedWithoutProject: protectedProcedure
     .query(async ({ ctx }) => {
+      const userId = ctx.session.user.id;
+
       return ctx.db.action.findMany({
         where: {
-          createdById: ctx.session.user.id,
+          // Same logic as getAll - show actions I created (with no assignees) OR assigned to me
+          OR: [
+            { createdById: userId, assignees: { none: {} } },
+            { assignees: { some: { userId: userId } } },
+          ],
           projectId: null,
           status: { not: "DELETED" },
           syncs: {
