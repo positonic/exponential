@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   IconInbox,
   IconCalendarEvent,
+  IconCalendar,
   IconHome,
   IconUsers,
 } from "@tabler/icons-react";
@@ -98,6 +99,9 @@ export function NavLinks() {
       })}
       <NavLink href="/plan" icon={IconCalendarEvent} count={<TodayCount />}>
         Plan
+      </NavLink>
+      <NavLink href="/calendar" icon={IconCalendar}>
+        Calendar
       </NavLink>
       <NavLink href="/act" icon={IconInbox} count={<InboxCount />}>
         Act
