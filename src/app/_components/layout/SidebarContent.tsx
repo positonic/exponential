@@ -80,6 +80,9 @@ export function SidebarContent() {
               <NavLink href={`/w/${workspaceSlug}/weekly-review`} icon={IconCalendarWeek}>
                 Weekly Review
               </NavLink>
+              <NavLink href={`/w/${workspaceSlug}/weekly-team-checkin`} icon={IconUsers}>
+                Weekly Team Check-in
+              </NavLink>
               {/* Plugin navigation items for workspace section */}
               {itemsBySection.workspace
                 ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
@@ -169,11 +172,6 @@ export function SidebarContent() {
               {isItemVisible("teams/my-teams") && (
                 <NavLink href="/teams" icon={IconUsers}>
                   My Teams
-                </NavLink>
-              )}
-              {isItemVisible("teams/weekly-review") && (
-                <NavLink href="/weekly-review" icon={IconUsers}>
-                  Weekly Project Review
                 </NavLink>
               )}
             </Accordion.Panel>

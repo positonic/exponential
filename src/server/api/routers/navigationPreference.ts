@@ -13,7 +13,6 @@ const VALID_ITEMS = [
   "alignment/wheel-of-life",
   // Teams section
   "teams/my-teams",
-  "teams/weekly-review",
   // Tools section
   "tools/days",
   "tools/media",

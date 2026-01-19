@@ -17,13 +17,14 @@ interface OneOnOneBoardProps {
   teamId?: string;
   userName?: string;
   isSharedView?: boolean;
+  workspaceId?: string;
 }
 
-export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false }: OneOnOneBoardProps) {
+export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, workspaceId }: OneOnOneBoardProps) {
   // Use different API calls based on whether it's a shared view
   const { data: projects, isLoading } = isSharedView && userId && teamId
     ? api.project.getActiveWithDetailsForUser.useQuery({ userId, teamId })
-    : api.project.getActiveWithDetails.useQuery();
+    : api.project.getActiveWithDetails.useQuery({ workspaceId });
   
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [outcomeSearchValues, setOutcomeSearchValues] = useState<Record<string, string>>({});
@@ -32,7 +33,7 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false }
   // Fetch outcomes - use different API for shared view
   const { data: allOutcomes } = isSharedView && userId && teamId
     ? api.outcome.getOutcomesForUser.useQuery({ userId, teamId })
-    : api.outcome.getMyOutcomes.useQuery();
+    : api.outcome.getMyOutcomes.useQuery({ workspaceId });
   
   const updateProject = api.project.update.useMutation({
     onSuccess: () => {

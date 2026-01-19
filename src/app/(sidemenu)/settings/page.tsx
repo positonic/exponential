@@ -59,7 +59,6 @@ const MENU_STRUCTURE = {
     icon: IconUsers,
     items: [
       { key: "teams/my-teams", label: "My Teams" },
-      { key: "teams/weekly-review", label: "Weekly Project Review" },
     ],
   },
   tools: {

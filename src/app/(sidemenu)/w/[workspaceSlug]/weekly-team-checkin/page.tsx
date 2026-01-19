@@ -9,8 +9,10 @@ import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import Link from "next/link";
 import { api } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 
-export function WeeklyReviewPageClient() {
+export default function WeeklyTeamCheckinPage() {
+  const { workspace, workspaceId, workspaceSlug, isLoading: workspaceLoading } = useWorkspace();
   const [opened, { open, close }] = useDisclosure(false);
   const [selectedIntegration, setSelectedIntegration] = useState<string>("");
   const [selectedChannel, setSelectedChannel] = useState<string>("");
@@ -83,6 +85,24 @@ export function WeeklyReviewPageClient() {
 
   const hasSlackIntegration = integrationOptions.length > 0;
 
+  if (workspaceLoading) {
+    return (
+      <Container size="xl" py="xl">
+        <div className="flex justify-center py-12">
+          <Loader size="lg" />
+        </div>
+      </Container>
+    );
+  }
+
+  if (!workspace) {
+    return (
+      <Container size="xl" py="xl">
+        <Text className="text-text-secondary">Workspace not found</Text>
+      </Container>
+    );
+  }
+
   return (
     <>
       {/* Header with Settings Link and Send to Slack Button */}
@@ -90,10 +110,10 @@ export function WeeklyReviewPageClient() {
         <Group justify="space-between" align="center">
           <div>
             <Title order={1} className="text-text-primary">
-              Weekly Review
+              Weekly Team Check-in
             </Title>
             <Text size="sm" c="dimmed">
-              Review your active projects and weekly outcomes
+              Review your active projects and weekly outcomes in {workspace.name}
             </Text>
           </div>
           <Group>
@@ -110,21 +130,21 @@ export function WeeklyReviewPageClient() {
               variant="light"
               leftSection={<IconSettings size={16} />}
               component={Link}
-              href="/weekly-review/settings"
+              href={`/w/${workspaceSlug}/weekly-team-checkin/settings`}
             >
               Sharing Settings
             </Button>
           </Group>
         </Group>
       </Container>
-      
+
       {/* Shareable Links Section */}
       <Container size="xl" py="md">
         <ShareableLinks />
       </Container>
-      
+
       {/* Main Content */}
-      <OneOnOneBoard />
+      <OneOnOneBoard workspaceId={workspaceId ?? undefined} />
 
       {/* Send to Slack Modal */}
       <Modal
@@ -135,9 +155,9 @@ export function WeeklyReviewPageClient() {
       >
         <Stack gap="md">
           {!hasSlackIntegration ? (
-            <Alert 
-              icon={<IconAlertCircle size={16} />} 
-              title="No Slack Integration" 
+            <Alert
+              icon={<IconAlertCircle size={16} />}
+              title="No Slack Integration"
               color="orange"
             >
               You need to configure a Slack integration first. Go to the Integrations page to set up Slack.
