@@ -5,12 +5,11 @@ import { IconBook, IconUsers, IconCalendarEvent, IconVideo, IconTarget, IconDevi
 import Link from "next/link";
 import { GreetingHeader } from "./GreetingHeader";
 import { WeeklyReviewBanner } from "./WeeklyReviewBanner";
-import { InspiringQuote } from "./InspiringQuote";
+import { GoalsProgressDashboard } from "./GoalsProgressDashboard";
 import { DailyOutcomeCapture } from "./DailyOutcomeCapture";
 import { MomentumWidget } from "./MomentumWidget";
 import { HabitsDueToday } from "./HabitsDueToday";
 import { ProjectStateOverview } from "./ProjectStateOverview";
-import { AiNextBestStep } from "./AiNextBestStep";
 import { IntegrationSuggestions } from "./IntegrationSuggestions";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
@@ -26,23 +25,16 @@ export function CommandCenter() {
       {/* 2. Weekly Review Reminder (if not completed this week) */}
       <WeeklyReviewBanner />
 
-      {/* 3. Inspiring Quote (dismissible) */}
-      <div className="mb-6">
-        <InspiringQuote />
-      </div>
+      {/* 3. Goals & OKRs Dashboard (front and center) */}
+      <GoalsProgressDashboard />
 
-      {/* 4. AI Suggested Focus */}
-      <div className="mb-6">
-        <AiNextBestStep />
-      </div>
-
-      {/* 5. Daily Outcome Capture */}
+      {/* 4. Daily Outcome Capture */}
       <DailyOutcomeCapture />
 
-      {/* 6. Integration Suggestions */}
+      {/* 5. Integration Suggestions */}
       <IntegrationSuggestions />
 
-      {/* Main content grid */}
+      {/* 6. Main content grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Left sidebar - momentum + habits */}
         <div className="space-y-6 lg:col-span-3">
@@ -52,7 +44,6 @@ export function CommandCenter() {
 
         {/* Main content - projects */}
         <div className="space-y-6 lg:col-span-9">
-          {/* 6. Project State Overview */}
           <ProjectStateOverview />
         </div>
       </div>
