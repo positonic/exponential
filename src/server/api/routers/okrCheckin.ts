@@ -694,19 +694,18 @@ export const okrCheckinRouter = createTRPCRouter({
     }),
 
   // Get teams available for OKR check-ins (user's teams)
+  // Note: Shows all teams user is a member of, regardless of workspace linking
+  // Teams may not be linked to any workspace (workspaceId is optional on Team)
   getAvailableTeams: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string(),
       })
     )
-    .query(async ({ ctx, input }) => {
+    .query(async ({ ctx }) => {
       const teams = await ctx.db.teamUser.findMany({
         where: {
           userId: ctx.session.user.id,
-          team: {
-            workspaceId: input.workspaceId,
-          },
         },
         include: {
           team: {
