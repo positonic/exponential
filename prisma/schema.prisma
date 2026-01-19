@@ -118,6 +118,10 @@ model User {
   keyResultCheckIns           KeyResultCheckIn[]         @relation("KeyResultCheckInCreator")
   // Tag relations
   tagsCreated                 Tag[]                      @relation("TagCreator")
+  // OKR Check-in relations
+  facilitatedOkrCheckins      OkrCheckin[]               @relation("OkrCheckinFacilitator")
+  okrCheckinUpdates           OkrCheckinUpdate[]         @relation("OkrCheckinUpdateUser")
+  okrCheckinComments          OkrCheckinComment[]        @relation("OkrCheckinCommentAuthor")
 
   // Onboarding: Attribution
   attributionSource           String?                    // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
@@ -176,6 +180,7 @@ model Workspace {
   // Tag relations
   tags                     Tag[]
   weeklyReviewCompletions  WeeklyReviewCompletion[]
+  okrCheckins              OkrCheckin[]
 
   @@index([slug])
   @@index([ownerId])
@@ -509,6 +514,7 @@ model Team {
   weeklyOutcomes          WeeklyOutcome[]
   memberCapacities        TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacities")
   weeklyReviewSharing     WeeklyReviewSharing[]
+  okrCheckins             OkrCheckin[]
 
   @@index([slug])
   @@index([isOrganization])
@@ -1717,4 +1723,88 @@ model KeyResultCheckIn {
 
   @@index([keyResultId])
   @@index([createdAt])
+}
+
+// ============================================
+// OKR Check-in Models (Team Weekly Sync)
+// ============================================
+
+model OkrCheckin {
+  id              String    @id @default(cuid())
+  teamId          String
+  workspaceId     String
+  weekStartDate   DateTime  @db.Date
+  status          String    @default("PREPARING") // PREPARING | IN_PROGRESS | COMPLETED
+  facilitatorId   String
+  startedAt       DateTime?
+  completedAt     DateTime?
+  durationMinutes Int?
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  team          Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  workspace     Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  facilitator   User                   @relation("OkrCheckinFacilitator", fields: [facilitatorId], references: [id])
+  statusUpdates OkrCheckinUpdate[]
+  agendaItems   OkrCheckinAgendaItem[]
+
+  @@unique([teamId, weekStartDate])
+  @@index([teamId])
+  @@index([workspaceId])
+  @@index([weekStartDate])
+  @@index([status])
+}
+
+model OkrCheckinUpdate {
+  id              String    @id @default(cuid())
+  okrCheckinId    String
+  userId          String
+  accomplishments String?   @db.Text
+  blockers        String?   @db.Text
+  priorities      String?   @db.Text
+  isSubmitted     Boolean   @default(false)
+  submittedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  okrCheckin OkrCheckin          @relation(fields: [okrCheckinId], references: [id], onDelete: Cascade)
+  user       User                @relation("OkrCheckinUpdateUser", fields: [userId], references: [id])
+  comments   OkrCheckinComment[]
+
+  @@unique([okrCheckinId, userId])
+  @@index([okrCheckinId])
+  @@index([userId])
+  @@index([isSubmitted])
+}
+
+model OkrCheckinComment {
+  id        String   @id @default(cuid())
+  updateId  String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  update OkrCheckinUpdate @relation(fields: [updateId], references: [id], onDelete: Cascade)
+  author User             @relation("OkrCheckinCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([updateId])
+  @@index([authorId])
+}
+
+model OkrCheckinAgendaItem {
+  id              String    @id @default(cuid())
+  okrCheckinId    String
+  order           Int
+  type            String    // STANDUP | BLOCKERS | OKR_REVIEW | PROJECT_HEALTH | DISCUSSION
+  title           String
+  durationMinutes Int       @default(5)
+  isCompleted     Boolean   @default(false)
+  completedAt     DateTime?
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+
+  okrCheckin OkrCheckin @relation(fields: [okrCheckinId], references: [id], onDelete: Cascade)
+
+  @@index([okrCheckinId])
 }
