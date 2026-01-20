@@ -1,9 +1,10 @@
 import { Checkbox, Text, Group, Paper, Badge, Tooltip, Avatar, HoverCard } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconBrandNotion, IconClock } from '@tabler/icons-react';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconBrandNotion, IconClock, IconMicrophone } from '@tabler/icons-react';
 import { type RouterOutputs } from "~/trpc/react";
 import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
+import Link from "next/link";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
 // Make createdBy and tags optional to support various queries that may not include them
@@ -249,6 +250,30 @@ export function ActionItem({
 
               {/* Sync status */}
               {showSyncStatus && <SyncStatusIndicator action={action} />}
+
+              {/* Transcription link */}
+              {(() => {
+                const actionWithTranscription = action as typeof action & {
+                  transcriptionSessionId?: string | null;
+                  project?: { id: string; name: string; slug?: string } | null;
+                };
+                if (actionWithTranscription.transcriptionSessionId && actionWithTranscription.project) {
+                  const projectSlug = actionWithTranscription.project.slug ??
+                    `${actionWithTranscription.project.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}-${actionWithTranscription.project.id}`;
+                  return (
+                    <Tooltip label="View source transcription">
+                      <Link
+                        href={`/projects/${projectSlug}?tab=transcriptions`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center text-text-muted hover:text-brand-primary transition-colors"
+                      >
+                        <IconMicrophone size={14} />
+                      </Link>
+                    </Tooltip>
+                  );
+                }
+                return null;
+              })()}
 
               {/* Tags */}
               {showTags && (() => {

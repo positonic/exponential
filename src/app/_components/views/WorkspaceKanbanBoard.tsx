@@ -259,7 +259,7 @@ export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" 
       const targetTask = actionsWithOptimisticUpdates.find(action => action.id === overId);
       if (!targetTask) return;
 
-      const newStatus = (targetTask.kanbanStatus ?? "TODO") as ActionStatus;
+      const newStatus = targetTask.kanbanStatus ?? "TODO";
 
       updateKanbanStatusMutation.mutate({
         actionId: taskId,
