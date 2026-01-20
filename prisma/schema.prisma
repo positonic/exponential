@@ -189,6 +189,8 @@ model Workspace {
   okrCheckins              OkrCheckin[]
   // Daily Planning relations
   dailyPlans               DailyPlan[]
+  // Meetings/Transcription relations
+  transcriptionSessions    TranscriptionSession[]
 
   @@index([slug])
   @@index([ownerId])
@@ -610,6 +612,7 @@ model TranscriptionSession {
   slackNotificationAt DateTime?
   archivedAt          DateTime?
   sourceIntegrationId String?
+  workspaceId         String?
 
   // Embedding status tracking for knowledge base
   embeddingStatus     String?      @default("none") // none|pending|processing|completed|failed
@@ -622,8 +625,10 @@ model TranscriptionSession {
   project             Project?     @relation(fields: [projectId], references: [id])
   sourceIntegration   Integration? @relation(fields: [sourceIntegrationId], references: [id])
   user                User?        @relation(fields: [userId], references: [id])
+  workspace           Workspace?   @relation(fields: [workspaceId], references: [id])
 
   @@index([sessionId])
+  @@index([workspaceId])
   @@index([userId])
   @@index([projectId])
   @@index([sourceIntegrationId])

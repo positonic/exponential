@@ -103,7 +103,7 @@ export function GoalsProgressDashboard() {
             <Group gap="xs">
               <IconTarget size={20} className="text-brand-primary" />
               <Text fw={600} className="text-text-primary">
-                Goals
+                Objectives
               </Text>
             </Group>
             <CreateGoalModal>
@@ -111,12 +111,12 @@ export function GoalsProgressDashboard() {
                 component="span"
                 className="text-brand-primary hover:underline text-sm flex items-center gap-1 cursor-pointer"
               >
-                Create Goal <IconChevronRight size={14} />
+                Create Objective <IconChevronRight size={14} />
               </Text>
             </CreateGoalModal>
           </Group>
           <Text size="sm" className="text-text-muted">
-            No goals yet. Create goals to track what matters most to you.
+            No objectives yet. Create objectives to track your key results.
           </Text>
         </Stack>
       </Card>
@@ -137,7 +137,7 @@ export function GoalsProgressDashboard() {
           <Group gap="xs">
             <IconTarget size={20} className="text-brand-primary" />
             <Text fw={600} className="text-text-primary">
-              Goals
+              Objectives & Key Results
             </Text>
           </Group>
           <Link
@@ -153,7 +153,7 @@ export function GoalsProgressDashboard() {
           <Group grow gap="xs">
             <div className="text-center p-3 rounded-md bg-background-primary">
               <Text size="xs" className="text-text-muted">
-                Goals
+                Objectives
               </Text>
               <Text size="xl" fw={600} className="text-text-primary">
                 {stats.totalObjectives}
@@ -341,7 +341,7 @@ export function GoalsProgressDashboard() {
               href={goalsPath}
               className="text-center text-sm text-brand-primary hover:underline py-2"
             >
-              View all {objectives.length} goals
+              View all {objectives.length} objectives
             </Link>
           )}
         </Stack>

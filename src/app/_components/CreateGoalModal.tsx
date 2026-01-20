@@ -255,8 +255,8 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
           />
 
           <MultiSelect
-            label="Goal Outcomes"
-            placeholder="Select outcomes that support this goal"
+            label="Linked Outcomes"
+            placeholder="Select outcomes that support this objective"
             data={outcomes?.map(o => ({ value: o.id, label: o.description })) ?? []}
             value={selectedOutcomeIds}
             onChange={setSelectedOutcomeIds}
@@ -310,7 +310,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
 
           <Textarea
             label="Notes"
-            placeholder="Additional notes about this goal..."
+            placeholder="Additional notes about this objective..."
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             mt="md"
@@ -321,7 +321,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
           {workspaces && workspaces.length > 0 && (
             <Select
               label="Workspace"
-              description={goal ? "Move this goal to a different workspace" : "Save this goal to a workspace"}
+              description={goal ? "Move this objective to a different workspace" : "Save this objective to a workspace"}
               data={[
                 { value: '', label: 'No Workspace (Personal)' },
                 ...workspaces.map(ws => ({ value: ws.id, label: ws.name }))
@@ -341,7 +341,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
               loading={createGoal.isPending || updateGoal.isPending}
               disabled={!title}
             >
-              {goal ? 'Update Goal' : 'Create Goal'}
+              {goal ? 'Update Objective' : 'Create Objective'}
             </Button>
           </Group>
         </form>

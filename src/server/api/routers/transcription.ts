@@ -58,11 +58,14 @@ const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
 
 export const transcriptionRouter = createTRPCRouter({
   startSession: apiKeyMiddleware
-    .input(z.object({ projectId: z.string().nullable() }))
+    .input(z.object({
+      projectId: z.string().nullable(),
+      workspaceId: z.string().nullable().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       // Type-safe userId access
       const userId = ctx.userId;
-      const { projectId } = input;
+      const { projectId, workspaceId } = input;
 
       // Create record in database using ctx.db
       const session = await ctx.db.transcriptionSession.create({
@@ -71,6 +74,7 @@ export const transcriptionRouter = createTRPCRouter({
           transcription: "",
           userId,
           projectId, // Save projectId
+          workspaceId: workspaceId ?? null,
         },
       });
 
@@ -321,6 +325,7 @@ export const transcriptionRouter = createTRPCRouter({
         transcription: z.string().min(1, "Transcription text is required"),
         meetingDate: z.date().optional(),
         projectId: z.string(),
+        workspaceId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -332,6 +337,7 @@ export const transcriptionRouter = createTRPCRouter({
           transcription: input.transcription,
           meetingDate: input.meetingDate ?? null,
           projectId: input.projectId,
+          workspaceId: input.workspaceId ?? null,
           userId: ctx.session.user.id,
         },
         include: {
@@ -392,6 +398,7 @@ export const transcriptionRouter = createTRPCRouter({
       z
         .object({
           includeArchived: z.boolean().optional().default(false),
+          workspaceId: z.string().optional(),
         })
         .optional(),
     )
@@ -403,6 +410,11 @@ export const transcriptionRouter = createTRPCRouter({
       // Exclude archived by default unless explicitly requested
       if (!input?.includeArchived) {
         whereClause.archivedAt = null;
+      }
+
+      // Filter by workspace if provided
+      if (input?.workspaceId) {
+        whereClause.workspaceId = input.workspaceId;
       }
 
       return ctx.db.transcriptionSession.findMany({
@@ -448,6 +460,16 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Get the project's workspace if a project is being assigned
+      let workspaceId: string | null = null;
+      if (input.projectId) {
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { workspaceId: true },
+        });
+        workspaceId = project?.workspaceId ?? null;
+      }
+
       // Update the transcription session
       const session = await ctx.db.transcriptionSession.update({
         where: {
@@ -455,6 +477,7 @@ export const transcriptionRouter = createTRPCRouter({
         },
         data: {
           projectId: input.projectId,
+          workspaceId,
           updatedAt: new Date(),
         },
       });
@@ -480,6 +503,16 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Get the project's workspace if a project is being assigned
+      let workspaceId: string | null = null;
+      if (input.projectId) {
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { workspaceId: true },
+        });
+        workspaceId = project?.workspaceId ?? null;
+      }
+
       // Update all transcription sessions
       const result = await ctx.db.transcriptionSession.updateMany({
         where: {
@@ -490,6 +523,7 @@ export const transcriptionRouter = createTRPCRouter({
         },
         data: {
           projectId: input.projectId,
+          workspaceId,
           updatedAt: new Date(),
         },
       });

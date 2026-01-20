@@ -45,7 +45,11 @@ import { HTMLContent } from "./HTMLContent";
 
 type TabValue = "transcriptions" | "upcoming" | "archive";
 
-export function MeetingsContent() {
+interface MeetingsContentProps {
+  workspaceId?: string;
+}
+
+export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   // Add CSS animation for fade effect
   const fadeAnimationStyles = `
     @keyframes fadeInOut {
@@ -83,14 +87,16 @@ export function MeetingsContent() {
   const [bulkProjectAssignment, setBulkProjectAssignment] = useState<string | null>(null);
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   
-  const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery();
+  const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery(
+    { workspaceId }
+  );
   const { data: archivedTranscriptions, isLoading: isLoadingArchived } = api.transcription.getAllTranscriptions.useQuery(
-    { includeArchived: true },
+    { includeArchived: true, workspaceId },
     {
       select: (data) => data.filter(t => t.archivedAt), // Only get archived ones
     }
   );
-  const { data: projects } = api.project.getAll.useQuery();
+  const { data: projects } = api.project.getAll.useQuery({ workspaceId });
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const utils = api.useUtils();
   

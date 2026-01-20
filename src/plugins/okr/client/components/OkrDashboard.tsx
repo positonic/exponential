@@ -18,9 +18,10 @@ import {
   TextInput,
   NumberInput,
   Textarea,
+  ActionIcon,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconTargetArrow, IconPlus } from "@tabler/icons-react";
+import { IconTargetArrow, IconPlus, IconTrash } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
@@ -112,6 +113,23 @@ export function OkrDashboard() {
         unitLabel: "",
         period: "",
       });
+    },
+  });
+
+  // Delete objective (goal) mutation
+  const deleteObjective = api.goal.deleteGoal.useMutation({
+    onSuccess: () => {
+      void utils.okr.getByObjective.invalidate();
+      void utils.okr.getStats.invalidate();
+      void utils.okr.getAvailableGoals.invalidate();
+    },
+  });
+
+  // Delete key result mutation
+  const deleteKeyResult = api.okr.delete.useMutation({
+    onSuccess: () => {
+      void utils.okr.getByObjective.invalidate();
+      void utils.okr.getStats.invalidate();
     },
   });
 
@@ -258,14 +276,29 @@ export function OkrDashboard() {
                       </Text>
                     )}
                   </div>
-                  <div className="text-right">
-                    <Text size="sm" className="text-text-muted">
-                      Progress
-                    </Text>
-                    <Text size="lg" fw={600} className="text-text-primary">
-                      {objective.progress}%
-                    </Text>
-                  </div>
+                  <Group gap="md">
+                    <div className="text-right">
+                      <Text size="sm" className="text-text-muted">
+                        Progress
+                      </Text>
+                      <Text size="lg" fw={600} className="text-text-primary">
+                        {objective.progress}%
+                      </Text>
+                    </div>
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      aria-label="Delete objective"
+                      onClick={() => {
+                        if (confirm("Are you sure you want to delete this objective? This will also delete all associated key results.")) {
+                          deleteObjective.mutate({ id: objective.id });
+                        }
+                      }}
+                      loading={deleteObjective.isPending}
+                    >
+                      <IconTrash size={18} />
+                    </ActionIcon>
+                  </Group>
                 </Group>
 
                 {/* Progress bar */}
@@ -324,20 +357,36 @@ export function OkrDashboard() {
                               color={statusColors[kr.status] ?? "gray"}
                             />
                           </div>
-                          <div className="text-right min-w-20">
-                            <Text
+                          <Group gap="sm">
+                            <div className="text-right min-w-20">
+                              <Text
+                                size="sm"
+                                fw={600}
+                                className="text-text-primary"
+                              >
+                                {kr.currentValue} / {kr.targetValue}
+                              </Text>
+                              <Text size="xs" className="text-text-muted">
+                                {kr.unit === "percent"
+                                  ? "%"
+                                  : kr.unitLabel ?? kr.unit}
+                              </Text>
+                            </div>
+                            <ActionIcon
+                              variant="subtle"
+                              color="red"
                               size="sm"
-                              fw={600}
-                              className="text-text-primary"
+                              aria-label="Delete key result"
+                              onClick={() => {
+                                if (confirm("Are you sure you want to delete this key result?")) {
+                                  deleteKeyResult.mutate({ id: kr.id });
+                                }
+                              }}
+                              loading={deleteKeyResult.isPending}
                             >
-                              {kr.currentValue} / {kr.targetValue}
-                            </Text>
-                            <Text size="xs" className="text-text-muted">
-                              {kr.unit === "percent"
-                                ? "%"
-                                : kr.unitLabel ?? kr.unit}
-                            </Text>
-                          </div>
+                              <IconTrash size={14} />
+                            </ActionIcon>
+                          </Group>
                         </Group>
                       </Card>
                     );

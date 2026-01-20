@@ -40,7 +40,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
   if (!goals) {
     return (
       <Paper p="md" withBorder>
-        <Text c="dimmed">No goals found.</Text>
+        <Text c="dimmed">No objectives found.</Text>
       </Paper>
     );
   }

@@ -394,10 +394,19 @@ export class TranscriptionProcessingService {
         return { success: false, error: 'Access denied to project' };
       }
 
-      // 2. Update the transcription with the project
+      // Get the project's workspace to inherit
+      const project = await db.project.findUnique({
+        where: { id: projectId },
+        select: { workspaceId: true }
+      });
+
+      // 2. Update the transcription with the project and workspace
       await db.transcriptionSession.update({
         where: { id: transcriptionId },
-        data: { projectId }
+        data: {
+          projectId,
+          workspaceId: project?.workspaceId ?? null
+        }
       });
 
       // 3. Optionally process the transcription
