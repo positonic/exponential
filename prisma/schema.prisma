@@ -124,6 +124,8 @@ model User {
   facilitatedOkrCheckins      OkrCheckin[]               @relation("OkrCheckinFacilitator")
   okrCheckinUpdates           OkrCheckinUpdate[]         @relation("OkrCheckinUpdateUser")
   okrCheckinComments          OkrCheckinComment[]        @relation("OkrCheckinCommentAuthor")
+  // Daily Planning relations
+  dailyPlans                  DailyPlan[]
 
   // Onboarding: Attribution
   attributionSource           String?                    // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
@@ -184,6 +186,8 @@ model Workspace {
   tags                     Tag[]
   weeklyReviewCompletions  WeeklyReviewCompletion[]
   okrCheckins              OkrCheckin[]
+  // Daily Planning relations
+  dailyPlans               DailyPlan[]
 
   @@index([slug])
   @@index([ownerId])
@@ -284,6 +288,7 @@ model Action {
   assignees              ActionAssignee[]
   weeklyOutcomes         WeeklyOutcome[]       @relation("WeeklyOutcomeActions")
   tags                   ActionTag[]
+  dailyPlanActions       DailyPlanAction[]
 
   @@index([projectId])
   @@index([createdById])
@@ -1851,4 +1856,50 @@ model OkrCheckinAgendaItem {
   okrCheckin OkrCheckin @relation(fields: [okrCheckinId], references: [id], onDelete: Cascade)
 
   @@index([okrCheckinId])
+}
+
+// ============================================
+// Daily Planning Wizard Models
+// ============================================
+
+model DailyPlan {
+  id           String   @id @default(cuid())
+  userId       String
+  workspaceId  String?
+  date         DateTime @db.Date
+  shutdownTime String?  // "17:00" format
+  obstacles    String?  @db.Text
+  status       String   @default("DRAFT") // DRAFT, COMPLETED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace      Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  plannedActions DailyPlanAction[]
+
+  @@unique([userId, date, workspaceId])
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([date])
+}
+
+model DailyPlanAction {
+  id             String    @id @default(cuid())
+  dailyPlanId    String
+  actionId       String?   // Link to existing Action (null for inline-created)
+  name           String
+  duration       Int       @default(30) // Duration in minutes
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
+  sortOrder      Int       @default(0)
+  source         String    @default("manual") // manual, notion, monday, calendar
+  sourceId       String?   // External ID from integration
+  completed      Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+
+  dailyPlan DailyPlan @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
+  action    Action?   @relation(fields: [actionId], references: [id], onDelete: SetNull)
+
+  @@index([dailyPlanId])
+  @@index([actionId])
 }
