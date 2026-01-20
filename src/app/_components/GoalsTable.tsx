@@ -24,7 +24,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
   });
 
   const handleDeleteGoal = (goalId: number) => {
-    if (confirm("Are you sure you want to delete this goal?")) {
+    if (confirm("Are you sure you want to delete this objective?")) {
       deleteGoalMutation.mutate({ id: goalId });
     }
   };
@@ -77,8 +77,8 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
         <Paper p="md" withBorder>
           <Text c="dimmed">
             {activeTab === 'all' && !hidePastDue
-              ? "No goals yet. Create your first one!"
-              : "No goals match the current filters."}
+              ? "No objectives yet. Create your first one!"
+              : "No objectives match the current filters."}
           </Text>
         </Paper>
       )}
@@ -121,7 +121,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
                           <ActionIcon
                             variant="subtle"
                             color="gray"
-                            aria-label="Edit goal"
+                            aria-label="Edit objective"
                           >
                             <IconEdit size={16} />
                           </ActionIcon>
@@ -130,7 +130,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
                       <ActionIcon
                         variant="subtle"
                         color="red"
-                        aria-label="Delete goal"
+                        aria-label="Delete objective"
                         onClick={() => handleDeleteGoal(goal.id)}
                         loading={deleteGoalMutation.isPending}
                       >
