@@ -53,6 +53,15 @@ const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
   });
 });
 
+// Helper to build permission check for user's accessible actions
+// Matches the same logic used in getAll query
+const buildUserActionPermissions = (userId: string) => ({
+  OR: [
+    { createdById: userId, assignees: { none: {} } },
+    { assignees: { some: { userId: userId } } },
+  ],
+});
+
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure
     .input(z.object({
@@ -722,7 +731,7 @@ export const actionRouter = createTRPCRouter({
       const result = await ctx.db.action.deleteMany({
         where: {
           id: { in: input.actionIds },
-          createdById: ctx.session.user.id, // Ensure user owns the actions
+          ...buildUserActionPermissions(ctx.session.user.id),
         },
       });
 
@@ -742,7 +751,7 @@ export const actionRouter = createTRPCRouter({
       const result = await ctx.db.action.updateMany({
         where: {
           id: { in: input.actionIds },
-          createdById: ctx.session.user.id,
+          ...buildUserActionPermissions(ctx.session.user.id),
         },
         data: {
           dueDate: input.dueDate,
@@ -765,7 +774,7 @@ export const actionRouter = createTRPCRouter({
       const result = await ctx.db.action.updateMany({
         where: {
           id: { in: input.actionIds },
-          createdById: ctx.session.user.id,
+          ...buildUserActionPermissions(ctx.session.user.id),
         },
         data: {
           projectId: input.projectId,
