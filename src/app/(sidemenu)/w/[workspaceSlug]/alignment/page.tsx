@@ -14,7 +14,7 @@ const alignmentFeatures = [
     href: '/wheel-of-life',
   },
   {
-    title: 'Goals',
+    title: 'Objectives',
     description: 'Strategic objectives linked to life domains. The foundation of your alignment system.',
     icon: IconTarget,
     color: 'blue',
@@ -117,7 +117,7 @@ export default function AlignmentPage() {
         </Title>
         <Stack gap="md">
           <Step number={1} title="Assess" description="Start with a Wheel of Life assessment to identify which life domains need attention." />
-          <Step number={2} title="Set Goals" description="Create strategic goals in your priority life domains." />
+          <Step number={2} title="Set Objectives" description="Create strategic objectives in your priority life domains." />
           <Step number={3} title="Define Outcomes" description="Specify what success looks like at different time horizons." />
           <Step number={4} title="Build Habits" description="Establish daily routines that move you toward your outcomes." />
           <Step number={5} title="Track Progress" description="Use OKRs for quantitative tracking on key objectives." />
@@ -130,7 +130,7 @@ export default function AlignmentPage() {
           Start Assessment
         </Button>
         <Button component={Link} href={`${basePath}/goals`} variant="light" size="lg">
-          View Goals
+          View Objectives
         </Button>
       </Group>
     </Container>

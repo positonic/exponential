@@ -127,10 +127,9 @@ function HealthRing({ score, size = 32 }: { score: number; size?: number }) {
 export function ProjectStateOverview() {
   const { workspace, workspaceId } = useWorkspace();
   const { data: projects, isLoading } =
-    api.project.getActiveWithDetails.useQuery(
-      { workspaceId: workspaceId ?? undefined },
-      { enabled: !!workspaceId }
-    );
+    api.project.getActiveWithDetails.useQuery({
+      workspaceId: workspaceId ?? undefined,
+    });
 
   if (isLoading) {
     return (

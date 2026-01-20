@@ -42,7 +42,7 @@ export default function WorkspaceGoalsPage() {
           order={1}
           className="text-4xl font-bold bg-gradient-to-r from-green-400 to-teal-400 bg-clip-text text-transparent"
         >
-          Goals
+          Objectives
         </Title>
         <CreateGoalModal>
           <Button
@@ -50,7 +50,7 @@ export default function WorkspaceGoalsPage() {
             color="dark"
             leftSection="+"
           >
-            Add Goal
+            Add Objective
           </Button>
         </CreateGoalModal>
       </div>

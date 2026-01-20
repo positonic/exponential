@@ -25,7 +25,7 @@ export function GoalList() {
 
   return (
     <div className="mt-1 space-y-1">
-      <NavLink href={goalsPath} icon={IconTarget}>Goals</NavLink>
+      <NavLink href={goalsPath} icon={IconTarget}>Objectives</NavLink>
       <NavLink href="/habits" icon={IconFlame}>Habits</NavLink>
       <NavLink href={outcomesPath} icon={IconNumber}>Outcomes</NavLink>
           

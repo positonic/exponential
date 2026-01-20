@@ -224,7 +224,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
           className="p-4"
         >
           <TextInput
-            placeholder="What's your goal?"
+            placeholder="What's your objective?"
             variant="unstyled"
             size="xl"
             value={title}
@@ -245,8 +245,8 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
           />
 
           <Textarea
-            label="Why this value goal?"
-            placeholder="What makes this goal meaningful to you? How does it align with your values?"
+            label="Why this objective?"
+            placeholder="What makes this objective meaningful to you? How does it align with your values?"
             value={whyThisGoal}
             onChange={(e) => setWhyThisGoal(e.target.value)}
             mt="md"

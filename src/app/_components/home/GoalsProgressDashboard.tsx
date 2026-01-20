@@ -19,6 +19,7 @@ import {
 import { api } from "~/trpc/react";
 import Link from "next/link";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { CreateGoalModal } from "../CreateGoalModal";
 
 const domainColors: Record<string, string> = {
   Health: "green",
@@ -55,15 +56,13 @@ export function GoalsProgressDashboard() {
   const { workspaceId, workspaceSlug } = useWorkspace();
 
   const { data: objectives, isLoading: objectivesLoading } =
-    api.okr.getByObjective.useQuery(
-      { workspaceId: workspaceId ?? undefined },
-      { enabled: !!workspaceId }
-    );
+    api.okr.getByObjective.useQuery({
+      workspaceId: workspaceId ?? undefined,
+    });
 
-  const { data: stats, isLoading: statsLoading } = api.okr.getStats.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    { enabled: !!workspaceId }
-  );
+  const { data: stats, isLoading: statsLoading } = api.okr.getStats.useQuery({
+    workspaceId: workspaceId ?? undefined,
+  });
 
   const goalsPath = workspaceSlug ? `/w/${workspaceSlug}/goals` : "/goals";
   const okrsPath = workspaceSlug ? `/w/${workspaceSlug}/okrs` : "/okrs";
@@ -104,18 +103,20 @@ export function GoalsProgressDashboard() {
             <Group gap="xs">
               <IconTarget size={20} className="text-brand-primary" />
               <Text fw={600} className="text-text-primary">
-                Goals & OKRs
+                Goals
               </Text>
             </Group>
-            <Link
-              href={goalsPath}
-              className="text-brand-primary hover:underline text-sm flex items-center gap-1"
-            >
-              Create Goal <IconChevronRight size={14} />
-            </Link>
+            <CreateGoalModal>
+              <Text
+                component="span"
+                className="text-brand-primary hover:underline text-sm flex items-center gap-1 cursor-pointer"
+              >
+                Create Goal <IconChevronRight size={14} />
+              </Text>
+            </CreateGoalModal>
           </Group>
           <Text size="sm" className="text-text-muted">
-            No goals yet. Create goals to track your strategic objectives.
+            No goals yet. Create goals to track what matters most to you.
           </Text>
         </Stack>
       </Card>
@@ -136,11 +137,11 @@ export function GoalsProgressDashboard() {
           <Group gap="xs">
             <IconTarget size={20} className="text-brand-primary" />
             <Text fw={600} className="text-text-primary">
-              Goals & OKRs
+              Goals
             </Text>
           </Group>
           <Link
-            href={okrsPath}
+            href={goalsPath}
             className="text-brand-primary hover:underline text-sm flex items-center gap-1"
           >
             View All <IconChevronRight size={14} />
