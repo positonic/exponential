@@ -41,6 +41,37 @@ const checkInInput = z.object({
   notes: z.string().optional(),
 });
 
+/**
+ * Calculate the end date for a period string.
+ * Supports formats: Q1-2025, H1-2025, Annual-2025
+ */
+function getPeriodEndDate(period: string): Date | null {
+  const match = period.match(/^(Q[1-4]|H[12]|Annual)-(\d{4})$/);
+  if (!match) return null;
+
+  const [, type, yearStr] = match;
+  const year = parseInt(yearStr ?? "0", 10);
+
+  switch (type) {
+    case "Q1":
+      return new Date(year, 2, 31); // March 31
+    case "Q2":
+      return new Date(year, 5, 30); // June 30
+    case "Q3":
+      return new Date(year, 8, 30); // Sept 30
+    case "Q4":
+      return new Date(year, 11, 31); // Dec 31
+    case "H1":
+      return new Date(year, 5, 30); // June 30
+    case "H2":
+      return new Date(year, 11, 31); // Dec 31
+    case "Annual":
+      return new Date(year, 11, 31); // Dec 31
+    default:
+      return null;
+  }
+}
+
 export const keyResultRouter = createTRPCRouter({
   // Get all key results for a workspace/user
   getAll: protectedProcedure
@@ -104,6 +135,9 @@ export const keyResultRouter = createTRPCRouter({
               checkIns: {
                 orderBy: { createdAt: "desc" },
                 take: 1,
+              },
+              user: {
+                select: { id: true, name: true, email: true, image: true },
               },
             },
             orderBy: { createdAt: "asc" },
@@ -368,10 +402,15 @@ export const keyResultRouter = createTRPCRouter({
           }),
         ]);
 
-      // Calculate average progress
+      // Calculate average progress and confidence
       const keyResults = await ctx.db.keyResult.findMany({
         where,
-        select: { currentValue: true, startValue: true, targetValue: true },
+        select: {
+          currentValue: true,
+          startValue: true,
+          targetValue: true,
+          confidence: true,
+        },
       });
 
       const avgProgress =
@@ -386,11 +425,28 @@ export const keyResultRouter = createTRPCRouter({
             }, 0) / keyResults.length
           : 0;
 
+      // Calculate average confidence from KRs that have it set
+      const krsWithConfidence = keyResults.filter((kr) => kr.confidence !== null);
+      const avgConfidence =
+        krsWithConfidence.length > 0
+          ? krsWithConfidence.reduce((acc, kr) => acc + (kr.confidence ?? 0), 0) /
+            krsWithConfidence.length
+          : null;
+
+      // Calculate period end date for "days left" display
+      const periodEndDate = input.period
+        ? getPeriodEndDate(input.period)
+        : null;
+
       return {
         totalObjectives: objectives,
         totalKeyResults,
+        completedKeyResults: achieved,
         statusBreakdown: { onTrack, atRisk, offTrack, achieved },
         averageProgress: Math.round(avgProgress),
+        averageConfidence:
+          avgConfidence !== null ? Math.round(avgConfidence) : null,
+        periodEndDate,
       };
     }),
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Container,
   Title,
@@ -10,36 +10,26 @@ import {
   Group,
   Button,
   Select,
-  Progress,
-  Badge,
   Modal,
-  SimpleGrid,
   Skeleton,
   TextInput,
   NumberInput,
   Textarea,
-  ActionIcon,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconTargetArrow, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconTargetArrow, IconPlus } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import { OkrOverview } from "./OkrOverview";
+import { ObjectiveRow } from "./ObjectiveRow";
 
 // Helper to get current annual period string
 function getCurrentAnnualPeriod(): string {
   const year = new Date().getFullYear();
   return `Annual-${year}`;
 }
-
-// Status badge colors
-const statusColors: Record<string, string> = {
-  "on-track": "green",
-  "at-risk": "yellow",
-  "off-track": "red",
-  achieved: "blue",
-};
 
 // Unit options
 const unitOptions = [
@@ -52,11 +42,18 @@ const unitOptions = [
 
 export function OkrDashboard() {
   const { workspaceId, workspaceSlug } = useWorkspace();
-  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(getCurrentAnnualPeriod());
+  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(
+    getCurrentAnnualPeriod()
+  );
   const [
     createModalOpened,
     { open: openCreateModal, close: closeCreateModal },
   ] = useDisclosure(false);
+
+  // Track expanded objectives (all expanded by default)
+  const [expandedObjectives, setExpandedObjectives] = useState<Set<number>>(
+    new Set()
+  );
 
   // Form state for creating key results
   const [formData, setFormData] = useState({
@@ -92,10 +89,30 @@ export function OkrDashboard() {
   });
 
   // Fetch stats
-  const { data: stats } = api.okr.getStats.useQuery({
+  const { data: stats, isLoading: statsLoading } = api.okr.getStats.useQuery({
     workspaceId: workspaceId ?? undefined,
     period: selectedPeriod ?? undefined,
   });
+
+  // Initialize expanded state when objectives load (all expanded by default)
+  useEffect(() => {
+    if (objectives && expandedObjectives.size === 0) {
+      setExpandedObjectives(new Set(objectives.map((o) => o.id)));
+    }
+  }, [objectives, expandedObjectives.size]);
+
+  // Toggle expand/collapse for an objective
+  const toggleExpand = (objectiveId: number) => {
+    setExpandedObjectives((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(objectiveId)) {
+        newSet.delete(objectiveId);
+      } else {
+        newSet.add(objectiveId);
+      }
+      return newSet;
+    });
+  };
 
   // Create key result mutation
   const createKeyResult = api.okr.create.useMutation({
@@ -125,14 +142,6 @@ export function OkrDashboard() {
     },
   });
 
-  // Delete key result mutation
-  const deleteKeyResult = api.okr.delete.useMutation({
-    onSuccess: () => {
-      void utils.okr.getByObjective.invalidate();
-      void utils.okr.getStats.invalidate();
-    },
-  });
-
   const goalsPath = workspaceSlug ? `/w/${workspaceSlug}/goals` : "/goals";
 
   const handleCreateKeyResult = () => {
@@ -144,12 +153,39 @@ export function OkrDashboard() {
       description: formData.description || undefined,
       targetValue: formData.targetValue,
       startValue: formData.startValue,
-      unit: formData.unit as "percent" | "count" | "currency" | "hours" | "custom",
+      unit: formData.unit as
+        | "percent"
+        | "count"
+        | "currency"
+        | "hours"
+        | "custom",
       unitLabel: formData.unitLabel || undefined,
       period: formData.period,
       workspaceId: workspaceId ?? undefined,
     });
   };
+
+  const handleDeleteObjective = (id: number) => {
+    if (
+      confirm(
+        "Are you sure you want to delete this objective? This will also delete all associated key results."
+      )
+    ) {
+      deleteObjective.mutate({ id });
+    }
+  };
+
+  // Transform stats for OkrOverview component
+  const overviewStats = useMemo(() => {
+    if (!stats) return null;
+    return {
+      totalKeyResults: stats.totalKeyResults,
+      completedKeyResults: stats.completedKeyResults,
+      averageProgress: stats.averageProgress,
+      averageConfidence: stats.averageConfidence,
+      periodEndDate: stats.periodEndDate,
+    };
+  }, [stats]);
 
   if (isLoading) {
     return (
@@ -190,11 +226,13 @@ export function OkrDashboard() {
               clearable
               className="w-48"
             />
-            <CreateGoalModal onSuccess={() => {
-              void utils.okr.getAvailableGoals.invalidate();
-              void utils.okr.getByObjective.invalidate();
-              void utils.okr.getStats.invalidate();
-            }}>
+            <CreateGoalModal
+              onSuccess={() => {
+                void utils.okr.getAvailableGoals.invalidate();
+                void utils.okr.getByObjective.invalidate();
+                void utils.okr.getStats.invalidate();
+              }}
+            >
               <Button variant="outline" leftSection={<IconPlus size={16} />}>
                 Create Objective
               </Button>
@@ -208,210 +246,31 @@ export function OkrDashboard() {
           </Group>
         </Group>
 
-        {/* Stats Summary */}
-        {stats && (
-          <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
-            <Card className="border border-border-primary bg-surface-secondary text-center">
-              <Text size="xs" className="text-text-muted">
-                Objectives
-              </Text>
-              <Title order={2} className="text-text-primary">
-                {stats.totalObjectives}
-              </Title>
-            </Card>
-            <Card className="border border-border-primary bg-surface-secondary text-center">
-              <Text size="xs" className="text-text-muted">
-                Key Results
-              </Text>
-              <Title order={2} className="text-text-primary">
-                {stats.totalKeyResults}
-              </Title>
-            </Card>
-            <Card className="border border-border-primary bg-surface-secondary text-center">
-              <Text size="xs" className="text-text-muted">
-                Avg Progress
-              </Text>
-              <Title order={2} className="text-text-primary">
-                {stats.averageProgress}%
-              </Title>
-            </Card>
-            <Card className="border border-border-primary bg-surface-secondary text-center">
-              <Text size="xs" className="text-text-muted">
-                On Track
-              </Text>
-              <Title order={2} className="text-green-500">
-                {stats.statusBreakdown.onTrack}
-              </Title>
-            </Card>
-          </SimpleGrid>
-        )}
+        {/* Overview Metrics */}
+        <OkrOverview stats={overviewStats} isLoading={statsLoading} />
 
         {/* Objectives with Key Results */}
         {objectives && objectives.length > 0 ? (
-          <Stack gap="md">
+          <Card className="border border-border-primary bg-surface-secondary">
             {objectives.map((objective) => (
-              <Card
+              <ObjectiveRow
                 key={objective.id}
-                className="border border-border-primary bg-surface-secondary"
-              >
-                {/* Objective Header */}
-                <Group justify="space-between" mb="md">
-                  <div>
-                    <Group gap="xs">
-                      {objective.lifeDomain && (
-                        <Badge
-                          color={objective.lifeDomain.color ?? "gray"}
-                          variant="light"
-                        >
-                          {objective.lifeDomain.title}
-                        </Badge>
-                      )}
-                      <Title order={4} className="text-text-primary">
-                        {objective.title}
-                      </Title>
-                    </Group>
-                    {objective.description && (
-                      <Text size="sm" className="text-text-muted mt-1">
-                        {objective.description}
-                      </Text>
-                    )}
-                  </div>
-                  <Group gap="md">
-                    <div className="text-right">
-                      <Text size="sm" className="text-text-muted">
-                        Progress
-                      </Text>
-                      <Text size="lg" fw={600} className="text-text-primary">
-                        {objective.progress}%
-                      </Text>
-                    </div>
-                    <ActionIcon
-                      variant="subtle"
-                      color="red"
-                      aria-label="Delete objective"
-                      onClick={() => {
-                        if (confirm("Are you sure you want to delete this objective? This will also delete all associated key results.")) {
-                          deleteObjective.mutate({ id: objective.id });
-                        }
-                      }}
-                      loading={deleteObjective.isPending}
-                    >
-                      <IconTrash size={18} />
-                    </ActionIcon>
-                  </Group>
-                </Group>
-
-                {/* Progress bar */}
-                <Progress
-                  value={objective.progress}
-                  color={
-                    objective.progress >= 70
-                      ? "green"
-                      : objective.progress >= 40
-                        ? "yellow"
-                        : "red"
-                  }
-                  size="sm"
-                  mb="md"
-                />
-
-                {/* Key Results */}
-                <Stack gap="xs">
-                  {objective.keyResults.map((kr) => {
-                    const range = kr.targetValue - kr.startValue;
-                    const krProgress =
-                      range > 0
-                        ? Math.min(
-                            100,
-                            ((kr.currentValue - kr.startValue) / range) * 100
-                          )
-                        : 0;
-
-                    return (
-                      <Card
-                        key={kr.id}
-                        className="bg-background-primary border border-border-secondary hover:border-border-focus transition-colors"
-                        p="sm"
-                      >
-                        <Group justify="space-between">
-                          <div className="flex-1">
-                            <Group gap="xs" mb="xs">
-                              <Badge
-                                size="xs"
-                                color={statusColors[kr.status] ?? "gray"}
-                                variant="filled"
-                              >
-                                {kr.status.replace("-", " ")}
-                              </Badge>
-                              <Text
-                                size="sm"
-                                fw={500}
-                                className="text-text-primary"
-                              >
-                                {kr.title}
-                              </Text>
-                            </Group>
-                            <Progress
-                              value={krProgress}
-                              size="xs"
-                              color={statusColors[kr.status] ?? "gray"}
-                            />
-                          </div>
-                          <Group gap="sm">
-                            <div className="text-right min-w-20">
-                              <Text
-                                size="sm"
-                                fw={600}
-                                className="text-text-primary"
-                              >
-                                {kr.currentValue} / {kr.targetValue}
-                              </Text>
-                              <Text size="xs" className="text-text-muted">
-                                {kr.unit === "percent"
-                                  ? "%"
-                                  : kr.unitLabel ?? kr.unit}
-                              </Text>
-                            </div>
-                            <ActionIcon
-                              variant="subtle"
-                              color="red"
-                              size="sm"
-                              aria-label="Delete key result"
-                              onClick={() => {
-                                if (confirm("Are you sure you want to delete this key result?")) {
-                                  deleteKeyResult.mutate({ id: kr.id });
-                                }
-                              }}
-                              loading={deleteKeyResult.isPending}
-                            >
-                              <IconTrash size={14} />
-                            </ActionIcon>
-                          </Group>
-                        </Group>
-                      </Card>
-                    );
-                  })}
-                </Stack>
-
-                {/* Add KR button */}
-                <Button
-                  variant="subtle"
-                  size="xs"
-                  leftSection={<IconPlus size={14} />}
-                  mt="sm"
-                  onClick={() => {
-                    setFormData((prev) => ({
-                      ...prev,
-                      goalId: objective.id.toString(),
-                    }));
-                    openCreateModal();
-                  }}
-                >
-                  Add Key Result
-                </Button>
-              </Card>
+                objective={{
+                  ...objective,
+                  lifeDomain: objective.lifeDomain
+                    ? {
+                        id: objective.lifeDomain.id,
+                        name: objective.lifeDomain.title,
+                      }
+                    : null,
+                }}
+                isExpanded={expandedObjectives.has(objective.id)}
+                onToggleExpand={() => toggleExpand(objective.id)}
+                onDelete={handleDeleteObjective}
+                isDeleting={deleteObjective.isPending}
+              />
             ))}
-          </Stack>
+          </Card>
         ) : (
           <Card className="border border-border-primary bg-surface-secondary text-center py-12">
             <IconTargetArrow
