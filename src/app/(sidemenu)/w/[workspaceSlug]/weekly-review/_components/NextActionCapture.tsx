@@ -195,8 +195,7 @@ export function NextActionCapture({
                         onCheckboxChange={handleCheckboxChange}
                         showCheckbox={true}
                         showAssignees={false}
-                        showCreator={false}
-                        showSyncStatus={false}
+                                                showSyncStatus={false}
                         disabled={updateAction.isPending}
                         rightSlot={nextActionIds.has(action.id) ? (
                           <Badge
@@ -244,8 +243,7 @@ export function NextActionCapture({
                       onCheckboxChange={handleCheckboxChange}
                       showCheckbox={true}
                       showAssignees={false}
-                      showCreator={false}
-                      showSyncStatus={false}
+                                            showSyncStatus={false}
                       disabled={updateAction.isPending}
                     />
                   ))

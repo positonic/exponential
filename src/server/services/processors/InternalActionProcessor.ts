@@ -49,34 +49,24 @@ export class InternalActionProcessor extends ActionProcessor {
     const priority = this.mapPriority(actionItem.priority);
     
     // Clean up the action text - remove common prefixes
-    let name = this.cleanActionText(actionItem.text);
+    const name = this.cleanActionText(actionItem.text);
     
     // Try to find a matching user for the assignee
     let assigneeUserId: string | null = null;
-    let assigneeInfo = '';
-    
+
     if (actionItem.assignee && actionItem.assignee !== 'Unassigned') {
       const matchedUser = await this.findUserByName(actionItem.assignee);
       if (matchedUser) {
         assigneeUserId = matchedUser.id;
-        assigneeInfo = ` (assigned to ${matchedUser.name})`;
-      } else {
-        // If no user match found, append the name to the action
-        assigneeInfo = ` (${actionItem.assignee})`;
       }
-    }
-
-    // Add assignee info to the action name if present
-    if (assigneeInfo) {
-      name = name + assigneeInfo;
     }
 
     const actionData = {
       name,
-      description: actionItem.context || `Action item${assigneeInfo ? ` - ${actionItem.assignee}` : ''}`,
+      description: actionItem.context || 'Action item from meeting',
       priority,
       status: 'ACTIVE' as const,
-      createdById: assigneeUserId || this.config.userId, // Use matched user or fallback to webhook user
+      createdById: this.config.userId, // Always use the user who processed the meeting
       projectId: this.config.projectId || null,
       transcriptionSessionId: this.config.transcriptionId || null,
       dueDate: actionItem.dueDate || null,
@@ -87,17 +77,29 @@ export class InternalActionProcessor extends ActionProcessor {
       priority: actionData.priority,
       createdById: actionData.createdById,
       projectId: actionData.projectId,
-      description: actionData.description
+      assigneeUserId,
     });
 
     const createdAction = await db.action.create({
       data: actionData,
     });
 
+    // Create ActionAssignee record if we matched a user from the transcript
+    if (assigneeUserId) {
+      await db.actionAssignee.create({
+        data: {
+          actionId: createdAction.id,
+          userId: assigneeUserId,
+        },
+      });
+      console.log('👤 Assigned action to user:', assigneeUserId);
+    }
+
     console.log('✅ Action created successfully:', {
       id: createdAction.id,
       name: createdAction.name,
-      createdById: createdAction.createdById
+      createdById: createdAction.createdById,
+      assignedTo: assigneeUserId,
     });
 
     return createdAction;

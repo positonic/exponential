@@ -1,7 +1,6 @@
 import { Checkbox, Text, Group, Paper, Badge, Tooltip, Avatar, HoverCard } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconBrandNotion, IconUserShare, IconClock } from '@tabler/icons-react';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconBrandNotion, IconClock } from '@tabler/icons-react';
 import { type RouterOutputs } from "~/trpc/react";
-import { useSession } from 'next-auth/react';
 import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
@@ -147,7 +146,6 @@ export interface ActionItemProps {
   showCheckbox?: boolean;
   disabled?: boolean;
   showAssignees?: boolean;
-  showCreator?: boolean;
   showTags?: boolean;
   showSyncStatus?: boolean;
   showProject?: boolean;
@@ -165,16 +163,12 @@ export function ActionItem({
   showCheckbox = true,
   disabled = false,
   showAssignees = true,
-  showCreator = true,
   showTags = true,
   showSyncStatus = true,
   showProject = false,
   leftSlot,
   rightSlot,
 }: ActionItemProps) {
-  const { data: session } = useSession();
-  const currentUserId = session?.user?.id;
-
   const handleClick = (e: React.MouseEvent) => {
     // Only trigger onClick if we didn't click the checkbox
     if (!(e.target as HTMLElement).closest('.checkbox-wrapper') && onClick) {
@@ -278,50 +272,6 @@ export function ActionItem({
                 <Badge size="sm" variant="light" color="gray">
                   {action.project.name}
                 </Badge>
-              )}
-
-              {/* Creator badge */}
-              {showCreator && currentUserId && action.createdById !== currentUserId && action.createdBy && (
-                <HoverCard width={200} shadow="md">
-                  <HoverCard.Target>
-                    <Badge
-                      size="sm"
-                      variant="light"
-                      color="blue"
-                      leftSection={<IconUserShare size={12} />}
-                      className="cursor-pointer"
-                    >
-                      From {action.createdBy.name?.split(' ')[0] ?? 'Unknown'}
-                    </Badge>
-                  </HoverCard.Target>
-                  <HoverCard.Dropdown>
-                    <Group gap="sm">
-                      <Avatar
-                        src={action.createdBy.image}
-                        alt={action.createdBy.name ?? 'User'}
-                        radius="xl"
-                        size="md"
-                        styles={{
-                          root: {
-                            backgroundColor: action.createdBy.image ? undefined : getAvatarColor(getColorSeed(action.createdBy.name, action.createdBy.email)),
-                            color: action.createdBy.image ? undefined : getTextColor(getAvatarColor(getColorSeed(action.createdBy.name, action.createdBy.email))),
-                            fontWeight: 600,
-                          }
-                        }}
-                      >
-                        {!action.createdBy.image && getInitial(action.createdBy.name, action.createdBy.email)}
-                      </Avatar>
-                      <div>
-                        <Text size="sm" fw={500}>
-                          {action.createdBy.name ?? "Unknown User"}
-                        </Text>
-                        <Text size="xs" c="dimmed">
-                          Assigned this to you
-                        </Text>
-                      </div>
-                    </Group>
-                  </HoverCard.Dropdown>
-                </HoverCard>
               )}
 
               {/* Assignees */}
