@@ -23,6 +23,7 @@ export function GlobalAddTaskButton() {
   const [scheduledStart, setScheduledStart] = useState<Date | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
   const [createdActionId, setCreatedActionId] = useState<string | null>(null);
 
@@ -185,6 +186,7 @@ export function GlobalAddTaskButton() {
       setScheduledStart(null);
       setDuration(null);
       setSelectedAssigneeIds([]);
+      setSelectedTagIds([]);
       close();
     },
   });
@@ -261,6 +263,8 @@ export function GlobalAddTaskButton() {
           duration={duration}
           setDuration={setDuration}
           selectedAssigneeIds={selectedAssigneeIds}
+          selectedTagIds={selectedTagIds}
+          onTagChange={setSelectedTagIds}
           actionId={createdActionId || undefined}
           onAssigneeClick={handleAssigneeClick}
           onSubmit={handleSubmit}

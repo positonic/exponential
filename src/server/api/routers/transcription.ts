@@ -977,4 +977,75 @@ export const transcriptionRouter = createTRPCRouter({
 
       return { count: result.count };
     }),
+
+  toggleActionGeneration: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Get the transcription with its actions
+      const transcription = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+        include: {
+          actions: { select: { id: true } },
+        },
+      });
+
+      if (!transcription) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (transcription.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to modify this transcription",
+        });
+      }
+
+      // Check if transcription has a project assigned
+      if (!transcription.projectId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Transcription must be assigned to a project before generating actions",
+        });
+      }
+
+      // If actions have already been generated, delete them
+      if (transcription.processedAt && transcription.actions.length > 0) {
+        // Delete all actions linked to this transcription
+        const deletedCount = await ctx.db.action.deleteMany({
+          where: { transcriptionSessionId: input.transcriptionId },
+        });
+
+        // Clear the processedAt flag
+        await ctx.db.transcriptionSession.update({
+          where: { id: input.transcriptionId },
+          data: { processedAt: null },
+        });
+
+        return {
+          action: "deleted" as const,
+          actionsDeleted: deletedCount.count,
+        };
+      }
+
+      // Otherwise, process the transcription to generate actions
+      const result = await TranscriptionProcessingService.processTranscription(
+        input.transcriptionId,
+        ctx.session.user.id,
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.errors.join(", ") || "Failed to process transcription",
+        });
+      }
+
+      return {
+        action: "generated" as const,
+        actionsCreated: result.actionsCreated,
+      };
+    }),
 });

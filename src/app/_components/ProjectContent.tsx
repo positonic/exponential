@@ -41,6 +41,8 @@ import {
   IconGitBranch,
   IconHome,
   IconEdit,
+  IconPlayerPlay,
+  IconTrash,
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
@@ -56,6 +58,7 @@ import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 import { useAgentModal } from "~/providers/AgentModalProvider";
+import { notifications } from "@mantine/notifications";
 import Link from "next/link";
 
 type TabValue =
@@ -121,6 +124,33 @@ export function ProjectContent({
   const outcomesQuery = api.outcome.getProjectOutcomes.useQuery({ projectId });
   const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery({ projectId });
   const utils = api.useUtils();
+
+  const toggleActionsMutation = api.transcription.toggleActionGeneration.useMutation({
+    onSuccess: (result) => {
+      if (result.action === "generated") {
+        notifications.show({
+          title: "Actions Generated",
+          message: `Successfully created ${result.actionsCreated} action${result.actionsCreated === 1 ? "" : "s"} from the transcription`,
+          color: "green",
+        });
+      } else {
+        notifications.show({
+          title: "Actions Deleted",
+          message: `Successfully deleted ${result.actionsDeleted} action${result.actionsDeleted === 1 ? "" : "s"}`,
+          color: "orange",
+        });
+      }
+      // Refresh project data
+      void utils.project.getById.invalidate({ id: projectId });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to toggle actions",
+        color: "red",
+      });
+    },
+  });
 
   const handleTabChange = useCallback((value: string | null) => {
     if (value && isValidTab(value)) {
@@ -497,7 +527,7 @@ export function ProjectContent({
                                   )}
                                 </Group>
                               </Group>
-                              
+
                               <Group gap="md" c="dimmed">
                                 <Text size="sm">
                                   {new Date(session.meetingDate ?? session.createdAt).toLocaleDateString('en-US', {
@@ -523,6 +553,21 @@ export function ProjectContent({
                                 )}
                               </Group>
                             </Stack>
+
+                            {/* Generate/Delete Actions Button */}
+                            <Button
+                              size="xs"
+                              variant={(session as any).processedAt && session.actions?.length > 0 ? "light" : "filled"}
+                              color={(session as any).processedAt && session.actions?.length > 0 ? "red" : "blue"}
+                              leftSection={(session as any).processedAt && session.actions?.length > 0 ? <IconTrash size={14} /> : <IconPlayerPlay size={14} />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleActionsMutation.mutate({ transcriptionId: session.id });
+                              }}
+                              loading={toggleActionsMutation.isPending && toggleActionsMutation.variables?.transcriptionId === session.id}
+                            >
+                              {(session as any).processedAt && session.actions?.length > 0 ? "Delete Actions" : "Generate Actions"}
+                            </Button>
                           </Group>
 
                           {/* Description Preview */}

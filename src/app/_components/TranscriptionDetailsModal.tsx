@@ -18,7 +18,7 @@ import {
   TextInput,
   ActionIcon,
 } from "@mantine/core";
-import { IconPencil, IconCheck, IconX } from "@tabler/icons-react";
+import { IconPencil, IconCheck, IconX, IconPlayerPlay, IconTrash } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { SmartContentRenderer } from "./SmartContentRenderer";
 import { notifications } from "@mantine/notifications";
@@ -89,6 +89,37 @@ export function TranscriptionDetailsModal({
       notifications.show({
         title: "Error",
         message: error.message || "Failed to save changes",
+        color: "red",
+      });
+    },
+  });
+
+  const utils = api.useUtils();
+  const toggleActionsMutation = api.transcription.toggleActionGeneration.useMutation({
+    onSuccess: async (result) => {
+      if (result.action === "generated") {
+        notifications.show({
+          title: "Actions Generated",
+          message: `Successfully created ${result.actionsCreated} action${result.actionsCreated === 1 ? "" : "s"} from the transcription`,
+          color: "green",
+        });
+      } else {
+        notifications.show({
+          title: "Actions Deleted",
+          message: `Successfully deleted ${result.actionsDeleted} action${result.actionsDeleted === 1 ? "" : "s"}`,
+          color: "orange",
+        });
+      }
+      // Invalidate queries to refresh data
+      void utils.transcription.getAllTranscriptions.invalidate();
+      if (transcription?.project?.id) {
+        void utils.project.getById.invalidate({ id: transcription.project.id });
+      }
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to toggle actions",
         color: "red",
       });
     },
@@ -480,9 +511,23 @@ export function TranscriptionDetailsModal({
               <Accordion.Panel>
                 <Stack gap="sm">
                   <Group justify="space-between">
-                    <Button size="xs" variant="light">
-                      Create Action
-                    </Button>
+                    <Group gap="xs">
+                      <Button size="xs" variant="light">
+                        Create Action
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant={transcription.processedAt && transcription.actions?.length > 0 ? "light" : "filled"}
+                        color={transcription.processedAt && transcription.actions?.length > 0 ? "red" : "blue"}
+                        leftSection={transcription.processedAt && transcription.actions?.length > 0 ? <IconTrash size={14} /> : <IconPlayerPlay size={14} />}
+                        onClick={() => toggleActionsMutation.mutate({ transcriptionId: transcription.id })}
+                        loading={toggleActionsMutation.isPending}
+                        disabled={!transcription.projectId}
+                        title={!transcription.projectId ? "Assign a project to this transcription first" : undefined}
+                      >
+                        {transcription.processedAt && transcription.actions?.length > 0 ? "Delete Actions" : "Generate Actions"}
+                      </Button>
+                    </Group>
                     {selectedActionIds.size > 0 && onSyncToIntegration && (
                       <Button
                         size="xs"
