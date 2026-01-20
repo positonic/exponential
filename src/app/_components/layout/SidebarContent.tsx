@@ -4,7 +4,7 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconCalendarWeek, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase, IconClipboardCheck } from "@tabler/icons-react";
+import { IconCalendarEvent, IconCalendarWeek, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase, IconClipboardCheck, IconLayoutKanban } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
@@ -85,6 +85,9 @@ export function SidebarContent() {
               </NavLink>
               <NavLink href={`/w/${workspaceSlug}/okr-checkin`} icon={IconClipboardCheck}>
                 OKR Check-in
+              </NavLink>
+              <NavLink href={`/w/${workspaceSlug}/views`} icon={IconLayoutKanban}>
+                Board
               </NavLink>
               {/* Plugin navigation items for workspace section */}
               {itemsBySection.workspace

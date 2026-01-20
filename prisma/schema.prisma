@@ -118,6 +118,8 @@ model User {
   keyResultCheckIns           KeyResultCheckIn[]         @relation("KeyResultCheckInCreator")
   // Tag relations
   tagsCreated                 Tag[]                      @relation("TagCreator")
+  // View relations
+  viewsCreated                View[]                     @relation("ViewsCreated")
   // OKR Check-in relations
   facilitatedOkrCheckins      OkrCheckin[]               @relation("OkrCheckinFacilitator")
   okrCheckinUpdates           OkrCheckinUpdate[]         @relation("OkrCheckinUpdateUser")
@@ -167,6 +169,7 @@ model Workspace {
   teams             Team[]
   resources         Resource[]
   invitations       WorkspaceInvitation[]
+  views             View[]
   // CRM relations
   crmContacts       CrmContact[]
   crmOrganizations  CrmOrganization[]
@@ -222,6 +225,35 @@ model WorkspaceInvitation {
   @@index([email])
   @@index([workspaceId])
   @@index([status])
+}
+
+model View {
+  id           String      @id @default(cuid())
+  name         String
+  slug         String
+  description  String?
+
+  viewType     ViewType    @default(KANBAN)
+  groupBy      ViewGroupBy @default(STATUS)
+  filters      Json        @default("{}")   // { projectIds?, statuses?, priorities?, assigneeIds?, tagIds?, includeCompleted? }
+  sortConfig   Json        @default("{}")   // { field: string, direction: 'asc' | 'desc' }
+
+  isSystem     Boolean     @default(false)  // System views cannot be deleted
+  isDefault    Boolean     @default(false)  // Default view for workspace
+  displayOrder Int         @default(0)
+
+  workspaceId  String
+  createdById  String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy    User        @relation("ViewsCreated", fields: [createdById], references: [id])
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([isSystem])
 }
 
 model Action {
@@ -1231,6 +1263,18 @@ enum ActionStatus {
   IN_REVIEW
   DONE
   CANCELLED
+}
+
+enum ViewType {
+  KANBAN
+  LIST
+}
+
+enum ViewGroupBy {
+  STATUS
+  PROJECT
+  ASSIGNEE
+  PRIORITY
 }
 
 // Team Weekly Planning Models

@@ -41,6 +41,7 @@ import { crmOrganizationRouter } from "./routers/crmOrganization";
 import { tagRouter } from "./routers/tag";
 import { schedulingRouter } from "./routers/scheduling";
 import { okrCheckinRouter } from "./routers/okrCheckin";
+import { viewRouter } from "./routers/view";
 // Plugin system
 import { pluginConfigRouter } from "./routers/pluginConfig";
 import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
@@ -92,6 +93,7 @@ export const appRouter = createTRPCRouter({
   tag: tagRouter,
   scheduling: schedulingRouter,
   okrCheckin: okrCheckinRouter,
+  view: viewRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,
