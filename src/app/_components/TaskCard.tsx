@@ -130,12 +130,29 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
         onClick={handleCardClick}
       >
       <Stack gap="xs">
-        {/* Header with menu */}
-        <Group justify="flex-end" wrap="nowrap">
+        {/* Header with title and menu */}
+        <Group justify="space-between" align="flex-start" wrap="nowrap">
+          {/* Task title */}
+          <div
+            className="text-sm font-medium text-text-primary"
+            style={{
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            <HTMLContent html={task.name} className="text-sm font-medium text-text-primary" />
+          </div>
+
+          {/* Menu button */}
           <Menu shadow="md" width={150} position="bottom-end">
             <Menu.Target>
-              <ActionIcon 
-                variant="subtle" 
+              <ActionIcon
+                variant="subtle"
                 size="sm"
                 aria-label="Open task menu"
                 onClick={(e) => e.stopPropagation()}
@@ -145,7 +162,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item 
+              <Menu.Item
                 leftSection={<IconArrowsMaximize size={16} />}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -154,7 +171,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               >
                 Expand
               </Menu.Item>
-              <Menu.Item 
+              <Menu.Item
                 leftSection={<IconEdit size={16} />}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -163,7 +180,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               >
                 Edit
               </Menu.Item>
-              <Menu.Item 
+              <Menu.Item
                 onClick={(e) => {
                   e.stopPropagation();
                   setAssignModalOpen(true);
@@ -171,7 +188,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               >
                 Assign
               </Menu.Item>
-              <Menu.Item 
+              <Menu.Item
                 leftSection={<IconTrash size={16} />}
                 color="red"
               >
@@ -180,20 +197,6 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
             </Menu.Dropdown>
           </Menu>
         </Group>
-
-        {/* Task title */}
-        <div
-          className="text-sm font-medium text-text-primary"
-          style={{
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          <HTMLContent html={task.name} className="text-sm font-medium text-text-primary" />
-        </div>
 
         {/* Task description */}
         {task.description && (
