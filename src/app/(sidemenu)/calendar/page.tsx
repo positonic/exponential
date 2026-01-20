@@ -1,7 +1,6 @@
 import { auth } from "~/server/auth";
 import { HydrateClient } from "~/trpc/server";
 import { Suspense } from "react";
-import { api } from "~/trpc/server";
 import { CalendarPageContent } from "~/app/_components/calendar/CalendarPageContent";
 import { redirect } from "next/navigation";
 
@@ -24,10 +23,8 @@ async function CalendarWrapper() {
     redirect("/signin");
   }
 
-  // Check calendar connection status
-  const calendarStatus = await api.calendar.getConnectionStatus();
-
-  return <CalendarPageContent calendarConnected={calendarStatus.isConnected} />;
+  // Connection status is now handled client-side for immediate updates after OAuth
+  return <CalendarPageContent />;
 }
 
 function CalendarLoadingSkeleton() {

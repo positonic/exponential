@@ -1,22 +1,23 @@
 "use client";
 
-import { Paper, Stack, Text } from "@mantine/core";
+import { Paper, Stack, Text, Title } from "@mantine/core";
 import { IconCalendar } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useCalendarNavigation } from "./useCalendarNavigation";
 import { CalendarHeader } from "./CalendarHeader";
 import { CalendarSidebar } from "./CalendarSidebar";
 import { CalendarDayTimeGrid } from "./CalendarDayTimeGrid";
 import { CalendarWeekTimeGrid } from "./CalendarWeekTimeGrid";
+import { GoogleCalendarConnect } from "~/app/_components/GoogleCalendarConnect";
 import type { ScheduledAction } from "./types";
 
-interface CalendarPageContentProps {
-  calendarConnected: boolean;
-}
+export function CalendarPageContent() {
+  // Query connection status client-side for immediate updates after OAuth
+  const { data: connectionStatus, isLoading: statusLoading } =
+    api.calendar.getConnectionStatus.useQuery();
 
-export function CalendarPageContent({
-  calendarConnected,
-}: CalendarPageContentProps) {
+  const calendarConnected = connectionStatus?.isConnected ?? false;
   const {
     view,
     selectedDate,
@@ -66,6 +67,26 @@ export function CalendarPageContent({
     },
   });
 
+  // Handle calendar disconnect
+  const disconnectCalendar = api.calendar.disconnect.useMutation({
+    onSuccess: async () => {
+      await utils.calendar.getConnectionStatus.invalidate();
+      await utils.calendar.getEvents.invalidate();
+      notifications.show({
+        title: "Calendar Disconnected",
+        message: "Your Google Calendar has been disconnected.",
+        color: "blue",
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to disconnect calendar",
+        color: "red",
+      });
+    },
+  });
+
   const handleActionStatusChange = (actionId: string, completed: boolean) => {
     updateAction.mutate({
       id: actionId,
@@ -88,6 +109,19 @@ export function CalendarPageContent({
       })) ?? [];
 
   const renderCalendarContent = () => {
+    // Show loading state while checking connection
+    if (statusLoading) {
+      return (
+        <Paper
+          p="xl"
+          radius="md"
+          className="flex h-full items-center justify-center border-border-primary bg-surface-secondary"
+        >
+          <Text c="dimmed">Checking calendar connection...</Text>
+        </Paper>
+      );
+    }
+
     if (!calendarConnected) {
       return (
         <Paper
@@ -95,14 +129,18 @@ export function CalendarPageContent({
           radius="md"
           className="flex h-full items-center justify-center border-border-primary bg-surface-secondary"
         >
-          <Stack align="center" gap="md">
-            <IconCalendar size={48} className="text-text-muted" />
-            <Text size="lg" fw={500} className="text-text-primary">
-              Calendar not connected
-            </Text>
-            <Text size="sm" c="dimmed">
-              Connect your Google Calendar from the header to see your events
-            </Text>
+          <Stack align="center" gap="lg">
+            <IconCalendar size={64} className="text-text-muted" />
+            <div className="text-center">
+              <Title order={3} className="text-text-primary mb-2">
+                Connect Your Calendar
+              </Title>
+              <Text size="sm" c="dimmed" className="max-w-md">
+                Connect your Google Calendar to view your events, manage your
+                schedule, and see your day at a glance alongside your tasks.
+              </Text>
+            </div>
+            <GoogleCalendarConnect isConnected={false} />
           </Stack>
         </Paper>
       );
@@ -150,6 +188,9 @@ export function CalendarPageContent({
         onToday={goToToday}
         onNext={goNext}
         onPrevious={goPrevious}
+        isConnected={calendarConnected}
+        onDisconnect={() => disconnectCalendar.mutate()}
+        isDisconnecting={disconnectCalendar.isPending}
       />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-4">{renderCalendarContent()}</div>

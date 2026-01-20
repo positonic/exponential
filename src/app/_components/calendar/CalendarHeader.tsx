@@ -1,7 +1,17 @@
 "use client";
 
-import { Button, Group, SegmentedControl, ActionIcon } from "@mantine/core";
-import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import {
+  Button,
+  Group,
+  SegmentedControl,
+  ActionIcon,
+  Tooltip,
+} from "@mantine/core";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconUnlink,
+} from "@tabler/icons-react";
 import { format } from "date-fns";
 import type { CalendarView } from "./types";
 
@@ -12,6 +22,9 @@ interface CalendarHeaderProps {
   onToday: () => void;
   onNext: () => void;
   onPrevious: () => void;
+  isConnected?: boolean;
+  onDisconnect?: () => void;
+  isDisconnecting?: boolean;
 }
 
 export function CalendarHeader({
@@ -21,6 +34,9 @@ export function CalendarHeader({
   onToday,
   onNext,
   onPrevious,
+  isConnected,
+  onDisconnect,
+  isDisconnecting,
 }: CalendarHeaderProps) {
   // Format the header text based on view
   const headerText =
@@ -74,6 +90,20 @@ export function CalendarHeader({
           ]}
           size="sm"
         />
+        {isConnected && onDisconnect && (
+          <Tooltip label="Disconnect Google Calendar" position="bottom">
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="md"
+              onClick={onDisconnect}
+              loading={isDisconnecting}
+              aria-label="Disconnect calendar"
+            >
+              <IconUnlink size={18} />
+            </ActionIcon>
+          </Tooltip>
+        )}
       </Group>
     </div>
   );

@@ -29,11 +29,14 @@ import {
   IconQuote,
   IconSparkles,
   IconChevronRight,
+  IconCalendar,
+  IconUnlink,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { notifications } from "@mantine/notifications";
 import { FirefliesIntegrationsList } from "~/app/_components/integrations/FirefliesIntegrationsList";
 import { FirefliesWizardModal } from "~/app/_components/integrations/FirefliesWizardModal";
+import { GoogleCalendarConnect } from "~/app/_components/GoogleCalendarConnect";
 
 // Define menu structure for rendering
 const MENU_STRUCTURE = {
@@ -87,6 +90,30 @@ export default function NavigationSettingsPage() {
 
   const { data: preferences, isLoading } =
     api.navigationPreference.getPreferences.useQuery();
+
+  // Calendar connection status
+  const { data: calendarStatus } = api.calendar.getConnectionStatus.useQuery();
+
+  // Calendar disconnect mutation
+  const disconnectCalendar = api.calendar.disconnect.useMutation({
+    onSuccess: async () => {
+      await utils.calendar.getConnectionStatus.invalidate();
+      notifications.show({
+        title: "Calendar Disconnected",
+        message: "Your Google Calendar has been disconnected.",
+        color: "blue",
+        icon: <IconCheck size={16} />,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message ?? "Failed to disconnect calendar",
+        color: "red",
+        icon: <IconAlertCircle size={16} />,
+      });
+    },
+  });
 
   const toggleSection = api.navigationPreference.toggleSection.useMutation({
     onSuccess: () => {
@@ -438,6 +465,40 @@ export default function NavigationSettingsPage() {
               Add Fireflies
             </Button>
           </Group>
+
+          {/* Google Calendar Integration */}
+          <Paper p="md" withBorder className="bg-surface-primary mb-md">
+            <Group justify="space-between" align="center">
+              <Group gap="sm">
+                <IconCalendar size={20} className="text-text-muted" />
+                <div>
+                  <Text size="sm" fw={500}>
+                    Google Calendar
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    {calendarStatus?.isConnected
+                      ? "Your calendar is connected"
+                      : "Connect to see your events and schedule"}
+                  </Text>
+                </div>
+              </Group>
+              {calendarStatus?.isConnected ? (
+                <Button
+                  variant="subtle"
+                  color="red"
+                  size="sm"
+                  onClick={() => disconnectCalendar.mutate()}
+                  loading={disconnectCalendar.isPending}
+                  leftSection={<IconUnlink size={16} />}
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <GoogleCalendarConnect isConnected={false} />
+              )}
+            </Group>
+          </Paper>
+
           <FirefliesIntegrationsList />
         </Card>
       </Stack>
