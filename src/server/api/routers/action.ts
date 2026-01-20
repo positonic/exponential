@@ -54,11 +54,19 @@ const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
 });
 
 // Helper to build permission check for user's accessible actions
-// Matches the same logic used in getAll query
+// Includes: action creator, assignees, and project membership (creator, member, team member)
 const buildUserActionPermissions = (userId: string) => ({
   OR: [
+    // Created by user AND no assignees
     { createdById: userId, assignees: { none: {} } },
+    // Assigned to user
     { assignees: { some: { userId: userId } } },
+    // User is the project creator
+    { project: { createdById: userId } },
+    // User is a direct project member
+    { project: { projectMembers: { some: { userId: userId } } } },
+    // User is a member of the project's team
+    { project: { team: { members: { some: { userId: userId } } } } },
   ],
 });
 
