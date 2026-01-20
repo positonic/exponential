@@ -29,9 +29,9 @@ export function CalendarPageContent() {
     goPrevious,
   } = useCalendarNavigation();
 
-  // Fetch calendar events for the date range
+  // Fetch calendar events from all selected calendars
   const { data: events, isLoading: eventsLoading } =
-    api.calendar.getEvents.useQuery(
+    api.calendar.getEventsMultiCalendar.useQuery(
       {
         timeMin: dateRange.start,
         timeMax: dateRange.end,
@@ -71,7 +71,8 @@ export function CalendarPageContent() {
   const disconnectCalendar = api.calendar.disconnect.useMutation({
     onSuccess: async () => {
       await utils.calendar.getConnectionStatus.invalidate();
-      await utils.calendar.getEvents.invalidate();
+      await utils.calendar.getEventsMultiCalendar.invalidate();
+      await utils.calendar.getCalendarPreferences.invalidate();
       notifications.show({
         title: "Calendar Disconnected",
         message: "Your Google Calendar has been disconnected.",

@@ -37,6 +37,7 @@ import { notifications } from "@mantine/notifications";
 import { FirefliesIntegrationsList } from "~/app/_components/integrations/FirefliesIntegrationsList";
 import { FirefliesWizardModal } from "~/app/_components/integrations/FirefliesWizardModal";
 import { GoogleCalendarConnect } from "~/app/_components/GoogleCalendarConnect";
+import { CalendarMultiSelect } from "~/app/_components/calendar/CalendarMultiSelect";
 
 // Define menu structure for rendering
 const MENU_STRUCTURE = {
@@ -98,6 +99,7 @@ export default function NavigationSettingsPage() {
   const disconnectCalendar = api.calendar.disconnect.useMutation({
     onSuccess: async () => {
       await utils.calendar.getConnectionStatus.invalidate();
+      await utils.calendar.getCalendarPreferences.invalidate();
       notifications.show({
         title: "Calendar Disconnected",
         message: "Your Google Calendar has been disconnected.",
@@ -114,6 +116,37 @@ export default function NavigationSettingsPage() {
       });
     },
   });
+
+  // Calendar preferences (for multi-calendar selection)
+  const { data: calendarPreferences, isLoading: calendarPreferencesLoading } =
+    api.calendar.getCalendarPreferences.useQuery(undefined, {
+      enabled: calendarStatus?.isConnected ?? false,
+    });
+
+  // Update selected calendars mutation
+  const updateSelectedCalendars = api.calendar.updateSelectedCalendars.useMutation({
+    onSuccess: async () => {
+      await utils.calendar.getCalendarPreferences.invalidate();
+      notifications.show({
+        title: "Calendars Updated",
+        message: "Your calendar selection has been saved.",
+        color: "green",
+        icon: <IconCheck size={16} />,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message ?? "Failed to update calendar selection",
+        color: "red",
+        icon: <IconAlertCircle size={16} />,
+      });
+    },
+  });
+
+  const handleCalendarSelectionChange = (calendarIds: string[]) => {
+    updateSelectedCalendars.mutate({ calendarIds });
+  };
 
   const toggleSection = api.navigationPreference.toggleSection.useMutation({
     onSuccess: () => {
@@ -497,6 +530,24 @@ export default function NavigationSettingsPage() {
                 <GoogleCalendarConnect isConnected={false} />
               )}
             </Group>
+
+            {/* Calendar Selection - shown when connected */}
+            {calendarStatus?.isConnected && (
+              <div className="mt-4 pt-4 border-t border-border-primary">
+                <Text size="sm" fw={500} mb="xs">
+                  Select calendars to display
+                </Text>
+                <Text size="xs" c="dimmed" mb="sm">
+                  Choose which calendars appear in your schedule view.
+                </Text>
+                <CalendarMultiSelect
+                  calendars={calendarPreferences?.allCalendars ?? []}
+                  selectedCalendarIds={calendarPreferences?.selectedCalendarIds ?? []}
+                  onChange={handleCalendarSelectionChange}
+                  isLoading={calendarPreferencesLoading || updateSelectedCalendars.isPending}
+                />
+              </div>
+            )}
           </Paper>
 
           <FirefliesIntegrationsList />

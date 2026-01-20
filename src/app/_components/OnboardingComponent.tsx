@@ -36,6 +36,7 @@ import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { OnboardingIllustration } from './OnboardingIllustration';
 import { GoogleCalendarConnect } from './GoogleCalendarConnect';
+import { CalendarMultiSelect } from './calendar/CalendarMultiSelect';
 
 // New flow: 1=Profile+Attribution, 2=Video, 3=Calendar, 4=WorkHours, 5=Project+Tasks
 type OnboardingStep = 1 | 2 | 3 | 4 | 5;
@@ -129,6 +130,25 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
 
   // Get calendar connection status
   const { data: calendarStatus } = api.calendar.getConnectionStatus.useQuery();
+
+  // Get calendar preferences (for multi-calendar selection)
+  const { data: calendarPreferences, isLoading: calendarPreferencesLoading } =
+    api.calendar.getCalendarPreferences.useQuery(undefined, {
+      enabled: calendarStatus?.isConnected ?? false,
+    });
+
+  // Calendar selection state
+  const [selectedCalendarIds, setSelectedCalendarIds] = useState<string[]>([]);
+
+  // Sync selected calendars from preferences
+  useEffect(() => {
+    if (calendarPreferences?.selectedCalendarIds) {
+      setSelectedCalendarIds(calendarPreferences.selectedCalendarIds);
+    }
+  }, [calendarPreferences?.selectedCalendarIds]);
+
+  // Update selected calendars mutation
+  const updateSelectedCalendars = api.calendar.updateSelectedCalendars.useMutation();
 
   // tRPC mutations
   const updateProfile = api.onboarding.updateProfile.useMutation();
@@ -256,7 +276,18 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   };
 
   // Step 3: Calendar -> Step 4
-  const handleCalendarNext = () => {
+  const handleCalendarNext = async () => {
+    // Save selected calendars if connected and has selections
+    if (calendarStatus?.isConnected && selectedCalendarIds.length > 0) {
+      try {
+        await updateSelectedCalendars.mutateAsync({
+          calendarIds: selectedCalendarIds,
+        });
+      } catch (error) {
+        console.error('Failed to save calendar preferences:', error);
+        // Continue anyway - don't block onboarding
+      }
+    }
     setCurrentStep(4);
   };
 
@@ -629,6 +660,24 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               </div>
               <GoogleCalendarConnect isConnected={calendarStatus?.isConnected} />
             </div>
+
+            {/* Calendar Selection - shown when connected */}
+            {calendarStatus?.isConnected && (
+              <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 mb-8">
+                <Text fw={500} className="text-text-primary mb-2">
+                  Select calendars to display
+                </Text>
+                <Text size="sm" className="text-text-secondary mb-4">
+                  Choose which calendars you want to see in your schedule.
+                </Text>
+                <CalendarMultiSelect
+                  calendars={calendarPreferences?.allCalendars ?? []}
+                  selectedCalendarIds={selectedCalendarIds}
+                  onChange={setSelectedCalendarIds}
+                  isLoading={calendarPreferencesLoading}
+                />
+              </div>
+            )}
 
             <Text size="sm" className="text-text-muted">
               We&apos;ll never sell or share your calendar data. Your privacy is important to us.

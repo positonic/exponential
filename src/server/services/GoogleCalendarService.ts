@@ -60,6 +60,22 @@ export interface CreatedCalendarEvent extends CalendarEvent {
   };
 }
 
+export interface GoogleCalendarInfo {
+  id: string;
+  summary: string;
+  description?: string;
+  primary: boolean;
+  accessRole: string;
+  backgroundColor?: string;
+  foregroundColor?: string;
+}
+
+export interface CalendarEventWithSource extends CalendarEvent {
+  calendarId: string;
+  calendarName?: string;
+  calendarColor?: string;
+}
+
 // Create a cache instance with 15 minute TTL
 const calendarCache = new NodeCache({ 
   stdTTL: 900, // 15 minutes in seconds
@@ -358,5 +374,104 @@ export class GoogleCalendarService {
       console.error('Failed to create calendar event:', error);
       throw new Error('Failed to create calendar event. Please try again.');
     }
+  }
+
+  /**
+   * List all calendars available to the user
+   */
+  async listCalendars(userId: string): Promise<GoogleCalendarInfo[]> {
+    const calendar = await this.getCalendarClient(userId);
+
+    try {
+      const response = await calendar.calendarList.list({
+        minAccessRole: 'reader',
+      });
+
+      const calendars = response.data.items ?? [];
+
+      return calendars.map((cal): GoogleCalendarInfo => ({
+        id: cal.id!,
+        summary: cal.summary ?? 'Unnamed Calendar',
+        description: cal.description ?? undefined,
+        primary: cal.primary ?? false,
+        accessRole: cal.accessRole ?? 'reader',
+        backgroundColor: cal.backgroundColor ?? undefined,
+        foregroundColor: cal.foregroundColor ?? undefined,
+      }));
+    } catch (error) {
+      console.error('Failed to list calendars:', error);
+      throw new Error('Failed to list calendars. Please try again.');
+    }
+  }
+
+  /**
+   * Get events from multiple calendars and merge them
+   */
+  async getEventsFromMultipleCalendars(
+    userId: string,
+    calendarIds: string[],
+    options: {
+      timeMin?: Date;
+      timeMax?: Date;
+      maxResults?: number;
+      useCache?: boolean;
+    } = {},
+    calendarMetadata?: GoogleCalendarInfo[]
+  ): Promise<CalendarEventWithSource[]> {
+    if (calendarIds.length === 0) {
+      // Default to primary calendar if none selected
+      calendarIds = ['primary'];
+    }
+
+    // Limit to 10 calendars for performance
+    const limitedCalendarIds = calendarIds.slice(0, 10);
+
+    // Create a map of calendar metadata for quick lookup
+    const calendarMap = new Map<string, GoogleCalendarInfo>();
+    if (calendarMetadata) {
+      calendarMetadata.forEach(cal => calendarMap.set(cal.id, cal));
+    }
+
+    // Fetch events from all calendars in parallel
+    const eventPromises = limitedCalendarIds.map(async (calendarId) => {
+      try {
+        const events = await this.getEvents(userId, {
+          ...options,
+          calendarId,
+        });
+
+        const calInfo = calendarMap.get(calendarId);
+
+        // Add calendar metadata to each event
+        return events.map((event): CalendarEventWithSource => ({
+          ...event,
+          calendarId,
+          calendarName: calInfo?.summary ?? (calendarId === 'primary' ? 'Primary' : calendarId),
+          calendarColor: calInfo?.backgroundColor ?? undefined,
+        }));
+      } catch (error) {
+        // Log error but don't fail the entire request
+        console.error(`Failed to fetch events from calendar ${calendarId}:`, error);
+        return [];
+      }
+    });
+
+    const allEventsArrays = await Promise.all(eventPromises);
+    const allEvents = allEventsArrays.flat();
+
+    // Sort by start time
+    return allEvents.sort((a, b) => {
+      const aTime = a.start.dateTime
+        ? new Date(a.start.dateTime)
+        : a.start.date
+          ? new Date(a.start.date)
+          : new Date(0);
+      const bTime = b.start.dateTime
+        ? new Date(b.start.dateTime)
+        : b.start.date
+          ? new Date(b.start.date)
+          : new Date(0);
+      return aTime.getTime() - bTime.getTime();
+    });
   }
 }

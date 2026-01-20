@@ -78,6 +78,7 @@ model User {
   notes                       Note[]
   notificationPreferences     NotificationPreference?
   navigationPreference        NavigationPreference?
+  calendarPreference          CalendarPreference?
   outcomes                    Outcome[]
   posts                       Post[]
   projects                    Project[]
@@ -1049,6 +1050,19 @@ model NavigationPreference {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model CalendarPreference {
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  selectedCalendarIds String[]  @default([])
+  cachedCalendars     Json?
+  cacheUpdatedAt      DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
