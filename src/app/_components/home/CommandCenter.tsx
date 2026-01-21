@@ -5,6 +5,7 @@ import { IconBook, IconUsers, IconCalendarEvent, IconVideo, IconTarget, IconDevi
 import Link from "next/link";
 import { GreetingHeader } from "./GreetingHeader";
 import { WeeklyReviewBanner } from "./WeeklyReviewBanner";
+import { DailyPlanBanner } from "./DailyPlanBanner";
 import { GoalsProgressDashboard } from "./GoalsProgressDashboard";
 import { DailyOutcomeCapture } from "./DailyOutcomeCapture";
 import { MomentumWidget } from "./MomentumWidget";
@@ -25,7 +26,10 @@ export function CommandCenter() {
       {/* 2. Weekly Review Reminder (if not completed this week) */}
       <WeeklyReviewBanner />
 
-      {/* 3. Goals & OKRs Dashboard (front and center) */}
+      {/* 3. Daily Plan Reminder (if not completed today) */}
+      <DailyPlanBanner />
+
+      {/* 4. Goals & OKRs Dashboard (front and center) */}
       <GoalsProgressDashboard />
 
       {/* 4. Daily Outcome Capture */}
