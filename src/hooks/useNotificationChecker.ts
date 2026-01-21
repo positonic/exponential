@@ -1,120 +1,68 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { useSession } from 'next-auth/react';
 
 /**
- * Metadata structure for transcription completion notifications
- */
-interface TranscriptionNotificationMetadata {
-  transcriptionId?: string;
-  actionItemCount?: number;
-  meetingTitle?: string;
-}
-
-/**
- * Runtime type guard to validate notification metadata
- */
-function isValidTranscriptionMetadata(metadata: unknown): metadata is TranscriptionNotificationMetadata | null {
-  if (metadata === null || metadata === undefined) {
-    return true;
-  }
-  
-  if (typeof metadata !== 'object' || metadata === null) {
-    return false;
-  }
-  
-  const obj = metadata as Record<string, unknown>;
-  
-  // Check transcriptionId if present
-  if ('transcriptionId' in obj && obj.transcriptionId !== undefined) {
-    if (typeof obj.transcriptionId !== 'string') {
-      return false;
-    }
-  }
-  
-  // Check actionItemCount if present
-  if ('actionItemCount' in obj && obj.actionItemCount !== undefined) {
-    if (typeof obj.actionItemCount !== 'number') {
-      return false;
-    }
-  }
-  
-  // Check meetingTitle if present
-  if ('meetingTitle' in obj && obj.meetingTitle !== undefined) {
-    if (typeof obj.meetingTitle !== 'string') {
-      return false;
-    }
-  }
-  
-  return true;
-}
-
-/**
  * Hook to check for and display new notifications on page load
  * Uses the existing notification system to show pending notifications as UI notifications
+ *
+ * IMPORTANT: This hook was fixed to prevent an infinite loop that was causing
+ * database connection exhaustion. The previous implementation had:
+ * 1. markAsRead in the useEffect dependency array (unstable reference)
+ * 2. Multiple markAsRead calls per notification (onClose, onClick, setTimeout)
+ * 3. Refetch on every mutation success
+ * 4. No deduplication for shown notifications
  */
 export function useNotificationChecker() {
   const { data: session } = useSession();
 
+  // Track which notifications have been shown in this session to prevent duplicates
+  const shownNotificationIds = useRef<Set<string>>(new Set());
+
   // Get pending notifications that haven't been shown yet
   // Only query when authenticated
-  const { data: pendingNotifications, refetch } = api.notification.getScheduledNotifications.useQuery({
+  // Poll every 30 seconds instead of refetching on every mutation
+  const { data: pendingNotifications } = api.notification.getScheduledNotifications.useQuery({
     status: 'pending',
     limit: 10,
   }, {
     enabled: !!session?.user,
+    refetchInterval: 30000, // Poll every 30 seconds
   });
 
   // Mutation to mark notifications as read
-  const markAsRead = api.notification.markNotificationRead.useMutation({
-    onSuccess: () => {
-      // Refetch notifications to update the list
-      void refetch();
-    },
-  });
+  // No onSuccess refetch - query will refetch on interval to prevent rapid re-fetching
+  const markAsRead = api.notification.markNotificationRead.useMutation();
 
   useEffect(() => {
     if (!pendingNotifications?.length) return;
 
     // Show notification for each new transcription
     pendingNotifications.forEach((notification) => {
+      // Skip if already shown in this session to prevent duplicates
+      if (shownNotificationIds.current.has(notification.id)) return;
+      shownNotificationIds.current.add(notification.id);
+
       if (notification.type === 'transcription_completed') {
-        // Validate and type the metadata safely
-        const metadata: TranscriptionNotificationMetadata | null = 
-          isValidTranscriptionMetadata(notification.metadata) 
-            ? (notification.metadata as TranscriptionNotificationMetadata | null)
-            : null;
-        
         notifications.show({
+          id: notification.id, // Use notification ID to prevent duplicate toasts
           title: notification.title,
           message: notification.message,
           color: 'blue',
           autoClose: 8000, // 8 seconds
-          onClose: () => {
-            // Mark as read when user closes the notification
-            markAsRead.mutate({ notificationId: notification.id });
-          },
-          onClick: () => {
-            // Optional: Navigate to the transcription when clicked
-            if (metadata?.transcriptionId) {
-              // You could navigate to the transcription page here
-              // router.push(`/recordings/${metadata.transcriptionId}`);
-            }
-            // Mark as read when clicked
-            markAsRead.mutate({ notificationId: notification.id });
-          },
         });
 
-        // Also automatically mark as read after showing
-        setTimeout(() => {
-          markAsRead.mutate({ notificationId: notification.id });
-        }, 100);
+        // Mark as read immediately (single call, not multiple)
+        markAsRead.mutate({ notificationId: notification.id });
       }
     });
-  }, [pendingNotifications, markAsRead]);
+    // Only depend on pendingNotifications - markAsRead is intentionally excluded
+    // to prevent the effect from re-running when the mutation object reference changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingNotifications]);
 
   return {
     pendingNotifications,
