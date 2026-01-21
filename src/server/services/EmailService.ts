@@ -18,11 +18,11 @@ interface SendEmailParams {
 }
 
 async function sendEmail({ to, subject, htmlBody, textBody }: SendEmailParams): Promise<void> {
-  const apiKey = process.env.POSTMARK_SERVER_TOKEN;
+  const apiKey = process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN;
   const from = process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im";
 
   if (!apiKey) {
-    console.error("[EmailService] POSTMARK_SERVER_TOKEN is not configured");
+    console.error("[EmailService] AUTH_POSTMARK_KEY is not configured");
     throw new Error("Email service not configured");
   }
 

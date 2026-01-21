@@ -201,6 +201,36 @@ export const authConfig = {
         where: { id: user.id },
         data: { lastLogin: new Date() },
       });
+
+      // Create personal workspace for new users
+      if (user.id) {
+        try {
+          const slug = `personal-${user.id}`;
+          const workspace = await db.workspace.create({
+            data: {
+              name: "Personal",
+              slug,
+              type: "personal",
+              ownerId: user.id,
+              members: {
+                create: {
+                  userId: user.id,
+                  role: "owner",
+                },
+              },
+            },
+          });
+
+          // Set as default workspace
+          await db.user.update({
+            where: { id: user.id },
+            data: { defaultWorkspaceId: workspace.id },
+          });
+        } catch (error) {
+          // Log error but don't block user creation
+          console.error("[Auth] Failed to create personal workspace:", error);
+        }
+      }
     },
   },
 } satisfies NextAuthConfig;
