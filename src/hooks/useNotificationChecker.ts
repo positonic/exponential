@@ -35,7 +35,14 @@ export function useNotificationChecker() {
 
   // Mutation to mark notifications as read
   // No onSuccess refetch - query will refetch on interval to prevent rapid re-fetching
-  const markAsRead = api.notification.markNotificationRead.useMutation();
+  // onError removes the notification ID from tracking so it can be retried
+  const markAsRead = api.notification.markNotificationRead.useMutation({
+    onError: (error, variables) => {
+      console.error('[useNotificationChecker] Failed to mark notification as read:', error);
+      // Remove from shown set so it can be retried on next poll
+      shownNotificationIds.current.delete(variables.notificationId);
+    },
+  });
 
   useEffect(() => {
     if (!pendingNotifications?.length) return;
@@ -44,9 +51,11 @@ export function useNotificationChecker() {
     pendingNotifications.forEach((notification) => {
       // Skip if already shown in this session to prevent duplicates
       if (shownNotificationIds.current.has(notification.id)) return;
-      shownNotificationIds.current.add(notification.id);
 
       if (notification.type === 'transcription_completed') {
+        // Only track notifications that we actually show to avoid skipping unshown types
+        shownNotificationIds.current.add(notification.id);
+
         notifications.show({
           id: notification.id, // Use notification ID to prevent duplicate toasts
           title: notification.title,
@@ -56,6 +65,7 @@ export function useNotificationChecker() {
         });
 
         // Mark as read immediately (single call, not multiple)
+        // If this fails, onError will remove from shownNotificationIds for retry
         markAsRead.mutate({ notificationId: notification.id });
       }
     });
