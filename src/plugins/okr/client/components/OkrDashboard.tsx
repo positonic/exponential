@@ -15,14 +15,17 @@ import {
   TextInput,
   NumberInput,
   Textarea,
-  Checkbox,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconTargetArrow, IconPlus } from "@tabler/icons-react";
 import { OkrTableView } from "./OkrTableView";
 import {
-  isQuarterlyPeriod,
+  type PeriodType,
   getParentPeriod,
+  getCurrentYear,
+  getCurrentQuarterType,
+  isCombinedPeriodType,
+  extractYearsFromPeriods,
 } from "../utils/periodUtils";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -31,11 +34,31 @@ import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { OkrOverview } from "./OkrOverview";
 import { ObjectiveRow } from "./ObjectiveRow";
 
-// Helper to get current annual period string
-function getCurrentAnnualPeriod(): string {
-  const year = new Date().getFullYear();
-  return `Annual-${year}`;
-}
+// Period type options for the dropdown
+const periodTypeOptions = [
+  {
+    group: "Quarters",
+    items: [
+      { value: "Q1", label: "Q1 (Jan-Mar)" },
+      { value: "Q2", label: "Q2 (Apr-Jun)" },
+      { value: "Q3", label: "Q3 (Jul-Sep)" },
+      { value: "Q4", label: "Q4 (Oct-Dec)" },
+    ],
+  },
+  {
+    group: "Combined View",
+    items: [
+      { value: "Q1-Annual", label: "Q1 + Annual" },
+      { value: "Q2-Annual", label: "Q2 + Annual" },
+      { value: "Q3-Annual", label: "Q3 + Annual" },
+      { value: "Q4-Annual", label: "Q4 + Annual" },
+    ],
+  },
+  {
+    group: "Annual",
+    items: [{ value: "Year", label: "Full Year" }],
+  },
+];
 
 // Unit options
 const unitOptions = [
@@ -48,10 +71,10 @@ const unitOptions = [
 
 export function OkrDashboard() {
   const { workspaceId, workspaceSlug } = useWorkspace();
-  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(
-    getCurrentAnnualPeriod()
+  const [selectedYear, setSelectedYear] = useState<string>(getCurrentYear());
+  const [selectedPeriodType, setSelectedPeriodType] = useState<PeriodType>(
+    getCurrentQuarterType()
   );
-  const [showWithAnnual, setShowWithAnnual] = useState(false);
   const [
     createModalOpened,
     { open: openCreateModal, close: closeCreateModal },
@@ -76,35 +99,60 @@ export function OkrDashboard() {
 
   const utils = api.useUtils();
 
+  // Derive the effective period string and whether to show combined view
+  const { effectivePeriod, showCombinedView } = useMemo(() => {
+    if (selectedPeriodType === "Year") {
+      return {
+        effectivePeriod: `Annual-${selectedYear}`,
+        showCombinedView: false,
+      };
+    }
+    if (isCombinedPeriodType(selectedPeriodType)) {
+      const base = selectedPeriodType.split("-")[0];
+      return {
+        effectivePeriod: `${base}-${selectedYear}`,
+        showCombinedView: true,
+      };
+    }
+    return {
+      effectivePeriod: `${selectedPeriodType}-${selectedYear}`,
+      showCombinedView: false,
+    };
+  }, [selectedYear, selectedPeriodType]);
+
   // Sync selected period to form data
   useEffect(() => {
-    setFormData((prev) => ({ ...prev, period: selectedPeriod ?? "" }));
-  }, [selectedPeriod]);
+    setFormData((prev) => ({ ...prev, period: effectivePeriod }));
+  }, [effectivePeriod]);
 
-  // Fetch periods
+  // Fetch periods (used to extract available years)
   const { data: periods } = api.okr.getPeriods.useQuery();
+
+  // Extract available years from periods
+  const yearOptions = useMemo(() => {
+    if (!periods) return [];
+    return extractYearsFromPeriods(periods).map((year) => ({
+      value: year,
+      label: year,
+    }));
+  }, [periods]);
 
   // Fetch available goals for selection
   const { data: availableGoals } = api.okr.getAvailableGoals.useQuery({
     workspaceId: workspaceId ?? undefined,
   });
 
-  // Determine if we can show the "Show with Annual" toggle
-  const canShowAnnualToggle = selectedPeriod
-    ? isQuarterlyPeriod(selectedPeriod)
-    : false;
-
   // Fetch OKRs grouped by objective
   const { data: objectives, isLoading } = api.okr.getByObjective.useQuery({
     workspaceId: workspaceId ?? undefined,
-    period: selectedPeriod ?? undefined,
-    includePairedPeriod: canShowAnnualToggle && showWithAnnual,
+    period: effectivePeriod,
+    includePairedPeriod: showCombinedView,
   });
 
   // Fetch stats
   const { data: stats, isLoading: statsLoading } = api.okr.getStats.useQuery({
     workspaceId: workspaceId ?? undefined,
-    period: selectedPeriod ?? undefined,
+    period: effectivePeriod,
   });
 
   // Initialize expanded state when objectives load (all expanded by default)
@@ -232,20 +280,21 @@ export function OkrDashboard() {
           </div>
           <Group>
             <Select
-              placeholder="All Periods"
-              data={periods ?? []}
-              value={selectedPeriod}
-              onChange={setSelectedPeriod}
-              clearable
-              className="w-48"
+              placeholder="Year"
+              data={yearOptions}
+              value={selectedYear}
+              onChange={(value) => setSelectedYear(value ?? getCurrentYear())}
+              className="w-24"
             />
-            {canShowAnnualToggle && (
-              <Checkbox
-                label="Show with Annual"
-                checked={showWithAnnual}
-                onChange={(e) => setShowWithAnnual(e.currentTarget.checked)}
-              />
-            )}
+            <Select
+              placeholder="Period"
+              data={periodTypeOptions}
+              value={selectedPeriodType}
+              onChange={(value) =>
+                setSelectedPeriodType((value as PeriodType) ?? "Q1")
+              }
+              className="w-40"
+            />
             <CreateGoalModal
               onSuccess={() => {
                 void utils.okr.getAvailableGoals.invalidate();
@@ -271,10 +320,10 @@ export function OkrDashboard() {
 
         {/* Objectives with Key Results */}
         {objectives && objectives.length > 0 ? (
-          showWithAnnual && selectedPeriod ? (
+          showCombinedView ? (
             // Table view: separate objectives by period and show side-by-side
             (() => {
-              const annualPeriod = getParentPeriod(selectedPeriod);
+              const annualPeriod = getParentPeriod(effectivePeriod);
               const annualObjectives = objectives
                 .filter((obj) =>
                   obj.keyResults.some((kr) => kr.period === annualPeriod)
@@ -287,19 +336,19 @@ export function OkrDashboard() {
                 }));
               const quarterlyObjectives = objectives
                 .filter((obj) =>
-                  obj.keyResults.some((kr) => kr.period === selectedPeriod)
+                  obj.keyResults.some((kr) => kr.period === effectivePeriod)
                 )
                 .map((obj) => ({
                   ...obj,
                   keyResults: obj.keyResults.filter(
-                    (kr) => kr.period === selectedPeriod
+                    (kr) => kr.period === effectivePeriod
                   ),
                 }));
               return (
                 <OkrTableView
                   annualObjectives={annualObjectives}
                   quarterlyObjectives={quarterlyObjectives}
-                  selectedQuarter={selectedPeriod}
+                  selectedQuarter={effectivePeriod}
                 />
               );
             })()

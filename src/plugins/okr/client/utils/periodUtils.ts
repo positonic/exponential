@@ -3,6 +3,23 @@
  */
 
 /**
+ * Period type for the OKR dashboard period selector.
+ * - Q1-Q4: Individual quarters
+ * - Year: Annual view only
+ * - Q1-Annual through Q4-Annual: Combined quarter + annual view
+ */
+export type PeriodType =
+  | "Q1"
+  | "Q2"
+  | "Q3"
+  | "Q4"
+  | "Year"
+  | "Q1-Annual"
+  | "Q2-Annual"
+  | "Q3-Annual"
+  | "Q4-Annual";
+
+/**
  * Get the parent annual period for a given quarter or half-year period.
  * @example getParentPeriod("Q1-2026") => "Annual-2026"
  * @example getParentPeriod("H1-2026") => "Annual-2026"
@@ -57,4 +74,56 @@ export function isHalfYearPeriod(period: string): boolean {
  */
 export function getPeriodDisplayName(period: string): string {
   return period.replace("-", " ");
+}
+
+/**
+ * Get the current year as a string.
+ */
+export function getCurrentYear(): string {
+  return new Date().getFullYear().toString();
+}
+
+/**
+ * Get the current quarter as a PeriodType (Q1, Q2, Q3, or Q4).
+ */
+export function getCurrentQuarterType(): PeriodType {
+  const quarter = Math.ceil((new Date().getMonth() + 1) / 3);
+  return `Q${quarter}` as PeriodType;
+}
+
+/**
+ * Build a period string (e.g., "Q1-2026") from year and period type.
+ * For combined types like "Q1-Annual", returns the quarter period.
+ */
+export function buildPeriodString(year: string, periodType: PeriodType): string {
+  if (periodType === "Year") {
+    return `Annual-${year}`;
+  }
+  if (periodType.includes("-Annual")) {
+    const base = periodType.split("-")[0];
+    return `${base}-${year}`;
+  }
+  return `${periodType}-${year}`;
+}
+
+/**
+ * Check if a period type represents a combined (quarterly + annual) view.
+ */
+export function isCombinedPeriodType(periodType: PeriodType): boolean {
+  return periodType.includes("-Annual");
+}
+
+/**
+ * Extract unique years from a list of periods.
+ * @example extractYearsFromPeriods([{value: "Q1-2026"}, {value: "Q2-2025"}]) => ["2026", "2025"]
+ */
+export function extractYearsFromPeriods(
+  periods: { value: string }[]
+): string[] {
+  const years = new Set<string>();
+  periods.forEach((p) => {
+    const match = p.value.match(/-(\d{4})$/);
+    if (match?.[1]) years.add(match[1]);
+  });
+  return Array.from(years).sort((a, b) => Number(b) - Number(a));
 }
