@@ -174,7 +174,7 @@ export function CalendarWeekTimeGrid({
     <div className="flex h-full flex-col">
       {/* Day headers */}
       <div
-        className="flex border-b border-border-primary"
+        className="flex border-b border-border-primary/30"
         style={{ paddingLeft: TIME_LABEL_WIDTH }}
       >
         {days.map((day) => {
@@ -182,7 +182,7 @@ export function CalendarWeekTimeGrid({
           return (
             <div
               key={format(day, "yyyy-MM-dd")}
-              className="flex-1 border-l border-border-primary/50 px-2 py-2 text-center first:border-l-0"
+              className="flex-1 border-l border-border-primary/30 px-2 py-2 text-center first:border-l-0"
             >
               <Text size="xs" c="dimmed">
                 {format(day, "EEE")}
@@ -214,7 +214,7 @@ export function CalendarWeekTimeGrid({
             {hours.map((hour, index) => (
               <div
                 key={hour}
-                className="absolute border-t border-border-primary/50"
+                className="absolute border-t border-border-primary/30"
                 style={{ top: index * HOUR_HEIGHT, width: TIME_LABEL_WIDTH }}
               >
                 <Text
@@ -245,8 +245,8 @@ export function CalendarWeekTimeGrid({
             return (
               <div
                 key={dayKey}
-                className={`relative flex-1 border-l border-border-primary/50 first:border-l-0 ${
-                  isTodayDate ? "bg-brand-primary/5" : ""
+                className={`relative flex-1 border-l border-border-primary/30 first:border-l-0 ${
+                  isTodayDate ? "bg-blue-500/10" : ""
                 }`}
                 style={{ minWidth: 100 }}
               >
@@ -254,7 +254,7 @@ export function CalendarWeekTimeGrid({
                 {hours.map((hour, index) => (
                   <div
                     key={hour}
-                    className="absolute w-full border-t border-border-primary/50"
+                    className="absolute w-full border-t border-border-primary/30"
                     style={{ top: index * HOUR_HEIGHT }}
                   />
                 ))}

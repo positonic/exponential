@@ -20,15 +20,18 @@ interface ActionBlockProps {
 
 function getEventColor(event: CalendarEvent): string {
   if (event.status === "cancelled")
-    return "bg-red-900/40 border-red-700 text-red-100";
+    return "bg-red-500/20 border-l-4 border-l-red-500 border-y-0 border-r-0 text-red-200";
   if (event.status === "tentative")
-    return "bg-yellow-900/40 border-yellow-700 text-yellow-100";
+    return "bg-yellow-500/20 border-l-4 border-l-yellow-500 border-y-0 border-r-0 text-yellow-200";
 
+  // Colors matching Reclaim.ai/screenshot style - solid left border with transparent fill
   const colors: string[] = [
-    "bg-blue-900/40 border-blue-700 text-blue-100",
-    "bg-green-900/40 border-green-700 text-green-100",
-    "bg-purple-900/40 border-purple-700 text-purple-100",
-    "bg-indigo-900/40 border-indigo-700 text-indigo-100",
+    "bg-blue-500/20 border-l-4 border-l-blue-500 border-y-0 border-r-0 text-blue-100", // Blue
+    "bg-teal-500/20 border-l-4 border-l-teal-500 border-y-0 border-r-0 text-teal-100", // Teal
+    "bg-rose-500/20 border-l-4 border-l-rose-500 border-y-0 border-r-0 text-rose-100", // Coral/Rose
+    "bg-violet-500/20 border-l-4 border-l-violet-500 border-y-0 border-r-0 text-violet-100", // Purple
+    "bg-amber-500/20 border-l-4 border-l-amber-500 border-y-0 border-r-0 text-amber-100", // Amber
+    "bg-cyan-500/20 border-l-4 border-l-cyan-500 border-y-0 border-r-0 text-cyan-100", // Cyan
   ];
 
   const colorIndex =
@@ -80,7 +83,7 @@ export function CalendarEventBlock({ event, style }: EventBlockProps) {
       withArrow
     >
       <div
-        className={`absolute cursor-pointer rounded-md border p-1.5 transition-all hover:brightness-110 ${getEventColor(event)}`}
+        className={`absolute cursor-pointer rounded-sm p-1.5 transition-all hover:brightness-110 ${getEventColor(event)}`}
         style={style}
         onClick={() => event.htmlLink && window.open(event.htmlLink, "_blank")}
       >
@@ -138,10 +141,10 @@ export function CalendarActionBlock({
       withArrow
     >
       <div
-        className={`absolute cursor-pointer rounded-md border p-1.5 transition-all hover:brightness-110 ${
+        className={`absolute cursor-pointer rounded-sm p-1.5 transition-all hover:brightness-110 ${
           isCompleted
-            ? "border-green-700 bg-green-900/40 text-green-100 line-through opacity-60"
-            : "border-brand-primary/50 bg-brand-primary/20 text-text-primary"
+            ? "bg-green-500/20 border-l-4 border-l-green-500 border-y-0 border-r-0 text-green-100 line-through opacity-60"
+            : "bg-brand-primary/20 border-l-4 border-l-brand-primary border-y-0 border-r-0 text-text-primary"
         }`}
         style={style}
         onClick={() => onClick?.(action.id)}

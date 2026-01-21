@@ -164,7 +164,7 @@ export function CalendarDayTimeGrid({
         {hours.map((hour, index) => (
           <div
             key={hour}
-            className="absolute flex w-full items-start border-t border-border-primary/50"
+            className="absolute flex w-full items-start border-t border-border-primary/30"
             style={{ top: index * HOUR_HEIGHT }}
           >
             <Text
