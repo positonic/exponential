@@ -6,7 +6,7 @@ import NotionProvider from "next-auth/providers/notion";
 import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
-import { sendMagicLinkEmail, sendWelcomeEmail } from "~/server/services/EmailService";
+import { sendMagicLinkEmail, sendWelcomeEmail, sendWelcomeWithMagicLinkEmail } from "~/server/services/EmailService";
 
 /**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
@@ -76,11 +76,22 @@ export const authConfig = {
       }
     }),
     Postmark({
-      apiKey: process.env.POSTMARK_SERVER_TOKEN!, // Required for email auth
+      apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN!, // Required for email auth
       from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
       sendVerificationRequest: async ({ identifier, url }) => {
-        const host = new URL(url).host;
-        await sendMagicLinkEmail(identifier, url, host);
+        // Check if user exists to determine which email to send
+        const existingUser = await db.user.findUnique({
+          where: { email: identifier },
+          select: { id: true },
+        });
+
+        if (existingUser) {
+          // Returning user - send simple magic link email
+          await sendMagicLinkEmail(identifier, url);
+        } else {
+          // New user - send welcome email with magic link embedded
+          await sendWelcomeWithMagicLinkEmail(identifier, url);
+        }
       },
     }),
   ],
@@ -142,10 +153,14 @@ export const authConfig = {
 
       // If no user exists, allow sign in (new user - will need onboarding)
       if (!existingUser) {
-        // Send welcome email to new users (fire and forget - don't block sign in)
-        sendWelcomeEmail(user.email, user.name).catch((error) => {
-          console.error("[Auth] Failed to send welcome email:", error);
-        });
+        // Send welcome email to new OAuth users only (magic link users already got theirs)
+        // The 'postmark' provider is used for magic link auth
+        if (account?.provider && account.provider !== "postmark") {
+          const authProvider = account.provider as "google" | "discord";
+          sendWelcomeEmail(user.email, user.name, authProvider).catch((error) => {
+            console.error("[Auth] Failed to send welcome email:", error);
+          });
+        }
         return true;
       }
 
