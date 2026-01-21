@@ -4,9 +4,9 @@ import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
 import { DoPageContent } from "~/app/_components/DoPageContent";
 
-export type DoFilter = "inbox" | "today" | "tomorrow" | "upcoming";
+export type DoFilter = "today" | "tomorrow" | "upcoming";
 
-const VALID_DO_FILTERS: DoFilter[] = ["inbox", "today", "tomorrow", "upcoming"];
+const VALID_DO_FILTERS: DoFilter[] = ["today", "tomorrow", "upcoming"];
 
 function isValidDoFilter(value: string | null | undefined): value is DoFilter {
   return value != null && VALID_DO_FILTERS.includes(value as DoFilter);
@@ -19,7 +19,7 @@ interface PageProps {
 export default async function DoPage({ searchParams }: PageProps) {
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const filterParam = typeof resolvedSearchParams?.filter === 'string' ? resolvedSearchParams.filter : undefined;
-  const filter: DoFilter = isValidDoFilter(filterParam) ? filterParam : "inbox";
+  const filter: DoFilter = isValidDoFilter(filterParam) ? filterParam : "today";
 
   return (
     <HydrateClient>

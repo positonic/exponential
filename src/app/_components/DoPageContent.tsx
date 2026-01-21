@@ -2,21 +2,21 @@
 
 import { useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Group, Title, SegmentedControl, ActionIcon, Text } from "@mantine/core";
+import { Group, Title, SegmentedControl, ActionIcon } from "@mantine/core";
 import { IconFilter } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 
-export type DoFilter = "inbox" | "today" | "tomorrow" | "upcoming";
+export type DoFilter = "today" | "tomorrow" | "upcoming";
 
 interface DoPageContentProps {
   initialFilter?: DoFilter;
 }
 
-export function DoPageContent({ initialFilter = "inbox" }: DoPageContentProps) {
+export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Read filter from URL, fall back to initial or default to 'inbox'
+  // Read filter from URL, fall back to initial or default to 'today'
   const filterFromUrl = searchParams.get("filter");
   const filter: DoFilter = isValidDoFilter(filterFromUrl)
     ? filterFromUrl
@@ -27,7 +27,7 @@ export function DoPageContent({ initialFilter = "inbox" }: DoPageContentProps) {
       const params = new URLSearchParams(searchParams.toString());
 
       // Update filter param
-      if (newFilter === "inbox") {
+      if (newFilter === "today") {
         params.delete("filter");
       } else {
         params.set("filter", newFilter);
@@ -42,8 +42,6 @@ export function DoPageContent({ initialFilter = "inbox" }: DoPageContentProps) {
   // Map filter to viewName for Actions component
   const getViewName = (f: DoFilter): string => {
     switch (f) {
-      case "inbox":
-        return "inbox";
       case "today":
         return "today";
       case "tomorrow":
@@ -51,15 +49,13 @@ export function DoPageContent({ initialFilter = "inbox" }: DoPageContentProps) {
       case "upcoming":
         return "upcoming";
       default:
-        return "inbox";
+        return "today";
     }
   };
 
   // Get title based on filter
   const getTitle = (f: DoFilter): string => {
     switch (f) {
-      case "inbox":
-        return "Inbox";
       case "today":
         return "Today";
       case "tomorrow":
@@ -67,7 +63,7 @@ export function DoPageContent({ initialFilter = "inbox" }: DoPageContentProps) {
       case "upcoming":
         return "Upcoming";
       default:
-        return "Act";
+        return "Today";
     }
   };
 
@@ -81,11 +77,6 @@ export function DoPageContent({ initialFilter = "inbox" }: DoPageContentProps) {
             <Title order={2} size="h3" className="text-text-primary">
               {getTitle(filter)}
             </Title>
-            {filter === "inbox" && (
-              <Text size="sm" c="dimmed" mt={4}>
-                Actions without a date or project assigned
-              </Text>
-            )}
           </div>
 
           {/* Right side: Filter selector */}
@@ -94,7 +85,6 @@ export function DoPageContent({ initialFilter = "inbox" }: DoPageContentProps) {
               value={filter}
               onChange={(value) => handleFilterChange(value as DoFilter)}
               data={[
-                { label: "Inbox", value: "inbox" },
                 { label: "Today", value: "today" },
                 { label: "Tomorrow", value: "tomorrow" },
                 { label: "Upcoming", value: "upcoming" },
@@ -121,5 +111,5 @@ export function DoPageContent({ initialFilter = "inbox" }: DoPageContentProps) {
 
 // Type guard
 function isValidDoFilter(value: string | null | undefined): value is DoFilter {
-  return value != null && ["inbox", "today", "tomorrow", "upcoming"].includes(value);
+  return value != null && ["today", "tomorrow", "upcoming"].includes(value);
 }

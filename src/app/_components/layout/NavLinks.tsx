@@ -8,6 +8,7 @@ import {
   IconCalendar,
   IconHome,
   IconUsers,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
@@ -101,14 +102,14 @@ export function NavLinks() {
           </NavLink>
         );
       })}
-      <NavLink href="/plan" icon={IconCalendarEvent} count={<TodayCount />}>
+      <NavLink href="/daily-plan" icon={IconCalendarEvent} count={<TodayCount />}>
         Daily plan
       </NavLink>
       <NavLink href="/calendar" icon={IconCalendar}>
         Calendar
       </NavLink>
-      <NavLink href="/act" icon={IconInbox} count={<InboxCount />}>
-        Act
+      <NavLink href="/act" icon={IconPlayerPlay}>
+        Today
       </NavLink>
 
       {/* Workspace Switcher - below Act, above accordion sections */}
