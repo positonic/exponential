@@ -600,13 +600,10 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         staleTime: 0
       });
 
-  console.log("outcomes are ", outcomes.data);
   useEffect(() => {
     setIsAlignmentMode(defaultView === 'alignment');
     setIsKanbanMode(defaultView === 'kanban');
   }, [defaultView]);
-
-  console.log("outcomes are ", outcomes.data);
   // Filter outcomes for today
   const todayOutcomes = outcomes.data?.filter((outcome: any) => {
     if (!outcome.dueDate) return false;

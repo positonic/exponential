@@ -90,22 +90,28 @@ export default function WeeklyReviewPage() {
   const reviewStartTime = useRef<Date | null>(null);
 
   const { data: projects, isLoading } =
-    api.project.getActiveWithDetails.useQuery({
-      workspaceId: workspaceId ?? undefined,
-    });
+    api.project.getActiveWithDetails.useQuery(
+      { workspaceId: workspaceId ?? undefined },
+      { enabled: workspaceId !== null }
+    );
 
   // Fetch all outcomes for the outcome linking feature
-  const { data: allOutcomes } = api.outcome.getMyOutcomes.useQuery({
-    workspaceId: workspaceId ?? undefined,
-  });
+  const { data: allOutcomes } = api.outcome.getMyOutcomes.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: workspaceId !== null }
+  );
 
   // Fetch streak data for motivation display
-  const { data: streakData } = api.weeklyReview.getStreak.useQuery({
-    workspaceId: workspaceId ?? undefined,
-  });
+  const { data: streakData } = api.weeklyReview.getStreak.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: workspaceId !== null }
+  );
 
   // Fetch inbox count for display (server-filtered by workspace)
-  const { data: allActions } = api.action.getAll.useQuery({ workspaceId: workspaceId ?? undefined });
+  const { data: allActions } = api.action.getAll.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: workspaceId !== null }
+  );
   const inboxCount = useMemo(() => {
     return allActions?.filter(
       (action) => !action.projectId && action.status === "ACTIVE"

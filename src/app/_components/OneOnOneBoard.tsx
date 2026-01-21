@@ -33,7 +33,7 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
   // Fetch outcomes - use different API for shared view
   const { data: allOutcomes } = isSharedView && userId && teamId
     ? api.outcome.getOutcomesForUser.useQuery({ userId, teamId })
-    : api.outcome.getMyOutcomes.useQuery({ workspaceId });
+    : api.outcome.getMyOutcomes.useQuery({ workspaceId: workspaceId ?? undefined });
   
   const updateProject = api.project.update.useMutation({
     onSuccess: () => {

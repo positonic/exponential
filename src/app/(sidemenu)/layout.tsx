@@ -42,7 +42,7 @@ export default async function RootLayout({
   const domain = getThemeDomain();
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.variable} h-full`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.variable} h-full`} suppressHydrationWarning>
       <head>
         <ColorSchemeScript />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />

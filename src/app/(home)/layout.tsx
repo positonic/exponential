@@ -6,6 +6,7 @@ const orbitron = Orbitron({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700', '800', '900'],
   display: 'swap',
+  variable: '--font-orbitron',
 });
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
@@ -39,7 +40,7 @@ export default async function HomeLayout({
   const mantineTheme = mantineThemes[domain];
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.className} h-full scroll-smooth`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.variable} h-full scroll-smooth`} suppressHydrationWarning>
       <head>
         <script
           type="application/ld+json"

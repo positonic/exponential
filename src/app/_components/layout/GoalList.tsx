@@ -11,6 +11,7 @@ export function GoalList() {
   const { data: goals } = api.goal.getAllMyGoals.useQuery(
     { workspaceId: workspaceId ?? undefined },
     {
+      enabled: workspaceId !== null,
       refetchOnWindowFocus: false,
       staleTime: 30 * 1000, // Consider data stale after 30 seconds
       gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
