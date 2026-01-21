@@ -356,7 +356,7 @@ export function OkrDashboard() {
             // Tree view: default hierarchical layout
             <Card className="border border-border-primary bg-surface-secondary">
               {objectives
-                .filter((obj) => obj.keyResults.length > 0)
+                .filter((obj) => obj.keyResults.length > 0 || obj.period === effectivePeriod)
                 .map((objective) => (
                 <ObjectiveRow
                   key={objective.id}

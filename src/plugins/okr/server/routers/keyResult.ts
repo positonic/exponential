@@ -146,12 +146,38 @@ export const keyResultRouter = createTRPCRouter({
         }
       }
 
-      // Show all goals in workspace - including those without key results
-      // so users can add key results to them
+      // Build goal period filter to match goals by their period field
+      // Include goals that match the period OR have no period set (legacy goals)
+      let goalPeriodFilter: { OR: Array<{ period: string | null } | { period: { in: string[] } }> } | undefined;
+      if (input.period) {
+        if (input.includePairedPeriod) {
+          const parentPeriod = getParentPeriodFromString(input.period);
+          const periods = parentPeriod
+            ? [input.period, parentPeriod]
+            : [input.period];
+          goalPeriodFilter = {
+            OR: [
+              { period: { in: periods } },
+              { period: null }, // Include legacy goals without period
+            ],
+          };
+        } else {
+          goalPeriodFilter = {
+            OR: [
+              { period: input.period },
+              { period: null }, // Include legacy goals without period
+            ],
+          };
+        }
+      }
+
+      // Show goals matching the selected period (by goal.period) or with no period set
+      // Goals without key results in the period will still show so users can add KRs
       const goals = await ctx.db.goal.findMany({
         where: {
           userId: ctx.session.user.id,
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...goalPeriodFilter,
         },
         include: {
           lifeDomain: true,
