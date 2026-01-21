@@ -435,6 +435,7 @@ model Goal {
   whyThisGoal  String? // "Why this value goal?" motivation text
   notes        String? // Notes field for each goal
   dueDate      DateTime?
+  period       String?    // OKR period e.g., "Q1-2026", "Annual-2026"
   lifeDomainId Int?
   userId       String
   workspaceId  String?

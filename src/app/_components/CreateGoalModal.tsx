@@ -40,6 +40,7 @@ interface CreateGoalModalProps {
     whyThisGoal: string | null;
     notes: string | null;
     dueDate: Date | null;
+    period: string | null;
     lifeDomainId: number | null;
     outcomes?: { id: string; description: string }[];
     workspaceId?: string | null;
@@ -65,6 +66,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
     goal?.workspaceId ?? null
   );
+  const [period, setPeriod] = useState<string | null>(goal?.period ?? null);
 
   // Key results state
   const [pendingKeyResults, setPendingKeyResults] = useState<PendingKeyResult[]>([]);
@@ -127,6 +129,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
           whyThisGoal: newGoal.whyThisGoal ?? null,
           notes: newGoal.notes ?? null,
           dueDate: newGoal.dueDate ?? null,
+          period: newGoal.period ?? null,
           lifeDomainId: newGoal.lifeDomainId ?? null,
           userId: "",
           workspaceId: null,
@@ -185,6 +188,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
           whyThisGoal: updatedGoal.whyThisGoal ?? null,
           notes: updatedGoal.notes ?? null,
           dueDate: updatedGoal.dueDate ?? null,
+          period: updatedGoal.period ?? null,
           lifeDomainId: updatedGoal.lifeDomainId ?? null,
         } : g);
       });
@@ -232,6 +236,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
     setWhyThisGoal("");
     setNotes("");
     setDueDate(null);
+    setPeriod(null);
     setLifeDomainId(null);
     setSelectedProjectId(undefined);
     setSelectedOutcomeIds([]);
@@ -348,6 +353,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
       setWhyThisGoal(goal.whyThisGoal ?? "");
       setNotes(goal.notes ?? "");
       setDueDate(goal.dueDate);
+      setPeriod(goal.period ?? null);
       setLifeDomainId(goal.lifeDomainId);
       setSelectedOutcomeIds(goal.outcomes?.map(o => o.id) ?? []);
       setSelectedWorkspaceId(goal.workspaceId ?? null);
@@ -396,6 +402,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
               whyThisGoal: whyThisGoal || undefined,
               notes: notes || undefined,
               dueDate: dueDate ?? undefined,
+              period: period ?? undefined,
               lifeDomainId: lifeDomainId ?? undefined,
               projectId: selectedProjectId,
               outcomeIds: selectedOutcomeIds.length > 0 ? selectedOutcomeIds : undefined,
@@ -475,6 +482,17 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
               notificationContext="goal"
             />
           </div>
+
+          <Select
+            label="Period"
+            description="The time period for this objective (e.g., Q1 2026 or Annual 2026)"
+            placeholder="Select a period"
+            data={periods ?? []}
+            value={period}
+            onChange={(value) => setPeriod(value)}
+            clearable
+            mt="md"
+          />
 
           <Select
             label="Project (optional)"

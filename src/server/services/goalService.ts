@@ -34,6 +34,7 @@ interface GoalInput {
   whyThisGoal?: string;
   notes?: string;
   dueDate?: Date;
+  period?: string; // OKR period e.g., "Q1-2026", "Annual-2026"
   lifeDomainId?: number;
   projectId?: string;
   outcomeIds?: string[];
@@ -52,6 +53,7 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
       whyThisGoal: input.whyThisGoal,
       notes: input.notes,
       dueDate: input.dueDate,
+      period: input.period ?? null,
       lifeDomainId: input.lifeDomainId ?? null,
       userId: ctx.session.user.id,
       workspaceId: input.workspaceId ?? null,
@@ -101,6 +103,7 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
       whyThisGoal: input.whyThisGoal,
       notes: input.notes,
       dueDate: input.dueDate,
+      period: input.period ?? null,
       lifeDomainId: input.lifeDomainId ?? null,
       workspaceId: input.workspaceId ?? null,
       projects: input.projectId ? {
