@@ -6,6 +6,36 @@ import { getEmbeddingTriggerService } from '~/server/services/embedding';
 // import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
 // import { NotificationServiceFactory } from '~/server/services/notifications/NotificationServiceFactory';
 
+// Helper to log webhook activity
+async function logWebhookEvent(params: {
+  provider: string;
+  eventType: string;
+  status: string;
+  meetingId?: string;
+  meetingTitle?: string;
+  errorMessage?: string;
+  metadata?: Record<string, unknown>;
+  userId?: string;
+}) {
+  try {
+    await db.webhookLog.create({
+      data: {
+        provider: params.provider,
+        eventType: params.eventType,
+        status: params.status,
+        meetingId: params.meetingId,
+        meetingTitle: params.meetingTitle,
+        errorMessage: params.errorMessage,
+        metadata: params.metadata,
+        userId: params.userId,
+      },
+    });
+  } catch (logError) {
+    // Don't fail the webhook if logging fails
+    console.error('Failed to log webhook event:', logError);
+  }
+}
+
 // Types based on Fireflies webhook schema
 interface FirefliesWebhookPayload {
   meetingId: string;
@@ -71,11 +101,19 @@ async function findValidApiKeyAndUser(payload: string, signature: string) {
 }
 
 export async function POST(request: NextRequest) {
+  // Log that we received a webhook (even before validation)
+  await logWebhookEvent({
+    provider: 'fireflies',
+    eventType: 'webhook_received',
+    status: 'success',
+    metadata: { timestamp: new Date().toISOString() },
+  });
+
   try {
     // Get the raw body for signature verification
     const body = await request.text();
     const signature = request.headers.get('x-hub-signature');
-    
+
     // Log the webhook for debugging
     console.log('🔥 Fireflies webhook received:', {
       signature: signature ? 'present' : 'missing',
@@ -85,14 +123,30 @@ export async function POST(request: NextRequest) {
 
     // Find which user's API key was used for this webhook
     const validationResult = await findValidApiKeyAndUser(body, signature || '');
-    
+
     if (!validationResult) {
       console.error('❌ Invalid webhook signature or no matching API key found');
+      await logWebhookEvent({
+        provider: 'fireflies',
+        eventType: 'signature_verification',
+        status: 'invalid_signature',
+        errorMessage: 'No matching API key found for signature',
+        metadata: { signaturePresent: !!signature },
+      });
       return NextResponse.json(
-        { error: 'Invalid signature or API key not found' }, 
+        { error: 'Invalid signature or API key not found' },
         { status: 401 }
       );
     }
+
+    // Log successful signature verification
+    await logWebhookEvent({
+      provider: 'fireflies',
+      eventType: 'signature_verification',
+      status: 'success',
+      userId: validationResult.user.id,
+      metadata: { keyName: validationResult.keyName },
+    });
 
     console.log('✅ Webhook signature verified for user:', {
       userId: validationResult.user.id,
@@ -103,11 +157,18 @@ export async function POST(request: NextRequest) {
     // Parse the payload
     let payload: FirefliesWebhookPayload;
     try {
-      payload = JSON.parse(body);
+      payload = JSON.parse(body) as FirefliesWebhookPayload;
     } catch (parseError) {
       console.error('❌ Invalid JSON payload:', parseError);
+      await logWebhookEvent({
+        provider: 'fireflies',
+        eventType: 'payload_parse',
+        status: 'failed',
+        errorMessage: 'Invalid JSON payload',
+        userId: validationResult.user.id,
+      });
       return NextResponse.json(
-        { error: 'Invalid JSON payload' }, 
+        { error: 'Invalid JSON payload' },
         { status: 400 }
       );
     }
@@ -125,21 +186,35 @@ export async function POST(request: NextRequest) {
       case 'Transcription completed':
         await handleTranscriptionCompleted(meetingId, clientReferenceId, validationResult.user);
         break;
-      
+
       default:
         console.log(`📝 Unhandled event type: ${eventType}`);
+        await logWebhookEvent({
+          provider: 'fireflies',
+          eventType: 'unhandled_event',
+          status: 'success',
+          meetingId,
+          userId: validationResult.user.id,
+          metadata: { eventType },
+        });
     }
 
     // Return success response
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Webhook processed successfully' 
+    return NextResponse.json({
+      success: true,
+      message: 'Webhook processed successfully'
     });
 
   } catch (error) {
     console.error('❌ Error processing Fireflies webhook:', error);
+    await logWebhookEvent({
+      provider: 'fireflies',
+      eventType: 'webhook_processing',
+      status: 'failed',
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+    });
     return NextResponse.json(
-      { error: 'Internal server error' }, 
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
@@ -239,31 +314,66 @@ async function getFirefliesIntegration(userId: string): Promise<{ apiKey: string
 async function handleTranscriptionCompleted(meetingId: string, clientReferenceId: string | undefined, user: { id: string; email: string | null; name: string | null }) {
   try {
     console.log(`📝 Handling transcription completion for meeting: ${meetingId} (User: ${user.email})`);
-    
+
     // 1. Get user's Fireflies integration
     const firefliesIntegration = await getFirefliesIntegration(user.id);
     if (!firefliesIntegration) {
       console.error('❌ No Fireflies integration found for user:', user.email);
+      await logWebhookEvent({
+        provider: 'fireflies',
+        eventType: 'integration_lookup',
+        status: 'failed',
+        meetingId,
+        errorMessage: 'No Fireflies integration found for user',
+        userId: user.id,
+      });
       throw new Error('No Fireflies integration found for user');
     }
 
     // 2. Fetch the transcript from Fireflies API
     let transcript: FirefliesTranscript | null = null;
     let processedData;
-    
+
     try {
       transcript = await fetchFirefliesTranscript(meetingId, firefliesIntegration.apiKey) as FirefliesTranscript;
       if (transcript && transcript.sentences) {
         console.log(`✅ Retrieved transcript with ${transcript.sentences.length} sentences`);
-        
+
+        // Log successful transcript fetch
+        await logWebhookEvent({
+          provider: 'fireflies',
+          eventType: 'transcript_fetch',
+          status: 'success',
+          meetingId,
+          meetingTitle: transcript.title,
+          userId: user.id,
+          metadata: { sentenceCount: transcript.sentences.length },
+        });
+
         // 3. Process transcript data using FirefliesService
         processedData = FirefliesService.processTranscription(transcript);
         console.log(`📊 Processed summary and found ${processedData.actionItems.length} action items`);
       } else {
         console.warn('⚠️ No transcript sentences found');
+        await logWebhookEvent({
+          provider: 'fireflies',
+          eventType: 'transcript_fetch',
+          status: 'success',
+          meetingId,
+          userId: user.id,
+          metadata: { warning: 'No transcript sentences found' },
+        });
       }
     } catch (fetchError) {
       console.error('❌ Failed to fetch transcript from Fireflies:', fetchError);
+      await logWebhookEvent({
+        provider: 'fireflies',
+        eventType: 'transcript_fetch',
+        status: 'failed',
+        meetingId,
+        errorMessage: fetchError instanceof Error ? fetchError.message : 'Unknown error',
+        userId: user.id,
+      });
       // Continue with creation but without transcript content
     }
 
@@ -359,9 +469,32 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       }
     });
 
+    // Log successful transcription save
+    await logWebhookEvent({
+      provider: 'fireflies',
+      eventType: 'transcription_saved',
+      status: 'success',
+      meetingId,
+      meetingTitle: title,
+      userId: user.id,
+      metadata: {
+        transcriptionId: transcriptionSession.id,
+        isNewSession,
+        actionItemCount: processedData?.actionItems.length ?? 0,
+      },
+    });
+
     console.log('✅ Transcription completion handled successfully');
   } catch (error) {
     console.error('❌ Error handling transcription completion:', error);
+    await logWebhookEvent({
+      provider: 'fireflies',
+      eventType: 'transcription_processing',
+      status: 'failed',
+      meetingId,
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      userId: user.id,
+    });
     throw error;
   }
 }

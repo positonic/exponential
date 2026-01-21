@@ -35,6 +35,8 @@ import {
   IconBrandSlack,
   IconArchive,
   IconArchiveOff,
+  IconHistory,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 // import { ActionList } from "./ActionList";
@@ -43,7 +45,22 @@ import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 import { HTMLContent } from "./HTMLContent";
 
-type TabValue = "transcriptions" | "upcoming" | "archive";
+type TabValue = "transcriptions" | "upcoming" | "archive" | "activity";
+
+// Type for webhook activity logs
+interface WebhookLog {
+  id: string;
+  provider: string;
+  eventType: string;
+  status: string;
+  meetingId: string | null;
+  meetingTitle: string | null;
+  errorMessage: string | null;
+  metadata: unknown;
+  userId: string | null;
+  workspaceId: string | null;
+  createdAt: Date;
+}
 
 interface MeetingsContentProps {
   workspaceId?: string;
@@ -98,6 +115,10 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   );
   const { data: projects } = api.project.getAll.useQuery({ workspaceId });
   const { data: workflows = [] } = api.workflow.list.useQuery();
+  const { data: webhookLogsData, isLoading: isLoadingLogs, refetch: refetchLogs } = api.transcription.getWebhookLogs.useQuery(
+    { workspaceId, limit: 50 },
+    { enabled: activeTab === "activity" }
+  );
   const utils = api.useUtils();
   
   
@@ -454,6 +475,12 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                 leftSection={<IconClipboardList size={16} />}
               >
                 Archive
+              </Tabs.Tab>
+              <Tabs.Tab
+                value="activity"
+                leftSection={<IconHistory size={16} />}
+              >
+                Activity
               </Tabs.Tab>
             </Tabs.List>
 
@@ -1003,6 +1030,104 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                       <Text size="lg" c="dimmed">No archived meetings</Text>
                       <Text size="sm" c="dimmed">
                         Meetings you archive will appear here
+                      </Text>
+                    </Stack>
+                  </Paper>
+                )}
+              </Stack>
+            </Tabs.Panel>
+
+            {/* Activity Tab - Webhook Logs */}
+            <Tabs.Panel value="activity">
+              <Stack gap="md">
+                <Group justify="space-between" align="center">
+                  <Title order={4}>Webhook Activity</Title>
+                  <Group gap="xs">
+                    <Text size="sm" c="dimmed">
+                      {webhookLogsData?.logs?.length ?? 0} recent events
+                    </Text>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      leftSection={<IconRefresh size={14} />}
+                      onClick={() => void refetchLogs()}
+                      loading={isLoadingLogs}
+                    >
+                      Refresh
+                    </Button>
+                  </Group>
+                </Group>
+
+                <Text size="sm" c="dimmed">
+                  Monitor webhook calls from Fireflies, manual syncs, and API activity.
+                  Use this to debug if automatic webhooks are working correctly.
+                </Text>
+
+                {isLoadingLogs ? (
+                  <div>Loading activity logs...</div>
+                ) : webhookLogsData?.logs && webhookLogsData.logs.length > 0 ? (
+                  <Stack gap="sm">
+                    {(webhookLogsData.logs as WebhookLog[]).map((log) => (
+                      <Card
+                        key={log.id}
+                        withBorder
+                        shadow="xs"
+                        radius="sm"
+                        p="sm"
+                      >
+                        <Group justify="space-between" align="flex-start" wrap="nowrap">
+                          <Stack gap={4} style={{ flex: 1 }}>
+                            <Group gap="xs">
+                              <Badge
+                                size="sm"
+                                color={
+                                  log.status === "success"
+                                    ? "green"
+                                    : log.status === "invalid_signature"
+                                    ? "yellow"
+                                    : "red"
+                                }
+                              >
+                                {log.status}
+                              </Badge>
+                              <Badge size="sm" variant="outline" color="gray">
+                                {log.eventType.replace(/_/g, " ")}
+                              </Badge>
+                              <Badge size="sm" variant="dot" color="teal">
+                                {log.provider}
+                              </Badge>
+                            </Group>
+                            {log.meetingTitle && (
+                              <Text size="sm" fw={500}>
+                                {log.meetingTitle}
+                              </Text>
+                            )}
+                            {log.errorMessage && (
+                              <Text size="xs" c="red">
+                                Error: {log.errorMessage}
+                              </Text>
+                            )}
+                          </Stack>
+                          <Text size="xs" c="dimmed">
+                            {new Date(log.createdAt).toLocaleString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </Text>
+                        </Group>
+                      </Card>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Paper p="xl" radius="md" className="text-center">
+                    <Stack gap="md" align="center">
+                      <IconHistory size={48} opacity={0.3} />
+                      <Text size="lg" c="dimmed">No webhook activity yet</Text>
+                      <Text size="sm" c="dimmed">
+                        Webhook calls and manual syncs will appear here.
+                        Try clicking &quot;Sync&quot; on the Transcriptions tab to see activity.
                       </Text>
                     </Stack>
                   </Paper>
