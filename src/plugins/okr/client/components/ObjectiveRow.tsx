@@ -42,6 +42,7 @@ interface ObjectiveData {
   whyThisGoal?: string | null;
   notes?: string | null;
   dueDate?: Date | null;
+  period?: string | null;
   progress: number;
   lifeDomain?: LifeDomain | null;
   workspaceId?: string | null;
@@ -124,6 +125,7 @@ export function ObjectiveRow({
                   whyThisGoal: objective.whyThisGoal ?? null,
                   notes: objective.notes ?? null,
                   dueDate: objective.dueDate ?? null,
+                  period: objective.period ?? null,
                   lifeDomainId: objective.lifeDomain?.id ?? null,
                   workspaceId: objective.workspaceId ?? null,
                 }}
