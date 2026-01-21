@@ -37,8 +37,14 @@ function getOutcomeTypeColor(type: string): string {
 }
 
 export function OutcomesByGoal({ workspaceId }: OutcomesByGoalProps) {
-  const { data: allOutcomes, isLoading: outcomesLoading } = api.outcome.getMyOutcomes.useQuery({ workspaceId });
-  const { data: goals, isLoading: goalsLoading } = api.goal.getAllMyGoals.useQuery({ workspaceId });
+  const { data: allOutcomes, isLoading: outcomesLoading } = api.outcome.getMyOutcomes.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: workspaceId !== null }
+  );
+  const { data: goals, isLoading: goalsLoading } = api.goal.getAllMyGoals.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: workspaceId !== null }
+  );
 
   const isLoading = outcomesLoading || goalsLoading;
   const today = new Date();

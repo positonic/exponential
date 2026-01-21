@@ -22,7 +22,6 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
     }
   }, []);
 
-  console.log('domain', domain);
   if (!session?.user) {
     return null;
   }

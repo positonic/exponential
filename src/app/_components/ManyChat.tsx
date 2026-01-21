@@ -232,7 +232,6 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         refetchOnWindowFocus: false, // Don't refetch just on focus
       }
     );
-  console.log("mastraAgents is ", mastraAgents);
   
   // Initialize conversation ID when component mounts
   useEffect(() => {

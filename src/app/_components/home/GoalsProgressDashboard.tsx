@@ -56,13 +56,15 @@ export function GoalsProgressDashboard() {
   const { workspaceId, workspaceSlug } = useWorkspace();
 
   const { data: objectives, isLoading: objectivesLoading } =
-    api.okr.getByObjective.useQuery({
-      workspaceId: workspaceId ?? undefined,
-    });
+    api.okr.getByObjective.useQuery(
+      { workspaceId: workspaceId ?? undefined },
+      { enabled: workspaceId !== null }
+    );
 
-  const { data: stats, isLoading: statsLoading } = api.okr.getStats.useQuery({
-    workspaceId: workspaceId ?? undefined,
-  });
+  const { data: stats, isLoading: statsLoading } = api.okr.getStats.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: workspaceId !== null }
+  );
 
   const goalsPath = workspaceSlug ? `/w/${workspaceSlug}/goals` : "/goals";
   const okrsPath = workspaceSlug ? `/w/${workspaceSlug}/okrs` : "/okrs";

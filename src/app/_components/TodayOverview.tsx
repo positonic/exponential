@@ -91,18 +91,21 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
     {
       startDate: effectiveDateRange.startDate,
       endDate: effectiveDateRange.endDate,
-      workspaceId,
+      workspaceId: workspaceId ?? undefined,
     },
-    { enabled: focus !== "today" }
+    { enabled: focus !== "today" && workspaceId !== null }
   );
 
   const { data: allOutcomes = [] } = api.outcome.getMyOutcomes.useQuery(
-    { workspaceId },
-    { enabled: focus === "today" }
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: focus === "today" && workspaceId !== null }
   );
 
   // Goals - always fetch all and filter client-side
-  const { data: goals = [] } = api.goal.getAllMyGoals.useQuery({ workspaceId });
+  const { data: goals = [] } = api.goal.getAllMyGoals.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: workspaceId !== null }
+  );
 
   // Filter items based on focus
   const outcomes = focus === "today"
