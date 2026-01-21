@@ -22,8 +22,10 @@ async function sendEmail({ to, subject, htmlBody, textBody }: SendEmailParams): 
   const from = process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im";
 
   if (!apiKey) {
-    console.error("[EmailService] AUTH_POSTMARK_KEY is not configured");
-    throw new Error("Email service not configured");
+    console.error(
+      "[EmailService] Postmark API key not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable."
+    );
+    throw new Error("Email service not configured: missing AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN");
   }
 
   const response = await fetch(POSTMARK_API_URL, {
@@ -367,7 +369,7 @@ export async function sendWelcomeWithMagicLinkEmail(
 export async function sendWelcomeEmail(
   email: string,
   name?: string | null,
-  authProvider?: "google" | "discord"
+  authProvider?: "google" | "discord" | "notion" | string
 ): Promise<void> {
   const brandColor = "#5850EC";
   const appName = "Exponential";

@@ -34,39 +34,34 @@ async function migrateUserWorkspaces() {
     try {
       const slug = `personal-${user.id}`;
 
-      // Check if workspace with this slug already exists (edge case)
-      const existingWorkspace = await db.workspace.findUnique({
-        where: { slug }
-      });
-
-      if (existingWorkspace) {
-        console.log(`  Skipping ${user.email} - workspace slug already exists`);
-        continue;
-      }
-
-      const workspace = await db.workspace.create({
-        data: {
-          name: "Personal",
-          slug,
-          type: "personal",
-          ownerId: user.id,
-          members: {
-            create: {
-              userId: user.id,
-              role: "owner",
+      // Use atomic transaction to create workspace and update user in one operation
+      // This handles unique-slug conflicts and ensures both operations succeed or both roll back
+      await db.$transaction(async (tx) => {
+        const workspace = await tx.workspace.create({
+          data: {
+            name: "Personal",
+            slug,
+            type: "personal",
+            ownerId: user.id,
+            members: {
+              create: {
+                userId: user.id,
+                role: "owner",
+              },
             },
           },
-        },
-      });
+        });
 
-      await db.user.update({
-        where: { id: user.id },
-        data: { defaultWorkspaceId: workspace.id },
+        await tx.user.update({
+          where: { id: user.id },
+          data: { defaultWorkspaceId: workspace.id },
+        });
       });
 
       createdCount++;
       console.log(`  Created workspace for: ${user.email ?? user.id}`);
     } catch (error) {
+      // Handle unique constraint violations (slug already exists) and other errors
       console.error(`  Failed to create workspace for ${user.email ?? user.id}:`, error);
     }
   }

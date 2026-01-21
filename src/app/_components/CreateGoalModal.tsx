@@ -146,6 +146,10 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
       onDelete?.();
       close();
     },
+    onError: (error) => {
+      console.error('[CreateGoalModal] Failed to delete goal:', error);
+      toast.error('Failed to delete objective. Please try again.');
+    },
   });
 
   const resetForm = () => {
@@ -344,6 +348,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
           <Group justify="flex-end" mt="xl">
             {goal && (
               <Button
+                type="button"
                 variant="subtle"
                 color="red"
                 leftSection={<IconTrash size={16} />}

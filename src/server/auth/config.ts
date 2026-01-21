@@ -76,21 +76,37 @@ export const authConfig = {
       }
     }),
     Postmark({
-      apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN!, // Required for email auth
+      apiKey: (() => {
+        const key = process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN;
+        if (!key) {
+          throw new Error(
+            'Postmark API key is not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable.'
+          );
+        }
+        return key;
+      })(),
       from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
       sendVerificationRequest: async ({ identifier, url }) => {
-        // Check if user exists to determine which email to send
-        const existingUser = await db.user.findUnique({
-          where: { email: identifier },
-          select: { id: true },
-        });
+        try {
+          // Check if user exists to determine which email to send
+          const existingUser = await db.user.findUnique({
+            where: { email: identifier },
+            select: { id: true },
+          });
 
-        if (existingUser) {
-          // Returning user - send simple magic link email
-          await sendMagicLinkEmail(identifier, url);
-        } else {
-          // New user - send welcome email with magic link embedded
-          await sendWelcomeWithMagicLinkEmail(identifier, url);
+          if (existingUser) {
+            // Returning user - send simple magic link email
+            await sendMagicLinkEmail(identifier, url);
+          } else {
+            // New user - send welcome email with magic link embedded
+            await sendWelcomeWithMagicLinkEmail(identifier, url);
+          }
+        } catch (error) {
+          console.error(
+            `[Auth] Failed to send verification email to ${identifier} (url: ${url}):`,
+            error
+          );
+          throw error;
         }
       },
     }),
@@ -156,8 +172,8 @@ export const authConfig = {
         // Send welcome email to new OAuth users only (magic link users already got theirs)
         // The 'postmark' provider is used for magic link auth
         if (account?.provider && account.provider !== "postmark") {
-          const authProvider = account.provider as "google" | "discord";
-          sendWelcomeEmail(user.email, user.name, authProvider).catch((error) => {
+          // Pass provider as-is to handle all configured OAuth providers (google, discord, notion, etc.)
+          sendWelcomeEmail(user.email, user.name, account.provider).catch((error) => {
             console.error("[Auth] Failed to send welcome email:", error);
           });
         }
