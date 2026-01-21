@@ -15,9 +15,15 @@ import {
   TextInput,
   NumberInput,
   Textarea,
+  Checkbox,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconTargetArrow, IconPlus } from "@tabler/icons-react";
+import { OkrTableView } from "./OkrTableView";
+import {
+  isQuarterlyPeriod,
+  getParentPeriod,
+} from "../utils/periodUtils";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
@@ -45,6 +51,7 @@ export function OkrDashboard() {
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(
     getCurrentAnnualPeriod()
   );
+  const [showWithAnnual, setShowWithAnnual] = useState(false);
   const [
     createModalOpened,
     { open: openCreateModal, close: closeCreateModal },
@@ -82,10 +89,16 @@ export function OkrDashboard() {
     workspaceId: workspaceId ?? undefined,
   });
 
+  // Determine if we can show the "Show with Annual" toggle
+  const canShowAnnualToggle = selectedPeriod
+    ? isQuarterlyPeriod(selectedPeriod)
+    : false;
+
   // Fetch OKRs grouped by objective
   const { data: objectives, isLoading } = api.okr.getByObjective.useQuery({
     workspaceId: workspaceId ?? undefined,
     period: selectedPeriod ?? undefined,
+    includePairedPeriod: canShowAnnualToggle && showWithAnnual,
   });
 
   // Fetch stats
@@ -226,6 +239,13 @@ export function OkrDashboard() {
               clearable
               className="w-48"
             />
+            {canShowAnnualToggle && (
+              <Checkbox
+                label="Show with Annual"
+                checked={showWithAnnual}
+                onChange={(e) => setShowWithAnnual(e.currentTarget.checked)}
+              />
+            )}
             <CreateGoalModal
               onSuccess={() => {
                 void utils.okr.getAvailableGoals.invalidate();
@@ -251,26 +271,65 @@ export function OkrDashboard() {
 
         {/* Objectives with Key Results */}
         {objectives && objectives.length > 0 ? (
-          <Card className="border border-border-primary bg-surface-secondary">
-            {objectives.map((objective) => (
-              <ObjectiveRow
-                key={objective.id}
-                objective={{
-                  ...objective,
-                  lifeDomain: objective.lifeDomain
-                    ? {
-                        id: objective.lifeDomain.id,
-                        name: objective.lifeDomain.title,
-                      }
-                    : null,
-                }}
-                isExpanded={expandedObjectives.has(objective.id)}
-                onToggleExpand={() => toggleExpand(objective.id)}
-                onDelete={handleDeleteObjective}
-                isDeleting={deleteObjective.isPending}
-              />
-            ))}
-          </Card>
+          showWithAnnual && selectedPeriod ? (
+            // Table view: separate objectives by period and show side-by-side
+            (() => {
+              const annualPeriod = getParentPeriod(selectedPeriod);
+              const annualObjectives = objectives
+                .filter((obj) =>
+                  obj.keyResults.some((kr) => kr.period === annualPeriod)
+                )
+                .map((obj) => ({
+                  ...obj,
+                  keyResults: obj.keyResults.filter(
+                    (kr) => kr.period === annualPeriod
+                  ),
+                }));
+              const quarterlyObjectives = objectives
+                .filter((obj) =>
+                  obj.keyResults.some((kr) => kr.period === selectedPeriod)
+                )
+                .map((obj) => ({
+                  ...obj,
+                  keyResults: obj.keyResults.filter(
+                    (kr) => kr.period === selectedPeriod
+                  ),
+                }));
+              return (
+                <OkrTableView
+                  annualObjectives={annualObjectives}
+                  quarterlyObjectives={quarterlyObjectives}
+                  selectedQuarter={selectedPeriod}
+                />
+              );
+            })()
+          ) : (
+            // Tree view: default hierarchical layout
+            <Card className="border border-border-primary bg-surface-secondary">
+              {objectives.map((objective) => (
+                <ObjectiveRow
+                  key={objective.id}
+                  objective={{
+                    ...objective,
+                    lifeDomain: objective.lifeDomain
+                      ? {
+                          id: objective.lifeDomain.id,
+                          name: objective.lifeDomain.title,
+                        }
+                      : null,
+                  }}
+                  isExpanded={expandedObjectives.has(objective.id)}
+                  onToggleExpand={() => toggleExpand(objective.id)}
+                  onDelete={handleDeleteObjective}
+                  isDeleting={deleteObjective.isPending}
+                  onEditSuccess={() => {
+                    void utils.okr.getByObjective.invalidate();
+                    void utils.okr.getStats.invalidate();
+                  }}
+                />
+              ))}
+            </Card>
+          )
         ) : (
           <Card className="border border-border-primary bg-surface-secondary text-center py-12">
             <IconTargetArrow

@@ -6,7 +6,7 @@ import NotionProvider from "next-auth/providers/notion";
 import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
-import { sendMagicLinkEmail, sendWelcomeEmail } from "~/server/services/EmailService";
+import { sendMagicLinkEmail, sendWelcomeEmail, sendWelcomeWithMagicLinkEmail } from "~/server/services/EmailService";
 
 /**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
@@ -76,11 +76,38 @@ export const authConfig = {
       }
     }),
     Postmark({
-      apiKey: process.env.POSTMARK_SERVER_TOKEN!, // Required for email auth
+      apiKey: (() => {
+        const key = process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN;
+        if (!key) {
+          throw new Error(
+            'Postmark API key is not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable.'
+          );
+        }
+        return key;
+      })(),
       from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
       sendVerificationRequest: async ({ identifier, url }) => {
-        const host = new URL(url).host;
-        await sendMagicLinkEmail(identifier, url, host);
+        try {
+          // Check if user exists to determine which email to send
+          const existingUser = await db.user.findUnique({
+            where: { email: identifier },
+            select: { id: true },
+          });
+
+          if (existingUser) {
+            // Returning user - send simple magic link email
+            await sendMagicLinkEmail(identifier, url);
+          } else {
+            // New user - send welcome email with magic link embedded
+            await sendWelcomeWithMagicLinkEmail(identifier, url);
+          }
+        } catch (error) {
+          console.error(
+            `[Auth] Failed to send verification email to ${identifier} (url: ${url}):`,
+            error
+          );
+          throw error;
+        }
       },
     }),
   ],
@@ -142,10 +169,14 @@ export const authConfig = {
 
       // If no user exists, allow sign in (new user - will need onboarding)
       if (!existingUser) {
-        // Send welcome email to new users (fire and forget - don't block sign in)
-        sendWelcomeEmail(user.email, user.name).catch((error) => {
-          console.error("[Auth] Failed to send welcome email:", error);
-        });
+        // Send welcome email to new OAuth users only (magic link users already got theirs)
+        // The 'postmark' provider is used for magic link auth
+        if (account?.provider && account.provider !== "postmark") {
+          // Pass provider as-is to handle all configured OAuth providers (google, discord, notion, etc.)
+          sendWelcomeEmail(user.email, user.name, account.provider).catch((error) => {
+            console.error("[Auth] Failed to send welcome email:", error);
+          });
+        }
         return true;
       }
 
@@ -201,6 +232,36 @@ export const authConfig = {
         where: { id: user.id },
         data: { lastLogin: new Date() },
       });
+
+      // Create personal workspace for new users
+      if (user.id) {
+        try {
+          const slug = `personal-${user.id}`;
+          const workspace = await db.workspace.create({
+            data: {
+              name: "Personal",
+              slug,
+              type: "personal",
+              ownerId: user.id,
+              members: {
+                create: {
+                  userId: user.id,
+                  role: "owner",
+                },
+              },
+            },
+          });
+
+          // Set as default workspace
+          await db.user.update({
+            where: { id: user.id },
+            data: { defaultWorkspaceId: workspace.id },
+          });
+        } catch (error) {
+          // Log error but don't block user creation
+          console.error("[Auth] Failed to create personal workspace:", error);
+        }
+      }
     },
   },
 } satisfies NextAuthConfig;

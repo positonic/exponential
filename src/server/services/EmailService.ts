@@ -18,12 +18,14 @@ interface SendEmailParams {
 }
 
 async function sendEmail({ to, subject, htmlBody, textBody }: SendEmailParams): Promise<void> {
-  const apiKey = process.env.POSTMARK_SERVER_TOKEN;
+  const apiKey = process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN;
   const from = process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im";
 
   if (!apiKey) {
-    console.error("[EmailService] POSTMARK_SERVER_TOKEN is not configured");
-    throw new Error("Email service not configured");
+    console.error(
+      "[EmailService] Postmark API key not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable."
+    );
+    throw new Error("Email service not configured: missing AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN");
   }
 
   const response = await fetch(POSTMARK_API_URL, {
@@ -51,12 +53,11 @@ async function sendEmail({ to, subject, htmlBody, textBody }: SendEmailParams): 
 }
 
 /**
- * Send magic link sign-in email
+ * Send magic link sign-in email (for returning users)
  */
 export async function sendMagicLinkEmail(
   email: string,
-  url: string,
-  _host: string
+  url: string
 ): Promise<void> {
   const brandColor = "#5850EC";
   const appName = "Exponential";
@@ -154,18 +155,19 @@ Didn't request this? You can safely ignore this email.
 }
 
 /**
- * Send welcome email to new users
+ * Generate the welcome email HTML content (shared between magic link and OAuth flows)
  */
-export async function sendWelcomeEmail(
-  email: string,
-  name?: string | null
-): Promise<void> {
-  const brandColor = "#5850EC";
-  const appName = "Exponential";
-  const appUrl = process.env.NEXTAUTH_URL ?? "https://exponential.im";
-  const dashboardUrl = `${appUrl}/home`;
-
-  const greeting = name ? `Hi ${name},` : "Hi there,";
+function generateWelcomeEmailContent(options: {
+  brandColor: string;
+  appName: string;
+  appUrl: string;
+  ctaUrl: string;
+  ctaText: string;
+  showExpiration?: boolean;
+  greeting: string;
+}): { htmlBody: string; textBody: string } {
+  const { brandColor, appName, appUrl, ctaUrl, ctaText, showExpiration, greeting } = options;
+  const dailyPlannerUrl = `${appUrl}/daily-planner`;
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -181,12 +183,12 @@ export async function sendWelcomeEmail(
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
     <tr>
       <td align="center" style="padding: 40px 20px;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 480px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 560px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
           <!-- Header -->
           <tr>
             <td style="padding: 32px 32px 24px; text-align: center;">
-              <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #111827;">
-                Welcome to ${appName}
+              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #111827;">
+                Your 14-day trial starts now
               </h1>
             </td>
           </tr>
@@ -198,43 +200,80 @@ export async function sendWelcomeEmail(
                 ${greeting}
               </p>
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                You're in—your account is ready.
+                Your trial of ${appName} starts today.
+              </p>
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                I'm not going to pretend you need to watch 12 tutorial videos and set up the "perfect workflow" before you can use it. That's procrastination dressed up as productivity.
+              </p>
+
+              <!-- What matters section -->
+              <p style="margin: 0 0 8px; font-size: 15px; font-weight: 600; color: #111827;">
+                Here's what actually matters:
+              </p>
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                ${appName} isn't a to-do list. It's an alignment layer. The difference is simple: to-do lists help you track what you're doing. ${appName} helps you know if any of it matters.
+              </p>
+
+              <!-- Today section -->
+              <p style="margin: 0 0 8px; font-size: 15px; font-weight: 600; color: #111827;">
+                Today, do one thing:
               </p>
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${appName} helps you align your daily actions with meaningful goals. No more wondering if you're working on the right things.
+                Open ${appName} and go through <a href="${dailyPlannerUrl}" style="color: ${brandColor}; text-decoration: none;">Daily Planning</a>. In a few minutes, you'll connect your day's work to actual outcomes—not just tasks to check off.
               </p>
 
               <!-- CTA Button -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${dashboardUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
-                      Go to Dashboard
+                    <a href="${ctaUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                      ${ctaText}
                     </a>
                   </td>
                 </tr>
               </table>
 
-              <!-- First Action -->
-              <div style="padding: 16px; background-color: #f3f4f6; border-radius: 6px; margin-bottom: 24px;">
-                <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #374151;">
-                  One thing to do first:
+              ${showExpiration ? `
+              <!-- Expiration Notice -->
+              <p style="margin: 0 0 24px; padding: 12px 16px; background-color: #fef3c7; border-radius: 6px; font-size: 13px; color: #92400e;">
+                This sign-in link expires in 24 hours.
+              </p>
+              ` : ''}
+
+              <!-- After that section -->
+              <div style="padding: 20px; background-color: #f3f4f6; border-radius: 6px; margin-bottom: 24px;">
+                <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #374151;">
+                  After that, if you want to go deeper:
                 </p>
-                <p style="margin: 0; font-size: 14px; color: #4b5563;">
-                  Create your first goal. Everything else flows from there.
-                </p>
+                <ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #4b5563;">
+                  <li><strong>Let AI handle your task layer.</strong> Connect a meeting, voice note, or Slack thread. Watch it become actions automatically.</li>
+                  <li><strong>Set outcomes, not tasks.</strong> What result do you want this week? ${appName} works backward from there.</li>
+                  <li><strong>Run a weekly review.</strong> Five minutes to see which projects are healthy and which need attention.</li>
+                  <li><strong>Connect your tools.</strong> Slack, Notion, GitHub, Google Calendar. One workspace instead of six browser tabs.</li>
+                </ul>
               </div>
+
+              <!-- What it won't do -->
+              <p style="margin: 0 0 8px; font-size: 15px; font-weight: 600; color: #111827;">
+                What ${appName} won't do:
+              </p>
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                It won't magically organize your life while you scroll Twitter. You'll need to show up once a day, look at what matters, and decide what to focus on.
+              </p>
+              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                The AI handles execution. You handle intent. That's the deal.
+              </p>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
             <td style="padding: 0 32px 32px;">
-              <p style="margin: 0 0 16px; font-size: 14px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 24px;">
-                Questions? Just reply to this email.
+              <p style="margin: 0 0 16px; font-size: 14px; color: #4b5563; border-top: 1px solid #e5e7eb; padding-top: 24px;">
+                I'll check in over the next two weeks with ideas on getting the most from your trial. Reply anytime—I read everything.
               </p>
               <p style="margin: 0; font-size: 14px; color: #374151;">
-                — James, Founder
+                — James
               </p>
             </td>
           </tr>
@@ -247,29 +286,119 @@ export async function sendWelcomeEmail(
 `.trim();
 
   const textBody = `
-Welcome to ${appName}
+Your 14-day trial starts now
 
 ${greeting}
 
-You're in—your account is ready.
+Your trial of ${appName} starts today.
 
-${appName} helps you align your daily actions with meaningful goals. No more wondering if you're working on the right things.
+I'm not going to pretend you need to watch 12 tutorial videos and set up the "perfect workflow" before you can use it. That's procrastination dressed up as productivity.
 
-Go to Dashboard: ${dashboardUrl}
+HERE'S WHAT ACTUALLY MATTERS:
 
-One thing to do first:
-Create your first goal. Everything else flows from there.
+${appName} isn't a to-do list. It's an alignment layer. The difference is simple: to-do lists help you track what you're doing. ${appName} helps you know if any of it matters.
+
+TODAY, DO ONE THING:
+
+Open ${appName} and go through Daily Planning (${dailyPlannerUrl}). In a few minutes, you'll connect your day's work to actual outcomes—not just tasks to check off.
+
+${ctaText}: ${ctaUrl}
+${showExpiration ? '\nThis sign-in link expires in 24 hours.\n' : ''}
+---
+
+AFTER THAT, IF YOU WANT TO GO DEEPER:
+
+• Let AI handle your task layer. Connect a meeting, voice note, or Slack thread. Watch it become actions automatically.
+
+• Set outcomes, not tasks. What result do you want this week? ${appName} works backward from there.
+
+• Run a weekly review. Five minutes to see which projects are healthy and which need attention.
+
+• Connect your tools. Slack, Notion, GitHub, Google Calendar. One workspace instead of six browser tabs.
 
 ---
 
-Questions? Just reply to this email.
+WHAT ${appName.toUpperCase()} WON'T DO:
 
-— James, Founder
+It won't magically organize your life while you scroll Twitter. You'll need to show up once a day, look at what matters, and decide what to focus on.
+
+The AI handles execution. You handle intent. That's the deal.
+
+---
+
+I'll check in over the next two weeks with ideas on getting the most from your trial. Reply anytime—I read everything.
+
+— James
 `.trim();
+
+  return { htmlBody, textBody };
+}
+
+/**
+ * Send welcome email with embedded magic link (for new users signing up via email)
+ */
+export async function sendWelcomeWithMagicLinkEmail(
+  email: string,
+  magicLinkUrl: string
+): Promise<void> {
+  const brandColor = "#5850EC";
+  const appName = "Exponential";
+  const appUrl = process.env.NEXTAUTH_URL ?? "https://exponential.im";
+
+  const { htmlBody, textBody } = generateWelcomeEmailContent({
+    brandColor,
+    appName,
+    appUrl,
+    ctaUrl: magicLinkUrl,
+    ctaText: "Sign In & Start Planning",
+    showExpiration: true,
+    greeting: "Hi there,",
+  });
 
   await sendEmail({
     to: email,
-    subject: `Welcome to ${appName}`,
+    subject: "Your 14-day trial starts now. Here's the only thing you need to do.",
+    htmlBody,
+    textBody,
+  });
+}
+
+/**
+ * Send welcome email to new users (for OAuth sign-ups)
+ */
+export async function sendWelcomeEmail(
+  email: string,
+  name?: string | null,
+  authProvider?: "google" | "discord" | "notion" | string
+): Promise<void> {
+  const brandColor = "#5850EC";
+  const appName = "Exponential";
+  const appUrl = process.env.NEXTAUTH_URL ?? "https://exponential.im";
+  const signInUrl = `${appUrl}/signin`;
+
+  const greeting = name ? `Hi ${name},` : "Hi there,";
+
+  // Determine CTA based on auth provider
+  let ctaText = "Go to Dashboard";
+  if (authProvider === "google") {
+    ctaText = "Sign in with Google";
+  } else if (authProvider === "discord") {
+    ctaText = "Sign in with Discord";
+  }
+
+  const { htmlBody, textBody } = generateWelcomeEmailContent({
+    brandColor,
+    appName,
+    appUrl,
+    ctaUrl: signInUrl,
+    ctaText,
+    showExpiration: false,
+    greeting,
+  });
+
+  await sendEmail({
+    to: email,
+    subject: "Your 14-day trial starts now. Here's the only thing you need to do.",
     htmlBody,
     textBody,
   });
@@ -278,4 +407,5 @@ Questions? Just reply to this email.
 export const EmailService = {
   sendMagicLinkEmail,
   sendWelcomeEmail,
+  sendWelcomeWithMagicLinkEmail,
 };

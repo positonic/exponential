@@ -13,6 +13,7 @@ import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { usePluginNavigation } from "~/hooks/usePluginNavigation";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 
 // Icon map for plugin navigation items in main nav
 const mainNavIconMap = {
@@ -106,6 +107,11 @@ export function NavLinks() {
       <NavLink href="/act" icon={IconInbox} count={<InboxCount />}>
         Act
       </NavLink>
+
+      {/* Workspace Switcher - below Act, above accordion sections */}
+      <div className="pt-4 mt-2 border-t border-border-primary">
+        <WorkspaceSwitcher />
+      </div>
     </div>
   );
 }

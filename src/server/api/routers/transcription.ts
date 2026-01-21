@@ -412,9 +412,13 @@ export const transcriptionRouter = createTRPCRouter({
         whereClause.archivedAt = null;
       }
 
-      // Filter by workspace if provided
+      // Filter by workspace if provided - include meetings with direct workspaceId
+      // OR meetings whose project belongs to the workspace
       if (input?.workspaceId) {
-        whereClause.workspaceId = input.workspaceId;
+        whereClause.OR = [
+          { workspaceId: input.workspaceId },
+          { project: { workspaceId: input.workspaceId } },
+        ];
       }
 
       return ctx.db.transcriptionSession.findMany({

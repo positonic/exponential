@@ -1,7 +1,7 @@
 "use client";
 
 import { Modal, Button, Group, TextInput, Select, Text, Textarea, MultiSelect } from '@mantine/core';
-import { IconPlus } from '@tabler/icons-react';
+import { IconPlus, IconTrash } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
@@ -26,9 +26,10 @@ interface CreateGoalModalProps {
   trigger?: React.ReactNode;
   projectId?: string;
   onSuccess?: (goalId: number) => void; // Callback when goal is created/updated
+  onDelete?: () => void; // Callback when goal is deleted
 }
 
-export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess }: CreateGoalModalProps) {
+export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess, onDelete }: CreateGoalModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [title, setTitle] = useState(goal?.title ?? "");
   const [description, setDescription] = useState(goal?.description ?? "");
@@ -136,6 +137,18 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
       onSuccess?.(updatedGoal.id);
       resetForm();
       close();
+    },
+  });
+
+  const deleteGoal = api.goal.deleteGoal.useMutation({
+    onSuccess: () => {
+      void utils.goal.getAllMyGoals.invalidate();
+      onDelete?.();
+      close();
+    },
+    onError: (error) => {
+      console.error('[CreateGoalModal] Failed to delete goal:', error);
+      toast.error('Failed to delete objective. Please try again.');
     },
   });
 
@@ -333,10 +346,27 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess 
           )}
 
           <Group justify="flex-end" mt="xl">
+            {goal && (
+              <Button
+                type="button"
+                variant="subtle"
+                color="red"
+                leftSection={<IconTrash size={16} />}
+                onClick={() => {
+                  if (confirm("Delete this objective? All associated key results will also be deleted.")) {
+                    deleteGoal.mutate({ id: goal.id });
+                  }
+                }}
+                loading={deleteGoal.isPending}
+                className="mr-auto"
+              >
+                Delete
+              </Button>
+            )}
             <Button variant="subtle" color="gray" onClick={close}>
               Cancel
             </Button>
-            <Button 
+            <Button
               type="submit"
               loading={createGoal.isPending || updateGoal.isPending}
               disabled={!title}

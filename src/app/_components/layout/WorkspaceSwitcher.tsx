@@ -14,7 +14,7 @@ export function WorkspaceSwitcher() {
 
   if (isLoading) {
     return (
-      <div className="px-3 py-2">
+      <div className="px-1 py-1">
         <Skeleton height={36} radius="md" />
       </div>
     );
@@ -23,7 +23,7 @@ export function WorkspaceSwitcher() {
   // If no workspaces exist yet, show a create button
   if (!workspaces || workspaces.length === 0) {
     return (
-      <div className="px-3 py-2">
+      <div className="px-1 py-1">
         <Button
           component={Link}
           href="/workspaces/new"
@@ -39,7 +39,7 @@ export function WorkspaceSwitcher() {
   }
 
   return (
-    <div className="px-3 py-2">
+    <div className="px-1 py-1">
       <Menu shadow="md" width={280} position="bottom-start">
         <Menu.Target>
           <Button

@@ -4,6 +4,8 @@ import {
   createContext,
   useContext,
   useCallback,
+  useEffect,
+  useState,
   type PropsWithChildren,
 } from 'react';
 import { api } from '~/trpc/react';
@@ -69,24 +71,57 @@ export function WorkspaceProvider({
   const router = useRouter();
 
   // Get workspace slug from URL params or prop
-  const workspaceSlug =
+  const urlSlug =
     (params?.workspaceSlug as string | undefined) ?? initialWorkspaceSlug ?? null;
+
+  // Track the context workspace slug (can be set without URL change)
+  const [contextWorkspaceSlug, setContextWorkspaceSlug] = useState<string | null>(urlSlug);
+  const [hasInitialized, setHasInitialized] = useState(!!urlSlug);
+
+  // Fetch default workspace when no slug in URL
+  const { data: defaultWorkspace, isLoading: defaultLoading } = api.workspace.getDefault.useQuery(
+    undefined,
+    {
+      enabled: !urlSlug && !hasInitialized,
+      staleTime: 5 * 60 * 1000,
+    }
+  );
+
+  // Use URL slug if present, otherwise use context workspace slug
+  const effectiveSlug = urlSlug ?? contextWorkspaceSlug;
 
   // Fetch workspace data when we have a slug
   const {
     data: workspace,
-    isLoading,
+    isLoading: workspaceLoading,
     refetch,
   } = api.workspace.getBySlug.useQuery(
-    { slug: workspaceSlug! },
+    { slug: effectiveSlug! },
     {
-      enabled: !!workspaceSlug,
+      enabled: !!effectiveSlug,
       staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     }
   );
 
+  // Set default workspace when loaded (without URL navigation)
+  useEffect(() => {
+    if (!urlSlug && defaultWorkspace && !hasInitialized) {
+      setContextWorkspaceSlug(defaultWorkspace.slug);
+      setHasInitialized(true);
+    }
+  }, [urlSlug, defaultWorkspace, hasInitialized]);
+
+  // Sync with URL changes
+  useEffect(() => {
+    if (urlSlug) {
+      setContextWorkspaceSlug(urlSlug);
+      setHasInitialized(true);
+    }
+  }, [urlSlug]);
+
   const switchWorkspace = useCallback(
     (slug: string) => {
+      setContextWorkspaceSlug(slug);
       // Navigate to the new workspace's home page
       router.push(`/w/${slug}/home`);
     },
@@ -97,11 +132,15 @@ export function WorkspaceProvider({
     void refetch();
   }, [refetch]);
 
+  const isLoading = effectiveSlug
+    ? workspaceLoading
+    : (!hasInitialized && defaultLoading);
+
   const value: WorkspaceContextValue = {
     workspace: workspace ?? null,
-    workspaceSlug,
+    workspaceSlug: effectiveSlug,
     workspaceId: workspace?.id ?? null,
-    isLoading: workspaceSlug ? isLoading : false,
+    isLoading,
     userRole: (workspace?.currentUserRole as WorkspaceContextValue['userRole']) ?? null,
     switchWorkspace,
     refetchWorkspace,
