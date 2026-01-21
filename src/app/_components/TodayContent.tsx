@@ -2,20 +2,18 @@
 
 import { useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Tabs, Stack, Paper, Text, Group, ScrollArea, ActionIcon } from "@mantine/core";
+import { Tabs, Stack, Paper, Text, Group, ScrollArea } from "@mantine/core";
 import {
   IconHome,
   IconLayoutKanban,
   IconCalendar,
   IconClock,
   IconNotebook,
-  IconMessageCircle,
   IconFolder,
 } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 import { TodayOverview } from "./TodayOverview";
 import { StartupRoutineForm } from "./StartupRoutineForm";
-import { useAgentModal } from "~/providers/AgentModalProvider";
 import { api } from "~/trpc/react";
 import { format, parseISO } from "date-fns";
 import { CalendarDayView } from "./CalendarDayView";
@@ -44,7 +42,6 @@ interface TodayContentProps {
 export function TodayContent({ calendarConnected, initialTab, focus, dateRange, workspaceId }: TodayContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { openModal, isOpen: chatOpened } = useAgentModal();
 
   // Get tab from URL or use initial/default
   const tabFromUrl = searchParams.get("tab");
@@ -308,41 +305,25 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
       <Tabs value={activeTab} onChange={handleTabChange}>
         <Stack gap="xl" align="stretch" justify="flex-start">
           {/* Tabs Navigation */}
-          <Group justify="space-between" align="center">
-            <Tabs.List>
-              <Tabs.Tab value="overview" leftSection={<IconHome size={16} />}>
-                Overview
+          <Tabs.List>
+            <Tabs.Tab value="overview" leftSection={<IconHome size={16} />}>
+              Overview
+            </Tabs.Tab>
+            <Tabs.Tab value="tasks" leftSection={<IconLayoutKanban size={16} />}>
+              Tasks
+            </Tabs.Tab>
+            <Tabs.Tab value="calendar" leftSection={<IconCalendar size={16} />}>
+              Calendar
+            </Tabs.Tab>
+            <Tabs.Tab value="projects" leftSection={<IconFolder size={16} />}>
+              Projects
+            </Tabs.Tab>
+            {focus === "today" && (
+              <Tabs.Tab value="journal" leftSection={<IconNotebook size={16} />}>
+                Journal
               </Tabs.Tab>
-              <Tabs.Tab value="tasks" leftSection={<IconLayoutKanban size={16} />}>
-                Tasks
-              </Tabs.Tab>
-              <Tabs.Tab value="calendar" leftSection={<IconCalendar size={16} />}>
-                Calendar
-              </Tabs.Tab>
-              <Tabs.Tab value="projects" leftSection={<IconFolder size={16} />}>
-                Projects
-              </Tabs.Tab>
-              {focus === "today" && (
-                <Tabs.Tab value="journal" leftSection={<IconNotebook size={16} />}>
-                  Journal
-                </Tabs.Tab>
-              )}
-            </Tabs.List>
-            <ActionIcon
-              variant={chatOpened ? "gradient" : "filled"}
-              gradient={chatOpened ? { from: "blue", to: "indigo", deg: 45 } : undefined}
-              size="lg"
-              onClick={() => openModal()}
-              title={chatOpened ? "Close Chat" : "Open Chat"}
-              style={{
-                transition: "all 0.2s ease",
-                transform: chatOpened ? "scale(1.05)" : "scale(1)",
-                boxShadow: chatOpened ? "0 4px 12px rgba(59, 130, 246, 0.3)" : undefined,
-              }}
-            >
-              <IconMessageCircle size={20} />
-            </ActionIcon>
-          </Group>
+            )}
+          </Tabs.List>
 
           {/* Content Area */}
           <Tabs.Panel value="overview">
