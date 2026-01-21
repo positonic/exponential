@@ -1,10 +1,11 @@
 "use client";
 
 import { Text, Progress, Badge, Collapse, ActionIcon } from "@mantine/core";
-import { IconChevronRight, IconTrash } from "@tabler/icons-react";
+import { IconChevronRight, IconTrash, IconPencil } from "@tabler/icons-react";
 import { ObjectiveIndicator, getObjectiveColor } from "./ObjectiveIndicator";
 import { DeltaIndicator, calculateAggregateDelta } from "./DeltaIndicator";
 import { KeyResultRow } from "./KeyResultRow";
+import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 
 interface KeyResultCheckIn {
   previousValue: number;
@@ -37,8 +38,13 @@ interface LifeDomain {
 interface ObjectiveData {
   id: number;
   title: string;
+  description?: string | null;
+  whyThisGoal?: string | null;
+  notes?: string | null;
+  dueDate?: Date | null;
   progress: number;
   lifeDomain?: LifeDomain | null;
+  workspaceId?: string | null;
   keyResults: KeyResult[];
 }
 
@@ -48,6 +54,7 @@ interface ObjectiveRowProps {
   onToggleExpand: () => void;
   onDelete?: (id: number) => void;
   isDeleting?: boolean;
+  onEditSuccess?: () => void;
 }
 
 /**
@@ -69,6 +76,7 @@ export function ObjectiveRow({
   onToggleExpand,
   onDelete,
   isDeleting,
+  onEditSuccess,
 }: ObjectiveRowProps) {
   const objectiveColor = getObjectiveColor(objective.title);
   const aggregateDelta = calculateAggregateDelta(objective.keyResults);
@@ -101,11 +109,37 @@ export function ObjectiveRow({
         {/* Unique color indicator per objective */}
         <ObjectiveIndicator title={objective.title} />
 
-        {/* Title + life domain badge */}
+        {/* Title + edit icon + life domain badge */}
         <div className="flex-1 min-w-0">
-          <Text fw={500} className="truncate text-text-primary">
-            {objective.title}
-          </Text>
+          <div className="flex items-center gap-2 group/title">
+            <Text fw={500} className="truncate text-text-primary">
+              {objective.title}
+            </Text>
+            <div onClick={(e) => e.stopPropagation()}>
+              <CreateGoalModal
+                goal={{
+                  id: objective.id,
+                  title: objective.title,
+                  description: objective.description ?? null,
+                  whyThisGoal: objective.whyThisGoal ?? null,
+                  notes: objective.notes ?? null,
+                  dueDate: objective.dueDate ?? null,
+                  lifeDomainId: objective.lifeDomain?.id ?? null,
+                  workspaceId: objective.workspaceId ?? null,
+                }}
+                onSuccess={onEditSuccess}
+              >
+                <ActionIcon
+                  variant="subtle"
+                  size="xs"
+                  className="opacity-0 group-hover/title:opacity-100 transition-opacity flex-shrink-0"
+                  aria-label="Edit objective"
+                >
+                  <IconPencil size={14} />
+                </ActionIcon>
+              </CreateGoalModal>
+            </div>
+          </div>
           {objective.lifeDomain && (
             <Badge size="xs" variant="light" color="gray" className="mt-1">
               {objective.lifeDomain.name}

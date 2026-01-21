@@ -42,6 +42,16 @@ const checkInInput = z.object({
 });
 
 /**
+ * Get the parent annual period for a quarterly or half-year period.
+ * @example getParentPeriodFromString("Q1-2026") => "Annual-2026"
+ */
+function getParentPeriodFromString(period: string): string | null {
+  const match = period.match(/^(Q[1-4]|H[12])-(\d{4})$/);
+  if (!match) return null;
+  return `Annual-${match[2]}`;
+}
+
+/**
  * Calculate the end date for a period string.
  * Supports formats: Q1-2025, H1-2025, Annual-2025
  */
@@ -117,9 +127,25 @@ export const keyResultRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string().optional(),
         period: z.string().optional(),
+        includePairedPeriod: z.boolean().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
+      // Build period filter - optionally include parent annual period
+      let periodFilter: { period: string } | { period: { in: string[] } } | undefined;
+      if (input.period) {
+        if (input.includePairedPeriod) {
+          // Include both the selected period and its parent annual period
+          const parentPeriod = getParentPeriodFromString(input.period);
+          const periods = parentPeriod
+            ? [input.period, parentPeriod]
+            : [input.period];
+          periodFilter = { period: { in: periods } };
+        } else {
+          periodFilter = { period: input.period };
+        }
+      }
+
       // Show all goals in workspace - including those without key results
       // so users can add key results to them
       const goals = await ctx.db.goal.findMany({
@@ -130,7 +156,7 @@ export const keyResultRouter = createTRPCRouter({
         include: {
           lifeDomain: true,
           keyResults: {
-            where: input.period ? { period: input.period } : {},
+            where: periodFilter,
             include: {
               checkIns: {
                 orderBy: { createdAt: "desc" },
