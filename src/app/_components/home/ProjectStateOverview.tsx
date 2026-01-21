@@ -220,8 +220,8 @@ export function ProjectStateOverview() {
             ).length;
 
             const projectUrl = workspace
-              ? `/w/${workspace.slug}/projects/${project.slug}`
-              : `/projects/${project.slug}`;
+              ? `/w/${workspace.slug}/projects/${project.slug}-${project.id}`
+              : `/projects/${project.slug}-${project.id}`;
 
             return (
               <Link

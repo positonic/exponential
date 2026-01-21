@@ -9,7 +9,7 @@ import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { CreateProjectModal } from './CreateProjectModal';
 import { CreateOutcomeModal } from './CreateOutcomeModal';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
-import { toast } from 'sonner';
+import { notifications } from '@mantine/notifications';
 
 // Type for pending key results (not yet saved)
 interface PendingKeyResult {
@@ -106,7 +106,11 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
     },
     onError: (error) => {
       console.error('[CreateGoalModal] Failed to delete key result:', error);
-      toast.error('Failed to delete key result. Please try again.');
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to delete key result. Please try again.',
+        color: 'red',
+      });
     },
   });
 
@@ -214,7 +218,11 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
     },
     onError: (error) => {
       console.error('[CreateGoalModal] Failed to delete goal:', error);
-      toast.error('Failed to delete objective. Please try again.');
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to delete objective. Please try again.',
+        color: 'red',
+      });
     },
   });
 
@@ -291,7 +299,11 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
       }
     } catch (error) {
       console.error('[CreateGoalModal] Failed to create key results:', error);
-      toast.error('Goal created but some key results failed to save.');
+      notifications.show({
+        title: 'Warning',
+        message: 'Goal created but some key results failed to save.',
+        color: 'yellow',
+      });
     } finally {
       setIsCreatingKeyResults(false);
     }
@@ -314,10 +326,18 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
       });
       resetNewKrForm();
       setIsAddingKeyResult(false);
-      toast.success('Key result added');
+      notifications.show({
+        title: 'Success',
+        message: 'Key result added',
+        color: 'green',
+      });
     } catch (error) {
       console.error('[CreateGoalModal] Failed to add key result:', error);
-      toast.error('Failed to add key result. Please try again.');
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to add key result. Please try again.',
+        color: 'red',
+      });
     }
   };
 
@@ -674,7 +694,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
             </Button>
             <Button
               type="submit"
-              loading={createGoal.isPending || updateGoal.isPending}
+              loading={createGoal.isPending || updateGoal.isPending || isCreatingKeyResults}
               disabled={!title}
             >
               {goal ? 'Update Objective' : 'Create Objective'}
