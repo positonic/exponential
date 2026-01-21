@@ -127,6 +127,8 @@ model User {
   okrCheckinComments          OkrCheckinComment[]        @relation("OkrCheckinCommentAuthor")
   // Daily Planning relations
   dailyPlans                  DailyPlan[]
+  // Webhook activity logs
+  webhookLogs                 WebhookLog[]
 
   // Onboarding: Attribution
   attributionSource           String?                    // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
@@ -1921,4 +1923,30 @@ model DailyPlanAction {
 
   @@index([dailyPlanId])
   @@index([actionId])
+}
+
+// ============================================
+// Webhook Activity Logging
+// ============================================
+
+model WebhookLog {
+  id           String   @id @default(cuid())
+  provider     String   // "fireflies"
+  eventType    String   // "webhook_received", "signature_verified", "signature_failed", "transcript_fetched", "manual_sync", "transcription_saved"
+  status       String   // "success", "failed", "invalid_signature"
+  meetingId    String?
+  meetingTitle String?
+  errorMessage String?  @db.Text
+  metadata     Json?
+  userId       String?
+  workspaceId  String?
+  createdAt    DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([provider])
+  @@index([createdAt])
+  @@index([status])
 }

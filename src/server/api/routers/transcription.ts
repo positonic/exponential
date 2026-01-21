@@ -685,10 +685,28 @@ export const transcriptionRouter = createTRPCRouter({
         input.syncSinceDays,
       );
 
+      // Log the manual sync event
+      await ctx.db.webhookLog.create({
+        data: {
+          provider: "fireflies",
+          eventType: "manual_sync",
+          status: result.success ? "success" : "failed",
+          errorMessage: result.error,
+          userId: ctx.session.user.id,
+          metadata: {
+            integrationId: input.integrationId,
+            syncSinceDays: input.syncSinceDays,
+            newTranscripts: result.newTranscripts,
+            updatedTranscripts: result.updatedTranscripts,
+            skippedTranscripts: result.skippedTranscripts,
+          },
+        },
+      });
+
       if (!result.success) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: result.error || "Failed to sync from Fireflies",
+          message: result.error ?? "Failed to sync from Fireflies",
         });
       }
 
@@ -1050,6 +1068,47 @@ export const transcriptionRouter = createTRPCRouter({
       return {
         action: "generated" as const,
         actionsCreated: result.actionsCreated,
+      };
+    }),
+
+  // Get webhook activity logs for the Activity tab
+  getWebhookLogs: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+          status: z.string().optional(),
+          limit: z.number().min(1).max(100).default(50),
+          cursor: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const logs = await ctx.db.webhookLog.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(input?.status ? { status: input.status } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take: (input?.limit ?? 50) + 1,
+        ...(input?.cursor
+          ? {
+              cursor: { id: input.cursor },
+              skip: 1,
+            }
+          : {}),
+      });
+
+      let nextCursor: string | undefined;
+      if (logs.length > (input?.limit ?? 50)) {
+        const nextItem = logs.pop();
+        nextCursor = nextItem?.id;
+      }
+
+      return {
+        logs,
+        nextCursor,
       };
     }),
 });
