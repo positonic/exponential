@@ -105,11 +105,11 @@ export function NavLinks() {
       <NavLink href="/daily-plan" icon={IconCalendarEvent} count={<TodayCount />}>
         Daily plan
       </NavLink>
-      <NavLink href="/calendar" icon={IconCalendar}>
-        Calendar
-      </NavLink>
       <NavLink href="/act" icon={IconPlayerPlay}>
         Today
+      </NavLink>
+      <NavLink href="/calendar" icon={IconCalendar}>
+        Calendar
       </NavLink>
 
       {/* Workspace Switcher - below Act, above accordion sections */}
