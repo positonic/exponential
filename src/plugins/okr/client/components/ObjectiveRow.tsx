@@ -1,7 +1,7 @@
 "use client";
 
-import { Text, Progress, Badge, Collapse, ActionIcon } from "@mantine/core";
-import { IconChevronRight, IconTrash, IconPencil } from "@tabler/icons-react";
+import { Text, Progress, Badge, Collapse, ActionIcon, Tooltip } from "@mantine/core";
+import { IconChevronRight, IconTrash, IconPencil, IconPlus } from "@tabler/icons-react";
 import { ObjectiveIndicator, getObjectiveColor } from "./ObjectiveIndicator";
 import { DeltaIndicator, calculateAggregateDelta } from "./DeltaIndicator";
 import { KeyResultRow } from "./KeyResultRow";
@@ -56,6 +56,7 @@ interface ObjectiveRowProps {
   onDelete?: (id: number) => void;
   isDeleting?: boolean;
   onEditSuccess?: () => void;
+  onAddKeyResult?: (objectiveId: number) => void;
 }
 
 /**
@@ -78,6 +79,7 @@ export function ObjectiveRow({
   onDelete,
   isDeleting,
   onEditSuccess,
+  onAddKeyResult,
 }: ObjectiveRowProps) {
   const objectiveColor = getObjectiveColor(objective.title);
   const aggregateDelta = calculateAggregateDelta(objective.keyResults);
@@ -202,6 +204,23 @@ export function ObjectiveRow({
             <Text size="sm" className="text-text-muted py-2 pl-8">
               No key results yet. Add one to track progress.
             </Text>
+          )}
+          {/* Add Key Result button */}
+          {onAddKeyResult && (
+            <Tooltip label="Add Key Result" position="right">
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                className="ml-6 mt-1 text-text-muted hover:text-text-primary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddKeyResult(objective.id);
+                }}
+                aria-label="Add key result to this objective"
+              >
+                <IconPlus size={14} />
+              </ActionIcon>
+            </Tooltip>
           )}
         </div>
       </Collapse>
