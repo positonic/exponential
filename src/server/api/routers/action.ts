@@ -388,21 +388,28 @@ export const actionRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       // Verify the action exists and user has permission to modify it
-      const action = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
-        select: { 
-          id: true, 
-          createdById: true, 
+      const action = await ctx.db.action.findFirst({
+        where: {
+          id: input.actionId,
+          ...buildUserActionPermissions(ctx.session.user.id),
+        },
+        select: {
+          id: true,
           kanbanStatus: true,
-          completedAt: true 
+          completedAt: true
         }
       });
 
       if (!action) {
-        throw new Error("Action not found");
-      }
+        // Check if action exists to give appropriate error message
+        const actionExists = await ctx.db.action.findUnique({
+          where: { id: input.actionId },
+          select: { id: true },
+        });
 
-      if (action.createdById !== ctx.session.user.id) {
+        if (!actionExists) {
+          throw new Error("Action not found");
+        }
         throw new Error("You don't have permission to modify this action");
       }
 
@@ -836,7 +843,16 @@ export const actionRouter = createTRPCRouter({
         throw new Error("Action not found");
       }
 
-      if (action.createdById !== ctx.session.user.id) {
+      // Check if user has permission to modify this action (creator, assignee, project member, or team member)
+      const hasPermission = await ctx.db.action.findFirst({
+        where: {
+          id: input.actionId,
+          ...buildUserActionPermissions(ctx.session.user.id),
+        },
+        select: { id: true },
+      });
+
+      if (!hasPermission) {
         throw new Error("You don't have permission to modify this action");
       }
 
@@ -904,16 +920,29 @@ export const actionRouter = createTRPCRouter({
       userIds: z.array(z.string()),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Verify the action exists and user has permission to modify it
-      const action = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
+      // Check if user is removing themselves (self-removal should always be allowed)
+      const isSelfRemoval = input.userIds.length === 1 && input.userIds[0] === ctx.session.user.id;
+
+      // Verify the action exists
+      const action = await ctx.db.action.findFirst({
+        where: {
+          id: input.actionId,
+          // For self-removal, just verify the action exists
+          // For unassigning others, verify user has permission
+          ...(isSelfRemoval ? {} : buildUserActionPermissions(ctx.session.user.id)),
+        },
       });
 
       if (!action) {
-        throw new Error("Action not found");
-      }
+        // Check if the action exists at all (to give appropriate error message)
+        const actionExists = await ctx.db.action.findUnique({
+          where: { id: input.actionId },
+          select: { id: true },
+        });
 
-      if (action.createdById !== ctx.session.user.id) {
+        if (!actionExists) {
+          throw new Error("Action not found");
+        }
         throw new Error("You don't have permission to modify this action");
       }
 
