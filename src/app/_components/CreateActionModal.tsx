@@ -96,6 +96,27 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         source: null, // Source of the action (e.g., 'api', 'notion')
         syncs: [], // Initialize empty syncs array for consistency with getAll type
         assignees: [], // Initialize empty assignees array for type consistency
+        tags: [], // Initialize empty tags array for type consistency
+        // Auto-scheduling fields
+        isAutoScheduled: true,
+        isHardDeadline: false,
+        scheduleId: null,
+        idealStartTime: null,
+        etaDaysOffset: null,
+        etaStatus: null,
+        timeSpentMins: 0,
+        chunkDurationMins: null,
+        parentChunkId: null,
+        chunkNumber: null,
+        totalChunks: null,
+        isRecurring: false,
+        recurringParentId: null,
+        instanceDate: null,
+        blockedByIds: [],
+        blockingIds: [],
+        isReminderOnly: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
         project: newAction.projectId
           ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
           : null,

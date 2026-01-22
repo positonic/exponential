@@ -1,6 +1,6 @@
-import { Textarea, Button, Group, Select, ActionIcon, Popover, Text, NumberInput, Stack } from '@mantine/core';
+import { Textarea, Button, Group, Select, ActionIcon, Popover, Text, NumberInput, Stack, Switch, Tooltip, Divider } from '@mantine/core';
 import { TimeInput } from '@mantine/dates';
-import { IconPlus, IconClock, IconX } from '@tabler/icons-react';
+import { IconPlus, IconClock, IconX, IconRobot, IconAlertCircle, IconInfoCircle } from '@tabler/icons-react';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
@@ -25,6 +25,13 @@ interface ActionModalFormProps {
   setScheduledStart: (value: Date | null) => void;
   duration: number | null;
   setDuration: (value: number | null) => void;
+  // Auto-scheduling options
+  isAutoScheduled?: boolean;
+  setIsAutoScheduled?: (value: boolean) => void;
+  isHardDeadline?: boolean;
+  setIsHardDeadline?: (value: boolean) => void;
+  scheduleId?: string | null;
+  setScheduleId?: (value: string | null) => void;
   selectedAssigneeIds: string[];
   selectedTagIds: string[];
   onTagChange: (tagIds: string[]) => void;
@@ -52,6 +59,12 @@ export function ActionModalForm({
   setScheduledStart,
   duration,
   setDuration,
+  isAutoScheduled,
+  setIsAutoScheduled,
+  isHardDeadline,
+  setIsHardDeadline,
+  scheduleId,
+  setScheduleId,
   selectedAssigneeIds,
   selectedTagIds,
   onTagChange,
@@ -64,6 +77,10 @@ export function ActionModalForm({
   isSubmitting,
 }: ActionModalFormProps) {
   const projects = api.project.getAll.useQuery();
+  const taskSchedules = api.taskSchedule.list.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId && !!setScheduleId }
+  );
   const [schedulePopoverOpened, setSchedulePopoverOpened] = useState(false);
   const timeInputRef = useRef<HTMLInputElement>(null);
 
@@ -198,8 +215,79 @@ export function ActionModalForm({
             </Button>
           </Popover.Target>
           <Popover.Dropdown>
-            <Stack gap="sm" p="xs">
-              <Text size="sm" fw={500}>Schedule for today</Text>
+            <Stack gap="sm" p="xs" style={{ minWidth: 280 }}>
+              {/* Auto-scheduling toggle */}
+              {setIsAutoScheduled && (
+                <>
+                  <Group justify="space-between" align="center">
+                    <Group gap="xs">
+                      <IconRobot size={16} className="text-text-muted" />
+                      <Text size="sm" fw={500}>Auto-schedule</Text>
+                      <Tooltip
+                        label="When enabled, AI will automatically find the best time slot based on your calendar and deadlines"
+                        multiline
+                        w={220}
+                      >
+                        <IconInfoCircle size={14} className="text-text-muted cursor-help" />
+                      </Tooltip>
+                    </Group>
+                    <Switch
+                      checked={isAutoScheduled ?? true}
+                      onChange={(e) => setIsAutoScheduled(e.currentTarget.checked)}
+                      size="sm"
+                    />
+                  </Group>
+
+                  {isAutoScheduled && setIsHardDeadline && (
+                    <Group justify="space-between" align="center" pl="md">
+                      <Group gap="xs">
+                        <IconAlertCircle size={14} className="text-text-muted" />
+                        <Text size="xs" c="dimmed">Hard deadline</Text>
+                        <Tooltip
+                          label="If checked, task may be scheduled outside normal work hours to meet the deadline"
+                          multiline
+                          w={200}
+                        >
+                          <IconInfoCircle size={12} className="text-text-muted cursor-help" />
+                        </Tooltip>
+                      </Group>
+                      <Switch
+                        checked={isHardDeadline ?? false}
+                        onChange={(e) => setIsHardDeadline(e.currentTarget.checked)}
+                        size="xs"
+                      />
+                    </Group>
+                  )}
+
+                  {isAutoScheduled && setScheduleId && taskSchedules.data && taskSchedules.data.length > 0 && (
+                    <Select
+                      size="xs"
+                      label="Work schedule"
+                      placeholder="Default work hours"
+                      value={scheduleId ?? null}
+                      onChange={(value) => setScheduleId(value)}
+                      clearable
+                      data={taskSchedules.data.map((s) => ({
+                        value: s.id,
+                        label: `${s.name} (${s.startTime}-${s.endTime})`,
+                      }))}
+                      styles={{
+                        input: {
+                          backgroundColor: 'var(--color-surface-secondary)',
+                          color: 'var(--color-text-primary)',
+                          borderColor: 'var(--color-border-primary)',
+                        },
+                      }}
+                    />
+                  )}
+
+                  <Divider my="xs" />
+                </>
+              )}
+
+              <Text size="sm" fw={500}>
+                {isAutoScheduled === false ? 'Manual schedule' : 'Override (optional)'}
+              </Text>
               <TimeInput
                 ref={timeInputRef}
                 label="Start time"
@@ -238,7 +326,7 @@ export function ActionModalForm({
               <Button
                 size="sm"
                 onClick={() => setSchedulePopoverOpened(false)}
-                disabled={!scheduledStart}
+                disabled={!scheduledStart && !isAutoScheduled}
               >
                 Done
               </Button>

@@ -1,5 +1,5 @@
 import { Checkbox, Text, Group, Paper, Badge, Tooltip, Avatar, HoverCard } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconBrandNotion, IconClock, IconMicrophone } from '@tabler/icons-react';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconBrandNotion, IconClock, IconMicrophone, IconTrendingUp, IconTrendingDown } from '@tabler/icons-react';
 import { type RouterOutputs } from "~/trpc/react";
 import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
@@ -115,6 +115,71 @@ const SyncStatusIndicator = ({ action }: { action: Action }) => {
     return (
       <Tooltip label={`Synced to ${syncInfo.provider} on ${syncInfo.syncedAt ? new Date(syncInfo.syncedAt).toLocaleDateString() : 'unknown date'}`}>
         <IconCloudCheck size={16} style={{ color: 'var(--mantine-color-green-5)' }} />
+      </Tooltip>
+    );
+  }
+
+  return null;
+};
+
+// Helper component to render ETA badge for auto-scheduled tasks
+const ETABadge = ({ action }: { action: Action }) => {
+  const actionWithETA = action as typeof action & {
+    etaStatus?: string | null;
+    etaDaysOffset?: number | null;
+    isAutoScheduled?: boolean;
+  };
+
+  // Only show ETA badge for auto-scheduled tasks with ETA data
+  if (!actionWithETA.isAutoScheduled || !actionWithETA.etaStatus) {
+    return null;
+  }
+
+  const daysOffset = actionWithETA.etaDaysOffset ?? 0;
+  const status = actionWithETA.etaStatus;
+
+  if (status === 'on_track' && daysOffset > 0) {
+    return (
+      <Tooltip label={`Scheduled ${daysOffset} day${daysOffset !== 1 ? 's' : ''} before deadline`}>
+        <Badge
+          size="sm"
+          variant="light"
+          color="green"
+          leftSection={<IconTrendingUp size={10} />}
+        >
+          {daysOffset}d ahead
+        </Badge>
+      </Tooltip>
+    );
+  }
+
+  if (status === 'at_risk') {
+    return (
+      <Tooltip label="Task is at risk of missing its deadline">
+        <Badge
+          size="sm"
+          variant="light"
+          color="yellow"
+          leftSection={<IconAlertTriangle size={10} />}
+        >
+          At risk
+        </Badge>
+      </Tooltip>
+    );
+  }
+
+  if (status === 'overdue') {
+    const absDays = Math.abs(daysOffset);
+    return (
+      <Tooltip label={`Task is ${absDays} day${absDays !== 1 ? 's' : ''} past deadline`}>
+        <Badge
+          size="sm"
+          variant="light"
+          color="red"
+          leftSection={<IconTrendingDown size={10} />}
+        >
+          {absDays}d overdue
+        </Badge>
       </Tooltip>
     );
   }
@@ -247,6 +312,9 @@ export function ActionItem({
                 }
                 return null;
               })()}
+
+              {/* ETA badge for auto-scheduled tasks */}
+              <ETABadge action={action} />
 
               {/* Sync status */}
               {showSyncStatus && <SyncStatusIndicator action={action} />}
