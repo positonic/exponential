@@ -3,6 +3,7 @@ import { TimeInput } from '@mantine/dates';
 import { IconPlus, IconClock, IconX, IconRobot, IconAlertCircle, IconInfoCircle } from '@tabler/icons-react';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import { api } from "~/trpc/react";
+import { DeadlinePicker } from './DeadlinePicker';
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { RichTextInput } from './RichTextInput';
 import { AssigneeSelector } from './AssigneeSelector';
@@ -153,7 +154,8 @@ export function ActionModalForm({
         }}
       />
 
-      <Group gap="xs" mt="md" className="flex-wrap">
+      {/* Row 1: Priority and Date/Time controls */}
+      <Group gap="md" mt="md" className="flex-wrap">
         <Select
           placeholder="Priority"
           value={priority ?? '5th Priority'}
@@ -173,15 +175,35 @@ export function ActionModalForm({
             },
           }}
         />
-        {setDueDate && (
+
+        {/* Date & Scheduling group */}
+        <Group gap="sm">
+          {/* Date picker - when to DO the task */}
           <UnifiedDatePicker
-            value={dueDate ?? null}
-            onChange={setDueDate}
+            value={scheduledStart ?? null}
+            onChange={(date) => {
+              if (date) {
+                // Preserve time if already set, otherwise default to 9 AM
+                const existingHours = scheduledStart?.getHours() ?? 9;
+                const existingMinutes = scheduledStart?.getMinutes() ?? 0;
+                const newDate = new Date(date);
+                newDate.setHours(existingHours, existingMinutes, 0, 0);
+                setScheduledStart(newDate);
+              } else {
+                setScheduledStart(null);
+              }
+            }}
             mode="single"
             notificationContext="task"
-            onClear={() => setDueDate(null)}
           />
-        )}
+          {/* Deadline picker - when the task is DUE */}
+          {setDueDate && (
+            <DeadlinePicker
+              value={dueDate ?? null}
+              onChange={setDueDate}
+              notificationContext="task"
+            />
+          )}
         {/* Schedule Time Picker */}
         <Popover
           opened={schedulePopoverOpened}
@@ -333,6 +355,11 @@ export function ActionModalForm({
             </Stack>
           </Popover.Dropdown>
         </Popover>
+        </Group>
+      </Group>
+
+      {/* Row 2: Tags and Assignees */}
+      <Group gap="sm" mt="sm">
         <TagSelector
           selectedTagIds={selectedTagIds}
           onChange={onTagChange}
