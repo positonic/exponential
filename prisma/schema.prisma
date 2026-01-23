@@ -1952,18 +1952,19 @@ model DailyPlan {
 }
 
 model DailyPlanAction {
-  id             String    @id @default(cuid())
-  dailyPlanId    String
-  actionId       String?   // Link to existing Action (null for inline-created)
-  name           String
-  duration       Int       @default(30) // Duration in minutes
-  scheduledStart DateTime?
-  scheduledEnd   DateTime?
-  sortOrder      Int       @default(0)
-  source         String    @default("manual") // manual, notion, monday, calendar
-  sourceId       String?   // External ID from integration
-  completed      Boolean   @default(false)
-  createdAt      DateTime  @default(now())
+  id               String    @id @default(cuid())
+  dailyPlanId      String
+  actionId         String?   // Link to existing Action (null for inline-created)
+  name             String
+  duration         Int       @default(30) // Duration in minutes
+  scheduledStart   DateTime?
+  scheduledEnd     DateTime?
+  sortOrder        Int       @default(0)
+  source           String    @default("manual") // manual, notion, monday, calendar
+  sourceId         String?   // External ID from integration
+  completed        Boolean   @default(false)
+  schedulingMethod String?   // "manual" | "auto-suggested" - tracks how task was scheduled
+  createdAt        DateTime  @default(now())
 
   dailyPlan DailyPlan @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
   action    Action?   @relation(fields: [actionId], references: [id], onDelete: SetNull)

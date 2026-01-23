@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Paper, Text, Group, Badge, Stack } from "@mantine/core";
-import { IconGripVertical } from "@tabler/icons-react";
+import { Paper, Text, Group, Badge, Stack, Button } from "@mantine/core";
+import { IconGripVertical, IconSparkles, IconRobot } from "@tabler/icons-react";
 import {
   DndContext,
   DragOverlay,
@@ -34,6 +34,8 @@ interface TimeGridProps {
   onScheduleTask: (taskId: string, scheduledStart: Date, scheduledEnd: Date) => Promise<void>;
   workHoursStart: string;
   workHoursEnd: string;
+  onGetSuggestions?: () => void;
+  isLoadingSuggestions?: boolean;
 }
 
 function formatDuration(minutes: number): string {
@@ -116,6 +118,8 @@ function DraggableTask({ task }: DraggableTaskProps) {
     data: { task },
   });
 
+  const isAutoScheduled = task.schedulingMethod === "auto-suggested";
+
   return (
     <Paper
       ref={setNodeRef}
@@ -133,9 +137,21 @@ function DraggableTask({ task }: DraggableTaskProps) {
             {task.name}
           </Text>
         </Group>
-        <Badge variant="light" color="gray" size="xs" className="flex-shrink-0">
-          {formatDuration(task.duration)}
-        </Badge>
+        <Group gap={4} wrap="nowrap">
+          {isAutoScheduled && (
+            <Badge
+              size="xs"
+              variant="light"
+              color="violet"
+              leftSection={<IconRobot size={10} />}
+            >
+              Auto
+            </Badge>
+          )}
+          <Badge variant="light" color="gray" size="xs" className="flex-shrink-0">
+            {formatDuration(task.duration)}
+          </Badge>
+        </Group>
       </Group>
     </Paper>
   );
@@ -184,14 +200,29 @@ function ScheduledTaskBlock({ task, gridStartHour }: ScheduledTaskBlockProps) {
   const durationSlots = Math.ceil(task.duration / 30);
   const height = durationSlots * 48;
 
+  const isAutoScheduled = task.schedulingMethod === "auto-suggested";
+
   return (
     <div
       className="absolute left-20 right-2 bg-brand-primary/20 border border-brand-primary/40 rounded-md px-2 py-1 z-10"
       style={{ top, height: Math.max(height, 24) }}
     >
-      <Text size="xs" fw={500} className="text-brand-primary truncate">
-        {task.name}
-      </Text>
+      <Group gap={4} wrap="nowrap">
+        <Text size="xs" fw={500} className="text-brand-primary truncate flex-1">
+          {task.name}
+        </Text>
+        {isAutoScheduled && (
+          <Badge
+            size="xs"
+            variant="light"
+            color="violet"
+            leftSection={<IconRobot size={8} />}
+            styles={{ root: { paddingLeft: 4, paddingRight: 6 } }}
+          >
+            Auto
+          </Badge>
+        )}
+      </Group>
       <Text size="xs" c="dimmed">
         {format(startTime, "h:mm a")} · {formatDuration(task.duration)}
       </Text>
@@ -206,6 +237,8 @@ export function TimeGrid({
   onScheduleTask,
   workHoursStart,
   workHoursEnd,
+  onGetSuggestions,
+  isLoadingSuggestions = false,
 }: TimeGridProps) {
   const [activeTask, setActiveTask] = useState<DailyPlanAction | null>(null);
 
@@ -297,9 +330,22 @@ export function TimeGrid({
       <Group align="flex-start" gap="xl" wrap="nowrap">
         {/* Unscheduled Tasks Column */}
         <Stack w={280} gap="sm">
-          <Text fw={600} size="sm" className="text-text-primary">
-            Unscheduled Tasks
-          </Text>
+          <Group justify="space-between" align="center">
+            <Text fw={600} size="sm" className="text-text-primary">
+              Unscheduled Tasks
+            </Text>
+            {onGetSuggestions && unscheduledTasks.length > 0 && (
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconSparkles size={14} />}
+                onClick={onGetSuggestions}
+                loading={isLoadingSuggestions}
+              >
+                Get Suggestions
+              </Button>
+            )}
+          </Group>
           <Text size="xs" c="dimmed" mb="xs">
             Drag tasks to the timeline to schedule them
           </Text>

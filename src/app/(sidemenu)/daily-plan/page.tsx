@@ -276,6 +276,7 @@ export default function DailyPlanPage() {
             workHoursStart={workHours?.workHoursStart ?? "09:00"}
             workHoursEnd={workHours?.workHoursEnd ?? "17:00"}
             onUpdateTask={handleUpdateTask}
+            onRefetch={() => void refetchPlan()}
             onNext={() => setCurrentStep("document")}
             onBack={() => setCurrentStep("fill-day")}
           />

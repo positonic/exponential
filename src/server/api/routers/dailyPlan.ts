@@ -208,6 +208,7 @@ export const dailyPlanRouter = createTRPCRouter({
         scheduledStart: z.date().optional().nullable(),
         scheduledEnd: z.date().optional().nullable(),
         completed: z.boolean().optional(),
+        schedulingMethod: z.enum(["manual", "auto-suggested"]).optional().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
