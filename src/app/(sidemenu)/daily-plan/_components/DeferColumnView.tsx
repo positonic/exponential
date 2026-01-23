@@ -366,12 +366,33 @@ export function DeferColumnView({
         const newIndex = columnTasks.findIndex((t) => t.id === overId);
 
         if (oldIndex !== newIndex) {
-          const reorderedIds = arrayMove(
-            columnTasks.map((t) => t.id),
-            oldIndex,
-            newIndex
-          );
-          await onReorderTasks(reorderedIds);
+          // Reorder within the column
+          const reorderedColumn = arrayMove(columnTasks, oldIndex, newIndex);
+
+          // Build complete task order: today first, then tomorrow, then next-week
+          // This ensures sortOrder values don't conflict across columns
+          let allTaskIds: string[];
+          if (activeColumn === "today") {
+            allTaskIds = [
+              ...reorderedColumn.map((t) => t.id),
+              ...tomorrowTasks.map((t) => t.id),
+              ...nextWeekTasks.map((t) => t.id),
+            ];
+          } else if (activeColumn === "tomorrow") {
+            allTaskIds = [
+              ...todayTasks.map((t) => t.id),
+              ...reorderedColumn.map((t) => t.id),
+              ...nextWeekTasks.map((t) => t.id),
+            ];
+          } else {
+            allTaskIds = [
+              ...todayTasks.map((t) => t.id),
+              ...tomorrowTasks.map((t) => t.id),
+              ...reorderedColumn.map((t) => t.id),
+            ];
+          }
+
+          await onReorderTasks(allTaskIds);
         }
       } else {
         // Moving to a different column

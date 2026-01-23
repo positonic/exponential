@@ -10,7 +10,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
-import { decryptBuffer } from "~/server/utils/encryption";
+import { decryptBuffer, encryptString } from "~/server/utils/encryption";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -1881,6 +1881,68 @@ export const mastraRouter = createTRPCRouter({
           },
         };
       }
+    }),
+
+  // Create or update a CRM contact (for Mastra WhatsApp context flow)
+  createCrmContact: protectedProcedure
+    .input(z.object({
+      email: z.string().email(),
+      phone: z.string(),
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Get user's first workspace
+      const workspace = await ctx.db.workspaceUser.findFirst({
+        where: { userId: ctx.session.user.id },
+        select: { workspaceId: true },
+      });
+
+      if (!workspace) {
+        return { created: false, updated: false, error: "No workspace found" };
+      }
+
+      // Generate emailHash for deduplication
+      const emailHash = crypto
+        .createHash("sha256")
+        .update(input.email.toLowerCase().trim())
+        .digest("hex");
+
+      // Check if contact already exists
+      const existing = await ctx.db.crmContact.findFirst({
+        where: {
+          workspaceId: workspace.workspaceId,
+          emailHash,
+        },
+      });
+
+      if (existing) {
+        // Update with phone if not already set
+        if (!existing.phone && input.phone) {
+          await ctx.db.crmContact.update({
+            where: { id: existing.id },
+            data: { phone: encryptString(input.phone) },
+          });
+          return { created: false, updated: true, contactId: existing.id };
+        }
+        return { created: false, updated: false, error: "Contact already exists" };
+      }
+
+      // Create new contact
+      const contact = await ctx.db.crmContact.create({
+        data: {
+          workspaceId: workspace.workspaceId,
+          createdById: ctx.session.user.id,
+          firstName: input.firstName,
+          lastName: input.lastName,
+          email: encryptString(input.email),
+          phone: encryptString(input.phone),
+          emailHash,
+          importSource: "MANUAL",
+        },
+      });
+
+      return { created: true, updated: false, contactId: contact.id };
     }),
 });
 
