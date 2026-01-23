@@ -26,5 +26,5 @@ export default async function Home() {
 
 async function ProjectsWrapper() {
   const session = await auth();
-  return session?.user ? <Projects /> : <Welcome />;
+  return session?.user ? <Projects showAllWorkspaces={true} /> : <Welcome />;
 }

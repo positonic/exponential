@@ -369,7 +369,7 @@ export async function sendWelcomeWithMagicLinkEmail(
 export async function sendWelcomeEmail(
   email: string,
   name?: string | null,
-  authProvider?: "google" | "discord" | "notion" | string
+  authProvider?: string
 ): Promise<void> {
   const brandColor = "#5850EC";
   const appName = "Exponential";

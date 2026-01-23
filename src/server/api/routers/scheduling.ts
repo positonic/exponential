@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { GoogleCalendarService, type CalendarEvent } from "~/server/services/GoogleCalendarService";
 import { AutoSchedulingService } from "~/server/services/AutoSchedulingService";
 import { generateAgentJWT } from "~/server/utils/jwt";
+import { addMinutes, format, isSameDay, startOfDay } from "date-fns";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL;
 
@@ -427,5 +428,198 @@ export const schedulingRouter = createTRPCRouter({
       );
 
       return { conflicts };
+    }),
+
+  /**
+   * Get scheduling suggestions for DailyPlanAction items
+   * Uses AutoSchedulingService to find optimal time slots
+   */
+  getSuggestionsForDailyPlan: protectedProcedure
+    .input(
+      z.object({
+        dailyPlanId: z.string(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Fetch the daily plan with unscheduled tasks
+      const dailyPlan = await ctx.db.dailyPlan.findFirst({
+        where: { id: input.dailyPlanId, userId },
+        include: {
+          plannedActions: {
+            where: {
+              scheduledStart: null, // Only unscheduled tasks
+            },
+            orderBy: { sortOrder: "asc" },
+          },
+        },
+      });
+
+      if (!dailyPlan) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Daily plan not found",
+        });
+      }
+
+      if (dailyPlan.plannedActions.length === 0) {
+        return { suggestions: [], calendarConnected: true };
+      }
+
+      // Initialize services
+      let calendarService: GoogleCalendarService | undefined;
+      let calendarConnected = true;
+      try {
+        calendarService = new GoogleCalendarService();
+        // Test if calendar is connected by making a small query
+        await calendarService.getEvents(userId, {
+          timeMin: new Date(),
+          timeMax: addMinutes(new Date(), 1),
+          maxResults: 1,
+        });
+      } catch {
+        calendarConnected = false;
+        calendarService = undefined;
+      }
+
+      const schedulingService = new AutoSchedulingService(ctx.db, calendarService);
+      const schedule = await schedulingService.getScheduleConfig(null, userId);
+      const planDate = startOfDay(dailyPlan.date);
+
+      // Generate suggestions for each unscheduled task
+      const suggestions: Array<{
+        taskId: string;
+        taskName: string;
+        duration: number;
+        suggestedStart: Date;
+        suggestedEnd: Date;
+        reasoning: string;
+        score: number;
+      }> = [];
+
+      for (const task of dailyPlan.plannedActions) {
+        // Find available slots for this task on the plan date
+        const slots = await schedulingService.findAvailableSlots(
+          userId,
+          task.duration,
+          null, // No deadline for daily plan tasks
+          schedule,
+          null, // No ideal start time
+          false // Not a hard deadline
+        );
+
+        // Filter slots to only include those on the plan date
+        const todaySlots = slots.filter((slot) => isSameDay(slot.start, planDate));
+
+        if (todaySlots.length > 0) {
+          const bestSlot = todaySlots[0];
+          if (bestSlot) {
+            // Generate reasoning based on slot characteristics
+            const hour = bestSlot.start.getHours();
+            let reasoning = "";
+
+            if (hour >= 9 && hour < 12) {
+              reasoning = "Morning slot - optimal for focused work";
+            } else if (hour >= 12 && hour < 14) {
+              reasoning = "Midday slot - good for moderate-focus tasks";
+            } else if (hour >= 14 && hour < 17) {
+              reasoning = "Afternoon slot - available time in your schedule";
+            } else {
+              reasoning = "Available time slot in your schedule";
+            }
+
+            // Add context about duration fit
+            if (task.duration <= 30) {
+              reasoning += ". Quick task fits well in this gap.";
+            } else if (task.duration >= 60) {
+              reasoning += `. ${task.duration} minute block reserved.`;
+            }
+
+            suggestions.push({
+              taskId: task.id,
+              taskName: task.name,
+              duration: task.duration,
+              suggestedStart: bestSlot.start,
+              suggestedEnd: bestSlot.end,
+              reasoning,
+              score: bestSlot.score,
+            });
+          }
+        }
+      }
+
+      // Sort by score (best suggestions first)
+      suggestions.sort((a, b) => b.score - a.score);
+
+      return {
+        suggestions,
+        calendarConnected,
+        planDate: format(planDate, "yyyy-MM-dd"),
+      };
+    }),
+
+  /**
+   * Apply scheduling suggestions to DailyPlanAction items
+   * Updates scheduledStart, scheduledEnd, and marks as auto-suggested
+   */
+  applySuggestions: protectedProcedure
+    .input(
+      z.object({
+        suggestions: z.array(
+          z.object({
+            taskId: z.string(),
+            scheduledStart: z.date(),
+            scheduledEnd: z.date(),
+          })
+        ),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const results: Array<{ taskId: string; success: boolean; error?: string }> = [];
+
+      for (const suggestion of input.suggestions) {
+        try {
+          // Verify ownership through the daily plan
+          const task = await ctx.db.dailyPlanAction.findFirst({
+            where: { id: suggestion.taskId },
+            include: { dailyPlan: true },
+          });
+
+          if (!task || task.dailyPlan.userId !== userId) {
+            results.push({
+              taskId: suggestion.taskId,
+              success: false,
+              error: "Task not found or access denied",
+            });
+            continue;
+          }
+
+          // Update the task with scheduling info
+          await ctx.db.dailyPlanAction.update({
+            where: { id: suggestion.taskId },
+            data: {
+              scheduledStart: suggestion.scheduledStart,
+              scheduledEnd: suggestion.scheduledEnd,
+              schedulingMethod: "auto-suggested",
+            },
+          });
+
+          results.push({ taskId: suggestion.taskId, success: true });
+        } catch (error) {
+          results.push({
+            taskId: suggestion.taskId,
+            success: false,
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+        }
+      }
+
+      const applied = results.filter((r) => r.success).length;
+      const failed = results.filter((r) => !r.success);
+
+      return { applied, failed };
     }),
 });

@@ -5,23 +5,24 @@ import { startOfDay } from "date-fns";
 
 export const dailyPlanRouter = createTRPCRouter({
   /**
-   * Get or create today's daily plan
+   * Get or create a daily plan for a specific date (defaults to today)
    */
   getOrCreateToday: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().optional(),
+        date: z.date().optional(), // Optional date, defaults to today
       })
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const today = startOfDay(new Date());
+      const planDate = startOfDay(input.date ?? new Date());
 
       // Try to find existing plan
       let plan = await ctx.db.dailyPlan.findFirst({
         where: {
           userId,
-          date: today,
+          date: planDate,
           workspaceId: input.workspaceId ?? null,
         },
         include: {
@@ -43,7 +44,7 @@ export const dailyPlanRouter = createTRPCRouter({
         plan = await ctx.db.dailyPlan.create({
           data: {
             userId,
-            date: today,
+            date: planDate,
             workspaceId: input.workspaceId,
             status: "DRAFT",
           },
@@ -207,6 +208,7 @@ export const dailyPlanRouter = createTRPCRouter({
         scheduledStart: z.date().optional().nullable(),
         scheduledEnd: z.date().optional().nullable(),
         completed: z.boolean().optional(),
+        schedulingMethod: z.enum(["manual", "auto-suggested"]).optional().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -318,6 +320,60 @@ export const dailyPlanRouter = createTRPCRouter({
     }),
 
   /**
+   * Defer a task to a different date
+   * Updates the linked Action's scheduledStart if it exists,
+   * or stores the scheduledStart on the DailyPlanAction for later conversion
+   */
+  deferTask: protectedProcedure
+    .input(
+      z.object({
+        taskId: z.string(),
+        newDate: z.date(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Verify ownership through the daily plan
+      const task = await ctx.db.dailyPlanAction.findFirst({
+        where: { id: input.taskId },
+        include: { dailyPlan: true, action: true },
+      });
+
+      if (!task || task.dailyPlan.userId !== userId) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Task not found",
+        });
+      }
+
+      // Set the scheduledStart to 9am on the new date (default work start)
+      const scheduledStart = new Date(input.newDate);
+      scheduledStart.setHours(9, 0, 0, 0);
+
+      // If there's a linked Action, update its scheduledStart
+      if (task.actionId && task.action) {
+        await ctx.db.action.update({
+          where: { id: task.actionId },
+          data: { scheduledStart },
+        });
+      }
+
+      // Also update the DailyPlanAction's scheduledStart for consistency
+      return ctx.db.dailyPlanAction.update({
+        where: { id: input.taskId },
+        data: { scheduledStart },
+        include: {
+          action: {
+            include: {
+              project: true,
+            },
+          },
+        },
+      });
+    }),
+
+  /**
    * Complete the daily plan and optionally convert tasks to real Actions
    */
   completePlan: protectedProcedure
@@ -410,4 +466,26 @@ export const dailyPlanRouter = createTRPCRouter({
 
       return { totalMinutes };
     }),
+
+  /**
+   * Get user's work hours settings for the timeline
+   */
+  getUserWorkHours: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+
+    const user = await ctx.db.user.findUnique({
+      where: { id: userId },
+      select: {
+        workHoursEnabled: true,
+        workHoursStart: true,
+        workHoursEnd: true,
+      },
+    });
+
+    return {
+      workHoursEnabled: user?.workHoursEnabled ?? true,
+      workHoursStart: user?.workHoursStart ?? "09:00",
+      workHoursEnd: user?.workHoursEnd ?? "17:00",
+    };
+  }),
 });

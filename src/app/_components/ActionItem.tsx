@@ -1,5 +1,5 @@
 import { Checkbox, Text, Group, Paper, Badge, Tooltip, Avatar, HoverCard } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconBrandNotion, IconClock, IconMicrophone, IconTrendingUp, IconTrendingDown } from '@tabler/icons-react';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconBrandNotion, IconClock, IconMicrophone, IconTrendingUp, IconTrendingDown, IconRobot } from '@tabler/icons-react';
 import { type RouterOutputs } from "~/trpc/react";
 import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
@@ -306,6 +306,24 @@ export function ActionItem({
                         leftSection={<IconClock size={10} />}
                       >
                         {formatScheduledTime(actionWithSchedule.scheduledStart)}
+                      </Badge>
+                    </Tooltip>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Auto-scheduled indicator */}
+              {(() => {
+                const actionWithScheduling = action as typeof action & {
+                  isAutoScheduled?: boolean;
+                  scheduledStart?: Date | null;
+                };
+                if (actionWithScheduling.isAutoScheduled && actionWithScheduling.scheduledStart) {
+                  return (
+                    <Tooltip label="This task was automatically scheduled by AI">
+                      <Badge size="sm" variant="light" color="violet" leftSection={<IconRobot size={10} />}>
+                        Auto
                       </Badge>
                     </Tooltip>
                   );

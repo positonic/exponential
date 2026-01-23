@@ -10,6 +10,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
+import { decryptBuffer } from "~/server/utils/encryption";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -1820,6 +1821,66 @@ export const mastraRouter = createTRPCRouter({
         isConnected: hasCalendarScope && (tokenNotExpired || canRefresh),
         hasCalendarScope,
       };
+    }),
+
+  // CRM contact lookup by email for Mastra WhatsApp context
+  lookupContactByEmail: protectedProcedure
+    .input(z.object({ email: z.string().email() }))
+    .query(async ({ ctx, input }) => {
+      // Generate SHA-256 hash of email for lookup
+      const emailHash = crypto
+        .createHash("sha256")
+        .update(input.email.toLowerCase().trim())
+        .digest("hex");
+
+      // Find contact by emailHash within user's workspaces
+      const userWorkspaces = await ctx.db.workspaceUser.findMany({
+        where: { userId: ctx.session.user.id },
+        select: { workspaceId: true },
+      });
+
+      if (userWorkspaces.length === 0) {
+        return { found: false };
+      }
+
+      const workspaceIds = userWorkspaces.map((w) => w.workspaceId);
+
+      const contact = await ctx.db.crmContact.findFirst({
+        where: {
+          workspaceId: { in: workspaceIds },
+          emailHash,
+        },
+      });
+
+      if (!contact) {
+        return { found: false };
+      }
+
+      // Decrypt PII fields
+      try {
+        return {
+          found: true,
+          contact: {
+            id: contact.id,
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+            email: decryptBuffer(contact.email) ?? null,
+            phone: decryptBuffer(contact.phone) ?? null,
+          },
+        };
+      } catch (e) {
+        console.error("PII decryption failed for contact", contact.id, e);
+        return {
+          found: true,
+          contact: {
+            id: contact.id,
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+            email: null,
+            phone: null,
+          },
+        };
+      }
     }),
 });
 
