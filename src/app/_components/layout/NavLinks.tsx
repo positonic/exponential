@@ -93,6 +93,9 @@ export function NavLinks() {
       <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>
         Inbox
       </NavLink>
+      <NavLink href="/act" icon={IconPlayerPlay}>
+        Today
+      </NavLink>
       {/* Plugin navigation items for main section */}
       {mainPluginItems.map((item) => {
         const IconComponent = getIcon(item.icon);
@@ -104,9 +107,6 @@ export function NavLinks() {
       })}
       <NavLink href="/daily-plan" icon={IconCalendarEvent} count={<TodayCount />}>
         Daily plan
-      </NavLink>
-      <NavLink href="/act" icon={IconPlayerPlay}>
-        Today
       </NavLink>
       <NavLink href="/calendar" icon={IconCalendar}>
         Calendar
