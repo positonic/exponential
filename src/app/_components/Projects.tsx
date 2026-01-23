@@ -262,7 +262,11 @@ function NotionSuggestionsContent({
   );
 }
 
-export function Projects() {
+interface ProjectsProps {
+  showAllWorkspaces?: boolean;
+}
+
+export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
   const [projectName, setProjectName] = useState("");
   const [, setStatus] = useState("ACTIVE");
   const [, setPriority] = useState("NONE");
@@ -274,8 +278,12 @@ export function Projects() {
 
   const { workspaceId, workspace } = useWorkspace();
   const utils = api.useUtils();
+
+  // When showAllWorkspaces is true, don't filter by workspace
+  const effectiveWorkspaceId = showAllWorkspaces ? undefined : (workspaceId ?? undefined);
+
   const projects = api.project.getAll.useQuery(
-    { workspaceId: workspaceId ?? undefined },
+    { workspaceId: effectiveWorkspaceId },
     { enabled: true }
   );
 
@@ -284,10 +292,10 @@ export function Projects() {
   const notionWorkflows = workflows.filter(w => w.provider === 'notion');
   const firstNotionWorkflowId = notionWorkflows[0]?.id;
 
-  // Query for unlinked Notion projects (filtered by current workspace)
+  // Query for unlinked Notion projects
   const { data: unlinkedProjectsData, refetch: refetchUnlinkedProjects } = api.workflow.getUnlinkedNotionProjects.useQuery(
-    { workflowId: firstNotionWorkflowId ?? '', workspaceId: workspaceId ?? undefined },
-    { enabled: !!firstNotionWorkflowId && !!workspaceId }
+    { workflowId: firstNotionWorkflowId ?? '', workspaceId: effectiveWorkspaceId },
+    { enabled: !!firstNotionWorkflowId && (showAllWorkspaces || !!workspaceId) }
   );
 
   api.project.create.useMutation({
@@ -325,7 +333,7 @@ export function Projects() {
         )}
       </Group>
 
-      <ProjectList projects={projects.data ?? []} workspaceSlug={workspace?.slug} />
+      <ProjectList projects={projects.data ?? []} workspaceSlug={showAllWorkspaces ? undefined : workspace?.slug} />
       <div className="mt-4">
         <CreateProjectModal>
           <Button variant="light">Create Project</Button>
