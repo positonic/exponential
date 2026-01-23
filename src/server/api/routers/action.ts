@@ -189,6 +189,7 @@ export const actionRouter = createTRPCRouter({
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
+          tags: { include: { tag: true } },
         },
         orderBy: { id: 'desc' }
       });

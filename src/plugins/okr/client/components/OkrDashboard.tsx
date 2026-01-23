@@ -236,6 +236,12 @@ export function OkrDashboard() {
     }
   };
 
+  // Handler to open create modal with objective pre-selected
+  const handleAddKeyResultToObjective = (objectiveId: number) => {
+    setFormData((prev) => ({ ...prev, goalId: objectiveId.toString() }));
+    openCreateModal();
+  };
+
   // Transform stats for OkrOverview component
   const overviewStats = useMemo(() => {
     if (!stats) return null;
@@ -377,6 +383,7 @@ export function OkrDashboard() {
                     void utils.okr.getByObjective.invalidate();
                     void utils.okr.getStats.invalidate();
                   }}
+                  onAddKeyResult={handleAddKeyResultToObjective}
                 />
               ))}
             </Card>

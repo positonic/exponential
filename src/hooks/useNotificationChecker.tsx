@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 import { notifications } from '@mantine/notifications';
+import { Anchor, Text } from '@mantine/core';
+import Link from 'next/link';
 import { api } from '~/trpc/react';
 import { useSession } from 'next-auth/react';
 
@@ -59,9 +61,16 @@ export function useNotificationChecker() {
         notifications.show({
           id: notification.id, // Use notification ID to prevent duplicate toasts
           title: notification.title,
-          message: notification.message,
+          message: (
+            <Text size="sm" className="text-text-secondary">
+              {notification.message}{' '}
+              <Anchor component={Link} href="/meetings" size="sm" className="text-brand-primary">
+                View meeting
+              </Anchor>
+            </Text>
+          ),
           color: 'blue',
-          autoClose: 8000, // 8 seconds
+          autoClose: 10000, // 10 seconds to give time to click the link
         });
 
         // Mark as read immediately (single call, not multiple)

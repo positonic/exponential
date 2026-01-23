@@ -40,6 +40,7 @@ import { crmContactRouter } from "./routers/crmContact";
 import { crmOrganizationRouter } from "./routers/crmOrganization";
 import { tagRouter } from "./routers/tag";
 import { schedulingRouter } from "./routers/scheduling";
+import { taskScheduleRouter } from "./routers/taskSchedule";
 import { okrCheckinRouter } from "./routers/okrCheckin";
 import { viewRouter } from "./routers/view";
 import { dailyPlanRouter } from "./routers/dailyPlan";
@@ -93,6 +94,7 @@ export const appRouter = createTRPCRouter({
   crmOrganization: crmOrganizationRouter,
   tag: tagRouter,
   scheduling: schedulingRouter,
+  taskSchedule: taskScheduleRouter,
   okrCheckin: okrCheckinRouter,
   view: viewRouter,
   dailyPlan: dailyPlanRouter,

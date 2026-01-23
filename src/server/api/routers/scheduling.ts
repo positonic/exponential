@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { GoogleCalendarService, type CalendarEvent } from "~/server/services/GoogleCalendarService";
+import { AutoSchedulingService } from "~/server/services/AutoSchedulingService";
 import { generateAgentJWT } from "~/server/utils/jwt";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL;
@@ -344,5 +345,87 @@ export const schedulingRouter = createTRPCRouter({
           message: "Failed to generate scheduling suggestions",
         });
       }
+    }),
+
+  // Auto-schedule a single task
+  autoScheduleTask: protectedProcedure
+    .input(z.object({ actionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const calendarService = new GoogleCalendarService();
+      const schedulingService = new AutoSchedulingService(
+        ctx.db,
+        calendarService
+      );
+
+      const result = await schedulingService.scheduleTask(input.actionId, userId);
+
+      if (!result) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Could not schedule task - no available slots or task not found",
+        });
+      }
+
+      return result;
+    }),
+
+  // Reschedule all auto-scheduled tasks
+  rescheduleAll: protectedProcedure
+    .input(z.object({ workspaceId: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const calendarService = new GoogleCalendarService();
+      const schedulingService = new AutoSchedulingService(
+        ctx.db,
+        calendarService
+      );
+
+      const result = await schedulingService.rescheduleAll(
+        userId,
+        input.workspaceId
+      );
+
+      return result;
+    }),
+
+  // Calculate ETA for a task
+  calculateETA: protectedProcedure
+    .input(
+      z.object({
+        scheduledDate: z.date().nullable(),
+        deadline: z.date().nullable(),
+      })
+    )
+    .query(({ ctx, input }) => {
+      const schedulingService = new AutoSchedulingService(ctx.db);
+      return schedulingService.calculateETA(input.scheduledDate, input.deadline);
+    }),
+
+  // Update ETAs for all tasks
+  updateAllETAs: protectedProcedure
+    .input(z.object({ workspaceId: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const schedulingService = new AutoSchedulingService(ctx.db);
+
+      await schedulingService.updateAllETAs(userId, input.workspaceId);
+
+      return { success: true };
+    }),
+
+  // Check for deadline conflicts
+  checkDeadlineConflicts: protectedProcedure
+    .input(z.object({ workspaceId: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const schedulingService = new AutoSchedulingService(ctx.db);
+
+      const conflicts = await schedulingService.checkDeadlineConflicts(
+        userId,
+        input.workspaceId
+      );
+
+      return { conflicts };
     }),
 });
