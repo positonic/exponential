@@ -388,6 +388,81 @@ export const projectRouter = createTRPCRouter({
       });
     }),
 
+  // Get projects with their actions for the hierarchical projects-tasks view
+  getProjectsWithActions: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().optional(),
+      includeCompleted: z.boolean().default(false),
+    }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Fetch projects with their actions
+      const projects = await ctx.db.project.findMany({
+        where: {
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          OR: [
+            { createdById: userId },
+            { team: { members: { some: { userId } } } },
+            ...(input.workspaceId ? [{
+              workspace: { members: { some: { userId } } }
+            }] : [])
+          ]
+        },
+        include: {
+          actions: {
+            where: {
+              status: input.includeCompleted
+                ? { not: "DELETED" }
+                : { notIn: ["DELETED", "COMPLETED"] }
+            },
+            include: {
+              assignees: {
+                include: {
+                  user: {
+                    select: { id: true, name: true, email: true, image: true }
+                  }
+                }
+              },
+              project: { select: { id: true, name: true } },
+              tags: { include: { tag: true } },
+            },
+            orderBy: [{ dueDate: 'asc' }, { priority: 'asc' }],
+          },
+          _count: { select: { actions: true } },
+        },
+        orderBy: [{ priority: 'asc' }, { name: 'asc' }],
+      });
+
+      // Fetch actions without projects (unassigned)
+      const noProjectActions = await ctx.db.action.findMany({
+        where: {
+          projectId: null,
+          status: input.includeCompleted
+            ? { not: "DELETED" }
+            : { notIn: ["DELETED", "COMPLETED"] },
+          OR: [
+            { createdById: userId, assignees: { none: {} } },
+            { assignees: { some: { userId } } },
+          ],
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        include: {
+          assignees: {
+            include: {
+              user: {
+                select: { id: true, name: true, email: true, image: true }
+              }
+            }
+          },
+          tags: { include: { tag: true } },
+        },
+        orderBy: [{ dueDate: 'asc' }, { priority: 'asc' }],
+      });
+
+      return { projects, noProjectActions };
+    }),
+
   getActiveWithDetailsForUser: protectedProcedure
     .input(z.object({
       userId: z.string(),
