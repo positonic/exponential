@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Container, Stepper, Loader, Text } from "@mantine/core";
+import { addDays, startOfDay } from "date-fns";
 import { api } from "~/trpc/react";
 import { WelcomeStep } from "./_components/steps/WelcomeStep";
 import { AddTaskStep } from "./_components/steps/AddTaskStep";
@@ -19,18 +20,30 @@ type WizardStep =
   | "schedule"
   | "document";
 
+type PlanDate = "today" | "tomorrow";
+
 type DailyPlan = RouterOutputs["dailyPlan"]["getOrCreateToday"];
 type DailyPlanAction = DailyPlan["plannedActions"][number];
 
 export default function DailyPlanPage() {
   const [currentStep, setCurrentStep] = useState<WizardStep>("welcome");
+  const [selectedDate, setSelectedDate] = useState<PlanDate>("today");
 
-  // Get or create today's daily plan (no workspace - user-level)
+  // Calculate the actual date based on selection
+  const planDate = useMemo(() => {
+    const today = startOfDay(new Date());
+    return selectedDate === "tomorrow" ? addDays(today, 1) : today;
+  }, [selectedDate]);
+
+  // Get or create daily plan for the selected date (no workspace - user-level)
   const {
     data: dailyPlan,
     isLoading: planLoading,
     refetch: refetchPlan,
-  } = api.dailyPlan.getOrCreateToday.useQuery({});
+  } = api.dailyPlan.getOrCreateToday.useQuery({ date: planDate });
+
+  // Get user's work hours for the timeline
+  const { data: workHours } = api.dailyPlan.getUserWorkHours.useQuery();
 
   // Mutations
   const addTaskMutation = api.dailyPlan.addTask.useMutation({
@@ -53,10 +66,14 @@ export default function DailyPlanPage() {
     onSuccess: () => void refetchPlan(),
   });
 
+  const deferTaskMutation = api.dailyPlan.deferTask.useMutation({
+    onSuccess: () => void refetchPlan(),
+  });
+
   const completePlanMutation = api.dailyPlan.completePlan.useMutation();
 
   // Computed values
-  const tasks = dailyPlan?.plannedActions ?? [];
+  const tasks = useMemo(() => dailyPlan?.plannedActions ?? [], [dailyPlan?.plannedActions]);
   const totalPlannedMinutes = useMemo(
     () => tasks.reduce((sum: number, task: { duration: number }) => sum + task.duration, 0),
     [tasks]
@@ -111,6 +128,13 @@ export default function DailyPlanPage() {
     await reorderTasksMutation.mutateAsync({
       dailyPlanId: dailyPlan.id,
       taskIds,
+    });
+  };
+
+  const handleDeferTask = async (taskId: string, newDate: Date) => {
+    await deferTaskMutation.mutateAsync({
+      taskId,
+      newDate,
     });
   };
 
@@ -192,7 +216,11 @@ export default function DailyPlanPage() {
       <Container size="xl" py="xl">
         {/* Step 0: Welcome */}
         {currentStep === "welcome" && (
-          <WelcomeStep onStart={() => setCurrentStep("add-task")} />
+          <WelcomeStep
+            selectedDate={selectedDate}
+            onDateChange={setSelectedDate}
+            onStart={() => setCurrentStep("add-task")}
+          />
         )}
 
         {/* Step 1: Add Task */}
@@ -224,11 +252,16 @@ export default function DailyPlanPage() {
             dailyPlan={dailyPlan}
             tasks={tasks}
             totalMinutes={totalPlannedMinutes}
+            planDate={planDate}
+            workHoursStart={workHours?.workHoursStart ?? "09:00"}
+            workHoursEnd={workHours?.workHoursEnd ?? "17:00"}
             onAddTask={handleAddTask}
             onRemoveTask={handleRemoveTask}
+            onDeferTask={handleDeferTask}
             onUpdateTask={handleUpdateTask}
             onReorderTasks={handleReorderTasks}
             onUpdatePlan={handleUpdatePlan}
+            onRefetch={() => void refetchPlan()}
             onNext={() => setCurrentStep("schedule")}
             onBack={() => setCurrentStep("estimate")}
           />
@@ -239,6 +272,9 @@ export default function DailyPlanPage() {
           <ScheduleStep
             dailyPlan={dailyPlan}
             tasks={tasks}
+            planDate={planDate}
+            workHoursStart={workHours?.workHoursStart ?? "09:00"}
+            workHoursEnd={workHours?.workHoursEnd ?? "17:00"}
             onUpdateTask={handleUpdateTask}
             onNext={() => setCurrentStep("document")}
             onBack={() => setCurrentStep("fill-day")}
