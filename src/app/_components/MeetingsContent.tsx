@@ -37,6 +37,7 @@ import {
   IconArchiveOff,
   IconHistory,
   IconRefresh,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 // import { ActionList } from "./ActionList";
@@ -123,24 +124,72 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   
   
   const assignProjectMutation = api.transcription.associateWithProject.useMutation({
-    onSuccess: (result) => {
-      // Refetch transcriptions to update the UI
-      void utils.transcription.getAllTranscriptions.invalidate();
-      
-      const message = result.processed 
-        ? `Project assigned and ${result.processed.actionsCreated} actions created${result.processed.slackNotificationSent ? '. Slack notification sent.' : '.'}`
-        : 'Project assigned successfully';
-        
+    onMutate: async ({ transcriptionId, projectId }) => {
+      // Cancel outgoing refetches
+      await utils.transcription.getAllTranscriptions.cancel();
+
+      // Snapshot previous value
+      const previousData = utils.transcription.getAllTranscriptions.getData({ workspaceId });
+
+      // Optimistically update the cache
+      utils.transcription.getAllTranscriptions.setData({ workspaceId }, (old) => {
+        if (!old) return old;
+        return old.map((session) => {
+          if (session.id === transcriptionId) {
+            const project = projects?.find(p => p.id === projectId);
+            return {
+              ...session,
+              projectId,
+              project: project ? {
+                id: project.id,
+                name: project.name,
+                taskManagementTool: project.taskManagementTool,
+                taskManagementConfig: project.taskManagementConfig
+              } : null
+            };
+          }
+          return session;
+        });
+      });
+
+      return { previousData };
+    },
+    onError: (err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousData) {
+        utils.transcription.getAllTranscriptions.setData({ workspaceId }, context.previousData);
+      }
       notifications.show({
-        title: 'Success',
-        message,
+        title: 'Error',
+        message: err.message || 'Failed to assign project',
+        color: 'red',
+      });
+    },
+    onSuccess: () => {
+      notifications.show({
+        title: 'Project Assigned',
+        message: 'Project assigned to this meeting',
         color: 'green',
       });
     },
+    onSettled: () => {
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
+  });
+
+  const processTranscriptionMutation = api.transcription.processTranscription.useMutation({
+    onSuccess: (result) => {
+      notifications.show({
+        title: 'Actions Created',
+        message: `Created ${result.actionsCreated} action${result.actionsCreated === 1 ? '' : 's'} from this meeting`,
+        color: 'green',
+      });
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
     onError: (error) => {
       notifications.show({
-        title: 'Error',
-        message: error.message || 'Failed to assign project',
+        title: 'Processing Failed',
+        message: error.message || 'Failed to create actions',
         color: 'red',
       });
     },
@@ -300,10 +349,10 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
 
   const handleProjectAssignment = (transcriptionId: string, projectId: string | null) => {
     if (projectId) {
-      assignProjectMutation.mutate({ 
-        transcriptionId, 
+      assignProjectMutation.mutate({
+        transcriptionId,
         projectId,
-        autoProcess: true
+        autoProcess: false
       });
     }
   };
@@ -706,7 +755,32 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                                     size="sm"
                                     style={{ minWidth: 200 }}
                                   />
-                                  
+
+                                  {/* Extract Actions Button - show when project assigned but not processed */}
+                                  {session.projectId && !session.processedAt && session.summary && (
+                                    <Button
+                                      size="sm"
+                                      variant="light"
+                                      color="green"
+                                      loading={processTranscriptionMutation.isPending &&
+                                               processTranscriptionMutation.variables?.transcriptionId === session.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        processTranscriptionMutation.mutate({ transcriptionId: session.id });
+                                      }}
+                                      leftSection={<IconPlayerPlay size={14} />}
+                                    >
+                                      Extract Actions
+                                    </Button>
+                                  )}
+
+                                  {/* Already processed indicator */}
+                                  {session.processedAt && session.actions && session.actions.length > 0 && (
+                                    <Badge variant="light" color="green" size="lg">
+                                      {session.actions.length} {session.actions.length === 1 ? 'action' : 'actions'}
+                                    </Badge>
+                                  )}
+
                                   {/* View Details Button */}
                                   <Button
                                     size="sm"
