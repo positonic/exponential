@@ -94,14 +94,30 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     { enabled: !!projectId }
   );
 
+  // Filter Notion unassigned to only show items due today with ACTIVE status
+  const notionUnassignedTodayData = useMemo(() => {
+    if (!notionUnassignedQuery.data) return [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return notionUnassignedQuery.data.filter(action => {
+      // Must be ACTIVE status
+      if (action.status !== 'ACTIVE') return false;
+      // Must be due today
+      if (!action.dueDate) return false;
+      const dueDate = new Date(action.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+      return dueDate.getTime() === today.getTime();
+    });
+  }, [notionUnassignedQuery.data]);
+
   // Use filtered results if Notion unassigned filter is active, otherwise use normal query
   // All three queries return the same shape, so we can safely union them
   const actions = projectId
     ? projectActionsQuery.data
-    : (showNotionUnassigned ? notionUnassignedQuery.data : allActionsQuery.data);
+    : (showNotionUnassigned ? notionUnassignedTodayData : allActionsQuery.data);
 
-  // Count of unassigned Notion imports (for badge)
-  const notionUnassignedCount = notionUnassignedQuery.data?.length ?? 0;
+  // Count of unassigned Notion imports for today (for badge)
+  const notionUnassignedCount = notionUnassignedTodayData.length;
 
   // State for dismissed scheduling suggestions
   const [dismissedSuggestionIds, setDismissedSuggestionIds] = useState<Set<string>>(new Set());
