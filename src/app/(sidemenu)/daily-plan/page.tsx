@@ -181,8 +181,8 @@ export default function DailyPlanPage() {
   const handleCompletePlan = async () => {
     if (!dailyPlan) return;
     await completePlanMutation.mutateAsync({ id: dailyPlan.id });
-    // Redirect to /act page
-    window.location.href = "/act";
+    // Redirect to /today page
+    window.location.href = "/today";
   };
 
   // Loading state

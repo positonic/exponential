@@ -93,7 +93,7 @@ export function NavLinks() {
       <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>
         Inbox
       </NavLink>
-      <NavLink href="/act" icon={IconPlayerPlay}>
+      <NavLink href="/today" icon={IconPlayerPlay}>
         Today
       </NavLink>
       {/* Plugin navigation items for main section */}
