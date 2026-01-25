@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Stack,
   Group,
@@ -29,11 +29,13 @@ export function AddTaskStep({
   isLoading,
 }: AddTaskStepProps) {
   const [taskName, setTaskName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleAddTask = async () => {
     if (!taskName.trim()) return;
     await onAddTask(taskName.trim());
     setTaskName("");
+    inputRef.current?.focus();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -57,6 +59,8 @@ export function AddTaskStep({
 
         <Group gap="sm">
           <TextInput
+            ref={inputRef}
+            autoFocus
             placeholder="Enter task name..."
             value={taskName}
             onChange={(e) => setTaskName(e.target.value)}

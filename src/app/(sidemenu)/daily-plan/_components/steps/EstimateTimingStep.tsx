@@ -106,7 +106,7 @@ export function EstimateTimingStep({
           <Progress value={progressPercent} size="lg" color="green" mb="xs" />
           <Group justify="space-between">
             <Text size="xs" c="dimmed">
-              6 hr
+              0 hr
             </Text>
             <Text size="xs" c="dimmed">
               8 hr

@@ -45,13 +45,43 @@ export default function DailyPlanPage() {
   // Get user's work hours for the timeline
   const { data: workHours } = api.dailyPlan.getUserWorkHours.useQuery();
 
+  // Utils for optimistic updates
+  const utils = api.useUtils();
+
   // Mutations
   const addTaskMutation = api.dailyPlan.addTask.useMutation({
     onSuccess: () => void refetchPlan(),
   });
 
   const updateTaskMutation = api.dailyPlan.updateTask.useMutation({
-    onSuccess: () => void refetchPlan(),
+    onMutate: async (updates) => {
+      // Cancel outgoing refetches
+      await utils.dailyPlan.getOrCreateToday.cancel();
+
+      // Snapshot previous value
+      const previousData = utils.dailyPlan.getOrCreateToday.getData({ date: planDate });
+
+      // Optimistically update the cache
+      if (previousData) {
+        utils.dailyPlan.getOrCreateToday.setData({ date: planDate }, {
+          ...previousData,
+          plannedActions: previousData.plannedActions.map((action) =>
+            action.id === updates.id
+              ? { ...action, ...updates }
+              : action
+          ),
+        });
+      }
+
+      return { previousData };
+    },
+    onError: (_err, _updates, context) => {
+      // Rollback on error
+      if (context?.previousData) {
+        utils.dailyPlan.getOrCreateToday.setData({ date: planDate }, context.previousData);
+      }
+    },
+    onSettled: () => void refetchPlan(),
   });
 
   const removeTaskMutation = api.dailyPlan.removeTask.useMutation({
