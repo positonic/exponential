@@ -29,7 +29,11 @@
     "electron:build": "tsc -p electron/tsconfig.json && electron-builder",
     "electron:build:mac": "npm run electron:build -- --mac",
     "electron:build:win": "npm run electron:build -- --win",
-    "electron:build:linux": "npm run electron:build -- --linux"
+    "electron:build:linux": "npm run electron:build -- --linux",
+    "okr": "npx tsx scripts/okr-cli.ts",
+    "okr:list": "npx tsx scripts/okr-cli.ts list",
+    "okr:stats": "npx tsx scripts/okr-cli.ts stats",
+    "okr:workspaces": "npx tsx scripts/okr-cli.ts workspaces"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.2",
