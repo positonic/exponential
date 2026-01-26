@@ -42,6 +42,33 @@ export default function DailyPlanPage() {
     refetch: refetchPlan,
   } = api.dailyPlan.getOrCreateToday.useQuery({ date: planDate });
 
+  // Fetch all actions for the existing actions panel
+  const { data: allActions } = api.action.getAll.useQuery();
+
+  // Filter actions into overdue and today
+  const { overdueActions, todayActions } = useMemo(() => {
+    if (!allActions) return { overdueActions: [], todayActions: [] };
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const overdue = allActions.filter((action) => {
+      if (!action.dueDate || action.status !== "ACTIVE") return false;
+      const dueDate = new Date(action.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+      return dueDate < today;
+    });
+
+    const todayList = allActions.filter((action) => {
+      if (!action.dueDate || action.status !== "ACTIVE") return false;
+      const dueDate = new Date(action.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+      return dueDate.getTime() === today.getTime();
+    });
+
+    return { overdueActions: overdue, todayActions: todayList };
+  }, [allActions]);
+
   // Get user's work hours for the timeline
   const { data: workHours } = api.dailyPlan.getUserWorkHours.useQuery();
 
@@ -260,6 +287,8 @@ export default function DailyPlanPage() {
             onAddTask={handleAddTask}
             onNext={() => setCurrentStep("estimate")}
             isLoading={addTaskMutation.isPending}
+            overdueActions={overdueActions}
+            todayActions={todayActions}
           />
         )}
 
