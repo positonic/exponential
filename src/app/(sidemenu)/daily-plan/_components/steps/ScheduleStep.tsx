@@ -49,7 +49,8 @@ export function ScheduleStep({
   timeMax.setHours(23, 59, 59, 999);
 
   const { data: connectionStatus } = api.calendar.getConnectionStatus.useQuery();
-  const { data: calendarEvents } = api.calendar.getEvents.useQuery(
+  // Use multi-calendar endpoint to fetch from all user-selected calendars
+  const { data: calendarEvents } = api.calendar.getEventsMultiCalendar.useQuery(
     { timeMin, timeMax, maxResults: 50 },
     { enabled: connectionStatus?.isConnected }
   );
