@@ -15,6 +15,7 @@ import {
 } from "@mantine/core";
 import { IconArrowLeft, IconCheck } from "@tabler/icons-react";
 import type { RouterOutputs } from "~/trpc/react";
+import { HTMLContent } from "~/app/_components/HTMLContent";
 
 type DailyPlan = RouterOutputs["dailyPlan"]["getOrCreateToday"];
 type DailyPlanAction = DailyPlan["plannedActions"][number];
@@ -100,7 +101,9 @@ export function DocumentStep({
                     }
                   >
                     <Group gap="xs">
-                      <Text className="text-text-primary">{task.name}</Text>
+                      <Text className="text-text-primary" component="div">
+                        <HTMLContent html={task.name} />
+                      </Text>
                       <Text span c="dimmed" fs="italic">
                         · {formatDuration(task.duration)}
                       </Text>
@@ -184,8 +187,8 @@ export function DocumentStep({
                   {formatDuration(task.duration)}
                 </Badge>
               </Group>
-              <Text fw={500} className="text-text-primary">
-                {task.name}
+              <Text fw={500} className="text-text-primary" component="div">
+                <HTMLContent html={task.name} />
               </Text>
               {task.source !== "manual" && (
                 <Badge size="xs" variant="light" color="blue" mt="xs">

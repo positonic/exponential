@@ -38,6 +38,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { format, addDays, nextMonday, startOfDay } from "date-fns";
 import type { RouterOutputs } from "~/trpc/react";
+import { HTMLContent } from "~/app/_components/HTMLContent";
 
 type DailyPlan = RouterOutputs["dailyPlan"]["getOrCreateToday"];
 type DailyPlanAction = DailyPlan["plannedActions"][number];
@@ -93,8 +94,8 @@ function DraggableTaskCard({ task, onRemove }: DraggableTaskCardProps) {
           </ActionIcon>
 
           <Stack gap={2} flex={1}>
-            <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
-              {task.name}
+            <Text size="sm" fw={500} className="text-text-primary" lineClamp={2} component="div">
+              <HTMLContent html={task.name} />
             </Text>
             {task.source !== "manual" && (
               <Group gap={4}>
@@ -138,8 +139,8 @@ function TaskCardOverlay({ task }: TaskCardOverlayProps) {
     >
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <Stack gap={2} flex={1}>
-          <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
-            {task.name}
+          <Text size="sm" fw={500} className="text-text-primary" lineClamp={2} component="div">
+            <HTMLContent html={task.name} />
           </Text>
         </Stack>
         <Badge variant="light" color="gray" size="xs">

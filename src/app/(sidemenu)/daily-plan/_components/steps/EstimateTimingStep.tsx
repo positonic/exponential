@@ -16,6 +16,7 @@ import {
 } from "@mantine/core";
 import { IconPlus, IconClock } from "@tabler/icons-react";
 import type { RouterOutputs } from "~/trpc/react";
+import { HTMLContent } from "~/app/_components/HTMLContent";
 
 type DailyPlanAction =
   RouterOutputs["dailyPlan"]["getOrCreateToday"]["plannedActions"][number];
@@ -178,8 +179,8 @@ export function EstimateTimingStep({
             >
               <Group justify="space-between" align="flex-start">
                 <Stack gap={4} flex={1}>
-                  <Text fw={500} className="text-text-primary">
-                    {task.name}
+                  <Text fw={500} className="text-text-primary" component="div">
+                    <HTMLContent html={task.name} />
                   </Text>
                   {task.source !== "manual" && (
                     <Badge size="xs" variant="light" color="blue">

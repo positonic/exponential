@@ -16,6 +16,7 @@ import {
 } from "@dnd-kit/core";
 import { format, addMinutes, setHours, setMinutes, startOfDay } from "date-fns";
 import type { RouterOutputs } from "~/trpc/react";
+import { HTMLContent } from "~/app/_components/HTMLContent";
 
 type DailyPlan = RouterOutputs["dailyPlan"]["getOrCreateToday"];
 type DailyPlanAction = DailyPlan["plannedActions"][number];
@@ -133,8 +134,8 @@ function DraggableTask({ task }: DraggableTaskProps) {
       <Group justify="space-between" wrap="nowrap">
         <Group gap="xs" wrap="nowrap" flex={1}>
           <IconGripVertical size={14} className="text-text-muted flex-shrink-0" />
-          <Text size="sm" fw={500} className="text-text-primary truncate">
-            {task.name}
+          <Text size="sm" fw={500} className="text-text-primary truncate" component="div">
+            <HTMLContent html={task.name} />
           </Text>
         </Group>
         <Group gap={4} wrap="nowrap">
@@ -169,8 +170,8 @@ function TaskOverlay({ task }: TaskOverlayProps) {
       style={{ width: 250 }}
     >
       <Group justify="space-between" wrap="nowrap">
-        <Text size="sm" fw={500} className="text-text-primary truncate">
-          {task.name}
+        <Text size="sm" fw={500} className="text-text-primary truncate" component="div">
+          <HTMLContent html={task.name} />
         </Text>
         <Badge variant="light" color="gray" size="xs">
           {formatDuration(task.duration)}
@@ -208,8 +209,8 @@ function ScheduledTaskBlock({ task, gridStartHour }: ScheduledTaskBlockProps) {
       style={{ top, height: Math.max(height, 24) }}
     >
       <Group gap={4} wrap="nowrap">
-        <Text size="xs" fw={500} className="text-brand-primary truncate flex-1">
-          {task.name}
+        <Text size="xs" fw={500} className="text-brand-primary truncate flex-1" component="div">
+          <HTMLContent html={task.name} className="text-brand-primary" />
         </Text>
         {isAutoScheduled && (
           <Badge
