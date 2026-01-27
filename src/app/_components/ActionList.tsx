@@ -163,7 +163,8 @@ export function ActionList({
   _calendarConnected = true,
   onApplySchedulingSuggestion,
   onDismissSchedulingSuggestion,
-  applyingSuggestionId
+  applyingSuggestionId,
+  isLoading = false
 }: {
   viewName: string,
   actions: Action[],
@@ -190,7 +191,8 @@ export function ActionList({
   _calendarConnected?: boolean,
   onApplySchedulingSuggestion?: (actionId: string, suggestedDate: string, suggestedTime: string) => void,
   onDismissSchedulingSuggestion?: (actionId: string) => void,
-  applyingSuggestionId?: string | null
+  applyingSuggestionId?: string | null,
+  isLoading?: boolean
 }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
@@ -359,8 +361,8 @@ export function ActionList({
 
       switch (viewName.toLowerCase()) {
         case 'inbox':
-          // Show untriaged actions (no due date AND no project assigned)
-          return !action.dueDate && !action.projectId;
+          // Show untriaged actions (no due date, no scheduled start, AND no project assigned)
+          return !action.dueDate && !action.scheduledStart && !action.projectId;
         case 'today':
           // Check if the normalized action due date matches normalized today
           return normalizedActionDueDate?.getTime() === today.getTime();
@@ -1190,9 +1192,11 @@ export function ActionList({
 
       {filteredActions.length > 0
         ? filteredActions.map(action => renderActionItem(action, false))
-        : viewName.toLowerCase() === 'inbox' && filter === 'ACTIVE'
+        : viewName.toLowerCase() === 'inbox' && filter === 'ACTIVE' && !isLoading
           ? <InboxZeroCelebration />
-          : <Text c="dimmed" ta="center" mt="lg">No {filter.toLowerCase()} actions in this view.</Text>
+          : isLoading
+            ? <Text c="dimmed" ta="center" mt="lg">Loading...</Text>
+            : <Text c="dimmed" ta="center" mt="lg">No {filter.toLowerCase()} actions in this view.</Text>
       }
 
       <EditActionModal

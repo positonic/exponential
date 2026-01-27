@@ -899,6 +899,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           onApplySchedulingSuggestion={handleApplySchedulingSuggestion}
           onDismissSchedulingSuggestion={handleDismissSchedulingSuggestion}
           applyingSuggestionId={applyingSuggestionId}
+          isLoading={projectId ? projectActionsQuery.isLoading : allActionsQuery.isLoading}
         />
       )}
       <div className="mt-6">

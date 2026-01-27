@@ -14,19 +14,14 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { format, addMinutes, setHours, setMinutes, startOfDay } from "date-fns";
+import { format, addMinutes, setHours, setMinutes, startOfDay, parseISO } from "date-fns";
 import type { RouterOutputs } from "~/trpc/react";
 import { HTMLContent } from "~/app/_components/HTMLContent";
+import { CalendarEventBlock } from "~/app/_components/calendar/CalendarEventBlock";
+import type { CalendarEvent } from "~/server/services/GoogleCalendarService";
 
 type DailyPlan = RouterOutputs["dailyPlan"]["getOrCreateToday"];
 type DailyPlanAction = DailyPlan["plannedActions"][number];
-
-interface CalendarEvent {
-  id: string;
-  summary: string | null;
-  start: { dateTime?: string; date?: string } | null;
-  end: { dateTime?: string; date?: string } | null;
-}
 
 interface TimeGridProps {
   planDate: Date;
@@ -53,16 +48,22 @@ function parseTimeString(timeStr: string): { hours: number; minutes: number } {
   return { hours: hours ?? 9, minutes: minutes ?? 0 };
 }
 
-// Generate time slots for the grid
-function generateTimeSlots(startTime: string, endTime: string): { hour: number; minute: number }[] {
+// Generate time slots for the grid, optionally extending beyond work hours
+function generateTimeSlots(
+  startTime: string,
+  endTime: string,
+  extendToHour?: number
+): { hour: number; minute: number; isAfterHours: boolean }[] {
   const { hours: startHours } = parseTimeString(startTime);
   const { hours: endHours } = parseTimeString(endTime);
+  const actualEndHour = extendToHour ? Math.max(endHours, extendToHour) : endHours;
 
-  const slots: { hour: number; minute: number }[] = [];
-  for (let hour = startHours; hour <= endHours; hour++) {
-    slots.push({ hour, minute: 0 });
-    if (hour < endHours) {
-      slots.push({ hour, minute: 30 });
+  const slots: { hour: number; minute: number; isAfterHours: boolean }[] = [];
+  for (let hour = startHours; hour <= actualEndHour; hour++) {
+    const isAfterHours = hour >= endHours;
+    slots.push({ hour, minute: 0, isAfterHours });
+    if (hour < actualEndHour) {
+      slots.push({ hour, minute: 30, isAfterHours });
     }
   }
   return slots;
@@ -75,9 +76,10 @@ interface TimeSlotProps {
   planDate: Date;
   isOccupied: boolean;
   occupiedBy?: string;
+  isAfterHours?: boolean;
 }
 
-function TimeSlot({ id, hour, minute, planDate, isOccupied, occupiedBy }: TimeSlotProps) {
+function TimeSlot({ id, hour, minute, planDate, isOccupied, occupiedBy, isAfterHours }: TimeSlotProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   const slotTime = setMinutes(setHours(new Date(planDate), hour), minute);
@@ -86,6 +88,8 @@ function TimeSlot({ id, hour, minute, planDate, isOccupied, occupiedBy }: TimeSl
     <div
       ref={setNodeRef}
       className={`h-12 border-b border-border-secondary flex items-center px-3 transition-colors ${
+        isAfterHours ? "opacity-50" : ""
+      } ${
         isOver
           ? "bg-brand-primary/20"
           : isOccupied
@@ -252,7 +256,78 @@ export function TimeGrid({
   );
 
   const { hours: startHours } = parseTimeString(workHoursStart);
-  const timeSlots = generateTimeSlots(workHoursStart, workHoursEnd);
+
+  // Calculate the latest calendar event end hour to extend the grid if needed
+  const latestEventEndHour = useMemo(() => {
+    let maxHour = 0;
+    for (const event of calendarEvents) {
+      if (event.end?.dateTime) {
+        const endTime = parseISO(event.end.dateTime);
+        // Round up to next hour if there are minutes
+        const endHour = endTime.getMinutes() > 0 ? endTime.getHours() + 1 : endTime.getHours();
+        maxHour = Math.max(maxHour, endHour);
+      }
+    }
+    return maxHour;
+  }, [calendarEvents]);
+
+  const timeSlots = generateTimeSlots(workHoursStart, workHoursEnd, latestEventEndHour);
+
+  // Calculate positioned calendar events for overlay display with overlap handling
+  const positionedEvents = useMemo(() => {
+    const PIXELS_PER_HOUR = 96; // 48px per 30-min slot = 96px per hour
+    const TIME_LABEL_WIDTH = 64; // Width of time labels on left
+    const CONTAINER_WIDTH = 300; // Available width for events
+
+    // First pass: calculate basic positions
+    const positioned = calendarEvents
+      .filter((event) => event.start?.dateTime && event.end?.dateTime)
+      .map((event) => {
+        const startTime = parseISO(event.start.dateTime!);
+        const endTime = parseISO(event.end.dateTime!);
+
+        const startMinutes = startTime.getHours() * 60 + startTime.getMinutes();
+        const endMinutes = endTime.getHours() * 60 + endTime.getMinutes();
+
+        const top = ((startMinutes - startHours * 60) / 60) * PIXELS_PER_HOUR;
+        const height = Math.max(((endMinutes - startMinutes) / 60) * PIXELS_PER_HOUR, 24);
+
+        return { event, top, height, left: TIME_LABEL_WIDTH, width: CONTAINER_WIDTH };
+      })
+      .filter((item) => item.top >= 0); // Only show events within visible range
+
+    // Handle overlapping events - place into columns
+    const sortedEvents = positioned.sort((a, b) => a.top - b.top);
+    const columns: Array<Array<(typeof sortedEvents)[0]>> = [];
+
+    sortedEvents.forEach((item) => {
+      let placed = false;
+      for (const column of columns) {
+        const lastEvent = column[column.length - 1];
+        if (!lastEvent || item.top >= lastEvent.top + lastEvent.height) {
+          column.push(item);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        columns.push([item]);
+      }
+    });
+
+    // Calculate widths and positions based on columns
+    const numColumns = columns.length;
+    const columnWidth = numColumns > 0 ? CONTAINER_WIDTH / numColumns : CONTAINER_WIDTH;
+
+    columns.forEach((column, columnIndex) => {
+      column.forEach((item) => {
+        item.left = TIME_LABEL_WIDTH + columnIndex * columnWidth;
+        item.width = columnWidth - 2; // Small gap between columns
+      });
+    });
+
+    return sortedEvents;
+  }, [calendarEvents, startHours]);
 
   // Filter tasks to only show those for today (not deferred to other days)
   const todaysTasks = useMemo(() => {
@@ -371,11 +446,11 @@ export function TimeGrid({
           </Text>
 
           <Paper
-            className="bg-surface-secondary border border-border-primary overflow-hidden relative"
+            className="bg-surface-secondary border border-border-primary relative"
             style={{ minHeight: timeSlots.length * 48 }}
           >
             {/* Time slots */}
-            {timeSlots.map(({ hour, minute }) => {
+            {timeSlots.map(({ hour, minute, isAfterHours }) => {
               const slotId = `slot-${hour}:${minute.toString().padStart(2, "0")}`;
               const occupancy = isSlotOccupied(hour, minute);
 
@@ -388,9 +463,26 @@ export function TimeGrid({
                   planDate={planDate}
                   isOccupied={occupancy.occupied}
                   occupiedBy={occupancy.by}
+                  isAfterHours={isAfterHours}
                 />
               );
             })}
+
+            {/* Calendar events overlay */}
+            {positionedEvents.map((item) => (
+              <CalendarEventBlock
+                key={item.event.id}
+                event={item.event}
+                style={{
+                  position: "absolute",
+                  top: item.top,
+                  left: item.left,
+                  width: item.width,
+                  height: item.height,
+                  zIndex: 5,
+                }}
+              />
+            ))}
 
             {/* Scheduled tasks overlay */}
             {scheduledTasks.map((task) => (

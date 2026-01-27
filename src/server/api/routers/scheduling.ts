@@ -745,9 +745,10 @@ export const schedulingRouter = createTRPCRouter({
         }
       }
 
-      // Fallback: Rule-based scheduling using AutoSchedulingService
-      const schedulingService = new AutoSchedulingService(ctx.db);
-      const schedule = await schedulingService.getScheduleConfig(null, userId);
+      // Fallback: Simple rule-based scheduling for the plan date
+      // Note: We don't use AutoSchedulingService here because it respects work days,
+      // but the user is explicitly planning for this specific date
+      console.log("[getSuggestionsForDailyPlan] Falling back to simple rule-based scheduling");
 
       const suggestions: Array<{
         taskId: string;
@@ -759,51 +760,75 @@ export const schedulingRouter = createTRPCRouter({
         score: number;
       }> = [];
 
-      for (const task of unscheduledTasks) {
-        const slots = await schedulingService.findAvailableSlots(
-          userId,
-          task.duration,
-          null,
-          schedule,
-          null,
-          false
-        );
+      // Parse work hours
+      const [startHour, startMin] = workHoursStart.split(":").map(Number);
+      const [endHour] = workHoursEnd.split(":").map(Number);
 
-        const todaySlots = slots.filter((slot) => isSameDay(slot.start, planDate));
+      // Start from work hours start time
+      let currentTime = new Date(planDate);
+      currentTime.setHours(startHour ?? 9, startMin ?? 0, 0, 0);
 
-        if (todaySlots.length > 0) {
-          const bestSlot = todaySlots[0];
-          if (bestSlot) {
-            const hour = bestSlot.start.getHours();
-            let reasoning = "";
+      // If it's today and current time is past work start, start from now (rounded to next 15 min)
+      const now = new Date();
+      // Check if plan date is today by comparing year, month, day in local timezone
+      // (avoids timezone issues with isSameDay + startOfDay on UTC dates)
+      const planDateLocal = new Date(dailyPlan.date);
+      const isToday = planDateLocal.getFullYear() === now.getFullYear() &&
+                      planDateLocal.getMonth() === now.getMonth() &&
+                      planDateLocal.getDate() === now.getDate();
 
-            if (hour >= 9 && hour < 12) {
-              reasoning = "Morning slot - optimal for focused work";
-            } else if (hour >= 12 && hour < 14) {
-              reasoning = "Midday slot - good for moderate-focus tasks";
-            } else if (hour >= 14 && hour < 17) {
-              reasoning = "Afternoon slot - available time in your schedule";
-            } else {
-              reasoning = "Available time slot in your schedule";
-            }
-
-            if (task.duration <= 30) {
-              reasoning += ". Quick task fits well in this gap.";
-            } else if (task.duration >= 60) {
-              reasoning += `. ${task.duration} minute block reserved.`;
-            }
-
-            suggestions.push({
-              taskId: task.id,
-              taskName: task.name,
-              duration: task.duration,
-              suggestedStart: bestSlot.start,
-              suggestedEnd: bestSlot.end,
-              reasoning,
-              score: bestSlot.score,
-            });
-          }
+      if (isToday && now > currentTime) {
+        currentTime = new Date(now);
+        const mins = currentTime.getMinutes();
+        if (mins % 15 !== 0) {
+          currentTime.setMinutes(mins + (15 - (mins % 15)));
         }
+        currentTime.setSeconds(0, 0);
+      }
+
+      for (const task of unscheduledTasks) {
+        const suggestedStart = new Date(currentTime);
+        const suggestedEnd = addMinutes(suggestedStart, task.duration);
+
+        // Check if this slot fits within work hours
+        if (suggestedEnd.getHours() > (endHour ?? 17) ||
+            (suggestedEnd.getHours() === (endHour ?? 17) && suggestedEnd.getMinutes() > 0)) {
+          // Task doesn't fit in remaining work hours, skip
+          console.log("[getSuggestionsForDailyPlan] Task:", task.name, "doesn't fit in work hours, skipping");
+          continue;
+        }
+
+        const hour = suggestedStart.getHours();
+        let reasoning = "";
+
+        if (hour >= 9 && hour < 12) {
+          reasoning = "Morning slot - optimal for focused work";
+        } else if (hour >= 12 && hour < 14) {
+          reasoning = "Midday slot - good for moderate-focus tasks";
+        } else if (hour >= 14 && hour < 17) {
+          reasoning = "Afternoon slot - available time in your schedule";
+        } else {
+          reasoning = "Available time slot in your schedule";
+        }
+
+        if (task.duration <= 30) {
+          reasoning += ". Quick task fits well in this gap.";
+        } else if (task.duration >= 60) {
+          reasoning += `. ${task.duration} minute block reserved.`;
+        }
+
+        suggestions.push({
+          taskId: task.id,
+          taskName: task.name,
+          duration: task.duration,
+          suggestedStart,
+          suggestedEnd,
+          reasoning,
+          score: 100 - suggestions.length,
+        });
+
+        // Move current time forward for next task (add 15 min buffer)
+        currentTime = addMinutes(suggestedEnd, 15);
       }
 
       suggestions.sort((a, b) => b.score - a.score);

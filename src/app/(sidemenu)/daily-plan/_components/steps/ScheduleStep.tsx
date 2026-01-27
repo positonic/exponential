@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Stack, Group, Title, Text, Button, Paper } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconClock } from "@tabler/icons-react";
+import { startOfDay, endOfDay } from "date-fns";
 import type { RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
 import { TimeGrid } from "../TimeGrid";
@@ -43,17 +44,23 @@ export function ScheduleStep({
 }: ScheduleStepProps) {
   const [suggestionsModalOpen, setSuggestionsModalOpen] = useState(false);
 
-  // Get calendar events for the plan date
-  const timeMin = new Date(planDate);
-  timeMin.setHours(0, 0, 0, 0);
-  const timeMax = new Date(planDate);
-  timeMax.setHours(23, 59, 59, 999);
-
+  // Get calendar events for the plan date (matching calendar page pattern)
   const { data: connectionStatus } = api.calendar.getConnectionStatus.useQuery();
+  const calendarConnected = connectionStatus?.isConnected ?? false;
+
   // Use multi-calendar endpoint to fetch from all user-selected calendars
   const { data: calendarEvents } = api.calendar.getEventsMultiCalendar.useQuery(
-    { timeMin, timeMax, maxResults: 50 },
-    { enabled: connectionStatus?.isConnected }
+    {
+      timeMin: startOfDay(planDate),
+      timeMax: endOfDay(planDate),
+      maxResults: 50,
+    },
+    {
+      enabled: calendarConnected,
+      retry: false,
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    }
   );
 
   // Get scheduling suggestions query
