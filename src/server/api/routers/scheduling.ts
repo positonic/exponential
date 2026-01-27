@@ -57,6 +57,152 @@ Guidelines:
 
 IMPORTANT: Return ONLY valid JSON, no markdown formatting or explanations outside the JSON.`;
 
+// System prompt for daily plan scheduling AI
+const DAILY_PLAN_SCHEDULING_PROMPT = `You are a daily planning assistant that helps schedule tasks for a single day.
+
+Your goal is to find optimal time slots for each task based on:
+1. Task duration - Ensure enough time is allocated
+2. Calendar availability - Avoid conflicts with existing calendar events
+3. Already scheduled tasks - Don't double-book
+4. Natural work patterns - Morning (9-12) for focused/creative work, afternoon for administrative tasks
+5. Task order - Earlier tasks in the list may have higher priority
+
+Return your suggestions as a JSON object with this exact structure:
+{
+  "suggestions": [
+    {
+      "taskId": "the-task-id",
+      "suggestedTime": "09:00",
+      "duration": 60,
+      "reasoning": "Brief explanation of why this time slot was chosen",
+      "priority": "high",
+      "conflictWarning": "Optional warning about nearby events"
+    }
+  ]
+}
+
+Guidelines:
+- All suggestions must be for the specified planning date
+- Schedule focused/creative work in morning slots (9-12)
+- Quick tasks (30 min or less) can be scheduled in gaps between meetings
+- Leave 15-min buffers around calendar events when possible
+- If a task is marked as high priority, schedule it in prime working hours
+- Consider the user's work hours (provided in the prompt)
+- Always provide reasoning for your suggestions
+
+IMPORTANT: Return ONLY valid JSON, no markdown formatting or explanations outside the JSON.`;
+
+// Schema for daily plan scheduling suggestion
+const DailyPlanSuggestionSchema = z.object({
+  taskId: z.string(),
+  suggestedTime: z.string(), // "HH:MM" format
+  duration: z.number().optional(),
+  reasoning: z.string(),
+  priority: z.enum(["high", "medium", "low"]).optional(),
+  conflictWarning: z.string().optional(),
+});
+
+type DailyPlanSuggestion = z.infer<typeof DailyPlanSuggestionSchema>;
+
+interface DailyPlanTask {
+  id: string;
+  name: string;
+  duration: number;
+  sortOrder: number;
+}
+
+function buildDailyPlanSchedulingPrompt(
+  tasks: DailyPlanTask[],
+  calendarEvents: CalendarEvent[],
+  scheduledTasks: Array<{ id: string; name: string; scheduledStart: Date; scheduledEnd: Date | null; duration: number }>,
+  planDate: Date,
+  workHoursStart: string,
+  workHoursEnd: string
+): string {
+  const dateStr = format(planDate, "yyyy-MM-dd");
+
+  // Build tasks section
+  const tasksSection = tasks.map((t) => {
+    return `- ID: ${t.id}
+  Name: ${t.name}
+  Duration: ${t.duration} minutes
+  List Position: ${t.sortOrder + 1}`;
+  }).join("\n\n");
+
+  // Build calendar events section (only for the plan date)
+  const calendarSection = calendarEvents.length > 0
+    ? calendarEvents.map((e) => {
+        const start = e.start.dateTime ?? e.start.date ?? "";
+        const end = e.end.dateTime ?? e.end.date ?? "";
+        return `- ${e.summary ?? "Busy"}: ${start} to ${end}`;
+      }).join("\n")
+    : "No calendar events scheduled";
+
+  // Build already scheduled tasks section
+  const scheduledSection = scheduledTasks.length > 0
+    ? scheduledTasks.map((t) => {
+        const start = format(t.scheduledStart, "HH:mm");
+        return `- ${t.name}: ${start} (${t.duration} min)`;
+      }).join("\n")
+    : "No tasks currently scheduled";
+
+  return `Please suggest optimal scheduling for these daily plan tasks:
+
+PLANNING DATE: ${dateStr}
+WORK HOURS: ${workHoursStart} to ${workHoursEnd}
+
+TASKS TO SCHEDULE:
+${tasksSection}
+
+CALENDAR EVENTS ON THIS DAY:
+${calendarSection}
+
+ALREADY SCHEDULED TASKS ON THIS DAY:
+${scheduledSection}
+
+Please provide scheduling suggestions for each task, optimizing for productivity and avoiding conflicts.`;
+}
+
+function parseDailyPlanSuggestions(responseText: string): DailyPlanSuggestion[] {
+  try {
+    let jsonStr = responseText;
+
+    // Handle markdown code blocks
+    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch?.[1]) {
+      jsonStr = jsonMatch[1];
+    }
+
+    // Try to find JSON object in the text
+    const objectMatch = jsonStr.match(/\{[\s\S]*"suggestions"[\s\S]*\}/);
+    if (objectMatch?.[0]) {
+      jsonStr = objectMatch[0];
+    }
+
+    const parsed = JSON.parse(jsonStr) as { suggestions?: unknown[] };
+
+    if (!parsed.suggestions || !Array.isArray(parsed.suggestions)) {
+      console.error("[scheduling] Invalid daily plan AI response structure:", parsed);
+      return [];
+    }
+
+    const validSuggestions: DailyPlanSuggestion[] = [];
+    for (const suggestion of parsed.suggestions) {
+      const result = DailyPlanSuggestionSchema.safeParse(suggestion);
+      if (result.success) {
+        validSuggestions.push(result.data);
+      } else {
+        console.warn("[scheduling] Invalid daily plan suggestion skipped:", result.error);
+      }
+    }
+
+    return validSuggestions;
+  } catch (error) {
+    console.error("[scheduling] Failed to parse daily plan AI response:", error, responseText);
+    return [];
+  }
+}
+
 interface OverdueAction {
   id: string;
   name: string;
@@ -432,7 +578,7 @@ export const schedulingRouter = createTRPCRouter({
 
   /**
    * Get scheduling suggestions for DailyPlanAction items
-   * Uses AutoSchedulingService to find optimal time slots
+   * Uses Mastra AI agent for intelligent scheduling suggestions
    */
   getSuggestionsForDailyPlan: protectedProcedure
     .input(
@@ -443,14 +589,11 @@ export const schedulingRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Fetch the daily plan with unscheduled tasks
+      // Fetch the daily plan with all tasks (unscheduled and scheduled)
       const dailyPlan = await ctx.db.dailyPlan.findFirst({
         where: { id: input.dailyPlanId, userId },
         include: {
           plannedActions: {
-            where: {
-              scheduledStart: null, // Only unscheduled tasks
-            },
             orderBy: { sortOrder: "asc" },
           },
         },
@@ -463,31 +606,146 @@ export const schedulingRouter = createTRPCRouter({
         });
       }
 
-      if (dailyPlan.plannedActions.length === 0) {
+      // Separate unscheduled and scheduled tasks
+      const unscheduledTasks = dailyPlan.plannedActions.filter(t => !t.scheduledStart);
+      const scheduledTasks = dailyPlan.plannedActions.filter(t => t.scheduledStart);
+
+      if (unscheduledTasks.length === 0) {
         return { suggestions: [], calendarConnected: true };
       }
 
-      // Initialize services
-      let calendarService: GoogleCalendarService | undefined;
+      const planDate = startOfDay(dailyPlan.date);
+      const planDateEnd = new Date(planDate);
+      planDateEnd.setHours(23, 59, 59, 999);
+
+      // Get user's work hours
+      const user = await ctx.db.user.findUnique({
+        where: { id: userId },
+        select: { workHoursStart: true, workHoursEnd: true },
+      });
+      const workHoursStart = user?.workHoursStart ?? "09:00";
+      const workHoursEnd = user?.workHoursEnd ?? "17:00";
+
+      // Fetch calendar events for the plan date
+      let calendarEvents: CalendarEvent[] = [];
       let calendarConnected = true;
+
       try {
-        calendarService = new GoogleCalendarService();
-        // Test if calendar is connected by making a small query
-        await calendarService.getEvents(userId, {
-          timeMin: new Date(),
-          timeMax: addMinutes(new Date(), 1),
-          maxResults: 1,
+        const calendarService = new GoogleCalendarService();
+        calendarEvents = await calendarService.getEvents(userId, {
+          timeMin: planDate,
+          timeMax: planDateEnd,
+          maxResults: 50,
         });
       } catch {
         calendarConnected = false;
-        calendarService = undefined;
       }
 
-      const schedulingService = new AutoSchedulingService(ctx.db, calendarService);
-      const schedule = await schedulingService.getScheduleConfig(null, userId);
-      const planDate = startOfDay(dailyPlan.date);
+      // Build prompt for AI
+      const tasksForPrompt: DailyPlanTask[] = unscheduledTasks.map(t => ({
+        id: t.id,
+        name: t.name,
+        duration: t.duration,
+        sortOrder: t.sortOrder,
+      }));
 
-      // Generate suggestions for each unscheduled task
+      const scheduledForPrompt = scheduledTasks
+        .filter(t => t.scheduledStart)
+        .map(t => ({
+          id: t.id,
+          name: t.name,
+          scheduledStart: t.scheduledStart!,
+          scheduledEnd: t.scheduledEnd,
+          duration: t.duration,
+        }));
+
+      const userPrompt = buildDailyPlanSchedulingPrompt(
+        tasksForPrompt,
+        calendarEvents,
+        scheduledForPrompt,
+        planDate,
+        workHoursStart,
+        workHoursEnd
+      );
+
+      // Try AI-powered scheduling first
+      if (MASTRA_API_URL) {
+        try {
+          const agentJWT = generateAgentJWT(ctx.session.user, 30);
+
+          const response = await fetch(
+            `${MASTRA_API_URL}/api/agents/ashagent/generate`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                messages: [
+                  { role: "system", content: DAILY_PLAN_SCHEDULING_PROMPT },
+                  { role: "user", content: userPrompt },
+                ],
+                runtimeContext: {
+                  authToken: agentJWT,
+                  userId: userId,
+                  userEmail: ctx.session.user.email,
+                  todoAppBaseUrl: process.env.TODO_APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000",
+                },
+              }),
+            }
+          );
+
+          if (response.ok) {
+            const responseData = await response.json() as { text?: string; content?: string };
+            const responseText = responseData.text ?? responseData.content ?? JSON.stringify(responseData);
+
+            const aiSuggestions = parseDailyPlanSuggestions(responseText);
+
+            // Convert AI suggestions to the expected format
+            const validTaskIds = new Set(unscheduledTasks.map(t => t.id));
+            const suggestions = aiSuggestions
+              .filter(s => validTaskIds.has(s.taskId))
+              .map((s, index) => {
+                const task = unscheduledTasks.find(t => t.id === s.taskId);
+                if (!task) return null;
+
+                // Parse suggested time and create Date objects
+                const [hours, minutes] = s.suggestedTime.split(":").map(Number);
+                const suggestedStart = new Date(planDate);
+                suggestedStart.setHours(hours ?? 9, minutes ?? 0, 0, 0);
+
+                const duration = s.duration ?? task.duration;
+                const suggestedEnd = addMinutes(suggestedStart, duration);
+
+                return {
+                  taskId: s.taskId,
+                  taskName: task.name,
+                  duration,
+                  suggestedStart,
+                  suggestedEnd,
+                  reasoning: s.reasoning + (s.conflictWarning ? ` ⚠️ ${s.conflictWarning}` : ""),
+                  score: 100 - index, // Higher score for earlier suggestions
+                };
+              })
+              .filter((s): s is NonNullable<typeof s> => s !== null);
+
+            if (suggestions.length > 0) {
+              return {
+                suggestions,
+                calendarConnected,
+                planDate: format(planDate, "yyyy-MM-dd"),
+              };
+            }
+          } else {
+            console.warn("[scheduling] Mastra API error, falling back to rule-based:", await response.text());
+          }
+        } catch (error) {
+          console.warn("[scheduling] Error calling Mastra agent, falling back to rule-based:", error);
+        }
+      }
+
+      // Fallback: Rule-based scheduling using AutoSchedulingService
+      const schedulingService = new AutoSchedulingService(ctx.db);
+      const schedule = await schedulingService.getScheduleConfig(null, userId);
+
       const suggestions: Array<{
         taskId: string;
         taskName: string;
@@ -498,24 +756,21 @@ export const schedulingRouter = createTRPCRouter({
         score: number;
       }> = [];
 
-      for (const task of dailyPlan.plannedActions) {
-        // Find available slots for this task on the plan date
+      for (const task of unscheduledTasks) {
         const slots = await schedulingService.findAvailableSlots(
           userId,
           task.duration,
-          null, // No deadline for daily plan tasks
+          null,
           schedule,
-          null, // No ideal start time
-          false // Not a hard deadline
+          null,
+          false
         );
 
-        // Filter slots to only include those on the plan date
         const todaySlots = slots.filter((slot) => isSameDay(slot.start, planDate));
 
         if (todaySlots.length > 0) {
           const bestSlot = todaySlots[0];
           if (bestSlot) {
-            // Generate reasoning based on slot characteristics
             const hour = bestSlot.start.getHours();
             let reasoning = "";
 
@@ -529,7 +784,6 @@ export const schedulingRouter = createTRPCRouter({
               reasoning = "Available time slot in your schedule";
             }
 
-            // Add context about duration fit
             if (task.duration <= 30) {
               reasoning += ". Quick task fits well in this gap.";
             } else if (task.duration >= 60) {
@@ -549,7 +803,6 @@ export const schedulingRouter = createTRPCRouter({
         }
       }
 
-      // Sort by score (best suggestions first)
       suggestions.sort((a, b) => b.score - a.score);
 
       return {

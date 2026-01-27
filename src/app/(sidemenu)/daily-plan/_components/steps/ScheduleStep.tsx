@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Stack, Group, Title, Text, Button, Paper } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { IconClock } from "@tabler/icons-react";
 import type { RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
@@ -83,8 +84,19 @@ export function ScheduleStep({
   };
 
   const handleGetSuggestions = async () => {
-    await refetchSuggestions();
-    setSuggestionsModalOpen(true);
+    try {
+      await refetchSuggestions();
+      setSuggestionsModalOpen(true);
+    } catch (error) {
+      console.error("[ScheduleStep] Error fetching suggestions:", error);
+      notifications.show({
+        title: "Could not get suggestions",
+        message: "There was an error generating scheduling suggestions. Please try again.",
+        color: "red",
+      });
+      // Still open modal to show the error state
+      setSuggestionsModalOpen(true);
+    }
   };
 
   const handleApplySuggestions = async (suggestions: SchedulingSuggestion[]) => {

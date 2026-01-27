@@ -104,7 +104,8 @@ export function SchedulingSuggestionsModal({
       title={
         <Group gap="xs">
           <IconSparkles size={20} className="text-brand-primary" />
-          <Text fw={600}>Scheduling Suggestions</Text>
+          <Text fw={600}>AI Scheduling Suggestions</Text>
+          <Badge size="xs" variant="light" color="violet">AI-Powered</Badge>
         </Group>
       }
       size="lg"
@@ -124,7 +125,10 @@ export function SchedulingSuggestionsModal({
           <Stack align="center" py="xl">
             <Loader size="md" />
             <Text size="sm" c="dimmed">
-              Finding optimal time slots...
+              AI is analyzing your schedule...
+            </Text>
+            <Text size="xs" c="dimmed">
+              Finding optimal time slots based on your calendar and task priorities
             </Text>
           </Stack>
         ) : suggestions.length === 0 ? (
@@ -197,9 +201,20 @@ export function SchedulingSuggestionsModal({
                             {formatDuration(suggestion.duration)}
                           </Badge>
                         </Group>
-                        <Text size="xs" c="dimmed" lineClamp={2}>
-                          {suggestion.reasoning}
-                        </Text>
+                        {suggestion.reasoning.includes("⚠️") ? (
+                          <>
+                            <Text size="xs" c="dimmed" lineClamp={2}>
+                              {suggestion.reasoning.split("⚠️")[0]}
+                            </Text>
+                            <Text size="xs" c="yellow" lineClamp={1}>
+                              ⚠️ {suggestion.reasoning.split("⚠️")[1]}
+                            </Text>
+                          </>
+                        ) : (
+                          <Text size="xs" c="dimmed" lineClamp={2}>
+                            {suggestion.reasoning}
+                          </Text>
+                        )}
                       </Stack>
                     </Group>
                   </Group>
