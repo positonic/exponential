@@ -12,8 +12,9 @@ import {
   Tabs,
   ScrollArea,
 } from "@mantine/core";
-import { IconPlus, IconCheck } from "@tabler/icons-react";
+import { IconPlus } from "@tabler/icons-react";
 import type { RouterOutputs } from "~/trpc/react";
+import { HTMLContent } from "~/app/_components/HTMLContent";
 
 type ExistingAction = RouterOutputs["action"]["getAll"][number];
 
@@ -47,7 +48,15 @@ export function AddTaskStep({
     setAddedActionIds((prev) => new Set([...prev, action.id]));
   };
 
-  const hasExistingActions = overdueActions.length > 0 || todayActions.length > 0;
+  // Filter out actions that have already been added
+  const availableOverdueActions = overdueActions.filter(
+    (action) => !addedActionIds.has(action.id)
+  );
+  const availableTodayActions = todayActions.filter(
+    (action) => !addedActionIds.has(action.id)
+  );
+
+  const hasExistingActions = availableOverdueActions.length > 0 || availableTodayActions.length > 0;
 
   const handleAddTask = async () => {
     if (!taskName.trim()) return;
@@ -128,7 +137,7 @@ export function AddTaskStep({
                 p="sm"
                 className="bg-surface-secondary border border-border-primary"
               >
-                <Text className="text-text-primary">{task.name}</Text>
+                <HTMLContent html={task.name} className="text-text-primary" />
               </Paper>
             ))}
           </Stack>
@@ -141,54 +150,43 @@ export function AddTaskStep({
           <Title order={4} className="text-text-primary" fw={600}>
             Existing Actions
           </Title>
-          <Tabs defaultValue={overdueActions.length > 0 ? "overdue" : "today"} variant="outline">
+          <Tabs defaultValue={availableOverdueActions.length > 0 ? "overdue" : "today"} variant="outline">
             <Tabs.List>
               <Tabs.Tab value="overdue">
-                Overdue ({overdueActions.length})
+                Overdue ({availableOverdueActions.length})
               </Tabs.Tab>
               <Tabs.Tab value="today">
-                Today ({todayActions.length})
+                Today ({availableTodayActions.length})
               </Tabs.Tab>
             </Tabs.List>
 
             <Tabs.Panel value="overdue" pt="xs">
               <ScrollArea.Autosize mah={300}>
-                {overdueActions.length === 0 ? (
+                {availableOverdueActions.length === 0 ? (
                   <Text c="dimmed" size="sm" className="py-2">
                     No overdue actions
                   </Text>
                 ) : (
                   <Stack gap="xs">
-                    {overdueActions.map((action) => {
-                      const isAdded = addedActionIds.has(action.id);
-                      return (
-                        <Paper
-                          key={action.id}
-                          p="sm"
-                          className={`border border-border-primary transition-colors ${
-                            isAdded
-                              ? "bg-green-500/10 cursor-default"
-                              : "bg-surface-secondary cursor-pointer hover:bg-surface-hover"
-                          }`}
-                          onClick={() => !isAdded && void handleAddExistingAction(action)}
-                        >
-                          <Group justify="space-between" wrap="nowrap">
-                            <Text
-                              size="sm"
-                              className={isAdded ? "text-text-muted" : "text-text-primary"}
-                              lineClamp={1}
-                            >
-                              {action.name}
-                            </Text>
-                            {isAdded ? (
-                              <IconCheck size={16} className="text-green-500 flex-shrink-0" />
-                            ) : (
-                              <IconPlus size={16} className="text-text-muted flex-shrink-0" />
-                            )}
-                          </Group>
-                        </Paper>
-                      );
-                    })}
+                    {availableOverdueActions.map((action) => (
+                      <Paper
+                        key={action.id}
+                        p="sm"
+                        className="border border-border-primary transition-colors bg-surface-secondary cursor-pointer hover:bg-surface-hover"
+                        onClick={() => void handleAddExistingAction(action)}
+                      >
+                        <Group justify="space-between" wrap="nowrap">
+                          <Text
+                            size="sm"
+                            className="text-text-primary"
+                            lineClamp={1}
+                          >
+                            <HTMLContent html={action.name} />
+                          </Text>
+                          <IconPlus size={16} className="text-text-muted flex-shrink-0" />
+                        </Group>
+                      </Paper>
+                    ))}
                   </Stack>
                 )}
               </ScrollArea.Autosize>
@@ -196,42 +194,31 @@ export function AddTaskStep({
 
             <Tabs.Panel value="today" pt="xs">
               <ScrollArea.Autosize mah={300}>
-                {todayActions.length === 0 ? (
+                {availableTodayActions.length === 0 ? (
                   <Text c="dimmed" size="sm" className="py-2">
                     No actions for today
                   </Text>
                 ) : (
                   <Stack gap="xs">
-                    {todayActions.map((action) => {
-                      const isAdded = addedActionIds.has(action.id);
-                      return (
-                        <Paper
-                          key={action.id}
-                          p="sm"
-                          className={`border border-border-primary transition-colors ${
-                            isAdded
-                              ? "bg-green-500/10 cursor-default"
-                              : "bg-surface-secondary cursor-pointer hover:bg-surface-hover"
-                          }`}
-                          onClick={() => !isAdded && void handleAddExistingAction(action)}
-                        >
-                          <Group justify="space-between" wrap="nowrap">
-                            <Text
-                              size="sm"
-                              className={isAdded ? "text-text-muted" : "text-text-primary"}
-                              lineClamp={1}
-                            >
-                              {action.name}
-                            </Text>
-                            {isAdded ? (
-                              <IconCheck size={16} className="text-green-500 flex-shrink-0" />
-                            ) : (
-                              <IconPlus size={16} className="text-text-muted flex-shrink-0" />
-                            )}
-                          </Group>
-                        </Paper>
-                      );
-                    })}
+                    {availableTodayActions.map((action) => (
+                      <Paper
+                        key={action.id}
+                        p="sm"
+                        className="border border-border-primary transition-colors bg-surface-secondary cursor-pointer hover:bg-surface-hover"
+                        onClick={() => void handleAddExistingAction(action)}
+                      >
+                        <Group justify="space-between" wrap="nowrap">
+                          <Text
+                            size="sm"
+                            className="text-text-primary"
+                            lineClamp={1}
+                          >
+                            <HTMLContent html={action.name} />
+                          </Text>
+                          <IconPlus size={16} className="text-text-muted flex-shrink-0" />
+                        </Group>
+                      </Paper>
+                    ))}
                   </Stack>
                 )}
               </ScrollArea.Autosize>
