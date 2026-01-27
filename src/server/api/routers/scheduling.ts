@@ -610,7 +610,10 @@ export const schedulingRouter = createTRPCRouter({
       const unscheduledTasks = dailyPlan.plannedActions.filter(t => !t.scheduledStart);
       const scheduledTasks = dailyPlan.plannedActions.filter(t => t.scheduledStart);
 
+      console.log("[getSuggestionsForDailyPlan] Daily plan:", dailyPlan.id, "Total tasks:", dailyPlan.plannedActions.length, "Unscheduled:", unscheduledTasks.length, "Scheduled:", scheduledTasks.length);
+
       if (unscheduledTasks.length === 0) {
+        console.log("[getSuggestionsForDailyPlan] No unscheduled tasks found");
         return { suggestions: [], calendarConnected: true };
       }
 
