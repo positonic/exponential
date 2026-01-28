@@ -228,7 +228,30 @@ export const dailyPlanRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.dailyPlanAction.update({
+      const actionUpdates: {
+        scheduledStart?: Date | null;
+        scheduledEnd?: Date | null;
+        duration?: number | null;
+        isAutoScheduled?: boolean;
+      } = {};
+
+      if (input.scheduledStart !== undefined) {
+        actionUpdates.scheduledStart = input.scheduledStart;
+      }
+
+      if (input.scheduledEnd !== undefined) {
+        actionUpdates.scheduledEnd = input.scheduledEnd;
+      }
+
+      if (input.duration !== undefined) {
+        actionUpdates.duration = input.duration;
+      }
+
+      if (input.schedulingMethod) {
+        actionUpdates.isAutoScheduled = input.schedulingMethod === "auto-suggested";
+      }
+
+      const dailyPlanUpdate = ctx.db.dailyPlanAction.update({
         where: { id },
         data,
         include: {
@@ -239,6 +262,20 @@ export const dailyPlanRouter = createTRPCRouter({
           },
         },
       });
+
+      if (task.actionId && Object.keys(actionUpdates).length > 0) {
+        const [, updatedTask] = await ctx.db.$transaction([
+          ctx.db.action.update({
+            where: { id: task.actionId },
+            data: actionUpdates,
+          }),
+          dailyPlanUpdate,
+        ]);
+
+        return updatedTask;
+      }
+
+      return dailyPlanUpdate;
     }),
 
   /**

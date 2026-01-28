@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Paper, Text, Group, Badge, Stack, Button } from "@mantine/core";
 import { IconGripVertical, IconSparkles, IconRobot } from "@tabler/icons-react";
 import {
@@ -246,6 +246,21 @@ export function TimeGrid({
   isLoadingSuggestions = false,
 }: TimeGridProps) {
   const [activeTask, setActiveTask] = useState<DailyPlanAction | null>(null);
+  const scheduleContainerRef = useRef<HTMLDivElement | null>(null);
+  const [scheduleWidth, setScheduleWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!scheduleContainerRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setScheduleWidth(entry.contentRect.width);
+    });
+
+    observer.observe(scheduleContainerRef.current);
+
+    return () => observer.disconnect();
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -277,7 +292,10 @@ export function TimeGrid({
   const positionedEvents = useMemo(() => {
     const PIXELS_PER_HOUR = 96; // 48px per 30-min slot = 96px per hour
     const TIME_LABEL_WIDTH = 64; // Width of time labels on left
-    const CONTAINER_WIDTH = 300; // Available width for events
+    const CONTAINER_WIDTH = Math.max(
+      (scheduleWidth ?? 240) - TIME_LABEL_WIDTH - 8,
+      160
+    ); // Keep events within the visible grid
 
     // First pass: calculate basic positions
     const positioned = calendarEvents
@@ -327,7 +345,7 @@ export function TimeGrid({
     });
 
     return sortedEvents;
-  }, [calendarEvents, startHours]);
+  }, [calendarEvents, scheduleWidth, startHours]);
 
   // Filter tasks to only show those for today (not deferred to other days)
   const todaysTasks = useMemo(() => {
@@ -446,6 +464,7 @@ export function TimeGrid({
           </Text>
 
           <Paper
+            ref={scheduleContainerRef}
             className="bg-surface-secondary border border-border-primary relative"
             style={{ minHeight: timeSlots.length * 48 }}
           >

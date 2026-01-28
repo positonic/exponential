@@ -866,7 +866,7 @@ export const schedulingRouter = createTRPCRouter({
           // Verify ownership through the daily plan
           const task = await ctx.db.dailyPlanAction.findFirst({
             where: { id: suggestion.taskId },
-            include: { dailyPlan: true },
+            include: { dailyPlan: true, action: true },
           });
 
           if (!task || task.dailyPlan.userId !== userId) {
@@ -878,8 +878,7 @@ export const schedulingRouter = createTRPCRouter({
             continue;
           }
 
-          // Update the task with scheduling info
-          await ctx.db.dailyPlanAction.update({
+          const dailyPlanUpdate = ctx.db.dailyPlanAction.update({
             where: { id: suggestion.taskId },
             data: {
               scheduledStart: suggestion.scheduledStart,
@@ -887,6 +886,23 @@ export const schedulingRouter = createTRPCRouter({
               schedulingMethod: "auto-suggested",
             },
           });
+
+          if (task.actionId && task.action) {
+            await ctx.db.$transaction([
+              ctx.db.action.update({
+                where: { id: task.actionId },
+                data: {
+                  scheduledStart: suggestion.scheduledStart,
+                  scheduledEnd: suggestion.scheduledEnd,
+                  duration: task.duration,
+                  isAutoScheduled: true,
+                },
+              }),
+              dailyPlanUpdate,
+            ]);
+          } else {
+            await dailyPlanUpdate;
+          }
 
           results.push({ taskId: suggestion.taskId, success: true });
         } catch (error) {

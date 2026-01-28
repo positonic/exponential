@@ -20,6 +20,7 @@ import {
   IconAlertCircle,
 } from "@tabler/icons-react";
 import { format } from "date-fns";
+import { HTMLContent } from "~/app/_components/HTMLContent";
 
 export interface SchedulingSuggestion {
   taskId: string;
@@ -184,9 +185,10 @@ export function SchedulingSuggestionsModal({
                         onClick={(e) => e.stopPropagation()}
                       />
                       <Stack gap={4} flex={1}>
-                        <Text size="sm" fw={500} className="text-text-primary">
-                          {suggestion.taskName}
-                        </Text>
+                        <HTMLContent
+                          html={suggestion.taskName}
+                          className="text-sm font-medium text-text-primary"
+                        />
                         <Group gap="xs">
                           <Badge
                             size="xs"
