@@ -81,7 +81,7 @@ const featureColumns: FeatureColumn[] = [
       {
         icon: "🤖",
         title: "AI Assistant",
-        description: "Chat with Paddy about your work",
+        description: "Chat with Zoe about your work",
         href: "/features/ai-assistant",
       },
       {

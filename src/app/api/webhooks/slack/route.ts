@@ -699,19 +699,35 @@ async function handleSlashCommand(payload: SlackSlashCommandPayload, integration
       case '/exponential':
         return await handleExpoCommand(text, authenticatedUser, response_url, channel_id, integrationData);
       
-      case '/paddy':
-      case '/p':
-        // Direct shorthand for chatting with Paddy
+      case '/zoe':
+      case '/z':
+        // Primary AI companion
         if (text.trim()) {
-          void handleDeferredPaddyResponse(text, authenticatedUser, response_url);
+          void handleDeferredZoeResponse(text, authenticatedUser, response_url);
           return {
             response_type: 'ephemeral',
-            text: '🤖 Paddy is thinking... I\'ll respond shortly!'
+            text: '🔮 Zoe is thinking...'
           };
         } else {
           return {
             response_type: 'ephemeral',
-            text: 'Hi! I\'m Paddy, your AI project manager. What can I help you with today?'
+            text: 'Hey! I\'m Zoe 🔮 — what\'s on your mind?'
+          };
+        }
+
+      case '/paddy':
+      case '/p':
+        // Legacy support - redirects to Zoe
+        if (text.trim()) {
+          void handleDeferredZoeResponse(text, authenticatedUser, response_url);
+          return {
+            response_type: 'ephemeral',
+            text: '🔮 Zoe is thinking...'
+          };
+        } else {
+          return {
+            response_type: 'ephemeral',
+            text: 'Hey! I\'m Zoe 🔮 (Paddy retired) — what\'s on your mind?'
           };
         }
       
@@ -855,7 +871,7 @@ async function findTeamMemberFromSlackUser(
   }
 }
 
-async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<string> {
+async function chatWithZoeUsingTRPC(message: string, user: any): Promise<string> {
   const startTime = Date.now();
   
   try {
@@ -882,17 +898,17 @@ async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<strin
     // Get available agents
     const mastraAgents = await caller.mastra.getMastraAgents();
 
-    // Find Paddy agent or fallback
+    // Find Zoe agent or fallback
     let targetAgentId: string;
-    const paddyAgent = mastraAgents.find(agent => 
-      agent.name.toLowerCase().includes('paddy') || 
-      agent.name.toLowerCase().includes('project manager')
+    const zoeAgent = mastraAgents.find(agent => 
+      agent.name.toLowerCase() === 'zoe' || 
+      agent.id.toLowerCase() === 'zoeagent'
     );
     
-    if (paddyAgent) {
-      targetAgentId = paddyAgent.id;
+    if (zoeAgent) {
+      targetAgentId = zoeAgent.id;
     } else if (mastraAgents.length > 0) {
-      // Use agent selection if Paddy not found
+      // Use agent selection if Zoe not found
       const { agentId } = await caller.mastra.chooseAgent({ message });
       targetAgentId = agentId;
     } else {
@@ -900,18 +916,18 @@ async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<strin
     }
 
     // Generate system context for Slack interaction
-    const systemContext = `You are Paddy, a helpful project manager assistant integrated with Slack. 
+    const systemContext = `You are Zoe 🔮, an AI companion integrated with Slack.
 The user is ${user.name || 'User'} (ID: ${user.id}).
 Current date: ${new Date().toISOString().split('T')[0]}
 
 You can help with:
-- Creating and managing tasks/actions
-- Discussing projects and priorities  
-- General productivity and project management advice
-- Answering questions about their work
+- Figuring out what to focus on
+- Breaking down projects into actions
+- Tracking progress on goals
+- Thinking through decisions
 - Accessing meeting transcriptions and project data
 
-Keep responses concise and friendly, suitable for Slack chat. Use Slack formatting when helpful (like *bold* or _italic_).
+Be concise, direct, and genuinely helpful. Skip the corporate fluff. Use Slack formatting when helpful (like *bold* or _italic_).
 
 IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
 
@@ -932,7 +948,7 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
 
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    console.error(`❌ [Paddy] Error after ${totalTime}ms:`, error);
+    console.error(`❌ [Zoe] Error after ${totalTime}ms:`, error);
     
     if (error instanceof Error) {
       if (error.message.toLowerCase().includes('timeout')) {
@@ -999,10 +1015,10 @@ function formatResponseForSlack(response: string): string {
 }
 
 
-async function handleDeferredPaddyResponse(message: string, user: any, responseUrl: string) {
+async function handleDeferredZoeResponse(message: string, user: any, responseUrl: string) {
   try {
-    const paddyResponse = await chatWithPaddyUsingTRPC(message, user);
-    const formattedResponse = formatResponseForSlack(paddyResponse);
+    const zoeResponse = await chatWithZoeUsingTRPC(message, user);
+    const formattedResponse = formatResponseForSlack(zoeResponse);
     
     // Send the response back to Slack using the response_url
     await fetch(responseUrl, {
@@ -1015,7 +1031,7 @@ async function handleDeferredPaddyResponse(message: string, user: any, responseU
     });
     
   } catch (error) {
-    console.error('❌ [Deferred] Error in deferred Paddy response:', error);
+    console.error('❌ [Deferred] Error in deferred Zoe response:', error);
     
     // Send error message back to Slack
     await fetch(responseUrl, {
@@ -1096,7 +1112,7 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
 
   // For DMs, if no text or just greeting, send welcome message
   if (isDM && (!cleanText || cleanText.toLowerCase().match(/^(hi|hello|hey|sup|yo)$/))) {
-    const welcomeMessage = `👋 *Hello! I'm Paddy, your AI project manager.*
+    const welcomeMessage = `👋 *Hey! I'm Zoe 🔮*
 
 You can chat with me naturally here - no commands needed!
 
@@ -1132,7 +1148,7 @@ You can chat with me naturally here - no commands needed!
 
   try {
     // Process the request and respond directly (no "thinking" message)
-    const response = await chatWithPaddyUsingTRPC(cleanText, user);
+    const response = await chatWithZoeUsingTRPC(cleanText, user);
     const formattedResponse = formatResponseForSlack(response);
     
     await sendSlackResponse(
@@ -1141,19 +1157,19 @@ You can chat with me naturally here - no commands needed!
       integrationData,
       event.thread_ts
     );
-    logMessageCompletion('paddy');
+    logMessageCompletion('zoe');
   } catch (error) {
-    console.error('Error chatting with Paddy:', error);
+    console.error('Error chatting with Zoe:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
     // Send error response
     await sendSlackResponse(
-      'Sorry, I encountered an error. Please try a simpler question or try again later.',
+      'Sorry, I hit a snag. Try again or rephrase?',
       event.channel!,
       integrationData,
       event.thread_ts
     );
-    logMessageCompletion('paddy', true, errorMessage);
+    logMessageCompletion('zoe', true, errorMessage);
   }
 
   return { success: true };
@@ -1190,15 +1206,15 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
       const chatMessage = args.slice(1).join(' ');
       if (chatMessage) {
         // Immediately return acknowledgment and process in background
-        void handleDeferredPaddyResponse(chatMessage, user, responseUrl);
+        void handleDeferredZoeResponse(chatMessage, user, responseUrl);
         return {
           response_type: 'ephemeral',
-          text: '🤖 Paddy is thinking... I\'ll respond shortly!'
+          text: '🔮 Zoe is thinking...'
         };
       } else {
         return {
           response_type: 'ephemeral',
-          text: 'Please provide a message to chat with Paddy. Usage: `/expo chat [your message]`'
+          text: 'Usage: `/expo chat [your message]`'
         };
       }
 
@@ -1209,7 +1225,7 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
 • \`/expo create [description]\` - Create a new action
 • \`/expo list\` - List your pending actions
 • \`/expo projects\` - List your active projects
-• \`/expo chat [message]\` - Chat with Paddy, your AI assistant
+• \`/expo chat [message]\` - Chat with Zoe, your AI companion
 • \`/expo help\` - Show this help message
 
 *Smart parsing:* Add dates and projects naturally!
@@ -1218,7 +1234,7 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
 • \`/expo create Fix bug for Acme project\` - linked to "Acme" project
 • \`/expo create Send report tomorrow for Sales project\` - both!
 
-You can also mention me (@Exponential) in any channel to chat with Paddy!`
+You can also mention me (@Exponential) in any channel to chat with Zoe!`
       };
 
     default:
@@ -1523,7 +1539,7 @@ async function handleAppHomeOpened(event: SlackEvent, user: any, integrationData
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: 'You can use the following commands:\n• `/expo help` - Show available commands\n• `/paddy` - Chat with Paddy AI\n• `/expo list` - List your actions'
+          text: 'You can use the following commands:\n• `/expo help` - Show available commands\n• `/zoe` - Chat with Zoe 🔮\n• `/expo list` - List your actions'
         }
       },
       {

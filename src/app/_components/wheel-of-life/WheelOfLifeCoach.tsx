@@ -46,9 +46,9 @@ export function WheelOfLifeCoach({ assessmentId }: WheelOfLifeCoachProps) {
 
   // Select the best available agent for coaching
   const selectedAgentId = useMemo(() => {
-    if (!mastraAgents || mastraAgents.length === 0) return "paddy";
+    if (!mastraAgents || mastraAgents.length === 0) return "zoeagent";
 
-    // Priority: lifeCoach > coach > paddy > first available
+    // Priority: lifeCoach > coach > zoe > first available
     const lifeCoach = mastraAgents.find((a) =>
       a.name.toLowerCase().includes("lifecoach") || a.id.toLowerCase().includes("lifecoach")
     );
@@ -59,12 +59,12 @@ export function WheelOfLifeCoach({ assessmentId }: WheelOfLifeCoachProps) {
     );
     if (coach) return coach.id;
 
-    const paddy = mastraAgents.find((a) =>
-      a.name.toLowerCase().includes("paddy") || a.id.toLowerCase().includes("paddy")
+    const zoe = mastraAgents.find((a) =>
+      a.name.toLowerCase() === "zoe" || a.id.toLowerCase() === "zoeagent"
     );
-    if (paddy) return paddy.id;
+    if (zoe) return zoe.id;
 
-    return mastraAgents[0]?.id ?? "paddy";
+    return mastraAgents[0]?.id ?? "zoeagent";
   }, [mastraAgents]);
 
   const callAgent = api.mastra.callAgent.useMutation();

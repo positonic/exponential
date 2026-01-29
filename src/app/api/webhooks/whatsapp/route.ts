@@ -734,7 +734,7 @@ async function processAIMessage(user: User, message: string, phoneNumber: string
           userMessage: message,
           cleanMessage: message,
           aiResponse: finalResponse,
-          agentName: 'Paddy AI',
+          agentName: 'Zoe',
           model: process.env.LLM_MODEL || 'gpt-3.5-turbo',
           conversationId: `whatsapp-${phoneNumber}-${configId}`,
           messageType: 'message',

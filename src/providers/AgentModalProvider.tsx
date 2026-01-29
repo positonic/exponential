@@ -19,20 +19,20 @@ export interface ChatMessage {
 // Default system message for the chat
 const DEFAULT_SYSTEM_MESSAGE: ChatMessage = {
   type: 'system',
-  content: `Your name is Paddy the project manager. You are a coordinator managing a multi-agent conversation.
+  content: `Your name is Zoe, an AI companion. You are a coordinator managing a multi-agent conversation.
             Route user requests to the appropriate specialized agent if necessary.
             Keep track of the conversation flow between the user and multiple AI agents.`
 };
 
-// Default welcome message from Paddy
+// Default welcome message from Zoe
 const DEFAULT_WELCOME_MESSAGE: ChatMessage = {
   type: 'ai',
-  agentName: 'Paddy',
-  content: `Hello! I'm Paddy, your project manager. I'll be your default assistant here.
+  agentName: 'Zoe',
+  content: `Hey! I'm Zoe 🔮
 
-I can help with project management, task coordination, and can connect you with other specialized agents when needed. Just mention them with @ to speak with them directly.
+I'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.
 
-How can I help you today?`
+What's up?`
 };
 
 interface AgentModalContextValue {

@@ -99,7 +99,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     return [
       {
         type: 'system',
-        content: `Your name is Paddy the project manager. You are a coordinator managing a multi-agent conversation. 
+        content: `Your name is Zoe, an AI companion. You are a coordinator managing a multi-agent conversation. 
                   Route user requests to the appropriate specialized agent if necessary.
                   Keep track of the conversation flow between the user and multiple AI agents.
                   
@@ -178,10 +178,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       },
       {
         type: 'ai',
-        agentName: 'Paddy',
+        agentName: 'Zoe',
         content: projectData ? 
-          `Hello! I'm Paddy, your project manager. I'll be your default assistant for the "${projectData.name}" project (ID: ${projectId}). \n\nI'm here to help with project management, task coordination, and can connect you with other specialized agents when needed. Just mention them with @ (like @designer or @developer) to speak with them directly.\n\nHow can I help you today?` :
-          'Hello! I\'m Paddy, your project manager. I\'ll be your default assistant here. \n\nI can help with project management, task coordination, and can connect you with other specialized agents when needed. Just mention them with @ to speak with them directly.\n\nHow can I help you today?'
+          `Hey! I'm Zoe 🔮 — your companion for the "${projectData.name}" project.\n\nI know your projects, actions, and goals. Ask me what to focus on, break down a vague idea, or just think through something. You can also tag other agents with @ if you need specialists.\n\nWhat's on your mind?` :
+          `Hey! I'm Zoe 🔮\n\nI'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.\n\nWhat's up?`
       }
     ];
   }, [projectId, githubSettings]);
@@ -516,23 +516,21 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         targetAgentId = mentionedAgentId;
         console.log('🔒 [SECURITY AUDIT] Using mentioned agent:', { agentId: mentionedAgentId });
       } else {
-        // Always default to Paddy the project manager unless another agent is specifically mentioned
-        // First, find Paddy's agent ID
-        const paddyAgent = mastraAgents?.find(agent => 
-          agent.name.toLowerCase() === 'paddy' || 
-          agent.name.toLowerCase().includes('project manager') ||
-          agent.name.toLowerCase().includes('paddy')
+        // Always default to Zoe unless another agent is specifically mentioned
+        const zoeAgent = mastraAgents?.find(agent => 
+          agent.name.toLowerCase() === 'zoe' || 
+          agent.id.toLowerCase() === 'zoeagent'
         );
         
-        if (paddyAgent) {
-          targetAgentId = paddyAgent.id;
-          console.log('🔒 [SECURITY AUDIT] Defaulting to Paddy:', { agentId: paddyAgent.id });
+        if (zoeAgent) {
+          targetAgentId = zoeAgent.id;
+          console.log('🔮 [AGENT] Defaulting to Zoe:', { agentId: zoeAgent.id });
         } else {
-          // Fallback: Use AI to choose if Paddy not found (shouldn't happen)
-          console.warn('⚠️ Paddy agent not found, using AI selection');
+          // Fallback: Use AI to choose if Zoe not found
+          console.warn('⚠️ Zoe agent not found, using AI selection');
           const { agentId } = await chooseAgent.mutateAsync({ message: input });
           targetAgentId = agentId;
-          console.log('🔒 [SECURITY AUDIT] AI selected agent:', { agentId });
+          console.log('🔮 [AGENT] AI selected agent:', { agentId });
         }
       }
       

@@ -68,7 +68,7 @@ export function AgentChatPage() {
   // Determine active agent from last AI message in conversation
   const activeAgentName = useMemo(() => {
     const lastAiMessage = [...messages].reverse().find(m => m.type === 'ai' && m.agentName);
-    return lastAiMessage?.agentName ?? 'Paddy';
+    return lastAiMessage?.agentName ?? 'Zoe';
   }, [messages]);
 
   // Query for conversation history when we want to load a specific conversation

@@ -139,7 +139,7 @@ export const features: FeatureData[] = [
     slug: "ai-assistant",
     category: "Exponential's AI Assistant",
     title: "AI Assistant",
-    headline: "Chat with Paddy about your work.",
+    headline: "Chat with Zoe about your work.",
     description:
       "Your AI co-pilot who understands your goals, projects, and context. Ask questions, get suggestions, and let AI help you stay focused on what matters.",
     benefits: [
