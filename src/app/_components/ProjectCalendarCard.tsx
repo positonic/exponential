@@ -375,7 +375,7 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
                       <Group gap="xs">
                         <IconClock size={12} style={{ color: "var(--mantine-color-blue-5)" }} />
                         <Text size="xs" c="dimmed">
-                          {format(new Date(action.scheduledStart!), "h:mm a")}
+                          {format(new Date(action.scheduledStart), "h:mm a")}
                           {action.duration && ` (${action.duration} min)`}
                         </Text>
                       </Group>

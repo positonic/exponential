@@ -385,10 +385,27 @@ export function ActionList({
     });
     console.log("[ActionList] View Filtered (Pre-Status):", viewFilteredPreStatus);
 
-    // Then filter by status (ACTIVE/COMPLETED) and sort by priority
+    // Then filter by status (ACTIVE/COMPLETED) and sort accordingly
     const finalFiltered = viewFilteredPreStatus
       .filter((action) => action.status === filter)
-      .sort(sortByPriority);
+      .sort((a, b) => {
+        // For completed actions, sort by completion date (most recent first)
+        if (filter === "COMPLETED") {
+          const aCompletedAt = (a as any).completedAt;
+          const bCompletedAt = (b as any).completedAt;
+
+          // Handle null/undefined completion dates
+          if (!aCompletedAt && !bCompletedAt) return a.id.localeCompare(b.id);
+          if (!aCompletedAt) return 1; // Push items without completion date to the end
+          if (!bCompletedAt) return -1;
+
+          // Sort by completion date descending (most recent first)
+          return new Date(bCompletedAt).getTime() - new Date(aCompletedAt).getTime();
+        }
+
+        // For active actions, sort by priority
+        return sortByPriority(a, b);
+      });
     console.log("[ActionList] Final Filtered Actions:", finalFiltered);
     return finalFiltered;
   })();
