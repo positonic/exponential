@@ -67,6 +67,13 @@ export function CalendarPageContent() {
     },
   });
 
+  const updateDailyPlanTask = api.dailyPlan.updateTask.useMutation({
+    onSuccess: async () => {
+      await utils.action.getScheduledByDateRange.invalidate();
+      await utils.dailyPlan.getOrCreateToday.invalidate();
+    },
+  });
+
   // Handle calendar disconnect
   const disconnectCalendar = api.calendar.disconnect.useMutation({
     onSuccess: async () => {
@@ -88,26 +95,23 @@ export function CalendarPageContent() {
     },
   });
 
-  const handleActionStatusChange = (actionId: string, completed: boolean) => {
+  const handleActionStatusChange = (action: ScheduledAction, completed: boolean) => {
+    if (action.source === "daily-plan" && action.dailyPlanActionId) {
+      updateDailyPlanTask.mutate({
+        id: action.dailyPlanActionId,
+        completed,
+      });
+      return;
+    }
+
     updateAction.mutate({
-      id: actionId,
+      id: action.actionId ?? action.id,
       status: completed ? "COMPLETED" : "ACTIVE",
     });
   };
 
   // Transform scheduled actions to the expected format
-  const scheduledActions: ScheduledAction[] =
-    scheduledActionsData
-      ?.filter((a) => a.scheduledStart)
-      .map((a) => ({
-        id: a.id,
-        name: a.name,
-        scheduledStart: a.scheduledStart!,
-        scheduledEnd: a.scheduledEnd,
-        duration: a.duration,
-        status: a.status,
-        project: a.project,
-      })) ?? [];
+  const scheduledActions: ScheduledAction[] = scheduledActionsData ?? [];
 
   const renderCalendarContent = () => {
     // Show loading state while checking connection

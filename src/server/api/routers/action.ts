@@ -581,29 +581,82 @@ export const actionRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      return ctx.db.action.findMany({
-        where: {
-          OR: [
-            { createdById: userId, assignees: { none: {} } },
-            { assignees: { some: { userId: userId } } },
-          ],
-          scheduledStart: {
-            gte: input.startDate,
-            lte: input.endDate,
+      const [scheduledActions, scheduledDailyPlanTasks] = await Promise.all([
+        ctx.db.action.findMany({
+          where: {
+            OR: [
+              { createdById: userId, assignees: { none: {} } },
+              { assignees: { some: { userId: userId } } },
+            ],
+            scheduledStart: {
+              gte: input.startDate,
+              lte: input.endDate,
+            },
+            status: "ACTIVE",
+            ...(input.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
           },
-          status: "ACTIVE",
-          ...(input.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
-        },
-        include: {
-          project: true,
-          assignees: {
-            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+          include: {
+            project: true,
+            assignees: {
+              include: { user: { select: { id: true, name: true, email: true, image: true } } },
+            },
+            createdBy: { select: { id: true, name: true, email: true, image: true } },
+            tags: { include: { tag: true } },
           },
-          createdBy: { select: { id: true, name: true, email: true, image: true } },
-          tags: { include: { tag: true } },
-        },
-        orderBy: { scheduledStart: "asc" },
-      });
+          orderBy: { scheduledStart: "asc" },
+        }),
+        ctx.db.dailyPlanAction.findMany({
+          where: {
+            actionId: null,
+            scheduledStart: {
+              gte: input.startDate,
+              lte: input.endDate,
+            },
+            dailyPlan: {
+              userId,
+              ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+            },
+          },
+          include: {
+            action: {
+              include: {
+                project: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      const scheduledItems = [
+        ...scheduledActions.map((action) => ({
+          id: action.id,
+          actionId: action.id,
+          dailyPlanActionId: null,
+          name: action.name,
+          scheduledStart: action.scheduledStart!,
+          scheduledEnd: action.scheduledEnd,
+          duration: action.duration,
+          status: action.status,
+          project: action.project,
+          source: "action",
+        })),
+        ...scheduledDailyPlanTasks.map((task) => ({
+          id: task.id,
+          actionId: null,
+          dailyPlanActionId: task.id,
+          name: task.name,
+          scheduledStart: task.scheduledStart!,
+          scheduledEnd: task.scheduledEnd,
+          duration: task.duration,
+          status: task.completed ? "COMPLETED" : "ACTIVE",
+          project: task.action?.project ?? null,
+          source: "daily-plan",
+        })),
+      ];
+
+      return scheduledItems.sort(
+        (a, b) => a.scheduledStart.getTime() - b.scheduledStart.getTime()
+      );
     }),
 
   updateActionsProject: protectedProcedure

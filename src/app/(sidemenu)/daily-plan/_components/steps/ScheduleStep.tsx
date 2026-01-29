@@ -43,6 +43,7 @@ export function ScheduleStep({
   onBack,
 }: ScheduleStepProps) {
   const [suggestionsModalOpen, setSuggestionsModalOpen] = useState(false);
+  const utils = api.useUtils();
 
   // Get calendar events for the plan date (matching calendar page pattern)
   const { data: connectionStatus } = api.calendar.getConnectionStatus.useQuery();
@@ -75,7 +76,9 @@ export function ScheduleStep({
 
   // Apply suggestions mutation
   const applySuggestionsMutation = api.scheduling.applySuggestions.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
+      await utils.action.getScheduledByDateRange.invalidate();
+      await utils.action.getScheduledByDate.invalidate();
       onRefetch();
       setSuggestionsModalOpen(false);
     },

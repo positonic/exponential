@@ -17,8 +17,8 @@ interface CalendarDayTimeGridProps {
   events: CalendarEvent[];
   scheduledActions: ScheduledAction[];
   selectedDate: Date;
-  onActionStatusChange?: (actionId: string, completed: boolean) => void;
-  onActionClick?: (actionId: string) => void;
+  onActionStatusChange?: (action: ScheduledAction, completed: boolean) => void;
+  onActionClick?: (action: ScheduledAction) => void;
 }
 
 interface PositionedItem {

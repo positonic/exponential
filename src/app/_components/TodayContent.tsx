@@ -17,6 +17,7 @@ import { StartupRoutineForm } from "./StartupRoutineForm";
 import { api } from "~/trpc/react";
 import { format, parseISO } from "date-fns";
 import { CalendarDayView } from "./CalendarDayView";
+import type { ScheduledAction } from "./calendar/types";
 import { CalendarWeekView } from "./CalendarWeekView";
 import { CalendarMonthView } from "./CalendarMonthView";
 import type { FocusPeriod, DateRange } from "~/types/focus";
@@ -96,9 +97,24 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
     },
   });
 
-  const handleActionStatusChange = (actionId: string, completed: boolean) => {
+  const updateDailyPlanTask = api.dailyPlan.updateTask.useMutation({
+    onSuccess: async () => {
+      await utils.action.getScheduledByDateRange.invalidate();
+      await utils.dailyPlan.getOrCreateToday.invalidate();
+    },
+  });
+
+  const handleActionStatusChange = (action: ScheduledAction, completed: boolean) => {
+    if (action.source === "daily-plan" && action.dailyPlanActionId) {
+      updateDailyPlanTask.mutate({
+        id: action.dailyPlanActionId,
+        completed,
+      });
+      return;
+    }
+
     updateAction.mutate({
-      id: actionId,
+      id: action.actionId ?? action.id,
       status: completed ? "COMPLETED" : "ACTIVE",
     });
   };
@@ -230,15 +246,7 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
                 <CalendarDayView
                   events={events}
                   selectedDate={today}
-                  scheduledActions={scheduledActions?.map(a => ({
-                    id: a.id,
-                    name: a.name,
-                    scheduledStart: a.scheduledStart!,
-                    scheduledEnd: a.scheduledEnd,
-                    duration: a.duration,
-                    status: a.status,
-                    project: a.project,
-                  })).filter(a => a.scheduledStart) ?? []}
+                  scheduledActions={scheduledActions ?? []}
                   onActionStatusChange={handleActionStatusChange}
                 />
               )}

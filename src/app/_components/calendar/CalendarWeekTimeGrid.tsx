@@ -17,8 +17,8 @@ interface CalendarWeekTimeGridProps {
   events: CalendarEvent[];
   scheduledActions: ScheduledAction[];
   dateRange: { start: Date; end: Date };
-  onActionStatusChange?: (actionId: string, completed: boolean) => void;
-  onActionClick?: (actionId: string) => void;
+  onActionStatusChange?: (action: ScheduledAction, completed: boolean) => void;
+  onActionClick?: (action: ScheduledAction) => void;
 }
 
 export function CalendarWeekTimeGrid({

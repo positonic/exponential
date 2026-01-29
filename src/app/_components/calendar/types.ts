@@ -10,12 +10,15 @@ export interface CalendarNavigation {
 
 export interface ScheduledAction {
   id: string;
+  actionId: string | null;
+  dailyPlanActionId: string | null;
   name: string;
   scheduledStart: Date;
   scheduledEnd?: Date | null;
   duration?: number | null;
   status: string;
   project?: { id: string; name: string } | null;
+  source: "action" | "daily-plan";
 }
 
 export interface PositionedEvent {

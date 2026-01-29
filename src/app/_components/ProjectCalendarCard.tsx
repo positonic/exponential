@@ -32,6 +32,7 @@ import { GoogleCalendarConnect } from "./GoogleCalendarConnect";
 import { CreateMeetingModal } from "./CreateMeetingModal";
 import { stripHtml } from "~/lib/utils";
 import { Checkbox } from "@mantine/core";
+import type { ScheduledAction } from "./calendar/types";
 
 interface ProjectCalendarCardProps {
   projectId?: string;
@@ -106,9 +107,9 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
     },
   });
 
-  const handleActionStatusChange = (actionId: string, completed: boolean) => {
+  const handleActionStatusChange = (action: ScheduledAction, completed: boolean) => {
     updateAction.mutate({
-      id: actionId,
+      id: action.actionId ?? action.id,
       status: completed ? "COMPLETED" : "ACTIVE",
     });
   };
@@ -170,6 +171,22 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
   };
 
   const isConnected = connectionStatus?.isConnected ?? false;
+
+  const calendarScheduledActions: ScheduledAction[] =
+    scheduledActions
+      ?.filter((action) => action.scheduledStart)
+      .map((action) => ({
+        id: action.id,
+        actionId: action.id,
+        dailyPlanActionId: null,
+        name: action.name,
+        scheduledStart: action.scheduledStart!,
+        scheduledEnd: action.scheduledEnd,
+        duration: action.duration,
+        status: action.status,
+        project: action.project,
+        source: "action",
+      })) ?? [];
 
   return (
     <Card
@@ -278,7 +295,7 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
           )}
 
           {/* No events and no scheduled actions */}
-          {events && events.length === 0 && (!scheduledActions || scheduledActions.length === 0) && !isLoading && !error && (
+          {events && events.length === 0 && calendarScheduledActions.length === 0 && !isLoading && !error && (
             <Paper
               p="md"
               radius="md"
@@ -298,21 +315,13 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
           )}
 
           {/* Day View */}
-          {((events && events.length > 0) || (scheduledActions && scheduledActions.length > 0)) && viewMode === "dayview" && (
+          {((events && events.length > 0) || calendarScheduledActions.length > 0) && viewMode === "dayview" && (
             <ScrollArea h={300} ref={scrollAreaRef} scrollbarSize={6}>
               <Paper withBorder className="bg-surface-tertiary" p="xs">
                 <CalendarDayView
                   events={events ?? []}
                   selectedDate={selectedDate}
-                  scheduledActions={scheduledActions?.map(a => ({
-                    id: a.id,
-                    name: a.name,
-                    scheduledStart: a.scheduledStart!,
-                    scheduledEnd: a.scheduledEnd,
-                    duration: a.duration,
-                    status: a.status,
-                    project: a.project,
-                  })).filter(a => a.scheduledStart) ?? []}
+                  scheduledActions={calendarScheduledActions}
                   onActionStatusChange={handleActionStatusChange}
                 />
               </Paper>
@@ -320,15 +329,15 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
           )}
 
           {/* List View */}
-          {((events && events.length > 0) || (scheduledActions && scheduledActions.length > 0)) && viewMode === "list" && (
+          {((events && events.length > 0) || calendarScheduledActions.length > 0) && viewMode === "list" && (
             <ScrollArea h={300} scrollbarSize={6}>
               <Stack gap="xs">
                 <Text size="xs" c="dimmed">
-                  {(events?.length ?? 0) + (scheduledActions?.length ?? 0)} item{((events?.length ?? 0) + (scheduledActions?.length ?? 0)) !== 1 ? "s" : ""}
+                  {(events?.length ?? 0) + calendarScheduledActions.length} item{(events?.length ?? 0) + calendarScheduledActions.length !== 1 ? "s" : ""}
                 </Text>
 
                 {/* Scheduled Actions */}
-                {scheduledActions?.filter(a => a.scheduledStart).map((action) => (
+                {calendarScheduledActions.map((action) => (
                   <Paper
                     key={action.id}
                     p="sm"
@@ -342,7 +351,7 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
                             size="xs"
                             radius="xl"
                             checked={action.status === "COMPLETED"}
-                            onChange={(e) => handleActionStatusChange(action.id, e.currentTarget.checked)}
+                            onChange={(e) => handleActionStatusChange(action, e.currentTarget.checked)}
                             styles={{
                               input: {
                                 backgroundColor: 'transparent',

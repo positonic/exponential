@@ -3,27 +3,17 @@
 import { Text, Stack, Tooltip, Checkbox } from "@mantine/core";
 import { format, parseISO, isToday, isSameDay } from "date-fns";
 import { type CalendarEvent } from "~/server/services/GoogleCalendarService";
+import type { ScheduledAction } from "./calendar/types";
 import { useMemo } from "react";
 import { stripHtml } from "~/lib/utils";
-
-// Type for scheduled actions
-interface ScheduledAction {
-  id: string;
-  name: string;
-  scheduledStart: Date;
-  scheduledEnd?: Date | null;
-  duration?: number | null;
-  status: string;
-  project?: { id: string; name: string } | null;
-}
 
 interface CalendarDayViewProps {
   events: CalendarEvent[];
   scheduledActions?: ScheduledAction[];
   selectedDate: Date;
   className?: string;
-  onActionClick?: (actionId: string) => void;
-  onActionStatusChange?: (actionId: string, completed: boolean) => void;
+  onActionClick?: (action: ScheduledAction) => void;
+  onActionStatusChange?: (action: ScheduledAction, completed: boolean) => void;
 }
 
 interface PositionedEvent extends CalendarEvent {
@@ -360,7 +350,7 @@ export function CalendarDayView({
                   zIndex,
                   minHeight: '25px',
                 }}
-                onClick={() => onActionClick?.(action.id)}
+                onClick={() => onActionClick?.(action)}
               >
                 <div className="flex items-start gap-2">
                   <Checkbox
@@ -369,7 +359,7 @@ export function CalendarDayView({
                     checked={action.status === 'COMPLETED'}
                     onChange={(e) => {
                       e.stopPropagation();
-                      onActionStatusChange?.(action.id, e.currentTarget.checked);
+                    onActionStatusChange?.(action, e.currentTarget.checked);
                     }}
                     onClick={(e) => e.stopPropagation()}
                     styles={{

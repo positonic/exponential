@@ -14,8 +14,8 @@ interface EventBlockProps {
 interface ActionBlockProps {
   action: ScheduledAction;
   style: React.CSSProperties;
-  onStatusChange?: (actionId: string, completed: boolean) => void;
-  onClick?: (actionId: string) => void;
+  onStatusChange?: (action: ScheduledAction, completed: boolean) => void;
+  onClick?: (action: ScheduledAction) => void;
 }
 
 function getEventColor(event: CalendarEvent): string {
@@ -147,7 +147,7 @@ export function CalendarActionBlock({
             : "bg-brand-primary/20 border-l-4 border-l-brand-primary border-y-0 border-r-0 text-text-primary"
         }`}
         style={style}
-        onClick={() => onClick?.(action.id)}
+        onClick={() => onClick?.(action)}
       >
         <div className="flex items-start gap-1.5">
           <Checkbox
@@ -156,7 +156,7 @@ export function CalendarActionBlock({
             checked={isCompleted}
             onChange={(e) => {
               e.stopPropagation();
-              onStatusChange?.(action.id, e.currentTarget.checked);
+              onStatusChange?.(action, e.currentTarget.checked);
             }}
             onClick={(e) => e.stopPropagation()}
             styles={{
