@@ -77,8 +77,27 @@ export class TranscriptionProcessingService {
         }
       }
 
-      // 5. Process action items if available and project is set
-      if (processedData?.actionItems && processedData.actionItems.length > 0 && transcription.projectId) {
+      // 5. Validate parsed data
+      if (!processedData) {
+        console.log(`ℹ️ No summary data available for transcription ${transcriptionId}`);
+        result.success = true; // Not an error, just no data
+        return result;
+      }
+
+      if (!processedData.actionItems || processedData.actionItems.length === 0) {
+        console.log(`ℹ️ No action items found in transcription ${transcriptionId}`);
+        result.success = true;
+        result.actionsCreated = 0;
+        return result; // Early return, skip processing
+      }
+
+      if (!transcription.projectId) {
+        result.errors.push('No project assigned to this transcription');
+        return result;
+      }
+
+      // 6. Process action items
+      if (processedData.actionItems && processedData.actionItems.length > 0) {
         try {
           console.log(`🎯 Processing ${processedData.actionItems.length} action items for project ${transcription.projectId}`);
           

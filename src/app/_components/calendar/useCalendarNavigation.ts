@@ -15,6 +15,7 @@ import {
   format,
 } from "date-fns";
 import type { CalendarView, CalendarNavigation } from "./types";
+import { useDayRollover } from "~/hooks/useDayRollover";
 
 function isValidView(view: string | null): view is CalendarView {
   return view === "day" || view === "week";
@@ -48,10 +49,12 @@ export function useCalendarNavigation(): CalendarNavigation & {
   const view: CalendarView = isValidView(viewFromUrl) ? viewFromUrl : "week";
   const parsedDate = parseDate(dateFromUrl);
 
+  const today = useDayRollover();
+
   // Wrap selectedDate in useMemo to prevent unnecessary re-renders
   const selectedDate = useMemo(() => {
-    return parsedDate ?? new Date();
-  }, [parsedDate]);
+    return parsedDate ?? today;
+  }, [parsedDate, today]);
 
   // Calculate date range based on view
   const dateRange = useMemo(() => {

@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { Container, Stepper, Loader, Text } from "@mantine/core";
 import { addDays, startOfDay } from "date-fns";
 import { api } from "~/trpc/react";
+import { useDayRollover } from "~/hooks/useDayRollover";
 import { WelcomeStep } from "./_components/steps/WelcomeStep";
 import { AddTaskStep } from "./_components/steps/AddTaskStep";
 import { EstimateTimingStep } from "./_components/steps/EstimateTimingStep";
@@ -29,11 +30,12 @@ export default function DailyPlanPage() {
   const [currentStep, setCurrentStep] = useState<WizardStep>("welcome");
   const [selectedDate, setSelectedDate] = useState<PlanDate>("today");
 
+  const today = useDayRollover();
+
   // Calculate the actual date based on selection
   const planDate = useMemo(() => {
-    const today = startOfDay(new Date());
-    return selectedDate === "tomorrow" ? addDays(today, 1) : today;
-  }, [selectedDate]);
+    return selectedDate === "tomorrow" ? addDays(today, 1) : startOfDay(today);
+  }, [selectedDate, today]);
 
   // Get or create daily plan for the selected date (no workspace - user-level)
   const {

@@ -45,6 +45,7 @@ import { FirefliesSyncPanel } from "./FirefliesSyncPanel";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 import { HTMLContent } from "./HTMLContent";
+import { type FirefliesSummary } from "~/server/services/FirefliesService";
 
 type TabValue = "transcriptions" | "upcoming" | "archive" | "activity";
 
@@ -65,6 +66,30 @@ interface WebhookLog {
 
 interface MeetingsContentProps {
   workspaceId?: string;
+}
+
+// Helper function to check if a transcription has extractable action items
+function hasExtractableActions(session: { summary: string | null }): boolean {
+  if (!session.summary) return false;
+
+  try {
+    const summary = JSON.parse(session.summary) as FirefliesSummary;
+
+    // Check if action_items exists and has content
+    if (!summary.action_items) return false;
+
+    if (Array.isArray(summary.action_items)) {
+      return summary.action_items.length > 0;
+    }
+
+    if (typeof summary.action_items === 'string') {
+      return summary.action_items.trim().length > 0;
+    }
+
+    return false;
+  } catch {
+    return false; // Invalid JSON
+  }
 }
 
 export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
@@ -179,11 +204,19 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
 
   const processTranscriptionMutation = api.transcription.processTranscription.useMutation({
     onSuccess: (result) => {
-      notifications.show({
-        title: 'Actions Created',
-        message: `Created ${result.actionsCreated} action${result.actionsCreated === 1 ? '' : 's'} from this meeting`,
-        color: 'green',
-      });
+      if (result.actionsCreated === 0) {
+        notifications.show({
+          title: 'No Actions Found',
+          message: 'This meeting summary does not contain any action items to extract',
+          color: 'yellow',
+        });
+      } else {
+        notifications.show({
+          title: 'Actions Created',
+          message: `Created ${result.actionsCreated} action${result.actionsCreated === 1 ? '' : 's'} from this meeting`,
+          color: 'green',
+        });
+      }
       void utils.transcription.getAllTranscriptions.invalidate();
     },
     onError: (error) => {
@@ -756,8 +789,8 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                                     style={{ minWidth: 200 }}
                                   />
 
-                                  {/* Extract Actions Button - show when project assigned but not processed */}
-                                  {session.projectId && !session.processedAt && session.summary && (
+                                  {/* Extract Actions Button - show when project assigned but not processed and has extractable actions */}
+                                  {session.projectId && !session.processedAt && hasExtractableActions(session) && (
                                     <Button
                                       size="sm"
                                       variant="light"
