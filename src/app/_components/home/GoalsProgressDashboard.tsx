@@ -152,74 +152,9 @@ export function GoalsProgressDashboard() {
           </Link>
         </Group>
 
-        {/* Stats Row */}
-        {stats && (
-          <Group grow gap="xs">
-            <div className="text-center p-3 rounded-md bg-background-primary">
-              <Text size="xs" className="text-text-muted">
-                {terminology.goals}
-              </Text>
-              <Text size="xl" fw={600} className="text-text-primary">
-                {stats.totalObjectives}
-              </Text>
-            </div>
-            {terminology.showKeyResults && (
-              <div className="text-center p-3 rounded-md bg-background-primary">
-                <Text size="xs" className="text-text-muted">
-                  {terminology.keyResults}
-                </Text>
-                <Text size="xl" fw={600} className="text-text-primary">
-                  {stats.totalKeyResults}
-                </Text>
-              </div>
-            )}
-            <div className="text-center p-3 rounded-md bg-background-primary">
-              <Text size="xs" className="text-text-muted">
-                Progress
-              </Text>
-              <Text
-                size="xl"
-                fw={600}
-                className={`text-${getProgressColor(stats.averageProgress)}-500`}
-              >
-                {stats.averageProgress}%
-              </Text>
-            </div>
-            {hasKeyResults && terminology.showKeyResults && (
-              <div className="text-center p-3 rounded-md bg-background-primary">
-                <Group gap={4} justify="center" mb={4}>
-                  <IconTrendingUp size={14} className="text-green-500" />
-                  <Text size="xs" className="text-text-muted">
-                    On Track
-                  </Text>
-                </Group>
-                <Text size="xl" fw={600} className="text-text-primary">
-                  {stats.statusBreakdown.onTrack + stats.statusBreakdown.achieved}
-                </Text>
-              </div>
-            )}
-          </Group>
-        )}
+        {/* Stats Row - hidden for cleaner UI */}
 
-        {/* Overall Progress Bar */}
-        {hasKeyResults && stats && (
-          <div>
-            <Group justify="space-between" mb="xs">
-              <Text size="xs" className="text-text-muted">
-                Overall Progress
-              </Text>
-              <Text size="xs" fw={500} className="text-text-primary">
-                {stats.averageProgress}%
-              </Text>
-            </Group>
-            <Progress
-              value={stats.averageProgress}
-              color={getProgressColor(stats.averageProgress)}
-              size="sm"
-              radius="xl"
-            />
-          </div>
-        )}
+        {/* Overall Progress Bar - hidden for cleaner UI */}
 
         {/* Goals List */}
         <Stack gap="sm">

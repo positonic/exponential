@@ -32,8 +32,8 @@ export function CommandCenter() {
       {/* 4. Goals & OKRs Dashboard (front and center) */}
       <GoalsProgressDashboard />
 
-      {/* 4. Daily Outcome Capture */}
-      <DailyOutcomeCapture />
+      {/* Daily Outcome Capture - temporarily hidden */}
+      {/* <DailyOutcomeCapture /> */}
 
       {/* 5. Integration Suggestions */}
       <IntegrationSuggestions />

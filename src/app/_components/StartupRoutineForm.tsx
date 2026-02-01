@@ -480,13 +480,13 @@ export function StartupRoutineForm() {
           <Accordion.Panel>
             <Paper shadow="sm" p="lg" radius="md" className="bg-[#262626] border border-blue-900/30">
               <Stack gap="md">
-                {/* What would make today great */}
-                <OutcomeSection 
+                {/* What would make today great - temporarily hidden */}
+                {/* <OutcomeSection
                   newOutcome={newOutcome}
                   setNewOutcome={setNewOutcome}
                   addOutcome={handleAddOutcome}
                   isLoading={createOutcome.isPending}
-                />
+                /> */}
 
                 {/* Exercise Section */}
                 <ExerciseSection
