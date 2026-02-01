@@ -14,7 +14,6 @@ import {
 } from "@mantine/core";
 import { TimeInput } from "@mantine/dates";
 import {
-  IconCalendar,
   IconBrandNotion,
   IconCalendarEvent,
 } from "@tabler/icons-react";
@@ -162,21 +161,12 @@ export function FillDayStep({
             <Text size="xs" c="dimmed" mb="sm">
               What time would you like to wrap up work by?
             </Text>
-            <Group gap="sm">
-              <TimeInput
-                value={shutdownTime}
-                onChange={(e) => handleShutdownTimeChange(e.target.value)}
-                size="sm"
-                w={100}
-              />
-              <Button
-                size="xs"
-                variant="light"
-                leftSection={<IconCalendar size={14} />}
-              >
-                Add to calendar
-              </Button>
-            </Group>
+            <TimeInput
+              value={shutdownTime}
+              onChange={(e) => handleShutdownTimeChange(e.target.value)}
+              size="sm"
+              w={100}
+            />
           </Paper>
 
           {/* Integration Buttons */}

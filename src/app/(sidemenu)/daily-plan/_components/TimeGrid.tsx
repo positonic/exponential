@@ -75,11 +75,10 @@ interface TimeSlotProps {
   minute: number;
   planDate: Date;
   isOccupied: boolean;
-  occupiedBy?: string;
   isAfterHours?: boolean;
 }
 
-function TimeSlot({ id, hour, minute, planDate, isOccupied, occupiedBy, isAfterHours }: TimeSlotProps) {
+function TimeSlot({ id, hour, minute, planDate, isOccupied, isAfterHours }: TimeSlotProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   const slotTime = setMinutes(setHours(new Date(planDate), hour), minute);
@@ -104,12 +103,7 @@ function TimeSlot({ id, hour, minute, planDate, isOccupied, occupiedBy, isAfterH
       )}
       {minute === 30 && <div className="w-16 flex-shrink-0" />}
 
-      {isOccupied && occupiedBy && (
-        <Text size="xs" c="dimmed" className="italic truncate flex-1">
-          {occupiedBy}
-        </Text>
-      )}
-    </div>
+          </div>
   );
 }
 
@@ -365,7 +359,7 @@ export function TimeGrid({
   const scheduledTasks = todaysTasks.filter((t) => t.scheduledStart);
 
   // Check if a slot is occupied by a calendar event
-  const isSlotOccupied = (hour: number, minute: number): { occupied: boolean; by?: string } => {
+  const isSlotOccupied = (hour: number, minute: number): boolean => {
     const slotStart = setMinutes(setHours(new Date(planDate), hour), minute);
     const slotEnd = addMinutes(slotStart, 30);
 
@@ -377,11 +371,11 @@ export function TimeGrid({
 
       // Check if slot overlaps with event
       if (slotStart < eventEnd && slotEnd > eventStart) {
-        return { occupied: true, by: event.summary ?? "Busy" };
+        return true;
       }
     }
 
-    return { occupied: false };
+    return false;
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -471,7 +465,6 @@ export function TimeGrid({
             {/* Time slots */}
             {timeSlots.map(({ hour, minute, isAfterHours }) => {
               const slotId = `slot-${hour}:${minute.toString().padStart(2, "0")}`;
-              const occupancy = isSlotOccupied(hour, minute);
 
               return (
                 <TimeSlot
@@ -480,8 +473,7 @@ export function TimeGrid({
                   hour={hour}
                   minute={minute}
                   planDate={planDate}
-                  isOccupied={occupancy.occupied}
-                  occupiedBy={occupancy.by}
+                  isOccupied={isSlotOccupied(hour, minute)}
                   isAfterHours={isAfterHours}
                 />
               );
