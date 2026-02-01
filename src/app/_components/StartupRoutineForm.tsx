@@ -478,7 +478,7 @@ export function StartupRoutineForm() {
             </Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Paper shadow="sm" p="lg" radius="md" className="bg-[#262626] border border-blue-900/30">
+            <Paper shadow="sm" p="lg" radius="md" className="bg-surface-secondary border border-blue-900/30">
               <Stack gap="md">
                 {/* What would make today great - temporarily hidden */}
                 {/* <OutcomeSection

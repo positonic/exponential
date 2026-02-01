@@ -263,7 +263,6 @@ export function DeadlinePicker({
       opened={opened}
       onClose={() => setOpened(false)}
       disabled={disabled}
-      withinPortal={true}
       middlewares={{ flip: true, shift: true }}
     >
       <Popover.Target>
