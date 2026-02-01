@@ -155,7 +155,7 @@ export function CalendarEventImporter({
               </Text>
               <Button
                 component="a"
-                href="/api/auth/signin"
+                href="/api/auth/google-calendar?returnUrl=/daily-plan"
                 variant="filled"
                 size="sm"
               >
