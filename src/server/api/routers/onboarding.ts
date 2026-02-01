@@ -270,6 +270,8 @@ export const onboardingRouter = createTRPCRouter({
           workDaysJson: JSON.stringify(workDays),
           workHoursStart,
           workHoursEnd,
+          // Advance to step 5 (ready for project creation) in the new onboarding flow
+          onboardingStep: 5,
         },
         select: {
           workHoursEnabled: true,
