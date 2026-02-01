@@ -26,7 +26,10 @@ export function DailyPlanBanner() {
   });
 
   // Check if today's daily plan exists and its status
-  const { data: dailyPlan, isLoading } = api.dailyPlan.getOrCreateToday.useQuery({});
+  // Pass client's local date to ensure timezone consistency with the daily plan page
+  const { data: dailyPlan, isLoading } = api.dailyPlan.getOrCreateToday.useQuery({
+    date: startOfDay(new Date())
+  });
 
   const handleDismiss = () => {
     const today = getTodayKey();
