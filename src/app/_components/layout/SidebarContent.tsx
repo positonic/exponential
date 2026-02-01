@@ -83,9 +83,11 @@ export function SidebarContent() {
               <NavLink href={`/w/${workspaceSlug}/weekly-team-checkin`} icon={IconUsers}>
                 Weekly Team Check-in
               </NavLink>
-              <NavLink href={`/w/${workspaceSlug}/okr-checkin`} icon={IconClipboardCheck}>
-                OKR Check-in
-              </NavLink>
+              {workspace?.type !== 'personal' && (
+                <NavLink href={`/w/${workspaceSlug}/okr-checkin`} icon={IconClipboardCheck}>
+                  OKR Check-in
+                </NavLink>
+              )}
               <NavLink href={`/w/${workspaceSlug}/views`} icon={IconLayoutKanban}>
                 Board
               </NavLink>

@@ -5,9 +5,11 @@ import { GoalsTable } from '~/app/_components/GoalsTable';
 import { CreateGoalModal } from '~/app/_components/CreateGoalModal';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { useTerminology } from '~/hooks/useTerminology';
 
 export default function WorkspaceGoalsPage() {
   const { workspace, workspaceId, isLoading: workspaceLoading } = useWorkspace();
+  const terminology = useTerminology();
   const { data: goals } = api.goal.getAllMyGoals.useQuery(
     { workspaceId: workspaceId ?? undefined },
     {
@@ -42,7 +44,7 @@ export default function WorkspaceGoalsPage() {
           order={1}
           className="text-4xl font-bold bg-gradient-to-r from-green-400 to-teal-400 bg-clip-text text-transparent"
         >
-          Objectives
+          {terminology.goals}
         </Title>
         <CreateGoalModal>
           <Button
@@ -50,7 +52,7 @@ export default function WorkspaceGoalsPage() {
             color="dark"
             leftSection="+"
           >
-            Add Objective
+            {terminology.addGoal}
           </Button>
         </CreateGoalModal>
       </div>

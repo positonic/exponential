@@ -6,6 +6,7 @@ import { format, isBefore, startOfDay } from "date-fns";
 import { CreateGoalModal } from "./CreateGoalModal";
 import { IconEdit, IconTrash } from '@tabler/icons-react';
 import { api } from "~/trpc/react";
+import { useTerminology } from '~/hooks/useTerminology';
 
 interface GoalsTableProps {
   goals: any[];
@@ -15,6 +16,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
   const [activeTab, setActiveTab] = useState<string | null>('all');
   const [hidePastDue, setHidePastDue] = useState<boolean>(true);
   const utils = api.useUtils();
+  const terminology = useTerminology();
 
   const deleteGoalMutation = api.goal.deleteGoal.useMutation({
     onSuccess: () => {
@@ -24,7 +26,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
   });
 
   const handleDeleteGoal = (goalId: number) => {
-    if (confirm("Are you sure you want to delete this objective?")) {
+    if (confirm(`Are you sure you want to delete this ${terminology.goal.toLowerCase()}?`)) {
       deleteGoalMutation.mutate({ id: goalId });
     }
   };
@@ -40,7 +42,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
   if (!goals) {
     return (
       <Paper p="md" withBorder>
-        <Text c="dimmed">No objectives found.</Text>
+        <Text c="dimmed">{terminology.noGoalsFound}.</Text>
       </Paper>
     );
   }
@@ -77,8 +79,8 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
         <Paper p="md" withBorder>
           <Text c="dimmed">
             {activeTab === 'all' && !hidePastDue
-              ? "No objectives yet. Create your first one!"
-              : "No objectives match the current filters."}
+              ? `${terminology.noGoalsYet}. Create your first one!`
+              : `${terminology.noGoalsFound} matching the current filters.`}
           </Text>
         </Paper>
       )}
@@ -121,7 +123,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
                           <ActionIcon
                             variant="subtle"
                             color="gray"
-                            aria-label="Edit objective"
+                            aria-label={`Edit ${terminology.goal.toLowerCase()}`}
                           >
                             <IconEdit size={16} />
                           </ActionIcon>
@@ -130,7 +132,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
                       <ActionIcon
                         variant="subtle"
                         color="red"
-                        aria-label="Delete objective"
+                        aria-label={`Delete ${terminology.goal.toLowerCase()}`}
                         onClick={() => handleDeleteGoal(goal.id)}
                         loading={deleteGoalMutation.isPending}
                       >

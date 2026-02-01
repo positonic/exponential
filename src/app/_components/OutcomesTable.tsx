@@ -7,12 +7,10 @@ import { format, isBefore, startOfDay } from "date-fns";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { IconEdit, IconTrash } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
+import { useTerminology } from '~/hooks/useTerminology';
 
 // Define OutcomeType to match the one in CreateOutcomeModal.tsx
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
-
-// Define the types we want to filter by
-const filterableTypes: OutcomeType[] = ['daily', 'weekly', 'monthly', 'quarterly', 'annual'];
 
 interface OutcomesTableProps {
   outcomes: any[];
@@ -23,7 +21,8 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
   const [hidePastDue, setHidePastDue] = useState<boolean>(true);
   const [bulkEditMode, setBulkEditMode] = useState(false);
   const [selectedOutcomes, setSelectedOutcomes] = useState<Set<string>>(new Set());
-  
+
+  const terminology = useTerminology();
   const utils = api.useUtils();
   const deleteOutcomeMutation = api.outcome.deleteOutcome.useMutation({
     onSuccess: () => {
@@ -112,9 +111,9 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
           <Tabs value={activeTab} onChange={setActiveTab}>
             <Tabs.List>
               <Tabs.Tab value="all">All</Tabs.Tab>
-              {filterableTypes.map((type) => (
+              {terminology.visibleOutcomeTypes.map((type) => (
                 <Tabs.Tab key={type} value={type} style={{ textTransform: 'capitalize' }}>
-                  {type}
+                  {type === 'weekly' ? terminology.weeklyOutcome : type}
                 </Tabs.Tab>
               ))}
             </Tabs.List>

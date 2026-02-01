@@ -10,6 +10,7 @@ import { CreateProjectModal } from './CreateProjectModal';
 import { CreateOutcomeModal } from './CreateOutcomeModal';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { notifications } from '@mantine/notifications';
+import { useTerminology } from '~/hooks/useTerminology';
 
 // Type for pending key results (not yet saved)
 interface PendingKeyResult {
@@ -90,6 +91,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
   );
 
   const { workspaceId: currentWorkspaceId } = useWorkspace();
+  const terminology = useTerminology();
 
   // Mutations for key results
   const createKeyResult = api.okr.create.useMutation({
@@ -421,7 +423,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
           className="p-4"
         >
           <TextInput
-            placeholder="What's your objective?"
+            placeholder={terminology.whatIsYourGoal}
             variant="unstyled"
             size="xl"
             value={title}
@@ -442,8 +444,8 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
           />
 
           <Textarea
-            label="Why this objective?"
-            placeholder="What makes this objective meaningful to you? How does it align with your values?"
+            label={terminology.whyThisGoal}
+            placeholder={`What makes this ${terminology.goal.toLowerCase()} meaningful to you? How does it align with your values?`}
             value={whyThisGoal}
             onChange={(e) => setWhyThisGoal(e.target.value)}
             mt="md"
@@ -453,7 +455,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
 
           <MultiSelect
             label="Linked Outcomes"
-            placeholder="Select outcomes that support this objective"
+            placeholder={`Select outcomes that support this ${terminology.goal.toLowerCase()}`}
             data={outcomes?.map(o => ({ value: o.id, label: o.description })) ?? []}
             value={selectedOutcomeIds}
             onChange={setSelectedOutcomeIds}
@@ -485,7 +487,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
 
           <Select
             label="Period"
-            description="The time period for this objective (e.g., Q1 2026 or Annual 2026)"
+            description={`The time period for this ${terminology.goal.toLowerCase()} (e.g., Q1 2026 or Annual 2026)`}
             placeholder="Select a period"
             data={periods ?? []}
             value={period}
@@ -518,7 +520,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
 
           <Textarea
             label="Notes"
-            placeholder="Additional notes about this objective..."
+            placeholder={`Additional notes about this ${terminology.goal.toLowerCase()}...`}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             mt="md"
@@ -526,9 +528,10 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
             autosize
           />
 
-          {/* Key Results Section */}
+          {/* Key Results Section - Only shown for team/org workspaces */}
+          {terminology.showKeyResults && (
           <div className="mt-6 border-t border-border-primary pt-4">
-            <Text size="sm" fw={500} mb="sm">Key Results</Text>
+            <Text size="sm" fw={500} mb="sm">{terminology.keyResults}</Text>
 
             {/* Existing Key Results (edit mode only) */}
             {goal?.id && existingKeyResults && existingKeyResults.length > 0 && (
@@ -674,11 +677,12 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
               </Button>
             )}
           </div>
+          )}
 
           {workspaces && workspaces.length > 0 && (
             <Select
               label="Workspace"
-              description={goal ? "Move this objective to a different workspace" : "Save this objective to a workspace"}
+              description={goal ? `Move this ${terminology.goal.toLowerCase()} to a different workspace` : `Save this ${terminology.goal.toLowerCase()} to a workspace`}
               data={[
                 { value: '', label: 'No Workspace (Personal)' },
                 ...workspaces.map(ws => ({ value: ws.id, label: ws.name }))
@@ -697,7 +701,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
                 color="red"
                 leftSection={<IconTrash size={16} />}
                 onClick={() => {
-                  if (confirm("Delete this objective? All associated key results will also be deleted.")) {
+                  if (confirm(`Delete this ${terminology.goal.toLowerCase()}?${terminology.showKeyResults ? ' All associated key results will also be deleted.' : ''}`)) {
                     deleteGoal.mutate({ id: goal.id });
                   }
                 }}
@@ -715,7 +719,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
               loading={createGoal.isPending || updateGoal.isPending || isCreatingKeyResults}
               disabled={!title}
             >
-              {goal ? 'Update Objective' : 'Create Objective'}
+              {goal ? terminology.updateGoal : terminology.createGoal}
             </Button>
           </Group>
         </form>

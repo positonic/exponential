@@ -4,9 +4,11 @@ import { api } from "~/trpc/react";
 import { NavLink } from "./NavLinks";
 import { IconTarget, IconNumber, IconFlame } from "@tabler/icons-react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useTerminology } from "~/hooks/useTerminology";
 
 export function GoalList() {
   const { workspaceSlug, workspaceId } = useWorkspace();
+  const terminology = useTerminology();
 
   const { data: goals } = api.goal.getAllMyGoals.useQuery(
     { workspaceId: workspaceId ?? undefined },
@@ -26,7 +28,7 @@ export function GoalList() {
 
   return (
     <div className="mt-1 space-y-1">
-      <NavLink href={goalsPath} icon={IconTarget}>Objectives</NavLink>
+      <NavLink href={goalsPath} icon={IconTarget}>{terminology.goals}</NavLink>
       <NavLink href="/habits" icon={IconFlame}>Habits</NavLink>
       <NavLink href={outcomesPath} icon={IconNumber}>Outcomes</NavLink>
           
