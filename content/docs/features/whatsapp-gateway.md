@@ -13,6 +13,30 @@ The WhatsApp Integration allows you to connect your personal WhatsApp account to
 
 This integration uses WhatsApp Web technology, meaning you link your phone's WhatsApp account (similar to using WhatsApp Web on a computer).
 
+---
+
+> **⚠️ Security & Privacy Warning**
+>
+> **Before connecting your personal WhatsApp account, please be aware of the following critical considerations:**
+>
+> - **Data Syncing**: When you link your WhatsApp account, your conversation data will be synced with and processed by the Exponential gateway server. Messages sent to and from the AI assistant will be transmitted through this gateway.
+>
+> - **WhatsApp Terms of Service**: Using automation or bots with personal WhatsApp accounts may violate [WhatsApp's Terms of Service](https://www.whatsapp.com/legal/terms-of-service). WhatsApp has strict policies against automated messaging on personal accounts and may **suspend or ban your account** if they detect violations. This integration uses WhatsApp Web protocol for legitimate AI assistant communication, but you should understand and accept this risk.
+>
+> - **Gateway Security Risks**: If the Exponential gateway server is compromised, attackers could potentially:
+>   - Access your WhatsApp session credentials and impersonate your account
+>   - Read conversation data that has been synced to the gateway
+>   - Send messages on your behalf
+>   - Access your contact list and linked device information
+>
+> - **Data Persistence**: Conversation data may be stored on the gateway server for processing and functionality. Ensure you trust the gateway operator and understand their data retention policies.
+>
+> - **Additional Considerations**: See the [Limitations](#limitations) section below for more details on technical constraints, requirements, and risks associated with this integration.
+>
+> **Recommendation**: Consider using a separate WhatsApp account (not your primary personal account) for this integration if possible. Only proceed if you understand and accept these risks.
+
+---
+
 ## Quick Setup
 
 ### Step 1: Access WhatsApp Settings
