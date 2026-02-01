@@ -32,14 +32,23 @@ export function WeeklyReviewBanner() {
     { enabled: !!workspaceId }
   );
 
+  // Check if user has any projects
+  const { data: projectsData, isLoading: projectsLoading } =
+    api.project.getAll.useQuery(
+      { workspaceId: workspaceId ?? undefined },
+      { enabled: !!workspaceId }
+    );
+
+  const hasProjects = (projectsData?.length ?? 0) > 0;
+
   const handleDismiss = () => {
     const currentWeek = getCurrentWeekKey();
     localStorage.setItem(BANNER_DISMISS_KEY, currentWeek);
     setDismissed(true);
   };
 
-  // Don't show if: loading, already completed, dismissed, or no workspace
-  if (isLoading || data?.isCompleted || dismissed || !workspace) {
+  // Don't show if: loading, already completed, dismissed, no workspace, or no projects
+  if (isLoading || projectsLoading || data?.isCompleted || dismissed || !workspace || !hasProjects) {
     return null;
   }
 
@@ -60,7 +69,7 @@ export function WeeklyReviewBanner() {
               🧘 Time for your weekly review
             </Text>
             <Text size="xs" className="text-text-secondary">
-              Step back, regain clarity, and set your next actions. 🔒 Trust your system.
+              The weekly review is the keystone habit of GTD and other trusted productivity systems. Review your projects to ensure they are prioritised correctly and you know what to focus on next week.
             </Text>
           </div>
         </Group>
