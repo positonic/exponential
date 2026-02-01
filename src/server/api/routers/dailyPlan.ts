@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { startOfDay } from "date-fns";
+import { setTimeInUserTimezone } from "~/lib/dateUtils";
 
 export const dailyPlanRouter = createTRPCRouter({
   /**
@@ -16,7 +17,10 @@ export const dailyPlanRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const planDate = startOfDay(input.date ?? new Date());
+      // Don't apply startOfDay() to input.date - client already sends midnight in their timezone
+      const planDate = input.date ?? startOfDay(new Date());
+
+      console.log("[dailyPlan.getOrCreateToday] Input date:", input.date?.toISOString(), "→ planDate:", planDate.toISOString());
 
       // Try to find existing plan
       let plan = await ctx.db.dailyPlan.findFirst({
@@ -78,7 +82,10 @@ export const dailyPlanRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const planDate = startOfDay(input.date);
+      // Don't apply startOfDay() to input.date - client already sends midnight in their timezone
+      const planDate = input.date;
+
+      console.log("[dailyPlan.getByDate] Input date:", input.date.toISOString(), "→ planDate:", planDate.toISOString());
 
       return ctx.db.dailyPlan.findFirst({
         where: {
@@ -366,6 +373,7 @@ export const dailyPlanRouter = createTRPCRouter({
       z.object({
         taskId: z.string(),
         newDate: z.date(),
+        timezoneOffset: z.number().optional(), // Minutes from UTC (from getTimezoneOffset())
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -384,9 +392,16 @@ export const dailyPlanRouter = createTRPCRouter({
         });
       }
 
-      // Set the scheduledStart to 9am on the new date (default work start)
-      const scheduledStart = new Date(input.newDate);
-      scheduledStart.setHours(9, 0, 0, 0);
+      // Set the scheduledStart to 9am on the new date (in user's timezone if offset provided)
+      const scheduledStart = input.timezoneOffset !== undefined
+        ? setTimeInUserTimezone(input.newDate, 9, 0, input.timezoneOffset)
+        : (() => {
+            const d = new Date(input.newDate);
+            d.setHours(9, 0, 0, 0);
+            return d;
+          })();
+
+      console.log("[dailyPlan.deferTask] newDate:", input.newDate.toISOString(), "→ scheduledStart:", scheduledStart.toISOString());
 
       // If there's a linked Action, update its scheduledStart
       if (task.actionId && task.action) {

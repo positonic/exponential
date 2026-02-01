@@ -64,13 +64,16 @@ export function ScheduleStep({
     }
   );
 
+  // Get user's timezone offset (minutes from UTC)
+  const timezoneOffset = new Date().getTimezoneOffset();
+
   // Get scheduling suggestions query
   const {
     data: suggestionsData,
     isLoading: isLoadingSuggestions,
     refetch: refetchSuggestions,
   } = api.scheduling.getSuggestionsForDailyPlan.useQuery(
-    { dailyPlanId: dailyPlan.id },
+    { dailyPlanId: dailyPlan.id, timezoneOffset },
     { enabled: false } // Only fetch when requested
   );
 

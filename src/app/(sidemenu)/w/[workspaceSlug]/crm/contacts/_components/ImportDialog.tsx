@@ -116,10 +116,10 @@ export function ImportDialog({
     onClose();
   };
 
-  // Handle OAuth redirect
+  // Handle OAuth redirect - request CRM scopes (calendar + contacts + gmail)
   const handleConnectGoogle = () => {
     const returnUrl = window.location.pathname;
-    window.location.href = `/api/auth/google-calendar?returnUrl=${encodeURIComponent(returnUrl)}`;
+    window.location.href = `/api/auth/google-calendar?type=crm&returnUrl=${encodeURIComponent(returnUrl)}`;
   };
 
   // Handle import start

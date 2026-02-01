@@ -4,7 +4,8 @@ import { TRPCError } from "@trpc/server";
 import { GoogleCalendarService, type CalendarEvent } from "~/server/services/GoogleCalendarService";
 import { AutoSchedulingService } from "~/server/services/AutoSchedulingService";
 import { generateAgentJWT } from "~/server/utils/jwt";
-import { addMinutes, format, isSameDay, startOfDay } from "date-fns";
+import { addMinutes, format } from "date-fns";
+import { setTimeInUserTimezone } from "~/lib/dateUtils";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL;
 
@@ -584,6 +585,7 @@ export const schedulingRouter = createTRPCRouter({
     .input(
       z.object({
         dailyPlanId: z.string(),
+        timezoneOffset: z.number().optional(), // Minutes from UTC (from getTimezoneOffset())
       })
     )
     .query(async ({ ctx, input }) => {
@@ -617,9 +619,12 @@ export const schedulingRouter = createTRPCRouter({
         return { suggestions: [], calendarConnected: true };
       }
 
-      const planDate = startOfDay(dailyPlan.date);
+      // Don't apply startOfDay() - dailyPlan.date is already midnight in user's timezone
+      const planDate = dailyPlan.date;
       const planDateEnd = new Date(planDate);
       planDateEnd.setHours(23, 59, 59, 999);
+
+      console.log("[scheduling.getSuggestionsForDailyPlan] dailyPlan.date:", dailyPlan.date.toISOString(), "→ planDate:", planDate.toISOString());
 
       // Get user's work hours
       const user = await ctx.db.user.findUnique({
@@ -710,10 +715,17 @@ export const schedulingRouter = createTRPCRouter({
                 const task = unscheduledTasks.find(t => t.id === s.taskId);
                 if (!task) return null;
 
-                // Parse suggested time and create Date objects
+                // Parse suggested time and create Date objects in user's timezone
                 const [hours, minutes] = s.suggestedTime.split(":").map(Number);
-                const suggestedStart = new Date(planDate);
-                suggestedStart.setHours(hours ?? 9, minutes ?? 0, 0, 0);
+                const suggestedStart = input.timezoneOffset !== undefined
+                  ? setTimeInUserTimezone(planDate, hours ?? 9, minutes ?? 0, input.timezoneOffset)
+                  : (() => {
+                      const d = new Date(planDate);
+                      d.setHours(hours ?? 9, minutes ?? 0, 0, 0);
+                      return d;
+                    })();
+
+                console.log("[scheduling] AI suggestion - hours:", hours, "minutes:", minutes, "→ suggestedStart:", suggestedStart.toISOString());
 
                 const duration = s.duration ?? task.duration;
                 const suggestedEnd = addMinutes(suggestedStart, duration);
@@ -764,18 +776,25 @@ export const schedulingRouter = createTRPCRouter({
       const [startHour, startMin] = workHoursStart.split(":").map(Number);
       const [endHour] = workHoursEnd.split(":").map(Number);
 
-      // Start from work hours start time
-      let currentTime = new Date(planDate);
-      currentTime.setHours(startHour ?? 9, startMin ?? 0, 0, 0);
+      // Start from work hours start time (in user's timezone if offset provided)
+      let currentTime = input.timezoneOffset !== undefined
+        ? setTimeInUserTimezone(planDate, startHour ?? 9, startMin ?? 0, input.timezoneOffset)
+        : (() => {
+            const d = new Date(planDate);
+            d.setHours(startHour ?? 9, startMin ?? 0, 0, 0);
+            return d;
+          })();
+
+      console.log("[scheduling] Rule-based - startHour:", startHour, "startMin:", startMin, "→ currentTime:", currentTime.toISOString());
 
       // If it's today and current time is past work start, start from now (rounded to next 15 min)
       const now = new Date();
-      // Check if plan date is today by comparing year, month, day in local timezone
-      // (avoids timezone issues with isSameDay + startOfDay on UTC dates)
+      // Check if plan date is today by comparing year, month, day
+      // Use UTC date comparison since planDate is stored in user's timezone midnight
       const planDateLocal = new Date(dailyPlan.date);
-      const isToday = planDateLocal.getFullYear() === now.getFullYear() &&
-                      planDateLocal.getMonth() === now.getMonth() &&
-                      planDateLocal.getDate() === now.getDate();
+      const isToday = planDateLocal.getUTCFullYear() === now.getUTCFullYear() &&
+                      planDateLocal.getUTCMonth() === now.getUTCMonth() &&
+                      planDateLocal.getUTCDate() === now.getUTCDate();
 
       if (isToday && now > currentTime) {
         currentTime = new Date(now);

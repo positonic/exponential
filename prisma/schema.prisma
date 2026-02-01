@@ -1934,7 +1934,7 @@ model DailyPlan {
   id           String   @id @default(cuid())
   userId       String
   workspaceId  String?
-  date         DateTime @db.Date
+  date         DateTime
   shutdownTime String?  // "17:00" format
   obstacles    String?  @db.Text
   status       String   @default("DRAFT") // DRAFT, COMPLETED

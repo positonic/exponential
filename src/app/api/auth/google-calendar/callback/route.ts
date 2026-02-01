@@ -7,6 +7,7 @@ import { headers } from "next/headers";
 interface OAuthState {
   userId: string;
   returnUrl: string;
+  scopeType?: "calendar" | "contacts" | "crm";
 }
 
 function parseState(state: string | null): OAuthState | null {

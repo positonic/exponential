@@ -194,6 +194,7 @@ export default function DailyPlanPage() {
     await deferTaskMutation.mutateAsync({
       taskId,
       newDate,
+      timezoneOffset: new Date().getTimezoneOffset(),
     });
   };
 
