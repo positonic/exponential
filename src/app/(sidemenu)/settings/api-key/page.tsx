@@ -233,6 +233,7 @@ export default function TokensPage() {
           onClose={handleCloseModal}
           title="Create API Key"
           size="md"
+          styles={{ header: { paddingTop: 24 } }}
         >
           <form onSubmit={form.onSubmit(handleCreateToken)}>
             <Stack gap="md">
