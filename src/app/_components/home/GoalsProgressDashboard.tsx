@@ -107,7 +107,7 @@ export function GoalsProgressDashboard() {
             <Group gap="xs">
               <IconTarget size={20} className="text-brand-primary" />
               <Text fw={600} className="text-text-primary">
-                {terminology.goals}
+                My {terminology.goals}
               </Text>
             </Group>
             <CreateGoalModal>
@@ -141,7 +141,7 @@ export function GoalsProgressDashboard() {
           <Group gap="xs">
             <IconTarget size={20} className="text-brand-primary" />
             <Text fw={600} className="text-text-primary">
-              {terminology.showKeyResults ? `${terminology.goals} & ${terminology.keyResults}` : terminology.goals}
+              {terminology.showKeyResults ? `My ${terminology.goals} & ${terminology.keyResults}` : `My ${terminology.goals}`}
             </Text>
           </Group>
           <Link
@@ -282,7 +282,7 @@ export function GoalsProgressDashboard() {
               href={goalsPath}
               className="text-center text-sm text-brand-primary hover:underline py-2"
             >
-              View all {objectives.length} {terminology.goals.toLowerCase()}
+              View all my {objectives.length} {terminology.goals.toLowerCase()}
             </Link>
           )}
         </Stack>

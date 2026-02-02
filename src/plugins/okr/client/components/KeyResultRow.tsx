@@ -1,6 +1,7 @@
 "use client";
 
-import { Text, Progress, Avatar, Tooltip } from "@mantine/core";
+import { Text, Progress, Avatar, Tooltip, ActionIcon } from "@mantine/core";
+import { IconMessageCircle } from "@tabler/icons-react";
 import { DeltaIndicator, calculateDelta } from "./DeltaIndicator";
 import {
   getAvatarColor,
@@ -37,6 +38,7 @@ interface KeyResultRowProps {
   parentColor: string;
   isLastChild: boolean;
   onEdit?: (keyResult: KeyResultData) => void;
+  onViewDetails?: () => void;
 }
 
 /**
@@ -77,6 +79,7 @@ export function KeyResultRow({
   parentColor,
   isLastChild,
   onEdit,
+  onViewDetails,
 }: KeyResultRowProps) {
   const delta = calculateDelta(keyResult);
   const progress = calculateProgress(keyResult);
@@ -91,7 +94,7 @@ export function KeyResultRow({
 
   return (
     <div
-      className="flex items-center gap-3 py-2 pl-6 hover:bg-surface-hover rounded transition-colors cursor-pointer"
+      className="group flex items-center gap-3 py-2 pl-6 hover:bg-surface-hover rounded transition-colors cursor-pointer"
       onClick={() => onEdit?.(keyResult)}
       role="button"
       tabIndex={0}
@@ -124,6 +127,24 @@ export function KeyResultRow({
       <Text size="sm" className="flex-1 truncate text-text-primary">
         {keyResult.title}
       </Text>
+
+      {/* Discussion button */}
+      {onViewDetails && (
+        <Tooltip label="Discussion">
+          <ActionIcon
+            variant="subtle"
+            size="xs"
+            className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+            aria-label="View discussion"
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewDetails();
+            }}
+          >
+            <IconMessageCircle size={14} />
+          </ActionIcon>
+        </Tooltip>
+      )}
 
       {/* DRI Avatar */}
       {user ? (
