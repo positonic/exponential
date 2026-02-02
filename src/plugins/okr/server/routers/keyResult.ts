@@ -268,6 +268,17 @@ export const keyResultRouter = createTRPCRouter({
               },
             },
           },
+          projects: {
+            include: {
+              project: {
+                select: {
+                  id: true,
+                  name: true,
+                  status: true,
+                },
+              },
+            },
+          },
         },
       });
 
@@ -413,6 +424,144 @@ export const keyResultRouter = createTRPCRouter({
       }
 
       await ctx.db.keyResult.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  // Update linked projects (batch operation for modal save)
+  updateLinkedProjects: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        projectIds: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify user owns the key result
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: {
+          id: input.keyResultId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!keyResult) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      // Use transaction to ensure atomicity
+      await ctx.db.$transaction(async (tx) => {
+        // Delete all existing project links
+        await tx.keyResultProject.deleteMany({
+          where: { keyResultId: input.keyResultId },
+        });
+
+        // Create new project links
+        if (input.projectIds.length > 0) {
+          await tx.keyResultProject.createMany({
+            data: input.projectIds.map((projectId) => ({
+              keyResultId: input.keyResultId,
+              projectId,
+            })),
+          });
+        }
+      });
+
+      // Return updated key result with projects
+      return ctx.db.keyResult.findUnique({
+        where: { id: input.keyResultId },
+        include: {
+          projects: {
+            include: {
+              project: {
+                select: {
+                  id: true,
+                  name: true,
+                  status: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    }),
+
+  // Link a single project to a key result
+  linkProject: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        projectId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify user owns the key result
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: {
+          id: input.keyResultId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!keyResult) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      // Create the link (will be ignored if already exists due to unique constraint)
+      await ctx.db.keyResultProject.upsert({
+        where: {
+          keyResultId_projectId: {
+            keyResultId: input.keyResultId,
+            projectId: input.projectId,
+          },
+        },
+        create: {
+          keyResultId: input.keyResultId,
+          projectId: input.projectId,
+        },
+        update: {}, // No-op if already exists
+      });
+
+      return { success: true };
+    }),
+
+  // Unlink a single project from a key result
+  unlinkProject: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        projectId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify user owns the key result
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: {
+          id: input.keyResultId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!keyResult) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      // Delete the link
+      await ctx.db.keyResultProject.deleteMany({
+        where: {
+          keyResultId: input.keyResultId,
+          projectId: input.projectId,
+        },
+      });
+
       return { success: true };
     }),
 

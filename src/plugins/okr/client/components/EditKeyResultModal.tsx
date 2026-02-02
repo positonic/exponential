@@ -11,10 +11,12 @@ import {
   Stack,
   Text,
   Divider,
+  MultiSelect,
 } from "@mantine/core";
 import { IconTrash } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 // Unit options for key results
 const unitOptions = [
@@ -73,8 +75,16 @@ export function EditKeyResultModal({
   const [unitLabel, setUnitLabel] = useState("");
   const [status, setStatus] = useState<StatusType>("on-track");
   const [confidence, setConfidence] = useState<number | null>(null);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
 
   const utils = api.useUtils();
+  const { workspace } = useWorkspace();
+
+  // Fetch available projects for the workspace
+  const { data: availableProjects = [] } = api.project.getAll.useQuery(
+    { workspaceId: workspace?.id },
+    { enabled: opened && !!workspace }
+  );
 
   // Query to get fresh key result data
   const { data: freshKeyResult } = api.okr.getById.useQuery(
@@ -97,8 +107,14 @@ export function EditKeyResultModal({
       setUnitLabel(currentKeyResult.unitLabel ?? "");
       setStatus((currentKeyResult.status as StatusType) ?? "on-track");
       setConfidence(currentKeyResult.confidence ?? null);
+
+      // Populate selected projects from freshKeyResult if available
+      const linkedProjectIds =
+        (freshKeyResult as { projects?: Array<{ project: { id: string } }> })
+          ?.projects?.map((p) => p.project.id) ?? [];
+      setSelectedProjectIds(linkedProjectIds);
     }
-  }, [currentKeyResult]);
+  }, [currentKeyResult, freshKeyResult]);
 
   // Update mutation
   const updateKeyResult = api.okr.update.useMutation({
@@ -107,8 +123,14 @@ export function EditKeyResultModal({
       await utils.okr.getStats.invalidate();
       await utils.okr.getAll.invalidate();
       await utils.okr.getById.invalidate();
-      onSuccess?.();
-      onClose();
+    },
+  });
+
+  // Update linked projects mutation
+  const updateLinkedProjects = api.okr.updateLinkedProjects.useMutation({
+    onSuccess: async () => {
+      await utils.okr.getByObjective.invalidate();
+      await utils.okr.getById.invalidate();
     },
   });
 
@@ -123,21 +145,36 @@ export function EditKeyResultModal({
     },
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!title || !currentKeyResult) return;
 
-    updateKeyResult.mutate({
-      id: currentKeyResult.id,
-      title,
-      description: description || undefined,
-      targetValue,
-      currentValue,
-      startValue,
-      unit,
-      unitLabel: unit === "custom" ? unitLabel : undefined,
-      status,
-      confidence: confidence ?? undefined,
-    });
+    try {
+      // Save key result fields
+      await updateKeyResult.mutateAsync({
+        id: currentKeyResult.id,
+        title,
+        description: description || undefined,
+        targetValue,
+        currentValue,
+        startValue,
+        unit,
+        unitLabel: unit === "custom" ? unitLabel : undefined,
+        status,
+        confidence: confidence ?? undefined,
+      });
+
+      // Save linked projects
+      await updateLinkedProjects.mutateAsync({
+        keyResultId: currentKeyResult.id,
+        projectIds: selectedProjectIds,
+      });
+
+      onSuccess?.();
+      onClose();
+    } catch (error) {
+      // Error is handled by mutation hooks
+      console.error("Failed to update key result:", error);
+    }
   };
 
   const handleDelete = () => {
@@ -367,6 +404,37 @@ export function EditKeyResultModal({
             />
           </Group>
 
+          <Divider label="Linked Projects" labelPosition="center" />
+
+          {/* Project Selection */}
+          <MultiSelect
+            label="Projects"
+            description="Select projects that contribute to this key result"
+            placeholder="Choose projects..."
+            data={availableProjects.map((p) => ({
+              value: p.id,
+              label: `${p.name} (${p.status})`,
+            }))}
+            value={selectedProjectIds}
+            onChange={setSelectedProjectIds}
+            searchable
+            clearable
+            styles={{
+              input: {
+                backgroundColor: "var(--color-bg-input)",
+                borderColor: "var(--color-border-primary)",
+                color: "var(--color-text-primary)",
+              },
+              label: {
+                color: "var(--color-text-secondary)",
+              },
+              dropdown: {
+                backgroundColor: "var(--color-bg-elevated)",
+                borderColor: "var(--color-border-primary)",
+              },
+            }}
+          />
+
           {/* Actions */}
           <Group justify="space-between" mt="lg">
             <Button
@@ -384,7 +452,7 @@ export function EditKeyResultModal({
               </Button>
               <Button
                 type="submit"
-                loading={updateKeyResult.isPending}
+                loading={updateKeyResult.isPending || updateLinkedProjects.isPending}
                 disabled={!title}
               >
                 Save Changes
