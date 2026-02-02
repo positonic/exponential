@@ -195,6 +195,17 @@ export const keyResultRouter = createTRPCRouter({
               user: {
                 select: { id: true, name: true, email: true, image: true },
               },
+              projects: {
+                include: {
+                  project: {
+                    select: {
+                      id: true,
+                      name: true,
+                      status: true,
+                    },
+                  },
+                },
+              },
             },
             orderBy: { createdAt: "asc" },
           },

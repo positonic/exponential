@@ -19,6 +19,14 @@ interface KeyResultUser {
   image: string | null;
 }
 
+interface LinkedProject {
+  project: {
+    id: string;
+    name: string;
+    status: string;
+  };
+}
+
 interface KeyResult {
   id: string;
   title: string;
@@ -28,6 +36,7 @@ interface KeyResult {
   status: string;
   checkIns?: KeyResultCheckIn[];
   user?: KeyResultUser | null;
+  projects?: LinkedProject[];
 }
 
 interface LifeDomain {
@@ -60,6 +69,8 @@ interface ObjectiveRowProps {
   onEditKeyResult?: (keyResult: KeyResult) => void;
   onViewObjective?: () => void;
   onViewKeyResult?: (keyResult: KeyResult) => void;
+  expandedKeyResults?: Set<string>;
+  onToggleKeyResult?: (krId: string) => void;
 }
 
 /**
@@ -86,6 +97,8 @@ export function ObjectiveRow({
   onEditKeyResult,
   onViewObjective,
   onViewKeyResult,
+  expandedKeyResults,
+  onToggleKeyResult,
 }: ObjectiveRowProps) {
   const objectiveColor = getObjectiveColor(objective.title);
   const aggregateDelta = calculateAggregateDelta(objective.keyResults);
@@ -219,6 +232,9 @@ export function ObjectiveRow({
                 isLastChild={index === objective.keyResults.length - 1}
                 onEdit={onEditKeyResult}
                 onViewDetails={onViewKeyResult ? () => onViewKeyResult(kr) : undefined}
+                isExpanded={expandedKeyResults?.has(kr.id)}
+                onToggleExpand={onToggleKeyResult ? () => onToggleKeyResult(kr.id) : undefined}
+                linkedProjects={kr.projects?.map((p) => p.project)}
               />
             ))
           ) : (

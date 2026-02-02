@@ -1,7 +1,19 @@
 "use client";
 
-import { Text, Progress, Avatar, Tooltip, ActionIcon } from "@mantine/core";
-import { IconMessageCircle } from "@tabler/icons-react";
+import {
+  Text,
+  Progress,
+  Avatar,
+  Tooltip,
+  ActionIcon,
+  Collapse,
+  Badge,
+} from "@mantine/core";
+import {
+  IconMessageCircle,
+  IconPencil,
+  IconChevronRight,
+} from "@tabler/icons-react";
 import { DeltaIndicator, calculateDelta } from "./DeltaIndicator";
 import {
   getAvatarColor,
@@ -22,6 +34,12 @@ interface KeyResultUser {
   image: string | null;
 }
 
+interface LinkedProject {
+  id: string;
+  name: string;
+  status: string;
+}
+
 interface KeyResultData {
   id: string;
   title: string;
@@ -39,6 +57,9 @@ interface KeyResultRowProps {
   isLastChild: boolean;
   onEdit?: (keyResult: KeyResultData) => void;
   onViewDetails?: () => void;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
+  linkedProjects?: LinkedProject[];
 }
 
 /**
@@ -80,6 +101,9 @@ export function KeyResultRow({
   isLastChild,
   onEdit,
   onViewDetails,
+  isExpanded,
+  onToggleExpand,
+  linkedProjects,
 }: KeyResultRowProps) {
   const delta = calculateDelta(keyResult);
   const progress = calculateProgress(keyResult);
@@ -92,21 +116,47 @@ export function KeyResultRow({
   const avatarTextColor = avatarBgColor ? getTextColor(avatarBgColor) : "white";
   const initial = user ? getInitial(user.name, user.email) : "?";
 
+  const hasProjects = linkedProjects && linkedProjects.length > 0;
+
   return (
-    <div
-      className="group flex items-center gap-3 py-2 pl-6 hover:bg-surface-hover rounded transition-colors cursor-pointer"
-      onClick={() => onEdit?.(keyResult)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onEdit?.(keyResult);
-        }
-      }}
-    >
-      {/* Tree connector line */}
-      <div className="relative w-5 flex-shrink-0">
+    <div>
+      <div
+        className="group flex items-center gap-3 py-2 pl-6 hover:bg-surface-hover rounded transition-colors cursor-pointer"
+        onClick={() => onEdit?.(keyResult)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onEdit?.(keyResult);
+          }
+        }}
+      >
+        {/* Expand/collapse chevron (only if has linked projects) */}
+        {hasProjects && onToggleExpand ? (
+          <ActionIcon
+            variant="subtle"
+            size="xs"
+            className="flex-shrink-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand();
+            }}
+            aria-label={isExpanded ? "Collapse projects" : "Expand projects"}
+          >
+            <IconChevronRight
+              size={14}
+              className={`text-text-muted transition-transform ${
+                isExpanded ? "rotate-90" : ""
+              }`}
+            />
+          </ActionIcon>
+        ) : (
+          <div className="w-[22px] flex-shrink-0" /> // Spacer when no projects
+        )}
+
+        {/* Tree connector line */}
+        <div className="relative w-5 flex-shrink-0">
         {/* Horizontal line to item */}
         <div className="absolute top-1/2 left-0 w-full h-px bg-border-secondary" />
         {/* Vertical line (hidden for last child bottom half) */}
@@ -127,6 +177,24 @@ export function KeyResultRow({
       <Text size="sm" className="flex-1 truncate text-text-primary">
         {keyResult.title}
       </Text>
+
+      {/* Edit button */}
+      {onEdit && (
+        <Tooltip label="Edit">
+          <ActionIcon
+            variant="subtle"
+            size="xs"
+            className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+            aria-label="Edit key result"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(keyResult);
+            }}
+          >
+            <IconPencil size={14} />
+          </ActionIcon>
+        </Tooltip>
+      )}
 
       {/* Discussion button */}
       {onViewDetails && (
@@ -177,6 +245,30 @@ export function KeyResultRow({
       <div className="w-24 flex-shrink-0">
         <Progress value={progress} size="sm" color={statusColor} radius="xl" />
       </div>
+      </div>
+
+      {/* Linked Projects (collapsible) */}
+      {hasProjects && (
+        <Collapse in={isExpanded ?? false}>
+          <div className="ml-16 py-1 space-y-1">
+            {linkedProjects.map((project) => (
+              <div
+                key={project.id}
+                className="flex items-center gap-2 py-1 pl-4 text-sm"
+              >
+                {/* Project connector line */}
+                <div className="w-3 h-px bg-border-secondary flex-shrink-0" />
+                <Text size="xs" className="text-text-secondary truncate">
+                  {project.name}
+                </Text>
+                <Badge size="xs" variant="light" color="gray">
+                  {project.status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </Collapse>
+      )}
     </div>
   );
 }

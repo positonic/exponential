@@ -415,6 +415,7 @@ model Project {
   lifeDomains           LifeDomain[]               @relation("ProjectLifeDomains")
   resources             Resource[]
   recurringTasks        RecurringTask[]
+  keyResults            KeyResultProject[]         // Key results this project contributes to
 
   @@index([name])
   @@index([status])
@@ -1823,6 +1824,7 @@ model KeyResult {
   workspace Workspace?          @relation(fields: [workspaceId], references: [id])
   checkIns  KeyResultCheckIn[]
   comments  KeyResultComment[] // Discussion comments on this key result
+  projects  KeyResultProject[] // Projects linked to this key result
 
   @@index([goalId])
   @@index([userId])
@@ -1845,6 +1847,20 @@ model KeyResultCheckIn {
 
   @@index([keyResultId])
   @@index([createdAt])
+}
+
+model KeyResultProject {
+  id          String   @id @default(cuid())
+  keyResultId String
+  projectId   String
+  assignedAt  DateTime @default(now())
+
+  keyResult KeyResult @relation(fields: [keyResultId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([keyResultId, projectId])
+  @@index([keyResultId])
+  @@index([projectId])
 }
 
 // ============================================

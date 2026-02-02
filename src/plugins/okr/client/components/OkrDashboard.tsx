@@ -119,6 +119,23 @@ export function OkrDashboard() {
     new Set()
   );
 
+  // Track expanded key results (for showing linked projects)
+  const [expandedKeyResults, setExpandedKeyResults] = useState<Set<string>>(
+    new Set()
+  );
+
+  const toggleKeyResultExpand = (krId: string) => {
+    setExpandedKeyResults((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(krId)) {
+        newSet.delete(krId);
+      } else {
+        newSet.add(krId);
+      }
+      return newSet;
+    });
+  };
+
   // Form state for creating key results
   const [formData, setFormData] = useState({
     goalId: "",
@@ -488,6 +505,8 @@ export function OkrDashboard() {
                       : null,
                   })}
                   onViewKeyResult={handleViewKeyResult}
+                  expandedKeyResults={expandedKeyResults}
+                  onToggleKeyResult={toggleKeyResultExpand}
                 />
               ))}
             </Card>
