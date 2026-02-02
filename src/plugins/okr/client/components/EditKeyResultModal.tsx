@@ -29,6 +29,7 @@ const unitOptions = [
 
 // Status options for key results
 const statusOptions = [
+  { value: "not-started", label: "Not Started" },
   { value: "on-track", label: "On Track" },
   { value: "at-risk", label: "At Risk" },
   { value: "off-track", label: "Off Track" },
@@ -36,7 +37,7 @@ const statusOptions = [
 ];
 
 type UnitType = "percent" | "count" | "currency" | "hours" | "custom";
-type StatusType = "on-track" | "at-risk" | "off-track" | "achieved";
+type StatusType = "not-started" | "on-track" | "at-risk" | "off-track" | "achieved";
 
 interface KeyResultData {
   id: string;

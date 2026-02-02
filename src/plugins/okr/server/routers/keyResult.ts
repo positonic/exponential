@@ -30,7 +30,7 @@ const updateKeyResultInput = z.object({
   unit: z.enum(["percent", "count", "currency", "hours", "custom"]).optional(),
   unitLabel: z.string().optional(),
   status: z
-    .enum(["on-track", "at-risk", "off-track", "achieved"])
+    .enum(["not-started", "on-track", "at-risk", "off-track", "achieved"])
     .optional(),
   confidence: z.number().min(0).max(100).optional(),
 });
@@ -92,7 +92,7 @@ export const keyResultRouter = createTRPCRouter({
           goalId: z.number().optional(),
           period: z.string().optional(),
           status: z
-            .enum(["on-track", "at-risk", "off-track", "achieved"])
+            .enum(["not-started", "on-track", "at-risk", "off-track", "achieved"])
             .optional(),
         })
         .optional()
