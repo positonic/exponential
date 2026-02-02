@@ -125,6 +125,9 @@ model User {
   facilitatedOkrCheckins      OkrCheckin[]               @relation("OkrCheckinFacilitator")
   okrCheckinUpdates           OkrCheckinUpdate[]         @relation("OkrCheckinUpdateUser")
   okrCheckinComments          OkrCheckinComment[]        @relation("OkrCheckinCommentAuthor")
+  // OKR Discussion relations
+  goalComments                GoalComment[]              @relation("GoalCommentAuthor")
+  keyResultComments           KeyResultComment[]         @relation("KeyResultCommentAuthor")
   // Daily Planning relations
   dailyPlans                  DailyPlan[]
   // Webhook activity logs
@@ -492,6 +495,7 @@ model Goal {
   projects     Project[]  @relation("GoalProjects")
   habits       Habit[] // Habits linked to this goal
   keyResults   KeyResult[] // OKR key results for this goal (objective)
+  comments     GoalComment[] // Discussion comments on this objective
 
   @@index([lifeDomainId])
   @@index([userId])
@@ -1818,6 +1822,7 @@ model KeyResult {
   user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace?          @relation(fields: [workspaceId], references: [id])
   checkIns  KeyResultCheckIn[]
+  comments  KeyResultComment[] // Discussion comments on this key result
 
   @@index([goalId])
   @@index([userId])
@@ -1907,6 +1912,40 @@ model OkrCheckinComment {
 
   @@index([updateId])
   @@index([authorId])
+}
+
+// OKR Discussion Comments - for Objectives (Goals)
+model GoalComment {
+  id        String   @id @default(cuid())
+  goalId    Int
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  goal   Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  author User @relation("GoalCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([goalId])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+// OKR Discussion Comments - for Key Results
+model KeyResultComment {
+  id          String   @id @default(cuid())
+  keyResultId String
+  authorId    String
+  content     String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  keyResult KeyResult @relation(fields: [keyResultId], references: [id], onDelete: Cascade)
+  author    User      @relation("KeyResultCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([keyResultId])
+  @@index([authorId])
+  @@index([createdAt])
 }
 
 model OkrCheckinAgendaItem {

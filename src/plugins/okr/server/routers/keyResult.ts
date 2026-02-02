@@ -182,7 +182,11 @@ export const keyResultRouter = createTRPCRouter({
         include: {
           lifeDomain: true,
           keyResults: {
-            where: periodFilter,
+            where: {
+              ...periodFilter,
+              // Only show KeyResults owned by the current user
+              userId: ctx.session.user.id,
+            },
             include: {
               checkIns: {
                 orderBy: { createdAt: "desc" },
@@ -520,5 +524,191 @@ export const keyResultRouter = createTRPCRouter({
         },
         orderBy: { title: "asc" },
       });
+    }),
+
+  // ============================================
+  // OKR Discussion Comments
+  // ============================================
+
+  // Add comment to an objective (goal)
+  addGoalComment: protectedProcedure
+    .input(
+      z.object({
+        goalId: z.number(),
+        content: z.string().min(1).max(5000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify user owns this goal
+      const goal = await ctx.db.goal.findFirst({
+        where: { id: input.goalId, userId: ctx.session.user.id },
+      });
+
+      if (!goal) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Objective not found",
+        });
+      }
+
+      const comment = await ctx.db.goalComment.create({
+        data: {
+          goalId: input.goalId,
+          authorId: ctx.session.user.id,
+          content: input.content,
+        },
+        include: {
+          author: {
+            select: { id: true, name: true, image: true },
+          },
+        },
+      });
+
+      return comment;
+    }),
+
+  // Get comments for an objective (goal)
+  getGoalComments: protectedProcedure
+    .input(
+      z.object({
+        goalId: z.number(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      // Verify user owns this goal
+      const goal = await ctx.db.goal.findFirst({
+        where: { id: input.goalId, userId: ctx.session.user.id },
+      });
+
+      if (!goal) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Objective not found",
+        });
+      }
+
+      return ctx.db.goalComment.findMany({
+        where: { goalId: input.goalId },
+        include: {
+          author: {
+            select: { id: true, name: true, image: true },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      });
+    }),
+
+  // Delete own comment from an objective
+  deleteGoalComment: protectedProcedure
+    .input(
+      z.object({
+        commentId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const comment = await ctx.db.goalComment.findFirst({
+        where: { id: input.commentId, authorId: ctx.session.user.id },
+      });
+
+      if (!comment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Comment not found or you don't have permission to delete it",
+        });
+      }
+
+      await ctx.db.goalComment.delete({ where: { id: input.commentId } });
+      return { success: true };
+    }),
+
+  // Add comment to a key result
+  addKeyResultComment: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        content: z.string().min(1).max(5000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify user owns this key result
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId, userId: ctx.session.user.id },
+      });
+
+      if (!keyResult) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      const comment = await ctx.db.keyResultComment.create({
+        data: {
+          keyResultId: input.keyResultId,
+          authorId: ctx.session.user.id,
+          content: input.content,
+        },
+        include: {
+          author: {
+            select: { id: true, name: true, image: true },
+          },
+        },
+      });
+
+      return comment;
+    }),
+
+  // Get comments for a key result
+  getKeyResultComments: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      // Verify user owns this key result
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId, userId: ctx.session.user.id },
+      });
+
+      if (!keyResult) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      return ctx.db.keyResultComment.findMany({
+        where: { keyResultId: input.keyResultId },
+        include: {
+          author: {
+            select: { id: true, name: true, image: true },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      });
+    }),
+
+  // Delete own comment from a key result
+  deleteKeyResultComment: protectedProcedure
+    .input(
+      z.object({
+        commentId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const comment = await ctx.db.keyResultComment.findFirst({
+        where: { id: input.commentId, authorId: ctx.session.user.id },
+      });
+
+      if (!comment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Comment not found or you don't have permission to delete it",
+        });
+      }
+
+      await ctx.db.keyResultComment.delete({ where: { id: input.commentId } });
+      return { success: true };
     }),
 });
