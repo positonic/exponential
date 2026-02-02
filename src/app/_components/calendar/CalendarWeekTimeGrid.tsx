@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { Text, ScrollArea } from "@mantine/core";
-import { format, parseISO, isSameDay, isToday, eachDayOfInterval } from "date-fns";
+import { format, isToday, eachDayOfInterval } from "date-fns";
 import type { CalendarEvent } from "~/server/services/GoogleCalendarService";
 import type { ScheduledAction } from "./types";
 import {
@@ -12,6 +12,12 @@ import {
   TIME_LABEL_WIDTH,
 } from "./types";
 import { CalendarEventBlock, CalendarActionBlock } from "./CalendarEventBlock";
+import {
+  calculateOverlappingPositions,
+  convertEventToCalendarItem,
+  convertActionToCalendarItem,
+  type PositionedCalendarItem,
+} from "./utils/overlapDetection";
 
 interface CalendarWeekTimeGridProps {
   events: CalendarEvent[];
@@ -38,135 +44,33 @@ export function CalendarWeekTimeGrid({
     end: dateRange.end,
   });
 
-  // Group and position events by day
-  const positionedEventsByDay = useMemo(() => {
-    const result = new Map<
-      string,
-      Array<{
-        event: CalendarEvent;
-        top: number;
-        height: number;
-        left: number;
-        width: number;
-      }>
-    >();
+  // Group and position items by day (unified events + actions with overlap detection)
+  const positionedItemsByDay = useMemo(() => {
+    const result = new Map<string, PositionedCalendarItem[]>();
 
     days.forEach((day) => {
       const dayKey = format(day, "yyyy-MM-dd");
-      const dayEvents = events.filter((event) => {
-        if (event.start.date) {
-          return isSameDay(new Date(event.start.date), day);
-        } else if (event.start.dateTime) {
-          return isSameDay(parseISO(event.start.dateTime), day);
-        }
-        return false;
-      });
 
-      const positioned = dayEvents.map((event) => {
-        let top = 0;
-        let height = HOUR_HEIGHT;
+      // Convert events to calendar items for this day
+      const eventItems = events
+        .map((event) => convertEventToCalendarItem(event, day))
+        .filter((item): item is NonNullable<typeof item> => item !== null);
 
-        if (event.start.dateTime && event.end.dateTime) {
-          const startTime = parseISO(event.start.dateTime);
-          const endTime = parseISO(event.end.dateTime);
+      // Convert actions to calendar items for this day
+      const actionItems = scheduledActions
+        .map((action) => convertActionToCalendarItem(action, day))
+        .filter((item): item is NonNullable<typeof item> => item !== null);
 
-          const startMinutes =
-            startTime.getHours() * 60 + startTime.getMinutes();
-          const endMinutes = endTime.getHours() * 60 + endTime.getMinutes();
-
-          top = ((startMinutes - VISIBLE_START_HOUR * 60) / 60) * HOUR_HEIGHT;
-          height = Math.max(
-            ((endMinutes - startMinutes) / 60) * HOUR_HEIGHT,
-            20
-          );
-        }
-
-        return {
-          event,
-          top,
-          height,
-          left: 0,
-          width: 0,
-        };
-      });
-
-      // Handle overlapping events within the day
-      const sortedEvents = positioned.sort((a, b) => a.top - b.top);
-      const columns: Array<Array<(typeof sortedEvents)[0]>> = [];
-
-      sortedEvents.forEach((item) => {
-        let placed = false;
-        for (const column of columns) {
-          const lastEvent = column[column.length - 1];
-          if (!lastEvent || item.top >= lastEvent.top + lastEvent.height) {
-            column.push(item);
-            placed = true;
-            break;
-          }
-        }
-        if (!placed) {
-          columns.push([item]);
-        }
-      });
-
-      const numColumns = Math.max(columns.length, 1);
-      columns.forEach((column, columnIndex) => {
-        column.forEach((item) => {
-          item.left = (columnIndex / numColumns) * 100;
-          item.width = 100 / numColumns - 1;
-        });
-      });
-
-      result.set(dayKey, sortedEvents);
-    });
-
-    return result;
-  }, [events, days]);
-
-  // Group and position actions by day
-  const positionedActionsByDay = useMemo(() => {
-    const result = new Map<
-      string,
-      Array<{
-        action: ScheduledAction;
-        top: number;
-        height: number;
-      }>
-    >();
-
-    days.forEach((day) => {
-      const dayKey = format(day, "yyyy-MM-dd");
-      const dayActions = scheduledActions.filter((action) => {
-        if (!action.scheduledStart) return false;
-        return isSameDay(new Date(action.scheduledStart), day);
-      });
-
-      const positioned = dayActions.map((action) => {
-        const startTime = new Date(action.scheduledStart);
-        const startMinutes = startTime.getHours() * 60 + startTime.getMinutes();
-
-        let endMinutes = startMinutes + 30;
-        if (action.duration) {
-          endMinutes = startMinutes + action.duration;
-        } else if (action.scheduledEnd) {
-          const endTime = new Date(action.scheduledEnd);
-          endMinutes = endTime.getHours() * 60 + endTime.getMinutes();
-        }
-
-        const top = ((startMinutes - VISIBLE_START_HOUR * 60) / 60) * HOUR_HEIGHT;
-        const height = Math.max(
-          ((endMinutes - startMinutes) / 60) * HOUR_HEIGHT,
-          25
-        );
-
-        return { action, top, height };
-      });
+      // Combine and calculate positions with overlap detection
+      // Use percentage-based positioning for responsive layout
+      const allItems = [...eventItems, ...actionItems];
+      const positioned = calculateOverlappingPositions(allItems, 100, 0);
 
       result.set(dayKey, positioned);
     });
 
     return result;
-  }, [scheduledActions, days]);
+  }, [events, scheduledActions, days]);
 
   const gridHeight = (VISIBLE_END_HOUR - VISIBLE_START_HOUR) * HOUR_HEIGHT;
 
@@ -238,8 +142,7 @@ export function CalendarWeekTimeGrid({
           {/* Day columns */}
           {days.map((day) => {
             const dayKey = format(day, "yyyy-MM-dd");
-            const dayEvents = positionedEventsByDay.get(dayKey) ?? [];
-            const dayActions = positionedActionsByDay.get(dayKey) ?? [];
+            const dayItems = positionedItemsByDay.get(dayKey) ?? [];
             const isTodayDate = isToday(day);
 
             return (
@@ -264,37 +167,41 @@ export function CalendarWeekTimeGrid({
                   <CurrentTimeIndicator startHour={VISIBLE_START_HOUR} />
                 )}
 
-                {/* Events */}
-                {dayEvents.map((item) => (
-                  <CalendarEventBlock
-                    key={item.event.id}
-                    event={item.event}
-                    style={{
-                      top: item.top,
-                      left: `${item.left}%`,
-                      width: `${item.width}%`,
-                      height: item.height,
-                      zIndex: 5,
-                    }}
-                  />
-                ))}
-
-                {/* Actions */}
-                {dayActions.map((item) => (
-                  <CalendarActionBlock
-                    key={item.action.id}
-                    action={item.action}
-                    style={{
-                      top: item.top,
-                      left: "2%",
-                      width: "96%",
-                      height: item.height,
-                      zIndex: 10,
-                    }}
-                    onStatusChange={onActionStatusChange}
-                    onClick={onActionClick}
-                  />
-                ))}
+                {/* Events and Actions (unified with overlap detection) */}
+                {dayItems.map((item) => {
+                  if (item.type === "event" && item.originalEvent) {
+                    return (
+                      <CalendarEventBlock
+                        key={item.id}
+                        event={item.originalEvent}
+                        style={{
+                          top: item.top,
+                          left: `${item.left}%`,
+                          width: `${item.width}%`,
+                          height: item.height,
+                          zIndex: item.column + 1,
+                        }}
+                      />
+                    );
+                  } else if (item.type === "action" && item.originalAction) {
+                    return (
+                      <CalendarActionBlock
+                        key={item.id}
+                        action={item.originalAction}
+                        style={{
+                          top: item.top,
+                          left: `${item.left}%`,
+                          width: `${item.width}%`,
+                          height: item.height,
+                          zIndex: item.column + 1,
+                        }}
+                        onStatusChange={onActionStatusChange}
+                        onClick={onActionClick}
+                      />
+                    );
+                  }
+                  return null;
+                })}
               </div>
             );
           })}
