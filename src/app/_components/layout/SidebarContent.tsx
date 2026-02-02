@@ -253,7 +253,7 @@ export function SidebarContent() {
                   </NavLink>
                 )}
                 {isItemVisible("tools/api-access") && (
-                  <NavLink href="/tokens" icon={IconKey}>
+                  <NavLink href="/settings/api-keys" icon={IconKey}>
                     API Access
                   </NavLink>
                 )}

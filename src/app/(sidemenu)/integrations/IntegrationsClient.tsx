@@ -598,7 +598,7 @@ export default function IntegrationsClient() {
               Connect Exponential to external services (Fireflies, GitHub, etc.) using their API keys
             </Text>
             <Text c="blue" size="sm" mt="xs">
-              💡 Need to give external apps access to YOUR Exponential data? <Link href="/tokens" style={{ textDecoration: 'underline' }}>Generate API tokens here</Link>
+              💡 Need to give external apps access to YOUR Exponential data? <Link href="/settings/api-keys" style={{ textDecoration: 'underline' }}>Generate API tokens here</Link>
             </Text>
           </div>
           {viewMode === 'grid' && (

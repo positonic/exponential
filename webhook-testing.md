@@ -11,7 +11,7 @@ brew install ngrok
 ```
 
 ### Create API Key for Webhook
-1. Go to `/tokens` in your app
+1. Go to `/settings/api-keys` in your app
 2. Click "Create API Key"
 3. Name it "Fireflies Webhook" 
 4. Copy the 32-character API key (e.g., `a1b2c3d4e5f6789012345678901234567890abcd`)
@@ -112,7 +112,7 @@ npx prisma studio
 ## 8. Production Deployment
 When ready for production:
 1. Deploy your app to Vercel/Railway/etc.
-2. Create an API key in your production app at `/tokens`
+2. Create an API key in your production app at `/settings/api-keys`
 3. Update the webhook URL in Fireflies to your production domain:
    ```
    https://your-app.vercel.app/api/webhooks/fireflies
@@ -124,7 +124,7 @@ When ready for production:
 ### Common Issues:
 1. **ngrok URL changes**: Free ngrok URLs change each restart. Upgrade to ngrok Pro for static URLs
 2. **Signature verification fails**: Make sure your API key matches exactly in both your app and Fireflies
-3. **API key expired**: Check that your API key hasn't expired in `/tokens`
+3. **API key expired**: Check that your API key hasn't expired in `/settings/api-keys`
 4. **CORS issues**: The webhook endpoint handles POST requests, browsers might show CORS warnings for GET requests (this is normal)
 5. **Webhook not firing**: Ensure the URL is accessible and returns 200 status codes
 

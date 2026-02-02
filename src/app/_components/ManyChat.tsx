@@ -639,7 +639,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         // Detect specific error types
         if (errorText.includes('unauthorized') || errorText.includes('401')) {
           errorType = 'Authentication';
-          errorMessage = `🔐 **Authentication Error**: Agent tools are not accessible due to expired or invalid authentication. Please check your API tokens in the /tokens page. Working with available context only.`;
+          errorMessage = `🔐 **Authentication Error**: Agent tools are not accessible due to expired or invalid authentication. Please check your API tokens in the /settings/api-keys page. Working with available context only.`;
         } else if (errorText.includes('forbidden') || errorText.includes('403')) {
           errorType = 'Authorization';  
           errorMessage = `🚫 **Authorization Error**: Agent doesn't have permission to access the requested data. This might be a security issue. Working with available context only.`;
@@ -687,7 +687,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       setMessages(prev => [...prev, { 
         type: 'ai', 
         agentName: 'System Error',
-        content: `${errorMessage}\n\n_Error Type: ${errorType}_\n_Time: ${new Date().toLocaleTimeString()}_\n\n**Next Steps:**\n• Try rephrasing your request\n• Check /tokens page for authentication issues\n• Report persistent issues to support` 
+        content: `${errorMessage}\n\n_Error Type: ${errorType}_\n_Time: ${new Date().toLocaleTimeString()}_\n\n**Next Steps:**\n• Try rephrasing your request\n• Check /settings/api-keys page for authentication issues\n• Report persistent issues to support` 
       }]);
     }
   };

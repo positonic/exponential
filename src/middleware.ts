@@ -27,7 +27,7 @@ export async function middleware(request: NextRequest) {
     '/journal',
     '/meetings',
     '/videos',
-    '/tokens',
+    '/settings/api-keys',
     '/days',
     '/recordings',
     '/multi-agent',

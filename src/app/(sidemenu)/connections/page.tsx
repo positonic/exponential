@@ -4,7 +4,7 @@ import { Container, Title, Text, Tabs, Stack } from '@mantine/core';
 import { IconKey, IconPlug } from '@tabler/icons-react';
 
 // Import existing components
-// import TokensContent from '../tokens/TokensContent';
+// import TokensContent from '../settings/api-keys/TokensContent';
 // import IntegrationsContent from '../integrations/IntegrationsContent';
 
 export default function ConnectionsPage() {

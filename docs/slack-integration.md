@@ -134,7 +134,7 @@ If you're in multiple Slack workspaces:
 
 **"I had trouble accessing some features"**
 - Authentication token may be expired
-- Check `/tokens` page in Exponential dashboard
+- Check `/settings/api-keys` page in Exponential dashboard
 - Try a simpler query to test basic functionality
 
 ## Features & Capabilities
