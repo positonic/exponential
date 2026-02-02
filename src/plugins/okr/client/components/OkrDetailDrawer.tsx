@@ -169,34 +169,25 @@ export function OkrDetailDrawer({
       onClose={onClose}
       position="right"
       size="md"
-      title={
-        <Group gap="xs">
-          {type === "objective" ? (
-            <IconTarget size={20} className="text-text-muted" />
-          ) : (
-            <IconChartLine size={20} className="text-text-muted" />
-          )}
-          <Text fw={600} className="text-text-primary">
-            {type === "objective" ? "Objective" : "Key Result"}
-          </Text>
-        </Group>
-      }
-      styles={{
-        header: {
-          backgroundColor: "var(--background-secondary)",
-          borderBottom: "1px solid var(--border-primary)",
-        },
-        body: {
-          backgroundColor: "var(--background-primary)",
-          padding: 0,
-        },
-        content: {
-          backgroundColor: "var(--background-primary)",
-        },
-      }}
+      title=""
+      trapFocus={false}
+      lockScroll={false}
+      withOverlay={false}
     >
-      <ScrollArea h="calc(100vh - 60px)" offsetScrollbars>
+      <ScrollArea h="100%" offsetScrollbars>
         <Stack gap="md" p="md">
+          {/* Header */}
+          <Group gap="xs" className="pb-2 border-b border-border-primary">
+            {type === "objective" ? (
+              <IconTarget size={20} className="text-text-muted" />
+            ) : (
+              <IconChartLine size={20} className="text-text-muted" />
+            )}
+            <Text fw={600} className="text-text-primary">
+              {type === "objective" ? "Objective" : "Key Result"}
+            </Text>
+          </Group>
+
           {/* Title and Status */}
           <div>
             <Text fw={600} size="lg" className="text-text-primary mb-2">
