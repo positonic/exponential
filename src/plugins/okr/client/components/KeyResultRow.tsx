@@ -36,6 +36,7 @@ interface KeyResultRowProps {
   keyResult: KeyResultData;
   parentColor: string;
   isLastChild: boolean;
+  onEdit?: (keyResult: KeyResultData) => void;
 }
 
 /**
@@ -75,6 +76,7 @@ export function KeyResultRow({
   keyResult,
   parentColor,
   isLastChild,
+  onEdit,
 }: KeyResultRowProps) {
   const delta = calculateDelta(keyResult);
   const progress = calculateProgress(keyResult);
@@ -88,7 +90,18 @@ export function KeyResultRow({
   const initial = user ? getInitial(user.name, user.email) : "?";
 
   return (
-    <div className="flex items-center gap-3 py-2 pl-6 hover:bg-surface-hover rounded transition-colors">
+    <div
+      className="flex items-center gap-3 py-2 pl-6 hover:bg-surface-hover rounded transition-colors cursor-pointer"
+      onClick={() => onEdit?.(keyResult)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onEdit?.(keyResult);
+        }
+      }}
+    >
       {/* Tree connector line */}
       <div className="relative w-5 flex-shrink-0">
         {/* Horizontal line to item */}

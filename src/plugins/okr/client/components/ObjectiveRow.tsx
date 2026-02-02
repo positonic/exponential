@@ -1,7 +1,7 @@
 "use client";
 
 import { Text, Progress, Badge, Collapse, ActionIcon, Tooltip } from "@mantine/core";
-import { IconChevronRight, IconTrash, IconPencil, IconPlus } from "@tabler/icons-react";
+import { IconChevronRight, IconTrash, IconPencil, IconPlus, IconMessageCircle } from "@tabler/icons-react";
 import { ObjectiveIndicator, getObjectiveColor } from "./ObjectiveIndicator";
 import { DeltaIndicator, calculateAggregateDelta } from "./DeltaIndicator";
 import { KeyResultRow } from "./KeyResultRow";
@@ -57,6 +57,9 @@ interface ObjectiveRowProps {
   isDeleting?: boolean;
   onEditSuccess?: () => void;
   onAddKeyResult?: (objectiveId: number) => void;
+  onEditKeyResult?: (keyResult: KeyResult) => void;
+  onViewObjective?: () => void;
+  onViewKeyResult?: (keyResult: KeyResult) => void;
 }
 
 /**
@@ -80,6 +83,9 @@ export function ObjectiveRow({
   isDeleting,
   onEditSuccess,
   onAddKeyResult,
+  onEditKeyResult,
+  onViewObjective,
+  onViewKeyResult,
 }: ObjectiveRowProps) {
   const objectiveColor = getObjectiveColor(objective.title);
   const aggregateDelta = calculateAggregateDelta(objective.keyResults);
@@ -118,7 +124,20 @@ export function ObjectiveRow({
             <Text fw={500} className="truncate text-text-primary">
               {objective.title}
             </Text>
-            <div onClick={(e) => e.stopPropagation()}>
+            <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1">
+              {onViewObjective && (
+                <Tooltip label="Discussion">
+                  <ActionIcon
+                    variant="subtle"
+                    size="xs"
+                    className="opacity-0 group-hover/title:opacity-100 transition-opacity flex-shrink-0"
+                    aria-label="View discussion"
+                    onClick={onViewObjective}
+                  >
+                    <IconMessageCircle size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
               <CreateGoalModal
                 goal={{
                   id: objective.id,
@@ -198,6 +217,8 @@ export function ObjectiveRow({
                 keyResult={kr}
                 parentColor={objectiveColor}
                 isLastChild={index === objective.keyResults.length - 1}
+                onEdit={onEditKeyResult}
+                onViewDetails={onViewKeyResult ? () => onViewKeyResult(kr) : undefined}
               />
             ))
           ) : (

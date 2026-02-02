@@ -33,6 +33,8 @@ import Link from "next/link";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { OkrOverview } from "./OkrOverview";
 import { ObjectiveRow } from "./ObjectiveRow";
+import { EditKeyResultModal } from "./EditKeyResultModal";
+import { OkrDetailDrawer } from "./OkrDetailDrawer";
 
 // Period type options for the dropdown
 const periodTypeOptions = [
@@ -79,6 +81,38 @@ export function OkrDashboard() {
     createModalOpened,
     { open: openCreateModal, close: closeCreateModal },
   ] = useDisclosure(false);
+  const [
+    editKrModalOpened,
+    { open: openEditKrModal, close: closeEditKrModal },
+  ] = useDisclosure(false);
+  const [editingKeyResult, setEditingKeyResult] = useState<{
+    id: string;
+    title: string;
+    description?: string | null;
+    currentValue: number;
+    targetValue: number;
+    startValue: number;
+    unit?: string;
+    unitLabel?: string | null;
+    status: string;
+    confidence?: number | null;
+    period?: string;
+  } | null>(null);
+
+  // Drawer state for viewing OKR details
+  const [
+    drawerOpened,
+    { open: openDrawer, close: closeDrawer },
+  ] = useDisclosure(false);
+  const [drawerItem, setDrawerItem] = useState<{
+    type: "objective" | "keyResult";
+    id: number | string;
+    title: string;
+    description?: string | null;
+    progress: number;
+    status: string;
+    lifeDomainName?: string | null;
+  } | null>(null);
 
   // Track expanded objectives (all expanded by default)
   const [expandedObjectives, setExpandedObjectives] = useState<Set<number>>(
@@ -242,6 +276,68 @@ export function OkrDashboard() {
     openCreateModal();
   };
 
+  // Handler to open edit modal for a key result
+  const handleEditKeyResult = (keyResult: {
+    id: string;
+    title: string;
+    description?: string | null;
+    currentValue: number;
+    targetValue: number;
+    startValue: number;
+    unit?: string;
+    unitLabel?: string | null;
+    status: string;
+    confidence?: number | null;
+    period?: string;
+  }) => {
+    setEditingKeyResult(keyResult);
+    openEditKrModal();
+  };
+
+  // Handler to open drawer for viewing objective details
+  const handleViewObjective = (objective: {
+    id: number;
+    title: string;
+    description?: string | null;
+    progress: number;
+    lifeDomain?: { id: number; name: string } | null;
+  }) => {
+    setDrawerItem({
+      type: "objective",
+      id: objective.id,
+      title: objective.title,
+      description: objective.description,
+      progress: objective.progress,
+      status: objective.progress >= 100 ? "achieved" : objective.progress >= 70 ? "on-track" : objective.progress >= 40 ? "at-risk" : "off-track",
+      lifeDomainName: objective.lifeDomain?.name ?? null,
+    });
+    openDrawer();
+  };
+
+  // Handler to open drawer for viewing key result details
+  const handleViewKeyResult = (keyResult: {
+    id: string;
+    title: string;
+    description?: string | null;
+    currentValue: number;
+    targetValue: number;
+    startValue: number;
+    status: string;
+  }) => {
+    const range = keyResult.targetValue - keyResult.startValue;
+    const progress = range > 0 ? ((keyResult.currentValue - keyResult.startValue) / range) * 100 : 0;
+    setDrawerItem({
+      type: "keyResult",
+      id: keyResult.id,
+      title: keyResult.title,
+      description: keyResult.description,
+      progress: Math.min(100, Math.max(0, progress)),
+      status: keyResult.status,
+      lifeDomainName: null,
+    });
+    openDrawer();
+  };
+
   // Transform stats for OkrOverview component
   const overviewStats = useMemo(() => {
     if (!stats) return null;
@@ -384,6 +480,14 @@ export function OkrDashboard() {
                     void utils.okr.getStats.invalidate();
                   }}
                   onAddKeyResult={handleAddKeyResultToObjective}
+                  onEditKeyResult={handleEditKeyResult}
+                  onViewObjective={() => handleViewObjective({
+                    ...objective,
+                    lifeDomain: objective.lifeDomain
+                      ? { id: objective.lifeDomain.id, name: objective.lifeDomain.title }
+                      : null,
+                  })}
+                  onViewKeyResult={handleViewKeyResult}
                 />
               ))}
             </Card>
@@ -532,6 +636,33 @@ export function OkrDashboard() {
           </Group>
         </Stack>
       </Modal>
+
+      {/* Edit Key Result Modal */}
+      <EditKeyResultModal
+        keyResult={editingKeyResult}
+        opened={editKrModalOpened}
+        onClose={() => {
+          closeEditKrModal();
+          setEditingKeyResult(null);
+        }}
+        onSuccess={() => {
+          void utils.okr.getByObjective.invalidate();
+          void utils.okr.getStats.invalidate();
+        }}
+      />
+
+      {/* OKR Detail Drawer */}
+      <OkrDetailDrawer
+        opened={drawerOpened}
+        onClose={closeDrawer}
+        type={drawerItem?.type ?? "objective"}
+        itemId={drawerItem?.id ?? null}
+        title={drawerItem?.title}
+        description={drawerItem?.description}
+        progress={drawerItem?.progress}
+        status={drawerItem?.status}
+        lifeDomainName={drawerItem?.lifeDomainName}
+      />
     </Container>
   );
 }
