@@ -630,7 +630,7 @@ export const projectRouter = createTRPCRouter({
       // First check if project exists
       const projectExists = await ctx.db.project.findUnique({
         where: { id: input.id },
-        select: { id: true, createdById: true, teamId: true },
+        select: { id: true, createdById: true, teamId: true, workspaceId: true },
       });
 
       if (!projectExists) {
@@ -640,9 +640,10 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
-      // Check permission: user is creator OR team member
+      // Check permission: user is creator OR team member OR workspace member
       let hasPermission = projectExists.createdById === ctx.session.user.id;
 
+      // Check team membership
       if (!hasPermission && projectExists.teamId) {
         const teamMembership = await ctx.db.teamUser.findFirst({
           where: {
@@ -653,10 +654,23 @@ export const projectRouter = createTRPCRouter({
         hasPermission = !!teamMembership;
       }
 
+      // Check workspace membership
+      if (!hasPermission && projectExists.workspaceId) {
+        const workspaceMembership = await ctx.db.workspaceUser.findUnique({
+          where: {
+            userId_workspaceId: {
+              userId: ctx.session.user.id,
+              workspaceId: projectExists.workspaceId,
+            },
+          },
+        });
+        hasPermission = !!workspaceMembership;
+      }
+
       if (!hasPermission) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Access denied",
+          message: "Access denied - you don't have permission to view this project",
         });
       }
 
