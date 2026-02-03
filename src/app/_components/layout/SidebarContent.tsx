@@ -91,9 +91,6 @@ export function SidebarContent() {
               <NavLink href={`/w/${workspaceSlug}/actions`} icon={IconLayoutKanban}>
                 Actions
               </NavLink>
-              <NavLink href={`/w/${workspaceSlug}/all-projects`} icon={IconDeviceProjector}>
-                All Projects
-              </NavLink>
               {/* Plugin navigation items for workspace section */}
               {itemsBySection.workspace
                 ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
