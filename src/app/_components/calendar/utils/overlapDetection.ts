@@ -29,42 +29,77 @@ export interface PositionedCalendarItem extends CalendarItem {
 }
 
 /**
- * Calculate positions for overlapping calendar items using column-based layout.
- * Items that overlap in time are placed side-by-side in columns with equal widths.
- *
- * @param items - Array of calendar items to position
- * @param containerWidth - Available width for positioning (pixels or percentage)
- * @param baseLeft - Starting left position offset (default 0)
- * @returns Array of positioned items with calculated left, width, and column properties
+ * Check if two calendar items overlap in time
  */
-export function calculateOverlappingPositions(
-  items: CalendarItem[],
-  containerWidth: number,
-  baseLeft = 0
-): PositionedCalendarItem[] {
+function itemsOverlap(a: CalendarItem, b: CalendarItem): boolean {
+  const aEnd = a.top + a.height;
+  const bEnd = b.top + b.height;
+  // Items overlap if one starts before the other ends
+  return a.top < bEnd && b.top < aEnd;
+}
+
+/**
+ * Build clusters of items that transitively overlap with each other.
+ * Items in the same cluster share column space, while separate clusters
+ * are positioned independently.
+ */
+function buildOverlapClusters(
+  items: PositionedCalendarItem[]
+): PositionedCalendarItem[][] {
   if (items.length === 0) return [];
 
-  // Initialize all items as positioned items
-  const positioned: PositionedCalendarItem[] = items.map((item) => ({
-    ...item,
-    left: baseLeft,
-    width: containerWidth,
-    column: 0,
-    totalColumns: 1,
-  }));
+  // Sort by start time (top position)
+  const sorted = [...items].sort((a, b) => a.top - b.top);
+
+  const clusters: PositionedCalendarItem[][] = [];
+  let currentCluster: PositionedCalendarItem[] = [sorted[0]!];
+  let clusterEnd = sorted[0]!.top + sorted[0]!.height;
+
+  for (let i = 1; i < sorted.length; i++) {
+    const item = sorted[i]!;
+
+    // Check if this item overlaps with the current cluster
+    // An item overlaps with a cluster if it starts before the cluster ends
+    if (item.top < clusterEnd) {
+      // Add to current cluster and extend cluster end if needed
+      currentCluster.push(item);
+      clusterEnd = Math.max(clusterEnd, item.top + item.height);
+    } else {
+      // No overlap - start a new cluster
+      clusters.push(currentCluster);
+      currentCluster = [item];
+      clusterEnd = item.top + item.height;
+    }
+  }
+
+  // Don't forget the last cluster
+  clusters.push(currentCluster);
+
+  return clusters;
+}
+
+/**
+ * Apply column-based layout to a single cluster of overlapping items.
+ * Uses greedy algorithm to place items in columns.
+ */
+function layoutCluster(
+  cluster: PositionedCalendarItem[],
+  containerWidth: number,
+  baseLeft: number
+): void {
+  if (cluster.length === 0) return;
 
   // Sort by start time, then by type (events first for consistency)
-  const sortedItems = positioned.sort((a, b) => {
+  cluster.sort((a, b) => {
     if (a.top !== b.top) return a.top - b.top;
-    // Prioritize events slightly for visual consistency
     if (a.type !== b.type) return a.type === "event" ? -1 : 1;
     return 0;
   });
 
   // Group items into columns using greedy algorithm
-  const columns: Array<Array<PositionedCalendarItem>> = [];
+  const columns: PositionedCalendarItem[][] = [];
 
-  sortedItems.forEach((item) => {
+  cluster.forEach((item) => {
     let placed = false;
 
     // Try to place in an existing column
@@ -88,9 +123,10 @@ export function calculateOverlappingPositions(
     }
   });
 
-  // Calculate widths and positions based on column count
+  // Calculate widths and positions based on column count within this cluster
   const numColumns = columns.length;
-  const columnWidth = numColumns > 0 ? containerWidth / numColumns : containerWidth;
+  const columnWidth =
+    numColumns > 0 ? containerWidth / numColumns : containerWidth;
 
   columns.forEach((column, columnIndex) => {
     column.forEach((item) => {
@@ -100,8 +136,48 @@ export function calculateOverlappingPositions(
       item.width = columnWidth - 2; // 2px gap between columns for visual separation
     });
   });
+}
 
-  return sortedItems;
+/**
+ * Calculate positions for overlapping calendar items using column-based layout.
+ * Items are grouped into overlap clusters, and each cluster is laid out independently.
+ * Items that don't overlap with anything get full width.
+ *
+ * @param items - Array of calendar items to position
+ * @param containerWidth - Available width for positioning (pixels or percentage)
+ * @param baseLeft - Starting left position offset (default 0)
+ * @returns Array of positioned items with calculated left, width, and column properties
+ */
+export function calculateOverlappingPositions(
+  items: CalendarItem[],
+  containerWidth: number,
+  baseLeft = 0
+): PositionedCalendarItem[] {
+  if (items.length === 0) return [];
+
+  // Initialize all items as positioned items with default full width
+  const positioned: PositionedCalendarItem[] = items.map((item) => ({
+    ...item,
+    left: baseLeft,
+    width: containerWidth - 2,
+    column: 0,
+    totalColumns: 1,
+  }));
+
+  // Build clusters of overlapping items
+  const clusters = buildOverlapClusters(positioned);
+
+  // Layout each cluster independently
+  clusters.forEach((cluster) => {
+    layoutCluster(cluster, containerWidth, baseLeft);
+  });
+
+  // Return items sorted by start time for consistent rendering
+  return positioned.sort((a, b) => {
+    if (a.top !== b.top) return a.top - b.top;
+    if (a.type !== b.type) return a.type === "event" ? -1 : 1;
+    return 0;
+  });
 }
 
 /**
