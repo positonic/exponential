@@ -1,7 +1,7 @@
 "use client";
 
 import { Container, Paper, Text, SimpleGrid } from "@mantine/core";
-import { IconBook, IconUsers, IconCalendarEvent, IconVideo, IconTarget, IconDeviceProjector } from "@tabler/icons-react";
+import { IconBook, IconUsers, IconCalendarEvent, IconVideo, IconDeviceProjector, IconSettings, IconLayoutKanban } from "@tabler/icons-react";
 import Link from "next/link";
 import { GreetingHeader } from "./GreetingHeader";
 import { WeeklyReviewBanner } from "./WeeklyReviewBanner";
@@ -26,14 +26,14 @@ export function CommandCenter() {
       <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="md" className="mb-6">
         <Paper
           component={Link}
-          href={`${basePath}/alignment`}
+          href={`${basePath}/settings`}
           p="md"
           radius="md"
           className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
         >
-          <IconTarget size={24} className="text-blue-500 mb-2" />
+          <IconSettings size={24} className="text-blue-500 mb-2" />
           <Text fw={500} size="sm" className="text-text-primary">
-            Alignment
+            Settings
           </Text>
         </Paper>
 
@@ -78,14 +78,14 @@ export function CommandCenter() {
 
         <Paper
           component={Link}
-          href={`${basePath}/plan`}
+          href={`${basePath}/actions`}
           p="md"
           radius="md"
           className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
         >
-          <IconCalendarEvent size={24} className="text-yellow-500 mb-2" />
+          <IconLayoutKanban size={24} className="text-yellow-500 mb-2" />
           <Text fw={500} size="sm" className="text-text-primary">
-            Plan
+            Actions
           </Text>
         </Paper>
 

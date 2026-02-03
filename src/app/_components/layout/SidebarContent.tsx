@@ -88,8 +88,8 @@ export function SidebarContent() {
                   OKR Check-in
                 </NavLink>
               )}
-              <NavLink href={`/w/${workspaceSlug}/views`} icon={IconLayoutKanban}>
-                Board
+              <NavLink href={`/w/${workspaceSlug}/actions`} icon={IconLayoutKanban}>
+                Actions
               </NavLink>
               <NavLink href={`/w/${workspaceSlug}/all-projects`} icon={IconDeviceProjector}>
                 All Projects
