@@ -144,6 +144,8 @@ model User {
   workDaysJson                String?                    // JSON array: ["monday","tuesday","wednesday","thursday","friday"]
   workHoursStart              String?                    @default("09:00")
   workHoursEnd                String?                    @default("17:00")
+  // DRI (Directly Responsible Individual) relation
+  driProjects                 Project[]                  @relation("ProjectDRI")
 }
 
 model VerificationToken {
@@ -399,9 +401,11 @@ model Project {
   taskManagementConfig  Json?
   taskManagementTool    String?                    @default("internal")
   notionProjectId       String?
+  driId                 String?
   actions               Action[]
   aiInteractionHistory  AiInteractionHistory[]
   createdBy             User                       @relation(fields: [createdById], references: [id])
+  dri                   User?                      @relation("ProjectDRI", fields: [driId], references: [id])
   team                  Team?                      @relation(fields: [teamId], references: [id])
   workspace             Workspace?                 @relation(fields: [workspaceId], references: [id])
   projectMembers        ProjectMember[]
@@ -423,6 +427,7 @@ model Project {
   @@index([teamId])
   @@index([workspaceId])
   @@index([taskManagementTool])
+  @@index([driId])
 }
 
 model Video {

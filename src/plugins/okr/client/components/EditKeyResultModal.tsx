@@ -216,7 +216,7 @@ export function EditKeyResultModal({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          handleSubmit();
+          void handleSubmit();
         }}
       >
         <Stack gap="md" p="md">

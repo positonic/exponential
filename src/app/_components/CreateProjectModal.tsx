@@ -16,6 +16,8 @@ type ProjectWithRelations = Project & {
   outcomes?: Outcome[];
   lifeDomains?: { id: number; title: string }[];
   workspaceId?: string | null;
+  driId?: string | null;
+  dri?: { id: string; name: string | null; email: string | null; image: string | null } | null;
 };
 
 interface CreateProjectModalProps {
@@ -40,6 +42,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [goalSearchValue, setGoalSearchValue] = useState("");
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(project?.workspaceId ?? null);
+  const [selectedDriId, setSelectedDriId] = useState<string | null>(project?.driId ?? null);
 
   // Get current workspace context for new projects
   const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
@@ -308,6 +311,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 outcomeIds: selectedOutcomes,
                 lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
                 workspaceId: selectedWorkspaceId,
+                driId: selectedDriId,
               });
             } else {
               createMutation.mutate({
@@ -320,6 +324,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
                 notionProjectId: notionProjectId ?? undefined,
                 workspaceId: selectedWorkspaceId ?? undefined,
+                driId: selectedDriId,
               });
             }
           }}
@@ -578,6 +583,48 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               }}
             />
           )}
+
+          {/* DRI (Directly Responsible Individual) selector */}
+          {(() => {
+            // Get members from the selected workspace or current workspace
+            const activeWorkspaceId = selectedWorkspaceId ?? currentWorkspaceId;
+            const activeWorkspace = workspaces?.find(ws => ws.id === activeWorkspaceId);
+            const workspaceMembers = activeWorkspace?.members ?? [];
+
+            if (workspaceMembers.length > 0) {
+              return (
+                <Select
+                  data={[
+                    { value: '', label: 'No DRI assigned' },
+                    ...workspaceMembers.map(member => ({
+                      value: member.user.id,
+                      label: member.user.name ?? member.user.email ?? 'Unknown user'
+                    }))
+                  ]}
+                  value={selectedDriId ?? ''}
+                  onChange={(value) => setSelectedDriId(value === '' ? null : value)}
+                  label="DRI (Directly Responsible Individual)"
+                  description="The person accountable for this project"
+                  mt="md"
+                  searchable
+                  clearable
+                  styles={{
+                    input: {
+                      backgroundColor: 'var(--color-surface-secondary)',
+                      color: 'var(--color-text-primary)',
+                      borderColor: 'var(--color-border-primary)',
+                    },
+                    dropdown: {
+                      backgroundColor: 'var(--color-surface-secondary)',
+                      borderColor: 'var(--color-border-primary)',
+                      color: 'var(--color-text-primary)',
+                    },
+                  }}
+                />
+              );
+            }
+            return null;
+          })()}
 
           <Group justify="flex-end" mt="xl">
             <Button variant="subtle" color="gray" onClick={handleClose}>

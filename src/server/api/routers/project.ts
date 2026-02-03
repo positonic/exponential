@@ -135,7 +135,15 @@ export const projectRouter = createTRPCRouter({
           actions: input?.include?.actions ?? false,
           goals: true,
           outcomes: true,
-          lifeDomains: true
+          lifeDomains: true,
+          dri: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
         }
       });
 
@@ -196,6 +204,7 @@ export const projectRouter = createTRPCRouter({
         teamId: z.string().optional(),
         notionProjectId: z.string().optional(),
         workspaceId: z.string().optional(),
+        driId: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -224,6 +233,7 @@ export const projectRouter = createTRPCRouter({
           createdById: ctx.session.user.id,
           workspaceId: input.workspaceId ?? null,
           teamId: input.teamId ?? null,
+          driId: input.driId ?? null,
         },
       });
 
@@ -281,10 +291,11 @@ export const projectRouter = createTRPCRouter({
         outcomeIds: z.array(z.string()).optional(),
         lifeDomainIds: z.array(z.number()).optional(),
         workspaceId: z.string().nullable().optional(),
+        driId: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, lifeDomainIds, workspaceId, ...updateData } = input;
+      const { id, goalIds, outcomeIds, lifeDomainIds, workspaceId, driId, ...updateData } = input;
       
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -324,6 +335,12 @@ export const projectRouter = createTRPCRouter({
             ? { disconnect: true }
             : workspaceId !== undefined
               ? { connect: { id: workspaceId } }
+              : undefined,
+          // Handle DRI: null means disconnect, string means connect
+          dri: driId === null
+            ? { disconnect: true }
+            : driId !== undefined
+              ? { connect: { id: driId } }
               : undefined,
         },
       });

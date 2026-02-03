@@ -121,14 +121,14 @@ export function KeyResultRow({
   return (
     <div>
       <div
-        className="group flex items-center gap-3 py-2 pl-6 hover:bg-surface-hover rounded transition-colors cursor-pointer"
-        onClick={() => onEdit?.(keyResult)}
-        role="button"
-        tabIndex={0}
+        className={`group flex items-center gap-3 py-2 pl-6 hover:bg-surface-hover rounded transition-colors ${hasProjects && onToggleExpand ? 'cursor-pointer' : ''}`}
+        onClick={hasProjects && onToggleExpand ? onToggleExpand : undefined}
+        role={hasProjects && onToggleExpand ? "button" : undefined}
+        tabIndex={hasProjects && onToggleExpand ? 0 : undefined}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
+          if (hasProjects && onToggleExpand && (e.key === "Enter" || e.key === " ")) {
             e.preventDefault();
-            onEdit?.(keyResult);
+            onToggleExpand();
           }
         }}
       >
