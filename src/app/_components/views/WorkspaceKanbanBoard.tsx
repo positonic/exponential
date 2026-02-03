@@ -85,8 +85,11 @@ export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" 
   // Mutation for updating kanban status
   const updateKanbanStatusMutation = api.view.updateKanbanStatus.useMutation({
     onMutate: async ({ actionId, kanbanStatus }) => {
-      // Optimistically update
-      setOptimisticUpdates(prev => ({ ...prev, [actionId]: kanbanStatus }));
+      // Only set if not already set by handleDragEnd (avoid duplicate render)
+      setOptimisticUpdates(prev => {
+        if (prev[actionId] === kanbanStatus) return prev;
+        return { ...prev, [actionId]: kanbanStatus };
+      });
       return { actionId };
     },
     onSuccess: () => {
@@ -226,46 +229,68 @@ export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" 
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    setActiveTask(null);
     setDragOverTaskId(null);
 
-    if (!over) return;
+    if (!over) {
+      setActiveTask(null);
+      return;
+    }
 
     const taskId = active.id as string;
     const overId = over.id as string;
 
     const task = actionsWithOptimisticUpdates.find(action => action.id === taskId);
-    if (!task) return;
+    if (!task) {
+      setActiveTask(null);
+      return;
+    }
 
-    if (updateKanbanStatusMutation.isPending) return;
+    if (updateKanbanStatusMutation.isPending) {
+      setActiveTask(null);
+      return;
+    }
 
     // Only handle status changes for STATUS grouping
-    if (groupBy !== "STATUS") return;
+    if (groupBy !== "STATUS") {
+      setActiveTask(null);
+      return;
+    }
 
+    // Determine the new status
     const isColumn = columns.some(col => col.id === overId);
+    let newStatus: ActionStatus;
 
     if (isColumn) {
-      const newStatus = overId as ActionStatus;
-      const currentStatus = optimisticUpdates[taskId] ?? task.kanbanStatus ?? "TODO";
-
-      if (currentStatus === newStatus) return;
-
-      updateKanbanStatusMutation.mutate({
-        actionId: taskId,
-        kanbanStatus: newStatus,
-      });
+      newStatus = overId as ActionStatus;
     } else {
-      // Dropped on another task
+      // Dropped on another task - use that task's status
       const targetTask = actionsWithOptimisticUpdates.find(action => action.id === overId);
-      if (!targetTask) return;
-
-      const newStatus = targetTask.kanbanStatus ?? "TODO";
-
-      updateKanbanStatusMutation.mutate({
-        actionId: taskId,
-        kanbanStatus: newStatus,
-      });
+      if (!targetTask) {
+        setActiveTask(null);
+        return;
+      }
+      newStatus = targetTask.kanbanStatus ?? "TODO";
     }
+
+    const currentStatus = optimisticUpdates[taskId] ?? task.kanbanStatus ?? "TODO";
+
+    if (currentStatus === newStatus) {
+      setActiveTask(null);
+      return;
+    }
+
+    // CRITICAL: Apply optimistic update BEFORE clearing activeTask
+    // This ensures the card is in its new position when DragOverlay disappears
+    setOptimisticUpdates(prev => ({ ...prev, [taskId]: newStatus }));
+
+    // NOW clear activeTask (DragOverlay disappears, but card is already in new position)
+    setActiveTask(null);
+
+    // Fire the mutation
+    updateKanbanStatusMutation.mutate({
+      actionId: taskId,
+      kanbanStatus: newStatus,
+    });
   };
 
   const handleDragCancel = () => {

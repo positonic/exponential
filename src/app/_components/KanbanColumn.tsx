@@ -30,7 +30,7 @@ interface Task {
 }
 
 interface KanbanColumnProps {
-  id: ActionStatus;
+  id: string;
   title: string;
   color: string;
   tasks: Task[];

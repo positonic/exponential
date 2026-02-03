@@ -76,13 +76,16 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
     onMutate: async ({ actionId, kanbanStatus }) => {
       // Cancel outgoing refetches
       await utils.action.getProjectActions.cancel({ projectId: projectId! });
-      
+
       // Snapshot the previous value
       const previousActions = utils.action.getProjectActions.getData({ projectId: projectId! });
-      
-      // Optimistically update the action
-      setOptimisticUpdates(prev => ({ ...prev, [actionId]: kanbanStatus }));
-      
+
+      // Only set if not already set by handleDragEnd (avoid duplicate render)
+      setOptimisticUpdates(prev => {
+        if (prev[actionId] === kanbanStatus) return prev;
+        return { ...prev, [actionId]: kanbanStatus };
+      });
+
       return { previousActions, actionId, originalStatus: previousActions?.find((a: any) => a.id === actionId)?.kanbanStatus };
     },
     onSuccess: (_, { actionId: _actionId }) => {
@@ -206,57 +209,68 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    setActiveTask(null);
     setDragOverTaskId(null);
 
-    if (!over) return;
+    if (!over) {
+      setActiveTask(null);
+      return;
+    }
 
     const taskId = active.id as string;
     const overId = over.id as string;
 
     // Find the task being moved
     const task = kanbanActions.find(action => action.id === taskId);
-    if (!task) return;
+    if (!task) {
+      setActiveTask(null);
+      return;
+    }
 
     // Prevent concurrent updates for the same task
-    if (updateKanbanStatusMutation.isPending) return;
-
-    // Determine if we're dropping on a column or on another task
-    const isColumn = KANBAN_COLUMNS.some(col => col.id === overId);
-    
-    if (isColumn) {
-      // Dropped on a column
-      const newStatus = overId as ActionStatus;
-      const currentStatus = optimisticUpdates[taskId] ?? task.kanbanStatus ?? "TODO";
-      
-      // If status hasn't changed, do nothing
-      if (currentStatus === newStatus) return;
-
-      // Update the task status (API will handle ordering)
-      updateKanbanStatusMutation.mutate({
-        actionId: taskId,
-        kanbanStatus: newStatus,
-      });
-    } else {
-      // Dropped on another task - need to insert at that position
-      const targetTask = kanbanActions.find(action => action.id === overId);
-      if (!targetTask) return;
-
-      const newStatus = targetTask.kanbanStatus ?? "TODO";
-      
-      // Find the position of the target task in its column
-      const columnTasks = actionsByStatus[newStatus] ?? [];
-      const targetPosition = columnTasks.findIndex(task => task.id === overId);
-      
-      if (targetPosition === -1) return;
-
-      // Use the insertion-based ordering approach
-      updateKanbanStatusMutation.mutate({
-        actionId: taskId,
-        kanbanStatus: newStatus,
-        droppedOnTaskId: overId,
-      });
+    if (updateKanbanStatusMutation.isPending) {
+      setActiveTask(null);
+      return;
     }
+
+    // Determine the new status and whether we're dropping on a column or task
+    const isColumn = KANBAN_COLUMNS.some(col => col.id === overId);
+    let newStatus: ActionStatus;
+    let droppedOnTaskId: string | undefined;
+
+    if (isColumn) {
+      newStatus = overId as ActionStatus;
+    } else {
+      // Dropped on another task - use that task's status
+      const targetTask = kanbanActions.find(action => action.id === overId);
+      if (!targetTask) {
+        setActiveTask(null);
+        return;
+      }
+      newStatus = targetTask.kanbanStatus ?? "TODO";
+      droppedOnTaskId = overId;
+    }
+
+    const currentStatus = optimisticUpdates[taskId] ?? task.kanbanStatus ?? "TODO";
+
+    // If status hasn't changed and not reordering within column, do nothing
+    if (currentStatus === newStatus && !droppedOnTaskId) {
+      setActiveTask(null);
+      return;
+    }
+
+    // CRITICAL: Apply optimistic update BEFORE clearing activeTask
+    // This ensures the card is in its new position when DragOverlay disappears
+    setOptimisticUpdates(prev => ({ ...prev, [taskId]: newStatus }));
+
+    // NOW clear activeTask (DragOverlay disappears, but card is already in new position)
+    setActiveTask(null);
+
+    // Fire the mutation
+    updateKanbanStatusMutation.mutate({
+      actionId: taskId,
+      kanbanStatus: newStatus,
+      ...(droppedOnTaskId ? { droppedOnTaskId } : {}),
+    });
   };
 
   const handleDragCancel = () => {
