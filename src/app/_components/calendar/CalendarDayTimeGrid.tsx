@@ -51,79 +51,97 @@ export function CalendarDayTimeGrid({
       .filter((item): item is NonNullable<typeof item> => item !== null);
 
     // Combine and calculate positions with overlap detection
+    // Use percentage-based positioning (100%) for responsive layout
     const allItems = [...eventItems, ...actionItems];
-    return calculateOverlappingPositions(allItems, 300, TIME_LABEL_WIDTH);
+    return calculateOverlappingPositions(allItems, 100, 0);
   }, [events, scheduledActions, selectedDate]);
 
   const gridHeight = (VISIBLE_END_HOUR - VISIBLE_START_HOUR) * HOUR_HEIGHT;
 
   return (
     <ScrollArea h="calc(100vh - 180px)" scrollbarSize={8}>
-      <div className="relative" style={{ height: gridHeight, minWidth: 600 }}>
-        {/* Hour lines and labels */}
-        {hours.map((hour, index) => (
-          <div
-            key={hour}
-            className="absolute flex w-full items-start border-t border-border-secondary"
-            style={{ top: index * HOUR_HEIGHT }}
-          >
-            <Text
-              size="xs"
-              c="dimmed"
-              className="w-14 pr-2 pt-1 text-right"
-              style={{ fontSize: "10px" }}
+      <div className="relative flex" style={{ height: gridHeight }}>
+        {/* Time labels column */}
+        <div
+          className="sticky left-0 z-20 bg-background-primary"
+          style={{ width: TIME_LABEL_WIDTH }}
+        >
+          {hours.map((hour, index) => (
+            <div
+              key={hour}
+              className="absolute border-t border-border-secondary"
+              style={{ top: index * HOUR_HEIGHT, width: TIME_LABEL_WIDTH }}
             >
-              {hour === 0
-                ? "12 AM"
-                : hour < 12
-                  ? `${hour} AM`
-                  : hour === 12
-                    ? "12 PM"
-                    : `${hour - 12} PM`}
-            </Text>
-          </div>
-        ))}
+              <Text
+                size="xs"
+                c="dimmed"
+                className="pr-2 pt-1 text-right"
+                style={{ fontSize: "10px" }}
+              >
+                {hour === 0
+                  ? "12 AM"
+                  : hour < 12
+                    ? `${hour} AM`
+                    : hour === 12
+                      ? "12 PM"
+                      : `${hour - 12} PM`}
+              </Text>
+            </div>
+          ))}
+        </div>
 
-        {/* Current time indicator */}
-        {isToday(selectedDate) && (
-          <CurrentTimeIndicator startHour={VISIBLE_START_HOUR} />
-        )}
+        {/* Event content area */}
+        <div className="relative flex-1" style={{ minWidth: 300 }}>
+          {/* Hour lines */}
+          {hours.map((hour, index) => (
+            <div
+              key={hour}
+              className="absolute w-full border-t border-border-secondary"
+              style={{ top: index * HOUR_HEIGHT }}
+            />
+          ))}
 
-        {/* Events and Actions (unified with overlap detection) */}
-        {positionedItems.map((item) => {
-          if (item.type === "event" && item.originalEvent) {
-            return (
-              <CalendarEventBlock
-                key={item.id}
-                event={item.originalEvent}
-                style={{
-                  top: item.top,
-                  left: item.left,
-                  width: item.width,
-                  height: item.height,
-                  zIndex: item.column + 1,
-                }}
-              />
-            );
-          } else if (item.type === "action" && item.originalAction) {
-            return (
-              <CalendarActionBlock
-                key={item.id}
-                action={item.originalAction}
-                style={{
-                  top: item.top,
-                  left: item.left,
-                  width: item.width,
-                  height: item.height,
-                  zIndex: item.column + 1,
-                }}
-                onStatusChange={onActionStatusChange}
-                onClick={onActionClick}
-              />
-            );
-          }
-          return null;
-        })}
+          {/* Current time indicator */}
+          {isToday(selectedDate) && (
+            <CurrentTimeIndicator startHour={VISIBLE_START_HOUR} />
+          )}
+
+          {/* Events and Actions (unified with overlap detection) */}
+          {positionedItems.map((item) => {
+            if (item.type === "event" && item.originalEvent) {
+              return (
+                <CalendarEventBlock
+                  key={item.id}
+                  event={item.originalEvent}
+                  style={{
+                    top: item.top,
+                    left: `${item.left}%`,
+                    width: `${item.width}%`,
+                    height: item.height,
+                    zIndex: item.column + 1,
+                  }}
+                />
+              );
+            } else if (item.type === "action" && item.originalAction) {
+              return (
+                <CalendarActionBlock
+                  key={item.id}
+                  action={item.originalAction}
+                  style={{
+                    top: item.top,
+                    left: `${item.left}%`,
+                    width: `${item.width}%`,
+                    height: item.height,
+                    zIndex: item.column + 1,
+                  }}
+                  onStatusChange={onActionStatusChange}
+                  onClick={onActionClick}
+                />
+              );
+            }
+            return null;
+          })}
+        </div>
       </div>
     </ScrollArea>
   );
@@ -140,7 +158,7 @@ function CurrentTimeIndicator({ startHour }: { startHour: number }) {
 
   return (
     <div
-      className="absolute left-14 right-0 border-t-2 border-red-500"
+      className="absolute left-0 right-0 border-t-2 border-red-500"
       style={{ top, zIndex: 100 }}
     >
       <div className="-ml-1 -mt-1 h-2 w-2 rounded-full bg-red-500" />
