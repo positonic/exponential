@@ -7,7 +7,6 @@ import { GreetingHeader } from "./GreetingHeader";
 import { WeeklyReviewBanner } from "./WeeklyReviewBanner";
 import { DailyPlanBanner } from "./DailyPlanBanner";
 import { GoalsProgressDashboard } from "./GoalsProgressDashboard";
-import { DailyOutcomeCapture } from "./DailyOutcomeCapture";
 import { MomentumWidget } from "./MomentumWidget";
 import { HabitsDueToday } from "./HabitsDueToday";
 import { ProjectStateOverview } from "./ProjectStateOverview";
@@ -23,37 +22,8 @@ export function CommandCenter() {
       {/* 1. Greeting (simplified) */}
       <GreetingHeader />
 
-      {/* 2. Weekly Review Reminder (if not completed this week) */}
-      <WeeklyReviewBanner />
-
-      {/* 3. Daily Plan Reminder (if not completed today) */}
-      <DailyPlanBanner />
-
-      {/* 4. Goals & OKRs Dashboard (front and center) */}
-      <GoalsProgressDashboard />
-
-      {/* Daily Outcome Capture - temporarily hidden */}
-      {/* <DailyOutcomeCapture /> */}
-
-      {/* 5. Integration Suggestions */}
-      <IntegrationSuggestions />
-
-      {/* 6. Main content grid */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Left sidebar - momentum + habits */}
-        <div className="space-y-6 lg:col-span-3">
-          <MomentumWidget />
-          <HabitsDueToday />
-        </div>
-
-        {/* Main content - projects */}
-        <div className="space-y-6 lg:col-span-9">
-          <ProjectStateOverview />
-        </div>
-      </div>
-
       {/* Quick Links */}
-      <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="md" className="mt-8">
+      <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="md" className="mb-6">
         <Paper
           component={Link}
           href={`${basePath}/alignment`}
@@ -132,6 +102,35 @@ export function CommandCenter() {
           </Text>
         </Paper>
       </SimpleGrid>
+
+      {/* 2. Weekly Review Reminder (if not completed this week) */}
+      <WeeklyReviewBanner />
+
+      {/* 3. Daily Plan Reminder (if not completed today) */}
+      <DailyPlanBanner />
+
+      {/* 4. Goals & OKRs Dashboard (front and center) */}
+      <GoalsProgressDashboard />
+
+      {/* Daily Outcome Capture - temporarily hidden */}
+      {/* <DailyOutcomeCapture /> */}
+
+      {/* 5. Integration Suggestions */}
+      <IntegrationSuggestions />
+
+      {/* 6. Main content grid */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        {/* Left sidebar - momentum + habits */}
+        <div className="space-y-6 lg:col-span-3">
+          <MomentumWidget />
+          <HabitsDueToday />
+        </div>
+
+        {/* Main content - projects */}
+        <div className="space-y-6 lg:col-span-9">
+          <ProjectStateOverview />
+        </div>
+      </div>
     </Container>
   );
 }

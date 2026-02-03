@@ -145,12 +145,19 @@ export function GoalsProgressDashboard() {
             </Text>
           </Group>
           <Link
-            href={goalsPath}
+            href={okrsPath}
             className="text-brand-primary hover:underline text-sm flex items-center gap-1"
           >
             View All <IconChevronRight size={14} />
           </Link>
         </Group>
+
+        {/* Indicator for why these objectives are shown */}
+        <Text size="xs" className="text-text-muted -mt-2">
+          {terminology.showKeyResults
+            ? `${terminology.goals} you own and ${terminology.keyResults.toLowerCase()} assigned to you`
+            : `${terminology.goals} you're responsible for`}
+        </Text>
 
         {/* Stats Row - hidden for cleaner UI */}
 
