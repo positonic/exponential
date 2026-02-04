@@ -9,8 +9,11 @@ export function GreetingHeader() {
 
   return (
     <div className="mb-6">
-      <Text className="mb-1 text-3xl font-semibold text-text-primary">
+      <Text className="mb-1 text-3xl font-semibold text-text-primary text-balance">
         {workspaceName}
+      </Text>
+      <Text size="sm" className="text-text-muted text-balance">
+        Your workspace command center for projects, goals, and daily execution.
       </Text>
     </div>
   );

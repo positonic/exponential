@@ -4,12 +4,12 @@ import { Container, Paper, Text, SimpleGrid } from "@mantine/core";
 import {
   IconBook,
   IconUsers,
-  IconCalendarEvent,
   IconVideo,
   IconDeviceProjector,
   IconSettings,
   IconLayoutKanban,
   IconTarget,
+  IconArrowUpRight,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { GreetingHeader } from "./GreetingHeader";
@@ -22,9 +22,85 @@ import { ProjectStateOverview } from "./ProjectStateOverview";
 import { IntegrationSuggestions } from "./IntegrationSuggestions";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
+interface QuickLinkItem {
+  key: string;
+  title: string;
+  description: string;
+  href: string;
+  icon: typeof IconSettings;
+  iconClassName: string;
+  iconWrapperClassName: string;
+}
+
 interface CommandCenterProps {
   variant?: "primary" | "workspace";
 }
+
+const quickLinks: QuickLinkItem[] = [
+  {
+    key: "settings",
+    title: "Settings",
+    description: "Manage workspace profile, members, and preferences.",
+    href: "/settings",
+    icon: IconSettings,
+    iconClassName: "text-brand-primary",
+    iconWrapperClassName: "bg-brand-primary/10",
+  },
+  {
+    key: "projects",
+    title: "Projects",
+    description: "Track active workstreams and keep delivery on pace.",
+    href: "/projects",
+    icon: IconDeviceProjector,
+    iconClassName: "text-brand-info",
+    iconWrapperClassName: "bg-brand-info/10",
+  },
+  {
+    key: "okrs",
+    title: "OKRs",
+    description: "Align objectives, outcomes, and momentum in one place.",
+    href: "/okrs",
+    icon: IconTarget,
+    iconClassName: "text-brand-success",
+    iconWrapperClassName: "bg-brand-success/10",
+  },
+  {
+    key: "knowledge",
+    title: "Knowledge Hub",
+    description: "Capture notes, docs, and decisions for quick recall.",
+    href: "/knowledge",
+    icon: IconBook,
+    iconClassName: "text-brand-warning",
+    iconWrapperClassName: "bg-brand-warning/10",
+  },
+  {
+    key: "crm",
+    title: "CRM",
+    description: "Manage relationships, pipeline, and follow-ups.",
+    href: "/crm",
+    icon: IconUsers,
+    iconClassName: "text-brand-primary",
+    iconWrapperClassName: "bg-brand-primary/10",
+  },
+  {
+    key: "actions",
+    title: "Actions",
+    description: "Prioritize next steps and ship with focus.",
+    href: "/actions",
+    icon: IconLayoutKanban,
+    iconClassName: "text-brand-warning",
+    iconWrapperClassName: "bg-brand-warning/10",
+  },
+  {
+    key: "meetings",
+    title: "Meetings",
+    description: "Prepare agendas and capture outcomes effortlessly.",
+    href: "/meetings",
+    icon: IconVideo,
+    iconClassName: "text-brand-error",
+    iconWrapperClassName: "bg-brand-error/10",
+  },
+];
 
 export function CommandCenter({ variant = "primary" }: CommandCenterProps) {
   const { workspaceSlug } = useWorkspace();
@@ -37,97 +113,50 @@ export function CommandCenter({ variant = "primary" }: CommandCenterProps) {
       <GreetingHeader />
 
       {/* Quick Links */}
-      <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="md" className="mb-6">
-        <Paper
-          component={Link}
-          href={`${basePath}/settings`}
-          p="md"
-          radius="md"
-          className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
-        >
-          <IconSettings size={24} className="text-blue-500 mb-2" />
-          <Text fw={500} size="sm" className="text-text-primary">
-            Settings
-          </Text>
-        </Paper>
-
-        <Paper
-          component={Link}
-          href={`${basePath}/projects`}
-          p="md"
-          radius="md"
-          className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
-        >
-          <IconDeviceProjector size={24} className="text-violet-500 mb-2" />
-          <Text fw={500} size="sm" className="text-text-primary">
-            Projects
-          </Text>
-        </Paper>
-
-        <Paper
-          component={Link}
-          href={`${basePath}/okrs`}
-          p="md"
-          radius="md"
-          className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
-        >
-          <IconTarget size={24} className="text-brand-primary mb-2" />
-          <Text fw={500} size="sm" className="text-text-primary">
-            OKRs
-          </Text>
-        </Paper>
-
-        <Paper
-          component={Link}
-          href={`${basePath}/knowledge`}
-          p="md"
-          radius="md"
-          className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
-        >
-          <IconBook size={24} className="text-green-500 mb-2" />
-          <Text fw={500} size="sm" className="text-text-primary">
-            Knowledge Hub
-          </Text>
-        </Paper>
-
-        <Paper
-          component={Link}
-          href={`${basePath}/crm`}
-          p="md"
-          radius="md"
-          className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
-        >
-          <IconUsers size={24} className="text-cyan-500 mb-2" />
-          <Text fw={500} size="sm" className="text-text-primary">
-            CRM
-          </Text>
-        </Paper>
-
-        <Paper
-          component={Link}
-          href={`${basePath}/actions`}
-          p="md"
-          radius="md"
-          className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
-        >
-          <IconLayoutKanban size={24} className="text-yellow-500 mb-2" />
-          <Text fw={500} size="sm" className="text-text-primary">
-            Actions
-          </Text>
-        </Paper>
-
-        <Paper
-          component={Link}
-          href={`${basePath}/meetings`}
-          p="md"
-          radius="md"
-          className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
-        >
-          <IconVideo size={24} className="text-orange-500 mb-2" />
-          <Text fw={500} size="sm" className="text-text-primary">
-            Meetings
-          </Text>
-        </Paper>
+      <div className="mb-4">
+        <Text className="text-text-primary text-base font-semibold text-balance">
+          Quick Links
+        </Text>
+        <Text size="sm" className="text-text-muted text-balance">
+          Jump straight to the core areas of your workspace.
+        </Text>
+      </div>
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md" className="mb-6">
+        {quickLinks.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Paper
+              key={item.key}
+              component={Link}
+              href={`${basePath}${item.href}`}
+              p="md"
+              radius="md"
+              className="group border border-border-primary bg-surface-secondary hover:border-border-focus hover:bg-surface-hover transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={`rounded-md p-2 ${item.iconWrapperClassName} ${item.iconClassName}`}
+                  aria-hidden="true"
+                >
+                  <Icon size={20} aria-hidden="true" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Text fw={600} size="sm" className="text-text-primary text-balance">
+                    {item.title}
+                  </Text>
+                  <Text size="xs" className="text-text-muted text-pretty break-words">
+                    {item.description}
+                  </Text>
+                </div>
+                <IconArrowUpRight
+                  size={18}
+                  aria-hidden="true"
+                  className="text-text-muted transition-colors group-hover:text-text-secondary"
+                />
+              </div>
+            </Paper>
+          );
+        })}
       </SimpleGrid>
 
       {/* 2. Weekly Review Reminder (if not completed this week) */}
