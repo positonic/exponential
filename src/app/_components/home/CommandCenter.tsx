@@ -1,7 +1,16 @@
 "use client";
 
 import { Container, Paper, Text, SimpleGrid } from "@mantine/core";
-import { IconBook, IconUsers, IconCalendarEvent, IconVideo, IconDeviceProjector, IconSettings, IconLayoutKanban } from "@tabler/icons-react";
+import {
+  IconBook,
+  IconUsers,
+  IconCalendarEvent,
+  IconVideo,
+  IconDeviceProjector,
+  IconSettings,
+  IconLayoutKanban,
+  IconTarget,
+} from "@tabler/icons-react";
 import Link from "next/link";
 import { GreetingHeader } from "./GreetingHeader";
 import { WeeklyReviewBanner } from "./WeeklyReviewBanner";
@@ -47,6 +56,19 @@ export function CommandCenter() {
           <IconDeviceProjector size={24} className="text-violet-500 mb-2" />
           <Text fw={500} size="sm" className="text-text-primary">
             Projects
+          </Text>
+        </Paper>
+
+        <Paper
+          component={Link}
+          href={`${basePath}/okrs`}
+          p="md"
+          radius="md"
+          className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-pointer"
+        >
+          <IconTarget size={24} className="text-brand-primary mb-2" />
+          <Text fw={500} size="sm" className="text-text-primary">
+            OKRs
           </Text>
         </Paper>
 

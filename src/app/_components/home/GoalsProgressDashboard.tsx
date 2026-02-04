@@ -8,6 +8,7 @@ import {
   Badge,
   Progress,
   Skeleton,
+  Accordion,
 } from "@mantine/core";
 import {
   IconTarget,
@@ -21,6 +22,7 @@ import Link from "next/link";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { CreateGoalModal } from "../CreateGoalModal";
 import { useTerminology } from "~/hooks/useTerminology";
+import type { MouseEvent as ReactMouseEvent } from "react";
 
 const domainColors: Record<string, string> = {
   Health: "green",
@@ -53,6 +55,10 @@ function getStatusColor(status: string): string {
   }
 }
 
+function stopAccordionToggle(event: ReactMouseEvent<HTMLElement>) {
+  event.stopPropagation();
+}
+
 export function GoalsProgressDashboard() {
   const { workspaceId, workspaceSlug } = useWorkspace();
   const terminology = useTerminology();
@@ -72,6 +78,9 @@ export function GoalsProgressDashboard() {
   const okrsPath = workspaceSlug ? `/w/${workspaceSlug}/okrs` : "/okrs";
 
   const isLoading = objectivesLoading || statsLoading;
+  const headerTitle = terminology.showKeyResults
+    ? `My ${terminology.goals} & ${terminology.keyResults}`
+    : `My ${terminology.goals}`;
 
   if (isLoading) {
     return (
@@ -102,27 +111,35 @@ export function GoalsProgressDashboard() {
         radius="md"
         className="border-border-primary bg-surface-secondary mb-6"
       >
-        <Stack gap="md">
-          <Group justify="space-between">
-            <Group gap="xs">
-              <IconTarget size={20} className="text-brand-primary" />
-              <Text fw={600} className="text-text-primary">
-                My {terminology.goals}
+        <Accordion defaultValue="okrs" className="bg-transparent">
+          <Accordion.Item value="okrs" className="border-none">
+            <Accordion.Control className="px-0">
+              <Group justify="space-between" wrap="nowrap" className="w-full">
+                <Group gap="xs">
+                  <IconTarget size={20} className="text-brand-primary" />
+                  <Text fw={600} className="text-text-primary">
+                    {headerTitle}
+                  </Text>
+                </Group>
+                <div onClick={stopAccordionToggle}>
+                  <CreateGoalModal>
+                    <Text
+                      component="span"
+                      className="text-brand-primary hover:underline text-sm flex items-center gap-1 cursor-pointer"
+                    >
+                      {terminology.createGoal} <IconChevronRight size={14} />
+                    </Text>
+                  </CreateGoalModal>
+                </div>
+              </Group>
+            </Accordion.Control>
+            <Accordion.Panel className="px-0">
+              <Text size="sm" className="text-text-muted">
+                {terminology.noGoalsYet}. Create {terminology.goals.toLowerCase()} to track your progress.
               </Text>
-            </Group>
-            <CreateGoalModal>
-              <Text
-                component="span"
-                className="text-brand-primary hover:underline text-sm flex items-center gap-1 cursor-pointer"
-              >
-                {terminology.createGoal} <IconChevronRight size={14} />
-              </Text>
-            </CreateGoalModal>
-          </Group>
-          <Text size="sm" className="text-text-muted">
-            {terminology.noGoalsYet}. Create {terminology.goals.toLowerCase()} to track your progress.
-          </Text>
-        </Stack>
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
       </Card>
     );
   }
@@ -135,165 +152,172 @@ export function GoalsProgressDashboard() {
       radius="md"
       className="border-border-primary bg-surface-secondary mb-6"
     >
-      <Stack gap="md">
-        {/* Header */}
-        <Group justify="space-between">
-          <Group gap="xs">
-            <IconTarget size={20} className="text-brand-primary" />
-            <Text fw={600} className="text-text-primary">
-              {terminology.showKeyResults ? `My ${terminology.goals} & ${terminology.keyResults}` : `My ${terminology.goals}`}
-            </Text>
-          </Group>
-          <Link
-            href={okrsPath}
-            className="text-brand-primary hover:underline text-sm flex items-center gap-1"
-          >
-            View All <IconChevronRight size={14} />
-          </Link>
-        </Group>
-
-        {/* Indicator for why these objectives are shown */}
-        <Text size="xs" className="text-text-muted -mt-2">
-          {terminology.showKeyResults
-            ? `${terminology.goals} you own and ${terminology.keyResults.toLowerCase()} assigned to you`
-            : `${terminology.goals} you're responsible for`}
-        </Text>
-
-        {/* Stats Row - hidden for cleaner UI */}
-
-        {/* Overall Progress Bar - hidden for cleaner UI */}
-
-        {/* Goals List */}
-        <Stack gap="sm">
-          {objectives.slice(0, 5).map((goal) => {
-            const hasKRs = goal.keyResults.length > 0;
-
-            return (
+      <Accordion defaultValue="okrs" className="bg-transparent">
+        <Accordion.Item value="okrs" className="border-none">
+          <Accordion.Control className="px-0">
+            <Group justify="space-between" wrap="nowrap" className="w-full">
+              <Group gap="xs">
+                <IconTarget size={20} className="text-brand-primary" />
+                <Text fw={600} className="text-text-primary">
+                  {headerTitle}
+                </Text>
+              </Group>
               <Link
-                key={goal.id}
-                href={`${okrsPath}?objective=${goal.id}`}
-                className="block rounded-md bg-background-primary p-3 transition-colors hover:bg-surface-hover"
+                href={okrsPath}
+                className="text-brand-primary hover:underline text-sm flex items-center gap-1"
+                onClick={stopAccordionToggle}
               >
-                <Group justify="space-between" wrap="nowrap" mb={hasKRs ? "xs" : 0}>
-                  <Group gap="xs" style={{ flex: 1, minWidth: 0 }}>
-                    <Text
-                      size="sm"
-                      fw={500}
-                      className="truncate text-text-primary"
-                    >
-                      {goal.title}
-                    </Text>
-                    {goal.lifeDomain && (
-                      <Badge
-                        size="xs"
-                        color={domainColors[goal.lifeDomain.title] ?? "gray"}
-                        variant="dot"
-                      >
-                        {goal.lifeDomain.title}
-                      </Badge>
-                    )}
-                  </Group>
-                  {hasKRs && (
-                    <Group gap="xs">
-                      <Text
-                        size="sm"
-                        fw={600}
-                        className={`text-${getProgressColor(goal.progress)}-500`}
-                      >
-                        {goal.progress}%
-                      </Text>
-                    </Group>
-                  )}
-                </Group>
-
-                {/* Key Results */}
-                {hasKRs && (
-                  <Stack gap={4} mt="xs">
-                    {goal.keyResults.slice(0, 3).map((kr) => {
-                      const range = kr.targetValue - kr.startValue;
-                      const progress =
-                        range > 0
-                          ? Math.min(
-                              100,
-                              Math.max(
-                                0,
-                                ((kr.currentValue - kr.startValue) / range) * 100
-                              )
-                            )
-                          : 0;
-
-                      return (
-                        <Group key={kr.id} gap="xs" wrap="nowrap">
-                          {kr.status === "achieved" ? (
-                            <IconCircleCheck
-                              size={12}
-                              className="text-green-500 flex-shrink-0"
-                            />
-                          ) : kr.status === "at-risk" ? (
-                            <IconAlertTriangle
-                              size={12}
-                              className="text-yellow-500 flex-shrink-0"
-                            />
-                          ) : (
-                            <IconTrendingUp
-                              size={12}
-                              className={`${getStatusColor(kr.status)} flex-shrink-0`}
-                            />
-                          )}
-                          <Text
-                            size="xs"
-                            className="text-text-muted truncate"
-                            style={{ flex: 1, minWidth: 0 }}
-                          >
-                            {kr.title}
-                          </Text>
-                          <Progress
-                            value={progress}
-                            color={getProgressColor(progress)}
-                            size="xs"
-                            radius="xl"
-                            style={{ width: 60 }}
-                            className="flex-shrink-0"
-                          />
-                          <Text
-                            size="xs"
-                            className="text-text-muted flex-shrink-0"
-                            style={{ width: 35, textAlign: "right" }}
-                          >
-                            {Math.round(progress)}%
-                          </Text>
-                        </Group>
-                      );
-                    })}
-                    {goal.keyResults.length > 3 && (
-                      <Text size="xs" className="text-text-muted pl-5">
-                        +{goal.keyResults.length - 3} more {terminology.keyResults.toLowerCase()}
-                      </Text>
-                    )}
-                  </Stack>
-                )}
-
-                {/* No KRs yet - only show for team workspaces */}
-                {!hasKRs && terminology.showKeyResults && (
-                  <Text size="xs" className="text-text-muted italic">
-                    No {terminology.keyResults.toLowerCase()} defined
-                  </Text>
-                )}
+                View All <IconChevronRight size={14} />
               </Link>
-            );
-          })}
+            </Group>
+          </Accordion.Control>
+          <Accordion.Panel className="px-0">
+            <Stack gap="md">
+              {/* Indicator for why these objectives are shown */}
+              <Text size="xs" className="text-text-muted -mt-2">
+                {terminology.showKeyResults
+                  ? `${terminology.goals} you own and ${terminology.keyResults.toLowerCase()} assigned to you`
+                  : `${terminology.goals} you're responsible for`}
+              </Text>
 
-          {/* Show more link */}
-          {objectives.length > 5 && (
-            <Link
-              href={goalsPath}
-              className="text-center text-sm text-brand-primary hover:underline py-2"
-            >
-              View all my {objectives.length} {terminology.goals.toLowerCase()}
-            </Link>
-          )}
-        </Stack>
-      </Stack>
+              {/* Stats Row - hidden for cleaner UI */}
+
+              {/* Overall Progress Bar - hidden for cleaner UI */}
+
+              {/* Goals List */}
+              <Stack gap="sm">
+                {objectives.slice(0, 5).map((goal) => {
+                  const hasKRs = goal.keyResults.length > 0;
+
+                  return (
+                    <Link
+                      key={goal.id}
+                      href={`${okrsPath}?objective=${goal.id}`}
+                      className="block rounded-md bg-background-primary p-3 transition-colors hover:bg-surface-hover"
+                    >
+                      <Group justify="space-between" wrap="nowrap" mb={hasKRs ? "xs" : 0}>
+                        <Group gap="xs" style={{ flex: 1, minWidth: 0 }}>
+                          <Text
+                            size="sm"
+                            fw={500}
+                            className="truncate text-text-primary"
+                          >
+                            {goal.title}
+                          </Text>
+                          {goal.lifeDomain && (
+                            <Badge
+                              size="xs"
+                              color={domainColors[goal.lifeDomain.title] ?? "gray"}
+                              variant="dot"
+                            >
+                              {goal.lifeDomain.title}
+                            </Badge>
+                          )}
+                        </Group>
+                        {hasKRs && (
+                          <Group gap="xs">
+                            <Text
+                              size="sm"
+                              fw={600}
+                              className={`text-${getProgressColor(goal.progress)}-500`}
+                            >
+                              {goal.progress}%
+                            </Text>
+                          </Group>
+                        )}
+                      </Group>
+
+                      {/* Key Results */}
+                      {hasKRs && (
+                        <Stack gap={4} mt="xs">
+                          {goal.keyResults.slice(0, 3).map((kr) => {
+                            const range = kr.targetValue - kr.startValue;
+                            const progress =
+                              range > 0
+                                ? Math.min(
+                                    100,
+                                    Math.max(
+                                      0,
+                                      ((kr.currentValue - kr.startValue) / range) * 100
+                                    )
+                                  )
+                                : 0;
+
+                            return (
+                              <Group key={kr.id} gap="xs" wrap="nowrap">
+                                {kr.status === "achieved" ? (
+                                  <IconCircleCheck
+                                    size={12}
+                                    className="text-green-500 flex-shrink-0"
+                                  />
+                                ) : kr.status === "at-risk" ? (
+                                  <IconAlertTriangle
+                                    size={12}
+                                    className="text-yellow-500 flex-shrink-0"
+                                  />
+                                ) : (
+                                  <IconTrendingUp
+                                    size={12}
+                                    className={`${getStatusColor(kr.status)} flex-shrink-0`}
+                                  />
+                                )}
+                                <Text
+                                  size="xs"
+                                  className="text-text-muted truncate"
+                                  style={{ flex: 1, minWidth: 0 }}
+                                >
+                                  {kr.title}
+                                </Text>
+                                <Progress
+                                  value={progress}
+                                  color={getProgressColor(progress)}
+                                  size="xs"
+                                  radius="xl"
+                                  style={{ width: 60 }}
+                                  className="flex-shrink-0"
+                                />
+                                <Text
+                                  size="xs"
+                                  className="text-text-muted flex-shrink-0"
+                                  style={{ width: 35, textAlign: "right" }}
+                                >
+                                  {Math.round(progress)}%
+                                </Text>
+                              </Group>
+                            );
+                          })}
+                          {goal.keyResults.length > 3 && (
+                            <Text size="xs" className="text-text-muted pl-5">
+                              +{goal.keyResults.length - 3} more {terminology.keyResults.toLowerCase()}
+                            </Text>
+                          )}
+                        </Stack>
+                      )}
+
+                      {/* No KRs yet - only show for team workspaces */}
+                      {!hasKRs && terminology.showKeyResults && (
+                        <Text size="xs" className="text-text-muted italic">
+                          No {terminology.keyResults.toLowerCase()} defined
+                        </Text>
+                      )}
+                    </Link>
+                  );
+                })}
+
+                {/* Show more link */}
+                {objectives.length > 5 && (
+                  <Link
+                    href={goalsPath}
+                    className="text-center text-sm text-brand-primary hover:underline py-2"
+                  >
+                    View all my {objectives.length} {terminology.goals.toLowerCase()}
+                  </Link>
+                )}
+              </Stack>
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
+      </Accordion>
     </Card>
   );
 }
