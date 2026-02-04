@@ -121,43 +121,49 @@ export function CommandCenter({ variant = "primary" }: CommandCenterProps) {
           Jump straight to the core areas of your workspace.
         </Text>
       </div>
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md" className="mb-6">
-        {quickLinks.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Paper
-              key={item.key}
-              component={Link}
-              href={`${basePath}${item.href}`}
-              p="md"
-              radius="md"
-              className="group border border-border-primary bg-surface-secondary hover:border-border-focus hover:bg-surface-hover transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
-            >
-              <div className="flex items-start gap-3">
-                <div
-                  className={`rounded-md p-2 ${item.iconWrapperClassName} ${item.iconClassName}`}
-                  aria-hidden="true"
-                >
-                  <Icon size={20} aria-hidden="true" />
+      <div className="mb-6 overflow-x-auto">
+        <SimpleGrid
+          cols={{ base: 7, sm: 7, lg: 7 }}
+          spacing="sm"
+          className="min-w-max"
+        >
+          {quickLinks.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Paper
+                key={item.key}
+                component={Link}
+                href={`${basePath}${item.href}`}
+                p="sm"
+                radius="md"
+                className="group border border-border-primary bg-surface-secondary hover:border-border-focus hover:bg-surface-hover transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+              >
+                <div className="flex items-start gap-2">
+                  <div
+                    className={`rounded-md p-2 ${item.iconWrapperClassName} ${item.iconClassName}`}
+                    aria-hidden="true"
+                  >
+                    <Icon size={18} aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <Text fw={600} size="sm" className="text-text-primary text-balance">
+                      {item.title}
+                    </Text>
+                    <Text size="xs" className="text-text-muted text-pretty break-words">
+                      {item.description}
+                    </Text>
+                  </div>
+                  <IconArrowUpRight
+                    size={16}
+                    aria-hidden="true"
+                    className="text-text-muted transition-colors group-hover:text-text-secondary"
+                  />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <Text fw={600} size="sm" className="text-text-primary text-balance">
-                    {item.title}
-                  </Text>
-                  <Text size="xs" className="text-text-muted text-pretty break-words">
-                    {item.description}
-                  </Text>
-                </div>
-                <IconArrowUpRight
-                  size={18}
-                  aria-hidden="true"
-                  className="text-text-muted transition-colors group-hover:text-text-secondary"
-                />
-              </div>
-            </Paper>
-          );
-        })}
-      </SimpleGrid>
+              </Paper>
+            );
+          })}
+        </SimpleGrid>
+      </div>
 
       {/* 2. Weekly Review Reminder (if not completed this week) */}
       <WeeklyReviewBanner />
