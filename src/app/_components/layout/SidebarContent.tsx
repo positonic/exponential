@@ -91,6 +91,18 @@ export function SidebarContent() {
               <NavLink href={`/w/${workspaceSlug}/actions`} icon={IconLayoutKanban}>
                 Actions
               </NavLink>
+              <NavLink href={`/w/${workspaceSlug}/projects`} icon={IconDeviceProjector}>
+                Projects
+              </NavLink>
+              <NavLink href={`/w/${workspaceSlug}/knowledge-base`} icon={IconDatabase}>
+                Knowledge Hub
+              </NavLink>
+              <NavLink href={`/w/${workspaceSlug}/meetings`} icon={IconMicrophone}>
+                Meetings
+              </NavLink>
+              <NavLink href={`/w/${workspaceSlug}/settings`} icon={IconSettings}>
+                Settings
+              </NavLink>
               {/* Plugin navigation items for workspace section */}
               {itemsBySection.workspace
                 ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
