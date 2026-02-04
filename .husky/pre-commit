@@ -5,6 +5,19 @@ if ! npm run test; then
   exit 1
 fi
 
+# Check for Prisma schema changes without migrations
+echo "Checking Prisma migrations..."
+SCHEMA_STAGED=$(git diff --staged --name-only -- prisma/schema.prisma)
+MIGRATIONS_STAGED=$(git diff --staged --name-only -- 'prisma/migrations/**')
+
+if [ -n "$SCHEMA_STAGED" ] && [ -z "$MIGRATIONS_STAGED" ]; then
+  echo "❌ prisma/schema.prisma is staged without migrations."
+  echo "Run: npx prisma migrate dev --name <descriptive_name>"
+  exit 1
+fi
+
+echo "✅ Prisma migration check passed"
+
 # Check for hardcoded colors (excluding allowed files)
 echo "Checking for hardcoded colors..."
 ALLOWED_FILES="(colors\.ts|mantineTheme\.ts|globals\.css|EmailService\.ts)"
