@@ -3,7 +3,7 @@
 import { Modal, Button, Group, TextInput, Select, Text, Textarea, MultiSelect, NumberInput, Stack, ActionIcon, Card, Badge } from '@mantine/core';
 import { IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { CreateProjectModal } from './CreateProjectModal';
@@ -45,6 +45,7 @@ interface CreateGoalModalProps {
     lifeDomainId: number | null;
     outcomes?: { id: string; description: string }[];
     workspaceId?: string | null;
+    driUserId?: string | null;
   };
   trigger?: React.ReactNode;
   projectId?: string;
@@ -68,6 +69,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
     goal?.workspaceId ?? null
   );
   const [period, setPeriod] = useState<string | null>(goal?.period ?? null);
+  const [driUserId, setDriUserId] = useState<string | null>(goal?.driUserId ?? null);
 
   // Key results state
   const [pendingKeyResults, setPendingKeyResults] = useState<PendingKeyResult[]>([]);
@@ -85,12 +87,13 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
   const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
   const { data: workspaces } = api.workspace.list.useQuery();
   const { data: periods } = api.okr.getPeriods.useQuery();
+  const { data: currentUser } = api.user.getCurrentUser.useQuery();
   const { data: existingKeyResults } = api.okr.getAll.useQuery(
     { goalId: goal?.id },
     { enabled: !!goal?.id && opened }
   );
 
-  const { workspaceId: currentWorkspaceId } = useWorkspace();
+  const { workspaceId: currentWorkspaceId, workspace } = useWorkspace();
   const terminology = useTerminology();
 
   // Mutations for key results
@@ -243,6 +246,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
     setSelectedProjectId(undefined);
     setSelectedOutcomeIds([]);
     setSelectedWorkspaceId(null);
+    setDriUserId(currentUser?.id ?? null);
     // Reset key results state
     setPendingKeyResults([]);
     setIsAddingKeyResult(false);
@@ -301,6 +305,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
           unit: kr.unit,
           unitLabel: kr.unitLabel,
           period: kr.period,
+          driUserId: driUserId ?? currentUser?.id ?? undefined,
           workspaceId: selectedWorkspaceId ?? undefined,
         });
       }
@@ -329,6 +334,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
         unit: newKrUnit as PendingKeyResult['unit'],
         unitLabel: newKrUnit === 'custom' ? newKrUnitLabel : undefined,
         period: newKrPeriod,
+        driUserId: driUserId ?? currentUser?.id ?? undefined,
         workspaceId: selectedWorkspaceId ?? undefined,
       });
       resetNewKrForm();
@@ -359,6 +365,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
       setLifeDomainId(goal.lifeDomainId);
       setSelectedOutcomeIds(goal.outcomes?.map(o => o.id) ?? []);
       setSelectedWorkspaceId(goal.workspaceId ?? null);
+      setDriUserId(goal.driUserId ?? null);
     }
   }, [goal]);
 
@@ -372,6 +379,37 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
   useEffect(() => {
     setSelectedProjectId(projectId);
   }, [projectId]);
+
+  const driOptions = useMemo(() => {
+    const selectedWorkspace = workspaces?.find((ws) => ws.id === selectedWorkspaceId);
+    const members = selectedWorkspace?.members ?? workspace?.members ?? [];
+    const optionMap = new Map<string, { value: string; label: string }>();
+
+    members.forEach((member) => {
+      const label = member.user.name ?? member.user.email ?? "Unknown User";
+      optionMap.set(member.user.id, { value: member.user.id, label });
+    });
+
+    if (currentUser) {
+      const label = currentUser.name ?? currentUser.email ?? "Me";
+      optionMap.set(currentUser.id, { value: currentUser.id, label });
+    }
+
+    return Array.from(optionMap.values());
+  }, [currentUser, selectedWorkspaceId, workspaces, workspace?.members]);
+
+  useEffect(() => {
+    if (!driUserId && currentUser?.id) {
+      setDriUserId(currentUser.id);
+    }
+  }, [currentUser?.id, driUserId]);
+
+  useEffect(() => {
+    if (driOptions.length === 0) return;
+    if (!driUserId || !driOptions.some((option) => option.value === driUserId)) {
+      setDriUserId(driOptions[0]?.value ?? null);
+    }
+  }, [driOptions, driUserId]);
 
 
   return (
@@ -408,6 +446,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
               lifeDomainId: lifeDomainId ?? undefined,
               projectId: selectedProjectId,
               outcomeIds: selectedOutcomeIds.length > 0 ? selectedOutcomeIds : undefined,
+              driUserId: driUserId ?? currentUser?.id,
               workspaceId: selectedWorkspaceId ?? undefined,
             };
 
@@ -440,6 +479,17 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
             placeholder="Description (optional)"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            mt="md"
+          />
+
+          <Select
+            label="DRI"
+            description="Directly responsible individual"
+            placeholder="Select a DRI"
+            data={driOptions}
+            value={driUserId}
+            onChange={(value) => setDriUserId(value ?? null)}
+            required
             mt="md"
           />
 

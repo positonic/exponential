@@ -45,6 +45,7 @@ export const goalRouter = createTRPCRouter({
       lifeDomainId: z.number().optional(),
       projectId: z.string().optional(),
       outcomeIds: z.array(z.string()).optional(),
+      driUserId: z.string().optional(),
       workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -58,6 +59,7 @@ export const goalRouter = createTRPCRouter({
           period: input.period ?? null,
           lifeDomainId: input.lifeDomainId ?? null,
           userId: ctx.session.user.id,
+          driUserId: input.driUserId ?? ctx.session.user.id,
           workspaceId: input.workspaceId ?? null,
           projects: input.projectId
             ? { connect: [{ id: input.projectId }] }
@@ -86,6 +88,7 @@ export const goalRouter = createTRPCRouter({
       lifeDomainId: z.number().optional(),
       projectId: z.string().optional(),
       outcomeIds: z.array(z.string()).optional(),
+      driUserId: z.string().optional(),
       workspaceId: z.string().optional(),
     }))
     .mutation(updateGoal),

@@ -17,6 +17,7 @@ const createKeyResultInput = z.object({
   period: z.string(), // e.g., "Q1-2025"
   periodStart: z.date().optional(),
   periodEnd: z.date().optional(),
+  driUserId: z.string().optional(),
   workspaceId: z.string().optional(),
 });
 
@@ -33,6 +34,7 @@ const updateKeyResultInput = z.object({
     .enum(["not-started", "on-track", "at-risk", "off-track", "achieved"])
     .optional(),
   confidence: z.number().min(0).max(100).optional(),
+  driUserId: z.string().optional(),
 });
 
 const checkInInput = z.object({
@@ -195,6 +197,9 @@ export const keyResultRouter = createTRPCRouter({
               user: {
                 select: { id: true, name: true, email: true, image: true },
               },
+              driUser: {
+                select: { id: true, name: true, email: true, image: true },
+              },
               projects: {
                 include: {
                   project: {
@@ -279,6 +284,9 @@ export const keyResultRouter = createTRPCRouter({
               },
             },
           },
+          driUser: {
+            select: { id: true, name: true, email: true, image: true },
+          },
         },
       });
 
@@ -314,6 +322,7 @@ export const keyResultRouter = createTRPCRouter({
       return ctx.db.keyResult.create({
         data: {
           ...input,
+          driUserId: input.driUserId ?? ctx.session.user.id,
           userId: ctx.session.user.id,
         },
         include: {

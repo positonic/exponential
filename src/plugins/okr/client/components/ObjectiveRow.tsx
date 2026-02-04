@@ -36,6 +36,7 @@ interface KeyResult {
   status: string;
   checkIns?: KeyResultCheckIn[];
   user?: KeyResultUser | null;
+  driUser?: KeyResultUser | null;
   projects?: LinkedProject[];
 }
 
@@ -55,6 +56,7 @@ interface ObjectiveData {
   progress: number;
   lifeDomain?: LifeDomain | null;
   workspaceId?: string | null;
+  driUserId?: string | null;
   keyResults: KeyResult[];
 }
 
@@ -162,6 +164,7 @@ export function ObjectiveRow({
                   period: objective.period ?? null,
                   lifeDomainId: objective.lifeDomain?.id ?? null,
                   workspaceId: objective.workspaceId ?? null,
+                  driUserId: objective.driUserId ?? null,
                 }}
                 onSuccess={onEditSuccess}
               >

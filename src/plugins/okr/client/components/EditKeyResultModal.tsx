@@ -14,7 +14,7 @@ import {
   MultiSelect,
 } from "@mantine/core";
 import { IconTrash } from "@tabler/icons-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
@@ -51,6 +51,8 @@ interface KeyResultData {
   status: string;
   confidence?: number | null;
   period?: string;
+  userId?: string;
+  driUserId?: string | null;
 }
 
 interface EditKeyResultModalProps {
@@ -77,9 +79,11 @@ export function EditKeyResultModal({
   const [status, setStatus] = useState<StatusType>("on-track");
   const [confidence, setConfidence] = useState<number | null>(null);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [driUserId, setDriUserId] = useState<string | null>(null);
 
   const utils = api.useUtils();
   const { workspace } = useWorkspace();
+  const { data: currentUser } = api.user.getCurrentUser.useQuery();
 
   // Fetch available projects for the workspace
   const { data: availableProjects = [] } = api.project.getAll.useQuery(
@@ -108,6 +112,12 @@ export function EditKeyResultModal({
       setUnitLabel(currentKeyResult.unitLabel ?? "");
       setStatus((currentKeyResult.status as StatusType) ?? "on-track");
       setConfidence(currentKeyResult.confidence ?? null);
+      setDriUserId(
+        currentKeyResult.driUserId ??
+          currentKeyResult.userId ??
+          currentUser?.id ??
+          null
+      );
 
       // Populate selected projects from freshKeyResult if available
       const linkedProjectIds =
@@ -115,7 +125,31 @@ export function EditKeyResultModal({
           ?.projects?.map((p) => p.project.id) ?? [];
       setSelectedProjectIds(linkedProjectIds);
     }
-  }, [currentKeyResult, freshKeyResult]);
+  }, [currentKeyResult, currentUser?.id, freshKeyResult]);
+
+  const driOptions = useMemo(() => {
+    const members = workspace?.members ?? [];
+    const optionMap = new Map<string, { value: string; label: string }>();
+
+    members.forEach((member) => {
+      const label = member.user.name ?? member.user.email ?? "Unknown User";
+      optionMap.set(member.user.id, { value: member.user.id, label });
+    });
+
+    if (currentUser) {
+      const label = currentUser.name ?? currentUser.email ?? "Me";
+      optionMap.set(currentUser.id, { value: currentUser.id, label });
+    }
+
+    return Array.from(optionMap.values());
+  }, [currentUser, workspace?.members]);
+
+  useEffect(() => {
+    if (driOptions.length === 0) return;
+    if (!driUserId || !driOptions.some((option) => option.value === driUserId)) {
+      setDriUserId(driOptions[0]?.value ?? null);
+    }
+  }, [driOptions, driUserId]);
 
   // Update mutation
   const updateKeyResult = api.okr.update.useMutation({
@@ -162,6 +196,7 @@ export function EditKeyResultModal({
         unitLabel: unit === "custom" ? unitLabel : undefined,
         status,
         confidence: confidence ?? undefined,
+        driUserId: driUserId ?? currentUser?.id,
       });
 
       // Save linked projects
@@ -235,6 +270,30 @@ export function EditKeyResultModal({
               },
               label: {
                 color: "var(--color-text-secondary)",
+              },
+            }}
+          />
+
+          <Select
+            label="DRI"
+            description="Directly responsible individual"
+            placeholder="Select a DRI"
+            data={driOptions}
+            value={driUserId}
+            onChange={(value) => setDriUserId(value ?? null)}
+            required
+            styles={{
+              input: {
+                backgroundColor: "var(--color-bg-input)",
+                borderColor: "var(--color-border-primary)",
+                color: "var(--color-text-primary)",
+              },
+              label: {
+                color: "var(--color-text-secondary)",
+              },
+              dropdown: {
+                backgroundColor: "var(--color-bg-elevated)",
+                borderColor: "var(--color-border-primary)",
               },
             }}
           />

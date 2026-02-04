@@ -117,6 +117,8 @@ model User {
   pluginConfigs               PluginConfig[]
   keyResults                  KeyResult[]
   keyResultCheckIns           KeyResultCheckIn[]         @relation("KeyResultCheckInCreator")
+  driGoals                    Goal[]                     @relation("GoalDRI")
+  driKeyResults               KeyResult[]                @relation("KeyResultDRI")
   // Tag relations
   tagsCreated                 Tag[]                      @relation("TagCreator")
   // View relations
@@ -493,9 +495,11 @@ model Goal {
   period       String?    // OKR period e.g., "Q1-2026", "Annual-2026"
   lifeDomainId Int?
   userId       String
+  driUserId    String?
   workspaceId  String?
   lifeDomain   LifeDomain? @relation(fields: [lifeDomainId], references: [id])
   user         User       @relation(fields: [userId], references: [id])
+  driUser      User?      @relation("GoalDRI", fields: [driUserId], references: [id])
   workspace    Workspace? @relation(fields: [workspaceId], references: [id])
   outcomes     Outcome[]  @relation("GoalOutcomes")
   projects     Project[]  @relation("GoalProjects")
@@ -505,6 +509,7 @@ model Goal {
 
   @@index([lifeDomainId])
   @@index([userId])
+  @@index([driUserId])
   @@index([workspaceId])
 }
 
@@ -1820,12 +1825,14 @@ model KeyResult {
   confidence   Int? // 0-100 confidence score
   goalId       Int
   userId       String
+  driUserId    String?
   workspaceId  String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   goal      Goal                @relation(fields: [goalId], references: [id], onDelete: Cascade)
   user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  driUser   User?               @relation("KeyResultDRI", fields: [driUserId], references: [id])
   workspace Workspace?          @relation(fields: [workspaceId], references: [id])
   checkIns  KeyResultCheckIn[]
   comments  KeyResultComment[] // Discussion comments on this key result
@@ -1833,6 +1840,7 @@ model KeyResult {
 
   @@index([goalId])
   @@index([userId])
+  @@index([driUserId])
   @@index([workspaceId])
   @@index([period])
   @@index([status])

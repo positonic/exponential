@@ -49,6 +49,7 @@ interface KeyResultData {
   status: string;
   checkIns?: KeyResultCheckIn[];
   user?: KeyResultUser | null;
+  driUser?: KeyResultUser | null;
 }
 
 interface KeyResultRowProps {
@@ -110,7 +111,7 @@ export function KeyResultRow({
   const statusColor = getStatusColor(keyResult.status);
 
   // Avatar color setup
-  const user = keyResult.user;
+  const user = keyResult.driUser ?? keyResult.user;
   const colorSeed = user ? getColorSeed(user.name, user.email) : "";
   const avatarBgColor = user && !user.image ? getAvatarColor(colorSeed) : undefined;
   const avatarTextColor = avatarBgColor ? getTextColor(avatarBgColor) : "white";

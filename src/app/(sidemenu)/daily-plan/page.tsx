@@ -110,7 +110,19 @@ export default function DailyPlanPage() {
         utils.dailyPlan.getOrCreateToday.setData({ date: planDate }, context.previousData);
       }
     },
-    onSettled: () => void refetchPlan(),
+    onSuccess: (updatedTask: DailyPlanAction) => {
+      utils.dailyPlan.getOrCreateToday.setData({ date: planDate }, (previous) => {
+        if (!previous) return previous;
+
+        return {
+          ...previous,
+          plannedActions: previous.plannedActions.map((action) =>
+            action.id === updatedTask.id ? updatedTask : action
+          ),
+        };
+      });
+    },
+    onSettled: () => void utils.dailyPlan.getOrCreateToday.invalidate({ date: planDate }),
   });
 
   const removeTaskMutation = api.dailyPlan.removeTask.useMutation({
