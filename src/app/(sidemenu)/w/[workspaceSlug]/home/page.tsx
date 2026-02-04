@@ -28,7 +28,7 @@ function WorkspaceHomeContent() {
     );
   }
 
-  return <CommandCenter />;
+  return <CommandCenter variant="workspace" />;
 }
 
 export default function WorkspaceHomePage() {
