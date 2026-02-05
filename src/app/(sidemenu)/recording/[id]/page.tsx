@@ -436,6 +436,14 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               )}
             </Stack>
           </Stack>
+          <Stack gap="xs" mt="lg">
+            <Text><strong>Session ID:</strong> {session.sessionId}</Text>
+            <Text><strong>Created:</strong> {new Date(session.createdAt).toLocaleString()}</Text>
+            <Text><strong>Updated:</strong> {new Date(session.updatedAt).toLocaleString()}</Text>
+            {session.meetingDate && (
+              <Text><strong>Meeting Date:</strong> {new Date(session.meetingDate).toLocaleString()}</Text>
+            )}
+          </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="transcription" pt="md">
@@ -500,14 +508,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         </Tabs.Panel>
       </Tabs>
 
-      <Stack gap="xs" mt="lg">
-        <Text><strong>Session ID:</strong> {session.sessionId}</Text>
-        <Text><strong>Created:</strong> {new Date(session.createdAt).toLocaleString()}</Text>
-        <Text><strong>Updated:</strong> {new Date(session.updatedAt).toLocaleString()}</Text>
-        {session.meetingDate && (
-          <Text><strong>Meeting Date:</strong> {new Date(session.meetingDate).toLocaleString()}</Text>
-        )}
-      </Stack>
       {shouldShowActionPrompt ? (
         <button
           type="button"
