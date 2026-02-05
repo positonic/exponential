@@ -235,17 +235,7 @@ export class FirefliesService {
 
     // Also try to extract assignee from @mention or "John will..." patterns (fallback)
     if (!assignee) {
-      const assigneeMatch = cleanText.match(/@(\w+)/i);
-      if (assigneeMatch?.[1]) {
-        actionItem.assignee = assigneeMatch[1];
-      } else {
-        const namedAssigneeMatch = cleanText.match(
-          /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:will|should|needs to|must|to)\b/
-        );
-        if (namedAssigneeMatch?.[1]) {
-          actionItem.assignee = namedAssigneeMatch[1];
-        }
-      }
+      actionItem.assignee = FirefliesService.parseAssigneeFromText(cleanText);
     }
 
     if (!actionItem.assignee && options?.speakerName) {
@@ -264,14 +254,9 @@ export class FirefliesService {
       }
     }
 
-    // Extract due date (look for date patterns)
-    const dueDateMatch = text.match(/(?:by|before|until|due)\s+([\w\s,]+?)(?:\s|$|\.)/i);
-    if (dueDateMatch && dueDateMatch[1]) {
-      const dateStr = dueDateMatch[1].trim();
-      const parsedDate = this.parseDate(dateStr);
-      if (parsedDate) {
-        actionItem.dueDate = parsedDate;
-      }
+    const parsedDueDate = FirefliesService.extractDueDateFromText(text);
+    if (parsedDueDate) {
+      actionItem.dueDate = parsedDueDate;
     }
 
     // Extract priority indicators
@@ -289,7 +274,7 @@ export class FirefliesService {
   /**
    * Parse date strings into Date objects
    */
-  private static parseDate(dateStr: string): Date | undefined {
+  static parseDate(dateStr: string): Date | undefined {
     try {
       // Handle common relative dates
       const today = new Date();
@@ -326,6 +311,31 @@ export class FirefliesService {
       console.warn('Failed to parse date:', dateStr, error);
     }
 
+    return undefined;
+  }
+
+  static parseAssigneeFromText(text: string): string | undefined {
+    const assigneeMatch = text.match(/@(\w+)/i);
+    if (assigneeMatch?.[1]) {
+      return assigneeMatch[1];
+    }
+
+    const namedAssigneeMatch = text.match(
+      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:will|should|needs to|must|to)\b/
+    );
+    if (namedAssigneeMatch?.[1]) {
+      return namedAssigneeMatch[1];
+    }
+
+    return undefined;
+  }
+
+  static extractDueDateFromText(text: string): Date | undefined {
+    const dueDateMatch = text.match(/(?:by|before|until|due)\s+([\w\s,]+?)(?:\s|$|\.)/i);
+    if (dueDateMatch?.[1]) {
+      const dateStr = dueDateMatch[1].trim();
+      return FirefliesService.parseDate(dateStr);
+    }
     return undefined;
   }
 

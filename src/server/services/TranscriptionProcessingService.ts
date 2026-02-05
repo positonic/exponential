@@ -1,5 +1,6 @@
 import { db } from '~/server/db';
 import { FirefliesService } from './FirefliesService';
+import { ActionExtractionService } from './ActionExtractionService';
 import { ActionProcessorFactory } from './processors/ActionProcessorFactory';
 import { InternalActionProcessor } from './processors/InternalActionProcessor';
 import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
@@ -78,7 +79,7 @@ export class TranscriptionProcessingService {
           const transcriptText = transcription.transcription || '';
 
           if (actionItems.length === 0 && transcriptText) {
-            actionItems = FirefliesService.extractActionItemsFromTranscriptText(transcriptText);
+            actionItems = await ActionExtractionService.extractFromTranscript(transcriptText);
           }
 
           processedData = {
@@ -92,7 +93,7 @@ export class TranscriptionProcessingService {
         }
       } else if (transcription.transcription) {
         const transcriptText = transcription.transcription;
-        const actionItems = FirefliesService.extractActionItemsFromTranscriptText(transcriptText);
+        const actionItems = await ActionExtractionService.extractFromTranscript(transcriptText);
         processedData = {
           summary: {},
           actionItems,
@@ -235,7 +236,7 @@ export class TranscriptionProcessingService {
           const transcriptText = transcription.transcription || "";
 
           if (actionItems.length === 0 && transcriptText) {
-            actionItems = FirefliesService.extractActionItemsFromTranscriptText(transcriptText);
+            actionItems = await ActionExtractionService.extractFromTranscript(transcriptText);
           }
 
           processedData = {
@@ -249,7 +250,7 @@ export class TranscriptionProcessingService {
         }
       } else if (transcription.transcription) {
         const transcriptText = transcription.transcription;
-        const actionItems = FirefliesService.extractActionItemsFromTranscriptText(transcriptText);
+        const actionItems = await ActionExtractionService.extractFromTranscript(transcriptText);
         processedData = {
           summary: {},
           actionItems,

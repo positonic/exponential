@@ -668,10 +668,12 @@ export const transcriptionRouter = createTRPCRouter({
       );
 
       if (!integration) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Fireflies integration not found",
-        });
+        return {
+          integrationName: null,
+          lastSyncAt: null,
+          estimatedNewCount: 0,
+          isAvailable: false,
+        };
       }
 
       const estimatedNewCount =
@@ -684,6 +686,7 @@ export const transcriptionRouter = createTRPCRouter({
         integrationName: integration.name,
         lastSyncAt: integration.lastSyncAt,
         estimatedNewCount,
+        isAvailable: true,
       };
     }),
 

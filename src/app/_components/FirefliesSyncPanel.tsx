@@ -46,6 +46,7 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync, onSet
     { integrationId: integration.id },
     { enabled: !!integration.id }
   );
+  const isUnavailable = syncStatus?.isAvailable === false;
 
   // Extract email from credentials if available
   const emailCredential = integration.credentials.find(c => c.keyType === 'EMAIL');
@@ -79,6 +80,8 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync, onSet
               
               {isLoading ? (
                 <Text size="xs" c="dimmed">Loading status...</Text>
+              ) : isUnavailable ? (
+                <Text size="xs" c="dimmed">Integration unavailable</Text>
               ) : syncStatus ? (
                 <Group gap="md" mt={2}>
                   {syncStatus.lastSyncAt ? (
@@ -114,10 +117,17 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync, onSet
               variant={syncStatus?.estimatedNewCount ? "filled" : "light"}
               color={syncStatus?.estimatedNewCount ? "blue" : "gray"}
               loading={isSyncing}
-              disabled={isLoading || isSyncing || (syncStatus?.estimatedNewCount === 0 && !!syncStatus?.lastSyncAt)}
+              disabled={
+                isLoading ||
+                isSyncing ||
+                isUnavailable ||
+                (syncStatus?.estimatedNewCount === 0 && !!syncStatus?.lastSyncAt)
+              }
               onClick={() => onSync(integration.id)}
               leftSection={
-                syncStatus?.estimatedNewCount === 0 && syncStatus?.lastSyncAt ? (
+                isUnavailable ? (
+                  <IconSettings size={12} />
+                ) : syncStatus?.estimatedNewCount === 0 && syncStatus?.lastSyncAt ? (
                   <IconCheck size={12} />
                 ) : (
                   <IconRefresh size={12} />
@@ -126,6 +136,8 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync, onSet
             >
               {isSyncing
                 ? 'Syncing...'
+                : isUnavailable
+                ? 'Unavailable'
                 : syncStatus?.estimatedNewCount
                 ? `Sync ${syncStatus.estimatedNewCount}`
                 : syncStatus?.lastSyncAt
