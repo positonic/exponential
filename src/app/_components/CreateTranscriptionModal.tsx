@@ -30,6 +30,7 @@ export function CreateTranscriptionModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [transcription, setTranscription] = useState("");
+  const [notes, setNotes] = useState("");
   const [meetingDate, setMeetingDate] = useState<Date | null>(null);
 
   const utils = api.useUtils();
@@ -49,6 +50,7 @@ export function CreateTranscriptionModal({
         setTitle("");
         setDescription("");
         setTranscription("");
+        setNotes("");
         setMeetingDate(null);
 
         // Close modal
@@ -78,6 +80,7 @@ export function CreateTranscriptionModal({
       title: title.trim(),
       description: description.trim() || undefined,
       transcription: transcription.trim(),
+      notes: notes.trim() || undefined,
       meetingDate: meetingDate ?? undefined,
       projectId,
       workspaceId,
@@ -143,6 +146,16 @@ export function CreateTranscriptionModal({
               minRows={8}
               autosize
               maxRows={20}
+            />
+
+            <Textarea
+              label="Notes"
+              placeholder="Add meeting notes or a summary..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              minRows={4}
+              autosize
+              maxRows={12}
             />
 
             <Group justify="flex-end" mt="md">

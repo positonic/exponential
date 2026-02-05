@@ -672,6 +672,7 @@ model TranscriptionSession {
   description         String?
   title               String?
   summary             String?
+  notes               String?
   processedAt         DateTime?
   slackNotificationAt DateTime?
   archivedAt          DateTime?
