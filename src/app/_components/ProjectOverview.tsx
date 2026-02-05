@@ -73,12 +73,12 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
     const dateStr = date.toDateString();
     const items: { type: "goal" | "outcome" | "project"; title: string; color: string }[] = [];
 
-    // Check project due date
+    // Check project start/end dates
     if (project.reviewDate && new Date(project.reviewDate).toDateString() === dateStr) {
-      items.push({ type: "project", title: "Project Due", color: "red" });
+      items.push({ type: "project", title: "Project End", color: "red" });
     }
     if (project.nextActionDate && new Date(project.nextActionDate).toDateString() === dateStr) {
-      items.push({ type: "project", title: "Next Action", color: "orange" });
+      items.push({ type: "project", title: "Project Start", color: "orange" });
     }
 
     // Check goals

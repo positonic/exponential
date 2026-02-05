@@ -292,6 +292,8 @@ export const projectRouter = createTRPCRouter({
         lifeDomainIds: z.array(z.number()).optional(),
         workspaceId: z.string().nullable().optional(),
         driId: z.string().nullable().optional(),
+        reviewDate: z.date().nullable().optional(),
+        nextActionDate: z.date().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

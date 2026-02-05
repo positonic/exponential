@@ -1,4 +1,5 @@
 import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect, Tooltip, Stack, Title, Text, Alert, Loader } from '@mantine/core';
+import { DateInput } from '@mantine/dates';
 import { IconAlertCircle, IconBrandNotion, IconCheck, IconPlus } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useDisclosure } from '@mantine/hooks';
@@ -43,6 +44,8 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(project?.workspaceId ?? null);
   const [selectedDriId, setSelectedDriId] = useState<string | null>(project?.driId ?? null);
+  const [startDate, setStartDate] = useState<Date | null>(project?.nextActionDate ?? null);
+  const [endDate, setEndDate] = useState<Date | null>(project?.reviewDate ?? null);
 
   // Get current workspace context for new projects
   const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
@@ -312,6 +315,8 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
                 workspaceId: selectedWorkspaceId,
                 driId: selectedDriId,
+                reviewDate: endDate,
+                nextActionDate: startDate,
               });
             } else {
               createMutation.mutate({
@@ -325,6 +330,8 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 notionProjectId: notionProjectId ?? undefined,
                 workspaceId: selectedWorkspaceId ?? undefined,
                 driId: selectedDriId,
+                reviewDate: endDate ?? undefined,
+                nextActionDate: startDate ?? undefined,
               });
             }
           }}
@@ -361,6 +368,45 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               },
             }}
           />
+
+          <Group grow mt="md" align="flex-start">
+            <DateInput
+              label="Start date"
+              placeholder="Select start date"
+              value={startDate}
+              onChange={setStartDate}
+              clearable
+              styles={{
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+                dropdown: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+              }}
+            />
+            <DateInput
+              label="End date"
+              placeholder="Select end date"
+              value={endDate}
+              onChange={setEndDate}
+              clearable
+              styles={{
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+                dropdown: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+              }}
+            />
+          </Group>
 
           <Tooltip
             label={cannotEditMessage}

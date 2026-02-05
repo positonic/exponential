@@ -2,8 +2,10 @@
 
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Badge, Button, Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
+import { ActionIcon, Badge, Button, Group, Paper, Skeleton, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { api } from "~/trpc/react";
+import { IconEdit } from "@tabler/icons-react";
+import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import {
   addMonths,
   differenceInCalendarDays,
@@ -89,9 +91,8 @@ function isWithinRange(date: Date, rangeStart: Date, rangeEnd: Date): boolean {
 }
 
 function buildProjectRange(project: TimelineProject): TimelineProjectRange {
-  const startDate = startOfDay(project.createdAt);
-  const candidateEnd =
-    project.reviewDate ?? project.nextActionDate ?? project.createdAt;
+  const startDate = startOfDay(project.nextActionDate ?? project.createdAt);
+  const candidateEnd = project.reviewDate ?? startDate;
   const normalizedEnd = startOfDay(candidateEnd);
   const endDate = isBefore(normalizedEnd, startDate) ? startDate : normalizedEnd;
 
@@ -199,7 +200,7 @@ export function ProjectTimelineView({
             Timeline
           </Title>
           <Text size="sm" className="text-text-secondary">
-            Project timeline based on created and review dates
+            Project timeline based on start and end dates
           </Text>
         </div>
         <Group gap="sm">
@@ -346,13 +347,27 @@ export function ProjectTimelineView({
                       className="group grid grid-cols-[220px_1fr] border-b border-border-secondary"
                     >
                       <div className="sticky left-0 z-10 flex flex-col gap-1 bg-surface-secondary px-4 py-3 group-hover:bg-surface-hover">
-                        <Link
-                          href={`/w/${workspaceSlug}/projects/${project.slug}-${project.id}`}
-                          className="text-sm font-medium text-text-primary hover:text-brand-primary"
-                        >
-                          {project.name}
-                        </Link>
-                        <Group gap={6}>
+                        <Group justify="space-between" align="center" gap="xs" wrap="nowrap">
+                          <Link
+                            href={`/w/${workspaceSlug}/projects/${project.slug}-${project.id}`}
+                            className="truncate text-sm font-medium text-text-primary hover:text-brand-primary"
+                          >
+                            {project.name}
+                          </Link>
+                          <CreateProjectModal project={project}>
+                            <Tooltip label="Edit project" position="top" withArrow>
+                              <ActionIcon
+                                variant="subtle"
+                                size="sm"
+                                aria-label="Edit project"
+                                className="opacity-0 transition-opacity group-hover:opacity-100"
+                              >
+                                <IconEdit size={14} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </CreateProjectModal>
+                        </Group>
+                        <Group gap={6} wrap="nowrap">
                           <Badge
                             size="xs"
                             variant="light"
