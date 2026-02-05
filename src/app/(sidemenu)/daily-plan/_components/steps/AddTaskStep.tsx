@@ -103,7 +103,7 @@ export function AddTaskStep({
             onClick={() => void handleAddTask()}
             disabled={!taskName.trim() || isLoading}
             loading={isLoading}
-            className="bg-brand-primary hover:bg-brand-primary/90"
+            className="bg-brand-primary hover:bg-brand-primary/90 text-text-inverse"
           >
             Add
           </Button>
