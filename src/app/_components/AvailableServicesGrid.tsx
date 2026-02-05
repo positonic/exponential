@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Title, Text, SimpleGrid, Stack, TextInput } from "@mantine/core";
+import { Title, Text, Stack, TextInput } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
 import { ServiceCard } from "./ServiceCard";
 
@@ -60,7 +60,7 @@ export function AvailableServicesGrid({
         }}
       />
 
-      <SimpleGrid cols={2} spacing="md">
+      <div className="flex flex-wrap gap-3">
         {filteredServices.length > 0 ? (
           filteredServices.map((option) => (
             <ServiceCard
@@ -72,13 +72,13 @@ export function AvailableServicesGrid({
             />
           ))
         ) : (
-          <div className="col-span-2 text-center py-8">
+          <div className="w-full text-center py-8">
             <Text c="dimmed" size="sm">
               No services found matching &ldquo;{searchQuery}&rdquo;
             </Text>
           </div>
         )}
-      </SimpleGrid>
+      </div>
     </Stack>
   );
 }
