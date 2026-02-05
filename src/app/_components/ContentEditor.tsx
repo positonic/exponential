@@ -1,8 +1,9 @@
 'use client';
 
-import { Textarea, Button, Group } from '@mantine/core';
+import { Textarea, Button, Group, ActionIcon, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useState } from 'react';
+import { IconPencil } from '@tabler/icons-react';
 
 interface ContentEditorProps {
   id: string;
@@ -41,13 +42,15 @@ export function ContentEditor({ id, initialContent, onSave, label = 'Content' }:
     return (
       <div>
         <Group justify="space-between" mb="md">
-          <Button 
-            onClick={() => setIsEditing(true)}
-            variant="light"
+          <Text fw={500}>{label}</Text>
+          <ActionIcon
+            variant="subtle"
             size="sm"
+            onClick={() => setIsEditing(true)}
+            aria-label={`Edit ${label}`}
           >
-            Edit {label}
-          </Button>
+            <IconPencil size={16} />
+          </ActionIcon>
         </Group>
         <pre className="whitespace-pre-wrap">{content}</pre>
       </div>
