@@ -46,6 +46,7 @@ import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 import { HTMLContent } from "./HTMLContent";
 import { type FirefliesSummary } from "~/server/services/FirefliesService";
+import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 
 type TabValue = "transcriptions" | "upcoming" | "archive" | "activity";
 
@@ -583,9 +584,12 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
 
                 <Group justify="space-between" align="center">
                   <Title order={4}>Recent Meetings</Title>
-                  <Text size="sm" c="dimmed">
-                    {getFilteredTranscriptions().length} of {transcriptions?.length || 0} meetings
-                  </Text>
+                  <Group gap="sm">
+                    <Text size="sm" c="dimmed">
+                      {getFilteredTranscriptions().length} of {transcriptions?.length || 0} meetings
+                    </Text>
+                    <CreateTranscriptionModal workspaceId={workspaceId} />
+                  </Group>
                 </Group>
 
                 {/* Filter and Bulk Operations Bar */}

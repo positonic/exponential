@@ -16,12 +16,14 @@ import { notifications } from "@mantine/notifications";
 import { IconPlus } from "@tabler/icons-react";
 
 interface CreateTranscriptionModalProps {
-  projectId: string;
+  projectId?: string;
+  workspaceId?: string;
   trigger?: React.ReactNode;
 }
 
 export function CreateTranscriptionModal({
   projectId,
+  workspaceId,
   trigger,
 }: CreateTranscriptionModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
@@ -35,8 +37,13 @@ export function CreateTranscriptionModal({
   const createTranscription =
     api.transcription.createManualTranscription.useMutation({
       onSuccess: () => {
-        // Invalidate project query to refresh transcription list
-        void utils.project.getById.invalidate({ id: projectId });
+        if (projectId) {
+          // Invalidate project query to refresh transcription list
+          void utils.project.getById.invalidate({ id: projectId });
+        }
+        void utils.transcription.getAllTranscriptions.invalidate({
+          workspaceId,
+        });
 
         // Reset form
         setTitle("");
@@ -73,6 +80,7 @@ export function CreateTranscriptionModal({
       transcription: transcription.trim(),
       meetingDate: meetingDate ?? undefined,
       projectId,
+      workspaceId,
     });
   };
 

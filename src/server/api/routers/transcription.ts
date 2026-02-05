@@ -324,7 +324,7 @@ export const transcriptionRouter = createTRPCRouter({
         description: z.string().optional(),
         transcription: z.string().min(1, "Transcription text is required"),
         meetingDate: z.date().optional(),
-        projectId: z.string(),
+        projectId: z.string().optional(),
         workspaceId: z.string().optional(),
       }),
     )
@@ -336,7 +336,7 @@ export const transcriptionRouter = createTRPCRouter({
           description: input.description ?? null,
           transcription: input.transcription,
           meetingDate: input.meetingDate ?? null,
-          projectId: input.projectId,
+          projectId: input.projectId ?? null,
           workspaceId: input.workspaceId ?? null,
           userId: ctx.session.user.id,
         },
