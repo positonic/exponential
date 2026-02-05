@@ -187,6 +187,11 @@ interface ScheduledTaskBlockProps {
 function ScheduledTaskBlock({ task, gridStartHour }: ScheduledTaskBlockProps) {
   if (!task.scheduledStart) return null;
 
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: task.id,
+    data: { task },
+  });
+
   const startTime = new Date(task.scheduledStart);
   const startHour = startTime.getHours();
   const startMinute = startTime.getMinutes();
@@ -203,8 +208,13 @@ function ScheduledTaskBlock({ task, gridStartHour }: ScheduledTaskBlockProps) {
 
   return (
     <div
-      className="absolute left-20 right-2 bg-brand-primary/20 border border-brand-primary/40 rounded-md px-2 py-1 z-10"
+      ref={setNodeRef}
+      className={`absolute left-20 right-2 bg-brand-primary/20 border border-brand-primary/40 rounded-md px-2 py-1 z-10 cursor-grab ${
+        isDragging ? "opacity-50" : ""
+      }`}
       style={{ top, height: Math.max(height, 24) }}
+      {...listeners}
+      {...attributes}
     >
       <Group gap={4} wrap="nowrap">
         <Text size="xs" fw={500} className="text-brand-primary truncate flex-1" component="div">
