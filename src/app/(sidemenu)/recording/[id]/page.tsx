@@ -17,14 +17,14 @@ import {
   Button,
 } from "@mantine/core";
 import { IconPencil } from "@tabler/icons-react";
-import { use, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import RecordingChat from "~/app/_components/RecordingChat";
 import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { TranscriptionContentEditor } from "~/app/_components/TranscriptionContentEditor";
 import SaveActionsButton from "~/app/_components/SaveActionsButton";
 import { notifications } from "@mantine/notifications";
 import { useAgentModal } from "~/providers/AgentModalProvider";
-import { ActionItem } from "~/app/_components/ActionItem";
+import { ActionList } from "~/app/_components/ActionList";
 
 function isMarkdownContent(content: string) {
   const markdownPatterns = [
@@ -41,9 +41,34 @@ function isMarkdownContent(content: string) {
   return markdownPatterns.some((pattern) => pattern.test(content));
 }
 
-export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
-  // Use React.use to unwrap the params Promise in a client component
-  const { id } = use(params);
+interface AutoSwitchActionsEffectProps {
+  hasAutoSwitched: boolean;
+  setHasAutoSwitched: (value: boolean) => void;
+  setActiveTab: (value: string) => void;
+  actionsSavedAt?: Date | null;
+  actionsCount: number;
+}
+
+function AutoSwitchActionsEffect({
+  hasAutoSwitched,
+  setHasAutoSwitched,
+  setActiveTab,
+  actionsSavedAt,
+  actionsCount,
+}: AutoSwitchActionsEffectProps) {
+  useEffect(() => {
+    if (hasAutoSwitched) return;
+    const shouldFocusActions = Boolean(actionsSavedAt) || actionsCount > 0;
+    if (!shouldFocusActions) return;
+    setActiveTab("actions");
+    setHasAutoSwitched(true);
+  }, [actionsCount, actionsSavedAt, hasAutoSwitched, setActiveTab, setHasAutoSwitched]);
+
+  return null;
+}
+
+export default function SessionPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   
   const { data: session, isLoading } = api.transcription.getById.useQuery({ 
     id: id 
@@ -155,14 +180,34 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   }
 
   if (isLoading) {
-    return <Skeleton height={400} />;
+    return (
+      <>
+        <AutoSwitchActionsEffect
+          hasAutoSwitched={hasAutoSwitched}
+          setHasAutoSwitched={setHasAutoSwitched}
+          setActiveTab={setActiveTab}
+          actionsSavedAt={session?.actionsSavedAt}
+          actionsCount={transcriptActions.length}
+        />
+        <Skeleton height={400} />
+      </>
+    );
   }
 
   if (!session) {
     return (
-      <Paper p="md">
-        <Text>Transcription session not found</Text>
-      </Paper>
+      <>
+        <AutoSwitchActionsEffect
+          hasAutoSwitched={hasAutoSwitched}
+          setHasAutoSwitched={setHasAutoSwitched}
+          setActiveTab={setActiveTab}
+          actionsSavedAt={session?.actionsSavedAt}
+          actionsCount={transcriptActions.length}
+        />
+        <Paper p="md">
+          <Text>Transcription session not found</Text>
+        </Paper>
+      </>
     );
   }
 
@@ -186,27 +231,26 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     });
     openModal();
   }
-
-  useEffect(() => {
-    if (hasAutoSwitched) return;
-    const shouldFocusActions =
-      Boolean(session?.actionsSavedAt) || transcriptActions.length > 0;
-    if (!shouldFocusActions) return;
-    setActiveTab("actions");
-    setHasAutoSwitched(true);
-  }, [hasAutoSwitched, session?.actionsSavedAt, transcriptActions.length]);
   
   return (
-    <Paper p="md">
-      <Group justify="space-between" mb="lg">
-        <Title order={2}>{session.title ?? "Transcription Details"}</Title>
-        {session.transcription && (
-          <SaveActionsButton
-            transcriptionId={session.id}
-            actionsSavedAt={session.actionsSavedAt}
-          />
-        )}
-      </Group>
+    <>
+      <AutoSwitchActionsEffect
+        hasAutoSwitched={hasAutoSwitched}
+        setHasAutoSwitched={setHasAutoSwitched}
+        setActiveTab={setActiveTab}
+        actionsSavedAt={session.actionsSavedAt}
+        actionsCount={transcriptActions.length}
+      />
+      <Paper p="md">
+        <Group justify="space-between" mb="lg">
+          <Title order={2}>{session.title ?? "Transcription Details"}</Title>
+          {session.transcription && (
+            <SaveActionsButton
+              transcriptionId={session.id}
+              actionsSavedAt={session.actionsSavedAt}
+            />
+          )}
+        </Group>
 
       <Tabs
         value={activeTab}
@@ -432,19 +476,12 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           {isActionsLoading ? (
             <Skeleton height={200} />
           ) : transcriptActions.length > 0 ? (
-            <Stack gap="xs">
-              {transcriptActions.map((action) => (
-                <ActionItem
-                  key={action.id}
-                  action={action}
-                  showCheckbox={false}
-                  showProject
-                  showAssignees
-                  showTags
-                  showSyncStatus
-                />
-              ))}
-            </Stack>
+            <ActionList
+              viewName="transcription-actions"
+              actions={transcriptActions}
+              showCheckboxes={false}
+              showProject
+            />
           ) : (
             <Text c="dimmed">No actions created from this transcript yet.</Text>
           )}
@@ -482,6 +519,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           <span className="absolute -bottom-2 right-4 h-4 w-4 rotate-45 border border-border-primary bg-surface-primary" />
         </button>
       ) : null}
-    </Paper>
+      </Paper>
+    </>
   );
 } 

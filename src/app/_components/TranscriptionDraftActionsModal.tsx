@@ -61,6 +61,7 @@ export function TranscriptionDraftActionsModal({
         await utils.action.getAll.invalidate();
         await utils.action.getProjectActions.invalidate();
         await utils.action.getDraftByTranscription.invalidate({ transcriptionId });
+        await utils.action.getByTranscription.invalidate({ transcriptionId });
         await utils.transcription.getAllTranscriptions.invalidate();
         await utils.transcription.getById.invalidate({ id: transcriptionId });
 
