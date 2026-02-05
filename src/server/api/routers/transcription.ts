@@ -216,6 +216,8 @@ export const transcriptionRouter = createTRPCRouter({
       z.object({
         id: z.string(),
         description: z.string().optional(),
+        notes: z.string().optional(),
+        summary: z.string().optional(),
         transcription: z.string().optional(),
       }),
     )
@@ -239,12 +241,24 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      const updateData: { description?: string; transcription?: string; updatedAt: Date } = {
+      const updateData: {
+        description?: string;
+        notes?: string;
+        summary?: string;
+        transcription?: string;
+        updatedAt: Date;
+      } = {
         updatedAt: new Date(),
       };
 
       if (input.description !== undefined) {
         updateData.description = input.description;
+      }
+      if (input.notes !== undefined) {
+        updateData.notes = input.notes;
+      }
+      if (input.summary !== undefined) {
+        updateData.summary = input.summary;
       }
       if (input.transcription !== undefined) {
         updateData.transcription = input.transcription;
