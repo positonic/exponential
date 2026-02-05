@@ -423,11 +423,17 @@ export const viewRouter = createTRPCRouter({
       }
 
       // Exclude completed unless explicitly included
-      if (!filters.includeCompleted) {
-        whereClause.kanbanStatus = {
-          ...((whereClause.kanbanStatus as Prisma.EnumActionStatusNullableFilter) ?? {}),
-          notIn: ["DONE", "CANCELLED"],
-        };
+      // Include actions with null status (treated as TODO) by default.
+      if (!filters.includeCompleted && !filters.statuses?.length) {
+        whereClause.AND = [
+          ...(whereClause.AND ?? []),
+          {
+            OR: [
+              { kanbanStatus: { notIn: ["DONE", "CANCELLED"] } },
+              { kanbanStatus: null },
+            ],
+          },
+        ];
       }
 
       return ctx.db.action.findMany({

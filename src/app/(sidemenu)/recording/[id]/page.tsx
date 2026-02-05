@@ -16,6 +16,7 @@ import {
 
 import { use } from 'react';
 import RecordingChat from "~/app/_components/RecordingChat";
+import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { TranscriptionContentEditor } from "~/app/_components/TranscriptionContentEditor";
 import SaveActionsButton from "~/app/_components/SaveActionsButton";
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -73,9 +74,11 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
               </div>
               <div>
                 <Text fw={500}>Notes</Text>
-                <Text c="dimmed" style={{ whiteSpace: "pre-wrap" }}>
-                  {session.notes ?? "No notes available"}
-                </Text>
+                {session.notes ? (
+                  <SmartContentRenderer content={session.notes} />
+                ) : (
+                  <Text c="dimmed">No notes available</Text>
+                )}
               </div>
               <div>
                 <Text fw={500}>Summary</Text>
