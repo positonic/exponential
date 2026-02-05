@@ -133,13 +133,22 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const [bulkProjectAssignment, setBulkProjectAssignment] = useState<string | null>(null);
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   
+  const shouldUseCachedTranscriptions = Boolean(workspaceId);
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery(
-    { workspaceId }
+    { workspaceId },
+    {
+      refetchOnMount: shouldUseCachedTranscriptions ? false : undefined,
+      refetchOnWindowFocus: shouldUseCachedTranscriptions ? false : undefined,
+      staleTime: shouldUseCachedTranscriptions ? 5 * 60 * 1000 : undefined,
+    }
   );
   const { data: archivedTranscriptions, isLoading: isLoadingArchived } = api.transcription.getAllTranscriptions.useQuery(
     { includeArchived: true, workspaceId },
     {
       select: (data) => data.filter(t => t.archivedAt), // Only get archived ones
+      refetchOnMount: shouldUseCachedTranscriptions ? false : undefined,
+      refetchOnWindowFocus: shouldUseCachedTranscriptions ? false : undefined,
+      staleTime: shouldUseCachedTranscriptions ? 5 * 60 * 1000 : undefined,
     }
   );
   const { data: projects } = api.project.getAll.useQuery({ workspaceId });
@@ -517,7 +526,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     : [];
 
 
-  if (isLoading) {
+  if (isLoading && !transcriptions) {
     return <div>Loading transcriptions...</div>;
   }
 

@@ -17,13 +17,14 @@ import {
   Button,
 } from "@mantine/core";
 import { IconPencil } from "@tabler/icons-react";
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import RecordingChat from "~/app/_components/RecordingChat";
 import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { TranscriptionContentEditor } from "~/app/_components/TranscriptionContentEditor";
 import SaveActionsButton from "~/app/_components/SaveActionsButton";
 import { notifications } from "@mantine/notifications";
 import { useAgentModal } from "~/providers/AgentModalProvider";
+import { ActionItem } from "~/app/_components/ActionItem";
 
 function isMarkdownContent(content: string) {
   const markdownPatterns = [
@@ -47,6 +48,11 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const { data: session, isLoading } = api.transcription.getById.useQuery({ 
     id: id 
   });
+  const { data: transcriptActions = [], isLoading: isActionsLoading } =
+    api.action.getByTranscription.useQuery(
+      { transcriptionId: id },
+      { enabled: Boolean(id) }
+    );
   const utils = api.useUtils();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
   const { openModal, setMessages, isOpen: isAgentModalOpen } = useAgentModal();
@@ -56,6 +62,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const [editedNotes, setEditedNotes] = useState("");
   const [isEditingSummary, setIsEditingSummary] = useState(false);
   const [editedSummary, setEditedSummary] = useState("");
+  const [activeTab, setActiveTab] = useState<string>("details");
+  const [hasAutoSwitched, setHasAutoSwitched] = useState(false);
   
   // const router = useRouter();
 
@@ -178,6 +186,15 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     });
     openModal();
   }
+
+  useEffect(() => {
+    if (hasAutoSwitched) return;
+    const shouldFocusActions =
+      Boolean(session?.actionsSavedAt) || transcriptActions.length > 0;
+    if (!shouldFocusActions) return;
+    setActiveTab("actions");
+    setHasAutoSwitched(true);
+  }, [hasAutoSwitched, session?.actionsSavedAt, transcriptActions.length]);
   
   return (
     <Paper p="md">
@@ -191,11 +208,16 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         )}
       </Group>
 
-      <Tabs defaultValue="details" keepMounted={false}>
+      <Tabs
+        value={activeTab}
+        onChange={(value) => setActiveTab(value ?? "details")}
+        keepMounted={false}
+      >
         <Tabs.List>
           <Tabs.Tab value="details">Details</Tabs.Tab>
           <Tabs.Tab value="transcription">Transcription</Tabs.Tab>
           <Tabs.Tab value="screenshots">Screenshots</Tabs.Tab>
+          <Tabs.Tab value="actions">Actions</Tabs.Tab>
           <Tabs.Tab value="agent">Agent</Tabs.Tab>
         </Tabs.List>
 
@@ -403,6 +425,28 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             </SimpleGrid>
           ) : (
             <Text c="dimmed">No screenshots for this session</Text>
+          )}
+        </Tabs.Panel>
+
+        <Tabs.Panel value="actions" pt="md">
+          {isActionsLoading ? (
+            <Skeleton height={200} />
+          ) : transcriptActions.length > 0 ? (
+            <Stack gap="xs">
+              {transcriptActions.map((action) => (
+                <ActionItem
+                  key={action.id}
+                  action={action}
+                  showCheckbox={false}
+                  showProject
+                  showAssignees
+                  showTags
+                  showSyncStatus
+                />
+              ))}
+            </Stack>
+          ) : (
+            <Text c="dimmed">No actions created from this transcript yet.</Text>
           )}
         </Tabs.Panel>
 

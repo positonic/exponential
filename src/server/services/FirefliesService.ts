@@ -61,7 +61,7 @@ export class FirefliesService {
     }
 
     for (const actionText of actionTexts) {
-      const parsedItem = this.parseActionItemText(actionText);
+      const parsedItem = this.parseActionItemText(actionText, { strict: false });
       if (parsedItem) {
         actionItems.push(parsedItem);
       }
@@ -78,45 +78,56 @@ export class FirefliesService {
       return [];
     }
 
-    const actionKeywords = [
-      'action',
-      'todo',
-      'follow up',
-      'follow-up',
-      'next step',
-      'we should',
-      "let's",
-      'need to',
-      'needs to',
-      'must',
-      'assign',
-      'assigned',
-      'owner',
-      'deadline',
-      'due',
-      'by ',
-    ];
-
-    const sentences = transcriptText
-      .split(/[\n.!?]+/)
-      .map((sentence) => sentence.trim())
-      .filter((sentence) => sentence.length >= 10);
-
     const matched = new Set<string>();
     const actionItems: ParsedActionItem[] = [];
+    let currentSpeaker: string | undefined;
 
-    for (const sentence of sentences) {
-      const lowerSentence = sentence.toLowerCase();
-      const hasKeyword = actionKeywords.some((keyword) => lowerSentence.includes(keyword));
-      if (!hasKeyword) continue;
+    const lines = transcriptText
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
 
-      const normalized = sentence.replace(/\s+/g, ' ').trim();
-      if (matched.has(normalized)) continue;
-      matched.add(normalized);
+    for (const line of lines) {
+      // Skip timestamp / chapter headings
+      if (/^\d{1,2}:\d{2}\s*(?:[-–]\s*\d{1,2}:\d{2})?/.test(line)) {
+        continue;
+      }
 
-      const parsedItem = this.parseActionItemText(normalized);
-      if (parsedItem) {
-        actionItems.push(parsedItem);
+      let content = line;
+      const speakerMatch = line.match(
+        /^([A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*)*):\s*(.+)$/
+      );
+      if (speakerMatch) {
+        currentSpeaker = speakerMatch[1]?.trim();
+        content = speakerMatch[2]?.trim() ?? "";
+      }
+
+      if (!content || content.length < 10) {
+        continue;
+      }
+
+      const sentences = content
+        .split(/[.!?]+/)
+        .map((sentence) => sentence.trim())
+        .filter((sentence) => sentence.length >= 10);
+
+      for (const sentence of sentences) {
+        const normalized = sentence.replace(/\s+/g, " ").trim();
+        if (!normalized) continue;
+        if (matched.has(normalized)) continue;
+        matched.add(normalized);
+
+        const parsedItem = this.parseActionItemText(normalized, {
+          strict: true,
+          speakerName: currentSpeaker,
+        });
+        if (parsedItem) {
+          actionItems.push(parsedItem);
+        }
+
+        if (actionItems.length >= 25) {
+          break;
+        }
       }
 
       if (actionItems.length >= 25) {
@@ -165,12 +176,48 @@ export class FirefliesService {
   /**
    * Parse individual action item text to extract details
    */
-  private static parseActionItemText(text: string): ParsedActionItem | null {
+  private static parseActionItemText(
+    text: string,
+    options?: { strict?: boolean; speakerName?: string }
+  ): ParsedActionItem | null {
     if (!text || text.trim().length === 0) {
       return null;
     }
 
     let cleanText = text.trim();
+
+    if (options?.strict) {
+      // Drop obvious non-action lines (chapter headings, timestamps, questions)
+      const nonActionPatterns = [
+        /^\d{1,2}:\d{2}\s*(?:[-–]\s*\d{1,2}:\d{2})?/,
+        /\bwrap-up\b/i,
+        /\bnext steps\b/i,
+        /^\s*(?:here’s|here is)\s+what\b/i,
+        /^\s*(?:and\s+today,?\s*)?what\s+does\b/i,
+        /^\s*how\s+does\b/i,
+        /^\s*why\s+does\b/i,
+        /^\s*when\s+does\b/i,
+        /^\s*where\s+does\b/i,
+        /^\s*who\s+does\b/i,
+      ];
+      const looksLikeQuestion = cleanText.endsWith("?");
+      const looksLikeNonAction = nonActionPatterns.some((pattern) => pattern.test(cleanText));
+
+      if (looksLikeQuestion || looksLikeNonAction) {
+        return null;
+      }
+
+      // Require action-like intent (imperative or commitment phrasing)
+      const actionIntentPatterns = [
+        /^(?:action\s*item|todo|task|next\s*step|follow\s*up)\b/i,
+        /^(?:please|assign|send|share|schedule|book|set up|create|draft|write|update|fix|review|ship|publish|deploy|test|investigate|follow up|circle back|confirm|ping|email|call|message|sync|meet|prepare|finalize|collect|gather|compile|organize|summarize)\b/i,
+        /\b(?:we should|we need to|we'll|we will|let's|lets|need to|needs to|must|assign|owner|due by|by end of|by eod|by eow)\b/i,
+      ];
+      const hasActionIntent = actionIntentPatterns.some((pattern) => pattern.test(cleanText));
+      if (!hasActionIntent) {
+        return null;
+      }
+    }
     let assignee: string | undefined;
 
     // Extract assignee from [ASSIGNEE:Name] tag first
@@ -188,9 +235,32 @@ export class FirefliesService {
 
     // Also try to extract assignee from @mention or "John will..." patterns (fallback)
     if (!assignee) {
-      const assigneeMatch = cleanText.match(/@(\w+)|(\w+)\s+(?:will|should|needs to|must)/i);
-      if (assigneeMatch) {
-        actionItem.assignee = assigneeMatch[1] || assigneeMatch[2];
+      const assigneeMatch = cleanText.match(/@(\w+)/i);
+      if (assigneeMatch?.[1]) {
+        actionItem.assignee = assigneeMatch[1];
+      } else {
+        const namedAssigneeMatch = cleanText.match(
+          /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:will|should|needs to|must|to)\b/
+        );
+        if (namedAssigneeMatch?.[1]) {
+          actionItem.assignee = namedAssigneeMatch[1];
+        }
+      }
+    }
+
+    if (!actionItem.assignee && options?.speakerName) {
+      const firstPersonPatterns = [
+        /\bI will\b/i,
+        /\bI'll\b/i,
+        /\bI can\b/i,
+        /\bI should\b/i,
+        /\bI need to\b/i,
+        /\bI'm going to\b/i,
+        /\blet me\b/i,
+      ];
+      const hasFirstPerson = firstPersonPatterns.some((pattern) => pattern.test(cleanText));
+      if (hasFirstPerson) {
+        actionItem.assignee = options.speakerName;
       }
     }
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  ActionIcon,
   Badge,
   Button,
   Group,
@@ -14,6 +15,7 @@ import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { EditActionModal } from "./EditActionModal";
 import type { RouterOutputs } from "~/trpc/react";
+import { IconPencil } from "@tabler/icons-react";
 
 type DraftAction =
   RouterOutputs["action"]["getDraftByTranscription"][number];
@@ -94,18 +96,22 @@ export function TranscriptionDraftActionsModal({
           ) : (
             <Stack gap="sm">
               {draftActions.map((action) => (
-                <Paper key={action.id} p="sm" radius="sm" withBorder>
+                <Paper key={action.id} p="sm" radius="sm" withBorder pos="relative">
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    pos="absolute"
+                    top={12}
+                    right={12}
+                    aria-label="Edit draft action"
+                    onClick={() => setEditingAction(action)}
+                  >
+                    <IconPencil size={14} />
+                  </ActionIcon>
                   <Stack gap={6}>
-                    <Group justify="space-between">
-                      <Text fw={500}>{action.name}</Text>
-                      <Button
-                        size="xs"
-                        variant="light"
-                        onClick={() => setEditingAction(action)}
-                      >
-                        Edit
-                      </Button>
-                    </Group>
+                    <Text fw={500} className="pr-10">
+                      {action.name}
+                    </Text>
                     {action.description && (
                       <Text size="sm" c="dimmed">
                         {action.description}

@@ -123,6 +123,36 @@ export const actionRouter = createTRPCRouter({
     });
   }),
 
+  getByTranscription: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.db.action.findMany({
+        where: {
+          transcriptionSessionId: input.transcriptionId,
+          status: { notIn: ["DELETED", "DRAFT"] },
+          ...buildUserActionPermissions(ctx.session.user.id),
+        },
+        include: {
+          project: true,
+          syncs: true,
+          assignees: {
+            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+          },
+          createdBy: { select: { id: true, name: true, email: true, image: true } },
+          tags: { include: { tag: true } },
+        },
+        orderBy: [
+          { kanbanOrder: { sort: "asc", nulls: "last" } },
+          { priority: "asc" },
+          { dueDate: "asc" }
+        ],
+      });
+    }),
+
   getDraftByTranscription: protectedProcedure
     .input(
       z.object({

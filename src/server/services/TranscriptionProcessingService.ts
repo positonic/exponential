@@ -1,6 +1,7 @@
 import { db } from '~/server/db';
 import { FirefliesService } from './FirefliesService';
 import { ActionProcessorFactory } from './processors/ActionProcessorFactory';
+import { InternalActionProcessor } from './processors/InternalActionProcessor';
 import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
 import { SlackChannelResolver } from './SlackChannelResolver';
 import { SlackNotificationService } from './notifications/SlackNotificationService';
