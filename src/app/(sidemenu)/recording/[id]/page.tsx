@@ -23,6 +23,7 @@ import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { TranscriptionContentEditor } from "~/app/_components/TranscriptionContentEditor";
 import SaveActionsButton from "~/app/_components/SaveActionsButton";
 import { notifications } from "@mantine/notifications";
+import { useAgentModal } from "~/providers/AgentModalProvider";
 
 function isMarkdownContent(content: string) {
   const markdownPatterns = [
@@ -48,6 +49,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   });
   const utils = api.useUtils();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
+  const { openModal, setMessages, isOpen: isAgentModalOpen } = useAgentModal();
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editedDescription, setEditedDescription] = useState("");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
@@ -154,6 +156,27 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         <Text>Transcription session not found</Text>
       </Paper>
     );
+  }
+
+  const actionPromptText = "Want me to create actions for this transcript?";
+  const shouldShowActionPrompt = Boolean(session.transcription) && !session.actionsSavedAt && !isAgentModalOpen;
+
+  function handleActionPromptClick() {
+    setMessages((currentMessages) => {
+      const hasPrompt = currentMessages.some(
+        (message) => message.type === "ai" && message.content === actionPromptText
+      );
+      if (hasPrompt) return currentMessages;
+      return [
+        ...currentMessages,
+        {
+          type: "ai",
+          agentName: "Zoe",
+          content: actionPromptText,
+        },
+      ];
+    });
+    openModal();
   }
   
   return (
@@ -404,6 +427,17 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           <Text><strong>Meeting Date:</strong> {new Date(session.meetingDate).toLocaleString()}</Text>
         )}
       </Stack>
+      {shouldShowActionPrompt ? (
+        <button
+          type="button"
+          onClick={handleActionPromptClick}
+          aria-label="Ask the agent to create actions for this transcript"
+          className="fixed bottom-32 right-6 z-50 max-w-[240px] rounded-lg border border-border-primary bg-surface-primary px-3 py-2 text-left text-sm text-text-primary shadow-sm transition hover:bg-surface-hover sm:bottom-16 relative"
+        >
+          <span className="block font-medium">{actionPromptText}</span>
+          <span className="absolute -bottom-2 right-4 h-4 w-4 rotate-45 border border-border-primary bg-surface-primary" />
+        </button>
+      ) : null}
     </Paper>
   );
 } 

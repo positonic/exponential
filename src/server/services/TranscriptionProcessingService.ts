@@ -73,16 +73,30 @@ export class TranscriptionProcessingService {
       if (transcription.summary) {
         try {
           const summary = JSON.parse(transcription.summary);
-          const actionItems = FirefliesService.parseActionItems(summary);
+          let actionItems = FirefliesService.parseActionItems(summary);
+          const transcriptText = transcription.transcription || '';
+
+          if (actionItems.length === 0 && transcriptText) {
+            actionItems = FirefliesService.extractActionItemsFromTranscriptText(transcriptText);
+          }
+
           processedData = {
             summary,
             actionItems,
-            transcriptText: transcription.transcription || ''
+            transcriptText,
           };
         } catch (parseError) {
           console.error('Failed to parse transcription summary:', parseError);
           result.errors.push('Failed to parse transcription data');
         }
+      } else if (transcription.transcription) {
+        const transcriptText = transcription.transcription;
+        const actionItems = FirefliesService.extractActionItemsFromTranscriptText(transcriptText);
+        processedData = {
+          summary: {},
+          actionItems,
+          transcriptText,
+        };
       }
 
       // 5. Validate parsed data
@@ -216,16 +230,30 @@ export class TranscriptionProcessingService {
       if (transcription.summary) {
         try {
           const summary = JSON.parse(transcription.summary);
-          const actionItems = FirefliesService.parseActionItems(summary);
+          let actionItems = FirefliesService.parseActionItems(summary);
+          const transcriptText = transcription.transcription || "";
+
+          if (actionItems.length === 0 && transcriptText) {
+            actionItems = FirefliesService.extractActionItemsFromTranscriptText(transcriptText);
+          }
+
           processedData = {
             summary,
             actionItems,
-            transcriptText: transcription.transcription || "",
+            transcriptText,
           };
         } catch (parseError) {
           console.error("Failed to parse transcription summary:", parseError);
           result.errors.push("Failed to parse transcription data");
         }
+      } else if (transcription.transcription) {
+        const transcriptText = transcription.transcription;
+        const actionItems = FirefliesService.extractActionItemsFromTranscriptText(transcriptText);
+        processedData = {
+          summary: {},
+          actionItems,
+          transcriptText,
+        };
       }
 
       if (!processedData) {

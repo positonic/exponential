@@ -71,6 +71,63 @@ export class FirefliesService {
   }
 
   /**
+   * Extract action items from raw transcript text as a fallback.
+   */
+  static extractActionItemsFromTranscriptText(transcriptText: string): ParsedActionItem[] {
+    if (!transcriptText || transcriptText.trim().length === 0) {
+      return [];
+    }
+
+    const actionKeywords = [
+      'action',
+      'todo',
+      'follow up',
+      'follow-up',
+      'next step',
+      'we should',
+      "let's",
+      'need to',
+      'needs to',
+      'must',
+      'assign',
+      'assigned',
+      'owner',
+      'deadline',
+      'due',
+      'by ',
+    ];
+
+    const sentences = transcriptText
+      .split(/[\n.!?]+/)
+      .map((sentence) => sentence.trim())
+      .filter((sentence) => sentence.length >= 10);
+
+    const matched = new Set<string>();
+    const actionItems: ParsedActionItem[] = [];
+
+    for (const sentence of sentences) {
+      const lowerSentence = sentence.toLowerCase();
+      const hasKeyword = actionKeywords.some((keyword) => lowerSentence.includes(keyword));
+      if (!hasKeyword) continue;
+
+      const normalized = sentence.replace(/\s+/g, ' ').trim();
+      if (matched.has(normalized)) continue;
+      matched.add(normalized);
+
+      const parsedItem = this.parseActionItemText(normalized);
+      if (parsedItem) {
+        actionItems.push(parsedItem);
+      }
+
+      if (actionItems.length >= 25) {
+        break;
+      }
+    }
+
+    return actionItems;
+  }
+
+  /**
    * Parse action items from a formatted string with assignee information
    */
   private static parseActionItemsFromString(actionItemsString: string): string[] {
