@@ -868,6 +868,48 @@ export const transcriptionRouter = createTRPCRouter({
       return result;
     }),
 
+  saveActionsFromTranscription: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const transcription = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+      });
+
+      if (!transcription) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (transcription.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this transcription",
+        });
+      }
+
+      if (transcription.actionsSavedAt) {
+        return {
+          alreadySaved: true,
+          savedAt: transcription.actionsSavedAt,
+        };
+      }
+
+      const updated = await ctx.db.transcriptionSession.update({
+        where: { id: input.transcriptionId },
+        data: {
+          actionsSavedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      return {
+        alreadySaved: false,
+        savedAt: updated.actionsSavedAt,
+      };
+    }),
+
   sendSlackNotification: protectedProcedure
     .input(z.object({ transcriptionId: z.string() }))
     .mutation(async ({ ctx, input }) => {

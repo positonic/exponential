@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Title,
@@ -47,6 +47,7 @@ import {
   IconChevronUp,
   IconChecklist,
   IconFile,
+  IconPencil,
 } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
@@ -165,29 +166,43 @@ function ActivityItem({
 function CollapsibleSection({
   title,
   defaultOpen = true,
+  action,
   children,
 }: {
   title: string;
   defaultOpen?: boolean;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
     <div className="border-b border-border-primary last:border-b-0">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between py-3 px-1 text-left hover:bg-surface-hover transition-colors"
-      >
-        <Text size="xs" className="font-medium text-text-muted">
-          {isOpen ? '▾' : '▸'} {title}
-        </Text>
-        {isOpen ? (
-          <IconChevronUp size={14} className="text-text-muted" />
-        ) : (
-          <IconChevronDown size={14} className="text-text-muted" />
-        )}
-      </button>
+      <div className="flex items-center justify-between py-3 px-1">
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="flex flex-1 items-center justify-between text-left hover:bg-surface-hover transition-colors"
+        >
+          <Text size="xs" className="font-medium text-text-muted">
+            {isOpen ? '▾' : '▸'} {title}
+          </Text>
+          {isOpen ? (
+            <IconChevronUp size={14} className="text-text-muted" />
+          ) : (
+            <IconChevronDown size={14} className="text-text-muted" />
+          )}
+        </button>
+        {action ? (
+          <div
+            className="ml-2"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            {action}
+          </div>
+        ) : null}
+      </div>
       <Collapse in={isOpen}>
         <div className="pb-4 px-1">{children}</div>
       </Collapse>
@@ -326,6 +341,196 @@ function AddInteractionForm({
   );
 }
 
+interface ContactEditFormProps {
+  contact: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+    phone: string | null;
+    linkedIn: string | null;
+    telegram: string | null;
+    twitter: string | null;
+    github: string | null;
+    about: string | null;
+    organizationId: string | null;
+  };
+  workspaceId: string;
+  onSuccess: () => void;
+  onCancel: () => void;
+}
+
+function ContactEditForm({
+  contact,
+  workspaceId,
+  onSuccess,
+  onCancel,
+}: ContactEditFormProps) {
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    linkedIn: '',
+    telegram: '',
+    twitter: '',
+    github: '',
+    about: '',
+    organizationId: '',
+  });
+
+  const utils = api.useUtils();
+
+  const { data: organizations } = api.crmOrganization.getAll.useQuery(
+    { workspaceId, limit: 100 },
+    { enabled: !!workspaceId },
+  );
+
+  const updateContact = api.crmContact.update.useMutation({
+    onSuccess: () => {
+      void utils.crmContact.getById.invalidate({ id: contact.id });
+      void utils.crmContact.getAll.invalidate();
+      notifications.show({
+        title: 'Success',
+        message: 'Contact updated successfully',
+        color: 'green',
+      });
+      onSuccess();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message,
+        color: 'red',
+      });
+    },
+  });
+
+  useEffect(() => {
+    setFormData({
+      firstName: contact.firstName ?? '',
+      lastName: contact.lastName ?? '',
+      email: contact.email ?? '',
+      phone: contact.phone ?? '',
+      linkedIn: contact.linkedIn ?? '',
+      telegram: contact.telegram ?? '',
+      twitter: contact.twitter ?? '',
+      github: contact.github ?? '',
+      about: contact.about ?? '',
+      organizationId: contact.organizationId ?? '',
+    });
+  }, [contact]);
+
+  const getOptionalValue = (value: string) => value.trim();
+
+  const getNullableEmail = (value: string) => {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    updateContact.mutate({
+      id: contact.id,
+      firstName: formData.firstName.trim(),
+      lastName: formData.lastName.trim(),
+      email: getNullableEmail(formData.email),
+      phone: getOptionalValue(formData.phone),
+      linkedIn: getOptionalValue(formData.linkedIn),
+      telegram: getOptionalValue(formData.telegram),
+      twitter: getOptionalValue(formData.twitter),
+      github: getOptionalValue(formData.github),
+      about: formData.about.trim(),
+      organizationId: formData.organizationId.length > 0 ? formData.organizationId : null,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <Stack gap="md">
+        <div className="grid grid-cols-2 gap-3">
+          <TextInput
+            label="First Name"
+            value={formData.firstName}
+            onChange={(event) =>
+              setFormData({ ...formData, firstName: event.target.value })
+            }
+          />
+          <TextInput
+            label="Last Name"
+            value={formData.lastName}
+            onChange={(event) =>
+              setFormData({ ...formData, lastName: event.target.value })
+            }
+          />
+        </div>
+        <TextInput
+          label="Email"
+          type="email"
+          value={formData.email}
+          onChange={(event) => setFormData({ ...formData, email: event.target.value })}
+        />
+        <TextInput
+          label="Phone"
+          value={formData.phone}
+          onChange={(event) => setFormData({ ...formData, phone: event.target.value })}
+        />
+        <TextInput
+          label="LinkedIn URL"
+          value={formData.linkedIn}
+          onChange={(event) => setFormData({ ...formData, linkedIn: event.target.value })}
+        />
+        <TextInput
+          label="Telegram"
+          placeholder="@username"
+          value={formData.telegram}
+          onChange={(event) => setFormData({ ...formData, telegram: event.target.value })}
+        />
+        <TextInput
+          label="Twitter"
+          placeholder="@handle"
+          value={formData.twitter}
+          onChange={(event) => setFormData({ ...formData, twitter: event.target.value })}
+        />
+        <TextInput
+          label="GitHub"
+          placeholder="username"
+          value={formData.github}
+          onChange={(event) => setFormData({ ...formData, github: event.target.value })}
+        />
+        <Textarea
+          label="Description"
+          minRows={3}
+          value={formData.about}
+          onChange={(event) => setFormData({ ...formData, about: event.target.value })}
+        />
+        <Select
+          label="Company"
+          placeholder="Select organization"
+          data={
+            organizations?.organizations.map((org) => ({
+              value: org.id,
+              label: org.name,
+            })) ?? []
+          }
+          value={formData.organizationId}
+          onChange={(value) => setFormData({ ...formData, organizationId: value ?? '' })}
+          clearable
+          searchable
+        />
+        <div className="flex justify-end gap-2 mt-2">
+          <Button variant="subtle" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={updateContact.isPending}>
+            Save Changes
+          </Button>
+        </div>
+      </Stack>
+    </form>
+  );
+}
+
 export default function ContactDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -335,6 +540,8 @@ export default function ContactDetailPage() {
   const [sidebarTab, setSidebarTab] = useState<string | null>('details');
   const [isStarred, setIsStarred] = useState(false);
   const [interactionModalOpened, { open: openInteractionModal, close: closeInteractionModal }] =
+    useDisclosure(false);
+  const [editModalOpened, { open: openEditModal, close: closeEditModal }] =
     useDisclosure(false);
 
   // Get current contact
@@ -1114,7 +1321,24 @@ export default function ContactDetailPage() {
           {sidebarTab === 'details' && (
             <div className="p-4">
               {/* Record Details */}
-              <CollapsibleSection title="Record Details">
+              <CollapsibleSection
+                title="Record Details"
+                action={
+                  <Tooltip label="Edit details">
+                    <ActionIcon
+                      variant="subtle"
+                      size="sm"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openEditModal();
+                      }}
+                      aria-label="Edit contact details"
+                    >
+                      <IconPencil size={14} />
+                    </ActionIcon>
+                  </Tooltip>
+                }
+              >
                 <Stack gap="sm">
                   <DetailRow
                     icon={<IconUser size={14} />}
@@ -1269,6 +1493,17 @@ export default function ContactDetailPage() {
           onSuccess={closeInteractionModal}
           onCancel={closeInteractionModal}
         />
+      </Modal>
+
+      <Modal opened={editModalOpened} onClose={closeEditModal} title="Edit Contact" size="lg">
+        {contact && workspaceId ? (
+          <ContactEditForm
+            contact={contact}
+            workspaceId={workspaceId}
+            onSuccess={closeEditModal}
+            onCancel={closeEditModal}
+          />
+        ) : null}
       </Modal>
     </div>
   );

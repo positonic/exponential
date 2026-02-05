@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Title,
@@ -9,12 +9,17 @@ import {
   Avatar,
   Badge,
   Button,
+  TextInput,
+  Textarea,
+  Select,
   Skeleton,
   ActionIcon,
+  Modal,
   Tabs,
   Tooltip,
   Collapse,
 } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import {
   IconArrowLeft,
   IconChevronLeft,
@@ -33,10 +38,12 @@ import {
   IconNote,
   IconChecklist,
   IconFile,
+  IconPencil,
 } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import Link from 'next/link';
+import { notifications } from '@mantine/notifications';
 
 function getInitialFromName(name?: string | null) {
   const trimmed = name?.trim();
@@ -140,33 +147,47 @@ function CollapsibleSection({
   title,
   icon,
   defaultOpen = true,
+  action,
   children,
 }: {
   title: string;
   icon?: React.ReactNode;
   defaultOpen?: boolean;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
     <div className="border-b border-border-primary last:border-b-0">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between py-3 px-1 text-left hover:bg-surface-hover transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          {icon && <span className="text-text-muted">{icon}</span>}
-          <Text size="sm" className="font-medium text-text-primary">
-            {title}
-          </Text>
-        </div>
-        {isOpen ? (
-          <IconChevronUp size={16} className="text-text-muted" />
-        ) : (
-          <IconChevronDown size={16} className="text-text-muted" />
-        )}
-      </button>
+      <div className="flex items-center justify-between py-3 px-1">
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="flex flex-1 items-center justify-between text-left hover:bg-surface-hover transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {icon && <span className="text-text-muted">{icon}</span>}
+            <Text size="sm" className="font-medium text-text-primary">
+              {title}
+            </Text>
+          </div>
+          {isOpen ? (
+            <IconChevronUp size={16} className="text-text-muted" />
+          ) : (
+            <IconChevronDown size={16} className="text-text-muted" />
+          )}
+        </button>
+        {action ? (
+          <div
+            className="ml-2"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            {action}
+          </div>
+        ) : null}
+      </div>
       <Collapse in={isOpen}>
         <div className="pb-3 px-1">{children}</div>
       </Collapse>
@@ -186,6 +207,142 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   );
 }
 
+interface OrganizationEditFormProps {
+  organization: {
+    id: string;
+    name: string;
+    websiteUrl: string | null;
+    description: string | null;
+    industry: string | null;
+    size: string | null;
+  };
+  onSuccess: () => void;
+  onCancel: () => void;
+}
+
+function OrganizationEditForm({ organization, onSuccess, onCancel }: OrganizationEditFormProps) {
+  const [formData, setFormData] = useState({
+    name: '',
+    websiteUrl: '',
+    description: '',
+    industry: '',
+    size: '',
+  });
+
+  const utils = api.useUtils();
+
+  const updateOrganization = api.crmOrganization.update.useMutation({
+    onSuccess: () => {
+      void utils.crmOrganization.getById.invalidate({ id: organization.id });
+      void utils.crmOrganization.getAll.invalidate();
+      notifications.show({
+        title: 'Success',
+        message: 'Organization updated successfully',
+        color: 'green',
+      });
+      onSuccess();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message,
+        color: 'red',
+      });
+    },
+  });
+
+  useEffect(() => {
+    setFormData({
+      name: organization.name,
+      websiteUrl: organization.websiteUrl ?? '',
+      description: organization.description ?? '',
+      industry: organization.industry ?? '',
+      size: organization.size ?? '',
+    });
+  }, [organization]);
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!formData.name.trim()) {
+      notifications.show({
+        title: 'Error',
+        message: 'Name is required',
+        color: 'red',
+      });
+      return;
+    }
+    updateOrganization.mutate({
+      id: organization.id,
+      name: formData.name.trim(),
+      websiteUrl: formData.websiteUrl.trim() ? formData.websiteUrl.trim() : null,
+      description: formData.description.trim(),
+      industry: formData.industry.trim(),
+      size: formData.size.length > 0 ? formData.size : null,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <Stack gap="md">
+        <TextInput
+          label="Name"
+          required
+          value={formData.name}
+          onChange={(event) => setFormData({ ...formData, name: event.target.value })}
+        />
+        <TextInput
+          label="Website URL"
+          type="url"
+          placeholder="https://example.com"
+          value={formData.websiteUrl}
+          onChange={(event) =>
+            setFormData({ ...formData, websiteUrl: event.target.value })
+          }
+        />
+        <Textarea
+          label="Description"
+          minRows={2}
+          value={formData.description}
+          onChange={(event) =>
+            setFormData({ ...formData, description: event.target.value })
+          }
+        />
+        <TextInput
+          label="Industry"
+          placeholder="e.g., Technology, Healthcare, Finance"
+          value={formData.industry}
+          onChange={(event) =>
+            setFormData({ ...formData, industry: event.target.value })
+          }
+        />
+        <Select
+          label="Company Size"
+          placeholder="Select size"
+          data={[
+            { value: '1-10', label: '1-10 employees' },
+            { value: '11-50', label: '11-50 employees' },
+            { value: '51-200', label: '51-200 employees' },
+            { value: '201-500', label: '201-500 employees' },
+            { value: '501-1000', label: '501-1000 employees' },
+            { value: '1000+', label: '1000+ employees' },
+          ]}
+          value={formData.size}
+          onChange={(value) => setFormData({ ...formData, size: value ?? '' })}
+          clearable
+        />
+        <div className="flex justify-end gap-2 mt-2">
+          <Button variant="subtle" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={updateOrganization.isPending}>
+            Save Changes
+          </Button>
+        </div>
+      </Stack>
+    </form>
+  );
+}
+
 export default function OrganizationDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -194,6 +351,8 @@ export default function OrganizationDetailPage() {
   const [activeTab, setActiveTab] = useState<string | null>('overview');
   const [sidebarTab, setSidebarTab] = useState<string | null>('details');
   const [isStarred, setIsStarred] = useState(false);
+  const [editModalOpened, { open: openEditModal, close: closeEditModal }] =
+    useDisclosure(false);
 
   // Get current organization
   const { data: organization, isLoading } = api.crmOrganization.getById.useQuery(
@@ -724,7 +883,24 @@ export default function OrganizationDetailPage() {
           {sidebarTab === 'details' && (
             <div className="p-4">
               {/* Record Details */}
-              <CollapsibleSection title="Record Details">
+              <CollapsibleSection
+                title="Record Details"
+                action={
+                  <Tooltip label="Edit details">
+                    <ActionIcon
+                      variant="subtle"
+                      size="sm"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openEditModal();
+                      }}
+                      aria-label="Edit organization details"
+                    >
+                      <IconPencil size={14} />
+                    </ActionIcon>
+                  </Tooltip>
+                }
+              >
                 <Stack gap="xs">
                   {organization.websiteUrl && (
                     <DetailRow
@@ -816,6 +992,21 @@ export default function OrganizationDetailPage() {
           )}
         </div>
       </div>
+
+      <Modal
+        opened={editModalOpened}
+        onClose={closeEditModal}
+        title="Edit Organization"
+        size="lg"
+      >
+        {organization ? (
+          <OrganizationEditForm
+            organization={organization}
+            onSuccess={closeEditModal}
+            onCancel={closeEditModal}
+          />
+        ) : null}
+      </Modal>
     </div>
   );
 }

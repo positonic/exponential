@@ -674,6 +674,7 @@ model TranscriptionSession {
   summary             String?
   notes               String?
   processedAt         DateTime?
+  actionsSavedAt      DateTime?
   slackNotificationAt DateTime?
   archivedAt          DateTime?
   sourceIntegrationId String?
