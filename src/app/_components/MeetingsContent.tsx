@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { SlackSummaryModal } from './SlackSummaryModal';
+import Link from "next/link";
 import {
   Group,
   Tabs,
@@ -38,6 +39,7 @@ import {
   IconHistory,
   IconRefresh,
   IconPlayerPlay,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 // import { ActionList } from "./ActionList";
@@ -826,6 +828,16 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                                     onClick={() => handleTranscriptionClick(session)}
                                   >
                                     View Details
+                                  </Button>
+
+                                  <Button
+                                    size="sm"
+                                    variant="light"
+                                    component={Link}
+                                    href={`/recording/${session.id}`}
+                                    leftSection={<IconExternalLink size={14} />}
+                                  >
+                                    Open Page
                                   </Button>
                                   
                                   {/* Individual Meeting Actions Menu */}

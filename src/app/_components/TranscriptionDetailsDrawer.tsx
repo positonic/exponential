@@ -18,6 +18,8 @@ import {
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { notifications } from "@mantine/notifications";
 import { HTMLContent } from "./HTMLContent";
+import Link from "next/link";
+import { IconExternalLink, IconLink } from "@tabler/icons-react";
 
 interface TranscriptionDetailsDrawerProps {
   opened: boolean;
@@ -109,6 +111,32 @@ export function TranscriptionDetailsDrawer({
     }
   };
 
+  const handleCopyLink = async () => {
+    if (!transcription) return;
+
+    const baseUrl = window.location.origin;
+    const link = `${baseUrl}/recording/${transcription.id}`;
+
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(link);
+        notifications.show({
+          title: "Link copied",
+          message: "Transcription link copied to clipboard",
+          color: "green",
+        });
+      } else {
+        window.prompt("Copy this link:", link);
+      }
+    } catch {
+      notifications.show({
+        title: "Copy failed",
+        message: "Unable to copy link to clipboard",
+        color: "red",
+      });
+    }
+  };
+
   if (!transcription) return null;
 
   return (
@@ -143,6 +171,26 @@ export function TranscriptionDetailsDrawer({
                   <strong>Description:</strong> {transcription.description}
                 </Text>
               )}
+
+              <Group gap="sm">
+                <Button
+                  size="xs"
+                  variant="light"
+                  component={Link}
+                  href={`/recording/${transcription.id}`}
+                  leftSection={<IconExternalLink size={14} />}
+                >
+                  Open Page
+                </Button>
+                <Button
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconLink size={14} />}
+                  onClick={() => void handleCopyLink()}
+                >
+                  Copy Link
+                </Button>
+              </Group>
             </Stack>
           </Paper>
 
