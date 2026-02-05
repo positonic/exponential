@@ -47,17 +47,13 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     <Paper p="md">
       <Group justify="space-between" mb="lg">
         <Title order={2}>{session.title ?? "Transcription Details"}</Title>
-        {session.transcription && <SaveActionsButton />}
-      </Group>
-
-      <Stack gap="xs" mb="lg">
-        <Text><strong>Session ID:</strong> {session.sessionId}</Text>
-        <Text><strong>Created:</strong> {new Date(session.createdAt).toLocaleString()}</Text>
-        <Text><strong>Updated:</strong> {new Date(session.updatedAt).toLocaleString()}</Text>
-        {session.meetingDate && (
-          <Text><strong>Meeting Date:</strong> {new Date(session.meetingDate).toLocaleString()}</Text>
+        {session.transcription && (
+          <SaveActionsButton
+            transcriptionId={session.id}
+            actionsSavedAt={session.actionsSavedAt}
+          />
         )}
-      </Stack>
+      </Group>
 
       <Accordion multiple defaultValue={["details"]}>
         <Accordion.Item value="details">
@@ -149,6 +145,15 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           </Accordion.Panel>
         </Accordion.Item>
       </Accordion>
+
+      <Stack gap="xs" mt="lg">
+        <Text><strong>Session ID:</strong> {session.sessionId}</Text>
+        <Text><strong>Created:</strong> {new Date(session.createdAt).toLocaleString()}</Text>
+        <Text><strong>Updated:</strong> {new Date(session.updatedAt).toLocaleString()}</Text>
+        {session.meetingDate && (
+          <Text><strong>Meeting Date:</strong> {new Date(session.meetingDate).toLocaleString()}</Text>
+        )}
+      </Stack>
     </Paper>
   );
 } 
