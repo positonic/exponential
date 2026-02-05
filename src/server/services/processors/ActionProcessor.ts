@@ -23,6 +23,7 @@ export interface ActionProcessorConfig {
   projectId?: string;
   integrationId?: string;
   transcriptionId?: string;
+  actionStatus?: "ACTIVE" | "DRAFT";
   additionalConfig?: Record<string, any>;
 }
 

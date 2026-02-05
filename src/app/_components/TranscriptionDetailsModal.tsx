@@ -18,12 +18,13 @@ import {
   TextInput,
   ActionIcon,
 } from "@mantine/core";
-import { IconPencil, IconCheck, IconX, IconPlayerPlay, IconTrash } from "@tabler/icons-react";
+import { IconPencil, IconCheck, IconX, IconPlayerPlay } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { SmartContentRenderer } from "./SmartContentRenderer";
 import { notifications } from "@mantine/notifications";
 import { HTMLContent } from "./HTMLContent";
 import { api } from "~/trpc/react";
+import { TranscriptionDraftActionsModal } from "./TranscriptionDraftActionsModal";
 
 interface TranscriptionDetailsModalProps {
   opened: boolean;
@@ -53,6 +54,7 @@ export function TranscriptionDetailsModal({
   const [editingTranscription, setEditingTranscription] = useState(false);
   const [editedDescription, setEditedDescription] = useState("");
   const [editedTranscriptionText, setEditedTranscriptionText] = useState("");
+  const [draftActionsOpened, setDraftActionsOpened] = useState(false);
 
   // Update mutations
   const updateTitleMutation = api.transcription.updateTitle.useMutation({
@@ -95,35 +97,44 @@ export function TranscriptionDetailsModal({
   });
 
   const utils = api.useUtils();
-  const toggleActionsMutation = api.transcription.toggleActionGeneration.useMutation({
-    onSuccess: async (result) => {
-      if (result.action === "generated") {
+  const generateDraftsMutation =
+    api.transcription.generateDraftActions.useMutation({
+      onSuccess: (result) => {
+        if (result.alreadyPublished) {
+          notifications.show({
+            title: "Actions Already Created",
+            message: "This transcription already has actions.",
+            color: "orange",
+          });
+          return;
+        }
+
+        if (result.actionsCreated === 0 && result.draftCount === 0) {
+          notifications.show({
+            title: "No Actions Found",
+            message: "No action items were detected in this transcription.",
+            color: "gray",
+          });
+          return;
+        }
+
         notifications.show({
-          title: "Actions Generated",
-          message: `Successfully created ${result.actionsCreated} action${result.actionsCreated === 1 ? "" : "s"} from the transcription`,
+          title: "Draft Actions Ready",
+          message: "Review and edit the draft actions before creating them.",
           color: "green",
         });
-      } else {
+
+        void utils.transcription.getAllTranscriptions.invalidate();
+        setDraftActionsOpened(true);
+      },
+      onError: (error) => {
         notifications.show({
-          title: "Actions Deleted",
-          message: `Successfully deleted ${result.actionsDeleted} action${result.actionsDeleted === 1 ? "" : "s"}`,
-          color: "orange",
+          title: "Error",
+          message: error.message || "Failed to generate draft actions",
+          color: "red",
         });
-      }
-      // Invalidate queries to refresh data
-      void utils.transcription.getAllTranscriptions.invalidate();
-      if (transcription?.project?.id) {
-        void utils.project.getById.invalidate({ id: transcription.project.id });
-      }
-    },
-    onError: (error) => {
-      notifications.show({
-        title: "Error",
-        message: error.message || "Failed to toggle actions",
-        color: "red",
-      });
-    },
-  });
+      },
+    });
 
   const handleStartEditTitle = () => {
     setEditedTitle(transcription?.title ?? "");
@@ -251,6 +262,15 @@ export function TranscriptionDetailsModal({
   };
 
   if (!transcription) return null;
+
+  const handleOpenDraftActions = () => {
+    if (transcription.actionsSavedAt) {
+      setDraftActionsOpened(true);
+      return;
+    }
+
+    generateDraftsMutation.mutate({ transcriptionId: transcription.id });
+  };
 
   // Determine which accordion sections to open by default
   const defaultOpenSections = ['description'];
@@ -517,15 +537,15 @@ export function TranscriptionDetailsModal({
                       </Button>
                       <Button
                         size="xs"
-                        variant={transcription.processedAt && transcription.actions?.length > 0 ? "light" : "filled"}
-                        color={transcription.processedAt && transcription.actions?.length > 0 ? "red" : "blue"}
-                        leftSection={transcription.processedAt && transcription.actions?.length > 0 ? <IconTrash size={14} /> : <IconPlayerPlay size={14} />}
-                        onClick={() => toggleActionsMutation.mutate({ transcriptionId: transcription.id })}
-                        loading={toggleActionsMutation.isPending}
-                        disabled={!transcription.projectId}
-                        title={!transcription.projectId ? "Assign a project to this transcription first" : undefined}
+                        variant="filled"
+                        color="blue"
+                        leftSection={<IconPlayerPlay size={14} />}
+                        onClick={handleOpenDraftActions}
+                        loading={generateDraftsMutation.isPending}
                       >
-                        {transcription.processedAt && transcription.actions?.length > 0 ? "Delete Actions" : "Generate Actions"}
+                        {transcription.actionsSavedAt
+                          ? "Review Draft Actions"
+                          : "Generate Draft Actions"}
                       </Button>
                     </Group>
                     {selectedActionIds.size > 0 && onSyncToIntegration && (
@@ -860,6 +880,11 @@ export function TranscriptionDetailsModal({
           </Paper>
         </Stack>
       </ScrollArea>
+      <TranscriptionDraftActionsModal
+        opened={draftActionsOpened}
+        onClose={() => setDraftActionsOpened(false)}
+        transcriptionId={transcription.id}
+      />
     </Modal>
   );
 }

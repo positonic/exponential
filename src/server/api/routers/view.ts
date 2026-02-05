@@ -385,7 +385,7 @@ export const viewRouter = createTRPCRouter({
 
       // Build where clause
       const whereClause: Prisma.ActionWhereInput = {
-        status: { not: "DELETED" },
+        status: { notIn: ["DELETED", "DRAFT"] },
         // Actions must be in this workspace (via project or directly)
         OR: [
           { project: { workspaceId: input.workspaceId } },

@@ -271,6 +271,7 @@ export const transcriptionRouter = createTRPCRouter({
             },
           },
           actions: {
+            where: { status: { not: "DRAFT" } },
             select: {
               id: true,
               name: true,
@@ -385,6 +386,7 @@ export const transcriptionRouter = createTRPCRouter({
           processedAt: true,
           meetingDate: true,
           actions: {
+            where: { status: { not: "DRAFT" } },
             select: {
               id: true,
               name: true,
@@ -444,6 +446,7 @@ export const transcriptionRouter = createTRPCRouter({
             },
           },
           actions: {
+            where: { status: { not: "DRAFT" } },
             select: {
               id: true,
               name: true,
@@ -868,7 +871,26 @@ export const transcriptionRouter = createTRPCRouter({
       return result;
     }),
 
-  saveActionsFromTranscription: protectedProcedure
+  generateDraftActions: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await TranscriptionProcessingService.generateDraftActions(
+        input.transcriptionId,
+        ctx.session.user.id,
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            result.errors.join(", ") || "Failed to generate draft actions",
+        });
+      }
+
+      return result;
+    }),
+
+  publishDraftActions: protectedProcedure
     .input(z.object({ transcriptionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const transcription = await ctx.db.transcriptionSession.findUnique({
@@ -889,25 +911,39 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.actionsSavedAt) {
-        return {
-          alreadySaved: true,
-          savedAt: transcription.actionsSavedAt,
-        };
+      const draftActions = await ctx.db.action.findMany({
+        where: {
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+        select: { id: true },
+      });
+
+      if (draftActions.length === 0) {
+        return { publishedCount: 0 };
       }
 
-      const updated = await ctx.db.transcriptionSession.update({
+      const result = await ctx.db.action.updateMany({
+        where: {
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          status: "ACTIVE",
+        },
+      });
+
+      await ctx.db.transcriptionSession.update({
         where: { id: input.transcriptionId },
         data: {
-          actionsSavedAt: new Date(),
+          processedAt: new Date(),
           updatedAt: new Date(),
         },
       });
 
-      return {
-        alreadySaved: false,
-        savedAt: updated.actionsSavedAt,
-      };
+      return { publishedCount: result.count };
     }),
 
   sendSlackNotification: protectedProcedure

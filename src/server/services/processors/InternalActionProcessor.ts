@@ -61,11 +61,12 @@ export class InternalActionProcessor extends ActionProcessor {
       }
     }
 
+    const actionStatus = this.config.actionStatus ?? "ACTIVE";
     const actionData = {
       name,
       description: actionItem.context || 'Action item from meeting',
       priority,
-      status: 'ACTIVE' as const,
+      status: actionStatus,
       createdById: this.config.userId, // Always use the user who processed the meeting
       projectId: this.config.projectId || null,
       transcriptionSessionId: this.config.transcriptionId || null,

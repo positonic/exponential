@@ -430,8 +430,8 @@ export const projectRouter = createTRPCRouter({
           actions: {
             where: {
               status: input.includeCompleted
-                ? { not: "DELETED" }
-                : { notIn: ["DELETED", "COMPLETED"] }
+                ? { notIn: ["DELETED", "DRAFT"] }
+                : { notIn: ["DELETED", "COMPLETED", "DRAFT"] }
             },
             include: {
               assignees: {
@@ -456,8 +456,8 @@ export const projectRouter = createTRPCRouter({
         where: {
           projectId: null,
           status: input.includeCompleted
-            ? { not: "DELETED" }
-            : { notIn: ["DELETED", "COMPLETED"] },
+            ? { notIn: ["DELETED", "DRAFT"] }
+            : { notIn: ["DELETED", "COMPLETED", "DRAFT"] },
           OR: [
             { createdById: userId, assignees: { none: {} } },
             { assignees: { some: { userId } } },

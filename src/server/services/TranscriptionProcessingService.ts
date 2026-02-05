@@ -12,6 +12,14 @@ export interface ProcessTranscriptionResult {
   errors: string[];
 }
 
+export interface DraftTranscriptionActionsResult {
+  success: boolean;
+  actionsCreated: number;
+  alreadyPublished: boolean;
+  draftCount: number;
+  errors: string[];
+}
+
 export class TranscriptionProcessingService {
   /**
    * Process a transcription after it has been associated with a project
@@ -134,6 +142,134 @@ export class TranscriptionProcessingService {
     }
 
     return result;
+  }
+
+  /**
+   * Generate draft actions for a transcription without publishing
+   */
+  static async generateDraftActions(
+    transcriptionId: string,
+    userId: string
+  ): Promise<DraftTranscriptionActionsResult> {
+    const result: DraftTranscriptionActionsResult = {
+      success: false,
+      actionsCreated: 0,
+      alreadyPublished: false,
+      draftCount: 0,
+      errors: [],
+    };
+
+    try {
+      const transcription = await db.transcriptionSession.findUnique({
+        where: { id: transcriptionId },
+        include: {
+          project: {
+            include: { team: true },
+          },
+          user: true,
+        },
+      });
+
+      if (!transcription) {
+        result.errors.push("Transcription not found");
+        return result;
+      }
+
+      if (transcription.userId !== userId) {
+        const hasAccess = await this.verifyUserAccess(
+          userId,
+          transcription.projectId
+        );
+        if (!hasAccess) {
+          result.errors.push("User does not have access to this transcription");
+          return result;
+        }
+      }
+
+      const existingActiveCount = await db.action.count({
+        where: {
+          transcriptionSessionId: transcriptionId,
+          status: { notIn: ["DELETED", "DRAFT"] },
+        },
+      });
+
+      if (existingActiveCount > 0) {
+        result.alreadyPublished = true;
+        result.success = true;
+        return result;
+      }
+
+      const existingDraftCount = await db.action.count({
+        where: {
+          transcriptionSessionId: transcriptionId,
+          status: "DRAFT",
+        },
+      });
+
+      if (existingDraftCount > 0) {
+        result.success = true;
+        result.draftCount = existingDraftCount;
+        return result;
+      }
+
+      let processedData;
+      if (transcription.summary) {
+        try {
+          const summary = JSON.parse(transcription.summary);
+          const actionItems = FirefliesService.parseActionItems(summary);
+          processedData = {
+            summary,
+            actionItems,
+            transcriptText: transcription.transcription || "",
+          };
+        } catch (parseError) {
+          console.error("Failed to parse transcription summary:", parseError);
+          result.errors.push("Failed to parse transcription data");
+        }
+      }
+
+      if (!processedData) {
+        result.success = true;
+        return result;
+      }
+
+      if (!processedData.actionItems || processedData.actionItems.length === 0) {
+        result.success = true;
+        return result;
+      }
+
+      const draftProcessor = new InternalActionProcessor({
+        userId,
+        projectId: transcription.projectId ?? undefined,
+        transcriptionId,
+        actionStatus: "DRAFT",
+      });
+
+      const actionResult = await draftProcessor.processActionItems(
+        processedData.actionItems
+      );
+
+      result.actionsCreated = actionResult.processedCount;
+      result.draftCount = actionResult.processedCount;
+      result.errors = actionResult.errors;
+      result.success = actionResult.errors.length === 0;
+
+      await db.transcriptionSession.update({
+        where: { id: transcriptionId },
+        data: {
+          actionsSavedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      return result;
+    } catch (error) {
+      console.error("Error generating draft actions:", error);
+      result.errors.push(
+        error instanceof Error ? error.message : "Unknown error"
+      );
+      return result;
+    }
   }
 
   /**

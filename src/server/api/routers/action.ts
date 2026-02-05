@@ -89,7 +89,7 @@ export const actionRouter = createTRPCRouter({
         { assignees: { some: { userId: userId } } },
       ],
       status: {
-        not: "DELETED",
+        notIn: ["DELETED", "DRAFT"],
       },
       // Filter by workspace via the action's project
       ...(input?.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
@@ -123,6 +123,34 @@ export const actionRouter = createTRPCRouter({
     });
   }),
 
+  getDraftByTranscription: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.db.action.findMany({
+        where: {
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+        include: {
+          project: true,
+          syncs: true,
+          assignees: {
+            include: {
+              user: { select: { id: true, name: true, email: true, image: true } },
+            },
+          },
+          createdBy: { select: { id: true, name: true, email: true, image: true } },
+          tags: { include: { tag: true } },
+        },
+        orderBy: { id: "asc" },
+      });
+    }),
+
   getProjectActions: protectedProcedure
     .input(z.object({ 
       projectId: z.string(),
@@ -133,7 +161,7 @@ export const actionRouter = createTRPCRouter({
         // createdById: ctx.session.user.id,
         projectId: input.projectId,
         status: {
-          not: "DELETED",
+          notIn: ["DELETED", "DRAFT"],
         },
       };
 
@@ -178,7 +206,7 @@ export const actionRouter = createTRPCRouter({
             { assignees: { some: { userId: userId } } },
           ],
           projectId: null,
-          status: { not: "DELETED" },
+          status: { notIn: ["DELETED", "DRAFT"] },
           syncs: {
             some: { provider: "notion" }
           }
@@ -206,7 +234,7 @@ export const actionRouter = createTRPCRouter({
       const whereClause: any = {
         createdById: ctx.session.user.id,
         status: {
-          not: "DELETED",
+          notIn: ["DELETED", "DRAFT"],
         },
         // Only include actions that have a kanbanStatus (project-associated actions)
         kanbanStatus: {
@@ -263,7 +291,7 @@ export const actionRouter = createTRPCRouter({
         scheduledEnd: z.date().optional(),
         duration: z.number().min(1).optional(), // Duration in minutes
         priority: z.enum(PRIORITY_VALUES).default("Quick"),
-        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED"]).default("ACTIVE"),
+        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED", "DRAFT"]).default("ACTIVE"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -349,7 +377,7 @@ export const actionRouter = createTRPCRouter({
         scheduledEnd: z.date().nullable().optional(),
         duration: z.number().min(1).nullable().optional(), // Duration in minutes
         priority: z.enum(PRIORITY_VALUES).optional(),
-        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED"]).optional(),
+        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED", "DRAFT"]).optional(),
         kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]).optional(),
       }),
     )
