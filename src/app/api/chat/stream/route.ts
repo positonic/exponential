@@ -3,6 +3,8 @@ import { RuntimeContext } from "@mastra/core/runtime-context";
 import type { CoreMessage } from "ai";
 import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
+import { db } from "~/server/db";
+import { decryptCredential } from "~/server/utils/credentialHelper";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
@@ -34,8 +36,20 @@ export async function POST(req: Request) {
       image: session.user.image,
     });
 
+    // Fetch per-user Notion OAuth token (null if not connected)
+    let notionAccessToken: string | null = null;
+    const notionIntegration = await db.integration.findFirst({
+      where: { userId: session.user.id, provider: "notion", status: "ACTIVE" },
+      include: { credentials: { where: { keyType: "access_token" } } },
+      orderBy: { createdAt: "desc" },
+    });
+    const notionCred = notionIntegration?.credentials[0];
+    if (notionCred) {
+      notionAccessToken = decryptCredential(notionCred.key, notionCred.isEncrypted);
+    }
+
     // Create RuntimeContext with auth data for agent tools
-    const runtimeContext = new RuntimeContext([
+    const entries: [string, string][] = [
       ["authToken", agentJWT],
       ["userId", session.user.id],
       ["userEmail", session.user.email ?? ""],
@@ -45,7 +59,11 @@ export async function POST(req: Request) {
           process.env.NEXTAUTH_URL ??
           "http://localhost:3000",
       ],
-    ]);
+    ];
+    if (notionAccessToken) {
+      entries.push(["notionAccessToken", notionAccessToken]);
+    }
+    const runtimeContext = new RuntimeContext(entries);
 
     const agent = client.getAgent(agentId ?? "projectManagerAgent");
     const response = await agent.stream({

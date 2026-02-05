@@ -185,12 +185,12 @@ interface ScheduledTaskBlockProps {
 }
 
 function ScheduledTaskBlock({ task, gridStartHour }: ScheduledTaskBlockProps) {
-  if (!task.scheduledStart) return null;
-
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
     data: { task },
   });
+
+  if (!task.scheduledStart) return null;
 
   const startTime = new Date(task.scheduledStart);
   const startHour = startTime.getHours();

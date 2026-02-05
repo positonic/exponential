@@ -50,29 +50,26 @@ export function AvailableServicesGrid({
       </div>
 
       {/* Search Bar */}
-      <div className="flex justify-center py-4">
-        <TextInput
-          placeholder="Search for services..."
-          leftSection={<IconSearch size={16} />}
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.currentTarget.value)}
-          styles={{
-            root: { maxWidth: "400px", width: "100%" },
-          }}
-        />
-      </div>
+      <TextInput
+        placeholder="Search for services..."
+        leftSection={<IconSearch size={16} />}
+        value={searchQuery}
+        onChange={(event) => setSearchQuery(event.currentTarget.value)}
+        styles={{
+          root: { maxWidth: "400px", width: "100%" },
+        }}
+      />
 
       <SimpleGrid cols={2} spacing="md">
         {filteredServices.length > 0 ? (
           filteredServices.map((option) => (
-            <div key={option.value} className="flex justify-center">
-              <ServiceCard
-                variant="available"
-                serviceName={option.label}
-                provider={option.value}
-                onCardClick={() => onServiceClick(option.value)}
-              />
-            </div>
+            <ServiceCard
+              key={option.value}
+              variant="available"
+              serviceName={option.label}
+              provider={option.value}
+              onCardClick={() => onServiceClick(option.value)}
+            />
           ))
         ) : (
           <div className="col-span-2 text-center py-8">

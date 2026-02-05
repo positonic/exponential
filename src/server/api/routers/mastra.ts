@@ -11,6 +11,8 @@ import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { decryptBuffer, encryptString } from "~/server/utils/encryption";
+import { decryptCredential } from "~/server/utils/credentialHelper";
+import type { PrismaClient } from "@prisma/client";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -20,6 +22,20 @@ const MASTRA_API_URL = process.env.MASTRA_API_URL;
 
 if (!MASTRA_API_URL) {
   throw new Error("MASTRA_API_URL environment variable is not set");
+}
+
+/** Fetch the user's decrypted Notion OAuth token, or null if not connected. */
+async function getUserNotionToken(db: PrismaClient, userId: string): Promise<string | null> {
+  const integration = await db.integration.findFirst({
+    where: { userId, provider: "notion", status: "ACTIVE" },
+    include: { credentials: { where: { keyType: "access_token" } } },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const cred = integration?.credentials[0];
+  if (!cred) return null;
+
+  return decryptCredential(cred.key, cred.isEncrypted);
 }
 
 // Utility to cache agent instruction embeddings
@@ -202,25 +218,28 @@ export const mastraRouter = createTRPCRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const { agentId, messages } = input;
-      
+
       // Generate JWT token for agent authentication
       const agentJWT = generateAgentJWT(ctx.session.user, 30);
-      
-      
+
+      // Fetch per-user Notion OAuth token (null if not connected)
+      const notionAccessToken = await getUserNotionToken(ctx.db, ctx.session.user.id);
+
       const res = await fetch(
         `${MASTRA_API_URL}/api/agents/${agentId}/generate`,
         {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             messages,
             runtimeContext: {
               authToken: agentJWT,
               userId: ctx.session.user.id,
               userEmail: ctx.session.user.email,
-              todoAppBaseUrl: process.env.TODO_APP_BASE_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000'
+              todoAppBaseUrl: process.env.TODO_APP_BASE_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000',
+              ...(notionAccessToken && { notionAccessToken }),
             }
           }),
         }

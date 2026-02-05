@@ -107,7 +107,7 @@ export function ServiceCard({
         p="sm"
         className="cursor-pointer transition-all duration-200 hover:shadow-md"
         onClick={onCardClick}
-        style={{ height: "100px", maxWidth: "200px", margin: "0 auto" }}
+        style={{ height: "100px", maxWidth: "200px" }}
       >
         {/* Quick actions in top right corner */}
         {(onTestConnection || onRefresh || onSettings) && (
