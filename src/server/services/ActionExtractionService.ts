@@ -105,7 +105,7 @@ export class ActionExtractionService {
     }
 
     const maxActions = options.maxActions ?? DEFAULT_MAX_ACTIONS;
-    const modelName = options.modelName ?? process.env.LLM_MODEL ?? "gpt-3.5-turbo";
+    const modelName = options.modelName ?? process.env.LLM_MODEL ?? "gpt-4o";
     const model = new ChatOpenAI({
       modelName,
       temperature: 0,
