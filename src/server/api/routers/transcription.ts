@@ -186,7 +186,21 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (session.userId !== ctx.session.user.id) {
+      // Allow access if user is the owner OR a member of the recording's workspace
+      let hasAccess = session.userId === ctx.session.user.id;
+      if (!hasAccess && session.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findUnique({
+          where: {
+            userId_workspaceId: {
+              userId: ctx.session.user.id,
+              workspaceId: session.workspaceId,
+            },
+          },
+        });
+        hasAccess = !!membership;
+      }
+
+      if (!hasAccess) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Not authorized to view this session",
@@ -204,11 +218,38 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+      });
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      // Allow access if user is the owner OR a member of the recording's workspace
+      let hasAccess = existing.userId === ctx.session.user.id;
+      if (!hasAccess && existing.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findUnique({
+          where: {
+            userId_workspaceId: {
+              userId: ctx.session.user.id,
+              workspaceId: existing.workspaceId,
+            },
+          },
+        });
+        hasAccess = !!membership;
+      }
+      if (!hasAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this transcription",
+        });
+      }
+
       const session = await ctx.db.transcriptionSession.update({
-        where: {
-          id: input.id,
-          userId: ctx.session.user.id,
-        },
+        where: { id: input.id },
         data: {
           transcription: input.transcription,
           updatedAt: new Date(),
@@ -241,7 +282,20 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (existing.userId !== ctx.session.user.id) {
+      // Allow access if user is the owner OR a member of the recording's workspace
+      let hasAccess = existing.userId === ctx.session.user.id;
+      if (!hasAccess && existing.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findUnique({
+          where: {
+            userId_workspaceId: {
+              userId: ctx.session.user.id,
+              workspaceId: existing.workspaceId,
+            },
+          },
+        });
+        hasAccess = !!membership;
+      }
+      if (!hasAccess) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Not authorized to update this transcription",
@@ -345,7 +399,20 @@ export const transcriptionRouter = createTRPCRouter({
           message: "Session not found",
         });
       }
-      if (session.userId !== ctx.session.user.id) {
+      // Allow access if user is the owner OR a member of the recording's workspace
+      let hasAccess = session.userId === ctx.session.user.id;
+      if (!hasAccess && session.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findUnique({
+          where: {
+            userId_workspaceId: {
+              userId: ctx.session.user.id,
+              workspaceId: session.workspaceId,
+            },
+          },
+        });
+        hasAccess = !!membership;
+      }
+      if (!hasAccess) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Not authorized to update this session",
