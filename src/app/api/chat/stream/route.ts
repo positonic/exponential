@@ -70,34 +70,27 @@ export async function POST(req: Request) {
       requestContext,
     });
 
-    // Transform stream to extract text content from AI SDK format
-    const transformStream = new TransformStream({
-      transform(chunk, controller) {
-        const text = new TextDecoder().decode(chunk);
-        // Parse AI SDK format: lines like '0:"text"' or '0:"text"\n'
-        const lines = text.split("\n").filter((line) => line.trim());
-
-        for (const line of lines) {
-          // Text chunks start with "0:"
-          if (line.startsWith("0:")) {
-            try {
-              // Extract the JSON string after "0:"
-              const jsonStr = line.slice(2);
-              const content = JSON.parse(jsonStr) as unknown;
-              if (typeof content === "string") {
-                controller.enqueue(new TextEncoder().encode(content));
+    // Extract text from Mastra's chunk protocol (text-delta events)
+    const textStream = new ReadableStream({
+      async start(controller) {
+        try {
+          await response.processDataStream({
+            onChunk: async (chunk) => {
+              if (chunk.type === "text-delta") {
+                controller.enqueue(
+                  new TextEncoder().encode(chunk.payload.text),
+                );
               }
-            } catch {
-              // If parsing fails, skip this chunk
-            }
-          }
+            },
+          });
+          controller.close();
+        } catch (err) {
+          controller.error(err);
         }
       },
     });
 
-    const transformedStream = response.body?.pipeThrough(transformStream);
-
-    return new Response(transformedStream, {
+    return new Response(textStream, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-cache",
