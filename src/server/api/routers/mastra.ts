@@ -234,7 +234,7 @@ export const mastraRouter = createTRPCRouter({
           },
           body: JSON.stringify({
             messages,
-            runtimeContext: {
+            requestContext: {
               authToken: agentJWT,
               userId: ctx.session.user.id,
               userEmail: ctx.session.user.email,
@@ -1701,7 +1701,7 @@ export const mastraRouter = createTRPCRouter({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               messages: [{ role: "user", content: prompt }],
-              runtimeContext: {
+              requestContext: {
                 authToken: agentJWT,
                 userId: ctx.session.user.id,
                 userEmail: ctx.session.user.email,

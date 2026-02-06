@@ -1,5 +1,5 @@
 import { MastraClient } from "@mastra/client-js";
-import { RuntimeContext } from "@mastra/core/runtime-context";
+import { RequestContext } from "@mastra/core/di";
 import type { CoreMessage } from "ai";
 import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       notionAccessToken = decryptCredential(notionCred.key, notionCred.isEncrypted);
     }
 
-    // Create RuntimeContext with auth data for agent tools
+    // Create RequestContext with auth data for agent tools
     const entries: [string, string][] = [
       ["authToken", agentJWT],
       ["userId", session.user.id],
@@ -63,12 +63,11 @@ export async function POST(req: Request) {
     if (notionAccessToken) {
       entries.push(["notionAccessToken", notionAccessToken]);
     }
-    const runtimeContext = new RuntimeContext(entries);
+    const requestContext = new RequestContext(entries);
 
     const agent = client.getAgent(agentId ?? "projectManagerAgent");
-    const response = await agent.stream({
-      messages,
-      runtimeContext,
+    const response = await agent.stream(messages, {
+      requestContext,
     });
 
     // Transform stream to extract text content from AI SDK format

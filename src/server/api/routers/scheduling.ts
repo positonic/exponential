@@ -451,7 +451,7 @@ export const schedulingRouter = createTRPCRouter({
                 { role: "system", content: SCHEDULING_SYSTEM_PROMPT },
                 { role: "user", content: userPrompt },
               ],
-              runtimeContext: {
+              requestContext: {
                 authToken: agentJWT,
                 userId: userId,
                 userEmail: ctx.session.user.email,
@@ -691,7 +691,7 @@ export const schedulingRouter = createTRPCRouter({
                   { role: "system", content: DAILY_PLAN_SCHEDULING_PROMPT },
                   { role: "user", content: userPrompt },
                 ],
-                runtimeContext: {
+                requestContext: {
                   authToken: agentJWT,
                   userId: userId,
                   userEmail: ctx.session.user.email,
