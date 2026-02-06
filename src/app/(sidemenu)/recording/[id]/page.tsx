@@ -554,10 +554,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           type="button"
           onClick={handleActionPromptClick}
           aria-label="Ask the agent to create actions for this transcript"
-          className="fixed bottom-32 right-6 z-50 max-w-[240px] rounded-lg border border-border-primary bg-surface-primary px-3 py-2 text-left text-sm text-text-primary shadow-sm transition hover:bg-surface-hover sm:bottom-16 relative"
+          className="fixed bottom-36 right-4 z-50 max-w-[240px] rounded-lg border border-border-primary bg-surface-primary px-3 py-2 text-left text-sm text-text-primary shadow-sm transition hover:bg-surface-hover sm:bottom-20"
         >
           <span className="block font-medium">{actionPromptText}</span>
-          <span className="absolute -bottom-2 right-4 h-4 w-4 rotate-45 border border-border-primary bg-surface-primary" />
+          <span className="absolute -bottom-2 right-6 h-4 w-4 rotate-45 border-b border-r border-border-primary bg-surface-primary" />
         </button>
       ) : null}
       </Paper>
