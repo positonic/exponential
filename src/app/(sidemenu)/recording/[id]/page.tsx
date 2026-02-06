@@ -15,6 +15,7 @@ import {
   ActionIcon,
   Textarea,
   Button,
+  Select,
 } from "@mantine/core";
 import { IconPencil } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -78,6 +79,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       { transcriptionId: id },
       { enabled: Boolean(id) }
     );
+  const { data: workspaces } = api.workspace.list.useQuery();
   const utils = api.useUtils();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
   const { openModal, setMessages, isOpen: isAgentModalOpen } = useAgentModal();
@@ -174,6 +176,30 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       notifications.show({
         title: "Error",
         message: error instanceof Error ? error.message : "Failed to update summary",
+        color: "red",
+      });
+    }
+  }
+
+  async function handleWorkspaceChange(workspaceId: string | null) {
+    if (!session) return;
+    try {
+      await updateDetailsMutation.mutateAsync({
+        id: session.id,
+        workspaceId,
+      });
+      notifications.show({
+        title: "Saved",
+        message: workspaceId
+          ? "Recording moved to workspace"
+          : "Recording removed from workspace",
+        color: "green",
+      });
+      void utils.transcription.getById.invalidate({ id });
+    } catch (error) {
+      notifications.show({
+        title: "Error",
+        message: error instanceof Error ? error.message : "Failed to update workspace",
         color: "red",
       });
     }
@@ -444,6 +470,21 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               <Text><strong>Meeting Date:</strong> {new Date(session.meetingDate).toLocaleString()}</Text>
             )}
           </Stack>
+          {workspaces && workspaces.length > 0 && (
+            <Select
+              label="Workspace"
+              description="Move this recording to a different workspace"
+              data={[
+                { value: '', label: 'No Workspace' },
+                ...workspaces.map(ws => ({ value: ws.id, label: ws.name }))
+              ]}
+              value={session.workspaceId ?? ''}
+              onChange={(value) => {
+                void handleWorkspaceChange(value === '' ? null : value);
+              }}
+              mt="md"
+            />
+          )}
         </Tabs.Panel>
 
         <Tabs.Panel value="transcription" pt="md">

@@ -170,6 +170,12 @@ export const transcriptionRouter = createTRPCRouter({
               createdAt: "desc",
             },
           },
+          workspace: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
       });
 
@@ -219,6 +225,7 @@ export const transcriptionRouter = createTRPCRouter({
         notes: z.string().optional(),
         summary: z.string().optional(),
         transcription: z.string().optional(),
+        workspaceId: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -246,6 +253,7 @@ export const transcriptionRouter = createTRPCRouter({
         notes?: string;
         summary?: string;
         transcription?: string;
+        workspaceId?: string | null;
         updatedAt: Date;
       } = {
         updatedAt: new Date(),
@@ -262,6 +270,25 @@ export const transcriptionRouter = createTRPCRouter({
       }
       if (input.transcription !== undefined) {
         updateData.transcription = input.transcription;
+      }
+      if (input.workspaceId !== undefined) {
+        if (input.workspaceId !== null) {
+          const member = await ctx.db.workspaceUser.findUnique({
+            where: {
+              userId_workspaceId: {
+                userId: ctx.session.user.id,
+                workspaceId: input.workspaceId,
+              },
+            },
+          });
+          if (!member) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "You are not a member of this workspace",
+            });
+          }
+        }
+        updateData.workspaceId = input.workspaceId;
       }
 
       const session = await ctx.db.transcriptionSession.update({
