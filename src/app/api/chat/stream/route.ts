@@ -19,9 +19,10 @@ export async function POST(req: Request) {
       });
     }
 
-    const { messages, agentId } = (await req.json()) as {
+    const { messages, agentId, workspaceId } = (await req.json()) as {
       messages: CoreMessage[];
       agentId?: string;
+      workspaceId?: string;
     };
 
     const client = new MastraClient({
@@ -62,6 +63,9 @@ export async function POST(req: Request) {
     ];
     if (notionAccessToken) {
       entries.push(["notionAccessToken", notionAccessToken]);
+    }
+    if (workspaceId) {
+      entries.push(["workspaceId", workspaceId]);
     }
     const requestContext = new RequestContext(entries);
 

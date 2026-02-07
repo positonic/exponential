@@ -129,17 +129,22 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - When asked about meetings or transcriptions: refer to the meeting context above
     ` : '';
 
+    // Extract workspace info from page context for the system prompt
+    const wsName = typeof pageContext?.data?.workspaceName === 'string' ? pageContext.data.workspaceName : '';
+    const wsId = typeof pageContext?.data?.workspaceId === 'string' ? pageContext.data.workspaceId : '';
+
     return [
       {
         type: 'system',
-        content: `Your name is Zoe, an AI companion. You are a coordinator managing a multi-agent conversation. 
+        content: `Your name is Zoe, an AI companion. You are a coordinator managing a multi-agent conversation.
                   Route user requests to the appropriate specialized agent if necessary.
                   Keep track of the conversation flow between the user and multiple AI agents.
-                  
+
                   🔒 SECURITY & DATA SCOPE:
-                  - You are operating in single-project context only
-                  - Only data from the current project is available in context
-                  - Never reference or access data from other projects or users
+                  ${wsId ? `- You are operating in workspace context: "${wsName}" (ID: ${wsId})
+                  - Only show data from this workspace. Do not reference projects or actions from other workspaces.` : `- You are operating in single-project context only
+                  - Only data from the current project is available in context`}
+                  - Never reference or access data from other users
                   ${projectId ? `- Current project ID: ${projectId}` : ''}
                   
                   🛠️ TOOL USAGE PROTOCOLS:
@@ -580,6 +585,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       setMessages(prev => [...prev, { type: 'ai', agentName, content: '' }]);
       setIsStreaming(true);
 
+      // Extract workspaceId from page context so agent tools can filter by workspace
+      const workspaceId = pageContext?.data?.workspaceId as string | undefined;
+
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -589,6 +597,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
             { role: 'user', content: messageToSend }
           ],
           agentId: targetAgentId,
+          workspaceId,
         }),
       });
 
