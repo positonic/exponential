@@ -1,80 +1,21 @@
 import { google } from 'googleapis';
 import { db } from '~/server/db';
 import NodeCache from 'node-cache';
+import type {
+  CalendarEvent,
+  CalendarInfo,
+  CalendarEventWithSource,
+  CreateEventInput,
+  CreatedCalendarEvent,
+  CalendarProvider,
+} from './CalendarProvider';
 
-export interface CalendarEvent {
-  id: string;
-  summary: string;
-  description?: string;
-  start: {
-    dateTime?: string;
-    date?: string;
-    timeZone?: string;
-  };
-  end: {
-    dateTime?: string;
-    date?: string;
-    timeZone?: string;
-  };
-  location?: string;
-  attendees?: Array<{
-    email: string;
-    displayName?: string;
-    responseStatus: string;
-  }>;
-  htmlLink: string;
-  status: string;
-}
+// Re-export shared types for backwards compatibility
+export type { CalendarEvent, CalendarEventWithSource, CreateEventInput, CreatedCalendarEvent };
 
-export interface CreateEventInput {
-  summary: string;
-  description?: string;
-  start: {
-    dateTime: string;
-    timeZone?: string;
-  };
-  end: {
-    dateTime: string;
-    timeZone?: string;
-  };
-  attendees?: Array<{ email: string }>;
-  conferenceData?: {
-    createRequest: {
-      requestId: string;
-      conferenceSolutionKey: {
-        type: 'hangoutsMeet';
-      };
-    };
-  };
-  calendarId?: string;
-}
-
-export interface CreatedCalendarEvent extends CalendarEvent {
-  conferenceData?: {
-    entryPoints?: Array<{
-      uri: string;
-      label?: string;
-      entryPointType: string;
-    }>;
-    conferenceId?: string;
-  };
-}
-
-export interface GoogleCalendarInfo {
-  id: string;
-  summary: string;
-  description?: string;
-  primary: boolean;
-  accessRole: string;
-  backgroundColor?: string;
-  foregroundColor?: string;
-}
-
-export interface CalendarEventWithSource extends CalendarEvent {
-  calendarId: string;
-  calendarName?: string;
-  calendarColor?: string;
-}
+// Alias for backwards compatibility
+export type GoogleCalendarInfo = CalendarInfo;
+export type { CalendarInfo };
 
 // Create a cache instance with 15 minute TTL
 const calendarCache = new NodeCache({ 
@@ -83,7 +24,7 @@ const calendarCache = new NodeCache({
   useClones: false // Better performance, but be careful with mutations
 });
 
-export class GoogleCalendarService {
+export class GoogleCalendarService implements CalendarProvider {
   private generateCacheKey(userId: string, options: any): string {
     const { timeMin, timeMax, calendarId, maxResults } = options;
     return `cal:${userId}:${calendarId}:${timeMin?.getTime()}:${timeMax?.getTime()}:${maxResults}`;

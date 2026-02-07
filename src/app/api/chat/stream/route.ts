@@ -64,7 +64,28 @@ export async function POST(req: Request) {
     if (notionAccessToken) {
       entries.push(["notionAccessToken", notionAccessToken]);
     }
+    
+    // Verify workspace access before adding workspaceId to context
     if (workspaceId) {
+      const workspaceAccess = await db.workspaceUser.findFirst({
+        where: {
+          workspaceId,
+          userId: session.user.id,
+        },
+      });
+
+      if (!workspaceAccess) {
+        return new Response(
+          JSON.stringify({ 
+            error: "Forbidden: You do not have access to this workspace" 
+          }),
+          {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
       entries.push(["workspaceId", workspaceId]);
     }
     const requestContext = new RequestContext(entries);

@@ -3,6 +3,7 @@
 import {
   Button,
   Group,
+  Menu,
   SegmentedControl,
   ActionIcon,
   Tooltip,
@@ -23,7 +24,9 @@ interface CalendarHeaderProps {
   onNext: () => void;
   onPrevious: () => void;
   isConnected?: boolean;
-  onDisconnect?: () => void;
+  googleConnected?: boolean;
+  microsoftConnected?: boolean;
+  onDisconnect?: (provider: "google" | "microsoft") => void;
   isDisconnecting?: boolean;
 }
 
@@ -35,6 +38,8 @@ export function CalendarHeader({
   onNext,
   onPrevious,
   isConnected,
+  googleConnected,
+  microsoftConnected,
   onDisconnect,
   isDisconnecting,
 }: CalendarHeaderProps) {
@@ -91,18 +96,33 @@ export function CalendarHeader({
           size="sm"
         />
         {isConnected && onDisconnect && (
-          <Tooltip label="Disconnect Google Calendar" position="bottom">
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="md"
-              onClick={onDisconnect}
-              loading={isDisconnecting}
-              aria-label="Disconnect calendar"
-            >
-              <IconUnlink size={18} />
-            </ActionIcon>
-          </Tooltip>
+          <Menu position="bottom-end" withinPortal>
+            <Menu.Target>
+              <Tooltip label="Disconnect calendar" position="bottom">
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="md"
+                  loading={isDisconnecting}
+                  aria-label="Disconnect calendar"
+                >
+                  <IconUnlink size={18} />
+                </ActionIcon>
+              </Tooltip>
+            </Menu.Target>
+            <Menu.Dropdown>
+              {googleConnected && (
+                <Menu.Item onClick={() => onDisconnect("google")}>
+                  Disconnect Google Calendar
+                </Menu.Item>
+              )}
+              {microsoftConnected && (
+                <Menu.Item onClick={() => onDisconnect("microsoft")}>
+                  Disconnect Outlook Calendar
+                </Menu.Item>
+              )}
+            </Menu.Dropdown>
+          </Menu>
         )}
       </Group>
     </div>

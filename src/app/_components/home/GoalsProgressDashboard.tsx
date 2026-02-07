@@ -9,6 +9,7 @@ import {
   Progress,
   Skeleton,
   Accordion,
+  Button,
 } from "@mantine/core";
 import {
   IconTarget,
@@ -123,12 +124,9 @@ export function GoalsProgressDashboard() {
                 </Group>
                 <div onClick={stopAccordionToggle}>
                   <CreateGoalModal>
-                    <Text
-                      component="span"
-                      className="text-brand-primary hover:underline text-sm flex items-center gap-1 cursor-pointer"
-                    >
-                      {terminology.createGoal} <IconChevronRight size={14} />
-                    </Text>
+                    <Button size="xs" variant="filled" color="blue">
+                      {terminology.createGoal}
+                    </Button>
                   </CreateGoalModal>
                 </div>
               </Group>

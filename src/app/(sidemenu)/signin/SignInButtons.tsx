@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, Stack, TextInput, Divider } from "@mantine/core";
-import { IconBrandDiscord, IconBrandGoogle } from "@tabler/icons-react";
+import { IconBrandDiscord, IconBrandGoogle, IconBrandWindows } from "@tabler/icons-react";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 
@@ -39,6 +39,21 @@ export function SignInButtons() {
           }}
         >
           Sign up with Google
+        </Button>
+
+        <Button
+          onClick={() => signIn("microsoft-entra-id", { callbackUrl })}
+          size="lg"
+          variant="outline"
+          leftSection={<IconBrandWindows size={20} />}
+          className="border-border-primary hover:border-border-focus hover:bg-surface-hover transition-all"
+          styles={{
+            root: {
+              color: 'var(--color-text-primary)',
+            },
+          }}
+        >
+          Sign up with Microsoft
         </Button>
 
         <Button

@@ -2,6 +2,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { type DefaultSession, type NextAuthConfig } from "next-auth";
 import DiscordProvider from "next-auth/providers/discord";
 import GoogleProvider from "next-auth/providers/google";
+import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import NotionProvider from "next-auth/providers/notion";
 import Postmark from "next-auth/providers/postmark";
 
@@ -62,6 +63,23 @@ export const authConfig = {
         },
       },
     }),
+    ...(process.env.MICROSOFT_ENTRA_ID_CLIENT_ID
+      ? [
+          MicrosoftEntraID({
+            clientId: process.env.MICROSOFT_ENTRA_ID_CLIENT_ID,
+            clientSecret: process.env.MICROSOFT_ENTRA_ID_CLIENT_SECRET!,
+            issuer: process.env.MICROSOFT_ENTRA_ID_TENANT_ID
+              ? `https://login.microsoftonline.com/${process.env.MICROSOFT_ENTRA_ID_TENANT_ID}/v2.0`
+              : undefined,
+            allowDangerousEmailAccountLinking: true,
+            authorization: {
+              params: {
+                scope: "openid profile email User.Read",
+              },
+            },
+          }),
+        ]
+      : []),
     NotionProvider({
       clientId: process.env.NOTION_CLIENT_ID!,
       clientSecret: process.env.NOTION_CLIENT_SECRET!,

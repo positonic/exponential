@@ -10,14 +10,17 @@ import { CalendarSidebar } from "./CalendarSidebar";
 import { CalendarDayTimeGrid } from "./CalendarDayTimeGrid";
 import { CalendarWeekTimeGrid } from "./CalendarWeekTimeGrid";
 import { GoogleCalendarConnect } from "~/app/_components/GoogleCalendarConnect";
+import { MicrosoftCalendarConnect } from "~/app/_components/MicrosoftCalendarConnect";
 import type { ScheduledAction } from "./types";
 
 export function CalendarPageContent() {
-  // Query connection status client-side for immediate updates after OAuth
-  const { data: connectionStatus, isLoading: statusLoading } =
-    api.calendar.getConnectionStatus.useQuery();
+  // Query connection status for all providers
+  const { data: connectionStatuses, isLoading: statusLoading } =
+    api.calendar.getAllConnectionStatuses.useQuery();
 
-  const calendarConnected = connectionStatus?.isConnected ?? false;
+  const googleConnected = connectionStatuses?.google?.isConnected ?? false;
+  const microsoftConnected = connectionStatuses?.microsoft?.isConnected ?? false;
+  const calendarConnected = googleConnected || microsoftConnected;
   const {
     view,
     selectedDate,
@@ -77,19 +80,19 @@ export function CalendarPageContent() {
   // Handle calendar disconnect
   const disconnectCalendar = api.calendar.disconnect.useMutation({
     onSuccess: async () => {
-      await utils.calendar.getConnectionStatus.invalidate();
+      await utils.calendar.getAllConnectionStatuses.invalidate();
       await utils.calendar.getEventsMultiCalendar.invalidate();
       await utils.calendar.getCalendarPreferences.invalidate();
       notifications.show({
         title: "Calendar Disconnected",
-        message: "Your Google Calendar has been disconnected.",
+        message: "Calendar has been disconnected.",
         color: "blue",
       });
     },
     onError: (error) => {
       notifications.show({
         title: "Error",
-        message: error.message || "Failed to disconnect calendar",
+        message: error.message ?? "Failed to disconnect calendar",
         color: "red",
       });
     },
@@ -141,11 +144,14 @@ export function CalendarPageContent() {
                 Connect Your Calendar
               </Title>
               <Text size="sm" c="dimmed" className="max-w-md">
-                Connect your Google Calendar to view your events, manage your
+                Connect your calendar to view your events, manage your
                 schedule, and see your day at a glance alongside your tasks.
               </Text>
             </div>
-            <GoogleCalendarConnect isConnected={false} />
+            <Stack gap="sm">
+              <GoogleCalendarConnect isConnected={false} />
+              <MicrosoftCalendarConnect isConnected={false} />
+            </Stack>
           </Stack>
         </Paper>
       );
@@ -194,7 +200,9 @@ export function CalendarPageContent() {
         onNext={goNext}
         onPrevious={goPrevious}
         isConnected={calendarConnected}
-        onDisconnect={() => disconnectCalendar.mutate()}
+        googleConnected={googleConnected}
+        microsoftConnected={microsoftConnected}
+        onDisconnect={(provider) => disconnectCalendar.mutate({ provider })}
         isDisconnecting={disconnectCalendar.isPending}
       />
       <div className="flex flex-1 overflow-hidden">
