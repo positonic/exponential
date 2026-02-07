@@ -18,7 +18,7 @@ import {
   Select,
 } from "@mantine/core";
 import { IconPencil } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import RecordingChat from "~/app/_components/RecordingChat";
 import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { TranscriptionContentEditor } from "~/app/_components/TranscriptionContentEditor";
@@ -26,6 +26,7 @@ import SaveActionsButton from "~/app/_components/SaveActionsButton";
 import { notifications } from "@mantine/notifications";
 import { useAgentModal } from "~/providers/AgentModalProvider";
 import { ActionList } from "~/app/_components/ActionList";
+import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 
 function isMarkdownContent(content: string) {
   const markdownPatterns = [
@@ -91,7 +92,29 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [editedSummary, setEditedSummary] = useState("");
   const [activeTab, setActiveTab] = useState<string>("details");
   const [hasAutoSwitched, setHasAutoSwitched] = useState(false);
-  
+
+  // Register page context so the agent chat knows what recording the user is viewing
+  const recordingPageContext = useMemo(() => {
+    if (!session) return null;
+    return {
+      pageType: 'recording' as const,
+      pageTitle: session.title ?? 'Transcription Details',
+      pagePath: `/recording/${id}`,
+      data: {
+        transcriptionId: session.id,
+        title: session.title ?? 'Untitled',
+        summary: session.summary ?? null,
+        description: session.description ?? null,
+        actionsCount: transcriptActions.length,
+        hasTranscription: Boolean(session.transcription),
+        meetingDate: session.meetingDate ? String(session.meetingDate) : null,
+        workspaceName: session.workspace?.name ?? null,
+      },
+    };
+  }, [session, transcriptActions.length, id]);
+
+  useRegisterPageContext(recordingPageContext);
+
   // const router = useRouter();
 
   function handleStartEditDescription() {

@@ -16,10 +16,40 @@ import {
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
-import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
+import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 
 // Use ChatMessage from provider for consistency
 type Message = ChatMessage;
+
+function formatPageContextData(context: PageContext): string {
+  const str = (val: unknown, fallback = 'None'): string => {
+    if (val == null) return fallback;
+    if (typeof val === 'string') return val;
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    return JSON.stringify(val);
+  };
+
+  switch (context.pageType) {
+    case 'recording': {
+      const d = context.data;
+      const rawSummary = str(d.summary, 'No summary');
+      const summary = rawSummary.slice(0, 300) + (rawSummary.length > 300 ? '...' : '');
+      return `  - Transcription ID: ${str(d.transcriptionId)}
+  - Title: ${str(d.title, 'Untitled')}
+  - Summary: ${summary}
+  - Description: ${str(d.description)}
+  - Actions created from this transcript: ${str(d.actionsCount, '0')}
+  - Has transcription text: ${d.hasTranscription ? 'Yes' : 'No'}
+  - Meeting date: ${d.meetingDate ? new Date(str(d.meetingDate)).toLocaleDateString() : 'Unknown'}
+  - Workspace: ${str(d.workspaceName)}`;
+    }
+    default:
+      return Object.entries(context.data)
+        .filter(([, value]) => value != null)
+        .map(([key, value]) => `  - ${key}: ${str(value)}`)
+        .join('\n');
+  }
+}
 
 interface ManyChatProps {
   initialMessages?: Message[];
@@ -34,6 +64,9 @@ interface ManyChatProps {
 }
 
 export default function ManyChat({ initialMessages, githubSettings, buttons, projectId, initialInput }: ManyChatProps) {
+  // Get messages, conversationId, and page context from context to persist across navigation
+  const { messages, setMessages, conversationId, setConversationId, pageContext } = useAgentModal();
+
   // Function to generate initial messages with project context
   const generateInitialMessages = useCallback((projectData?: any, projectActions?: any[], transcriptions?: any[]): Message[] => {
     // Format transcription context
@@ -174,6 +207,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   
                   ${githubSettings ? `When creating GitHub issues, use repo: "${githubSettings.repo}" and owner: "${githubSettings.owner}". Valid assignees are: ${githubSettings.validAssignees.join(", ")}` : ''}
                   ${projectContext}
+                  ${pageContext ? `
+                  📍 CURRENT PAGE CONTEXT:
+                  The user is currently viewing this page:
+                  - Page: ${pageContext.pageTitle}
+                  - Type: ${pageContext.pageType}
+                  - Path: ${pageContext.pagePath}
+                  ${formatPageContextData(pageContext)}
+
+                  When the user says "this", "the", or refers to content on their current page, they mean the above context.
+                  Use this data to understand what the user is looking at right now.
+                  ` : ''}
                   The current date is: ${new Date().toISOString().split('T')[0]}`
       },
       {
@@ -184,10 +228,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           `Hey! I'm Zoe 🔮\n\nI'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.\n\nWhat's up?`
       }
     ];
-  }, [projectId, githubSettings]);
-
-  // Get messages and conversationId from context to persist across navigation
-  const { messages, setMessages, conversationId, setConversationId } = useAgentModal();
+  }, [projectId, githubSettings, pageContext]);
 
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -257,26 +298,22 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // eslint-disable-next-line react-hooks/exhaustive-deps -- setConversationId is stable from context
   }, [projectId, startConversation, conversationId]);
   
-  // Update system message with project context when project data loads
-  // This preserves conversation history while adding project context
+  // Update system message with project/page context when data loads or page changes
+  // This preserves conversation history while adding context
   useEffect(() => {
-    if (projectData && projectActions && !initialMessages) {
-      // Security audit logging
-      console.log('🔒 [SECURITY AUDIT] Updating agent context:', {
-        projectId: projectData.id,
-        projectName: projectData.name,
-        actionsCount: projectActions.length,
-        transcriptionsCount: projectTranscriptions?.length ?? 0,
-        timestamp: new Date().toISOString(),
-        contextScope: 'single-project-only',
-        currentMessageCount: messages.length
-      });
+    const hasProjectContext = projectData && projectActions;
+    const hasPageContext = !!pageContext;
 
-      // Generate updated system message with project context
-      const updatedMessages = generateInitialMessages(projectData, projectActions, projectTranscriptions);
+    if ((hasProjectContext || hasPageContext) && !initialMessages) {
+      // Generate updated system message with all available context
+      const updatedMessages = generateInitialMessages(
+        hasProjectContext ? projectData : undefined,
+        hasProjectContext ? projectActions : undefined,
+        projectTranscriptions
+      );
       const newSystemMessage = updatedMessages[0];
 
-      // Only update the system message (first message) with project context
+      // Only update the system message (first message) with context
       // Preserve all other messages in the conversation
       if (newSystemMessage) {
         setMessages(prev => {
@@ -289,7 +326,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- setMessages is stable from context, messages.length would cause infinite loop
-  }, [projectData, projectActions, projectTranscriptions, initialMessages, generateInitialMessages]);
+  }, [projectData, projectActions, projectTranscriptions, pageContext, initialMessages, generateInitialMessages]);
   
   // Parse agent mentions from input
   const parseAgentMention = (text: string): { agentId: string | null; cleanMessage: string } => {

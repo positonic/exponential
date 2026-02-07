@@ -16,6 +16,14 @@ export interface ChatMessage {
   interactionId?: string;
 }
 
+// Page context for giving the agent awareness of the current page
+export interface PageContext {
+  pageType: string;
+  pageTitle: string;
+  pagePath: string;
+  data: Record<string, unknown>;
+}
+
 // Default system message for the chat
 const DEFAULT_SYSTEM_MESSAGE: ChatMessage = {
   type: 'system',
@@ -38,6 +46,8 @@ What's up?`
 interface AgentModalContextValue {
   isOpen: boolean;
   projectId: string | null;
+  pageContext: PageContext | null;
+  setPageContext: (context: PageContext | null) => void;
   messages: ChatMessage[];
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   conversationId: string;
@@ -51,6 +61,8 @@ interface AgentModalContextValue {
 const AgentModalContext = createContext<AgentModalContextValue>({
   isOpen: false,
   projectId: null,
+  pageContext: null,
+  setPageContext: () => undefined,
   messages: [DEFAULT_SYSTEM_MESSAGE, DEFAULT_WELCOME_MESSAGE],
   setMessages: () => undefined,
   conversationId: '',
@@ -68,6 +80,11 @@ export function useAgentModal() {
 export function AgentModalProvider({ children }: PropsWithChildren) {
   const [isOpen, setIsOpen] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [pageContext, setPageContextState] = useState<PageContext | null>(null);
+
+  const setPageContext = useCallback((context: PageContext | null) => {
+    setPageContextState(context);
+  }, []);
 
   // Initialize messages from localStorage (with SSR safety)
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -130,6 +147,8 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
   const value: AgentModalContextValue = {
     isOpen,
     projectId,
+    pageContext,
+    setPageContext,
     messages,
     setMessages,
     conversationId,
