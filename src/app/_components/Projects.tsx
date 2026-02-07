@@ -5,10 +5,11 @@ import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Modal } from "@mantine/core";
+import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Modal, Avatar, Tooltip } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { useDisclosure } from "@mantine/hooks";
 import { slugify } from "~/utils/slugify";
+import { getAvatarColor, getInitial } from "~/utils/avatarColors";
 import { IconEdit, IconTrash, IconBrandNotion, IconPlus } from "@tabler/icons-react";
 import Link from "next/link";
 
@@ -104,14 +105,28 @@ function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspa
               className="border-b border-gray-700 hover:bg-white/5"
             >
               <td className="px-4 py-2">
-                <Link
-                  href={workspaceSlug
-                    ? `/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`
-                    : `/projects/${slugify(project.name)}-${project.id}`}
-                  className="text-text-primary hover:text-brand-primary hover:underline"
-                >
-                  {project.name}
-                </Link>
+                <div className="flex items-center gap-2">
+                  {project.dri && (
+                    <Tooltip label={project.dri.name ?? project.dri.email ?? 'Unknown'} withArrow>
+                      <Avatar
+                        src={project.dri.image}
+                        size="sm"
+                        radius="xl"
+                        color={getAvatarColor(project.dri.id)}
+                      >
+                        {getInitial(project.dri.name ?? project.dri.email)}
+                      </Avatar>
+                    </Tooltip>
+                  )}
+                  <Link
+                    href={workspaceSlug
+                      ? `/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`
+                      : `/projects/${slugify(project.name)}-${project.id}`}
+                    className="text-text-primary hover:text-brand-primary hover:underline"
+                  >
+                    {project.name}
+                  </Link>
+                </div>
               </td>
               <td className="px-4 py-2">
                 <Select
