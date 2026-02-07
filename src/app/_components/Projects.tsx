@@ -12,6 +12,7 @@ import { slugify } from "~/utils/slugify";
 import { getAvatarColor, getInitial } from "~/utils/avatarColors";
 import { IconEdit, IconTrash, IconBrandNotion, IconPlus } from "@tabler/icons-react";
 import Link from "next/link";
+import { calculateProjectHealth, HealthRing, HealthIndicatorIcons } from "~/app/_components/home/ProjectHealth";
 
 type Project = RouterOutputs["project"]["getAll"][0];
 
@@ -93,6 +94,7 @@ function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspa
         <thead>
           <tr className="border-b border-gray-700">
             <th className="px-4 py-2 text-left">Name</th>
+            <th className="px-4 py-2 text-left">Health</th>
             <th className="px-4 py-2 text-left">Status</th>
             <th className="px-4 py-2 text-left">Priority</th>
             <th className="px-4 py-2 text-left">Actions</th>
@@ -127,6 +129,19 @@ function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspa
                     {project.name}
                   </Link>
                 </div>
+              </td>
+              <td className="px-4 py-2">
+                {project.actions ? (() => {
+                  const { score, indicators } = calculateProjectHealth(project);
+                  return (
+                    <div className="flex items-center gap-2">
+                      <HealthRing score={score} size={28} />
+                      <HealthIndicatorIcons indicators={indicators} />
+                    </div>
+                  );
+                })() : (
+                  <span className="text-text-muted">-</span>
+                )}
               </td>
               <td className="px-4 py-2">
                 <Select
@@ -298,7 +313,7 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
   const effectiveWorkspaceId = showAllWorkspaces ? undefined : (workspaceId ?? undefined);
 
   const projects = api.project.getAll.useQuery(
-    { workspaceId: effectiveWorkspaceId },
+    { workspaceId: effectiveWorkspaceId, include: { actions: true } },
     { enabled: true }
   );
 
