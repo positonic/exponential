@@ -97,6 +97,7 @@ function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspa
             <th className="px-4 py-2 text-left">Health</th>
             <th className="px-4 py-2 text-left">Status</th>
             <th className="px-4 py-2 text-left">Priority</th>
+            <th className="px-4 py-2 text-left">DRI</th>
             <th className="px-4 py-2 text-left">Actions</th>
           </tr>
         </thead>
@@ -107,28 +108,14 @@ function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspa
               className="border-b border-gray-700 hover:bg-white/5"
             >
               <td className="px-4 py-2">
-                <div className="flex items-center gap-2">
-                  {project.dri && (
-                    <Tooltip label={project.dri.name ?? project.dri.email ?? 'Unknown'} withArrow>
-                      <Avatar
-                        src={project.dri.image}
-                        size="sm"
-                        radius="xl"
-                        color={getAvatarColor(project.dri.id)}
-                      >
-                        {getInitial(project.dri.name ?? project.dri.email)}
-                      </Avatar>
-                    </Tooltip>
-                  )}
-                  <Link
-                    href={workspaceSlug
-                      ? `/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`
-                      : `/projects/${slugify(project.name)}-${project.id}`}
-                    className="text-text-primary hover:text-brand-primary hover:underline"
-                  >
-                    {project.name}
-                  </Link>
-                </div>
+                <Link
+                  href={workspaceSlug
+                    ? `/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`
+                    : `/projects/${slugify(project.name)}-${project.id}`}
+                  className="text-text-primary hover:text-brand-primary hover:underline"
+                >
+                  {project.name}
+                </Link>
               </td>
               <td className="px-4 py-2">
                 {project.actions ? (() => {
@@ -194,6 +181,22 @@ function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspa
                     }
                   }}
                 />
+              </td>
+              <td className="px-4 py-2">
+                {project.dri ? (
+                  <Tooltip label={project.dri.name ?? project.dri.email ?? 'Unknown'} withArrow>
+                    <Avatar
+                      src={project.dri.image}
+                      size="sm"
+                      radius="xl"
+                      color={getAvatarColor(project.dri.id)}
+                    >
+                      {getInitial(project.dri.name ?? project.dri.email)}
+                    </Avatar>
+                  </Tooltip>
+                ) : (
+                  <span className="text-text-muted">-</span>
+                )}
               </td>
               <td className="px-4 py-2 whitespace-nowrap">
                 <div className="flex items-center gap-2">
