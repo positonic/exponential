@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     // Handle OAuth error
     if (error) {
       console.error('Slack OAuth error:', error);
-      return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent('Slack authorization failed')}`);
+      return NextResponse.redirect(`${BASE_URL}/settings/integrations?error=${encodeURIComponent('Slack authorization failed')}`);
     }
 
     // Decode state parameter
@@ -40,13 +40,13 @@ export async function GET(request: NextRequest) {
       stateData = JSON.parse(Buffer.from(state, 'base64').toString());
     } catch (error) {
       console.error('Invalid state parameter:', error);
-      return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent('Invalid authorization state')}`);
+      return NextResponse.redirect(`${BASE_URL}/settings/integrations?error=${encodeURIComponent('Invalid authorization state')}`);
     }
 
     // Verify state matches current user
     if (stateData.userId !== session.user.id) {
       console.error('State user ID mismatch');
-      return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent('Authorization state mismatch')}`);
+      return NextResponse.redirect(`${BASE_URL}/settings/integrations?error=${encodeURIComponent('Authorization state mismatch')}`);
     }
 
     // Exchange code for access token
@@ -66,14 +66,14 @@ export async function GET(request: NextRequest) {
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
       console.error('Token exchange failed:', tokenResponse.status, errorText);
-      return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent('Failed to get Slack access token')}`);
+      return NextResponse.redirect(`${BASE_URL}/settings/integrations?error=${encodeURIComponent('Failed to get Slack access token')}`);
     }
 
     const tokenData = await tokenResponse.json();
 
     if (!tokenData.ok) {
       console.error('Slack API error:', tokenData.error);
-      return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent(`Slack API error: ${tokenData.error}`)}`);
+      return NextResponse.redirect(`${BASE_URL}/settings/integrations?error=${encodeURIComponent(`Slack API error: ${tokenData.error}`)}`);
     }
 
     // Create Slack integration
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Determine redirect URL (ensure it's absolute)
-    const redirectPath = stateData.redirectUrl || '/integrations';
+    const redirectPath = stateData.redirectUrl || '/settings/integrations';
     const redirectUrl = redirectPath.startsWith('http') ? redirectPath : `${BASE_URL}${redirectPath}`;
     const successMessage = `Successfully connected Slack workspace: ${tokenData.team.name}`;
 
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Slack OAuth callback error:', error);
     return NextResponse.redirect(
-      `${BASE_URL}/integrations?error=${encodeURIComponent('Slack integration setup failed')}`
+      `${BASE_URL}/settings/integrations?error=${encodeURIComponent('Slack integration setup failed')}`
     );
   }
 }

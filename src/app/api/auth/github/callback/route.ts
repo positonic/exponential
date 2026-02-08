@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
         errorMessage,
       );
       return NextResponse.redirect(
-        `${BASE_URL}/integrations/github?error=${encodeURIComponent(errorMessage)}`,
+        `${BASE_URL}/settings/integrations/github?error=${encodeURIComponent(errorMessage)}`,
       );
     }
 
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
         `[GitHub Callback ${requestId}] Installation already processed, redirecting to avoid duplicate`,
       );
       // Determine redirect URL based on state
-      let redirectUrl = `${BASE_URL}/integrations`;
+      let redirectUrl = `${BASE_URL}/settings/integrations`;
       if (state) {
         try {
           const stateData = JSON.parse(Buffer.from(state, "base64").toString());
@@ -226,7 +226,7 @@ export async function GET(request: NextRequest) {
       ).toString("base64");
       redirectUrl = `${BASE_URL}/projects/${projectId}?tab=workflows&github_auth=${encodeURIComponent(githubAuthParam)}`;
     } else {
-      redirectUrl = `${BASE_URL}/integrations`;
+      redirectUrl = `${BASE_URL}/settings/integrations`;
     }
 
     console.log(
@@ -257,7 +257,7 @@ export async function GET(request: NextRequest) {
     const errorMessage =
       error instanceof Error ? error.message : "OAuth callback failed";
     return NextResponse.redirect(
-      `${BASE_URL}/integrations/github?error=${encodeURIComponent(errorMessage)}`,
+      `${BASE_URL}/settings/integrations/github?error=${encodeURIComponent(errorMessage)}`,
     );
   }
 }

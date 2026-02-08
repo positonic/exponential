@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     // Handle OAuth error
     if (error) {
       console.error('Notion OAuth error:', error);
-      return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent('Notion authorization failed')}`);
+      return NextResponse.redirect(`${BASE_URL}/settings/integrations?error=${encodeURIComponent('Notion authorization failed')}`);
     }
 
     // Decode state parameter
@@ -40,13 +40,13 @@ export async function GET(request: NextRequest) {
       stateData = JSON.parse(Buffer.from(state, 'base64').toString());
     } catch (error) {
       console.error('Invalid state parameter:', error);
-      return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent('Invalid authorization state')}`);
+      return NextResponse.redirect(`${BASE_URL}/settings/integrations?error=${encodeURIComponent('Invalid authorization state')}`);
     }
 
     // Verify state matches current user
     if (stateData.userId !== session.user.id) {
       console.error('State user ID mismatch');
-      return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent('Authorization state mismatch')}`);
+      return NextResponse.redirect(`${BASE_URL}/settings/integrations?error=${encodeURIComponent('Authorization state mismatch')}`);
     }
 
     // Exchange code for access token
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
       console.error('Token exchange failed:', tokenResponse.status, errorText);
-      return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent('Failed to get Notion access token')}`);
+      return NextResponse.redirect(`${BASE_URL}/settings/integrations?error=${encodeURIComponent('Failed to get Notion access token')}`);
     }
 
     const tokenData = await tokenResponse.json();
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
     if (!workspaceResponse.ok) {
       const errorText = await workspaceResponse.text();
       console.error('Failed to get workspace info:', workspaceResponse.status, errorText);
-      return NextResponse.redirect(`${BASE_URL}/integrations?error=${encodeURIComponent('Failed to get Notion workspace information')}`);
+      return NextResponse.redirect(`${BASE_URL}/settings/integrations?error=${encodeURIComponent('Failed to get Notion workspace information')}`);
     }
 
     // const workspaceData = await workspaceResponse.json(); // Currently unused
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Determine redirect URL (ensure it's absolute)
-    const redirectPath = stateData.redirectUrl || '/integrations';
+    const redirectPath = stateData.redirectUrl || '/settings/integrations';
     const redirectUrl = redirectPath.startsWith('http') ? redirectPath : `${BASE_URL}${redirectPath}`;
     const successMessage = `Successfully connected Notion workspace: ${tokenData.workspace_name}`;
 
@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Notion OAuth callback error:', error);
     return NextResponse.redirect(
-      `${BASE_URL}/integrations?error=${encodeURIComponent('Notion integration setup failed')}`
+      `${BASE_URL}/settings/integrations?error=${encodeURIComponent('Notion integration setup failed')}`
     );
   }
 }

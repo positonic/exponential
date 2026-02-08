@@ -4,7 +4,7 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconCalendarWeek, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconPlug, IconMicrophone, IconGitBranch, IconUsers, IconSparkles, IconBrain, IconTarget, IconRobot, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase, IconClipboardCheck, IconLayoutKanban } from "@tabler/icons-react";
+import { IconCalendarEvent, IconCalendarWeek, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconMicrophone, IconGitBranch, IconUsers, IconTarget, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase, IconClipboardCheck, IconLayoutKanban } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
@@ -236,34 +236,9 @@ export function SidebarContent() {
                     Workflows
                   </NavLink>
                 )}
-                {isItemVisible("tools/ai-sales-demo") && (
-                  <NavLink href="/ai-sales-demo" icon={IconSparkles}>
-                    AI Sales Demo
-                  </NavLink>
-                )}
-                {isItemVisible("tools/ai-automation") && (
-                  <NavLink href="/ai-automation" icon={IconRobot}>
-                    AI Automation
-                  </NavLink>
-                )}
-                {isItemVisible("tools/connect-services") && (
-                  <NavLink href="/integrations" icon={IconPlug}>
-                    Connect Services
-                  </NavLink>
-                )}
-                {isItemVisible("tools/ai-history") && (
-                  <NavLink href="/ai-history" icon={IconBrain}>
-                    AI History
-                  </NavLink>
-                )}
                 {isItemVisible("tools/knowledge-base") && (
                   <NavLink href={workspaceSlug ? `/w/${workspaceSlug}/knowledge-base` : '/knowledge-base'} icon={IconDatabase}>
                     Knowledge Base
-                  </NavLink>
-                )}
-                {isItemVisible("tools/api-access") && (
-                  <NavLink href="/settings/api-keys" icon={IconKey}>
-                    API Access
                   </NavLink>
                 )}
                 {/* Settings link - always visible */}

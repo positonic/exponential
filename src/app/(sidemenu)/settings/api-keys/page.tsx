@@ -143,7 +143,7 @@ export default function TokensPage() {
               Generate API keys for external applications to access YOUR Exponential data, or insert / update your exponential data via webhooks.
             </Text>
             <Text c="orange" size="sm" mt="xs">
-              🔗 Looking to connect Exponential to external services? <Link href="/integrations" style={{ textDecoration: 'underline' }}>Set up integrations here</Link>
+              Looking to connect Exponential to external services? <Link href="/settings/integrations" style={{ textDecoration: 'underline' }}>Set up integrations here</Link>
             </Text>
           </div>
           <Button

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { api } from "~/trpc/react";
 import {
   Container,
@@ -17,7 +17,6 @@ import {
   Card,
 } from "@mantine/core";
 import {
-  IconArrowLeft,
   IconDeviceProjector,
   IconTarget,
   IconUsers,
@@ -29,15 +28,9 @@ import {
   IconQuote,
   IconSparkles,
   IconChevronRight,
-  IconCalendar,
-  IconUnlink,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { notifications } from "@mantine/notifications";
-import { FirefliesIntegrationsList } from "~/app/_components/integrations/FirefliesIntegrationsList";
-import { FirefliesWizardModal } from "~/app/_components/integrations/FirefliesWizardModal";
-import { GoogleCalendarConnect } from "~/app/_components/GoogleCalendarConnect";
-import { CalendarMultiSelect } from "~/app/_components/calendar/CalendarMultiSelect";
 
 // Define menu structure for rendering
 const MENU_STRUCTURE = {
@@ -74,11 +67,6 @@ const MENU_STRUCTURE = {
       { key: "tools/journal", label: "Journal" },
       { key: "tools/meetings", label: "Meetings" },
       { key: "tools/workflows", label: "Workflows" },
-      { key: "tools/ai-sales-demo", label: "AI Sales Demo" },
-      { key: "tools/ai-automation", label: "AI Automation" },
-      { key: "tools/connect-services", label: "Connect Services" },
-      { key: "tools/ai-history", label: "AI History" },
-      { key: "tools/api-access", label: "API Access" },
     ],
   },
 } as const;
@@ -87,66 +75,9 @@ type SectionKey = keyof typeof MENU_STRUCTURE;
 
 export default function NavigationSettingsPage() {
   const utils = api.useUtils();
-  const [firefliesModalOpened, setFirefliesModalOpened] = useState(false);
 
   const { data: preferences, isLoading } =
     api.navigationPreference.getPreferences.useQuery();
-
-  // Calendar connection status
-  const { data: calendarStatus } = api.calendar.getConnectionStatus.useQuery();
-
-  // Calendar disconnect mutation
-  const disconnectCalendar = api.calendar.disconnect.useMutation({
-    onSuccess: async () => {
-      await utils.calendar.getConnectionStatus.invalidate();
-      await utils.calendar.getCalendarPreferences.invalidate();
-      notifications.show({
-        title: "Calendar Disconnected",
-        message: "Your Google Calendar has been disconnected.",
-        color: "blue",
-        icon: <IconCheck size={16} />,
-      });
-    },
-    onError: (error) => {
-      notifications.show({
-        title: "Error",
-        message: error.message ?? "Failed to disconnect calendar",
-        color: "red",
-        icon: <IconAlertCircle size={16} />,
-      });
-    },
-  });
-
-  // Calendar preferences (for multi-calendar selection)
-  const { data: calendarPreferences, isLoading: calendarPreferencesLoading } =
-    api.calendar.getCalendarPreferences.useQuery(undefined, {
-      enabled: calendarStatus?.isConnected ?? false,
-    });
-
-  // Update selected calendars mutation
-  const updateSelectedCalendars = api.calendar.updateSelectedCalendars.useMutation({
-    onSuccess: async () => {
-      await utils.calendar.getCalendarPreferences.invalidate();
-      notifications.show({
-        title: "Calendars Updated",
-        message: "Your calendar selection has been saved.",
-        color: "green",
-        icon: <IconCheck size={16} />,
-      });
-    },
-    onError: (error) => {
-      notifications.show({
-        title: "Error",
-        message: error.message ?? "Failed to update calendar selection",
-        color: "red",
-        icon: <IconAlertCircle size={16} />,
-      });
-    },
-  });
-
-  const handleCalendarSelectionChange = (calendarIds: string[]) => {
-    updateSelectedCalendars.mutate({ calendarIds });
-  };
 
   const toggleSection = api.navigationPreference.toggleSection.useMutation({
     onSuccess: () => {
@@ -264,33 +195,25 @@ export default function NavigationSettingsPage() {
     <Container size="md" py="xl">
       <Stack gap="xl">
         {/* Header */}
-        <Group justify="space-between">
-          <Button
-            variant="subtle"
-            leftSection={<IconArrowLeft size={16} />}
-            component={Link}
-            href="/home"
-          >
-            Back
-          </Button>
+        <Group justify="space-between" align="flex-start">
+          <div>
+            <Title order={2} className="text-text-primary">
+              Navigation
+            </Title>
+            <Text c="dimmed" mt="xs">
+              Customize which sections and items appear in your sidebar
+            </Text>
+          </div>
           <Button
             variant="light"
             leftSection={<IconRefresh size={16} />}
             onClick={() => resetToDefaults.mutate()}
             loading={resetToDefaults.isPending}
+            size="sm"
           >
             Reset to Defaults
           </Button>
         </Group>
-
-        <div>
-          <Title order={1} className="text-text-primary">
-            Navigation Settings
-          </Title>
-          <Text c="dimmed" mt="xs">
-            Customize which sections and items appear in your sidebar navigation
-          </Text>
-        </div>
 
         {/* Info Card */}
         <Paper p="md" withBorder className="bg-surface-secondary">
@@ -478,87 +401,7 @@ export default function NavigationSettingsPage() {
             </Paper>
           </Stack>
         </Card>
-
-        {/* Integrations Section */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder p="lg">
-          <Group justify="space-between" align="center" mb="md">
-            <div>
-              <Title order={4} className="text-text-primary">
-                Integrations
-              </Title>
-              <Text size="sm" c="dimmed">
-                Manage your connected services
-              </Text>
-            </div>
-            <Button
-              variant="light"
-              size="sm"
-              onClick={() => setFirefliesModalOpened(true)}
-            >
-              Add Fireflies
-            </Button>
-          </Group>
-
-          {/* Google Calendar Integration */}
-          <Paper p="md" withBorder className="bg-surface-primary mb-md">
-            <Group justify="space-between" align="center">
-              <Group gap="sm">
-                <IconCalendar size={20} className="text-text-muted" />
-                <div>
-                  <Text size="sm" fw={500}>
-                    Google Calendar
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    {calendarStatus?.isConnected
-                      ? "Your calendar is connected"
-                      : "Connect to see your events and schedule"}
-                  </Text>
-                </div>
-              </Group>
-              {calendarStatus?.isConnected ? (
-                <Button
-                  variant="subtle"
-                  color="red"
-                  size="sm"
-                  onClick={() => disconnectCalendar.mutate()}
-                  loading={disconnectCalendar.isPending}
-                  leftSection={<IconUnlink size={16} />}
-                >
-                  Disconnect
-                </Button>
-              ) : (
-                <GoogleCalendarConnect isConnected={false} />
-              )}
-            </Group>
-
-            {/* Calendar Selection - shown when connected */}
-            {calendarStatus?.isConnected && (
-              <div className="mt-4 pt-4 border-t border-border-primary">
-                <Text size="sm" fw={500} mb="xs">
-                  Select calendars to display
-                </Text>
-                <Text size="xs" c="dimmed" mb="sm">
-                  Choose which calendars appear in your schedule view.
-                </Text>
-                <CalendarMultiSelect
-                  calendars={calendarPreferences?.allCalendars ?? []}
-                  selectedCalendarIds={calendarPreferences?.selectedCalendarIds ?? []}
-                  onChange={handleCalendarSelectionChange}
-                  isLoading={calendarPreferencesLoading || updateSelectedCalendars.isPending}
-                />
-              </div>
-            )}
-          </Paper>
-
-          <FirefliesIntegrationsList />
-        </Card>
       </Stack>
-
-      {/* Fireflies Wizard Modal */}
-      <FirefliesWizardModal
-        opened={firefliesModalOpened}
-        onClose={() => setFirefliesModalOpened(false)}
-      />
     </Container>
   );
 }
