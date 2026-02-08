@@ -13,6 +13,11 @@ interface CalendarSidebarProps {
   onDateSelect: (date: Date) => void;
   googleConnected?: boolean;
   microsoftConnected?: boolean;
+  connectedAccounts?: Array<{
+    provider: 'google' | 'microsoft';
+    email: string | null;
+    name: string | null;
+  }>;
 }
 
 export function CalendarSidebar({
@@ -20,9 +25,8 @@ export function CalendarSidebar({
   onDateSelect,
   googleConnected,
   microsoftConnected,
+  connectedAccounts = [],
 }: CalendarSidebarProps) {
-  const hasDisconnectedProvider = !googleConnected || !microsoftConnected;
-
   const handleConnectGoogle = () => {
     const returnUrl = encodeURIComponent(
       window.location.pathname + window.location.search,
@@ -53,50 +57,65 @@ export function CalendarSidebar({
           <Text size="sm" fw={600} mb="sm" className="text-text-primary">
             Calendars
           </Text>
-          <Stack gap={6}>
-            {googleConnected && (
-              <Group gap={8} wrap="nowrap">
-                <IconBrandGoogle size={16} className="text-text-muted" />
-                <Text size="sm" className="text-text-secondary">
-                  Google Calendar
-                </Text>
-              </Group>
-            )}
-            {microsoftConnected && (
-              <Group gap={8} wrap="nowrap">
-                <IconBrandWindows size={16} className="text-text-muted" />
-                <Text size="sm" className="text-text-secondary">
-                  Outlook Calendar
-                </Text>
-              </Group>
+          <Stack gap="xs">
+            {/* Show connected calendars with email */}
+            {connectedAccounts && connectedAccounts.length > 0 ? (
+              connectedAccounts.map((account) => (
+                <Group key={account.provider} gap="xs" wrap="nowrap">
+                  {/* Provider icon */}
+                  {account.provider === 'google' && (
+                    <IconBrandGoogle size={16} className="text-text-secondary flex-shrink-0" />
+                  )}
+                  {account.provider === 'microsoft' && (
+                    <IconBrandWindows size={16} className="text-text-secondary flex-shrink-0" />
+                  )}
+
+                  {/* Email and name */}
+                  <div className="flex-1 min-w-0">
+                    <Text size="sm" className="text-text-primary truncate">
+                      {account.name ?? account.email}
+                    </Text>
+                    {account.name && account.email && (
+                      <Text size="xs" c="dimmed" className="truncate">
+                        {account.email}
+                      </Text>
+                    )}
+                  </div>
+
+                  {/* Connected indicator */}
+                  <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                </Group>
+              ))
+            ) : (
+              <Text size="sm" c="dimmed">
+                No calendars connected
+              </Text>
             )}
 
-            {/* Connect additional calendar */}
-            {hasDisconnectedProvider && (
-              <>
-                {!googleConnected && (
-                  <UnstyledButton
-                    onClick={handleConnectGoogle}
-                    className="rounded py-0.5 text-text-muted transition-colors hover:text-text-secondary"
-                  >
-                    <Group gap={8} wrap="nowrap">
-                      <IconPlus size={16} />
-                      <Text size="sm">Add Google</Text>
-                    </Group>
-                  </UnstyledButton>
-                )}
-                {!microsoftConnected && (
-                  <UnstyledButton
-                    onClick={handleConnectMicrosoft}
-                    className="rounded py-0.5 text-text-muted transition-colors hover:text-text-secondary"
-                  >
-                    <Group gap={8} wrap="nowrap">
-                      <IconPlus size={16} />
-                      <Text size="sm">Add Outlook</Text>
-                    </Group>
-                  </UnstyledButton>
-                )}
-              </>
+            {/* Divider if there are connected accounts */}
+            {connectedAccounts && connectedAccounts.length > 0 && (
+              <div className="border-t border-border-primary my-2" />
+            )}
+
+            {/* Add buttons for disconnected providers */}
+            {!googleConnected && (
+              <UnstyledButton
+                onClick={handleConnectGoogle}
+                className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
+              >
+                <IconPlus size={16} />
+                <Text size="sm">Add Google</Text>
+              </UnstyledButton>
+            )}
+
+            {!microsoftConnected && (
+              <UnstyledButton
+                onClick={handleConnectMicrosoft}
+                className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
+              >
+                <IconPlus size={16} />
+                <Text size="sm">Add Outlook</Text>
+              </UnstyledButton>
             )}
           </Stack>
         </div>

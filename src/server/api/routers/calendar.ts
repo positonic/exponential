@@ -119,6 +119,89 @@ export const calendarRouter = createTRPCRouter({
     };
   }),
 
+  // Returns connected calendar accounts with email addresses
+  getConnectedCalendarAccounts: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+
+    // Fetch Google Calendar account
+    const googleAccount = await ctx.db.account.findFirst({
+      where: {
+        userId,
+        provider: "google",
+      },
+      select: {
+        id: true,
+        provider: true,
+        scope: true,
+        expires_at: true,
+        user: {
+          select: {
+            email: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    // Fetch Microsoft Calendar account
+    const microsoftAccount = await ctx.db.account.findFirst({
+      where: {
+        userId,
+        provider: "microsoft-entra-id",
+      },
+      select: {
+        id: true,
+        provider: true,
+        scope: true,
+        expires_at: true,
+        user: {
+          select: {
+            email: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    const connectedAccounts: Array<{
+      provider: "google" | "microsoft";
+      email: string | null;
+      name: string | null;
+    }> = [];
+
+    // Check Google Calendar
+    if (googleAccount) {
+      const hasCalendarScope = googleAccount.scope?.includes("calendar.events") ?? false;
+      const now = Math.floor(Date.now() / 1000);
+      const isValid = (googleAccount.expires_at != null && googleAccount.expires_at > now);
+
+      if (hasCalendarScope && isValid) {
+        connectedAccounts.push({
+          provider: "google",
+          email: googleAccount.user.email,
+          name: googleAccount.user.name,
+        });
+      }
+    }
+
+    // Check Microsoft Calendar
+    if (microsoftAccount) {
+      const hasCalendarScope = microsoftAccount.scope?.includes("Calendars.Read") ?? false;
+      const now = Math.floor(Date.now() / 1000);
+      const isValid = (microsoftAccount.expires_at != null && microsoftAccount.expires_at > now);
+
+      if (hasCalendarScope && isValid) {
+        connectedAccounts.push({
+          provider: "microsoft",
+          email: microsoftAccount.user.email,
+          name: microsoftAccount.user.name,
+        });
+      }
+    }
+
+    return { connectedAccounts };
+  }),
+
   getTodayEvents: protectedProcedure
     .input(z.object({ provider: providerSchema }).optional())
     .query(async ({ ctx, input }) => {
