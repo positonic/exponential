@@ -110,6 +110,45 @@ export class GoogleCalendarService implements CalendarProvider {
     }
   }
 
+  /**
+   * Fetch and update provider email for an account
+   * This is used to backfill missing providerEmail fields
+   */
+  async fetchAndUpdateProviderEmail(accountId: string, accessToken: string): Promise<string | null> {
+    try {
+      // Fetch user info from Google
+      const response = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error("Failed to fetch Google user info:", response.status);
+        return null;
+      }
+
+      const userInfo = (await response.json()) as { email?: string };
+
+      if (!userInfo.email) {
+        console.error("No email in Google user info response");
+        return null;
+      }
+
+      // Update the Account record with the provider email
+      await db.account.update({
+        where: { id: accountId },
+        data: { providerEmail: userInfo.email },
+      });
+
+      console.log(`✅ Backfilled providerEmail for account ${accountId}: ${userInfo.email}`);
+      return userInfo.email;
+    } catch (error) {
+      console.error("Error fetching provider email:", error);
+      return null;
+    }
+  }
+
   async getEvents(
     userId: string,
     options: {

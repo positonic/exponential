@@ -116,9 +116,22 @@ export async function GET(request: NextRequest) {
         Authorization: `Bearer ${tokens.access_token}`,
       },
     });
+
+    if (!googleUserInfoResponse.ok) {
+      console.error("⚠️ Failed to fetch Google user info:", {
+        status: googleUserInfoResponse.status,
+        statusText: googleUserInfoResponse.statusText,
+      });
+    }
+
     const googleUserInfo = googleUserInfoResponse.ok
       ? ((await googleUserInfoResponse.json()) as { id: string; email?: string })
       : null;
+
+    // Log if email is missing
+    if (!googleUserInfo?.email) {
+      console.error("⚠️ No email in Google user info response");
+    }
 
     if (existingAccount) {
       // Update existing account with calendar tokens

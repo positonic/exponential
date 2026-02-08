@@ -108,9 +108,22 @@ export async function GET(request: NextRequest) {
         headers: { Authorization: `Bearer ${tokens.access_token}` },
       },
     );
+
+    if (!msUserInfoResponse.ok) {
+      console.error("⚠️ Failed to fetch Microsoft user info:", {
+        status: msUserInfoResponse.status,
+        statusText: msUserInfoResponse.statusText,
+      });
+    }
+
     const msUserInfo = msUserInfoResponse.ok
       ? ((await msUserInfoResponse.json()) as MicrosoftUserInfo)
       : null;
+
+    // Log if email is missing
+    if (!msUserInfo?.mail) {
+      console.error("⚠️ No mail in Microsoft user info response");
+    }
 
     // Find existing Microsoft account for this user
     const existingAccount = await db.account.findFirst({

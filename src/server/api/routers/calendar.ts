@@ -135,6 +135,7 @@ export const calendarRouter = createTRPCRouter({
         scope: true,
         expires_at: true,
         providerEmail: true,
+        access_token: true,
         user: {
           select: {
             email: true,
@@ -156,6 +157,7 @@ export const calendarRouter = createTRPCRouter({
         scope: true,
         expires_at: true,
         providerEmail: true,
+        access_token: true,
         user: {
           select: {
             email: true,
@@ -178,9 +180,21 @@ export const calendarRouter = createTRPCRouter({
       const isValid = (googleAccount.expires_at != null && googleAccount.expires_at > now);
 
       if (hasCalendarScope && isValid) {
+        let providerEmail = googleAccount.providerEmail;
+
+        // Backfill provider email if missing
+        if (!providerEmail && googleAccount.access_token) {
+          console.log("🔄 Backfilling missing providerEmail for Google account");
+          const googleCalendarService = new GoogleCalendarService();
+          providerEmail = await googleCalendarService.fetchAndUpdateProviderEmail(
+            googleAccount.id,
+            googleAccount.access_token
+          );
+        }
+
         connectedAccounts.push({
           provider: "google",
-          email: googleAccount.providerEmail ?? googleAccount.user.email,
+          email: providerEmail ?? googleAccount.user.email, // Still fallback just in case
           name: googleAccount.user.name,
         });
       }
@@ -193,9 +207,21 @@ export const calendarRouter = createTRPCRouter({
       const isValid = (microsoftAccount.expires_at != null && microsoftAccount.expires_at > now);
 
       if (hasCalendarScope && isValid) {
+        let providerEmail = microsoftAccount.providerEmail;
+
+        // Backfill provider email if missing
+        if (!providerEmail && microsoftAccount.access_token) {
+          console.log("🔄 Backfilling missing providerEmail for Microsoft account");
+          const microsoftCalendarService = new MicrosoftCalendarService();
+          providerEmail = await microsoftCalendarService.fetchAndUpdateProviderEmail(
+            microsoftAccount.id,
+            microsoftAccount.access_token
+          );
+        }
+
         connectedAccounts.push({
           provider: "microsoft",
-          email: microsoftAccount.providerEmail ?? microsoftAccount.user.email,
+          email: providerEmail ?? microsoftAccount.user.email, // Still fallback just in case
           name: microsoftAccount.user.name,
         });
       }

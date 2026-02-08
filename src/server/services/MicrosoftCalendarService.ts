@@ -175,6 +175,43 @@ export class MicrosoftCalendarService implements CalendarProvider {
     return response.json() as Promise<T>;
   }
 
+  /**
+   * Fetch and update provider email for an account
+   * This is used to backfill missing providerEmail fields
+   */
+  async fetchAndUpdateProviderEmail(accountId: string, accessToken: string): Promise<string | null> {
+    try {
+      const response = await fetch("https://graph.microsoft.com/v1.0/me", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error("Failed to fetch Microsoft user info:", response.status);
+        return null;
+      }
+
+      const userInfo = (await response.json()) as { mail?: string };
+
+      if (!userInfo.mail) {
+        console.error("No mail in Microsoft user info response");
+        return null;
+      }
+
+      await db.account.update({
+        where: { id: accountId },
+        data: { providerEmail: userInfo.mail },
+      });
+
+      console.log(`✅ Backfilled providerEmail for account ${accountId}: ${userInfo.mail}`);
+      return userInfo.mail;
+    } catch (error) {
+      console.error("Error fetching provider email:", error);
+      return null;
+    }
+  }
+
   private mapGraphEventToCalendarEvent(
     event: GraphCalendarViewEvent,
   ): CalendarEvent {
