@@ -101,6 +101,17 @@ export async function GET(request: NextRequest) {
       scope: tokens.scope,
     });
 
+    // Fetch the Microsoft account's email address
+    const msUserInfoResponse = await fetch(
+      "https://graph.microsoft.com/v1.0/me",
+      {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      },
+    );
+    const msUserInfo = msUserInfoResponse.ok
+      ? ((await msUserInfoResponse.json()) as MicrosoftUserInfo)
+      : null;
+
     // Find existing Microsoft account for this user
     const existingAccount = await db.account.findFirst({
       where: {
@@ -116,6 +127,7 @@ export async function GET(request: NextRequest) {
         refresh_token?: string;
         expires_at: number | null;
         scope: string;
+        providerEmail?: string;
       } = {
         access_token: tokens.access_token,
         expires_at: tokens.expires_in
@@ -126,6 +138,10 @@ export async function GET(request: NextRequest) {
 
       if (tokens.refresh_token) {
         updateData.refresh_token = tokens.refresh_token;
+      }
+
+      if (msUserInfo?.mail) {
+        updateData.providerEmail = msUserInfo.mail;
       }
 
       await db.account.update({
@@ -145,27 +161,16 @@ export async function GET(request: NextRequest) {
         redirect(`${returnUrl}?calendar_error=no_refresh_token`);
       }
 
-      // Get provider account ID from Microsoft Graph
-      const userInfoResponse = await fetch(
-        "https://graph.microsoft.com/v1.0/me",
-        {
-          headers: { Authorization: `Bearer ${tokens.access_token}` },
-        },
-      );
-
-      if (!userInfoResponse.ok) {
+      if (!msUserInfo) {
         throw new Error("Failed to fetch Microsoft user info");
       }
-
-      const userInfo =
-        (await userInfoResponse.json()) as MicrosoftUserInfo;
 
       await db.account.create({
         data: {
           userId: session.user.id,
           type: "oauth",
           provider: "microsoft-entra-id",
-          providerAccountId: userInfo.id,
+          providerAccountId: msUserInfo.id,
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
           expires_at: tokens.expires_in
@@ -173,6 +178,7 @@ export async function GET(request: NextRequest) {
             : null,
           token_type: tokens.token_type ?? "Bearer",
           scope: tokens.scope,
+          providerEmail: msUserInfo.mail,
         },
       });
 

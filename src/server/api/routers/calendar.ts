@@ -134,6 +134,7 @@ export const calendarRouter = createTRPCRouter({
         provider: true,
         scope: true,
         expires_at: true,
+        providerEmail: true,
         user: {
           select: {
             email: true,
@@ -154,6 +155,7 @@ export const calendarRouter = createTRPCRouter({
         provider: true,
         scope: true,
         expires_at: true,
+        providerEmail: true,
         user: {
           select: {
             email: true,
@@ -178,7 +180,7 @@ export const calendarRouter = createTRPCRouter({
       if (hasCalendarScope && isValid) {
         connectedAccounts.push({
           provider: "google",
-          email: googleAccount.user.email,
+          email: googleAccount.providerEmail ?? googleAccount.user.email,
           name: googleAccount.user.name,
         });
       }
@@ -193,7 +195,7 @@ export const calendarRouter = createTRPCRouter({
       if (hasCalendarScope && isValid) {
         connectedAccounts.push({
           provider: "microsoft",
-          email: microsoftAccount.user.email,
+          email: microsoftAccount.providerEmail ?? microsoftAccount.user.email,
           name: microsoftAccount.user.name,
         });
       }

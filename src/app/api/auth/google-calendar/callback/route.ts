@@ -110,6 +110,16 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Fetch the Google account's email address
+    const googleUserInfoResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+      },
+    });
+    const googleUserInfo = googleUserInfoResponse.ok
+      ? ((await googleUserInfoResponse.json()) as { id: string; email?: string })
+      : null;
+
     if (existingAccount) {
       // Update existing account with calendar tokens
       // IMPORTANT: Only update refresh_token if we got a new one
@@ -118,6 +128,7 @@ export async function GET(request: NextRequest) {
         refresh_token?: string;
         expires_at: number | null;
         scope: string;
+        providerEmail?: string;
       } = {
         access_token: tokens.access_token,
         expires_at: tokens.expires_in ? Math.floor(Date.now() / 1000) + tokens.expires_in : null,
@@ -127,6 +138,10 @@ export async function GET(request: NextRequest) {
       // Only update refresh_token if Google sent a new one
       if (tokens.refresh_token) {
         updateData.refresh_token = tokens.refresh_token;
+      }
+
+      if (googleUserInfo?.email) {
+        updateData.providerEmail = googleUserInfo.email;
       }
 
       await db.account.update({
@@ -145,30 +160,22 @@ export async function GET(request: NextRequest) {
         redirect(`${returnUrl}?calendar_error=no_refresh_token`);
       }
 
-      // Get provider account ID from Google
-      const userInfoResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-        headers: {
-          Authorization: `Bearer ${tokens.access_token}`,
-        },
-      });
-
-      if (!userInfoResponse.ok) {
+      if (!googleUserInfo) {
         throw new Error("Failed to fetch Google user info");
       }
-
-      const userInfo = await userInfoResponse.json();
 
       await db.account.create({
         data: {
           userId: session.user.id,
           type: "oauth",
           provider: "google",
-          providerAccountId: userInfo.id,
+          providerAccountId: googleUserInfo.id,
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
           expires_at: tokens.expires_in ? Math.floor(Date.now() / 1000) + tokens.expires_in : null,
           token_type: tokens.token_type ?? "Bearer",
           scope: tokens.scope,
+          providerEmail: googleUserInfo.email,
         },
       });
 
