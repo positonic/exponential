@@ -11,6 +11,7 @@ import {
 import {
   IconChevronLeft,
   IconChevronRight,
+  IconRefresh,
   IconUnlink,
 } from "@tabler/icons-react";
 import { format } from "date-fns";
@@ -28,6 +29,8 @@ interface CalendarHeaderProps {
   microsoftConnected?: boolean;
   onDisconnect?: (provider: "google" | "microsoft") => void;
   isDisconnecting?: boolean;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
 export function CalendarHeader({
@@ -42,6 +45,8 @@ export function CalendarHeader({
   microsoftConnected,
   onDisconnect,
   isDisconnecting,
+  onRefresh,
+  isRefreshing,
 }: CalendarHeaderProps) {
   // Format the header text based on view
   const headerText =
@@ -95,6 +100,20 @@ export function CalendarHeader({
           ]}
           size="sm"
         />
+        {isConnected && onRefresh && (
+          <Tooltip label="Refresh events" position="bottom">
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="md"
+              loading={isRefreshing}
+              onClick={onRefresh}
+              aria-label="Refresh events"
+            >
+              <IconRefresh size={18} />
+            </ActionIcon>
+          </Tooltip>
+        )}
         {isConnected && onDisconnect && (
           <Menu position="bottom-end" withinPortal>
             <Menu.Target>

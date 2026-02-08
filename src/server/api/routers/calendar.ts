@@ -416,9 +416,34 @@ export const calendarRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
 
       // Get all calendar preferences for this user
-      const preferences = await ctx.db.calendarPreference.findMany({
+      let preferences = await ctx.db.calendarPreference.findMany({
         where: { userId },
       });
+
+      // Auto-create default preferences for connected providers that are missing one
+      const connectedAccounts = await ctx.db.account.findMany({
+        where: {
+          userId,
+          provider: { in: ["google", "microsoft-entra-id"] },
+          access_token: { not: null },
+        },
+        select: { provider: true },
+      });
+
+      for (const account of connectedAccounts) {
+        const providerKey = account.provider === "microsoft-entra-id" ? "microsoft" : "google";
+        const hasPref = preferences.some((p) => p.provider === providerKey);
+        if (!hasPref) {
+          const newPref = await ctx.db.calendarPreference.create({
+            data: {
+              userId,
+              provider: providerKey,
+              selectedCalendarIds: ["primary"],
+            },
+          });
+          preferences = [...preferences, newPref];
+        }
+      }
 
       const allEvents: Array<{
         calendarId: string;

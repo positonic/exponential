@@ -3,6 +3,7 @@
 import { Paper, Stack, Text, Title } from "@mantine/core";
 import { IconCalendar } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
+import { useState } from "react";
 import { api } from "~/trpc/react";
 import { useCalendarNavigation } from "./useCalendarNavigation";
 import { CalendarHeader } from "./CalendarHeader";
@@ -76,6 +77,29 @@ export function CalendarPageContent() {
       await utils.dailyPlan.getOrCreateToday.invalidate();
     },
   });
+
+  // Handle refresh - clear server cache then refetch
+  const clearCache = api.calendar.clearCache.useMutation();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      // Clear server-side cache for each connected provider
+      const clearPromises: Promise<unknown>[] = [];
+      if (googleConnected) {
+        clearPromises.push(clearCache.mutateAsync({ provider: "google" }));
+      }
+      if (microsoftConnected) {
+        clearPromises.push(clearCache.mutateAsync({ provider: "microsoft" }));
+      }
+      await Promise.all(clearPromises);
+      // Invalidate client-side cache to trigger refetch
+      await utils.calendar.getEventsMultiCalendar.invalidate();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Handle calendar disconnect
   const disconnectCalendar = api.calendar.disconnect.useMutation({
@@ -204,10 +228,17 @@ export function CalendarPageContent() {
         microsoftConnected={microsoftConnected}
         onDisconnect={(provider) => disconnectCalendar.mutate({ provider })}
         isDisconnecting={disconnectCalendar.isPending}
+        onRefresh={handleRefresh}
+        isRefreshing={isRefreshing}
       />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-4">{renderCalendarContent()}</div>
-        <CalendarSidebar selectedDate={selectedDate} onDateSelect={setDate} />
+        <CalendarSidebar
+          selectedDate={selectedDate}
+          onDateSelect={setDate}
+          googleConnected={googleConnected}
+          microsoftConnected={microsoftConnected}
+        />
       </div>
     </div>
   );
