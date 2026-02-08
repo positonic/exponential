@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npm run check"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/eslint-check.sh",
+            "timeout": 30
           }
         ]
       }
