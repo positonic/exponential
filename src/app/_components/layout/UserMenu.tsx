@@ -1,6 +1,6 @@
 "use client";
 
-import { Menu, Avatar, Text, Group, UnstyledButton } from "@mantine/core";
+import { Menu, Avatar, Text, UnstyledButton } from "@mantine/core";
 import { useMantineColorScheme } from "@mantine/core";
 import {
   IconSettings,
