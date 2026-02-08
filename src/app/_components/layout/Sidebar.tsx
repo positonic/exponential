@@ -1,14 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
 import { IconMenu2, IconX } from "@tabler/icons-react";
 import { useState, useEffect } from 'react';
 import { themes, type ValidDomain } from "~/config/themes";
 import { LogoDisplay } from "./LogoDisplay";
-import { ThemeToggle } from "../ThemeToggle";
-import { SidebarFeedback } from "./SidebarFeedback";
+import { UserMenu } from "./UserMenu";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false); // Default to closed

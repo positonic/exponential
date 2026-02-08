@@ -18,13 +18,21 @@ import { api } from "~/trpc/react";
 
 interface SidebarFeedbackProps {
   onClose?: () => void;
+  /** When provided, the component is externally controlled (no trigger button rendered) */
+  opened?: boolean;
+  onOpenChange?: (opened: boolean) => void;
 }
 
-export function SidebarFeedback({ onClose }: SidebarFeedbackProps) {
-  const [opened, { open, close }] = useDisclosure(false);
+export function SidebarFeedback({ onClose, opened: externalOpened, onOpenChange }: SidebarFeedbackProps) {
+  const [internalOpened, { open: internalOpen, close: internalClose }] = useDisclosure(false);
   const [rating, setRating] = useState<string>("");
   const [feedback, setFeedback] = useState("");
   const [submitted, setSubmitted] = useState(false);
+
+  const isControlled = externalOpened !== undefined;
+  const opened = isControlled ? externalOpened : internalOpened;
+  const open = isControlled ? () => onOpenChange?.(true) : internalOpen;
+  const close = isControlled ? () => onOpenChange?.(false) : internalClose;
 
   const submitFeedback = api.feedback.submitCalendarFeedback.useMutation({
     onSuccess: () => {
@@ -82,13 +90,15 @@ export function SidebarFeedback({ onClose }: SidebarFeedbackProps) {
 
   return (
     <>
-      <button
-        onClick={handleOpen}
-        className="text-text-secondary transition-colors hover:text-text-primary"
-        aria-label="Give Feedback"
-      >
-        <IconMessageReport size={20} />
-      </button>
+      {!isControlled && (
+        <button
+          onClick={handleOpen}
+          className="text-text-secondary transition-colors hover:text-text-primary"
+          aria-label="Give Feedback"
+        >
+          <IconMessageReport size={20} />
+        </button>
+      )}
 
       <Modal
         opened={opened}
