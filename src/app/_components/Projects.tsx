@@ -117,7 +117,7 @@ function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspa
                   {project.name}
                 </Link>
               </td>
-              <td className="px-4 py-2">
+              <td className="whitespace-nowrap px-4 py-2">
                 {project.actions ? (() => {
                   const { score, indicators } = calculateProjectHealth(project);
                   return (
@@ -351,7 +351,7 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
   const unlinkedCount = unlinkedProjectsData?.unlinkedProjects.length ?? 0;
 
   return (
-    <div className="w-full max-w-2xl">
+    <div className="w-full max-w-4xl">
       <Group justify="space-between" align="center" mb="md">
         <h2 className="text-2xl font-bold">Projects</h2>
         {unlinkedCount > 0 && (

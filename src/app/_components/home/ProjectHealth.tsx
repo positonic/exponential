@@ -110,7 +110,7 @@ export function HealthRing({ score, size = 32 }: { score: number; size?: number 
 
 export function HealthIndicatorIcons({ indicators }: { indicators: HealthIndicators }) {
   return (
-    <Group gap={4}>
+    <Group gap={4} wrap="nowrap">
       <Tooltip
         label={
           indicators.weeklyPlanning
