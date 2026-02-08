@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { PageHeader } from "./PageHeader";
 import { TodayContent } from "./TodayContent";
 import type { FocusPeriod } from "~/types/focus";
@@ -25,40 +25,42 @@ export function NavigationWrapper({
   workspaceId,
   workspaceName,
 }: NavigationWrapperProps) {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Read focus from URL, fall back to initial or default to 'today'
+  // Initialize focus from URL, then manage as client state
   const focusFromUrl = searchParams.get("focus");
-  const focus: FocusPeriod = isValidFocusPeriod(focusFromUrl)
+  const initialFocusValue: FocusPeriod = isValidFocusPeriod(focusFromUrl)
     ? focusFromUrl
     : initialFocus ?? "today";
 
-  // Calculate date range based on focus
-  const dateRange = getDateRangeForFocus(focus);
+  const [focus, setFocus] = useState<FocusPeriod>(initialFocusValue);
 
-  const handleFocusChange = useCallback(
-    (newFocus: FocusPeriod) => {
-      const params = new URLSearchParams(searchParams.toString());
+  // Memoize date range to avoid recalculation and ensure stable reference
+  const dateRange = useMemo(() => getDateRangeForFocus(focus), [focus]);
 
-      // Update focus param
-      if (newFocus === "today") {
-        params.delete("focus");
-      } else {
-        params.set("focus", newFocus);
-      }
+  const handleFocusChange = useCallback((newFocus: FocusPeriod) => {
+    setFocus(newFocus);
 
-      // Reset to overview tab when changing focus to avoid showing Journal for week/month
-      const currentTab = params.get("tab");
-      if (newFocus !== "today" && currentTab === "journal") {
-        params.delete("tab");
-      }
+    // Sync URL without triggering Next.js navigation
+    const params = new URLSearchParams(window.location.search);
 
-      const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
-      router.push(newUrl, { scroll: false });
-    },
-    [router, searchParams]
-  );
+    if (newFocus === "today") {
+      params.delete("focus");
+    } else {
+      params.set("focus", newFocus);
+    }
+
+    // Reset journal tab when changing focus away from today
+    const currentTab = params.get("tab");
+    if (newFocus !== "today" && currentTab === "journal") {
+      params.delete("tab");
+    }
+
+    const newUrl = params.toString()
+      ? `${window.location.pathname}?${params.toString()}`
+      : window.location.pathname;
+    window.history.replaceState(null, "", newUrl);
+  }, []);
 
   return (
     <>

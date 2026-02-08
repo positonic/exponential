@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo, useState } from "react";
 import { Tabs, Stack, Paper, Text, Group, ScrollArea } from "@mantine/core";
 import {
   IconHome,
@@ -41,23 +40,21 @@ interface TodayContentProps {
 }
 
 export function TodayContent({ calendarConnected, initialTab, focus, dateRange, workspaceId }: TodayContentProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  // Get tab from URL or use initial/default
-  const tabFromUrl = searchParams.get("tab");
-  // Filter out journal tab if not today focus
-  const availableTab = (tab: string | null | undefined): tab is TabValue => {
-    if (!isValidTab(tab)) return false;
-    if (tab === "journal" && focus !== "today") return false;
-    return true;
+  // Manage tab as client state, initialized from prop
+  const getInitialTab = (): TabValue => {
+    if (isValidTab(initialTab) && !(initialTab === "journal" && focus !== "today")) {
+      return initialTab;
+    }
+    return "overview";
   };
 
-  const activeTab: TabValue = availableTab(tabFromUrl)
-    ? tabFromUrl
-    : availableTab(initialTab)
-      ? initialTab
-      : "overview";
+  const [activeTab, setActiveTab] = useState<TabValue>(getInitialTab);
+
+  // Memoize the viewName string to avoid recalculation
+  const viewName = useMemo(
+    () => formatFocusLabel(focus).toLowerCase().replace(" ", "-"),
+    [focus]
+  );
 
   // Fetch calendar events for the date range
   const { data: events, isLoading: eventsLoading } = api.calendar.getEvents.useQuery(
@@ -104,7 +101,7 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
     },
   });
 
-  const handleActionStatusChange = (action: ScheduledAction, completed: boolean) => {
+  const handleActionStatusChange = useCallback((action: ScheduledAction, completed: boolean) => {
     if (action.source === "daily-plan" && action.dailyPlanActionId) {
       updateDailyPlanTask.mutate({
         id: action.dailyPlanActionId,
@@ -117,23 +114,29 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
       id: action.actionId ?? action.id,
       status: completed ? "COMPLETED" : "ACTIVE",
     });
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleTabChange = useCallback((value: string | null) => {
     if (value && isValidTab(value)) {
       // Don't allow switching to journal if not today focus
       if (value === "journal" && focus !== "today") return;
 
-      const params = new URLSearchParams(searchParams.toString());
+      setActiveTab(value);
+
+      // Sync URL without triggering Next.js navigation
+      const params = new URLSearchParams(window.location.search);
       if (value === "overview") {
         params.delete("tab");
       } else {
         params.set("tab", value);
       }
-      const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
-      router.push(newUrl, { scroll: false });
+      const newUrl = params.toString()
+        ? `${window.location.pathname}?${params.toString()}`
+        : window.location.pathname;
+      window.history.replaceState(null, "", newUrl);
     }
-  }, [router, searchParams, focus]);
+  }, [focus]);
 
   const formatEventTime = (event: NonNullable<typeof events>[0]) => {
     if (event.start.dateTime) {
@@ -339,7 +342,7 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
           </Tabs.Panel>
 
           <Tabs.Panel value="tasks">
-            <Actions viewName={formatFocusLabel(focus).toLowerCase().replace(" ", "-")} />
+            <Actions viewName={viewName} />
           </Tabs.Panel>
 
           <Tabs.Panel value="calendar">
