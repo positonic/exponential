@@ -13,6 +13,8 @@ import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { decryptBuffer, encryptString } from "~/server/utils/encryption";
 import { decryptCredential } from "~/server/utils/credentialHelper";
 import type { PrismaClient } from "@prisma/client";
+import { addDays, startOfDay, endOfDay } from "date-fns";
+import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } from "~/server/services";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -1962,6 +1964,124 @@ export const mastraRouter = createTRPCRouter({
       });
 
       return { created: true, updated: false, contactId: contact.id };
+    }),
+
+  // ==================== NEW CALENDAR ENDPOINTS ====================
+
+  // Get today's events across all providers
+  getTodayCalendarEvents: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const today = new Date();
+      const start = startOfDay(today).toISOString();
+      const end = endOfDay(today).toISOString();
+
+      const events = await getEventsMultiCalendar(
+        ctx.session.user.id,
+        start,
+        end
+      );
+      return { events, date: today.toISOString() };
+    }),
+
+  // Get upcoming events (next N days)
+  getUpcomingCalendarEvents: protectedProcedure
+    .input(z.object({
+      days: z.number().min(1).max(30).default(7),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      const start = now.toISOString();
+      const end = addDays(now, input.days).toISOString();
+
+      const events = await getEventsMultiCalendar(
+        ctx.session.user.id,
+        start,
+        end
+      );
+      return { events, days: input.days };
+    }),
+
+  // Get events in custom date range (multi-calendar)
+  getCalendarEventsInRange: protectedProcedure
+    .input(z.object({
+      timeMin: z.string().datetime(),
+      timeMax: z.string().datetime(),
+      provider: z.enum(['google', 'microsoft']).optional(),
+      maxResults: z.number().default(250),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // If provider specified, use single provider
+      if (input.provider) {
+        const service = getCalendarService(input.provider);
+        const events = await service.getEvents(ctx.session.user.id, {
+          timeMin: input.timeMin,
+          timeMax: input.timeMax,
+          maxResults: input.maxResults,
+        });
+        return { events, provider: input.provider };
+      }
+
+      // Otherwise aggregate from all connected providers
+      const multiEvents = await getEventsMultiCalendar(
+        ctx.session.user.id,
+        input.timeMin,
+        input.timeMax,
+        input.maxResults
+      );
+      return { events: multiEvents };
+    }),
+
+  // Create a new calendar event
+  createCalendarEvent: protectedProcedure
+    .input(z.object({
+      summary: z.string(),
+      description: z.string().optional(),
+      start: z.object({
+        dateTime: z.string().datetime(),
+        timeZone: z.string().optional(),
+      }),
+      end: z.object({
+        dateTime: z.string().datetime(),
+        timeZone: z.string().optional(),
+      }),
+      location: z.string().optional(),
+      attendees: z.array(z.object({
+        email: z.string().email(),
+        displayName: z.string().optional(),
+      })).optional(),
+      provider: z.enum(['google', 'microsoft']).default('google'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const service = getCalendarService(input.provider);
+
+      const createdEvent = await service.createEvent(
+        ctx.session.user.id,
+        {
+          summary: input.summary,
+          description: input.description,
+          start: input.start,
+          end: input.end,
+          location: input.location,
+          attendees: input.attendees,
+        }
+      );
+
+      return { event: createdEvent, provider: input.provider };
+    }),
+
+  // Get multi-calendar connection status
+  getAllCalendarConnectionStatus: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const [googleStatus, microsoftStatus] = await Promise.all([
+        checkProviderConnection(ctx.db, ctx.session.user.id, 'google'),
+        checkProviderConnection(ctx.db, ctx.session.user.id, 'microsoft'),
+      ]);
+
+      return {
+        google: googleStatus,
+        microsoft: microsoftStatus,
+        hasAnyConnected: googleStatus.isConnected || microsoftStatus.isConnected,
+      };
     }),
 });
 
