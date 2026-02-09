@@ -415,24 +415,26 @@ export const actionRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updateData } = input;
-      
+
       // Check if action is being marked as completed
       const isCompleting = updateData.status === "COMPLETED" || updateData.kanbanStatus === "DONE";
       const isUncompleting = updateData.status === "ACTIVE" || (updateData.kanbanStatus && updateData.kanbanStatus !== "DONE");
-      
+
       // Get current action to check previous state
       const currentAction = await ctx.db.action.findUnique({
         where: { id },
         select: { status: true, kanbanStatus: true, completedAt: true }
       });
-      
+
       const wasCompleted = currentAction?.status === "COMPLETED" || currentAction?.kanbanStatus === "DONE";
-      
+
       // Set completedAt timestamp when completing, clear when uncompleting
+      // Clear kanbanOrder when priority is updated to restore automatic sorting
       const finalUpdateData = {
         ...updateData,
         ...(isCompleting && !wasCompleted && { completedAt: new Date() }),
         ...(isUncompleting && wasCompleted && { completedAt: null }),
+        ...(updateData.priority !== undefined && { kanbanOrder: null }),
       };
 
       const updatedAction = await ctx.db.action.update({

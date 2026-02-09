@@ -133,6 +133,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       // Invalidate queries to refresh data
       await utils.action.getAll.invalidate();
       await utils.action.getProjectActions.invalidate();
+      await utils.view.getViewActions.invalidate();
       await utils.action.getToday.invalidate();
       await utils.action.getScheduledByDate.invalidate();
       await utils.action.getScheduledByDateRange.invalidate();
@@ -160,6 +161,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       // Ensure consistency regardless of success/failure
       void utils.action.getAll.invalidate();
       void utils.action.getProjectActions.invalidate();
+      void utils.view.getViewActions.invalidate();
     },
   });
 

@@ -25,6 +25,7 @@ interface Action {
   name: string;
   description?: string | null;
   dueDate?: Date | null;
+  scheduledStart?: Date | null;
   kanbanStatus?: ActionStatus | null;
   priority: string;
   projectId?: string | null;
@@ -149,22 +150,30 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
         (column.id === "TODO" && !action.kanbanStatus) // Default to TODO if no status
       );
 
-      // Sort: manually positioned tasks (with kanbanOrder) first, then by priority
+      // Sort by kanbanOrder (manual positioning), then scheduledStart, then priority, then ID
       acc[column.id] = columnActions.sort((a, b) => {
         const aOrder = a.kanbanOrder;
         const bOrder = b.kanbanOrder;
 
-        // If both have kanbanOrder (manually positioned), sort by that
+        // 1. Manual positioning takes precedence (if BOTH have kanbanOrder)
         if (aOrder != null && bOrder != null) {
           return aOrder - bOrder;
         }
-        // Manually positioned tasks come before auto-sorted ones
         if (aOrder != null) return -1;
         if (bOrder != null) return 1;
 
-        // Neither has kanbanOrder - use priority + ID (matching list view)
+        // 2. Sort by scheduledStart (ascending - earliest first, null/undefined at end)
+        const aScheduledStart = a.scheduledStart ? new Date(a.scheduledStart).getTime() : Infinity;
+        const bScheduledStart = b.scheduledStart ? new Date(b.scheduledStart).getTime() : Infinity;
+        if (aScheduledStart !== bScheduledStart) {
+          return aScheduledStart - bScheduledStart;
+        }
+
+        // 3. Sort by priority (1st Priority first)
         const priorityDiff = (priorityOrder[a.priority] ?? 999) - (priorityOrder[b.priority] ?? 999);
         if (priorityDiff !== 0) return priorityDiff;
+
+        // 4. Tiebreaker: by ID
         return a.id.localeCompare(b.id);
       });
 
