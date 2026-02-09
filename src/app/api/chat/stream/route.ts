@@ -92,6 +92,7 @@ export async function POST(req: Request) {
     if (projectId) {
       entries.push(["projectId", projectId]);
     }
+    console.log(`🔗 [chat/stream] agentId=${agentId}, projectId=${projectId || "none"}, workspaceId=${workspaceId || "none"}, messages=${messages.length}`);
     const requestContext = new RequestContext(entries);
 
     const agent = client.getAgent(agentId ?? "projectManagerAgent");

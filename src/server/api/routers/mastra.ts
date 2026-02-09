@@ -749,7 +749,9 @@ export const mastraRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // Use authenticated user's ID from session
       const userId = ctx.session.user.id;
-      
+
+      console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate || "none"}, userId=${userId}`);
+
       // Verify user has access to this project
       const project = await ctx.db.project.findUnique({
         where: { 
@@ -776,7 +778,9 @@ export const mastraRouter = createTRPCRouter({
         },
       });
 
-      return { 
+      console.log(`✅ [tRPC createAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId}`);
+
+      return {
         action: {
           id: action.id,
           name: action.name,
@@ -798,13 +802,18 @@ export const mastraRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
+      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}`);
+
       // Use the same parsing logic as action.quickCreate
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
       const parsed = await parseActionInput(input.text, userId, ctx.db);
 
+      console.log(`🎯 [tRPC quickCreateAction] PARSED: name="${parsed.name}", parsedProjectId=${parsed.projectId || "none"}, dueDate=${parsed.dueDate || "none"}`);
+
       // Use context projectId as fallback if text parsing didn't match a project
       if (!parsed.projectId && input.projectId) {
         parsed.projectId = input.projectId;
+        console.log(`🎯 [tRPC quickCreateAction] FALLBACK: using context projectId=${input.projectId}`);
       }
 
       // Get kanban order if project specified
@@ -834,6 +843,8 @@ export const mastraRouter = createTRPCRouter({
           project: { select: { id: true, name: true } },
         },
       });
+
+      console.log(`✅ [tRPC quickCreateAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId || "none"}, project=${action.project?.name || "none"}`);
 
       return {
         success: true,
