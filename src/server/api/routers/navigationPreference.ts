@@ -40,6 +40,7 @@ export const navigationPreferenceRouter = createTRPCRouter({
         hiddenItems: [] as string[],
         showInspiringQuote: true,
         showSuggestedFocus: true,
+        showGamification: true,
       };
     }
 
@@ -48,6 +49,7 @@ export const navigationPreferenceRouter = createTRPCRouter({
       hiddenItems: preferences.hiddenItems,
       showInspiringQuote: preferences.showInspiringQuote,
       showSuggestedFocus: preferences.showSuggestedFocus,
+      showGamification: preferences.showGamification,
     };
   }),
 
@@ -193,6 +195,22 @@ export const navigationPreferenceRouter = createTRPCRouter({
           hiddenSections: [],
           hiddenItems: [],
           showSuggestedFocus: input.visible,
+        },
+      });
+    }),
+
+  // Toggle gamification/scoring visibility
+  toggleGamification: protectedProcedure
+    .input(z.object({ visible: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.navigationPreference.upsert({
+        where: { userId: ctx.session.user.id },
+        update: { showGamification: input.visible },
+        create: {
+          userId: ctx.session.user.id,
+          hiddenSections: [],
+          hiddenItems: [],
+          showGamification: input.visible,
         },
       });
     }),

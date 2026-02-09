@@ -6,6 +6,7 @@ import { Group, Title, SegmentedControl, ActionIcon } from "@mantine/core";
 import { IconFilter } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 import { DailyScoreCard } from "./scoring/DailyScoreCard";
+import { api } from "~/trpc/react";
 
 export type DoFilter = "today" | "tomorrow" | "upcoming";
 
@@ -16,6 +17,7 @@ interface DoPageContentProps {
 export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: preferences } = api.navigationPreference.getPreferences.useQuery();
 
   // Read filter from URL, fall back to initial or default to 'today'
   const filterFromUrl = searchParams.get("filter");
@@ -104,8 +106,8 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
         </div>
       </div>
 
-      {/* Daily Score Card - Only show on "today" filter */}
-      {filter === "today" && (
+      {/* Daily Score Card - Only show on "today" filter when gamification enabled */}
+      {filter === "today" && preferences?.showGamification !== false && (
         <div className="mb-6 w-full">
           <DailyScoreCard />
         </div>

@@ -9,12 +9,14 @@ import {
   IconHome,
   IconUsers,
   IconPlayerPlay,
+  IconChartBar,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { usePluginNavigation } from "~/hooks/usePluginNavigation";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+import { api } from "~/trpc/react";
 
 // Icon map for plugin navigation items in main nav
 const mainNavIconMap = {
@@ -68,6 +70,7 @@ export function NavLink({ href, icon: Icon, children, count }: {
 export function NavLinks() {
   const { workspaceSlug } = useWorkspace();
   const { itemsBySection } = usePluginNavigation();
+  const { data: preferences } = api.navigationPreference.getPreferences.useQuery();
 
   // Home always goes to /home regardless of workspace context
   const homePath = '/home';
@@ -108,6 +111,11 @@ export function NavLinks() {
       <NavLink href="/daily-plan" icon={IconCalendarEvent} count={<TodayCount />}>
         Daily plan
       </NavLink>
+      {preferences?.showGamification !== false && (
+        <NavLink href="/productivity" icon={IconChartBar}>
+          Productivity
+        </NavLink>
+      )}
       <NavLink href="/calendar" icon={IconCalendar}>
         Calendar
       </NavLink>

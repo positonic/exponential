@@ -159,6 +159,8 @@ model User {
   dailyScores                 DailyScore[]
   streaks                     ProductivityStreak[]
   leaderboardEntries          LeaderboardEntry[]
+  // AI Assistant customization
+  assistantsCreated           Assistant[]                @relation("AssistantCreatedBy")
 }
 
 model VerificationToken {
@@ -221,6 +223,8 @@ model Workspace {
   dailyScores              DailyScore[]
   streaks                  ProductivityStreak[]
   leaderboardEntries       LeaderboardEntry[]
+  // AI Assistant customization
+  assistants               Assistant[]
 
   @@index([slug])
   @@index([ownerId])
@@ -1135,6 +1139,7 @@ model NavigationPreference {
   hiddenItems        String[] @default([])
   showInspiringQuote Boolean  @default(true)
   showSuggestedFocus Boolean  @default(true)
+  showGamification   Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -2251,4 +2256,28 @@ model RecurringTask {
   @@index([projectId])
   @@index([createdById])
   @@index([scheduleId])
+}
+
+// ============================================
+// AI Assistant Customization
+// ============================================
+
+model Assistant {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  createdById  String
+  name         String   // User-chosen assistant name ("Aria", "Max", etc.)
+  emoji        String?  // Visual symbol
+  personality  String   @db.Text // Free-text soul/persona (like Clawd's SOUL.md)
+  instructions String?  @db.Text // Operating instructions
+  userContext   String?  @db.Text // About the user/team
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("AssistantCreatedBy", fields: [createdById], references: [id])
+
+  @@index([workspaceId])
+  @@index([createdById])
 }

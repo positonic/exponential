@@ -11,9 +11,10 @@ interface WelcomeStepProps {
   selectedDate: PlanDate;
   onDateChange: (date: PlanDate) => void;
   onStart: () => void;
+  showGamification?: boolean;
 }
 
-export function WelcomeStep({ selectedDate, onDateChange, onStart }: WelcomeStepProps) {
+export function WelcomeStep({ selectedDate, onDateChange, onStart, showGamification = true }: WelcomeStepProps) {
   const currentHour = new Date().getHours();
   const isAfternoon = currentHour >= 14;
 
@@ -36,9 +37,11 @@ export function WelcomeStep({ selectedDate, onDateChange, onStart }: WelcomeStep
       </div>
 
       {/* Daily Score Card */}
-      <div className="w-full">
-        <DailyScoreCard compact />
-      </div>
+      {showGamification && (
+        <div className="w-full">
+          <DailyScoreCard compact />
+        </div>
+      )}
 
       {/* Date Selection */}
       <Paper p="md" className="w-full bg-surface-secondary border border-border-primary">

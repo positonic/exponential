@@ -74,6 +74,9 @@ export default function DailyPlanPage() {
   // Get user's work hours for the timeline
   const { data: workHours } = api.dailyPlan.getUserWorkHours.useQuery();
 
+  // Get navigation preferences for gamification toggle
+  const { data: navPreferences } = api.navigationPreference.getPreferences.useQuery();
+
   // Utils for optimistic updates
   const utils = api.useUtils();
 
@@ -292,6 +295,7 @@ export default function DailyPlanPage() {
             selectedDate={selectedDate}
             onDateChange={setSelectedDate}
             onStart={() => setCurrentStep("add-task")}
+            showGamification={navPreferences?.showGamification !== false}
           />
         )}
 

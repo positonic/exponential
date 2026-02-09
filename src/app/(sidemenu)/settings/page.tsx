@@ -28,6 +28,7 @@ import {
   IconQuote,
   IconSparkles,
   IconChevronRight,
+  IconChartBar,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { notifications } from "@mantine/notifications";
@@ -161,6 +162,27 @@ export default function NavigationSettingsPage() {
         notifications.show({
           title: "Updated",
           message: "Home screen preference saved",
+          color: "green",
+          icon: <IconCheck size={16} />,
+        });
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Error",
+          message: error.message ?? "Failed to update preference",
+          color: "red",
+          icon: <IconAlertCircle size={16} />,
+        });
+      },
+    });
+
+  const toggleGamification =
+    api.navigationPreference.toggleGamification.useMutation({
+      onSuccess: () => {
+        void utils.navigationPreference.getPreferences.invalidate();
+        notifications.show({
+          title: "Updated",
+          message: "Productivity scoring preference saved",
           color: "green",
           icon: <IconCheck size={16} />,
         });
@@ -397,6 +419,52 @@ export default function NavigationSettingsPage() {
                   </div>
                 </Group>
                 <IconChevronRight size={18} className="text-text-muted" />
+              </Group>
+            </Paper>
+          </Stack>
+        </Card>
+
+        {/* Productivity & Scoring Section */}
+        <Card
+          className="bg-surface-secondary border-border-primary"
+          withBorder
+          p="lg"
+        >
+          <Group gap="sm" mb="md">
+            <IconChartBar size={20} className="text-text-muted" />
+            <div>
+              <Title order={4} className="text-text-primary">
+                Productivity & Scoring
+              </Title>
+              <Text size="sm" c="dimmed">
+                Control the daily productivity scoring system
+              </Text>
+            </div>
+          </Group>
+
+          <Stack gap="sm">
+            <Paper p="sm" withBorder className="bg-surface-primary">
+              <Group justify="space-between">
+                <Group gap="sm">
+                  <IconChartBar size={18} className="text-text-muted" />
+                  <div>
+                    <Text size="sm" fw={500}>
+                      Daily Productivity Scoring
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      Show score cards, streaks, and productivity charts across the app
+                    </Text>
+                  </div>
+                </Group>
+                <Switch
+                  checked={preferences?.showGamification ?? true}
+                  onChange={(e) =>
+                    toggleGamification.mutate({
+                      visible: e.currentTarget.checked,
+                    })
+                  }
+                  disabled={toggleGamification.isPending}
+                />
               </Group>
             </Paper>
           </Stack>
