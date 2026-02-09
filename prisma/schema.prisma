@@ -396,6 +396,8 @@ model Project {
   createdAt             DateTime                   @default(now())
   reviewDate            DateTime?
   nextActionDate        DateTime?
+  startDate             DateTime?
+  endDate               DateTime?
   createdById           String
   slug                  String                     @unique
   description           String?

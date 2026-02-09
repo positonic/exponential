@@ -26,6 +26,8 @@ import { notifications } from "@mantine/notifications";
 import { NextActionCapture } from "./NextActionCapture";
 import { OutcomeMultiSelect } from "~/app/_components/OutcomeMultiSelect";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
+import { ProjectDateBadges } from "./ProjectDateBadges";
+import { ProjectDriBadge } from "./ProjectDriBadge";
 import {
   PROJECT_STATUS_OPTIONS,
   PROJECT_PRIORITY_OPTIONS,
@@ -174,6 +176,36 @@ export function ProjectReviewCard({
     }
   };
 
+  const handleDateUpdate = (dates: { startDate?: Date | null; endDate?: Date | null }) => {
+    updateProject.mutate({
+      id: project.id,
+      name: project.name,
+      status: status as ProjectStatus,
+      priority: priority as ProjectPriority,
+      ...dates,
+    });
+    notifications.show({
+      title: "Dates updated",
+      message: "Project dates have been saved",
+      color: "green",
+    });
+  };
+
+  const handleDriUpdate = (driId: string | null) => {
+    updateProject.mutate({
+      id: project.id,
+      name: project.name,
+      status: status as ProjectStatus,
+      priority: priority as ProjectPriority,
+      driId,
+    });
+    notifications.show({
+      title: "DRI updated",
+      message: "Project DRI has been saved",
+      color: "green",
+    });
+  };
+
   return (
     <Card
       withBorder
@@ -208,6 +240,24 @@ export function ProjectReviewCard({
           <Text size="lg" fw={600} className="text-text-primary">
             {project.name}
           </Text>
+
+          {/* Date and DRI Section - More Prominent */}
+          <Group gap="md" className="mb-3">
+            <ProjectDateBadges
+              projectId={project.id}
+              startDate={project.startDate}
+              endDate={project.endDate}
+              onUpdate={handleDateUpdate}
+            />
+            <div style={{ marginLeft: 'auto' }}>
+              <ProjectDriBadge
+                projectId={project.id}
+                dri={project.dri}
+                onUpdate={handleDriUpdate}
+              />
+            </div>
+          </Group>
+
           <Group gap={8}>
             <Tooltip
               label={

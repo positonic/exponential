@@ -198,6 +198,8 @@ export const projectRouter = createTRPCRouter({
         progress: z.number().min(0).max(100).optional().default(0),
         reviewDate: z.date().nullable().optional(),
         nextActionDate: z.date().nullable().optional(),
+        startDate: z.date().nullable().optional(),
+        endDate: z.date().nullable().optional(),
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
         lifeDomainIds: z.array(z.number()).optional(),
@@ -229,6 +231,8 @@ export const projectRouter = createTRPCRouter({
           slug,
           reviewDate: input.reviewDate ?? null,
           nextActionDate: input.nextActionDate ?? null,
+          startDate: input.startDate ?? null,
+          endDate: input.endDate ?? null,
           notionProjectId: input.notionProjectId,
           createdById: ctx.session.user.id,
           workspaceId: input.workspaceId ?? null,
@@ -294,6 +298,8 @@ export const projectRouter = createTRPCRouter({
         driId: z.string().nullable().optional(),
         reviewDate: z.date().nullable().optional(),
         nextActionDate: z.date().nullable().optional(),
+        startDate: z.date().nullable().optional(),
+        endDate: z.date().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -398,6 +404,14 @@ export const projectRouter = createTRPCRouter({
           outcomes: {
             orderBy: {
               dueDate: 'asc',
+            },
+          },
+          dri: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
             },
           },
         },

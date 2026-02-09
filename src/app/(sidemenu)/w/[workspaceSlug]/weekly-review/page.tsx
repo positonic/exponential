@@ -66,6 +66,11 @@ function calculateProjectHealthScore(project: Project): number {
     score -= 10;
   }
 
+  // -15 if no end date set
+  if (!project.endDate) {
+    score -= 15;
+  }
+
   return Math.max(0, score);
 }
 

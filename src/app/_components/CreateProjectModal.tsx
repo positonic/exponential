@@ -44,8 +44,8 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(project?.workspaceId ?? null);
   const [selectedDriId, setSelectedDriId] = useState<string | null>(project?.driId ?? null);
-  const [startDate, setStartDate] = useState<Date | null>(project?.nextActionDate ?? null);
-  const [endDate, setEndDate] = useState<Date | null>(project?.reviewDate ?? null);
+  const [startDate, setStartDate] = useState<Date | null>(project?.startDate ?? null);
+  const [endDate, setEndDate] = useState<Date | null>(project?.endDate ?? null);
 
   // Get current workspace context for new projects
   const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
@@ -315,8 +315,8 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
                 workspaceId: selectedWorkspaceId,
                 driId: selectedDriId,
-                reviewDate: endDate,
-                nextActionDate: startDate,
+                startDate: startDate,
+                endDate: endDate,
               });
             } else {
               createMutation.mutate({
@@ -330,8 +330,8 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 notionProjectId: notionProjectId ?? undefined,
                 workspaceId: selectedWorkspaceId ?? undefined,
                 driId: selectedDriId,
-                reviewDate: endDate ?? undefined,
-                nextActionDate: startDate ?? undefined,
+                startDate: startDate ?? undefined,
+                endDate: endDate ?? undefined,
               });
             }
           }}
