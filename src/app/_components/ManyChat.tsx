@@ -588,14 +588,39 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       // Extract workspaceId from page context so agent tools can filter by workspace
       const workspaceId = pageContext?.data?.workspaceId as string | undefined;
 
+      // Build full conversation history so the agent has context from prior messages
+      const coreMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [];
+
+      const systemContent = messages.find(m => m.type === 'system')?.content;
+      if (systemContent) {
+        coreMessages.push({ role: 'system', content: systemContent });
+      }
+
+      // Include all prior user/assistant messages (skip system, skip the empty AI placeholder we just added)
+      for (const msg of messages) {
+        if (msg.type === 'human') {
+          coreMessages.push({ role: 'user', content: msg.content });
+        } else if (msg.type === 'ai' && msg.content) {
+          coreMessages.push({ role: 'assistant', content: msg.content });
+        }
+      }
+
+      // Add the current user message
+      coreMessages.push({ role: 'user', content: messageToSend });
+
+      // Trim to avoid exceeding context window: keep system message + last 40 messages
+      const MAX_HISTORY_MESSAGES = 40;
+      if (coreMessages.length > MAX_HISTORY_MESSAGES + 1) {
+        const system = coreMessages[0]!;
+        const recent = coreMessages.slice(-MAX_HISTORY_MESSAGES);
+        coreMessages.splice(0, coreMessages.length, system, ...recent);
+      }
+
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [
-            { role: 'system', content: messages.find(m => m.type === 'system')?.content ?? '' },
-            { role: 'user', content: messageToSend }
-          ],
+          messages: coreMessages,
           agentId: targetAgentId,
           workspaceId,
         }),
