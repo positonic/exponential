@@ -85,6 +85,7 @@ export function NotionTaskImporter({
     if (opened && notionIntegration && !testConnection.data) {
       testConnection.mutate({ integrationId: notionIntegration.id });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opened, notionIntegration]);
 
   // Fetch pages when database is selected
@@ -95,6 +96,7 @@ export function NotionTaskImporter({
         databaseId: selectedDatabase,
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDatabase, notionIntegration]);
 
   // Reset state when modal closes

@@ -10,7 +10,6 @@ import {
   Paper,
   Badge,
   TextInput,
-  Drawer,
 } from "@mantine/core";
 import { TimeInput } from "@mantine/dates";
 import {
@@ -21,6 +20,7 @@ import type { RouterOutputs } from "~/trpc/react";
 import { WorkloadTimeline } from "../WorkloadTimeline";
 import { DeferColumnView } from "../DeferColumnView";
 import { CalendarEventImporter } from "../CalendarEventImporter";
+import { NotionTaskImporter } from "../NotionTaskImporter";
 
 type DailyPlan = RouterOutputs["dailyPlan"]["getOrCreateToday"];
 type DailyPlanAction = DailyPlan["plannedActions"][number];
@@ -269,25 +269,14 @@ export function FillDayStep({
         onImported={onRefetch}
       />
 
-      {/* Notion Integration Drawer */}
-      <Drawer
+      {/* Notion Task Importer Modal */}
+      <NotionTaskImporter
         opened={notionPanelOpen}
         onClose={() => setNotionPanelOpen(false)}
-        title="Notion Integration"
-        position="right"
-        size="md"
-      >
-        <Stack gap="md">
-          <Text c="dimmed">
-            Plan your day using your Notion pages. Connect your Notion account
-            to browse your databases and drag tasks into your daily plan.
-          </Text>
-          <Button variant="filled">Connect Notion</Button>
-          <Text size="sm" c="dimmed">
-            Integration panel coming soon...
-          </Text>
-        </Stack>
-      </Drawer>
+        planDate={planDate}
+        dailyPlanId={dailyPlan.id}
+        onImported={onRefetch}
+      />
     </>
   );
 }
