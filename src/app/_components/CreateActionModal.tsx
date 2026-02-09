@@ -10,6 +10,7 @@ import { IconPlus } from '@tabler/icons-react';
 import type { ActionStatus } from '@prisma/client';
 import { useSession } from 'next-auth/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { notifications } from '@mantine/notifications';
 
 export function CreateActionModal({ viewName, projectId: propProjectId, children }: { viewName: string; projectId?: string; children?: React.ReactNode }) {
   const { data: session } = useSession();
@@ -184,6 +185,14 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       utils.project.getAll.setData(undefined, projects);
       utils.action.getAll.setData(undefined, actions);
       utils.action.getToday.setData(undefined, todayActions);
+
+      // Show error notification
+      notifications.show({
+        title: "Failed to Create Action",
+        message: err.message || "Something went wrong. Please try again.",
+        color: "red",
+        autoClose: 5000,
+      });
     },
 
     onSettled: async (data, error, variables) => {
@@ -223,6 +232,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       // Store the created action ID for assignment
       setCreatedActionId(data.id);
 
+      let hasAssignError = false;
+      let hasTagError = false;
+
       // If there are assignees, assign them
       if (selectedAssigneeIds.length > 0) {
         try {
@@ -231,8 +243,8 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
             userIds: selectedAssigneeIds,
           });
         } catch (error) {
+          hasAssignError = true;
           console.error('Failed to assign users:', error);
-          // Continue with success flow even if assignment fails
         }
       }
 
@@ -244,38 +256,35 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
             tagIds: selectedTagIds,
           });
         } catch (error) {
+          hasTagError = true;
           console.error('Failed to set tags:', error);
-          // Continue with success flow even if tagging fails
         }
       }
 
-      // Reset form state
-      setName("");
-      setDescription("");
-      // Reset projectId to initial value (current project if on project page)
-      setProjectId(initProjectId || undefined);
-      setPriority("Quick");
-      // Reset dueDate to today if on /today or /workspace page, otherwise null
-      setDueDate(() => {
-        const successLowerView = viewName.toLowerCase();
-        if (successLowerView === 'today' || successLowerView === 'workspace') {
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          return today;
-        }
-        return null;
+      // Show success notification with any warnings
+      let message = "Action created successfully";
+      if (hasAssignError) message += " (assignment failed)";
+      if (hasTagError) message += " (tags failed)";
+
+      notifications.show({
+        title: hasAssignError || hasTagError ? "Partial Success" : "Success",
+        message,
+        color: hasAssignError || hasTagError ? "yellow" : "green",
+        autoClose: 3000,
       });
-      setScheduledStart(null);
-      setDuration(null);
-      setSelectedAssigneeIds([]);
-      setSelectedTagIds([]);
-      close();
+
+      // Form reset already happened in handleSubmit
+      // close() already called in handleSubmit
     },
   });
 
   const handleSubmit = () => {
     if (!name) return;
 
+    // Close modal immediately for better UX
+    close();
+
+    // Prepare action data before resetting form
     const actionData = {
       name,
       description: description || undefined,
@@ -287,6 +296,28 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       duration: duration || undefined,
     };
 
+    // Reset form immediately (moved from onSuccess)
+    setName("");
+    setDescription("");
+    // Reset projectId to initial value (current project if on project page)
+    setProjectId(initProjectId || undefined);
+    setPriority("Quick");
+    // Reset dueDate to today if on /today or /workspace page, otherwise null
+    setDueDate(() => {
+      const lowerView = viewName.toLowerCase();
+      if (lowerView === 'today' || lowerView === 'workspace') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return today;
+      }
+      return null;
+    });
+    setScheduledStart(null);
+    setDuration(null);
+    setSelectedAssigneeIds([]);
+    setSelectedTagIds([]);
+
+    // Trigger mutation in background
     createAction.mutate(actionData);
   };
 

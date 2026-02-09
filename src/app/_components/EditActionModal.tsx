@@ -5,6 +5,7 @@ import { type RouterOutputs } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
+import { notifications } from '@mantine/notifications';
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
 // Make createdBy optional to support actions from various sources
@@ -75,20 +76,100 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
   }, [currentAction]);
 
   const updateAction = api.action.update.useMutation({
+    onMutate: async (updatedAction) => {
+      // Cancel in-flight queries to prevent race conditions
+      await utils.action.getAll.cancel();
+      await utils.action.getProjectActions.cancel();
+
+      // Snapshot previous state for rollback
+      const previousActions = utils.action.getAll.getData();
+
+      // Optimistically update the action in cache
+      utils.action.getAll.setData(undefined, (old) => {
+        if (!old) return old;
+        return old.map(action =>
+          action.id === updatedAction.id
+            ? { ...action, ...updatedAction }
+            : action
+        );
+      });
+
+      return { previousActions };
+    },
+
     onSuccess: async () => {
+      // Update tags in background if there are any
+      if (currentAction && selectedTagIds) {
+        try {
+          await setTagsMutation.mutateAsync({
+            actionId: currentAction.id,
+            tagIds: selectedTagIds,
+          });
+
+          notifications.show({
+            title: "Action Updated",
+            message: "All changes saved successfully",
+            color: "green",
+            autoClose: 3000,
+          });
+        } catch (error) {
+          console.error('Failed to update tags:', error);
+          notifications.show({
+            title: "Partial Update",
+            message: "Action updated but tags failed to save",
+            color: "yellow",
+            autoClose: 4000,
+          });
+        }
+      } else {
+        notifications.show({
+          title: "Action Updated",
+          message: "Changes saved successfully",
+          color: "green",
+          autoClose: 3000,
+        });
+      }
+
+      // Invalidate queries to refresh data
       await utils.action.getAll.invalidate();
       await utils.action.getProjectActions.invalidate();
       await utils.action.getToday.invalidate();
       await utils.action.getScheduledByDate.invalidate();
       await utils.action.getScheduledByDateRange.invalidate();
+
       onSuccess?.();
-      onClose();
+      // onClose() already called in handleSubmit
+    },
+
+    onError: (error, variables, context) => {
+      // Rollback optimistic updates
+      if (context?.previousActions) {
+        utils.action.getAll.setData(undefined, context.previousActions);
+      }
+
+      // Show error notification
+      notifications.show({
+        title: "Update Failed",
+        message: error.message || "Failed to update action. Please try again.",
+        color: "red",
+        autoClose: 5000,
+      });
+    },
+
+    onSettled: () => {
+      // Ensure consistency regardless of success/failure
+      void utils.action.getAll.invalidate();
+      void utils.action.getProjectActions.invalidate();
     },
   });
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!name || !currentAction) return;
 
+    // Close modal immediately for better UX
+    onClose();
+
+    // Trigger mutation in background (tags will be handled in onSuccess)
     updateAction.mutate({
       id: currentAction.id,
       name,
@@ -99,16 +180,6 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       scheduledStart: scheduledStart,
       duration: duration,
     });
-
-    // Update tags
-    try {
-      await setTagsMutation.mutateAsync({
-        actionId: currentAction.id,
-        tagIds: selectedTagIds,
-      });
-    } catch (error) {
-      console.error('Failed to update tags:', error);
-    }
   };
 
   const handleAssigneeClick = () => {
