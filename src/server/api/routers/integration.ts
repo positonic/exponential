@@ -1912,6 +1912,150 @@ export const integrationRouter = createTRPCRouter({
       };
     }),
 
+  // Get pages from a Notion database
+  getNotionDatabasePages: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+        databaseId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Get user's team memberships
+      const userTeams = await ctx.db.teamUser.findMany({
+        where: {
+          userId: ctx.session.user.id,
+        },
+        select: {
+          teamId: true,
+        },
+      });
+
+      const teamIds = userTeams.map((membership) => membership.teamId);
+
+      // Get the integration and its credentials
+      const integration = await ctx.db.integration.findUnique({
+        where: {
+          id: input.integrationId,
+          provider: "notion",
+          OR: [
+            { userId: ctx.session.user.id }, // Personal integration
+            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
+          ],
+        },
+        include: {
+          credentials: true,
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Notion integration not found or access denied",
+        });
+      }
+
+      // Get access token
+      const accessTokenCredential = integration.credentials.find(
+        (c) => c.keyType === "access_token" || c.keyType === "ACCESS_TOKEN",
+      );
+
+      if (!accessTokenCredential) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No access token found for this Notion integration",
+        });
+      }
+
+      // Query Notion database
+      try {
+        const response = await fetch(
+          `https://api.notion.com/v1/databases/${input.databaseId}/query`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessTokenCredential.key}`,
+              "Notion-Version": "2022-06-28",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              sorts: [
+                {
+                  property: "last_edited_time",
+                  direction: "descending",
+                },
+              ],
+              page_size: 100,
+            }),
+          },
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("Notion database query error:", errorText);
+          return {
+            success: false,
+            error: `Failed to fetch pages: ${response.status}`,
+            pages: [],
+          };
+        }
+
+        const data = await response.json();
+
+        // Extract and simplify page data
+        const pages = data.results.map((page: any) => {
+          const properties = page.properties;
+
+          // Extract title (look for title property type)
+          const titleProperty = Object.values(properties).find(
+            (p: any) => p.type === "title",
+          ) as any;
+          const title = titleProperty?.title
+            ?.map((t: any) => t.plain_text ?? "")
+            .join("")
+            .trim() || "Untitled";
+
+          // Extract status
+          const statusProperty = Object.values(properties).find(
+            (p: any) => p.type === "status" || p.type === "select",
+          ) as any;
+          const status = statusProperty?.status?.name ?? statusProperty?.select?.name;
+
+          // Extract due date
+          const dateProperty = Object.values(properties).find(
+            (p: any) => p.type === "date",
+          ) as any;
+          const dueDate = dateProperty?.date?.start;
+
+          return {
+            id: page.id,
+            title,
+            url: page.url,
+            status,
+            dueDate,
+            properties: page.properties,
+            created_time: page.created_time,
+            last_edited_time: page.last_edited_time,
+          };
+        });
+
+        return {
+          success: true,
+          pages,
+        };
+      } catch (error) {
+        console.error("Notion database query error:", error);
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to fetch database pages",
+          pages: [],
+        };
+      }
+    }),
+
   // Refresh Slack integration (fetch latest team info and update database)
   refreshSlackIntegration: protectedProcedure
     .input(
