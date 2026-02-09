@@ -40,7 +40,7 @@ export const navigationPreferenceRouter = createTRPCRouter({
         hiddenItems: [] as string[],
         showInspiringQuote: true,
         showSuggestedFocus: true,
-        showGamification: true,
+        showGamification: false,
       };
     }
 
