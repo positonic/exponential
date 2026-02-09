@@ -7,6 +7,8 @@ import {
 import { TRPCError } from "@trpc/server";
 import { PRIORITY_VALUES } from "~/types/priority";
 import { parseActionInput } from "~/server/services/parsing";
+import { ScoringService } from "~/server/services/ScoringService";
+import { startOfDay } from "date-fns";
 
 // Middleware to check API key for external integrations (iOS shortcuts, etc.)
 const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
@@ -432,11 +434,35 @@ export const actionRouter = createTRPCRouter({
         ...(isCompleting && !wasCompleted && { completedAt: new Date() }),
         ...(isUncompleting && wasCompleted && { completedAt: null }),
       };
-      
-      return ctx.db.action.update({
+
+      const updatedAction = await ctx.db.action.update({
         where: { id },
         data: finalUpdateData,
+        include: {
+          dailyPlanActions: {
+            include: {
+              dailyPlan: true,
+            },
+          },
+        },
       });
+
+      // Recalculate score if completion status changed and action is linked to daily plan
+      if ((isCompleting && !wasCompleted) || (isUncompleting && wasCompleted)) {
+        if (updatedAction.dailyPlanActions.length > 0) {
+          for (const dpa of updatedAction.dailyPlanActions) {
+            await ScoringService.calculateDailyScore(
+              ctx,
+              startOfDay(dpa.dailyPlan.date),
+              dpa.dailyPlan.workspaceId ?? undefined
+            ).catch((err) => {
+              console.error("[action.update] Failed to recalculate score:", err);
+            });
+          }
+        }
+      }
+
+      return updatedAction;
     }),
 
   // Update kanban status (for drag-and-drop)

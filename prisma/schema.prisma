@@ -149,6 +149,16 @@ model User {
   workHoursEnd                String?                    @default("17:00")
   // DRI (Directly Responsible Individual) relation
   driProjects                 Project[]                  @relation("ProjectDRI")
+
+  // Scoring & Leaderboard preferences
+  leaderboardOptIn            Boolean                    @default(false)
+  leaderboardAnonymous        Boolean                    @default(false)
+  leaderboardWorkspaceIds     String[]                   @default([])
+
+  // Scoring relations
+  dailyScores                 DailyScore[]
+  streaks                     ProductivityStreak[]
+  leaderboardEntries          LeaderboardEntry[]
 }
 
 model VerificationToken {
@@ -207,6 +217,10 @@ model Workspace {
   // Auto-scheduling relations
   taskSchedules            TaskSchedule[]
   recurringTasks           RecurringTask[]
+  // Scoring & Gamification relations
+  dailyScores              DailyScore[]
+  streaks                  ProductivityStreak[]
+  leaderboardEntries       LeaderboardEntry[]
 
   @@index([slug])
   @@index([ownerId])
@@ -2016,9 +2030,17 @@ model DailyPlan {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // Scoring metadata
+  overdueTasks       Int?
+  processedOverdue   Boolean  @default(false)
+  estimationAccuracy Float?
+  scoreCalculated    Boolean  @default(false)
+  scoreId            String?
+
   user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace      Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   plannedActions DailyPlanAction[]
+  score          DailyScore?       @relation(fields: [scoreId], references: [id])
 
   @@unique([userId, date, workspaceId])
   @@index([userId])
@@ -2046,6 +2068,99 @@ model DailyPlanAction {
 
   @@index([dailyPlanId])
   @@index([actionId])
+}
+
+// ============================================
+// Scoring & Gamification Models
+// ============================================
+
+model DailyScore {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String?
+  date        DateTime @db.Date
+
+  // Core scores (0-100 total)
+  totalScore      Int // Final score
+  planCreated     Int // 0-20
+  planCompleted   Int // 0-20
+  taskCompletion  Int // 0-25
+  habitCompletion Int // 0-20
+
+  // Bonuses (0-15 total)
+  schedulingBonus   Int // 0-5
+  inboxBonus        Int // 0-5
+  estimationBonus   Int // 0-5
+  weeklyReviewBonus Int // 0-10 (distributed from weekly review)
+
+  // Metadata for calculations
+  totalPlannedTasks  Int
+  completedTasks     Int
+  scheduledHabits    Int
+  completedHabits    Int
+  estimationAccuracy Float?
+  processedOverdue   Boolean @default(false)
+
+  // Timestamps
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  calculatedAt DateTime @default(now())
+
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace    Workspace?  @relation(fields: [workspaceId], references: [id])
+  dailyPlans   DailyPlan[]
+
+  @@unique([userId, workspaceId, date])
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([date])
+  @@index([totalScore]) // For leaderboard queries
+}
+
+model ProductivityStreak {
+  id         String   @id @default(cuid())
+  userId     String
+  workspaceId String?
+  streakType String // "daily_planning" | "habits" | "weekly_review"
+
+  currentStreak    Int       @default(0)
+  longestStreak    Int       @default(0)
+  lastActivityDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+
+  @@unique([userId, workspaceId, streakType])
+  @@index([userId])
+  @@index([streakType])
+}
+
+model LeaderboardEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String?
+  period      String // "today" | "week" | "month" | "all_time"
+
+  score      Int
+  rank       Int
+  percentile Float?
+
+  // Context
+  totalDays   Int?
+  consistency Float? // % days >= 60 points (qualified days)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+
+  @@unique([userId, workspaceId, period])
+  @@index([period, score]) // For efficient ranking
+  @@index([userId])
 }
 
 // ============================================

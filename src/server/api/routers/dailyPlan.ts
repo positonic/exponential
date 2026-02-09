@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { startOfDay } from "date-fns";
 import { setTimeInUserTimezone } from "~/lib/dateUtils";
+import { ScoringService } from "~/server/services/ScoringService";
 
 export const dailyPlanRouter = createTRPCRouter({
   /**
@@ -136,7 +137,7 @@ export const dailyPlanRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.dailyPlan.update({
+      const updatedPlan = await ctx.db.dailyPlan.update({
         where: { id },
         data,
         include: {
@@ -145,6 +146,19 @@ export const dailyPlanRouter = createTRPCRouter({
           },
         },
       });
+
+      // Recalculate score if status or processedOverdue changed
+      if (input.status !== undefined || input.obstacles !== undefined) {
+        await ScoringService.calculateDailyScore(
+          ctx,
+          plan.date,
+          plan.workspaceId ?? undefined
+        ).catch((err) => {
+          console.error("[dailyPlan.updatePlan] Failed to recalculate score:", err);
+        });
+      }
+
+      return updatedPlan;
     }),
 
   /**
@@ -270,6 +284,7 @@ export const dailyPlanRouter = createTRPCRouter({
         },
       });
 
+      let result;
       if (task.actionId && Object.keys(actionUpdates).length > 0) {
         const [, updatedTask] = await ctx.db.$transaction([
           ctx.db.action.update({
@@ -279,10 +294,23 @@ export const dailyPlanRouter = createTRPCRouter({
           dailyPlanUpdate,
         ]);
 
-        return updatedTask;
+        result = updatedTask;
+      } else {
+        result = await dailyPlanUpdate;
       }
 
-      return dailyPlanUpdate;
+      // Recalculate score if completion status changed
+      if (input.completed !== undefined) {
+        await ScoringService.calculateDailyScore(
+          ctx,
+          task.dailyPlan.date,
+          task.dailyPlan.workspaceId ?? undefined
+        ).catch((err) => {
+          console.error("[dailyPlan.updateTask] Failed to recalculate score:", err);
+        });
+      }
+
+      return result;
     }),
 
   /**
@@ -473,7 +501,7 @@ export const dailyPlanRouter = createTRPCRouter({
       }
 
       // Mark plan as completed
-      return ctx.db.dailyPlan.update({
+      const updatedPlan = await ctx.db.dailyPlan.update({
         where: { id: input.id },
         data: { status: "COMPLETED" },
         include: {
@@ -489,6 +517,17 @@ export const dailyPlanRouter = createTRPCRouter({
           },
         },
       });
+
+      // Recalculate score to award "plan completed" points
+      await ScoringService.calculateDailyScore(
+        ctx,
+        plan.date,
+        plan.workspaceId ?? undefined
+      ).catch((err) => {
+        console.error("[dailyPlan.completePlan] Failed to recalculate score:", err);
+      });
+
+      return updatedPlan;
     }),
 
   /**

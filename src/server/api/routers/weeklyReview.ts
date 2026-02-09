@@ -5,6 +5,7 @@ import { WeeklyReviewSummaryService } from "~/server/services/WeeklyReviewSummar
 import { SlackNotificationService } from "~/server/services/notifications/SlackNotificationService";
 import { SlackChannelResolver } from "~/server/services/SlackChannelResolver";
 import { getSundayWeekStart } from "~/lib/weekUtils";
+import { ScoringService } from "~/server/services/ScoringService";
 
 export const weeklyReviewRouter = createTRPCRouter({
   
@@ -498,8 +499,9 @@ export const weeklyReviewRouter = createTRPCRouter({
         },
       });
 
+      let completion;
       if (existing) {
-        return ctx.db.weeklyReviewCompletion.update({
+        completion = await ctx.db.weeklyReviewCompletion.update({
           where: { id: existing.id },
           data: {
             completedAt: new Date(),
@@ -511,21 +513,32 @@ export const weeklyReviewRouter = createTRPCRouter({
             durationMinutes: input.durationMinutes,
           },
         });
+      } else {
+        completion = await ctx.db.weeklyReviewCompletion.create({
+          data: {
+            userId,
+            workspaceId: input.workspaceId,
+            weekStartDate,
+            projectsReviewed: input.projectsReviewed ?? 0,
+            statusChanges: input.statusChanges ?? 0,
+            priorityChanges: input.priorityChanges ?? 0,
+            actionsAdded: input.actionsAdded ?? 0,
+            reviewMode: input.reviewMode,
+            durationMinutes: input.durationMinutes,
+          },
+        });
       }
 
-      return ctx.db.weeklyReviewCompletion.create({
-        data: {
-          userId,
-          workspaceId: input.workspaceId,
-          weekStartDate,
-          projectsReviewed: input.projectsReviewed ?? 0,
-          statusChanges: input.statusChanges ?? 0,
-          priorityChanges: input.priorityChanges ?? 0,
-          actionsAdded: input.actionsAdded ?? 0,
-          reviewMode: input.reviewMode,
-          durationMinutes: input.durationMinutes,
-        },
+      // Apply weekly review bonus to all days in this week
+      await ScoringService.applyWeeklyReviewBonus(
+        ctx,
+        weekStartDate,
+        input.workspaceId
+      ).catch((err) => {
+        console.error("[weeklyReview.markComplete] Failed to apply bonus:", err);
       });
+
+      return completion;
     }),
 
   /**
