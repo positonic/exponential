@@ -15,6 +15,7 @@ import { decryptCredential } from "~/server/utils/credentialHelper";
 import type { PrismaClient } from "@prisma/client";
 import { addDays, startOfDay, endOfDay } from "date-fns";
 import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } from "~/server/services";
+import { userEmailService } from "~/server/services/UserEmailService";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -2560,6 +2561,66 @@ export const mastraRouter = createTRPCRouter({
         name: organization.name,
         industry: organization.industry,
       };
+    }),
+
+  // ==================== EMAIL ENDPOINTS FOR AGENT TOOLS ====================
+
+  checkEmailConnectionStatus: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      return await userEmailService.checkConnection(ctx.session.user.id);
+    }),
+
+  getEmails: protectedProcedure
+    .input(z.object({
+      maxResults: z.number().min(1).max(50).default(10),
+      unreadOnly: z.boolean().default(false),
+      since: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return await userEmailService.getEmails(ctx.session.user.id, {
+        maxResults: input.maxResults,
+        unreadOnly: input.unreadOnly,
+        since: input.since,
+      });
+    }),
+
+  getEmailById: protectedProcedure
+    .input(z.object({
+      emailId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return await userEmailService.getEmailById(ctx.session.user.id, input.emailId);
+    }),
+
+  searchEmails: protectedProcedure
+    .input(z.object({
+      query: z.string().min(1),
+      maxResults: z.number().min(1).max(50).default(10),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return await userEmailService.searchEmails(ctx.session.user.id, input.query, input.maxResults);
+    }),
+
+  sendEmail: protectedProcedure
+    .input(z.object({
+      to: z.string(),
+      cc: z.string().optional(),
+      subject: z.string(),
+      body: z.string(),
+      inReplyTo: z.string().optional(),
+      references: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return await userEmailService.sendEmail(ctx.session.user.id, input);
+    }),
+
+  replyToEmail: protectedProcedure
+    .input(z.object({
+      emailId: z.string(),
+      body: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return await userEmailService.replyToEmail(ctx.session.user.id, input.emailId, input.body);
     }),
 });
 

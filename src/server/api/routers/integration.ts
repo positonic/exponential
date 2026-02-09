@@ -8,6 +8,7 @@ import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
 import { encryptCredential } from "~/server/utils/credentialHelper";
+import { UserEmailService, detectProviderSettings } from "~/server/services/UserEmailService";
 
 // Test Fireflies API connection
 export async function testFirefliesConnection(
@@ -2981,5 +2982,102 @@ export const integrationRouter = createTRPCRouter({
       });
 
       return integration;
+    }),
+
+  // ==================== EMAIL INTEGRATION ====================
+
+  createEmailIntegration: protectedProcedure
+    .input(
+      z.object({
+        name: z.string().min(1),
+        emailAddress: z.string().email(),
+        appPassword: z.string().min(1),
+        emailProvider: z.enum(["gmail", "outlook", "custom"]).default("gmail"),
+        imapHost: z.string().optional(),
+        smtpHost: z.string().optional(),
+        description: z.string().optional(),
+        allowTeamMemberAccess: z.boolean().optional().default(false),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Detect IMAP/SMTP settings from email domain or use provider defaults
+      const detected = detectProviderSettings(input.emailAddress);
+      const imapHost = input.imapHost ?? detected?.imapHost ?? "imap.gmail.com";
+      const smtpHost = input.smtpHost ?? detected?.smtpHost ?? "smtp.gmail.com";
+      const imapPort = detected?.imapPort ?? 993;
+
+      // Test IMAP connection before saving
+      const testResult = await UserEmailService.testConnection({
+        emailAddress: input.emailAddress,
+        appPassword: input.appPassword,
+        imapHost,
+        imapPort,
+      });
+
+      if (!testResult.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Email connection failed: ${testResult.error}. Please check your email address and app password.`,
+        });
+      }
+
+      // Delete any existing email integration for this user (one active email per user)
+      await ctx.db.integration.deleteMany({
+        where: { userId: ctx.session.user.id, provider: "email" },
+      });
+
+      // Create the integration
+      const integration = await ctx.db.integration.create({
+        data: {
+          name: input.name,
+          type: "API_KEY",
+          provider: "email",
+          description: input.description ?? `Email integration (${input.emailProvider})`,
+          userId: ctx.session.user.id,
+          allowTeamMemberAccess: input.allowTeamMemberAccess,
+          status: "ACTIVE",
+        },
+      });
+
+      // Create credentials (email address unencrypted, app password encrypted)
+      const encryptedPassword = encryptCredential(input.appPassword);
+      await ctx.db.integrationCredential.createMany({
+        data: [
+          {
+            key: input.emailAddress,
+            keyType: "email_address",
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+          {
+            key: encryptedPassword.key,
+            keyType: "app_password",
+            isEncrypted: encryptedPassword.isEncrypted,
+            integrationId: integration.id,
+          },
+          {
+            key: imapHost,
+            keyType: "imap_host",
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+          {
+            key: smtpHost,
+            keyType: "smtp_host",
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+        ],
+      });
+
+      return {
+        integration: {
+          id: integration.id,
+          name: integration.name,
+          provider: integration.provider,
+          status: integration.status,
+          email: input.emailAddress,
+        },
+      };
     }),
 });
