@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Group, Title, SegmentedControl, ActionIcon } from "@mantine/core";
 import { IconFilter } from "@tabler/icons-react";
 import { Actions } from "./Actions";
+import { DailyScoreCard } from "./scoring/DailyScoreCard";
 
 export type DoFilter = "today" | "tomorrow" | "upcoming";
 
@@ -102,6 +103,13 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
           </Group>
         </div>
       </div>
+
+      {/* Daily Score Card - Only show on "today" filter */}
+      {filter === "today" && (
+        <div className="mb-6 w-full">
+          <DailyScoreCard />
+        </div>
+      )}
 
       {/* Actions List */}
       <Actions viewName={getViewName(filter)} />

@@ -3,6 +3,7 @@
 import { Stack, Title, Text, Button, SegmentedControl, Paper } from "@mantine/core";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { addDays, format } from "date-fns";
+import { DailyScoreCard } from "~/app/_components/scoring/DailyScoreCard";
 
 type PlanDate = "today" | "tomorrow";
 
@@ -32,6 +33,11 @@ export function WelcomeStep({ selectedDate, onDateChange, onStart }: WelcomeStep
         <Text c="dimmed" mt="md">
           Once per day, we will help you plan your day.
         </Text>
+      </div>
+
+      {/* Daily Score Card */}
+      <div className="w-full">
+        <DailyScoreCard compact />
       </div>
 
       {/* Date Selection */}
