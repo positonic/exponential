@@ -31,7 +31,7 @@ export default function AssistantSettingsPage() {
   // Fetch the default assistant for this workspace
   const { data: assistant, isLoading } = api.assistant.getDefault.useQuery(
     { workspaceId: workspaceId ?? '' },
-    { enabled: !!workspaceId }
+    { enabled: !!workspaceId, refetchOnWindowFocus: false }
   );
 
   const [name, setName] = useState('');
