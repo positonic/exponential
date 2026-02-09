@@ -80,9 +80,19 @@ export function ScheduleStep({
   // Apply suggestions mutation
   const applySuggestionsMutation = api.scheduling.applySuggestions.useMutation({
     onSuccess: async () => {
+      // Invalidate the correct query that powers the TimeGrid
+      await utils.dailyPlan.getOrCreateToday.invalidate({
+        date: planDate,
+        workspaceId: dailyPlan.workspaceId ?? undefined,
+      });
+
+      // Also invalidate action queries (may be used elsewhere)
       await utils.action.getScheduledByDateRange.invalidate();
       await utils.action.getScheduledByDate.invalidate();
+
+      // Trigger refetch
       onRefetch();
+
       setSuggestionsModalOpen(false);
     },
   });
