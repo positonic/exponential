@@ -55,10 +55,10 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
 
   // Set workspace to current workspace when creating a new project
   useEffect(() => {
-    if (!project && currentWorkspaceId && selectedWorkspaceId === null) {
+    if (!project && currentWorkspaceId) {
       setSelectedWorkspaceId(currentWorkspaceId);
     }
-  }, [project, currentWorkspaceId, selectedWorkspaceId]);
+  }, [project, currentWorkspaceId]);
 
   // Multi-step flow state for Notion imports
   const [step, setStep] = useState<'create' | 'workflow' | 'success'>('create');

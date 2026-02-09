@@ -313,12 +313,12 @@ export function ActionList({
   const today = new Date();
   today.setHours(0, 0, 0, 0); // Normalize today to the start of the day
 
-  // Find overdue actions (due before today, status ACTIVE)
+  // Find overdue actions (scheduled before today, status ACTIVE)
   const overdueActions = actions.filter(action => {
-    if (!action.dueDate || action.status !== 'ACTIVE') return false;
-    const normalizedDueDate = new Date(action.dueDate);
-    normalizedDueDate.setHours(0, 0, 0, 0);
-    return normalizedDueDate < today;
+    if (!action.scheduledStart || action.status !== 'ACTIVE') return false;
+    const normalizedScheduledDate = new Date(action.scheduledStart);
+    normalizedScheduledDate.setHours(0, 0, 0, 0);
+    return normalizedScheduledDate < today;
   }).sort(sortByPriority);
   console.log("[ActionList] Calculated Overdue Actions:", overdueActions);
   
@@ -348,11 +348,11 @@ export function ActionList({
     const viewFilteredPreStatus = actions.filter(action => 
       !overdueActionIds.has(action.id) // Exclude actions already marked as overdue
     ).filter(action => {
-      // Normalize action due date for comparison if it exists
-      let normalizedActionDueDate: Date | null = null;
-      if (action.dueDate) {
-        normalizedActionDueDate = new Date(action.dueDate);
-        normalizedActionDueDate.setHours(0, 0, 0, 0);
+      // Normalize action scheduled date for comparison if it exists
+      let normalizedScheduledDate: Date | null = null;
+      if (action.scheduledStart) {
+        normalizedScheduledDate = new Date(action.scheduledStart);
+        normalizedScheduledDate.setHours(0, 0, 0, 0);
       }
 
       // Calculate tomorrow for filtering
@@ -364,14 +364,14 @@ export function ActionList({
           // Show untriaged actions (no due date, no scheduled start, AND no project assigned)
           return !action.dueDate && !action.scheduledStart && !action.projectId;
         case 'today':
-          // Check if the normalized action due date matches normalized today
-          return normalizedActionDueDate?.getTime() === today.getTime();
+          // Check if the action is scheduled for today
+          return normalizedScheduledDate?.getTime() === today.getTime();
         case 'tomorrow':
-          // Check if the normalized action due date matches tomorrow
-          return normalizedActionDueDate?.getTime() === tomorrow.getTime();
+          // Check if the action is scheduled for tomorrow
+          return normalizedScheduledDate?.getTime() === tomorrow.getTime();
         case 'upcoming':
-          // Check if the action due date is after tomorrow (day after tomorrow and later)
-          return normalizedActionDueDate && normalizedActionDueDate > tomorrow;
+          // Check if the action is scheduled after tomorrow
+          return normalizedScheduledDate && normalizedScheduledDate > tomorrow;
         default:
           if (viewName.startsWith('project-')) {
             // Extract project ID by splitting from the last hyphen (more robust)

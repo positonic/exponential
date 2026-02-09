@@ -94,7 +94,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     { enabled: !!projectId }
   );
 
-  // Filter Notion unassigned to only show items due today with ACTIVE status
+  // Filter Notion unassigned to only show items scheduled for today with ACTIVE status
   const notionUnassignedTodayData = useMemo(() => {
     if (!notionUnassignedQuery.data) return [];
     const today = new Date();
@@ -102,11 +102,11 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     return notionUnassignedQuery.data.filter(action => {
       // Must be ACTIVE status
       if (action.status !== 'ACTIVE') return false;
-      // Must be due today
-      if (!action.dueDate) return false;
-      const dueDate = new Date(action.dueDate);
-      dueDate.setHours(0, 0, 0, 0);
-      return dueDate.getTime() === today.getTime();
+      // Must be scheduled for today
+      if (!action.scheduledStart) return false;
+      const scheduledDate = new Date(action.scheduledStart);
+      scheduledDate.setHours(0, 0, 0, 0);
+      return scheduledDate.getTime() === today.getTime();
     });
   }, [notionUnassignedQuery.data]);
 
@@ -129,10 +129,10 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return actions.some(action => {
-      if (!action.dueDate || action.status !== 'ACTIVE') return false;
-      const dueDate = new Date(action.dueDate);
-      dueDate.setHours(0, 0, 0, 0);
-      return dueDate < today;
+      if (!action.scheduledStart || action.status !== 'ACTIVE') return false;
+      const scheduledDate = new Date(action.scheduledStart);
+      scheduledDate.setHours(0, 0, 0, 0);
+      return scheduledDate < today;
     });
   }, [actions]);
 

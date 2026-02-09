@@ -47,7 +47,7 @@ export default function DailyPlanPage() {
   // Fetch all actions for the existing actions panel
   const { data: allActions } = api.action.getAll.useQuery();
 
-  // Filter actions into overdue and today
+  // Filter actions into overdue and scheduled for today
   const { overdueActions, todayActions } = useMemo(() => {
     if (!allActions) return { overdueActions: [], todayActions: [] };
 
@@ -55,17 +55,17 @@ export default function DailyPlanPage() {
     today.setHours(0, 0, 0, 0);
 
     const overdue = allActions.filter((action) => {
-      if (!action.dueDate || action.status !== "ACTIVE") return false;
-      const dueDate = new Date(action.dueDate);
-      dueDate.setHours(0, 0, 0, 0);
-      return dueDate < today;
+      if (!action.scheduledStart || action.status !== "ACTIVE") return false;
+      const scheduledDate = new Date(action.scheduledStart);
+      scheduledDate.setHours(0, 0, 0, 0);
+      return scheduledDate < today;
     });
 
     const todayList = allActions.filter((action) => {
-      if (!action.dueDate || action.status !== "ACTIVE") return false;
-      const dueDate = new Date(action.dueDate);
-      dueDate.setHours(0, 0, 0, 0);
-      return dueDate.getTime() === today.getTime();
+      if (!action.scheduledStart || action.status !== "ACTIVE") return false;
+      const scheduledDate = new Date(action.scheduledStart);
+      scheduledDate.setHours(0, 0, 0, 0);
+      return scheduledDate.getTime() === today.getTime();
     });
 
     return { overdueActions: overdue, todayActions: todayList };
