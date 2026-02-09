@@ -19,13 +19,17 @@ export async function POST(req: Request) {
       });
     }
 
-    const { messages, agentId, workspaceId, projectId, conversationId } = (await req.json()) as {
+    const { messages, agentId: rawAgentId, assistantId, workspaceId, projectId, conversationId } = (await req.json()) as {
       messages: CoreMessage[];
       agentId?: string;
+      assistantId?: string;
       workspaceId?: string;
       projectId?: string;
       conversationId?: string;
     };
+
+    let agentId = rawAgentId;
+    let finalMessages = messages;
 
     const client = new MastraClient({
       baseUrl: MASTRA_API_URL,
@@ -93,11 +97,42 @@ export async function POST(req: Request) {
     if (projectId) {
       entries.push(["projectId", projectId]);
     }
-    console.log(`🔗 [chat/stream] agentId=${agentId}, projectId=${projectId || "none"}, workspaceId=${workspaceId || "none"}, messages=${messages.length}`);
+    // If an assistantId is provided, fetch the custom personality and inject it
+    if (assistantId) {
+      const assistant = await db.assistant.findUnique({
+        where: { id: assistantId },
+      });
+
+      if (assistant) {
+        // Route to the blank-canvas assistantAgent
+        agentId = 'assistantAgent';
+
+        // Build personality overlay
+        const personalityParts: string[] = [];
+        personalityParts.push(`# Your Identity\nName: ${assistant.name}${assistant.emoji ? ` ${assistant.emoji}` : ''}`);
+        if (assistant.personality) {
+          personalityParts.push(`# Personality & Soul\n${assistant.personality}`);
+        }
+        if (assistant.instructions) {
+          personalityParts.push(`# Instructions\n${assistant.instructions}`);
+        }
+        if (assistant.userContext) {
+          personalityParts.push(`# About the User/Team\n${assistant.userContext}`);
+        }
+
+        // Prepend personality as first system message
+        finalMessages = [
+          { role: 'system' as const, content: personalityParts.join('\n\n') },
+          ...messages,
+        ];
+      }
+    }
+
+    console.log(`🔗 [chat/stream] agentId=${agentId}, assistantId=${assistantId || "none"}, projectId=${projectId || "none"}, workspaceId=${workspaceId || "none"}, messages=${finalMessages.length}`);
     const requestContext = new RequestContext(entries);
 
     const agent = client.getAgent(agentId ?? "projectManagerAgent");
-    const response = await agent.stream(messages, {
+    const response = await agent.stream(finalMessages, {
       requestContext,
       memory: {
         resource: session.user.id,

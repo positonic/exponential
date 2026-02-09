@@ -17,6 +17,7 @@ import {
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 // Use ChatMessage from provider for consistency
 type Message = ChatMessage;
@@ -66,6 +67,13 @@ interface ManyChatProps {
 export default function ManyChat({ initialMessages, githubSettings, buttons, projectId: projectIdProp, initialInput }: ManyChatProps) {
   // Get messages, conversationId, and page context from context to persist across navigation
   const { messages, setMessages, conversationId, setConversationId, pageContext } = useAgentModal();
+  const { workspaceId } = useWorkspace();
+
+  // Fetch the user's custom assistant (if configured)
+  const { data: customAssistant } = api.assistant.getDefault.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId }
+  );
 
   // Use prop if provided, otherwise fall back to pageContext (auto-detected from current page)
   const projectId = projectIdProp ?? (pageContext?.data?.projectId as string | undefined);
@@ -230,13 +238,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       },
       {
         type: 'ai',
-        agentName: 'Zoe',
-        content: projectData ? 
-          `Hey! I'm Zoe 🔮 — your companion for the "${projectData.name}" project.\n\nI know your projects, actions, and goals. Ask me what to focus on, break down a vague idea, or just think through something. You can also tag other agents with @ if you need specialists.\n\nWhat's on your mind?` :
-          `Hey! I'm Zoe 🔮\n\nI'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.\n\nWhat's up?`
+        agentName: customAssistant?.name ?? 'Zoe',
+        content: customAssistant
+          ? (projectData
+              ? `Hey! I'm ${customAssistant.name}${customAssistant.emoji ? ` ${customAssistant.emoji}` : ''} — your companion for the "${projectData.name}" project.\n\nI know your projects, actions, and goals. Ask me what to focus on, break down a vague idea, or just think through something. You can also tag other agents with @ if you need specialists.\n\nWhat's on your mind?`
+              : `Hey! I'm ${customAssistant.name}${customAssistant.emoji ? ` ${customAssistant.emoji}` : ''}\n\nI'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.\n\nWhat's up?`)
+          : (projectData
+              ? `Hey! I'm Zoe 🔮 — your companion for the "${projectData.name}" project.\n\nI know your projects, actions, and goals. Ask me what to focus on, break down a vague idea, or just think through something. You can also tag other agents with @ if you need specialists.\n\nWhat's on your mind?`
+              : `Hey! I'm Zoe 🔮\n\nI'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.\n\nWhat's up?`)
       }
     ];
-  }, [projectId, githubSettings, pageContext]);
+  }, [projectId, githubSettings, pageContext, customAssistant]);
 
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -560,13 +572,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         // Use the mentioned agent directly
         targetAgentId = mentionedAgentId;
         console.log('🔒 [SECURITY AUDIT] Using mentioned agent:', { agentId: mentionedAgentId });
+      } else if (customAssistant) {
+        // If user has a custom assistant, route to the blank-canvas assistantAgent
+        targetAgentId = 'assistantAgent';
+        console.log('🤖 [AGENT] Using custom assistant:', { assistantId: customAssistant.id, name: customAssistant.name });
       } else {
-        // Always default to Zoe unless another agent is specifically mentioned
-        const zoeAgent = mastraAgents?.find(agent => 
-          agent.name.toLowerCase() === 'zoe' || 
+        // Fallback to Zoe unless another agent is specifically mentioned
+        const zoeAgent = mastraAgents?.find(agent =>
+          agent.name.toLowerCase() === 'zoe' ||
           agent.id.toLowerCase() === 'zoeagent'
         );
-        
+
         if (zoeAgent) {
           targetAgentId = zoeAgent.id;
           console.log('🔮 [AGENT] Defaulting to Zoe:', { agentId: zoeAgent.id });
@@ -581,8 +597,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       
       const startTime = Date.now();
 
-      // Get agent name for display
-      const agentName = mastraAgents?.find(a => a.id === targetAgentId)?.name ?? 'Agent';
+      // Get agent name for display — use custom assistant name if active
+      const agentName = customAssistant && targetAgentId === 'assistantAgent'
+        ? customAssistant.name
+        : mastraAgents?.find(a => a.id === targetAgentId)?.name ?? 'Agent';
 
       // Add empty AI message that will be filled by streaming
       setMessages(prev => [...prev, { type: 'ai', agentName, content: '' }]);
@@ -625,6 +643,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         body: JSON.stringify({
           messages: coreMessages,
           agentId: targetAgentId,
+          assistantId: customAssistant?.id,
           workspaceId,
           projectId,
           conversationId,

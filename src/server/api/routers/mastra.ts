@@ -205,6 +205,7 @@ export const mastraRouter = createTRPCRouter({
     .input(
       z.object({
         agentId: z.string(),
+        assistantId: z.string().optional(),
         messages: z
           .array(
             z.object({
@@ -220,10 +221,43 @@ export const mastraRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const { agentId, messages } = input;
+      let { agentId, messages } = input;
 
       // Generate JWT token for agent authentication
       const agentJWT = generateAgentJWT(ctx.session.user, 30);
+
+      // If an assistantId is provided, fetch the custom personality and inject it
+      if (input.assistantId) {
+        const assistant = await ctx.db.assistant.findUnique({
+          where: { id: input.assistantId },
+        });
+
+        if (assistant) {
+          // Route to the blank-canvas assistantAgent
+          agentId = 'assistantAgent';
+
+          // Build personality overlay as a system message
+          const personalityParts: string[] = [];
+          personalityParts.push(`# Your Identity\nName: ${assistant.name}${assistant.emoji ? ` ${assistant.emoji}` : ''}`);
+          if (assistant.personality) {
+            personalityParts.push(`# Personality & Soul\n${assistant.personality}`);
+          }
+          if (assistant.instructions) {
+            personalityParts.push(`# Instructions\n${assistant.instructions}`);
+          }
+          if (assistant.userContext) {
+            personalityParts.push(`# About the User/Team\n${assistant.userContext}`);
+          }
+
+          const personalityMessage = {
+            role: 'system' as const,
+            content: personalityParts.join('\n\n'),
+          };
+
+          // Prepend the personality as the first message
+          messages = [personalityMessage, ...messages];
+        }
+      }
 
       // Fetch per-user Notion OAuth token (null if not connected)
       const notionAccessToken = await getUserNotionToken(ctx.db, ctx.session.user.id);

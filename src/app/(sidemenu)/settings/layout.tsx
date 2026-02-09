@@ -10,6 +10,7 @@ import {
   IconKey,
   IconBrain,
   IconSparkles,
+  IconRobot,
 } from '@tabler/icons-react';
 import { type Icon as TablerIcon } from '@tabler/icons-react';
 
@@ -21,6 +22,7 @@ const SETTINGS_TABS = [
   { label: 'API Keys', href: '/settings/api-keys', icon: IconKey },
   { label: 'AI History', href: '/settings/ai-history', icon: IconBrain },
   { label: 'AI Tools', href: '/settings/ai-tools', icon: IconSparkles },
+  { label: 'AI Assistant', href: '/settings/assistant', icon: IconRobot },
 ] as const;
 
 function SettingsNavLink({
