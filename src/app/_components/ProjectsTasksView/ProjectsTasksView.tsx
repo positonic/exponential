@@ -87,7 +87,7 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
   });
 
   // Update action status mutation
-  const updateStatusMutation = api.action.updateStatus.useMutation({
+  const updateStatusMutation = api.action.update.useMutation({
     onSuccess: async () => {
       await utils.project.getProjectsWithActions.invalidate();
       await utils.action.getAll.invalidate();

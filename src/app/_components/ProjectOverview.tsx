@@ -202,6 +202,7 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
                         whyThisGoal: goal.whyThisGoal,
                         notes: goal.notes,
                         dueDate: goal.dueDate,
+                        period: goal.period ?? null,
                         lifeDomainId: goal.lifeDomainId,
                         outcomes: goal.outcomes,
                       }}

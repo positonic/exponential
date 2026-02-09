@@ -84,7 +84,7 @@ function getHostnameFromUrl(url?: string | null) {
   try {
     const parsed = new URL(url);
     return parsed.hostname.replace(/^www\./, '');
-  } catch (_e) {
+  } catch {
     return '';
   }
 }

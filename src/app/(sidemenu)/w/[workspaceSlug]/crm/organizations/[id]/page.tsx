@@ -55,7 +55,7 @@ function getHostnameFromUrl(url?: string | null) {
   if (!url) return '';
   try {
     return new URL(url).hostname;
-  } catch (_e) {
+  } catch {
     return '';
   }
 }

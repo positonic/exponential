@@ -13,7 +13,6 @@ import type {
   PushConfig,
   BiSyncConfig,
   ConflictRecord,
-  SyncError,
   ExternalItem,
   ActionWithSyncAndProject,
   ItemFilter,

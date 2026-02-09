@@ -28,7 +28,7 @@ export function CommentInput({
     try {
       await onSubmit(trimmedContent);
       setContent("");
-    } catch (error) {
+    } catch {
       notifications.show({
         title: "Error",
         message: "Failed to add comment. Please try again.",

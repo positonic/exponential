@@ -266,6 +266,7 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
                     whyThisGoal: goal.whyThisGoal,
                     notes: goal.notes,
                     dueDate: goal.dueDate,
+                    period: goal.period ?? null,
                     lifeDomainId: goal.lifeDomainId,
                     outcomes: goal.outcomes,
                   }}

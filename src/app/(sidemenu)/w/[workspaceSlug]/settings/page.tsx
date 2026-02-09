@@ -19,7 +19,7 @@ import {
   Divider,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconBrandZoom } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';

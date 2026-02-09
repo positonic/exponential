@@ -80,9 +80,6 @@ const DEFAULT_SCHEDULE: TaskScheduleConfig = {
 
 // Default chunk duration in minutes
 const DEFAULT_CHUNK_DURATION = 60;
-// Max scheduling lookahead (6 months) - reserved for future use in predictive planning
-const _MAX_SCHEDULING_DAYS = 180;
-
 export class AutoSchedulingService {
   constructor(
     private db: PrismaClient,

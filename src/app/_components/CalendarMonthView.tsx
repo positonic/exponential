@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Text, Paper, Stack, Group, Tooltip, Badge, Modal, ScrollArea } from "@mantine/core";
+import { Text, Paper, Stack, Group, Tooltip, Badge, ScrollArea } from "@mantine/core";
 import { Calendar } from "@mantine/dates";
 import { format, parseISO, isSameDay } from "date-fns";
 import { type CalendarEvent } from "~/server/services/GoogleCalendarService";

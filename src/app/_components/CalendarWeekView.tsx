@@ -1,7 +1,7 @@
 "use client";
 
 import { Text, Paper, Stack, Group, Tooltip, ScrollArea } from "@mantine/core";
-import { format, parseISO, isSameDay, eachDayOfInterval, isToday } from "date-fns";
+import { format, parseISO, eachDayOfInterval, isToday } from "date-fns";
 import { type CalendarEvent } from "~/server/services/GoogleCalendarService";
 import type { DateRange } from "~/types/focus";
 import { IconClock } from "@tabler/icons-react";

@@ -338,6 +338,7 @@ When ready to create a goal, format it clearly:
                                 whyThisGoal: null,
                                 notes: null,
                                 dueDate: null,
+                                period: null,
                                 lifeDomainId: topArea.lifeDomainId,
                               }}
                             />

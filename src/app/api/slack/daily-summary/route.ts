@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { auth } from '~/server/auth';
-import { api } from '~/trpc/server';
 import { SlackNotificationService } from '~/server/services/notifications/SlackNotificationService';
 import { db } from '~/server/db';
 import { startOfDay, endOfDay, format } from 'date-fns';

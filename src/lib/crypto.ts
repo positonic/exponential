@@ -26,7 +26,7 @@ export function decrypt(encryptedData: string): string {
     throw new Error('Invalid encrypted data format');
   }
   
-  const _iv = Buffer.from(parts[0]!, 'hex'); // Currently unused but kept for future IV-based decryption
+  // parts[0] is the IV (reserved for future IV-based decryption)
   const authTag = Buffer.from(parts[1]!, 'hex');
   const encrypted = parts[2]!;
   

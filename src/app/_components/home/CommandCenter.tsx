@@ -9,14 +9,11 @@ import { MomentumWidget } from "./MomentumWidget";
 import { HabitsDueToday } from "./HabitsDueToday";
 import { ProjectStateOverview } from "./ProjectStateOverview";
 import { IntegrationSuggestions } from "./IntegrationSuggestions";
-import { useWorkspace } from "~/providers/WorkspaceProvider";
-
 interface CommandCenterProps {
   variant?: "primary" | "workspace";
 }
 
 export function CommandCenter({ variant = "primary" }: CommandCenterProps) {
-  const { workspaceSlug } = useWorkspace();
   const isPrimaryHome = variant === "primary";
 
   return (

@@ -64,8 +64,7 @@ export function FirefliesWizardModal({
   const [scope, setScope] = useState<"personal" | "team">("personal");
   const [error, setError] = useState<string | null>(null);
 
-  // Created integration data (stored for potential future use)
-  const [_createdIntegrationId, setCreatedIntegrationId] = useState<
+  const [, setCreatedIntegrationId] = useState<
     string | null
   >(null);
   const [webhookToken, setWebhookToken] = useState<string | null>(null);

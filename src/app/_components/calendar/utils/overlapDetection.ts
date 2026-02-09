@@ -31,7 +31,7 @@ export interface PositionedCalendarItem extends CalendarItem {
 /**
  * Check if two calendar items overlap in time
  */
-function itemsOverlap(a: CalendarItem, b: CalendarItem): boolean {
+export function itemsOverlap(a: CalendarItem, b: CalendarItem): boolean {
   const aEnd = a.top + a.height;
   const bEnd = b.top + b.height;
   // Items overlap if one starts before the other ends

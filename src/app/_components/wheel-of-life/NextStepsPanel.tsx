@@ -87,6 +87,7 @@ export function NextStepsPanel({
               whyThisGoal: null,
               notes: null,
               dueDate: null,
+              period: null,
               lifeDomainId: topArea.lifeDomainId,
             }}
           />

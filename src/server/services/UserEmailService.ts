@@ -376,7 +376,7 @@ export class UserEmailService {
   async searchEmails(
     userId: string,
     query: string,
-    maxResults: number = 10
+    maxResults = 10
   ): Promise<{ emails: EmailSummary[] }> {
     const creds = await this.getUserCredentials(userId);
     if (!creds)

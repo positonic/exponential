@@ -1062,7 +1062,7 @@ export default function IntegrationsClient() {
                     title="Email Setup"
                     color="blue"
                   >
-                    Connect your email so Zoe can read and send on your behalf. You'll need an App Password — not your regular password.
+                    Connect your email so Zoe can read and send on your behalf. You&apos;ll need an App Password — not your regular password.
                     For Gmail: Google Account → Security → 2-Step Verification → App Passwords.
                     For Outlook: Microsoft Account → Security → App Passwords.
                   </Alert>

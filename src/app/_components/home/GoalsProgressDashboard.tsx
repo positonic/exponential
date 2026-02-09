@@ -142,8 +142,6 @@ export function GoalsProgressDashboard() {
     );
   }
 
-  const hasKeyResults = stats && stats.totalKeyResults > 0;
-
   return (
     <Card
       withBorder

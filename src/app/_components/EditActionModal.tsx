@@ -1,16 +1,26 @@
 import { Modal } from '@mantine/core';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
-import { type RouterOutputs } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import { ActionModalForm } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
 import { notifications } from '@mantine/notifications';
 
-type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
-// Make createdBy optional to support actions from various sources
-type Action = Omit<ActionWithSyncs, 'createdBy'> & {
-  createdBy?: ActionWithSyncs['createdBy'] | null;
+// Minimal action type needed for the edit modal - supports actions from various query sources
+// Only requires fields that the modal actually reads for initialization
+type Action = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  dueDate: Date | null;
+  projectId: string | null;
+  scheduledStart?: Date | null;
+  duration?: number | null;
+  tags?: Array<{ tag: { id: string; name: string; color: string } }>;
+  assignees?: Array<{ user: { id: string; name: string | null; email: string | null; image: string | null } }>;
+  [key: string]: unknown;
 };
 
 interface EditActionModalProps {

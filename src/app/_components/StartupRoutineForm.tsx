@@ -28,7 +28,6 @@ import { api } from "~/trpc/react";
 import { WindDownRoutineForm } from './WindDownRoutineForm';
 // Import section components
 import { JournalSection } from './sections/JournalSection';
-import { OutcomeSection } from './sections/OutcomeSection';
 import { ExerciseSection } from './sections/ExerciseSection';
 import { NotToDoSection } from './sections/NotToDoSection';
 import { ConfigurationSection } from './sections/ConfigurationSection';
@@ -409,15 +408,6 @@ export function StartupRoutineForm() {
       }
     }
   };
-
-  // Handler for adding outcomes
-  const handleAddOutcome = useCallback(() => {
-    if (!newOutcome.trim()) return;
-    createOutcome.mutate({
-      description: newOutcome,
-      dueDate: new Date(),
-    });
-  }, [newOutcome, createOutcome]);
 
   // Add the exercise creation mutation
   const createUserExercise = api.exercise.createUserExercise.useMutation({
