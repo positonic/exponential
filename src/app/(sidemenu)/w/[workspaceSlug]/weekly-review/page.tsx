@@ -71,6 +71,11 @@ function calculateProjectHealthScore(project: Project): number {
     score -= 15;
   }
 
+  // -10 if no description
+  if (!project.description || project.description.trim() === "") {
+    score -= 10;
+  }
+
   return Math.max(0, score);
 }
 

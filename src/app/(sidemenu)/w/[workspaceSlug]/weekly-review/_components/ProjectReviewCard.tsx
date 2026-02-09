@@ -9,6 +9,7 @@ import {
   Button,
   Select,
   Tooltip,
+  Alert,
 } from "@mantine/core";
 import {
   IconChevronLeft,
@@ -20,12 +21,14 @@ import {
   IconTrendingUp,
   IconCheck,
   IconPlus,
+  IconAlertCircle,
 } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { NextActionCapture } from "./NextActionCapture";
 import { OutcomeMultiSelect } from "~/app/_components/OutcomeMultiSelect";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
+import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { ProjectDateBadges } from "./ProjectDateBadges";
 import { ProjectDriBadge } from "./ProjectDriBadge";
 import {
@@ -240,6 +243,31 @@ export function ProjectReviewCard({
           <Text size="lg" fw={600} className="text-text-primary">
             {project.name}
           </Text>
+
+          {/* Warning: No Description */}
+          {(!project.description || project.description.trim() === "") && (
+            <Alert
+              variant="light"
+              color="yellow"
+              title="No description"
+              icon={<IconAlertCircle size={16} />}
+              className="mt-2"
+              classNames={{
+                root: "border-yellow-500/20",
+              }}
+            >
+              <Group justify="space-between" align="center">
+                <Text size="sm" className="text-text-secondary">
+                  Add context to help understand this project&apos;s purpose and goals
+                </Text>
+                <CreateProjectModal project={project}>
+                  <Button size="xs" variant="light" color="yellow">
+                    Add Description
+                  </Button>
+                </CreateProjectModal>
+              </Group>
+            </Alert>
+          )}
 
           {/* Date and DRI Section - More Prominent */}
           <Group gap="md" className="mb-3">
