@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from "~/trpc/react";
 import { 
   Paper, 
@@ -34,6 +34,7 @@ interface ChatProps {
 }
 
 export default function Chat({ initialMessages, githubSettings, buttons }: ChatProps) {
+  const conversationId = useMemo(() => `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`, []);
   const [messages, setMessages] = useState<Message[]>(
     initialMessages ?? [
       {
@@ -153,6 +154,7 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
         body: JSON.stringify({
           messages: mastraMessages,
           agentId: 'projectManagerAgent',
+          conversationId,
         }),
       });
 
