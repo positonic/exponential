@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Title,
   Text,
@@ -36,6 +36,7 @@ import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { OnboardingIllustration } from './OnboardingIllustration';
 import { GoogleCalendarConnect } from './GoogleCalendarConnect';
+import { MicrosoftCalendarConnect } from './MicrosoftCalendarConnect';
 import { CalendarMultiSelect } from './calendar/CalendarMultiSelect';
 
 // New flow: 1=Profile+Attribution, 2=Video, 3=Calendar, 4=WorkHours, 5=Project+Tasks
@@ -128,24 +129,38 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   // Get onboarding status
   const { data: onboardingStatus, isLoading: statusLoading } = api.onboarding.getStatus.useQuery();
 
-  // Get calendar connection status
-  const { data: calendarStatus } = api.calendar.getConnectionStatus.useQuery();
+  // Get calendar connection status for all providers
+  const { data: allCalendarStatuses } = api.calendar.getAllConnectionStatuses.useQuery();
+  const googleConnected = allCalendarStatuses?.google.isConnected ?? false;
+  const microsoftConnected = allCalendarStatuses?.microsoft.isConnected ?? false;
+  const anyCalendarConnected = googleConnected || microsoftConnected;
 
-  // Get calendar preferences (for multi-calendar selection)
-  const { data: calendarPreferences, isLoading: calendarPreferencesLoading } =
-    api.calendar.getCalendarPreferences.useQuery(undefined, {
-      enabled: calendarStatus?.isConnected ?? false,
+  // Get calendar preferences per provider
+  const { data: googleCalendarPrefs, isLoading: googlePrefsLoading } =
+    api.calendar.getCalendarPreferences.useQuery({ provider: "google" }, {
+      enabled: googleConnected,
+    });
+  const { data: msCalendarPrefs, isLoading: msPrefsLoading } =
+    api.calendar.getCalendarPreferences.useQuery({ provider: "microsoft" }, {
+      enabled: microsoftConnected,
     });
 
-  // Calendar selection state
-  const [selectedCalendarIds, setSelectedCalendarIds] = useState<string[]>([]);
+  // Calendar selection state per provider
+  const [googleSelectedCalendarIds, setGoogleSelectedCalendarIds] = useState<string[]>([]);
+  const [msSelectedCalendarIds, setMsSelectedCalendarIds] = useState<string[]>([]);
 
   // Sync selected calendars from preferences
   useEffect(() => {
-    if (calendarPreferences?.selectedCalendarIds) {
-      setSelectedCalendarIds(calendarPreferences.selectedCalendarIds);
+    if (googleCalendarPrefs?.selectedCalendarIds) {
+      setGoogleSelectedCalendarIds(googleCalendarPrefs.selectedCalendarIds);
     }
-  }, [calendarPreferences?.selectedCalendarIds]);
+  }, [googleCalendarPrefs?.selectedCalendarIds]);
+
+  useEffect(() => {
+    if (msCalendarPrefs?.selectedCalendarIds) {
+      setMsSelectedCalendarIds(msCalendarPrefs.selectedCalendarIds);
+    }
+  }, [msCalendarPrefs?.selectedCalendarIds]);
 
   // Update selected calendars mutation
   const updateSelectedCalendars = api.calendar.updateSelectedCalendars.useMutation();
@@ -277,16 +292,25 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
 
   // Step 3: Calendar -> Step 4
   const handleCalendarNext = async () => {
-    // Save selected calendars if connected and has selections
-    if (calendarStatus?.isConnected && selectedCalendarIds.length > 0) {
-      try {
-        await updateSelectedCalendars.mutateAsync({
-          calendarIds: selectedCalendarIds,
-        });
-      } catch (error) {
-        console.error('Failed to save calendar preferences:', error);
-        // Continue anyway - don't block onboarding
+    // Save selected calendars for each connected provider
+    try {
+      const saves: Promise<unknown>[] = [];
+      if (googleConnected && googleSelectedCalendarIds.length > 0) {
+        saves.push(updateSelectedCalendars.mutateAsync({
+          calendarIds: googleSelectedCalendarIds,
+          provider: "google",
+        }));
       }
+      if (microsoftConnected && msSelectedCalendarIds.length > 0) {
+        saves.push(updateSelectedCalendars.mutateAsync({
+          calendarIds: msSelectedCalendarIds,
+          provider: "microsoft",
+        }));
+      }
+      await Promise.all(saves);
+    } catch (error) {
+      console.error('Failed to save calendar preferences:', error);
+      // Continue anyway - don't block onboarding
     }
     setCurrentStep(4);
   };
@@ -646,7 +670,8 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               </Text>
             </div>
 
-            <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 mb-8">
+            {/* Google Calendar */}
+            <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 mb-4">
               <div className="flex items-center gap-4 mb-4">
                 <div className="w-12 h-12 rounded-lg bg-brand-primary/10 flex items-center justify-center">
                   <IconCalendar size={24} className="text-brand-primary" />
@@ -654,30 +679,54 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                 <div>
                   <Text fw={500} className="text-text-primary">Google Calendar</Text>
                   <Text size="sm" className="text-text-secondary">
-                    {calendarStatus?.isConnected ? 'Connected' : 'Not connected'}
+                    {googleConnected ? 'Connected' : 'Not connected'}
                   </Text>
                 </div>
               </div>
-              <GoogleCalendarConnect isConnected={calendarStatus?.isConnected} />
+              <GoogleCalendarConnect isConnected={googleConnected} />
+              {googleConnected && (
+                <div className="mt-4 pt-4 border-t border-border-primary">
+                  <Text size="sm" fw={500} className="text-text-primary mb-2">
+                    Select calendars to display
+                  </Text>
+                  <CalendarMultiSelect
+                    calendars={googleCalendarPrefs?.allCalendars ?? []}
+                    selectedCalendarIds={googleSelectedCalendarIds}
+                    onChange={setGoogleSelectedCalendarIds}
+                    isLoading={googlePrefsLoading}
+                  />
+                </div>
+              )}
             </div>
 
-            {/* Calendar Selection - shown when connected */}
-            {calendarStatus?.isConnected && (
-              <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 mb-8">
-                <Text fw={500} className="text-text-primary mb-2">
-                  Select calendars to display
-                </Text>
-                <Text size="sm" className="text-text-secondary mb-4">
-                  Choose which calendars you want to see in your schedule.
-                </Text>
-                <CalendarMultiSelect
-                  calendars={calendarPreferences?.allCalendars ?? []}
-                  selectedCalendarIds={selectedCalendarIds}
-                  onChange={setSelectedCalendarIds}
-                  isLoading={calendarPreferencesLoading}
-                />
+            {/* Outlook Calendar */}
+            <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 mb-8">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 rounded-lg bg-brand-primary/10 flex items-center justify-center">
+                  <IconCalendar size={24} className="text-brand-primary" />
+                </div>
+                <div>
+                  <Text fw={500} className="text-text-primary">Outlook Calendar</Text>
+                  <Text size="sm" className="text-text-secondary">
+                    {microsoftConnected ? 'Connected' : 'Not connected'}
+                  </Text>
+                </div>
               </div>
-            )}
+              <MicrosoftCalendarConnect isConnected={microsoftConnected} />
+              {microsoftConnected && (
+                <div className="mt-4 pt-4 border-t border-border-primary">
+                  <Text size="sm" fw={500} className="text-text-primary mb-2">
+                    Select calendars to display
+                  </Text>
+                  <CalendarMultiSelect
+                    calendars={msCalendarPrefs?.allCalendars ?? []}
+                    selectedCalendarIds={msSelectedCalendarIds}
+                    onChange={setMsSelectedCalendarIds}
+                    isLoading={msPrefsLoading}
+                  />
+                </div>
+              )}
+            </div>
 
             <Text size="sm" className="text-text-muted">
               We&apos;ll never sell or share your calendar data. Your privacy is important to us.
@@ -691,9 +740,9 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               onClick={handleCalendarNext}
               rightSection={<IconArrowRight size={18} />}
             >
-              {calendarStatus?.isConnected ? 'Continue' : 'Continue without calendar'}
+              {anyCalendarConnected ? 'Continue' : 'Continue without calendar'}
             </Button>
-            {!calendarStatus?.isConnected && (
+            {!anyCalendarConnected && (
               <Anchor
                 component="button"
                 onClick={handleCalendarNext}
