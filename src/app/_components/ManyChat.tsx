@@ -623,6 +623,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           messages: coreMessages,
           agentId: targetAgentId,
           workspaceId,
+          projectId,
         }),
       });
 

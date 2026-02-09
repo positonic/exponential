@@ -793,6 +793,7 @@ export const mastraRouter = createTRPCRouter({
   quickCreateAction: protectedProcedure
     .input(z.object({
       text: z.string().min(1),
+      projectId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -800,6 +801,11 @@ export const mastraRouter = createTRPCRouter({
       // Use the same parsing logic as action.quickCreate
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
       const parsed = await parseActionInput(input.text, userId, ctx.db);
+
+      // Use context projectId as fallback if text parsing didn't match a project
+      if (!parsed.projectId && input.projectId) {
+        parsed.projectId = input.projectId;
+      }
 
       // Get kanban order if project specified
       let kanbanOrder: number | null = null;

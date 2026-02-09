@@ -19,10 +19,11 @@ export async function POST(req: Request) {
       });
     }
 
-    const { messages, agentId, workspaceId } = (await req.json()) as {
+    const { messages, agentId, workspaceId, projectId } = (await req.json()) as {
       messages: CoreMessage[];
       agentId?: string;
       workspaceId?: string;
+      projectId?: string;
     };
 
     const client = new MastraClient({
@@ -87,6 +88,9 @@ export async function POST(req: Request) {
       }
 
       entries.push(["workspaceId", workspaceId]);
+    }
+    if (projectId) {
+      entries.push(["projectId", projectId]);
     }
     const requestContext = new RequestContext(entries);
 
