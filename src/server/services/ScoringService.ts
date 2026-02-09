@@ -154,53 +154,54 @@ export class ScoringService {
       100
     );
 
-    // Upsert DailyScore record
-    const dailyScore = await ctx.db.dailyScore.upsert({
+    // Find existing score or create new one
+    // Note: Using findFirst + create/update instead of upsert because
+    // Prisma doesn't handle null values in composite unique keys reliably
+    const scoreData = {
+      totalScore,
+      planCreated,
+      planCompleted,
+      taskCompletion,
+      habitCompletion,
+      schedulingBonus,
+      inboxBonus,
+      estimationBonus,
+      weeklyReviewBonus,
+      totalPlannedTasks,
+      completedTasks,
+      scheduledHabits,
+      completedHabits,
+      estimationAccuracy,
+      processedOverdue: dailyPlan?.processedOverdue ?? false,
+    };
+
+    const existingScore = await ctx.db.dailyScore.findFirst({
       where: {
-        userId_workspaceId_date: {
+        userId,
+        date: normalizedDate,
+        workspaceId: workspaceId ?? null,
+      },
+    });
+
+    let dailyScore;
+    if (existingScore) {
+      dailyScore = await ctx.db.dailyScore.update({
+        where: { id: existingScore.id },
+        data: {
+          ...scoreData,
+          calculatedAt: new Date(),
+        },
+      });
+    } else {
+      dailyScore = await ctx.db.dailyScore.create({
+        data: {
           userId,
           workspaceId: workspaceId ?? null,
           date: normalizedDate,
+          ...scoreData,
         },
-      },
-      create: {
-        userId,
-        workspaceId: workspaceId ?? null,
-        date: normalizedDate,
-        totalScore,
-        planCreated,
-        planCompleted,
-        taskCompletion,
-        habitCompletion,
-        schedulingBonus,
-        inboxBonus,
-        estimationBonus,
-        weeklyReviewBonus,
-        totalPlannedTasks,
-        completedTasks,
-        scheduledHabits,
-        completedHabits,
-        estimationAccuracy,
-        processedOverdue: dailyPlan?.processedOverdue ?? false,
-      },
-      update: {
-        totalScore,
-        planCreated,
-        planCompleted,
-        taskCompletion,
-        habitCompletion,
-        schedulingBonus,
-        inboxBonus,
-        estimationBonus,
-        totalPlannedTasks,
-        completedTasks,
-        scheduledHabits,
-        completedHabits,
-        estimationAccuracy,
-        processedOverdue: dailyPlan?.processedOverdue ?? false,
-        calculatedAt: new Date(),
-      },
-    });
+      });
+    }
 
     // Update daily planning streak if qualified
     if (totalScore >= this.QUALIFIED_SCORE_THRESHOLD) {
@@ -391,7 +392,7 @@ export class ScoringService {
   static async updateDailyPlanningStreak(
     ctx: Context,
     date: Date,
-    score: number,
+    _score: number,
     workspaceId?: string
   ): Promise<void> {
     const userId = ctx.session?.user?.id;
@@ -399,14 +400,12 @@ export class ScoringService {
 
     const normalizedDate = startOfDay(date);
 
-    // Get or create streak record
-    const existingStreak = await ctx.db.productivityStreak.findUnique({
+    // Find existing streak using findFirst (nullable workspaceId)
+    const existingStreak = await ctx.db.productivityStreak.findFirst({
       where: {
-        userId_workspaceId_streakType: {
-          userId,
-          workspaceId: workspaceId ?? null,
-          streakType: "daily_planning",
-        },
+        userId,
+        workspaceId: workspaceId ?? null,
+        streakType: "daily_planning",
       },
     });
 
@@ -437,29 +436,28 @@ export class ScoringService {
       }
     }
 
-    // Upsert streak record
-    await ctx.db.productivityStreak.upsert({
-      where: {
-        userId_workspaceId_streakType: {
+    // Create or update streak record
+    if (existingStreak) {
+      await ctx.db.productivityStreak.update({
+        where: { id: existingStreak.id },
+        data: {
+          currentStreak,
+          longestStreak,
+          lastActivityDate: normalizedDate,
+        },
+      });
+    } else {
+      await ctx.db.productivityStreak.create({
+        data: {
           userId,
           workspaceId: workspaceId ?? null,
           streakType: "daily_planning",
+          currentStreak,
+          longestStreak,
+          lastActivityDate: normalizedDate,
         },
-      },
-      create: {
-        userId,
-        workspaceId: workspaceId ?? null,
-        streakType: "daily_planning",
-        currentStreak,
-        longestStreak,
-        lastActivityDate: normalizedDate,
-      },
-      update: {
-        currentStreak,
-        longestStreak,
-        lastActivityDate: normalizedDate,
-      },
-    });
+      });
+    }
   }
 
   /**

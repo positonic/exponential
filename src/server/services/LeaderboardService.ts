@@ -98,9 +98,10 @@ export class LeaderboardService {
         if (scores.length === 0) return null;
 
         const totalScore = scores.reduce((sum, s) => sum + s.totalScore, 0);
+        const firstScore = scores[0];
         const avgScore =
-          timeframe === "today" && scores.length > 0
-            ? scores[0].totalScore
+          timeframe === "today" && firstScore
+            ? firstScore.totalScore
             : Math.round(totalScore / scores.length);
 
         const qualifiedDays = scores.filter(
@@ -281,9 +282,10 @@ export class LeaderboardService {
         if (scores.length === 0) return null;
 
         const totalScore = scores.reduce((sum, s) => sum + s.totalScore, 0);
+        const firstScore = scores[0];
         const avgScore =
-          timeframe === "today" && scores.length > 0
-            ? scores[0].totalScore
+          timeframe === "today" && firstScore
+            ? firstScore.totalScore
             : Math.round(totalScore / scores.length);
 
         const qualifiedDays = scores.filter(
@@ -306,7 +308,7 @@ export class LeaderboardService {
     // Sort and assign ranks
     userScores.sort((a, b) => b.score - a.score);
 
-    // Upsert LeaderboardEntry records
+    // Create or update LeaderboardEntry records
     for (let i = 0; i < userScores.length; i++) {
       const entry = userScores[i]!;
       const rank = i + 1;
@@ -315,32 +317,39 @@ export class LeaderboardService {
           ? Math.round(((userScores.length - rank) / userScores.length) * 100)
           : 100;
 
-      await db.leaderboardEntry.upsert({
+      const existingEntry = await db.leaderboardEntry.findFirst({
         where: {
-          userId_workspaceId_period: {
-            userId: entry.userId,
-            workspaceId: workspaceId ?? null,
-            period: timeframe,
-          },
-        },
-        create: {
           userId: entry.userId,
           workspaceId: workspaceId ?? null,
           period: timeframe,
-          score: entry.score,
-          rank,
-          percentile,
-          totalDays: entry.totalDays,
-          consistency: entry.consistency,
-        },
-        update: {
-          score: entry.score,
-          rank,
-          percentile,
-          totalDays: entry.totalDays,
-          consistency: entry.consistency,
         },
       });
+
+      if (existingEntry) {
+        await db.leaderboardEntry.update({
+          where: { id: existingEntry.id },
+          data: {
+            score: entry.score,
+            rank,
+            percentile,
+            totalDays: entry.totalDays,
+            consistency: entry.consistency,
+          },
+        });
+      } else {
+        await db.leaderboardEntry.create({
+          data: {
+            userId: entry.userId,
+            workspaceId: workspaceId ?? null,
+            period: timeframe,
+            score: entry.score,
+            rank,
+            percentile,
+            totalDays: entry.totalDays,
+            consistency: entry.consistency,
+          },
+        });
+      }
     }
   }
 }

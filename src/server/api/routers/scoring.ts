@@ -121,13 +121,11 @@ export const scoringRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      return await ctx.db.productivityStreak.findUnique({
+      return await ctx.db.productivityStreak.findFirst({
         where: {
-          userId_workspaceId_streakType: {
-            userId,
-            workspaceId: input.workspaceId ?? null,
-            streakType: input.streakType,
-          },
+          userId,
+          workspaceId: input.workspaceId ?? null,
+          streakType: input.streakType,
         },
       });
     }),
