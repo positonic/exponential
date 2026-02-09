@@ -63,9 +63,12 @@ interface ManyChatProps {
   initialInput?: string;
 }
 
-export default function ManyChat({ initialMessages, githubSettings, buttons, projectId, initialInput }: ManyChatProps) {
+export default function ManyChat({ initialMessages, githubSettings, buttons, projectId: projectIdProp, initialInput }: ManyChatProps) {
   // Get messages, conversationId, and page context from context to persist across navigation
   const { messages, setMessages, conversationId, setConversationId, pageContext } = useAgentModal();
+
+  // Use prop if provided, otherwise fall back to pageContext (auto-detected from current page)
+  const projectId = projectIdProp ?? (pageContext?.data?.projectId as string | undefined);
 
   // Function to generate initial messages with project context
   const generateInitialMessages = useCallback((projectData?: any, projectActions?: any[], transcriptions?: any[]): Message[] => {

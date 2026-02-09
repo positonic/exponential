@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Actions } from "./Actions";
 import ProjectDetails from "./ProjectDetails";
 //import Chat from "./Chat";
@@ -58,8 +58,11 @@ import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 import { useAgentModal } from "~/providers/AgentModalProvider";
+import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { notifications } from "@mantine/notifications";
 import Link from "next/link";
+import { useMemo } from "react";
 
 type TabValue =
   | "overview"
@@ -110,6 +113,7 @@ export function ProjectContent({
       ? initialTab
       : "overview";
 
+  const pathname = usePathname();
   const [drawerOpened, setDrawerOpened] = useState(false);
   const [activeDrawer, setActiveDrawer] = useState<'settings' | null>(null);
   const { openModal: openChatModal, isOpen: chatModalOpen } = useAgentModal();
@@ -119,6 +123,27 @@ export function ProjectContent({
   const { data: project, isLoading, error: projectError } = api.project.getById.useQuery({
     id: projectId,
   });
+
+  // Register project context for agent chat — merges with workspace context
+  const { workspace, workspaceId } = useWorkspace();
+  const projectPageContext = useMemo(() => {
+    if (!projectId) return null;
+    return {
+      pageType: 'project' as const,
+      pageTitle: project?.name ?? 'Project',
+      pagePath: pathname,
+      data: {
+        projectId,
+        projectName: project?.name,
+        ...(workspaceId && {
+          workspaceId,
+          workspaceName: workspace?.name,
+          workspaceSlug: workspace?.slug,
+        }),
+      },
+    };
+  }, [projectId, project?.name, pathname, workspaceId, workspace?.name, workspace?.slug]);
+  useRegisterPageContext(projectPageContext);
   const { data: projectActions } = api.action.getProjectActions.useQuery({ projectId });
   const goalsQuery = api.goal.getProjectGoals.useQuery({ projectId });
   const outcomesQuery = api.outcome.getProjectOutcomes.useQuery({ projectId });
