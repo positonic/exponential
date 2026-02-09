@@ -147,7 +147,7 @@ export const mastraRouter = createTRPCRouter({
           };
         });
 
-        const selectedAgents = ["zoeagent", "projectmanageragent", "ashagent"];
+        const selectedAgents = ["zoeagent", "projectmanageragent", "ashagent", "expoagent"];
         const filteredAgents = transformedAgents.filter((a) => {
           if(selectedAgents.includes(a.id.toLowerCase())) {
             return a
