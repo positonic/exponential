@@ -22,7 +22,9 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { notifications } from "@mantine/notifications";
 import { WorkspaceKanbanBoard } from "./WorkspaceKanbanBoard";
+import { ActionList } from "../ActionList";
 import type { ViewFilters, ViewType, ViewGroupBy } from "~/types/view";
 
 interface ViewBoardProps {
@@ -42,6 +44,7 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
   const [localFilters, setLocalFilters] = useState<ViewFilters>(viewConfig?.filters ?? {});
   const [viewType, setViewType] = useState<ViewType>(viewConfig?.viewType ?? "KANBAN");
   const [groupBy] = useState<ViewGroupBy>(viewConfig?.groupBy ?? "STATUS");
+  const utils = api.useUtils();
 
   // Fetch projects for filter dropdown
   const { data: projects } = api.project.getAll.useQuery(
@@ -55,6 +58,121 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
     viewId: viewConfig?.isVirtual ? undefined : viewConfig?.id,
     filters: localFilters,
   });
+
+  // Bulk mutations for list view bulk edit
+  const bulkDeleteMutation = api.action.bulkDelete.useMutation({
+    onSuccess: (data) => {
+      notifications.show({
+        title: "Actions Deleted",
+        message: `Successfully deleted ${data.count} actions`,
+        color: "green",
+      });
+      void utils.view.getViewActions.invalidate();
+      void utils.action.getAll.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Delete Failed",
+        message: error.message ?? "Failed to delete actions",
+        color: "red",
+      });
+    },
+  });
+
+  const bulkRescheduleMutation = api.action.bulkReschedule.useMutation({
+    onSettled: () => {
+      void utils.view.getViewActions.invalidate();
+      void utils.action.getAll.invalidate();
+    },
+  });
+
+  const bulkAssignProjectMutation = api.action.bulkAssignProject.useMutation({
+    onSettled: () => {
+      void utils.view.getViewActions.invalidate();
+      void utils.action.getAll.invalidate();
+    },
+  });
+
+  // Bulk operation handlers
+  const handleBulkDelete = async (actionIds: string[]) => {
+    bulkDeleteMutation.mutate({ actionIds });
+  };
+
+  const handleBulkReschedule = async (date: Date | null, actionIds: string[]) => {
+    if (actionIds.length === 0) return;
+
+    notifications.show({
+      id: "bulk-reschedule-actions",
+      title: "Rescheduling...",
+      message: `Updating ${actionIds.length} action${actionIds.length !== 1 ? "s" : ""}...`,
+      loading: true,
+      autoClose: false,
+    });
+
+    try {
+      const result = await bulkRescheduleMutation.mutateAsync({
+        actionIds,
+        dueDate: date,
+      });
+
+      notifications.update({
+        id: "bulk-reschedule-actions",
+        title: "Rescheduled",
+        message: `Successfully updated ${result.count} action${result.count !== 1 ? "s" : ""}`,
+        loading: false,
+        autoClose: 3000,
+        color: "green",
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      notifications.update({
+        id: "bulk-reschedule-actions",
+        title: "Error",
+        message: `Failed to reschedule: ${errMsg}`,
+        loading: false,
+        autoClose: 5000,
+        color: "red",
+      });
+    }
+  };
+
+  const handleBulkAssignProject = async (projectId: string, actionIds: string[]) => {
+    if (actionIds.length === 0) return;
+
+    notifications.show({
+      id: "bulk-assign-project-actions",
+      title: "Assigning to project...",
+      message: `Updating ${actionIds.length} action${actionIds.length !== 1 ? "s" : ""}...`,
+      loading: true,
+      autoClose: false,
+    });
+
+    try {
+      const result = await bulkAssignProjectMutation.mutateAsync({
+        actionIds,
+        projectId,
+      });
+
+      notifications.update({
+        id: "bulk-assign-project-actions",
+        title: "Project Assigned",
+        message: `Successfully assigned ${result.count} action${result.count !== 1 ? "s" : ""}`,
+        loading: false,
+        autoClose: 3000,
+        color: "green",
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      notifications.update({
+        id: "bulk-assign-project-actions",
+        title: "Error",
+        message: `Failed to assign project: ${errMsg}`,
+        loading: false,
+        autoClose: 5000,
+        color: "red",
+      });
+    }
+  };
 
   // Project filter options
   const projectOptions = projects?.map(p => ({
@@ -209,11 +327,16 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
       )}
 
       {viewType === "LIST" && (
-        <Paper p="md" className="bg-surface-secondary">
-          <Text c="dimmed" ta="center">
-            List view coming soon. {actions?.length ?? 0} actions available.
-          </Text>
-        </Paper>
+        <ActionList
+          viewName="actions"
+          actions={(actions ?? []) as any}
+          showProject={true}
+          enableBulkEditForAll={true}
+          onAllBulkDelete={handleBulkDelete}
+          onAllBulkReschedule={handleBulkReschedule}
+          onAllBulkAssignProject={handleBulkAssignProject}
+          isLoading={isLoading}
+        />
       )}
     </Stack>
   );

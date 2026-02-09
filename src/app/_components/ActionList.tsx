@@ -157,6 +157,10 @@ export function ActionList({
   onInboxBulkSchedule,
   onInboxBulkDelete,
   onInboxBulkAssignProject,
+  enableBulkEditForAll = false,
+  onAllBulkDelete,
+  onAllBulkReschedule,
+  onAllBulkAssignProject,
   schedulingSuggestions,
   schedulingSuggestionsLoading = false,
   _schedulingSuggestionsError,
@@ -184,6 +188,10 @@ export function ActionList({
   onInboxBulkSchedule?: (date: Date | null, actionIds: string[]) => Promise<void>,
   onInboxBulkDelete?: (actionIds: string[]) => Promise<void>,
   onInboxBulkAssignProject?: (projectId: string, actionIds: string[]) => Promise<void>,
+  enableBulkEditForAll?: boolean,
+  onAllBulkDelete?: (actionIds: string[]) => Promise<void>,
+  onAllBulkReschedule?: (date: Date | null, actionIds: string[]) => Promise<void>,
+  onAllBulkAssignProject?: (projectId: string, actionIds: string[]) => Promise<void>,
   // AI Scheduling suggestions props
   schedulingSuggestions?: Map<string, SchedulingSuggestionData>,
   schedulingSuggestionsLoading?: boolean,
@@ -208,13 +216,16 @@ export function ActionList({
   const [bulkEditInboxMode, setBulkEditInboxMode] = useState(false);
   const [selectedInboxActionIds, setSelectedInboxActionIds] = useState<Set<string>>(new Set());
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [bulkEditAllMode, setBulkEditAllMode] = useState(false);
+  const [selectedAllActionIds, setSelectedAllActionIds] = useState<Set<string>>(new Set());
+  const [selectedAllProjectId, setSelectedAllProjectId] = useState<string | null>(null);
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
   const utils = api.useUtils();
 
-  // Fetch projects for bulk assignment dropdown (only when inbox bulk edit is enabled)
+  // Fetch projects for bulk assignment dropdown (when inbox or general bulk edit is enabled)
   const projectsQuery = api.project.getAll.useQuery(undefined, {
-    enabled: enableBulkEditForInbox,
+    enabled: enableBulkEditForInbox || enableBulkEditForAll,
   });
   
   const updateAction = api.action.update.useMutation({
@@ -563,6 +574,42 @@ export function ActionList({
     setBulkEditInboxMode(false);
   };
 
+  // Helper functions for general bulk operations (actions page)
+  const handleSelectAllGeneral = () => {
+    const allIds = filteredActions.map(action => action.id);
+    setSelectedAllActionIds(new Set(allIds));
+  };
+
+  const handleSelectNoneGeneral = () => {
+    setSelectedAllActionIds(new Set());
+  };
+
+  const handleAllBulkDelete = async () => {
+    if (selectedAllActionIds.size === 0 || !onAllBulkDelete) return;
+
+    if (window.confirm(`Are you sure you want to delete ${selectedAllActionIds.size} actions?`)) {
+      await onAllBulkDelete(Array.from(selectedAllActionIds));
+      setSelectedAllActionIds(new Set());
+      setBulkEditAllMode(false);
+    }
+  };
+
+  const handleAllBulkReschedule = async (date: Date | null) => {
+    if (selectedAllActionIds.size === 0 || !onAllBulkReschedule) return;
+
+    await onAllBulkReschedule(date, Array.from(selectedAllActionIds));
+    setSelectedAllActionIds(new Set());
+  };
+
+  const handleAllBulkAssignProject = async () => {
+    if (selectedAllActionIds.size === 0 || !selectedAllProjectId || !onAllBulkAssignProject) return;
+
+    await onAllBulkAssignProject(selectedAllProjectId, Array.from(selectedAllActionIds));
+    setSelectedAllActionIds(new Set());
+    setSelectedAllProjectId(null);
+    setBulkEditAllMode(false);
+  };
+
   // Helper to render a single action item (used for both lists)
   const renderActionItem = (action: Action, isOverdue: boolean) => (
     <Paper
@@ -692,6 +739,25 @@ export function ActionList({
                     newSelected.delete(action.id);
                   }
                   setSelectedInboxActionIds(newSelected);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+          {/* Bulk selection checkbox for general actions page when bulk edit is enabled */}
+          {!isOverdue && bulkEditAllMode && enableBulkEditForAll && (
+            <div className="bulk-checkbox-wrapper">
+              <Checkbox
+                size="sm"
+                checked={selectedAllActionIds.has(action.id)}
+                onChange={(event) => {
+                  const newSelected = new Set(selectedAllActionIds);
+                  if (event.currentTarget.checked) {
+                    newSelected.add(action.id);
+                  } else {
+                    newSelected.delete(action.id);
+                  }
+                  setSelectedAllActionIds(newSelected);
                 }}
                 onClick={(e) => e.stopPropagation()}
               />
@@ -1078,12 +1144,15 @@ export function ActionList({
         >
           Show: {filter === "ACTIVE" ? "Active" : "Completed"}
         </button>
-        {(enableBulkEditForProject || enableBulkEditForFocus || enableBulkEditForInbox) && (
+        {(enableBulkEditForProject || enableBulkEditForFocus || enableBulkEditForInbox || enableBulkEditForAll) && (
           <Button
             size="xs"
             variant="subtle"
             onClick={() => {
-              if (enableBulkEditForProject) {
+              if (enableBulkEditForAll) {
+                setBulkEditAllMode(!bulkEditAllMode);
+                setSelectedAllActionIds(new Set());
+              } else if (enableBulkEditForProject) {
                 setBulkEditProjectMode(!bulkEditProjectMode);
                 setSelectedProjectActionIds(new Set());
               } else if (enableBulkEditForFocus) {
@@ -1095,7 +1164,7 @@ export function ActionList({
               }
             }}
           >
-            {(bulkEditProjectMode || bulkEditFocusMode || bulkEditInboxMode) ? "Exit" : "Bulk edit"}
+            {(bulkEditProjectMode || bulkEditFocusMode || bulkEditInboxMode || bulkEditAllMode) ? "Exit" : "Bulk edit"}
           </Button>
         )}
       </Group>
@@ -1201,6 +1270,58 @@ export function ActionList({
             leftSection={<IconTrash size={12} />}
             disabled={selectedInboxActionIds.size === 0}
             onClick={() => void handleInboxBulkDelete()}
+          >
+            Delete Selected
+          </Button>
+        </Group>
+      )}
+
+      {/* Bulk actions toolbar for general actions page */}
+      {bulkEditAllMode && enableBulkEditForAll && (
+        <Group mb="md" gap="sm" wrap="wrap">
+          <Button size="xs" variant="light" onClick={handleSelectAllGeneral}>
+            Select All
+          </Button>
+          <Button size="xs" variant="light" onClick={handleSelectNoneGeneral}>
+            Select None
+          </Button>
+          <Badge>{selectedAllActionIds.size} selected</Badge>
+          <Select
+            placeholder="Assign to project"
+            size="xs"
+            data={projectsQuery.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
+            value={selectedAllProjectId}
+            onChange={setSelectedAllProjectId}
+            disabled={selectedAllActionIds.size === 0}
+            clearable
+            searchable
+            w={180}
+          />
+          {selectedAllProjectId && selectedAllActionIds.size > 0 && (
+            <Button
+              size="xs"
+              variant="filled"
+              onClick={() => void handleAllBulkAssignProject()}
+            >
+              Assign
+            </Button>
+          )}
+          <UnifiedDatePicker
+            value={null}
+            onChange={(date) => void handleAllBulkReschedule(date)}
+            mode="bulk"
+            selectedCount={selectedAllActionIds.size}
+            triggerText="Reschedule"
+            notificationContext="action"
+            disabled={selectedAllActionIds.size === 0}
+          />
+          <Button
+            size="xs"
+            variant="filled"
+            color="red"
+            leftSection={<IconTrash size={12} />}
+            disabled={selectedAllActionIds.size === 0}
+            onClick={() => void handleAllBulkDelete()}
           >
             Delete Selected
           </Button>

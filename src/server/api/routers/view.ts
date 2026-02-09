@@ -439,7 +439,7 @@ export const viewRouter = createTRPCRouter({
       return ctx.db.action.findMany({
         where: whereClause,
         include: {
-          project: { select: { id: true, name: true, slug: true } },
+          project: true,
           assignees: {
             include: {
               user: { select: { id: true, name: true, email: true, image: true } },
@@ -447,6 +447,7 @@ export const viewRouter = createTRPCRouter({
           },
           tags: { include: { tag: true } },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
+          syncs: true,
         },
         orderBy: [
           { kanbanOrder: { sort: "asc", nulls: "last" } },
