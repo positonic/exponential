@@ -2100,6 +2100,467 @@ export const mastraRouter = createTRPCRouter({
         hasAnyConnected: googleStatus.isConnected || microsoftStatus.isConnected,
       };
     }),
+
+  // ==================== CRM ENDPOINTS FOR AGENT TOOLS ====================
+
+  // Search contacts by name, tags, or organization
+  searchCrmContacts: protectedProcedure
+    .input(z.object({
+      search: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+      organizationId: z.string().optional(),
+      limit: z.number().min(1).max(100).default(20),
+      cursor: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { search, tags, organizationId, limit, cursor } = input;
+
+      // Get user's first workspace
+      const workspaceUser = await ctx.db.workspaceUser.findFirst({
+        where: { userId: ctx.session.user.id },
+        select: { workspaceId: true },
+      });
+
+      if (!workspaceUser) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
+      }
+
+      const workspaceId = workspaceUser.workspaceId;
+
+      const contacts = await ctx.db.crmContact.findMany({
+        where: {
+          workspaceId,
+          ...(search ? {
+            OR: [
+              { firstName: { contains: search, mode: "insensitive" } },
+              { lastName: { contains: search, mode: "insensitive" } },
+            ],
+          } : {}),
+          ...(tags && tags.length > 0 ? { tags: { hasSome: tags } } : {}),
+          ...(organizationId ? { organizationId } : {}),
+        },
+        include: {
+          organization: { select: { id: true, name: true } },
+        },
+        orderBy: [
+          { lastInteractionAt: { sort: "desc", nulls: "last" } },
+          { createdAt: "desc" },
+        ],
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+
+      let nextCursor: string | undefined;
+      if (contacts.length > limit) {
+        const nextItem = contacts.pop();
+        nextCursor = nextItem?.id;
+      }
+
+      // Decrypt PII and return agent-friendly shape
+      const decrypted = contacts.map((c) => {
+        try {
+          return {
+            id: c.id,
+            firstName: c.firstName,
+            lastName: c.lastName,
+            email: decryptBuffer(c.email) ?? null,
+            phone: decryptBuffer(c.phone) ?? null,
+            tags: c.tags,
+            organizationName: c.organization?.name ?? null,
+            organizationId: c.organizationId,
+            connectionScore: c.connectionScore,
+            lastInteractionAt: c.lastInteractionAt?.toISOString() ?? null,
+            lastInteractionType: c.lastInteractionType,
+          };
+        } catch (e) {
+          console.error("PII decryption failed for contact", c.id, e);
+          return {
+            id: c.id,
+            firstName: c.firstName,
+            lastName: c.lastName,
+            email: null,
+            phone: null,
+            tags: c.tags,
+            organizationName: c.organization?.name ?? null,
+            organizationId: c.organizationId,
+            connectionScore: c.connectionScore,
+            lastInteractionAt: c.lastInteractionAt?.toISOString() ?? null,
+            lastInteractionType: c.lastInteractionType,
+          };
+        }
+      });
+
+      return { contacts: decrypted, nextCursor };
+    }),
+
+  // Get a single contact by ID with full details
+  getCrmContact: protectedProcedure
+    .input(z.object({
+      contactId: z.string(),
+      includeInteractions: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { contactId, includeInteractions } = input;
+
+      const contact = await ctx.db.crmContact.findFirst({
+        where: {
+          id: contactId,
+          workspace: { members: { some: { userId: ctx.session.user.id } } },
+        },
+        include: {
+          organization: { select: { id: true, name: true, industry: true } },
+          interactions: includeInteractions
+            ? { orderBy: { createdAt: "desc" }, take: 10 }
+            : false,
+        },
+      });
+
+      if (!contact) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found or inaccessible" });
+      }
+
+      try {
+        return {
+          id: contact.id,
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: decryptBuffer(contact.email) ?? null,
+          phone: decryptBuffer(contact.phone) ?? null,
+          linkedIn: decryptBuffer(contact.linkedIn) ?? null,
+          telegram: decryptBuffer(contact.telegram) ?? null,
+          twitter: decryptBuffer(contact.twitter) ?? null,
+          github: decryptBuffer(contact.github) ?? null,
+          about: contact.about,
+          skills: contact.skills,
+          tags: contact.tags,
+          organization: contact.organization,
+          connectionScore: contact.connectionScore,
+          lastInteractionAt: contact.lastInteractionAt?.toISOString() ?? null,
+          lastInteractionType: contact.lastInteractionType,
+          interactions: contact.interactions?.map((i) => ({
+            id: i.id,
+            type: i.type,
+            direction: i.direction,
+            subject: i.subject,
+            notes: i.notes,
+            createdAt: i.createdAt.toISOString(),
+          })) ?? [],
+        };
+      } catch (e) {
+        console.error("PII decryption failed for contact", contact.id, e);
+        return {
+          id: contact.id,
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: null, phone: null, linkedIn: null, telegram: null, twitter: null, github: null,
+          about: contact.about,
+          skills: contact.skills,
+          tags: contact.tags,
+          organization: contact.organization,
+          connectionScore: contact.connectionScore,
+          lastInteractionAt: contact.lastInteractionAt?.toISOString() ?? null,
+          lastInteractionType: contact.lastInteractionType,
+          interactions: contact.interactions?.map((i) => ({
+            id: i.id,
+            type: i.type,
+            direction: i.direction,
+            subject: i.subject,
+            notes: i.notes,
+            createdAt: i.createdAt.toISOString(),
+          })) ?? [],
+        };
+      }
+    }),
+
+  // Create a full CRM contact with all fields
+  createFullCrmContact: protectedProcedure
+    .input(z.object({
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+      linkedIn: z.string().optional(),
+      telegram: z.string().optional(),
+      twitter: z.string().optional(),
+      github: z.string().optional(),
+      about: z.string().optional(),
+      skills: z.array(z.string()).optional(),
+      tags: z.array(z.string()).optional(),
+      organizationId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const workspaceUser = await ctx.db.workspaceUser.findFirst({
+        where: { userId: ctx.session.user.id },
+        select: { workspaceId: true },
+      });
+
+      if (!workspaceUser) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
+      }
+
+      const workspaceId = workspaceUser.workspaceId;
+
+      // Validate organizationId belongs to same workspace
+      if (input.organizationId) {
+        const org = await ctx.db.crmOrganization.findUnique({
+          where: { id: input.organizationId },
+          select: { workspaceId: true },
+        });
+        if (!org || org.workspaceId !== workspaceId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Organization must belong to the same workspace" });
+        }
+      }
+
+      // Prepare encrypted PII fields
+      const dbData: any = {
+        workspaceId,
+        createdById: ctx.session.user.id,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        about: input.about,
+        skills: input.skills ?? [],
+        tags: input.tags ?? [],
+        organizationId: input.organizationId,
+        importSource: "MANUAL",
+      };
+
+      if (input.email) {
+        dbData.email = encryptString(input.email);
+        dbData.emailHash = crypto.createHash("sha256").update(input.email.toLowerCase().trim()).digest("hex");
+      }
+      if (input.phone) dbData.phone = encryptString(input.phone);
+      if (input.linkedIn) dbData.linkedIn = encryptString(input.linkedIn);
+      if (input.telegram) dbData.telegram = encryptString(input.telegram);
+      if (input.twitter) dbData.twitter = encryptString(input.twitter);
+      if (input.github) dbData.github = encryptString(input.github);
+
+      const contact = await ctx.db.crmContact.create({ data: dbData });
+
+      return {
+        id: contact.id,
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        email: input.email ?? null,
+      };
+    }),
+
+  // Update any fields on a CRM contact
+  updateCrmContact: protectedProcedure
+    .input(z.object({
+      contactId: z.string(),
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+      email: z.string().email().optional().nullable(),
+      phone: z.string().optional().nullable(),
+      linkedIn: z.string().optional().nullable(),
+      telegram: z.string().optional().nullable(),
+      twitter: z.string().optional().nullable(),
+      github: z.string().optional().nullable(),
+      about: z.string().optional(),
+      skills: z.array(z.string()).optional(),
+      tags: z.array(z.string()).optional(),
+      organizationId: z.string().optional().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { contactId, ...updateData } = input;
+
+      // Verify access
+      const existing = await ctx.db.crmContact.findFirst({
+        where: {
+          id: contactId,
+          workspace: { members: { some: { userId: ctx.session.user.id } } },
+        },
+      });
+
+      if (!existing) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found or inaccessible" });
+      }
+
+      // Encrypt PII fields
+      const dbUpdate: any = {};
+      if (updateData.firstName !== undefined) dbUpdate.firstName = updateData.firstName;
+      if (updateData.lastName !== undefined) dbUpdate.lastName = updateData.lastName;
+      if (updateData.about !== undefined) dbUpdate.about = updateData.about;
+      if (updateData.skills !== undefined) dbUpdate.skills = updateData.skills;
+      if (updateData.tags !== undefined) dbUpdate.tags = updateData.tags;
+      if (updateData.organizationId !== undefined) dbUpdate.organizationId = updateData.organizationId;
+
+      if (updateData.email !== undefined) {
+        dbUpdate.email = updateData.email ? encryptString(updateData.email) : null;
+        dbUpdate.emailHash = updateData.email
+          ? crypto.createHash("sha256").update(updateData.email.toLowerCase().trim()).digest("hex")
+          : null;
+      }
+      if (updateData.phone !== undefined) dbUpdate.phone = updateData.phone ? encryptString(updateData.phone) : null;
+      if (updateData.linkedIn !== undefined) dbUpdate.linkedIn = updateData.linkedIn ? encryptString(updateData.linkedIn) : null;
+      if (updateData.telegram !== undefined) dbUpdate.telegram = updateData.telegram ? encryptString(updateData.telegram) : null;
+      if (updateData.twitter !== undefined) dbUpdate.twitter = updateData.twitter ? encryptString(updateData.twitter) : null;
+      if (updateData.github !== undefined) dbUpdate.github = updateData.github ? encryptString(updateData.github) : null;
+
+      const contact = await ctx.db.crmContact.update({
+        where: { id: contactId },
+        data: dbUpdate,
+      });
+
+      return {
+        id: contact.id,
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        email: updateData.email !== undefined ? (updateData.email ?? null) : (decryptBuffer(contact.email) ?? null),
+        updated: true,
+      };
+    }),
+
+  // Log an interaction with a CRM contact
+  addCrmInteraction: protectedProcedure
+    .input(z.object({
+      contactId: z.string(),
+      type: z.enum(["EMAIL", "TELEGRAM", "PHONE_CALL", "MEETING", "NOTE", "LINKEDIN", "OTHER"]),
+      direction: z.enum(["INBOUND", "OUTBOUND"]),
+      subject: z.string().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { contactId, ...interactionData } = input;
+
+      // Verify access
+      const contact = await ctx.db.crmContact.findFirst({
+        where: {
+          id: contactId,
+          workspace: { members: { some: { userId: ctx.session.user.id } } },
+        },
+        select: { workspaceId: true },
+      });
+
+      if (!contact) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found or inaccessible" });
+      }
+
+      // Create interaction and update contact's last interaction in a transaction
+      const [interaction] = await ctx.db.$transaction([
+        ctx.db.crmContactInteraction.create({
+          data: {
+            type: interactionData.type,
+            direction: interactionData.direction,
+            subject: interactionData.subject,
+            notes: interactionData.notes,
+            contactId,
+            workspaceId: contact.workspaceId,
+            userId: ctx.session.user.id,
+          },
+        }),
+        ctx.db.crmContact.update({
+          where: { id: contactId },
+          data: {
+            lastInteractionAt: new Date(),
+            lastInteractionType: interactionData.type,
+          },
+        }),
+      ]);
+
+      return {
+        id: interaction.id,
+        type: interaction.type,
+        direction: interaction.direction,
+        subject: interaction.subject,
+        createdAt: interaction.createdAt.toISOString(),
+      };
+    }),
+
+  // Search organizations by name or industry
+  searchCrmOrganizations: protectedProcedure
+    .input(z.object({
+      search: z.string().optional(),
+      industry: z.string().optional(),
+      limit: z.number().min(1).max(100).default(20),
+      cursor: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { search, industry, limit, cursor } = input;
+
+      const workspaceUser = await ctx.db.workspaceUser.findFirst({
+        where: { userId: ctx.session.user.id },
+        select: { workspaceId: true },
+      });
+
+      if (!workspaceUser) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
+      }
+
+      const workspaceId = workspaceUser.workspaceId;
+
+      const organizations = await ctx.db.crmOrganization.findMany({
+        where: {
+          workspaceId,
+          ...(search ? {
+            OR: [
+              { name: { contains: search, mode: "insensitive" } },
+              { description: { contains: search, mode: "insensitive" } },
+            ],
+          } : {}),
+          ...(industry ? { industry } : {}),
+        },
+        include: {
+          _count: { select: { contacts: true } },
+        },
+        orderBy: { name: "asc" },
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+
+      let nextCursor: string | undefined;
+      if (organizations.length > limit) {
+        const nextItem = organizations.pop();
+        nextCursor = nextItem?.id;
+      }
+
+      return {
+        organizations: organizations.map((o) => ({
+          id: o.id,
+          name: o.name,
+          description: o.description,
+          industry: o.industry,
+          size: o.size,
+          websiteUrl: o.websiteUrl,
+          contactCount: o._count.contacts,
+        })),
+        nextCursor,
+      };
+    }),
+
+  // Create a new CRM organization
+  createCrmOrganization: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1),
+      description: z.string().optional(),
+      websiteUrl: z.string().url().optional(),
+      industry: z.string().optional(),
+      size: z.enum(["1-10", "11-50", "51-200", "201-500", "501-1000", "1000+"]).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const workspaceUser = await ctx.db.workspaceUser.findFirst({
+        where: { userId: ctx.session.user.id },
+        select: { workspaceId: true },
+      });
+
+      if (!workspaceUser) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
+      }
+
+      const organization = await ctx.db.crmOrganization.create({
+        data: {
+          ...input,
+          workspaceId: workspaceUser.workspaceId,
+          createdById: ctx.session.user.id,
+        },
+      });
+
+      return {
+        id: organization.id,
+        name: organization.name,
+        industry: organization.industry,
+      };
+    }),
 });
 
 // Helper function for fallback AI suggestions

@@ -19,11 +19,12 @@ export async function POST(req: Request) {
       });
     }
 
-    const { messages, agentId, workspaceId, projectId } = (await req.json()) as {
+    const { messages, agentId, workspaceId, projectId, conversationId } = (await req.json()) as {
       messages: CoreMessage[];
       agentId?: string;
       workspaceId?: string;
       projectId?: string;
+      conversationId?: string;
     };
 
     const client = new MastraClient({
@@ -98,6 +99,10 @@ export async function POST(req: Request) {
     const agent = client.getAgent(agentId ?? "projectManagerAgent");
     const response = await agent.stream(messages, {
       requestContext,
+      memory: {
+        resource: session.user.id,
+        thread: conversationId || `session-${session.user.id}-${Date.now()}`,
+      },
     });
 
     // Extract text from Mastra's chunk protocol (text-delta events)
