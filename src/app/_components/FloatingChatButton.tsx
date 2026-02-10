@@ -1,10 +1,16 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { IconSparkles } from "@tabler/icons-react";
 import { useAgentModal } from "~/providers/AgentModalProvider";
 
 export function FloatingChatButton() {
+  const pathname = usePathname();
   const { openModal } = useAgentModal();
+
+  if (pathname?.includes("/agent")) {
+    return null;
+  }
 
   return (
     <button
