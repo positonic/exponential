@@ -53,6 +53,7 @@ interface Action {
     };
   }>;
   lists?: Array<{
+    listId: string;
     list: {
       id: string;
       name: string;

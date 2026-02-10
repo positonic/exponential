@@ -4,12 +4,14 @@ import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Card, Text, Group, Badge, Avatar, Stack, ActionIcon, Menu, Tooltip, HoverCard, Modal, Button, Divider } from "@mantine/core";
-import { IconDots, IconEdit, IconTrash, IconArrowsMaximize } from "@tabler/icons-react";
+import { IconDots, IconEdit, IconTrash, IconArrowsMaximize, IconCheck, IconList } from "@tabler/icons-react";
 import { AssignActionModal } from "./AssignActionModal";
 import { EditActionModal } from "./EditActionModal";
 import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
+import { api } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 type ActionStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
 
 interface Task {
@@ -41,6 +43,13 @@ interface Task {
     id: string;
     name: string;
   } | null;
+  lists?: Array<{
+    listId: string;
+    list: {
+      id: string;
+      name: string;
+    };
+  }>;
 }
 
 interface TaskCardProps {
@@ -69,6 +78,33 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [expandedModalOpen, setExpandedModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+
+  const { workspaceId } = useWorkspace();
+  const utils = api.useUtils();
+  const { data: workspaceLists } = api.list.list.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: !!workspaceId }
+  );
+
+  const addToList = api.list.addAction.useMutation({
+    onSettled: async () => {
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.view.getViewActions.invalidate(),
+        utils.list.list.invalidate(),
+      ]);
+    },
+  });
+
+  const removeFromList = api.list.removeAction.useMutation({
+    onSettled: async () => {
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.view.getViewActions.invalidate(),
+        utils.list.list.invalidate(),
+      ]);
+    },
+  });
   
   const {
     attributes,
@@ -149,7 +185,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
           </div>
 
           {/* Menu button */}
-          <Menu shadow="md" width={150} position="bottom-end">
+          <Menu shadow="md" width={200} position="bottom-end">
             <Menu.Target>
               <ActionIcon
                 variant="subtle"
@@ -188,6 +224,32 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               >
                 Assign
               </Menu.Item>
+              <Menu.Divider />
+              <Menu.Label>Lists</Menu.Label>
+              {workspaceLists?.map((list) => {
+                const isInList = task.lists?.some((al) => al.listId === list.id);
+                return (
+                  <Menu.Item
+                    key={list.id}
+                    leftSection={<IconList size={14} />}
+                    rightSection={isInList ? <IconCheck size={14} /> : null}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isInList) {
+                        removeFromList.mutate({ listId: list.id, actionId: task.id });
+                      } else {
+                        addToList.mutate({ listId: list.id, actionId: task.id });
+                      }
+                    }}
+                  >
+                    {list.name}
+                  </Menu.Item>
+                );
+              })}
+              {(!workspaceLists || workspaceLists.length === 0) && (
+                <Menu.Item disabled>No lists yet</Menu.Item>
+              )}
+              <Menu.Divider />
               <Menu.Item
                 leftSection={<IconTrash size={16} />}
                 color="red"

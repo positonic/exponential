@@ -27,6 +27,13 @@ interface Task {
     id: string;
     name: string;
   } | null;
+  lists?: Array<{
+    listId: string;
+    list: {
+      id: string;
+      name: string;
+    };
+  }>;
 }
 
 interface KanbanColumnProps {
