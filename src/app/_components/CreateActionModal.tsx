@@ -98,6 +98,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         syncs: [], // Initialize empty syncs array for consistency with getAll type
         assignees: [], // Initialize empty assignees array for type consistency
         tags: [], // Initialize empty tags array for type consistency
+        lists: [], // Initialize empty lists array for type consistency
         // Auto-scheduling fields
         isAutoScheduled: true,
         isHardDeadline: false,

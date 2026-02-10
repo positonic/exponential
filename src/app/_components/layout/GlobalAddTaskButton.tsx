@@ -76,6 +76,8 @@ export function GlobalAddTaskButton() {
         source: null,
         syncs: [],
         assignees: [],
+        tags: [],
+        lists: [],
         project: newAction.projectId
           ? (previousState.projects?.find((p) => p.id === newAction.projectId) ??
             null)

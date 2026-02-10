@@ -1,5 +1,5 @@
 import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button, Avatar, HoverCard, ActionIcon, Menu, Select } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots, IconBrandNotion, IconUserShare, IconClock } from '@tabler/icons-react';
+import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots, IconBrandNotion, IconUserShare, IconClock, IconCheck, IconList } from '@tabler/icons-react';
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
@@ -14,12 +14,14 @@ import { HTMLContent } from "./HTMLContent";
 import type { Priority } from "~/types/action";
 import { SchedulingSuggestion, type SchedulingSuggestionData } from "./SchedulingSuggestion";
 import { InboxZeroCelebration } from "./InboxZeroCelebration";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
 type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
-// Make createdBy optional to support both queries that include it and those that don't
-type Action = Omit<ActionWithSyncs, 'createdBy'> & {
+// Make createdBy and lists optional to support both queries that include them and those that don't
+type Action = Omit<ActionWithSyncs, 'createdBy' | 'lists'> & {
   createdBy?: ActionWithSyncs['createdBy'] | null;
+  lists?: ActionWithSyncs['lists'];
 };
 
 // Helper function to format date like "22 Feb"
@@ -290,6 +292,33 @@ export function ActionList({
       }
     },
   });;
+
+  // Lists feature - fetch workspace lists and mutations
+  const { workspaceId } = useWorkspace();
+  const { data: workspaceLists } = api.list.list.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: !!workspaceId }
+  );
+
+  const addToList = api.list.addAction.useMutation({
+    onSettled: async () => {
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.view.getViewActions.invalidate(),
+        utils.list.list.invalidate(),
+      ]);
+    },
+  });
+
+  const removeFromList = api.list.removeAction.useMutation({
+    onSettled: async () => {
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.view.getViewActions.invalidate(),
+        utils.list.list.invalidate(),
+      ]);
+    },
+  });
 
   const handleCheckboxChange = (actionId: string, checked: boolean) => {
     const action = actions.find(a => a.id === actionId);
@@ -979,10 +1008,10 @@ export function ActionList({
         </Group>
         
         {/* Action Menu */}
-        <Menu shadow="md" width={150} position="bottom-end">
+        <Menu shadow="md" width={200} position="bottom-end">
           <Menu.Target>
-            <ActionIcon 
-              variant="subtle" 
+            <ActionIcon
+              variant="subtle"
               size="sm"
               aria-label="Open action menu"
               onClick={(e) => e.stopPropagation()}
@@ -994,7 +1023,7 @@ export function ActionList({
             <Menu.Item leftSection={<IconEdit size={16} />}>
               Edit
             </Menu.Item>
-            <Menu.Item 
+            <Menu.Item
               onClick={(e) => {
                 e.stopPropagation();
                 setAssignSelectedAction(action);
@@ -1003,6 +1032,33 @@ export function ActionList({
             >
               Assign
             </Menu.Item>
+            <Menu.Divider />
+            <Menu.Label>Lists</Menu.Label>
+            {workspaceLists?.map((list) => {
+              const isInList = action.lists?.some(
+                (al) => al.listId === list.id
+              );
+              return (
+                <Menu.Item
+                  key={list.id}
+                  leftSection={<IconList size={14} />}
+                  rightSection={isInList ? <IconCheck size={14} /> : null}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isInList) {
+                      removeFromList.mutate({ listId: list.id, actionId: action.id });
+                    } else {
+                      addToList.mutate({ listId: list.id, actionId: action.id });
+                    }
+                  }}
+                >
+                  {list.name}
+                </Menu.Item>
+              );
+            })}
+            {(!workspaceLists || workspaceLists.length === 0) && (
+              <Menu.Item disabled>No lists yet</Menu.Item>
+            )}
           </Menu.Dropdown>
         </Menu>
       </Group>

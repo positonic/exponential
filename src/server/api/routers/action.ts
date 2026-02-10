@@ -116,6 +116,11 @@ export const actionRouter = createTRPCRouter({
         },
         createdBy: { select: { id: true, name: true, email: true, image: true } },
         tags: { include: { tag: true } },
+        lists: {
+          include: {
+            list: { select: { id: true, name: true, slug: true, listType: true, status: true } },
+          },
+        },
       },
       orderBy: {
         project: {
