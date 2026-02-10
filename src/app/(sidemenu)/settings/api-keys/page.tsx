@@ -199,6 +199,20 @@ export default function TokensPage() {
                     </Table.Td>
                     <Table.Td>
                       <Group gap="xs">
+                        <CopyButton value={token.tokenId}>
+                          {({ copied, copy }) => (
+                            <Tooltip label={copied ? 'Copied!' : 'Copy token ID'}>
+                              <ActionIcon
+                                color={copied ? 'teal' : 'gray'}
+                                variant="light"
+                                size="sm"
+                                onClick={copy}
+                              >
+                                {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
+                              </ActionIcon>
+                            </Tooltip>
+                          )}
+                        </CopyButton>
                         <Tooltip label="Revoke API key">
                           <ActionIcon
                             color="red"
