@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Stack,
   Group,
@@ -14,18 +14,43 @@ import {
   Badge,
   Checkbox,
   MultiSelect,
+  Select,
+  Button,
 } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
 import {
   IconLayoutKanban,
   IconList,
   IconFilter,
   IconX,
+  IconDeviceFloppy,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { WorkspaceKanbanBoard } from "./WorkspaceKanbanBoard";
 import { ActionList } from "../ActionList";
+import { ViewSwitcher } from "./ViewSwitcher";
+import { SaveViewModal } from "./SaveViewModal";
+import { DEFAULT_VIEW_CONFIG } from "~/types/view";
 import type { ViewFilters, ViewType, ViewGroupBy } from "~/types/view";
+import type { ViewConfig } from "./ViewSwitcher";
+import { PRIORITY_OPTIONS } from "~/types/action";
+
+const STATUS_OPTIONS = [
+  { value: "BACKLOG", label: "Backlog" },
+  { value: "TODO", label: "To Do" },
+  { value: "IN_PROGRESS", label: "In Progress" },
+  { value: "IN_REVIEW", label: "In Review" },
+  { value: "DONE", label: "Done" },
+  { value: "CANCELLED", label: "Cancelled" },
+];
+
+const GROUP_BY_OPTIONS = [
+  { value: "STATUS", label: "Status" },
+  { value: "PROJECT", label: "Project" },
+  { value: "LIST", label: "List" },
+  { value: "PRIORITY", label: "Priority" },
+];
 
 interface ViewBoardProps {
   workspaceId: string;
@@ -40,10 +65,19 @@ interface ViewBoardProps {
 }
 
 export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
+  const [activeView, setActiveView] = useState<ViewConfig>({
+    id: viewConfig?.id ?? DEFAULT_VIEW_CONFIG.id,
+    name: viewConfig?.name ?? DEFAULT_VIEW_CONFIG.name,
+    viewType: viewConfig?.viewType ?? DEFAULT_VIEW_CONFIG.viewType,
+    groupBy: viewConfig?.groupBy ?? DEFAULT_VIEW_CONFIG.groupBy,
+    filters: viewConfig?.filters ?? DEFAULT_VIEW_CONFIG.filters,
+    isVirtual: viewConfig?.isVirtual ?? true,
+  });
   const [showFilters, setShowFilters] = useState(false);
-  const [localFilters, setLocalFilters] = useState<ViewFilters>(viewConfig?.filters ?? {});
-  const [viewType, setViewType] = useState<ViewType>(viewConfig?.viewType ?? "KANBAN");
-  const [groupBy] = useState<ViewGroupBy>(viewConfig?.groupBy ?? "STATUS");
+  const [localFilters, setLocalFilters] = useState<ViewFilters>(activeView.filters);
+  const [viewType, setViewType] = useState<ViewType>(activeView.viewType);
+  const [groupBy, setGroupBy] = useState<ViewGroupBy>(activeView.groupBy);
+  const [saveModalOpened, { open: openSaveModal, close: closeSaveModal }] = useDisclosure(false);
   const utils = api.useUtils();
 
   // Fetch projects for filter dropdown
@@ -52,10 +86,22 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
     { enabled: showFilters }
   );
 
+  // Fetch lists for filter dropdown
+  const { data: lists } = api.list.list.useQuery(
+    { workspaceId },
+    { enabled: showFilters }
+  );
+
+  // Fetch tags for filter dropdown
+  const { data: tags } = api.tag.list.useQuery(
+    { workspaceId },
+    { enabled: showFilters }
+  );
+
   // Fetch actions with filters
   const { data: actions, isLoading } = api.view.getViewActions.useQuery({
     workspaceId,
-    viewId: viewConfig?.isVirtual ? undefined : viewConfig?.id,
+    viewId: activeView.isVirtual ? undefined : activeView.id,
     filters: localFilters,
   });
 
@@ -174,33 +220,70 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
     }
   };
 
-  // Project filter options
+  // Filter options
   const projectOptions = projects?.map(p => ({
     value: p.id,
     label: p.name,
   })) ?? [];
 
-  // Handle filter changes
-  const handleProjectFilter = (projectIds: string[]) => {
-    setLocalFilters(prev => ({
-      ...prev,
-      projectIds: projectIds.length > 0 ? projectIds : undefined,
-    }));
-  };
+  const listOptions = lists?.map(l => ({
+    value: l.id,
+    label: `${l.name}${l.listType === "SPRINT" ? " (Sprint)" : ""}`,
+  })) ?? [];
 
-  const handleIncludeCompleted = (checked: boolean) => {
+  const tagOptions = tags?.allTags?.map(t => ({
+    value: t.id,
+    label: t.name,
+  })) ?? [];
+
+  const priorityOptions = PRIORITY_OPTIONS.map(p => ({
+    value: p,
+    label: p,
+  }));
+
+  // Handle filter changes
+  const updateFilter = useCallback(<K extends keyof ViewFilters>(
+    key: K,
+    value: ViewFilters[K],
+  ) => {
     setLocalFilters(prev => ({
       ...prev,
-      includeCompleted: checked,
+      [key]: value,
     }));
-  };
+  }, []);
+
+  const handleArrayFilter = useCallback((key: keyof ViewFilters, values: string[]) => {
+    updateFilter(key, values.length > 0 ? values : undefined);
+  }, [updateFilter]);
 
   const clearFilters = () => {
     setLocalFilters({});
   };
 
+  const handleViewChange = useCallback((view: ViewConfig) => {
+    setActiveView(view);
+    setLocalFilters(view.filters);
+    setViewType(view.viewType);
+    setGroupBy(view.groupBy);
+  }, []);
+
+  const handleViewSaved = useCallback((savedView: { id: string; name: string; viewType: string; groupBy: string; filters: unknown }) => {
+    void utils.view.list.invalidate();
+    setActiveView({
+      id: savedView.id,
+      name: savedView.name,
+      viewType: savedView.viewType as ViewType,
+      groupBy: savedView.groupBy as ViewGroupBy,
+      filters: (savedView.filters as ViewFilters) ?? {},
+    });
+  }, [utils.view.list]);
+
   const hasActiveFilters =
     (localFilters.projectIds?.length ?? 0) > 0 ||
+    (localFilters.statuses?.length ?? 0) > 0 ||
+    (localFilters.priorities?.length ?? 0) > 0 ||
+    (localFilters.listIds?.length ?? 0) > 0 ||
+    (localFilters.tagIds?.length ?? 0) > 0 ||
     localFilters.includeCompleted;
 
   if (isLoading) {
@@ -219,11 +302,18 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
 
   return (
     <Stack gap="md">
+      {/* View switcher */}
+      <ViewSwitcher
+        workspaceId={workspaceId}
+        activeViewId={activeView.id}
+        onViewChange={handleViewChange}
+      />
+
       {/* Header with view controls */}
       <Group justify="space-between" wrap="wrap">
         <Group gap="sm">
           <Title order={3} className="text-text-primary">
-            {viewConfig?.name ?? "All Items"}
+            {activeView.name}
           </Title>
           {hasActiveFilters && (
             <Badge size="sm" variant="light" color="blue">
@@ -242,6 +332,19 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
               <IconFilter size={18} />
             </ActionIcon>
           </Tooltip>
+
+          {viewType === "KANBAN" && (
+            <Select
+              size="xs"
+              value={groupBy}
+              onChange={(value) => { if (value) setGroupBy(value as ViewGroupBy); }}
+              data={GROUP_BY_OPTIONS}
+              w={120}
+              styles={{
+                input: { backgroundColor: 'var(--surface-primary)' },
+              }}
+            />
+          )}
 
           <SegmentedControl
             size="xs"
@@ -277,16 +380,28 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
               <Text size="sm" fw={500} className="text-text-primary">
                 Filters
               </Text>
-              {hasActiveFilters && (
-                <ActionIcon
-                  variant="subtle"
-                  size="sm"
-                  onClick={clearFilters}
-                  color="gray"
-                >
-                  <IconX size={14} />
-                </ActionIcon>
-              )}
+              <Group gap="xs">
+                {hasActiveFilters && (
+                  <Button
+                    size="xs"
+                    variant="light"
+                    leftSection={<IconDeviceFloppy size={14} />}
+                    onClick={openSaveModal}
+                  >
+                    Save as View
+                  </Button>
+                )}
+                {hasActiveFilters && (
+                  <ActionIcon
+                    variant="subtle"
+                    size="sm"
+                    onClick={clearFilters}
+                    color="gray"
+                  >
+                    <IconX size={14} />
+                  </ActionIcon>
+                )}
+              </Group>
             </Group>
 
             <Group gap="md" wrap="wrap">
@@ -295,11 +410,71 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
                 placeholder="All projects"
                 data={projectOptions}
                 value={localFilters.projectIds ?? []}
-                onChange={handleProjectFilter}
+                onChange={(values) => handleArrayFilter("projectIds", values)}
                 clearable
                 searchable
                 size="sm"
-                w={250}
+                w={200}
+                styles={{
+                  input: { backgroundColor: 'var(--surface-primary)' },
+                }}
+              />
+
+              <MultiSelect
+                label="Status"
+                placeholder="All statuses"
+                data={STATUS_OPTIONS}
+                value={(localFilters.statuses as string[] | undefined) ?? []}
+                onChange={(values) => handleArrayFilter("statuses", values)}
+                clearable
+                searchable
+                size="sm"
+                w={200}
+                styles={{
+                  input: { backgroundColor: 'var(--surface-primary)' },
+                }}
+              />
+
+              <MultiSelect
+                label="Priority"
+                placeholder="All priorities"
+                data={priorityOptions}
+                value={localFilters.priorities ?? []}
+                onChange={(values) => handleArrayFilter("priorities", values)}
+                clearable
+                searchable
+                size="sm"
+                w={200}
+                styles={{
+                  input: { backgroundColor: 'var(--surface-primary)' },
+                }}
+              />
+
+              <MultiSelect
+                label="Lists"
+                placeholder="All lists"
+                data={listOptions}
+                value={localFilters.listIds ?? []}
+                onChange={(values) => handleArrayFilter("listIds", values)}
+                clearable
+                searchable
+                size="sm"
+                w={200}
+                styles={{
+                  input: { backgroundColor: 'var(--surface-primary)' },
+                }}
+              />
+
+              <MultiSelect
+                label="Tags"
+                placeholder="All tags"
+                data={tagOptions}
+                value={localFilters.tagIds ?? []}
+                onChange={(values) => handleArrayFilter("tagIds", values)}
+                clearable
+                searchable
+                size="sm"
+                w={200}
                 styles={{
                   input: { backgroundColor: 'var(--surface-primary)' },
                 }}
@@ -308,7 +483,7 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
               <Checkbox
                 label="Include completed"
                 checked={localFilters.includeCompleted ?? false}
-                onChange={(e) => handleIncludeCompleted(e.currentTarget.checked)}
+                onChange={(e) => updateFilter("includeCompleted", e.currentTarget.checked)}
                 size="sm"
                 className="mt-6"
               />
@@ -338,6 +513,17 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
           isLoading={isLoading}
         />
       )}
+
+      {/* Save as View modal */}
+      <SaveViewModal
+        opened={saveModalOpened}
+        onClose={closeSaveModal}
+        workspaceId={workspaceId}
+        currentFilters={localFilters}
+        currentViewType={viewType}
+        currentGroupBy={groupBy}
+        onSaved={handleViewSaved}
+      />
     </Stack>
   );
 }

@@ -1,6 +1,6 @@
 // These types match the Prisma enums defined in schema.prisma
 export type ViewType = "KANBAN" | "LIST";
-export type ViewGroupBy = "STATUS" | "PROJECT" | "ASSIGNEE" | "PRIORITY";
+export type ViewGroupBy = "STATUS" | "PROJECT" | "ASSIGNEE" | "PRIORITY" | "LIST";
 
 /**
  * Filter configuration for Views
@@ -17,6 +17,8 @@ export interface ViewFilters {
   assigneeIds?: string[];
   /** Filter by tags */
   tagIds?: string[];
+  /** Filter to specific lists/sprints */
+  listIds?: string[];
   /** Include completed/cancelled actions (default: false) */
   includeCompleted?: boolean;
 }

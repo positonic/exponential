@@ -124,6 +124,8 @@ model User {
   tagsCreated                 Tag[]                      @relation("TagCreator")
   // View relations
   viewsCreated                View[]                     @relation("ViewsCreated")
+  // List relations
+  listsCreated                List[]                     @relation("ListsCreated")
   // OKR Check-in relations
   facilitatedOkrCheckins      OkrCheckin[]               @relation("OkrCheckinFacilitator")
   okrCheckinUpdates           OkrCheckinUpdate[]         @relation("OkrCheckinUpdateUser")
@@ -198,6 +200,7 @@ model Workspace {
   resources         Resource[]
   invitations       WorkspaceInvitation[]
   views             View[]
+  lists             List[]
   // CRM relations
   crmContacts       CrmContact[]
   crmOrganizations  CrmOrganization[]
@@ -297,6 +300,35 @@ model View {
   @@index([isSystem])
 }
 
+model List {
+  id           String     @id @default(cuid())
+  name         String
+  slug         String
+  description  String?
+
+  listType     ListType   @default(CUSTOM)
+  status       ListStatus @default(ACTIVE)
+
+  startDate    DateTime?  // Optional: for sprints/iterations
+  endDate      DateTime?  // Optional: for sprints/iterations
+
+  displayOrder Int        @default(0)
+
+  workspaceId  String
+  createdById  String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy    User       @relation("ListsCreated", fields: [createdById], references: [id])
+  actions      ActionList[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([status])
+}
+
 model Action {
   id                     String                @id @default(cuid())
   name                   String
@@ -359,6 +391,7 @@ model Action {
   assignees              ActionAssignee[]
   weeklyOutcomes         WeeklyOutcome[]       @relation("WeeklyOutcomeActions")
   tags                   ActionTag[]
+  lists                  ActionList[]
   dailyPlanActions       DailyPlanAction[]
 
   @@index([projectId])
@@ -1370,6 +1403,20 @@ model ActionTag {
   @@index([tagId])
 }
 
+model ActionList {
+  id        String   @id @default(cuid())
+  actionId  String
+  listId    String
+  createdAt DateTime @default(now())
+
+  action Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  list   List   @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, listId])
+  @@index([actionId])
+  @@index([listId])
+}
+
 enum ActionStatus {
   BACKLOG
   TODO
@@ -1389,6 +1436,20 @@ enum ViewGroupBy {
   PROJECT
   ASSIGNEE
   PRIORITY
+  LIST
+}
+
+enum ListType {
+  SPRINT
+  BACKLOG
+  CUSTOM
+}
+
+enum ListStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  ARCHIVED
 }
 
 // Team Weekly Planning Models

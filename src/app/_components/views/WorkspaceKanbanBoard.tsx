@@ -52,6 +52,15 @@ interface Action {
       color: string;
     };
   }>;
+  lists?: Array<{
+    list: {
+      id: string;
+      name: string;
+      slug: string;
+      listType: string;
+      status: string;
+    };
+  }>;
 }
 
 interface WorkspaceKanbanBoardProps {
@@ -155,6 +164,44 @@ export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" 
       return projectColumns;
     }
 
+    if (groupBy === "LIST") {
+      const listMap = new Map<string, { id: string; name: string; listType: string }>();
+      actionsWithOptimisticUpdates.forEach(action => {
+        action.lists?.forEach(al => {
+          listMap.set(al.list.id, al.list);
+        });
+      });
+
+      const listColumns = Array.from(listMap.values()).map(list => ({
+        id: list.id,
+        title: list.name,
+        color: list.listType === "SPRINT" ? "blue" : "gray",
+      }));
+
+      const hasUnassigned = actionsWithOptimisticUpdates.some(
+        a => !a.lists || a.lists.length === 0
+      );
+      if (hasUnassigned) {
+        return [{ id: "no-list", title: "No List", color: "gray" }, ...listColumns];
+      }
+      return listColumns;
+    }
+
+    if (groupBy === "PRIORITY") {
+      const prioritySet = new Set<string>();
+      actionsWithOptimisticUpdates.forEach(action => {
+        prioritySet.add(action.priority);
+      });
+
+      return Array.from(prioritySet)
+        .sort((a, b) => (priorityOrder[a] ?? 999) - (priorityOrder[b] ?? 999))
+        .map(p => ({
+          id: p,
+          title: p,
+          color: (priorityOrder[p] ?? 999) <= 3 ? "red" : (priorityOrder[p] ?? 999) <= 5 ? "yellow" : "gray",
+        }));
+    }
+
     return STATUS_COLUMNS;
   }, [groupBy, actionsWithOptimisticUpdates]);
 
@@ -170,6 +217,15 @@ export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" 
           return column.id === "no-project"
             ? !action.projectId
             : action.projectId === column.id;
+        }
+        if (groupBy === "LIST") {
+          if (column.id === "no-list") {
+            return !action.lists || action.lists.length === 0;
+          }
+          return action.lists?.some(al => al.list.id === column.id) ?? false;
+        }
+        if (groupBy === "PRIORITY") {
+          return action.priority === column.id;
         }
         return false;
       });

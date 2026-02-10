@@ -20,6 +20,7 @@ const viewFiltersSchema = z.object({
   priorities: z.array(z.string()).optional(),
   assigneeIds: z.array(z.string()).optional(),
   tagIds: z.array(z.string()).optional(),
+  listIds: z.array(z.string()).optional(),
   includeCompleted: z.boolean().optional(),
 });
 
@@ -29,7 +30,7 @@ const sortConfigSchema = z.object({
 });
 
 const viewTypeSchema = z.enum(["KANBAN", "LIST"]);
-const groupBySchema = z.enum(["STATUS", "PROJECT", "ASSIGNEE", "PRIORITY"]);
+const groupBySchema = z.enum(["STATUS", "PROJECT", "ASSIGNEE", "PRIORITY", "LIST"]);
 
 export const viewRouter = createTRPCRouter({
   // List all views for a workspace
@@ -422,6 +423,13 @@ export const viewRouter = createTRPCRouter({
         };
       }
 
+      // Filter by lists
+      if (filters.listIds?.length) {
+        whereClause.lists = {
+          some: { listId: { in: filters.listIds } },
+        };
+      }
+
       // Exclude completed unless explicitly included
       // Include actions with null status (treated as TODO) by default.
       if (!filters.includeCompleted && !filters.statuses?.length) {
@@ -446,6 +454,11 @@ export const viewRouter = createTRPCRouter({
             },
           },
           tags: { include: { tag: true } },
+          lists: {
+            include: {
+              list: { select: { id: true, name: true, slug: true, listType: true, status: true } },
+            },
+          },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
           syncs: true,
         },
