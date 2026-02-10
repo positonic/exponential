@@ -10,7 +10,7 @@ import {
   Button,
   Group,
 } from "@mantine/core";
-import { DateInput } from "@mantine/dates";
+import { DatePicker } from "@mantine/dates";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 
@@ -86,7 +86,7 @@ export function CreateListModal({
   };
 
   return (
-    <Modal opened={opened} onClose={handleClose} title="Create List" size="md">
+    <Modal opened={opened} onClose={handleClose} title="Create List" size={listType === "SPRINT" ? "xl" : "md"}>
       <Stack gap="md">
         <TextInput
           label="Name"
@@ -109,21 +109,21 @@ export function CreateListModal({
         />
 
         {listType === "SPRINT" && (
-          <Group grow>
-            <DateInput
-              label="Start date"
-              placeholder="Pick start date"
-              value={startDate}
-              onChange={setStartDate}
-              clearable
-            />
-            <DateInput
-              label="End date"
-              placeholder="Pick end date"
-              value={endDate}
-              onChange={setEndDate}
-              clearable
-            />
+          <Group grow align="flex-start">
+            <Stack gap={4}>
+              <span className="text-sm font-medium text-text-primary">Start date</span>
+              <DatePicker
+                value={startDate}
+                onChange={setStartDate}
+              />
+            </Stack>
+            <Stack gap={4}>
+              <span className="text-sm font-medium text-text-primary">End date</span>
+              <DatePicker
+                value={endDate}
+                onChange={setEndDate}
+              />
+            </Stack>
           </Group>
         )}
 
