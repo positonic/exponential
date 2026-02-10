@@ -71,19 +71,21 @@ export async function POST(req: Request) {
       entries.push(["notionAccessToken", notionAccessToken]);
     }
     
-    // Verify workspace access before adding workspaceId to context
+    // Verify workspace access and fetch workspace details for agent context
+    let workspaceInfo: { slug: string; name: string; type: string } | null = null;
     if (workspaceId) {
       const workspaceAccess = await db.workspaceUser.findFirst({
         where: {
           workspaceId,
           userId: session.user.id,
         },
+        include: { workspace: { select: { slug: true, name: true, type: true } } },
       });
 
       if (!workspaceAccess) {
         return new Response(
-          JSON.stringify({ 
-            error: "Forbidden: You do not have access to this workspace" 
+          JSON.stringify({
+            error: "Forbidden: You do not have access to this workspace"
           }),
           {
             status: 403,
@@ -93,6 +95,12 @@ export async function POST(req: Request) {
       }
 
       entries.push(["workspaceId", workspaceId]);
+      if (workspaceAccess.workspace) {
+        workspaceInfo = workspaceAccess.workspace;
+        entries.push(["workspaceSlug", workspaceAccess.workspace.slug]);
+        entries.push(["workspaceName", workspaceAccess.workspace.name]);
+        entries.push(["workspaceType", workspaceAccess.workspace.type]);
+      }
     }
     if (projectId) {
       entries.push(["projectId", projectId]);
@@ -126,6 +134,21 @@ export async function POST(req: Request) {
           ...messages,
         ];
       }
+    }
+
+    // Inject workspace navigation context so agents can build links to Exponential pages
+    if (workspaceInfo) {
+      const baseUrl = process.env.TODO_APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
+      const wsContext = [
+        `Current workspace: "${workspaceInfo.name}" (type: ${workspaceInfo.type})`,
+        `Workspace slug: ${workspaceInfo.slug}`,
+        `Base URL: ${baseUrl}`,
+        `When linking to Exponential pages, replace {workspaceSlug} with "${workspaceInfo.slug}". Example: ${baseUrl}/w/${workspaceInfo.slug}/okrs`,
+      ].join('\n');
+      finalMessages = [
+        { role: 'system' as const, content: wsContext },
+        ...finalMessages,
+      ];
     }
 
     console.log(`🔗 [chat/stream] agentId=${agentId}, assistantId=${assistantId || "none"}, projectId=${projectId || "none"}, workspaceId=${workspaceId || "none"}, messages=${finalMessages.length}`);

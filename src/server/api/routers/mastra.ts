@@ -207,6 +207,7 @@ export const mastraRouter = createTRPCRouter({
       z.object({
         agentId: z.string(),
         assistantId: z.string().optional(),
+        workspaceId: z.string().optional(),
         messages: z
           .array(
             z.object({
@@ -263,6 +264,32 @@ export const mastraRouter = createTRPCRouter({
       // Fetch per-user Notion OAuth token (null if not connected)
       const notionAccessToken = await getUserNotionToken(ctx.db, ctx.session.user.id);
 
+      // Look up workspace details if workspaceId provided
+      const todoAppBaseUrl = process.env.TODO_APP_BASE_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      let workspaceContext: Record<string, string> = {};
+      if (input.workspaceId) {
+        const workspaceAccess = await ctx.db.workspaceUser.findFirst({
+          where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+          include: { workspace: { select: { slug: true, name: true, type: true } } },
+        });
+        if (workspaceAccess?.workspace) {
+          workspaceContext = {
+            workspaceId: input.workspaceId,
+            workspaceSlug: workspaceAccess.workspace.slug,
+            workspaceName: workspaceAccess.workspace.name,
+            workspaceType: workspaceAccess.workspace.type,
+          };
+          // Inject workspace navigation context as system message
+          const wsNav = [
+            `Current workspace: "${workspaceAccess.workspace.name}" (type: ${workspaceAccess.workspace.type})`,
+            `Workspace slug: ${workspaceAccess.workspace.slug}`,
+            `Base URL: ${todoAppBaseUrl}`,
+            `When linking to Exponential pages, replace {workspaceSlug} with "${workspaceAccess.workspace.slug}". Example: ${todoAppBaseUrl}/w/${workspaceAccess.workspace.slug}/okrs`,
+          ].join('\n');
+          messages = [{ role: 'system' as const, content: wsNav }, ...messages];
+        }
+      }
+
       const res = await fetch(
         `${MASTRA_API_URL}/api/agents/${agentId}/generate`,
         {
@@ -276,8 +303,9 @@ export const mastraRouter = createTRPCRouter({
               authToken: agentJWT,
               userId: ctx.session.user.id,
               userEmail: ctx.session.user.email,
-              todoAppBaseUrl: process.env.TODO_APP_BASE_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000',
+              todoAppBaseUrl,
               ...(notionAccessToken && { notionAccessToken }),
+              ...workspaceContext,
             }
           }),
         }
