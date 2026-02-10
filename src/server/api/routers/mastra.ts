@@ -2656,6 +2656,475 @@ export const mastraRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       return await userEmailService.replyToEmail(ctx.session.user.id, input.emailId, input.body);
     }),
+
+  // ============================================
+  // OKR Tools - Objectives & Key Results CRUD
+  // ============================================
+
+  getOkrObjectives: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().optional(),
+      period: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const goals = await ctx.db.goal.findMany({
+        where: {
+          userId,
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(input.period ? { period: input.period } : {}),
+        },
+        include: {
+          lifeDomain: true,
+          keyResults: {
+            where: { userId },
+            include: {
+              checkIns: {
+                orderBy: { createdAt: "desc" as const },
+                take: 1,
+              },
+            },
+            orderBy: { createdAt: "asc" as const },
+          },
+        },
+        orderBy: { title: "asc" },
+      });
+
+      const objectives = goals.map((goal) => {
+        const krs = goal.keyResults;
+        const avgProgress =
+          krs.length > 0
+            ? krs.reduce((acc, kr) => {
+                const range = kr.targetValue - kr.startValue;
+                const progress =
+                  range > 0
+                    ? ((kr.currentValue - kr.startValue) / range) * 100
+                    : 0;
+                return acc + Math.min(100, Math.max(0, progress));
+              }, 0) / krs.length
+            : 0;
+
+        return {
+          id: goal.id,
+          title: goal.title,
+          description: goal.description,
+          whyThisGoal: goal.whyThisGoal,
+          period: goal.period,
+          lifeDomain: goal.lifeDomain
+            ? { id: goal.lifeDomain.id, title: goal.lifeDomain.title }
+            : null,
+          keyResults: krs.map((kr) => ({
+            id: kr.id,
+            title: kr.title,
+            currentValue: kr.currentValue,
+            targetValue: kr.targetValue,
+            startValue: kr.startValue,
+            unit: kr.unit,
+            unitLabel: kr.unitLabel,
+            status: kr.status,
+            confidence: kr.confidence,
+            period: kr.period,
+          })),
+          progress: Math.round(avgProgress),
+        };
+      });
+
+      return { objectives, total: objectives.length };
+    }),
+
+  createOkrObjective: protectedProcedure
+    .input(z.object({
+      title: z.string().min(1),
+      description: z.string().optional(),
+      whyThisGoal: z.string().optional(),
+      period: z.string().optional(),
+      lifeDomainId: z.number().optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const goal = await ctx.db.goal.create({
+        data: {
+          title: input.title,
+          description: input.description,
+          whyThisGoal: input.whyThisGoal,
+          period: input.period ?? null,
+          lifeDomainId: input.lifeDomainId ?? null,
+          userId,
+          driUserId: userId,
+          workspaceId: input.workspaceId ?? null,
+        },
+        include: {
+          lifeDomain: true,
+        },
+      });
+
+      return {
+        objective: {
+          id: goal.id,
+          title: goal.title,
+          description: goal.description,
+          period: goal.period,
+          lifeDomain: goal.lifeDomain
+            ? { id: goal.lifeDomain.id, title: goal.lifeDomain.title }
+            : null,
+          workspaceId: goal.workspaceId,
+        },
+      };
+    }),
+
+  updateOkrObjective: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      title: z.string().min(1).optional(),
+      description: z.string().optional(),
+      whyThisGoal: z.string().optional(),
+      period: z.string().optional(),
+      lifeDomainId: z.number().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const { id, ...updateData } = input;
+
+      const existing = await ctx.db.goal.findFirst({
+        where: { id, userId },
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Objective not found or access denied",
+        });
+      }
+
+      const goal = await ctx.db.goal.update({
+        where: { id },
+        data: {
+          ...(updateData.title !== undefined ? { title: updateData.title } : {}),
+          ...(updateData.description !== undefined ? { description: updateData.description } : {}),
+          ...(updateData.whyThisGoal !== undefined ? { whyThisGoal: updateData.whyThisGoal } : {}),
+          ...(updateData.period !== undefined ? { period: updateData.period } : {}),
+          ...(updateData.lifeDomainId !== undefined ? { lifeDomainId: updateData.lifeDomainId } : {}),
+        },
+      });
+
+      return {
+        objective: {
+          id: goal.id,
+          title: goal.title,
+          description: goal.description,
+          period: goal.period,
+        },
+      };
+    }),
+
+  deleteOkrObjective: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const existing = await ctx.db.goal.findFirst({
+        where: { id: input.id, userId },
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Objective not found or access denied",
+        });
+      }
+
+      // Delete associated key results first (cascade)
+      const deletedKRs = await ctx.db.keyResult.deleteMany({
+        where: { goalId: input.id, userId },
+      });
+
+      await ctx.db.goal.delete({ where: { id: input.id } });
+
+      return { success: true, deletedKeyResults: deletedKRs.count };
+    }),
+
+  createOkrKeyResult: protectedProcedure
+    .input(z.object({
+      goalId: z.number(),
+      title: z.string().min(1),
+      description: z.string().optional(),
+      targetValue: z.number(),
+      startValue: z.number().default(0),
+      currentValue: z.number().default(0),
+      unit: z.enum(["percent", "count", "currency", "hours", "custom"]).default("percent"),
+      unitLabel: z.string().optional(),
+      period: z.string(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Verify user owns the parent goal
+      const goal = await ctx.db.goal.findFirst({
+        where: { id: input.goalId, userId },
+      });
+
+      if (!goal) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Objective not found or access denied",
+        });
+      }
+
+      const keyResult = await ctx.db.keyResult.create({
+        data: {
+          title: input.title,
+          description: input.description,
+          targetValue: input.targetValue,
+          startValue: input.startValue,
+          currentValue: input.currentValue,
+          unit: input.unit,
+          unitLabel: input.unitLabel,
+          period: input.period,
+          goalId: input.goalId,
+          userId,
+          driUserId: userId,
+          workspaceId: input.workspaceId ?? null,
+        },
+        include: {
+          goal: { select: { id: true, title: true } },
+        },
+      });
+
+      return {
+        keyResult: {
+          id: keyResult.id,
+          title: keyResult.title,
+          targetValue: keyResult.targetValue,
+          startValue: keyResult.startValue,
+          currentValue: keyResult.currentValue,
+          unit: keyResult.unit,
+          status: keyResult.status,
+          period: keyResult.period,
+          goalId: keyResult.goalId,
+          goal: keyResult.goal,
+        },
+      };
+    }),
+
+  updateOkrKeyResult: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      title: z.string().min(1).optional(),
+      description: z.string().optional(),
+      targetValue: z.number().optional(),
+      currentValue: z.number().optional(),
+      startValue: z.number().optional(),
+      unit: z.enum(["percent", "count", "currency", "hours", "custom"]).optional(),
+      unitLabel: z.string().optional(),
+      status: z.enum(["not-started", "on-track", "at-risk", "off-track", "achieved"]).optional(),
+      confidence: z.number().min(0).max(100).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const { id, ...updateData } = input;
+
+      const existing = await ctx.db.keyResult.findFirst({
+        where: { id, userId },
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found or access denied",
+        });
+      }
+
+      const keyResult = await ctx.db.keyResult.update({
+        where: { id },
+        data: updateData,
+        include: {
+          goal: { select: { id: true, title: true } },
+        },
+      });
+
+      return {
+        keyResult: {
+          id: keyResult.id,
+          title: keyResult.title,
+          targetValue: keyResult.targetValue,
+          currentValue: keyResult.currentValue,
+          status: keyResult.status,
+          confidence: keyResult.confidence,
+          goal: keyResult.goal,
+        },
+      };
+    }),
+
+  deleteOkrKeyResult: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const existing = await ctx.db.keyResult.findFirst({
+        where: { id: input.id, userId },
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found or access denied",
+        });
+      }
+
+      await ctx.db.keyResult.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  checkInOkrKeyResult: protectedProcedure
+    .input(z.object({
+      keyResultId: z.string(),
+      newValue: z.number(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId, userId },
+      });
+
+      if (!keyResult) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found or access denied",
+        });
+      }
+
+      // Auto-calculate status based on progress
+      const range = keyResult.targetValue - keyResult.startValue;
+      const progress =
+        range > 0
+          ? ((input.newValue - keyResult.startValue) / range) * 100
+          : 0;
+
+      let newStatus = keyResult.status;
+      if (progress >= 100) {
+        newStatus = "achieved";
+      } else if (progress >= 70) {
+        newStatus = "on-track";
+      } else if (progress >= 40) {
+        newStatus = "at-risk";
+      } else {
+        newStatus = "off-track";
+      }
+
+      const [checkIn, updatedKR] = await ctx.db.$transaction([
+        ctx.db.keyResultCheckIn.create({
+          data: {
+            keyResultId: input.keyResultId,
+            previousValue: keyResult.currentValue,
+            newValue: input.newValue,
+            notes: input.notes,
+            createdById: userId,
+          },
+        }),
+        ctx.db.keyResult.update({
+          where: { id: input.keyResultId },
+          data: {
+            currentValue: input.newValue,
+            status: newStatus,
+          },
+        }),
+      ]);
+
+      return {
+        checkIn: {
+          id: checkIn.id,
+          previousValue: checkIn.previousValue,
+          newValue: checkIn.newValue,
+          notes: checkIn.notes,
+          createdAt: checkIn.createdAt.toISOString(),
+        },
+        keyResult: {
+          id: updatedKR.id,
+          title: updatedKR.title,
+          currentValue: updatedKR.currentValue,
+          targetValue: updatedKR.targetValue,
+          status: updatedKR.status,
+        },
+      };
+    }),
+
+  getOkrStats: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().optional(),
+      period: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const where = {
+        userId,
+        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        ...(input.period ? { period: input.period } : {}),
+      };
+
+      const [totalKeyResults, onTrack, atRisk, offTrack, achieved, objectives] =
+        await Promise.all([
+          ctx.db.keyResult.count({ where }),
+          ctx.db.keyResult.count({ where: { ...where, status: "on-track" } }),
+          ctx.db.keyResult.count({ where: { ...where, status: "at-risk" } }),
+          ctx.db.keyResult.count({ where: { ...where, status: "off-track" } }),
+          ctx.db.keyResult.count({ where: { ...where, status: "achieved" } }),
+          ctx.db.goal.count({
+            where: {
+              userId,
+              ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+            },
+          }),
+        ]);
+
+      const keyResults = await ctx.db.keyResult.findMany({
+        where,
+        select: {
+          currentValue: true,
+          startValue: true,
+          targetValue: true,
+          confidence: true,
+        },
+      });
+
+      const avgProgress =
+        keyResults.length > 0
+          ? keyResults.reduce((acc, kr) => {
+              const range = kr.targetValue - kr.startValue;
+              const progress =
+                range > 0
+                  ? ((kr.currentValue - kr.startValue) / range) * 100
+                  : 0;
+              return acc + Math.min(100, Math.max(0, progress));
+            }, 0) / keyResults.length
+          : 0;
+
+      const krsWithConfidence = keyResults.filter((kr) => kr.confidence !== null);
+      const avgConfidence =
+        krsWithConfidence.length > 0
+          ? krsWithConfidence.reduce((acc, kr) => acc + (kr.confidence ?? 0), 0) /
+            krsWithConfidence.length
+          : null;
+
+      return {
+        totalObjectives: objectives,
+        totalKeyResults,
+        completedKeyResults: achieved,
+        statusBreakdown: { onTrack, atRisk, offTrack, achieved },
+        averageProgress: Math.round(avgProgress),
+        averageConfidence:
+          avgConfidence !== null ? Math.round(avgConfidence) : null,
+      };
+    }),
 });
 
 // Helper function for fallback AI suggestions

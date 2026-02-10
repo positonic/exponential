@@ -54,17 +54,25 @@ export default function AssistantSettingsPage() {
 
   const createMutation = api.assistant.create.useMutation({
     onSuccess: () => {
+      console.log('[AssistantSettings] Create succeeded');
       void utils.assistant.getDefault.invalidate();
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
+    },
+    onError: (err) => {
+      console.error('[AssistantSettings] Create failed:', err.message, err);
     },
   });
 
   const updateMutation = api.assistant.update.useMutation({
     onSuccess: () => {
+      console.log('[AssistantSettings] Update succeeded');
       void utils.assistant.getDefault.invalidate();
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
+    },
+    onError: (err) => {
+      console.error('[AssistantSettings] Update failed:', err.message, err);
     },
   });
 
@@ -72,7 +80,22 @@ export default function AssistantSettingsPage() {
   const error = createMutation.error ?? updateMutation.error;
 
   const handleSave = () => {
-    if (!workspaceId || !name.trim() || !personality.trim()) return;
+    console.log('[AssistantSettings] handleSave called', {
+      workspaceId,
+      name: name.trim(),
+      personality: personality.trim().substring(0, 50),
+      hasAssistant: !!assistant,
+      assistantId: assistant?.id,
+    });
+
+    if (!workspaceId || !name.trim() || !personality.trim()) {
+      console.log('[AssistantSettings] Early return - missing required fields', {
+        workspaceId: !!workspaceId,
+        name: !!name.trim(),
+        personality: !!personality.trim(),
+      });
+      return;
+    }
 
     if (assistant) {
       updateMutation.mutate({
@@ -218,15 +241,29 @@ export default function AssistantSettingsPage() {
         </Paper>
 
         {/* Save */}
-        <Group justify="flex-end">
-          <Button
-            onClick={handleSave}
-            loading={isSaving}
-            disabled={!name.trim() || !personality.trim()}
-          >
-            {assistant ? 'Update Assistant' : 'Create Assistant'}
-          </Button>
-        </Group>
+        <Stack gap="sm">
+          {error && (
+            <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
+              {error.message}
+            </Alert>
+          )}
+
+          {saved && (
+            <Alert icon={<IconCheck size={16} />} color="green" variant="light">
+              Assistant saved successfully!
+            </Alert>
+          )}
+
+          <Group justify="flex-end">
+            <Button
+              onClick={handleSave}
+              loading={isSaving}
+              disabled={!name.trim() || !personality.trim()}
+            >
+              {assistant ? 'Update Assistant' : 'Create Assistant'}
+            </Button>
+          </Group>
+        </Stack>
       </Stack>
     </Container>
   );
