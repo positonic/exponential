@@ -24,6 +24,7 @@ import {
   IconFilter,
   IconX,
   IconDeviceFloppy,
+  IconPlus,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
@@ -31,6 +32,7 @@ import { WorkspaceKanbanBoard } from "./WorkspaceKanbanBoard";
 import { ActionList } from "../ActionList";
 import { ViewSwitcher } from "./ViewSwitcher";
 import { SaveViewModal } from "./SaveViewModal";
+import { CreateListModal } from "./CreateListModal";
 import { DEFAULT_VIEW_CONFIG } from "~/types/view";
 import type { ViewFilters, ViewType, ViewGroupBy } from "~/types/view";
 import type { ViewConfig } from "./ViewSwitcher";
@@ -78,6 +80,7 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
   const [viewType, setViewType] = useState<ViewType>(activeView.viewType);
   const [groupBy, setGroupBy] = useState<ViewGroupBy>(activeView.groupBy);
   const [saveModalOpened, { open: openSaveModal, close: closeSaveModal }] = useDisclosure(false);
+  const [createListOpened, { open: openCreateList, close: closeCreateList }] = useDisclosure(false);
   const utils = api.useUtils();
 
   // Fetch projects for filter dropdown
@@ -450,20 +453,32 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
                 }}
               />
 
-              <MultiSelect
-                label="Lists"
-                placeholder="All lists"
-                data={listOptions}
-                value={localFilters.listIds ?? []}
-                onChange={(values) => handleArrayFilter("listIds", values)}
-                clearable
-                searchable
-                size="sm"
-                w={200}
-                styles={{
-                  input: { backgroundColor: 'var(--surface-primary)' },
-                }}
-              />
+              <Group gap={4} align="flex-end">
+                <MultiSelect
+                  label="Lists"
+                  placeholder="All lists"
+                  data={listOptions}
+                  value={localFilters.listIds ?? []}
+                  onChange={(values) => handleArrayFilter("listIds", values)}
+                  clearable
+                  searchable
+                  size="sm"
+                  w={200}
+                  styles={{
+                    input: { backgroundColor: 'var(--surface-primary)' },
+                  }}
+                />
+                <Tooltip label="Create list">
+                  <ActionIcon
+                    variant="light"
+                    size="sm"
+                    onClick={openCreateList}
+                    className="mb-0.5"
+                  >
+                    <IconPlus size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              </Group>
 
               <MultiSelect
                 label="Tags"
@@ -513,6 +528,14 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
           isLoading={isLoading}
         />
       )}
+
+      {/* Create List modal */}
+      <CreateListModal
+        opened={createListOpened}
+        onClose={closeCreateList}
+        workspaceId={workspaceId}
+        onCreated={() => void utils.list.list.invalidate()}
+      />
 
       {/* Save as View modal */}
       <SaveViewModal
