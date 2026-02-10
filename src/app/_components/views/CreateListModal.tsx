@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Modal,
   TextInput,
@@ -11,6 +11,7 @@ import {
   Group,
 } from "@mantine/core";
 import { DatePicker } from "@mantine/dates";
+import type { DatePickerProps } from "@mantine/dates";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 
@@ -41,6 +42,34 @@ export function CreateListModal({
   const [listType, setListType] = useState<string>("CUSTOM");
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
+
+  const makeDayProps = useCallback(
+    (selected: Date | null): DatePickerProps["getDayProps"] =>
+      (date) => {
+        const isToday = date.toDateString() === new Date().toDateString();
+        const isSelected =
+          selected !== null && date.toDateString() === selected.toDateString();
+        if (isSelected) {
+          return {
+            style: {
+              backgroundColor: "var(--color-brand-primary)",
+              color: "var(--color-text-inverse)",
+            },
+          };
+        }
+        if (isToday) {
+          return {
+            style: {
+              backgroundColor: "var(--color-brand-primary)",
+              color: "var(--color-text-inverse)",
+              opacity: 0.7,
+            },
+          };
+        }
+        return {};
+      },
+    []
+  );
 
   const createMutation = api.list.create.useMutation({
     onSuccess: (list) => {
@@ -115,6 +144,7 @@ export function CreateListModal({
               <DatePicker
                 value={startDate}
                 onChange={setStartDate}
+                getDayProps={makeDayProps(startDate)}
               />
             </Stack>
             <Stack gap={4}>
@@ -122,6 +152,7 @@ export function CreateListModal({
               <DatePicker
                 value={endDate}
                 onChange={setEndDate}
+                getDayProps={makeDayProps(endDate)}
               />
             </Stack>
           </Group>

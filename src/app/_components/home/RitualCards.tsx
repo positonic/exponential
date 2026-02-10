@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, Text, Group, Badge, Stack } from "@mantine/core";
+import { Card, Text, Group, Badge, SimpleGrid } from "@mantine/core";
 import {
   IconCalendarWeek,
   IconUsers,
@@ -132,11 +132,11 @@ export function RitualCards() {
       <Text fw={600} size="sm" className="mb-3 text-text-secondary">
         Rituals
       </Text>
-      <Stack gap="sm">
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm">
         <WeeklyReviewCard />
         <TeamCheckinCard />
         {!isPersonal && <OkrCheckinCard />}
-      </Stack>
+      </SimpleGrid>
     </div>
   );
 }

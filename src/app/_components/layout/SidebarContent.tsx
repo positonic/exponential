@@ -206,43 +206,49 @@ export function SidebarContent() {
               </div>
             </Accordion.Control>
             <Accordion.Panel>
-              <div className="space-y-1">
-                {isItemVisible("tools/days") && (
-                  <NavLink href="/days" icon={IconCalendarEvent}>
-                    Days
-                  </NavLink>
-                )}
-                {isItemVisible("tools/media") && (
-                  <NavLink href="/videos" icon={IconVideo}>
-                    Media
-                    <VideoCount />
-                  </NavLink>
-                )}
-                {isItemVisible("tools/journal") && (
-                  <NavLink href="/journal" icon={IconWriting}>
-                    Journal
-                  </NavLink>
-                )}
-                {isItemVisible("tools/meetings") && (
-                  <NavLink href="/meetings" icon={IconMicrophone}>
-                    Meetings
-                  </NavLink>
-                )}
-                {isItemVisible("tools/workflows") && (
-                  <NavLink href="/workflows" icon={IconGitBranch}>
-                    Workflows
-                  </NavLink>
-                )}
-                {isItemVisible("tools/knowledge-base") && (
-                  <NavLink href={workspaceSlug ? `/w/${workspaceSlug}/knowledge-base` : '/knowledge-base'} icon={IconDatabase}>
-                    Knowledge Base
-                  </NavLink>
-                )}
-                {/* Settings link - always visible */}
-                <NavLink href="/settings" icon={IconSettings}>
-                  Settings
+              {/* Capture */}
+              {isItemVisible("tools/days") && (
+                <NavLink href="/days" icon={IconCalendarEvent}>
+                  Days
                 </NavLink>
-              </div>
+              )}
+              {isItemVisible("tools/journal") && (
+                <NavLink href="/journal" icon={IconWriting}>
+                  Journal
+                </NavLink>
+              )}
+
+              <div className="my-1.5 border-t border-border-primary" />
+
+              {/* Reference */}
+              {isItemVisible("tools/media") && (
+                <NavLink href="/videos" icon={IconVideo}>
+                  Media
+                  <VideoCount />
+                </NavLink>
+              )}
+              {isItemVisible("tools/workflows") && (
+                <NavLink href="/workflows" icon={IconGitBranch}>
+                  Workflows
+                </NavLink>
+              )}
+
+              <div className="my-1.5 border-t border-border-primary" />
+
+              {/* Resources */}
+              {isItemVisible("tools/meetings") && (
+                <NavLink href="/meetings" icon={IconMicrophone}>
+                  Meetings
+                </NavLink>
+              )}
+              {isItemVisible("tools/knowledge-base") && (
+                <NavLink href={workspaceSlug ? `/w/${workspaceSlug}/knowledge-base` : '/knowledge-base'} icon={IconDatabase}>
+                  Knowledge Base
+                </NavLink>
+              )}
+              <NavLink href="/settings" icon={IconSettings}>
+                Settings
+              </NavLink>
             </Accordion.Panel>
           </Accordion.Item>
         )}
