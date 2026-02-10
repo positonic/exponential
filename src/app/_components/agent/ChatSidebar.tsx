@@ -4,11 +4,13 @@ import { useState } from 'react';
 import { IconPlus, IconSearch, IconChevronDown, IconChevronRight, IconBrandWhatsapp } from '@tabler/icons-react';
 import { TextInput, Avatar, Collapse } from '@mantine/core';
 import { api } from '~/trpc/react';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { WhatsAppGatewayModal } from '../WhatsAppGatewayModal';
 
 interface ChatSidebarProps {
   onSelectConversation: (conversationId: string) => void;
   onSelectAgent: (agentName: string) => void;
+  onSelectDefault?: () => void;
   onNewChat: () => void;
   activeConversationId?: string;
   activeAgentName?: string;
@@ -17,6 +19,7 @@ interface ChatSidebarProps {
 export function ChatSidebar({
   onSelectConversation,
   onSelectAgent,
+  onSelectDefault,
   onNewChat,
   activeConversationId,
   activeAgentName
@@ -29,7 +32,12 @@ export function ChatSidebar({
     search: searchQuery || undefined,
   });
 
+  const { workspaceId } = useWorkspace();
   const { data: agents } = api.mastra.getMastraAgents.useQuery();
+  const { data: customAssistant } = api.assistant.getDefault.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId }
+  );
 
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase();
 
@@ -96,13 +104,45 @@ export function ChatSidebar({
           </ul>
         </div>
 
+        {/* Custom Assistant */}
+        {customAssistant && (
+          <div className="mb-6">
+            <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Your Assistant
+            </h3>
+            <ul className="space-y-1">
+              <li>
+                <button
+                  onClick={onSelectDefault}
+                  className={`group relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 ${
+                    activeAgentName === customAssistant.name
+                      ? "bg-surface-secondary text-text-primary font-medium"
+                      : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                  }`}
+                >
+                  {activeAgentName === customAssistant.name && (
+                    <div className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-blue-500" />
+                  )}
+                  <Avatar size="sm" radius="xl" className={`ring-1 ${activeAgentName === customAssistant.name ? 'ring-blue-500' : 'ring-border-primary'}`}>
+                    {customAssistant.emoji ?? getInitials(customAssistant.name)}
+                  </Avatar>
+                  <span className="truncate">{customAssistant.name}</span>
+                  {activeAgentName === customAssistant.name && (
+                    <span className="ml-auto text-xs text-blue-500">Active</span>
+                  )}
+                </button>
+              </li>
+            </ul>
+          </div>
+        )}
+
         {/* Available Agents Section (Collapsible) */}
         <div className="mb-6">
           <button
             onClick={() => setAgentsExpanded(!agentsExpanded)}
             className="w-full flex items-center justify-between mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-text-muted hover:text-text-secondary"
           >
-            <span>Available Agents</span>
+            <span>Specialist Agents</span>
             {agentsExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
           </button>
 

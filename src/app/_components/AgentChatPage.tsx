@@ -5,28 +5,38 @@ import { ChatSidebar } from './agent/ChatSidebar';
 import ManyChat from './ManyChat';
 import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
 import { api } from '~/trpc/react';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { Avatar, Menu } from '@mantine/core';
 import { IconChevronDown } from '@tabler/icons-react';
 
 // Agent header component with dropdown selector
 function AgentHeader({
   activeAgentName,
-  onSelectAgent
+  onSelectAgent,
+  onSelectDefault,
 }: {
   activeAgentName: string;
   onSelectAgent: (name: string) => void;
+  onSelectDefault: () => void;
 }) {
+  const { workspaceId } = useWorkspace();
   const { data: agents } = api.mastra.getMastraAgents.useQuery();
+  const { data: customAssistant } = api.assistant.getDefault.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId }
+  );
 
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase();
 
   return (
     <div className="flex-shrink-0 border-b border-border-primary bg-background-primary px-4 py-3">
-      <Menu shadow="md" width={200}>
+      <Menu shadow="md" width={220}>
         <Menu.Target>
           <button className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface-hover transition-colors">
             <Avatar size="sm" radius="xl" className="ring-2 ring-blue-500">
-              {getInitials(activeAgentName)}
+              {activeAgentName === customAssistant?.name && customAssistant.emoji
+                ? customAssistant.emoji
+                : getInitials(activeAgentName)}
             </Avatar>
             <div className="flex flex-col items-start">
               <span className="text-sm font-medium text-text-primary">
@@ -39,7 +49,24 @@ function AgentHeader({
         </Menu.Target>
 
         <Menu.Dropdown>
-          <Menu.Label>Switch Agent</Menu.Label>
+          {customAssistant && (
+            <>
+              <Menu.Label>Your Assistant</Menu.Label>
+              <Menu.Item
+                onClick={onSelectDefault}
+                leftSection={
+                  <Avatar size="xs" radius="xl">
+                    {customAssistant.emoji ?? getInitials(customAssistant.name)}
+                  </Avatar>
+                }
+                className={activeAgentName === customAssistant.name ? 'bg-surface-secondary' : ''}
+              >
+                {customAssistant.name}
+              </Menu.Item>
+              <Menu.Divider />
+            </>
+          )}
+          <Menu.Label>Specialist Agents</Menu.Label>
           {agents?.map((agent) => (
             <Menu.Item
               key={agent.id}
@@ -64,12 +91,21 @@ export function AgentChatPage() {
   const [selectedAgent, setSelectedAgent] = useState<string>('');
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const { conversationId, loadConversation, clearChat, messages } = useAgentModal();
+  const { workspaceId } = useWorkspace();
+
+  // Fetch the user's custom assistant to use as the default agent name
+  const { data: customAssistant } = api.assistant.getDefault.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId }
+  );
 
   // Determine active agent from last AI message in conversation
   const activeAgentName = useMemo(() => {
-    const lastAiMessage = [...messages].reverse().find(m => m.type === 'ai' && m.agentName);
-    return lastAiMessage?.agentName ?? 'Zoe';
-  }, [messages]);
+    const lastAiMessage = [...messages].reverse().find(
+      m => m.type === 'ai' && m.agentName && m.agentName !== 'System Error'
+    );
+    return lastAiMessage?.agentName ?? customAssistant?.name ?? 'Zoe';
+  }, [messages, customAssistant?.name]);
 
   // Query for conversation history when we want to load a specific conversation
   const { data: conversationHistory, isLoading: isLoadingHistory } = api.aiInteraction.getConversationHistory.useQuery(
@@ -102,6 +138,11 @@ export function AgentChatPage() {
     setSelectedAgent(`@${agentName} `);
   }, []);
 
+  // Select the custom assistant (clear any @mention so it routes through default path)
+  const handleSelectDefault = useCallback(() => {
+    setSelectedAgent('');
+  }, []);
+
   const handleNewChat = useCallback(() => {
     clearChat();
     setSelectedAgent('');
@@ -120,6 +161,7 @@ export function AgentChatPage() {
       <ChatSidebar
         onSelectConversation={handleSelectConversation}
         onSelectAgent={handleSelectAgent}
+        onSelectDefault={handleSelectDefault}
         onNewChat={handleNewChat}
         activeConversationId={conversationId}
         activeAgentName={activeAgentName}
@@ -129,6 +171,7 @@ export function AgentChatPage() {
         <AgentHeader
           activeAgentName={activeAgentName}
           onSelectAgent={handleSelectAgent}
+          onSelectDefault={handleSelectDefault}
         />
 
         {isLoadingHistory && (

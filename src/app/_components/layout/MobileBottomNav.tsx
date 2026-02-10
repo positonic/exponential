@@ -3,13 +3,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  IconCalendarEvent,
-  IconLayoutKanban,
-  IconTargetArrow,
-  IconMessageCircle,
+  IconInbox,
+  IconSun,
+  IconCalendar,
+  IconListCheck,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
-import { useAgentModal } from '~/providers/AgentModalProvider';
 
 interface NavItemProps {
   href?: string;
@@ -45,12 +44,12 @@ function NavItem({ href, icon: Icon, label, isActive, onClick }: NavItemProps) {
 
 export function MobileBottomNav() {
   const pathname = usePathname();
-  const { isOpen, openModal } = useAgentModal();
 
   const navItems = [
-    { href: '/plan', icon: IconCalendarEvent, label: 'Plan' },
-    { href: '/projects', icon: IconLayoutKanban, label: 'Projects' },
-    { href: '/goals', icon: IconTargetArrow, label: 'Goals' },
+    { href: '/inbox', icon: IconInbox, label: 'Inbox' },
+    { href: '/today', icon: IconSun, label: 'Today' },
+    { href: '/calendar', icon: IconCalendar, label: 'Calendar' },
+    { href: '/plan', icon: IconListCheck, label: 'Plan' },
   ];
 
   return (
@@ -65,12 +64,6 @@ export function MobileBottomNav() {
             isActive={pathname === item.href || pathname.startsWith(`${item.href}/`)}
           />
         ))}
-        <NavItem
-          icon={IconMessageCircle}
-          label="Agent"
-          isActive={isOpen}
-          onClick={() => openModal()}
-        />
       </div>
     </nav>
   );

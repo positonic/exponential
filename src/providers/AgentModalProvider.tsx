@@ -86,25 +86,30 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     setPageContextState(context);
   }, []);
 
-  // Initialize messages from localStorage (with SSR safety)
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    if (typeof window === 'undefined') return [DEFAULT_SYSTEM_MESSAGE, DEFAULT_WELCOME_MESSAGE];
-    const stored = localStorage.getItem(CHAT_STORAGE_KEY);
-    if (stored) {
+  // Always initialize with defaults for SSR/hydration consistency.
+  // localStorage values are loaded in a useEffect after hydration.
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    [DEFAULT_SYSTEM_MESSAGE, DEFAULT_WELCOME_MESSAGE]
+  );
+
+  const [conversationId, setConversationId] = useState<string>('');
+
+  // Hydrate state from localStorage after mount (avoids SSR mismatch)
+  useEffect(() => {
+    const storedMessages = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (storedMessages) {
       try {
-        return JSON.parse(stored) as ChatMessage[];
+        setMessages(JSON.parse(storedMessages) as ChatMessage[]);
       } catch {
-        return [DEFAULT_SYSTEM_MESSAGE, DEFAULT_WELCOME_MESSAGE];
+        // Invalid stored data; keep defaults
       }
     }
-    return [DEFAULT_SYSTEM_MESSAGE, DEFAULT_WELCOME_MESSAGE];
-  });
 
-  // Initialize conversationId from localStorage (with SSR safety)
-  const [conversationId, setConversationId] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    return localStorage.getItem(CONVERSATION_STORAGE_KEY) ?? '';
-  });
+    const storedConvId = localStorage.getItem(CONVERSATION_STORAGE_KEY);
+    if (storedConvId) {
+      setConversationId(storedConvId);
+    }
+  }, []);
 
   // Sync messages to localStorage when they change (debounced to avoid thrashing during streaming)
   useEffect(() => {
