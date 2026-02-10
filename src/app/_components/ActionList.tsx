@@ -279,7 +279,9 @@ export function ActionList({
     onSettled: async (data) => {
       // Invalidate queries after mutation finishes
       const projectId = data?.projectId;
-      if(viewName.toLowerCase() === 'today') {
+      if (viewName === 'transcription-actions') {
+        await utils.action.getByTranscription.invalidate();
+      } else if(viewName.toLowerCase() === 'today') {
         await utils.action.getToday.invalidate();
       } else if(projectId) {
         await utils.action.getProjectActions.invalidate();
