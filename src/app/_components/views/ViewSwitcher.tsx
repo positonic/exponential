@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Group, ScrollArea, Skeleton } from "@mantine/core";
+import { Tabs, Skeleton } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { DEFAULT_VIEW_CONFIG } from "~/types/view";
 import type { ViewFilters, ViewType, ViewGroupBy } from "~/types/view";
@@ -29,11 +29,13 @@ export function ViewSwitcher({
 
   if (isLoading) {
     return (
-      <Group gap="xs">
-        <Skeleton height={30} width={80} radius="xl" />
-        <Skeleton height={30} width={80} radius="xl" />
-        <Skeleton height={30} width={80} radius="xl" />
-      </Group>
+      <Tabs value={null} variant="pills" radius="xl">
+        <Tabs.List>
+          <Skeleton height={30} width={80} radius="xl" />
+          <Skeleton height={30} width={80} radius="xl" />
+          <Skeleton height={30} width={80} radius="xl" />
+        </Tabs.List>
+      </Tabs>
     );
   }
 
@@ -47,36 +49,37 @@ export function ViewSwitcher({
   };
 
   return (
-    <ScrollArea type="auto" offsetScrollbars scrollbarSize={4}>
-      <Group gap="xs" wrap="nowrap">
-        <Button
-          size="xs"
-          radius="xl"
-          variant={activeViewId === DEFAULT_VIEW_CONFIG.id ? "filled" : "light"}
-          onClick={() => onViewChange(allItemsView)}
-        >
+    <Tabs 
+      value={activeViewId} 
+      onChange={(value) => {
+        if (value === DEFAULT_VIEW_CONFIG.id) {
+          onViewChange(allItemsView);
+        } else {
+          const view = views?.find((v) => v.id === value);
+          if (view) {
+            onViewChange({
+              id: view.id,
+              name: view.name,
+              viewType: view.viewType as ViewType,
+              groupBy: view.groupBy as ViewGroupBy,
+              filters: (view.filters as ViewFilters) ?? {},
+            });
+          }
+        }
+      }}
+      variant="pills"
+      radius="xl"
+    >
+      <Tabs.List>
+        <Tabs.Tab value={DEFAULT_VIEW_CONFIG.id}>
           {DEFAULT_VIEW_CONFIG.name}
-        </Button>
+        </Tabs.Tab>
         {views?.map((view) => (
-          <Button
-            key={view.id}
-            size="xs"
-            radius="xl"
-            variant={activeViewId === view.id ? "filled" : "light"}
-            onClick={() =>
-              onViewChange({
-                id: view.id,
-                name: view.name,
-                viewType: view.viewType as ViewType,
-                groupBy: view.groupBy as ViewGroupBy,
-                filters: (view.filters as ViewFilters) ?? {},
-              })
-            }
-          >
+          <Tabs.Tab key={view.id} value={view.id}>
             {view.name}
-          </Button>
+          </Tabs.Tab>
         ))}
-      </Group>
-    </ScrollArea>
+      </Tabs.List>
+    </Tabs>
   );
 }

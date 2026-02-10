@@ -16,6 +16,9 @@ import {
   MultiSelect,
   Select,
   Button,
+  SimpleGrid,
+  Collapse,
+  Loader,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import {
@@ -33,6 +36,7 @@ import { ActionList } from "../ActionList";
 import { ViewSwitcher } from "./ViewSwitcher";
 import { SaveViewModal } from "./SaveViewModal";
 import { CreateListModal } from "./CreateListModal";
+import { ActiveFilters } from "./ActiveFilters";
 import { DEFAULT_VIEW_CONFIG } from "~/types/view";
 import type { ViewFilters, ViewType, ViewGroupBy } from "~/types/view";
 import type { ViewConfig } from "./ViewSwitcher";
@@ -84,19 +88,19 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
   const utils = api.useUtils();
 
   // Fetch projects for filter dropdown
-  const { data: projects } = api.project.getAll.useQuery(
+  const { data: projects, isLoading: projectsLoading } = api.project.getAll.useQuery(
     { workspaceId },
     { enabled: showFilters }
   );
 
   // Fetch lists for filter dropdown
-  const { data: lists } = api.list.list.useQuery(
+  const { data: lists, isLoading: listsLoading } = api.list.list.useQuery(
     { workspaceId },
     { enabled: showFilters }
   );
 
   // Fetch tags for filter dropdown
-  const { data: tags } = api.tag.list.useQuery(
+  const { data: tags, isLoading: tagsLoading } = api.tag.list.useQuery(
     { workspaceId },
     { enabled: showFilters }
   );
@@ -259,6 +263,23 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
     updateFilter(key, values.length > 0 ? values : undefined);
   }, [updateFilter]);
 
+  const removeFilter = useCallback((filterType: string, value?: string) => {
+    setLocalFilters(prev => {
+      const newFilters = { ...prev };
+      
+      if (filterType === "includeCompleted") {
+        delete newFilters.includeCompleted;
+      } else if (value) {
+        const arrayKey = filterType as keyof Pick<ViewFilters, "projectIds" | "statuses" | "priorities" | "listIds" | "tagIds">;
+        const currentValues = (newFilters[arrayKey] as string[]) ?? [];
+        const updatedValues = currentValues.filter(v => v !== value);
+        Object.assign(newFilters, { [arrayKey]: updatedValues.length > 0 ? updatedValues : undefined });
+      }
+      
+      return newFilters;
+    });
+  }, []);
+
   const clearFilters = () => {
     setLocalFilters({});
   };
@@ -288,6 +309,8 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
     (localFilters.listIds?.length ?? 0) > 0 ||
     (localFilters.tagIds?.length ?? 0) > 0 ||
     localFilters.includeCompleted;
+
+  const filtersLoading = projectsLoading || listsLoading || tagsLoading;
 
   if (isLoading) {
     return (
@@ -331,6 +354,10 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
               variant={showFilters ? "filled" : "subtle"}
               onClick={() => setShowFilters(!showFilters)}
               color={hasActiveFilters ? "blue" : "gray"}
+              aria-label={showFilters ? "Hide filters" : "Show filters"}
+              aria-expanded={showFilters}
+              aria-controls="filter-panel"
+              className="focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
             >
               <IconFilter size={18} />
             </ActionIcon>
@@ -343,9 +370,10 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
               onChange={(value) => { if (value) setGroupBy(value as ViewGroupBy); }}
               data={GROUP_BY_OPTIONS}
               w={120}
-              styles={{
-                input: { backgroundColor: 'var(--surface-primary)' },
+              classNames={{
+                input: "bg-surface-primary",
               }}
+              aria-label="Group by"
             />
           )}
 
@@ -353,6 +381,7 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
             size="xs"
             value={viewType}
             onChange={(value) => setViewType(value as ViewType)}
+            aria-label="View type"
             data={[
               {
                 value: "KANBAN",
@@ -375,10 +404,16 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
         </Group>
       </Group>
 
-      {/* Filter panel */}
-      {showFilters && (
-        <Paper p="md" className="bg-surface-secondary border border-border-primary">
-          <Stack gap="sm">
+      {/* Filter panel with smooth transition */}
+      <Collapse in={showFilters} transitionDuration={200} transitionTimingFunction="ease">
+        <Paper 
+          p="md" 
+          className="bg-surface-secondary border border-border-primary"
+          id="filter-panel"
+          role="region"
+          aria-label="Filters"
+        >
+          <Stack gap="md">
             <Group justify="space-between">
               <Text size="sm" fw={500} className="text-text-primary">
                 Filters
@@ -390,6 +425,7 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
                     variant="light"
                     leftSection={<IconDeviceFloppy size={14} />}
                     onClick={openSaveModal}
+                    disabled={!hasActiveFilters}
                   >
                     Save as View
                   </Button>
@@ -400,6 +436,8 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
                     size="sm"
                     onClick={clearFilters}
                     color="gray"
+                    aria-label="Clear all filters"
+                    className="focus:outline-2 focus:outline-offset-2 focus:outline-gray-500"
                   >
                     <IconX size={14} />
                   </ActionIcon>
@@ -407,55 +445,96 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
               </Group>
             </Group>
 
-            <Group gap="md" wrap="wrap">
-              <MultiSelect
-                label="Projects"
-                placeholder="All projects"
-                data={projectOptions}
-                value={localFilters.projectIds ?? []}
-                onChange={(values) => handleArrayFilter("projectIds", values)}
-                clearable
-                searchable
-                size="sm"
-                w={200}
-                styles={{
-                  input: { backgroundColor: 'var(--surface-primary)' },
-                }}
-              />
-
-              <MultiSelect
-                label="Status"
-                placeholder="All statuses"
-                data={STATUS_OPTIONS}
-                value={(localFilters.statuses as string[] | undefined) ?? []}
-                onChange={(values) => handleArrayFilter("statuses", values)}
-                clearable
-                searchable
-                size="sm"
-                w={200}
-                styles={{
-                  input: { backgroundColor: 'var(--surface-primary)' },
-                }}
-              />
-
-              <MultiSelect
-                label="Priority"
-                placeholder="All priorities"
-                data={priorityOptions}
-                value={localFilters.priorities ?? []}
-                onChange={(values) => handleArrayFilter("priorities", values)}
-                clearable
-                searchable
-                size="sm"
-                w={200}
-                styles={{
-                  input: { backgroundColor: 'var(--surface-primary)' },
-                }}
-              />
-
-              <Group gap={4} align="flex-end">
+            {/* Grid layout for filters */}
+            <SimpleGrid 
+              cols={{ base: 1, sm: 2, md: 3, lg: 4 }}
+              spacing="md"
+            >
+              {/* Projects filter */}
+              <Stack gap={4}>
+                <Text size="sm" fw={500} className="text-text-primary" component="label" htmlFor="filter-projects">
+                  Projects
+                </Text>
                 <MultiSelect
-                  label="Lists"
+                  id="filter-projects"
+                  placeholder="All projects"
+                  data={projectOptions}
+                  value={localFilters.projectIds ?? []}
+                  onChange={(values) => handleArrayFilter("projectIds", values)}
+                  clearable
+                  searchable
+                  size="sm"
+                  classNames={{
+                    input: "bg-surface-primary",
+                  }}
+                  disabled={filtersLoading}
+                  rightSection={filtersLoading ? <Loader size="xs" /> : undefined}
+                  aria-label="Filter by projects"
+                />
+              </Stack>
+
+              {/* Status filter */}
+              <Stack gap={4}>
+                <Text size="sm" fw={500} className="text-text-primary" component="label" htmlFor="filter-status">
+                  Status
+                </Text>
+                <MultiSelect
+                  id="filter-status"
+                  placeholder="All statuses"
+                  data={STATUS_OPTIONS}
+                  value={(localFilters.statuses as string[] | undefined) ?? []}
+                  onChange={(values) => handleArrayFilter("statuses", values)}
+                  clearable
+                  searchable
+                  size="sm"
+                  classNames={{
+                    input: "bg-surface-primary",
+                  }}
+                  aria-label="Filter by status"
+                />
+              </Stack>
+
+              {/* Priority filter */}
+              <Stack gap={4}>
+                <Text size="sm" fw={500} className="text-text-primary" component="label" htmlFor="filter-priority">
+                  Priority
+                </Text>
+                <MultiSelect
+                  id="filter-priority"
+                  placeholder="All priorities"
+                  data={priorityOptions}
+                  value={localFilters.priorities ?? []}
+                  onChange={(values) => handleArrayFilter("priorities", values)}
+                  clearable
+                  searchable
+                  size="sm"
+                  classNames={{
+                    input: "bg-surface-primary",
+                  }}
+                  aria-label="Filter by priority"
+                />
+              </Stack>
+
+              {/* Lists filter */}
+              <Stack gap={4}>
+                <Group justify="space-between" wrap="nowrap">
+                  <Text size="sm" fw={500} className="text-text-primary" component="label" htmlFor="filter-lists">
+                    Lists
+                  </Text>
+                  <Tooltip label="Create list">
+                    <ActionIcon
+                      variant="light"
+                      size="sm"
+                      onClick={openCreateList}
+                      aria-label="Create new list"
+                      className="focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                    >
+                      <IconPlus size={14} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
+                <MultiSelect
+                  id="filter-lists"
                   placeholder="All lists"
                   data={listOptions}
                   value={localFilters.listIds ?? []}
@@ -463,49 +542,62 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
                   clearable
                   searchable
                   size="sm"
-                  w={200}
-                  styles={{
-                    input: { backgroundColor: 'var(--surface-primary)' },
+                  classNames={{
+                    input: "bg-surface-primary",
                   }}
+                  disabled={filtersLoading}
+                  rightSection={filtersLoading ? <Loader size="xs" /> : undefined}
+                  aria-label="Filter by lists"
                 />
-                <Tooltip label="Create list">
-                  <ActionIcon
-                    variant="light"
-                    size="sm"
-                    onClick={openCreateList}
-                    className="mb-0.5"
-                  >
-                    <IconPlus size={14} />
-                  </ActionIcon>
-                </Tooltip>
-              </Group>
+              </Stack>
 
-              <MultiSelect
-                label="Tags"
-                placeholder="All tags"
-                data={tagOptions}
-                value={localFilters.tagIds ?? []}
-                onChange={(values) => handleArrayFilter("tagIds", values)}
-                clearable
-                searchable
-                size="sm"
-                w={200}
-                styles={{
-                  input: { backgroundColor: 'var(--surface-primary)' },
-                }}
-              />
+              {/* Tags filter */}
+              <Stack gap={4}>
+                <Text size="sm" fw={500} className="text-text-primary" component="label" htmlFor="filter-tags">
+                  Tags
+                </Text>
+                <MultiSelect
+                  id="filter-tags"
+                  placeholder="All tags"
+                  data={tagOptions}
+                  value={localFilters.tagIds ?? []}
+                  onChange={(values) => handleArrayFilter("tagIds", values)}
+                  clearable
+                  searchable
+                  size="sm"
+                  classNames={{
+                    input: "bg-surface-primary",
+                  }}
+                  disabled={filtersLoading}
+                  rightSection={filtersLoading ? <Loader size="xs" /> : undefined}
+                  aria-label="Filter by tags"
+                />
+              </Stack>
 
-              <Checkbox
-                label="Include completed"
-                checked={localFilters.includeCompleted ?? false}
-                onChange={(e) => updateFilter("includeCompleted", e.currentTarget.checked)}
-                size="sm"
-                className="mt-6"
-              />
-            </Group>
+              {/* Include completed checkbox */}
+              <Stack gap={4} justify="flex-end">
+                <Checkbox
+                  id="filter-completed"
+                  label="Include completed"
+                  checked={localFilters.includeCompleted ?? false}
+                  onChange={(e) => updateFilter("includeCompleted", e.currentTarget.checked)}
+                  size="sm"
+                  aria-label="Include completed actions"
+                />
+              </Stack>
+            </SimpleGrid>
+
+            {/* Active filters display */}
+            <ActiveFilters
+              filters={localFilters}
+              projects={projects ?? []}
+              lists={lists ?? []}
+              tags={tags?.allTags ?? []}
+              onRemoveFilter={removeFilter}
+            />
           </Stack>
         </Paper>
-      )}
+      </Collapse>
 
       {/* View content */}
       {viewType === "KANBAN" && (

@@ -395,8 +395,8 @@ export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" 
             gap="md"
             align="flex-start"
             wrap="nowrap"
-            className="min-w-fit pb-4"
-            style={{ minWidth: 'max-content' }}
+            className="pb-4"
+            style={{ minWidth: `${columns.length * 296}px` }}
           >
             {columns.map((column) => (
               <KanbanColumn
