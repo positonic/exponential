@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, useEffect, type PropsWithChildren, type Dispatch, type SetStateAction } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, type PropsWithChildren, type Dispatch, type SetStateAction } from 'react';
 
 // localStorage keys for persistence across tabs
 const CHAT_STORAGE_KEY = 'agent-chat-messages';
@@ -106,9 +106,12 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     return localStorage.getItem(CONVERSATION_STORAGE_KEY) ?? '';
   });
 
-  // Sync messages to localStorage when they change
+  // Sync messages to localStorage when they change (debounced to avoid thrashing during streaming)
   useEffect(() => {
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
+    const timer = setTimeout(() => {
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
+    }, 500);
+    return () => clearTimeout(timer);
   }, [messages]);
 
   // Sync conversationId to localStorage when it changes
@@ -144,7 +147,7 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     localStorage.setItem(CONVERSATION_STORAGE_KEY, newConversationId);
   }, []);
 
-  const value: AgentModalContextValue = {
+  const value: AgentModalContextValue = useMemo(() => ({
     isOpen,
     projectId,
     pageContext,
@@ -157,7 +160,18 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     closeModal,
     clearChat,
     loadConversation,
-  };
+  }), [
+    isOpen,
+    projectId,
+    pageContext,
+    setPageContext,
+    messages,
+    conversationId,
+    openModal,
+    closeModal,
+    clearChat,
+    loadConversation,
+  ]);
 
   return (
     <AgentModalContext.Provider value={value}>

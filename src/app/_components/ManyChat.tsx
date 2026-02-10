@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { api } from "~/trpc/react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import type { Components } from 'react-markdown';
 import {
   Paper,
   TextInput,
@@ -18,6 +19,68 @@ import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+
+// Module-level constants to avoid re-creation on every render
+const VIDEO_PATTERN = /\[Video ([a-zA-Z0-9_-]+)\]/g;
+
+const MARKDOWN_COMPONENTS: Partial<Components> = {
+  h1: ({children}) => <Text size="xl" fw={700} mb="sm">{children}</Text>,
+  h2: ({children}) => <Text size="lg" fw={600} mt="md" mb="xs">{children}</Text>,
+  h3: ({children}) => <Text size="md" fw={500} mt="sm" mb="xs">{children}</Text>,
+  h4: ({children}) => <Text size="sm" fw={500} mt="xs" mb={4}>{children}</Text>,
+  p: ({children}) => <Text size="sm" mb="xs">{children}</Text>,
+  strong: ({children}) => <Text component="span" fw={600}>{children}</Text>,
+  em: ({children}) => <Text component="em" size="sm" fs="italic">{children}</Text>,
+  ul: ({children}) => <Box component="ul" ml="md" mb="xs">{children}</Box>,
+  ol: ({children}) => <Box component="ol" ml="md" mb="xs">{children}</Box>,
+  li: ({children}) => <Text component="li" size="sm" mb={4}>{children}</Text>,
+  hr: () => <Box component="hr" my="sm" style={{ border: 'none', borderTop: '1px solid var(--color-border-primary)' }} />,
+  code: ({children}) => (
+    <Text
+      component="code"
+      style={{
+        backgroundColor: 'var(--color-surface-secondary)',
+        padding: '2px 4px',
+        borderRadius: '4px',
+        fontSize: '12px'
+      }}
+    >
+      {children}
+    </Text>
+  ),
+  pre: ({children}) => (
+    <Box
+      component="pre"
+      style={{
+        backgroundColor: 'var(--color-surface-secondary)',
+        padding: '8px',
+        borderRadius: '4px',
+        overflow: 'auto',
+        fontSize: '12px'
+      }}
+      mb="xs"
+    >
+      {children}
+    </Box>
+  ),
+};
+
+const TEXT_INPUT_STYLES = {
+  input: {
+    backgroundColor: 'transparent',
+    border: '1px solid var(--color-border-primary)',
+    color: 'var(--color-text-primary)',
+    paddingRight: '100px',
+    fontSize: '16px',
+    fontFamily: 'inherit',
+    '&:focus': {
+      borderColor: 'var(--color-border-focus)',
+    },
+    '&::placeholder': {
+      color: 'var(--color-text-muted)',
+    }
+  }
+} as const;
 
 // Use ChatMessage from provider for consistency
 type Message = ChatMessage;
@@ -51,6 +114,112 @@ function formatPageContextData(context: PageContext): string {
         .join('\n');
   }
 }
+
+// Render message content with markdown/video support
+function renderMessageContent(content: string, messageType: string) {
+  // Handle video links first — reset lastIndex since VIDEO_PATTERN is a global regex
+  const hasVideoLinks = VIDEO_PATTERN.test(content);
+  VIDEO_PATTERN.lastIndex = 0;
+
+  if (hasVideoLinks) {
+    const parts = content.split(VIDEO_PATTERN);
+    VIDEO_PATTERN.lastIndex = 0;
+    return parts.map((part, index) => {
+      if (index % 2 === 1) {
+        return (
+          <a
+            key={index}
+            href={`/video/${part}`}
+            style={{
+              color: 'inherit',
+              textDecoration: 'underline'
+            }}
+          >
+            {`Video ${part}`}
+          </a>
+        );
+      }
+      return part;
+    });
+  }
+
+  // For AI messages, check if content looks like markdown and render accordingly
+  if (messageType === 'ai' && (content.includes('###') || content.includes('**') || content.includes('- '))) {
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={MARKDOWN_COMPONENTS}
+      >
+        {content}
+      </ReactMarkdown>
+    );
+  }
+
+  // For regular text, return as-is
+  return content;
+}
+
+// Memoized message list — isolates message rendering from input state changes
+interface MessageListProps {
+  messages: ChatMessage[];
+  conversationId: string;
+}
+
+const MessageList = memo(function MessageList({ messages, conversationId }: MessageListProps) {
+  const viewport = useRef<HTMLDivElement>(null);
+
+  const visibleMessages = useMemo(
+    () => messages.filter(m => m.type !== 'system'),
+    [messages]
+  );
+
+  useEffect(() => {
+    if (viewport.current) {
+      viewport.current.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
+    }
+  }, [messages]);
+
+  return (
+    <div className="flex-1 h-full overflow-hidden relative">
+      <ScrollArea className="h-full" viewportRef={viewport} p="lg" scrollbars="y">
+        <div className="space-y-6">
+          {visibleMessages.map((message, index) => (
+            <div
+              key={message.interactionId ?? `${message.type}-${index}`}
+              className={`flex ${message.type === 'human' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-3 duration-500`}
+              style={{ animationDelay: `${index * 50}ms` }}
+            >
+              {message.type === 'ai' ? (
+                <div className="max-w-[85%]">
+                  <div className="text-text-primary text-sm leading-relaxed">
+                    {renderMessageContent(message.content, message.type)}
+                  </div>
+                  {message.interactionId && (
+                    <AgentMessageFeedback
+                      aiInteractionId={message.interactionId}
+                      conversationId={conversationId}
+                      agentName={message.agentName}
+                    />
+                  )}
+                </div>
+              ) : (
+                <Paper
+                  p="sm"
+                  radius="xl"
+                  className="bg-surface-tertiary"
+                >
+                  <div className="text-text-primary whitespace-pre-wrap text-sm">
+                    {renderMessageContent(message.content, message.type)}
+                  </div>
+                </Paper>
+              )}
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+});
 
 interface ManyChatProps {
   initialMessages?: Message[];
@@ -254,7 +423,6 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const viewport = useRef<HTMLDivElement>(null);
   const [showAgentDropdown, setShowAgentDropdown] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
@@ -380,22 +548,23 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // Filter agents based on partial mention
   const getFilteredAgentsForMention = (text: string, position: number) => {
     if (!mastraAgents) return [];
-    
+
     const beforeCursor = text.substring(0, position);
     const lastAtIndex = beforeCursor.lastIndexOf('@');
     if (lastAtIndex === -1) return [];
-    
+
     const searchTerm = beforeCursor.substring(lastAtIndex + 1).toLowerCase();
-    return mastraAgents.filter(agent => 
+    return mastraAgents.filter(agent =>
       agent.name.toLowerCase().startsWith(searchTerm)
     );
   };
 
-  useEffect(() => {
-    if (viewport.current) {
-      viewport.current.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
-    }
-  }, [messages]);
+  // Cache filtered agents to avoid recomputing on every render
+  const filteredAgentsForMention = useMemo(
+    () => getFilteredAgentsForMention(input, cursorPosition),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getFilteredAgentsForMention depends on mastraAgents
+    [input, cursorPosition, mastraAgents]
+  );
 
   // Handle click outside to close dropdown
   useEffect(() => {
@@ -437,22 +606,20 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // Handle keyboard navigation in dropdown
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!showAgentDropdown) return;
-    
-    const filteredAgents = getFilteredAgentsForMention(input, cursorPosition);
-    
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedAgentIndex(prev => 
-        prev < filteredAgents.length - 1 ? prev + 1 : 0
+      setSelectedAgentIndex(prev =>
+        prev < filteredAgentsForMention.length - 1 ? prev + 1 : 0
       );
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setSelectedAgentIndex(prev => 
-        prev > 0 ? prev - 1 : filteredAgents.length - 1
+      setSelectedAgentIndex(prev =>
+        prev > 0 ? prev - 1 : filteredAgentsForMention.length - 1
       );
-    } else if (e.key === 'Enter' && filteredAgents.length > 0) {
+    } else if (e.key === 'Enter' && filteredAgentsForMention.length > 0) {
       e.preventDefault();
-      selectAgent(filteredAgents[selectedAgentIndex]!);
+      selectAgent(filteredAgentsForMention[selectedAgentIndex]!);
     } else if (e.key === 'Escape') {
       setShowAgentDropdown(false);
     }
@@ -787,86 +954,6 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   };
 
-  const renderMessageContent = (content: string, messageType: string) => {
-    // Handle video links first
-    const videoPattern = /\[Video ([a-zA-Z0-9_-]+)\]/g;
-    const hasVideoLinks = videoPattern.test(content);
-    
-    if (hasVideoLinks) {
-      const parts = content.split(videoPattern);
-      return parts.map((part, index) => {
-        if (index % 2 === 1) {
-          return (
-            <a 
-              key={index} 
-              href={`/video/${part}`}
-              style={{ 
-                color: 'inherit', 
-                textDecoration: 'underline' 
-              }}
-            >
-              {`Video ${part}`}
-            </a>
-          );
-        }
-        return part;
-      });
-    }
-
-    // For AI messages, check if content looks like markdown and render accordingly
-    if (messageType === 'ai' && (content.includes('###') || content.includes('**') || content.includes('- '))) {
-      return (
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            h1: ({children}) => <Text size="xl" fw={700} mb="sm">{children}</Text>,
-            h2: ({children}) => <Text size="lg" fw={600} mb="sm">{children}</Text>,
-            h3: ({children}) => <Text size="md" fw={500} mb="xs">{children}</Text>,
-            h4: ({children}) => <Text size="sm" fw={500} mb="xs">{children}</Text>,
-            p: ({children}) => <Text size="sm" mb={2}>{children}</Text>,
-            strong: ({children}) => <Text component="span" fw={600}>{children}</Text>,
-            ul: ({children}) => <Box component="ul" ml="md" mb={2}>{children}</Box>,
-            ol: ({children}) => <Box component="ol" ml="md" mb={2}>{children}</Box>,
-            li: ({children}) => <Text component="li" size="sm">{children}</Text>,
-            code: ({children}) => (
-              <Text 
-                component="code" 
-                style={{ 
-                  backgroundColor: 'var(--color-surface-secondary)', 
-                  padding: '2px 4px', 
-                  borderRadius: '4px',
-                  fontSize: '12px'
-                }}
-              >
-                {children}
-              </Text>
-            ),
-            pre: ({children}) => (
-              <Box 
-                component="pre" 
-                style={{ 
-                  backgroundColor: 'var(--color-surface-secondary)', 
-                  padding: '8px', 
-                  borderRadius: '4px',
-                  overflow: 'auto',
-                  fontSize: '12px'
-                }}
-                mb="xs"
-              >
-                {children}
-              </Box>
-            ),
-          }}
-        >
-          {content}
-        </ReactMarkdown>
-      );
-    }
-
-    // For regular text, return as-is
-    return content;
-  };
-
   const getInitials = (name = '') => name.split(' ').map(n => n[0]).join('').toUpperCase();
 
   return (
@@ -883,47 +970,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       )}
 
       {/* Messages Area */}
-      <div className="flex-1 h-full overflow-hidden relative">
-        <ScrollArea className="h-full" viewportRef={viewport} p="lg" scrollbars="y">
-          <div className="space-y-6">
-            {messages.filter(message => message.type !== 'system').map((message, index) => (
-              <div
-                key={index}
-                className={`flex ${message.type === 'human' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-3 duration-500`}
-                style={{ animationDelay: `${index * 50}ms` }}
-              >
-                {message.type === 'ai' ? (
-                  <div className="max-w-[85%]">
-                    <div
-                      className="text-text-primary text-sm leading-relaxed"
-                    >
-                      {renderMessageContent(message.content, message.type)}
-                    </div>
-                    {/* Feedback/action buttons for AI messages */}
-                    {message.interactionId && (
-                      <AgentMessageFeedback
-                        aiInteractionId={message.interactionId}
-                        conversationId={conversationId}
-                        agentName={message.agentName}
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <Paper
-                    p="sm"
-                    radius="xl"
-                    className="bg-surface-tertiary"
-                  >
-                    <div className="text-text-primary whitespace-pre-wrap text-sm">
-                      {renderMessageContent(message.content, message.type)}
-                    </div>
-                  </Paper>
-                )}
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
-      </div>
+      <MessageList messages={messages} conversationId={conversationId} />
       
       {/* Enhanced Input Area */}
       <div className="flex-shrink-0 bg-surface-primary backdrop-blur-lg border-t border-border-primary p-4">
@@ -937,22 +984,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               placeholder="Ask anything"
               radius="md"
               size="lg"
-              styles={{
-                input: {
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--color-border-primary)',
-                  color: 'var(--color-text-primary)',
-                  paddingRight: '100px',
-                  fontSize: '16px',
-                  fontFamily: 'inherit',
-                  '&:focus': {
-                    borderColor: 'var(--color-border-focus)',
-                  },
-                  '&::placeholder': {
-                    color: 'var(--color-text-muted)',
-                  }
-                }
-              }}
+              styles={TEXT_INPUT_STYLES}
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
               <ActionIcon
@@ -989,14 +1021,14 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 style={{ zIndex: 1000 }}
               >
                 <div className="max-h-48 overflow-y-auto">
-                  {getFilteredAgentsForMention(input, cursorPosition).map((agent, index) => (
+                  {filteredAgentsForMention.map((agent, index) => (
                     <div
                       key={agent.id}
                       onClick={() => selectAgent(agent)}
                       onMouseEnter={() => setSelectedAgentIndex(index)}
                       className={`flex items-center gap-3 p-3 cursor-pointer transition-all duration-200 ${
-                        index === selectedAgentIndex 
-                          ? 'bg-brand-primary/20 border-l-2 border-brand-primary' 
+                        index === selectedAgentIndex
+                          ? 'bg-brand-primary/20 border-l-2 border-brand-primary'
                           : 'hover:bg-surface-hover'
                       }`}
                     >
@@ -1013,7 +1045,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                       )}
                     </div>
                   ))}
-                  {getFilteredAgentsForMention(input, cursorPosition).length === 0 && (
+                  {filteredAgentsForMention.length === 0 && (
                     <div className="p-4 text-center">
                       <Text size="sm" c="dimmed">
                         🔍 No agents found matching your search

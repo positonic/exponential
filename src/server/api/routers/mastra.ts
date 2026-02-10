@@ -16,6 +16,7 @@ import type { PrismaClient } from "@prisma/client";
 import { addDays, startOfDay, endOfDay } from "date-fns";
 import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } from "~/server/services";
 import { userEmailService } from "~/server/services/UserEmailService";
+import { slugify } from "~/utils/slugify";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -3123,6 +3124,150 @@ export const mastraRouter = createTRPCRouter({
         averageProgress: Math.round(avgProgress),
         averageConfidence:
           avgConfidence !== null ? Math.round(avgConfidence) : null,
+      };
+    }),
+
+  // ==================== Project Management ====================
+
+  createProject: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1),
+      description: z.string().optional(),
+      status: z.enum(['ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED']).optional().default('ACTIVE'),
+      priority: z.enum(['HIGH', 'MEDIUM', 'LOW', 'NONE']).optional().default('MEDIUM'),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      console.log(`🏗️ [tRPC createProject] RECEIVED: name="${input.name}", status=${input.status}, priority=${input.priority}, userId=${userId}`);
+
+      // Generate a unique slug
+      const baseSlug = slugify(input.name);
+      let slug = baseSlug;
+      let counter = 1;
+      while (await ctx.db.project.findFirst({ where: { slug } })) {
+        slug = `${baseSlug}_${counter}`;
+        counter++;
+      }
+
+      const project = await ctx.db.project.create({
+        data: {
+          name: input.name,
+          description: input.description,
+          status: input.status,
+          priority: input.priority,
+          progress: 0,
+          slug,
+          createdById: userId,
+          workspaceId: input.workspaceId ?? null,
+        },
+      });
+
+      console.log(`✅ [tRPC createProject] CREATED: id=${project.id}, name="${project.name}", slug=${project.slug}`);
+
+      return {
+        project: {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          status: project.status,
+          priority: project.priority,
+          slug: project.slug,
+        },
+      };
+    }),
+
+  // ==================== Action Management ====================
+
+  updateAction: protectedProcedure
+    .input(z.object({
+      actionId: z.string(),
+      name: z.string().min(1).optional(),
+      description: z.string().nullable().optional(),
+      projectId: z.string().nullable().optional(),
+      priority: z.enum(PRIORITY_VALUES).optional(),
+      status: z.enum(['ACTIVE', 'COMPLETED', 'CANCELLED']).optional(),
+      dueDate: z.string().nullable().optional(), // ISO string
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      console.log(`✏️ [tRPC updateAction] RECEIVED: actionId=${input.actionId}, userId=${userId}, changes=${JSON.stringify(input)}`);
+
+      // Verify user owns this action
+      const existing = await ctx.db.action.findUnique({
+        where: { id: input.actionId, createdById: userId },
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Action not found or access denied',
+        });
+      }
+
+      // Build update data
+      const { actionId, ...fields } = input;
+      const updateData: Record<string, unknown> = {};
+
+      if (fields.name !== undefined) updateData.name = fields.name;
+      if (fields.description !== undefined) updateData.description = fields.description;
+      if (fields.priority !== undefined) updateData.priority = fields.priority;
+      if (fields.dueDate !== undefined) {
+        updateData.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
+      }
+
+      // Handle status change
+      if (fields.status !== undefined) {
+        updateData.status = fields.status;
+        if (fields.status === 'COMPLETED' && existing.status !== 'COMPLETED') {
+          updateData.completedAt = new Date();
+        } else if (fields.status !== 'COMPLETED' && existing.status === 'COMPLETED') {
+          updateData.completedAt = null;
+        }
+      }
+
+      // Handle project reassignment
+      if (fields.projectId !== undefined) {
+        updateData.projectId = fields.projectId;
+        if (fields.projectId && fields.projectId !== existing.projectId) {
+          // Moving to a new project — set kanban defaults
+          const highestOrder = await ctx.db.action.findFirst({
+            where: { projectId: fields.projectId, kanbanOrder: { not: null } },
+            orderBy: { kanbanOrder: 'desc' },
+            select: { kanbanOrder: true },
+          });
+          updateData.kanbanStatus = 'TODO';
+          updateData.kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
+        } else if (fields.projectId === null) {
+          // Unassigning from project — clear kanban
+          updateData.kanbanStatus = null;
+          updateData.kanbanOrder = null;
+        }
+      }
+
+      const action = await ctx.db.action.update({
+        where: { id: actionId },
+        data: updateData,
+        include: {
+          project: { select: { id: true, name: true } },
+        },
+      });
+
+      console.log(`✅ [tRPC updateAction] UPDATED: id=${action.id}, name="${action.name}", projectId=${action.projectId || "none"}`);
+
+      return {
+        action: {
+          id: action.id,
+          name: action.name,
+          description: action.description,
+          status: action.status,
+          priority: action.priority,
+          dueDate: action.dueDate?.toISOString(),
+          projectId: action.projectId,
+          project: action.project,
+        },
       };
     }),
 });

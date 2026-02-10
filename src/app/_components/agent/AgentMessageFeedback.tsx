@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import {
   Rating,
   Text,
@@ -40,7 +40,7 @@ function markAsRated(interactionId: string) {
   localStorage.setItem(RATED_MESSAGES_KEY, JSON.stringify(arr));
 }
 
-export function AgentMessageFeedback({
+export const AgentMessageFeedback = memo(function AgentMessageFeedback({
   aiInteractionId,
   conversationId: _conversationId,
   agentName: _agentName,
@@ -189,4 +189,4 @@ export function AgentMessageFeedback({
       </Collapse>
     </div>
   );
-}
+});
