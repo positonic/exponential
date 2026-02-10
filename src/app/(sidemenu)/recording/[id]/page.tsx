@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 import RecordingChat from "~/app/_components/RecordingChat";
 import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { TranscriptionContentEditor } from "~/app/_components/TranscriptionContentEditor";
+import { TranscriptionRenderer } from "~/app/_components/TranscriptionRenderer";
 import SaveActionsButton from "~/app/_components/SaveActionsButton";
 import { notifications } from "@mantine/notifications";
 import { useAgentModal } from "~/providers/AgentModalProvider";
@@ -67,6 +68,80 @@ function AutoSwitchActionsEffect({
   }, [actionsCount, actionsSavedAt, hasAutoSwitched, setActiveTab, setHasAutoSwitched]);
 
   return null;
+}
+
+function isFirefliesFormat(content: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "sentences" in parsed &&
+      Array.isArray((parsed as { sentences: unknown }).sentences) &&
+      (parsed as { sentences: unknown[] }).sentences.length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function TranscriptionTabContent({
+  session,
+}: {
+  session: {
+    id: string;
+    transcription: string | null;
+    sourceIntegration?: { provider: string } | null;
+  };
+}) {
+  const [showRaw, setShowRaw] = useState(false);
+
+  if (!session.transcription) {
+    return <Text c="dimmed">No transcription available yet</Text>;
+  }
+
+  const provider = session.sourceIntegration?.provider;
+  const isFireflies =
+    provider === "fireflies" ||
+    (!provider && isFirefliesFormat(session.transcription));
+
+  if (isFireflies && !showRaw) {
+    return (
+      <Stack gap="md">
+        <Group justify="flex-end">
+          <Button variant="subtle" size="xs" onClick={() => setShowRaw(true)}>
+            View Raw / Edit
+          </Button>
+        </Group>
+        <TranscriptionRenderer
+          transcription={session.transcription}
+          provider="fireflies"
+          isPreview={false}
+          showCopyButton={true}
+        />
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack gap="md">
+      {isFireflies && (
+        <Group justify="flex-end">
+          <Button
+            variant="subtle"
+            size="xs"
+            onClick={() => setShowRaw(false)}
+          >
+            View Formatted
+          </Button>
+        </Group>
+      )}
+      <TranscriptionContentEditor
+        transcriptionId={session.id}
+        initialContent={session.transcription}
+      />
+    </Stack>
+  );
 }
 
 export default function SessionPage({ params }: { params: { id: string } }) {
@@ -511,14 +586,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         </Tabs.Panel>
 
         <Tabs.Panel value="transcription" pt="md">
-          {session.transcription !== undefined ? (
-            <TranscriptionContentEditor
-              transcriptionId={session.id}
-              initialContent={session.transcription ?? ""}
-            />
-          ) : (
-            <Text c="dimmed">No transcription available yet</Text>
-          )}
+          <TranscriptionTabContent session={session} />
         </Tabs.Panel>
 
         <Tabs.Panel value="screenshots" pt="md">

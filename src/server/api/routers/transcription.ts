@@ -176,6 +176,13 @@ export const transcriptionRouter = createTRPCRouter({
               name: true,
             },
           },
+          sourceIntegration: {
+            select: {
+              id: true,
+              provider: true,
+              name: true,
+            },
+          },
         },
       });
 

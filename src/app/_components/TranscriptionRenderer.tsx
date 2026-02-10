@@ -95,8 +95,8 @@ export function TranscriptionRenderer({
     );
   }
 
-  // Handle Fireflies structured transcription
-  if (provider === "fireflies") {
+  // Handle Fireflies structured transcription (explicit provider or auto-detect JSON format)
+  if (provider === "fireflies" || !provider) {
     try {
       const parsed: FirefliesTranscription = JSON.parse(transcription);
       
