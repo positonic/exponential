@@ -316,7 +316,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     return [
       {
         type: 'system',
-        content: `Your name is Zoe, an AI companion. You are a coordinator managing a multi-agent conversation.
+        content: `Your name is ${customAssistant?.name ?? 'Zoe'}, an AI companion. You are a coordinator managing a multi-agent conversation.
                   Route user requests to the appropriate specialized agent if necessary.
                   Keep track of the conversation flow between the user and multiple AI agents.
 
@@ -486,35 +486,40 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // eslint-disable-next-line react-hooks/exhaustive-deps -- setConversationId is stable from context
   }, [projectId, startConversation, conversationId]);
   
-  // Update system message with project/page context when data loads or page changes
+  // Update system message with project/page context when data loads, page changes, or custom assistant loads
   // This preserves conversation history while adding context
   useEffect(() => {
     const hasProjectContext = projectData && projectActions;
     const hasPageContext = !!pageContext;
+    const hasCustomAssistant = !!customAssistant;
 
-    if ((hasProjectContext || hasPageContext) && !initialMessages) {
-      // Generate updated system message with all available context
+    if ((hasProjectContext || hasPageContext || hasCustomAssistant) && !initialMessages) {
+      // Generate updated system + welcome messages with all available context
       const updatedMessages = generateInitialMessages(
         hasProjectContext ? projectData : undefined,
         hasProjectContext ? projectActions : undefined,
         projectTranscriptions
       );
       const newSystemMessage = updatedMessages[0];
+      const newWelcomeMessage = updatedMessages[1];
 
-      // Only update the system message (first message) with context
-      // Preserve all other messages in the conversation
       if (newSystemMessage) {
         setMessages(prev => {
           // If first message is system, replace it; otherwise prepend
-          if (prev.length > 0 && prev[0]?.type === 'system') {
-            return [newSystemMessage, ...prev.slice(1)];
+          const withSystem = prev.length > 0 && prev[0]?.type === 'system'
+            ? [newSystemMessage, ...prev.slice(1)]
+            : [newSystemMessage, ...prev];
+
+          // Also update the welcome message if it's the only AI message (fresh chat)
+          if (newWelcomeMessage && withSystem.length === 2 && withSystem[1]?.type === 'ai') {
+            return [withSystem[0]!, newWelcomeMessage];
           }
-          return [newSystemMessage, ...prev];
+          return withSystem;
         });
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- setMessages is stable from context, messages.length would cause infinite loop
-  }, [projectData, projectActions, projectTranscriptions, pageContext, initialMessages, generateInitialMessages]);
+  }, [projectData, projectActions, projectTranscriptions, pageContext, customAssistant, initialMessages, generateInitialMessages, conversationId]);
   
   // Parse agent mentions from input
   const parseAgentMention = (text: string): { agentId: string | null; cleanMessage: string } => {

@@ -24,21 +24,19 @@ export interface PageContext {
   data: Record<string, unknown>;
 }
 
-// Default system message for the chat
+// Default system message for the chat (generic — ManyChat overrides with custom assistant name)
 const DEFAULT_SYSTEM_MESSAGE: ChatMessage = {
   type: 'system',
-  content: `Your name is Zoe, an AI companion. You are a coordinator managing a multi-agent conversation.
+  content: `You are an AI companion. You are a coordinator managing a multi-agent conversation.
             Route user requests to the appropriate specialized agent if necessary.
             Keep track of the conversation flow between the user and multiple AI agents.`
 };
 
-// Default welcome message from Zoe
+// Default welcome message (will be replaced when custom assistant loads)
 const DEFAULT_WELCOME_MESSAGE: ChatMessage = {
   type: 'ai',
-  agentName: 'Zoe',
-  content: `Hey! I'm Zoe 🔮
-
-I'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.
+  agentName: 'Assistant',
+  content: `Hey! I'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.
 
 What's up?`
 };

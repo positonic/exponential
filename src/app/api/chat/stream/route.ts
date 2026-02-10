@@ -128,10 +128,20 @@ export async function POST(req: Request) {
           personalityParts.push(`# About the User/Team\n${assistant.userContext}`);
         }
 
-        // Prepend personality as first system message
+        // Replace the first system message with the custom personality,
+        // keeping any additional context from the original system message
+        const originalSystem = messages.find(m => m.role === 'system');
+        const nonSystemMessages = messages.filter(m => m.role !== 'system');
+        const personalityContent = personalityParts.join('\n\n');
+
+        // Merge: custom personality first, then original system context (minus any name/identity line)
+        const mergedSystemContent = originalSystem
+          ? `${personalityContent}\n\n${originalSystem.content}`
+          : personalityContent;
+
         finalMessages = [
-          { role: 'system' as const, content: personalityParts.join('\n\n') },
-          ...messages,
+          { role: 'system' as const, content: mergedSystemContent },
+          ...nonSystemMessages,
         ];
       }
     }
