@@ -34,6 +34,7 @@ function ActionsContent() {
         workspaceId={workspaceId}
         viewConfig={{
           ...DEFAULT_VIEW_CONFIG,
+          name: `${workspace.name} Workspace Actions`,
           isVirtual: true,
         }}
       />
