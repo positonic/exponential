@@ -8,6 +8,7 @@ import type { ViewFilters, ViewType, ViewGroupBy } from "~/types/view";
 export interface ViewConfig {
   id: string;
   name: string;
+  slug?: string;
   viewType: ViewType;
   groupBy: ViewGroupBy;
   filters: ViewFilters;
@@ -42,6 +43,7 @@ export function ViewSwitcher({
   const allItemsView: ViewConfig = {
     id: DEFAULT_VIEW_CONFIG.id,
     name: DEFAULT_VIEW_CONFIG.name,
+    slug: DEFAULT_VIEW_CONFIG.slug,
     viewType: DEFAULT_VIEW_CONFIG.viewType,
     groupBy: DEFAULT_VIEW_CONFIG.groupBy,
     filters: DEFAULT_VIEW_CONFIG.filters,
@@ -60,6 +62,7 @@ export function ViewSwitcher({
             onViewChange({
               id: view.id,
               name: view.name,
+              slug: view.slug,
               viewType: view.viewType as ViewType,
               groupBy: view.groupBy as ViewGroupBy,
               filters: (view.filters as ViewFilters) ?? {},

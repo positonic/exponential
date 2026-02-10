@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Stack,
   Group,
@@ -37,6 +37,7 @@ import { ViewSwitcher } from "./ViewSwitcher";
 import { SaveViewModal } from "./SaveViewModal";
 import { CreateListModal } from "./CreateListModal";
 import { ActiveFilters } from "./ActiveFilters";
+import { useViewSearchParams } from "./useViewSearchParams";
 import { DEFAULT_VIEW_CONFIG } from "~/types/view";
 import type { ViewFilters, ViewType, ViewGroupBy } from "~/types/view";
 import type { ViewConfig } from "./ViewSwitcher";
@@ -86,6 +87,50 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
   const [saveModalOpened, { open: openSaveModal, close: closeSaveModal }] = useDisclosure(false);
   const [createListOpened, { open: openCreateList, close: closeCreateList }] = useDisclosure(false);
   const utils = api.useUtils();
+
+  // URL sync for linkable views
+  const { viewSlugFromUrl, setViewSlug } = useViewSearchParams();
+  const hasInitializedFromUrl = useRef(false);
+
+  // Fetch view from URL slug on initial load
+  const {
+    data: urlView,
+    isLoading: urlViewLoading,
+    isError: urlViewError,
+  } = api.view.getBySlug.useQuery(
+    { workspaceId, slug: viewSlugFromUrl! },
+    { enabled: !!viewSlugFromUrl && !hasInitializedFromUrl.current, retry: false },
+  );
+
+  // Sync URL view into state on first load
+  useEffect(() => {
+    if (hasInitializedFromUrl.current) return;
+    if (!viewSlugFromUrl) {
+      hasInitializedFromUrl.current = true;
+      return;
+    }
+    if (urlViewLoading) return;
+
+    if (urlViewError || !urlView) {
+      setViewSlug(null);
+      hasInitializedFromUrl.current = true;
+      return;
+    }
+
+    setActiveView({
+      id: urlView.id,
+      name: urlView.name,
+      slug: urlView.slug,
+      viewType: urlView.viewType as ViewType,
+      groupBy: urlView.groupBy as ViewGroupBy,
+      filters: (urlView.filters as ViewFilters) ?? {},
+      isVirtual: false,
+    });
+    setLocalFilters((urlView.filters as ViewFilters) ?? {});
+    setViewType(urlView.viewType as ViewType);
+    setGroupBy(urlView.groupBy as ViewGroupBy);
+    hasInitializedFromUrl.current = true;
+  }, [urlView, urlViewLoading, urlViewError, viewSlugFromUrl, setViewSlug]);
 
   // Fetch projects for filter dropdown
   const { data: projects, isLoading: projectsLoading } = api.project.getAll.useQuery(
@@ -289,18 +334,22 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
     setLocalFilters(view.filters);
     setViewType(view.viewType);
     setGroupBy(view.groupBy);
-  }, []);
+    setViewSlug(view.isVirtual ? null : (view.slug ?? null));
+  }, [setViewSlug]);
 
-  const handleViewSaved = useCallback((savedView: { id: string; name: string; viewType: string; groupBy: string; filters: unknown }) => {
+  const handleViewSaved = useCallback((savedView: { id: string; name: string; slug: string; viewType: string; groupBy: string; filters: unknown }) => {
     void utils.view.list.invalidate();
     setActiveView({
       id: savedView.id,
       name: savedView.name,
+      slug: savedView.slug,
       viewType: savedView.viewType as ViewType,
       groupBy: savedView.groupBy as ViewGroupBy,
       filters: (savedView.filters as ViewFilters) ?? {},
+      isVirtual: false,
     });
-  }, [utils.view.list]);
+    setViewSlug(savedView.slug);
+  }, [utils.view.list, setViewSlug]);
 
   const hasActiveFilters =
     (localFilters.projectIds?.length ?? 0) > 0 ||
@@ -312,7 +361,7 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
 
   const filtersLoading = projectsLoading || listsLoading || tagsLoading;
 
-  if (isLoading) {
+  if (isLoading || (viewSlugFromUrl && urlViewLoading)) {
     return (
       <Stack gap="md">
         <Skeleton height={40} />

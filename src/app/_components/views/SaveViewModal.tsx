@@ -25,6 +25,7 @@ interface SaveViewModalProps {
   onSaved: (view: {
     id: string;
     name: string;
+    slug: string;
     viewType: string;
     groupBy: string;
     filters: unknown;
