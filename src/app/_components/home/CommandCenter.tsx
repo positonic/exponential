@@ -9,6 +9,7 @@ import { MomentumWidget } from "./MomentumWidget";
 import { HabitsDueToday } from "./HabitsDueToday";
 import { ProjectStateOverview } from "./ProjectStateOverview";
 import { IntegrationSuggestions } from "./IntegrationSuggestions";
+import { RitualCards } from "./RitualCards";
 interface CommandCenterProps {
   variant?: "primary" | "workspace";
 }
@@ -53,10 +54,13 @@ export function CommandCenter({ variant = "primary" }: CommandCenterProps) {
           </div>
         </>
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <GoalsProgressDashboard />
-          <ProjectStateOverview />
-        </div>
+        <>
+          <RitualCards />
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <GoalsProgressDashboard />
+            <ProjectStateOverview />
+          </div>
+        </>
       )}
     </Container>
   );

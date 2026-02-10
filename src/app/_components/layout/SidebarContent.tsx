@@ -4,7 +4,7 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconCalendarWeek, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconMicrophone, IconGitBranch, IconUsers, IconTarget, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase, IconClipboardCheck, IconLayoutKanban } from "@tabler/icons-react";
+import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconMicrophone, IconGitBranch, IconUsers, IconTarget, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase, IconLayoutKanban } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
@@ -74,35 +74,29 @@ export function SidebarContent() {
               </div>
             </Accordion.Control>
             <Accordion.Panel>
+              {/* Core */}
               <NavLink href={`/w/${workspaceSlug}/home`} icon={IconBriefcase}>
                 Workspace Home
               </NavLink>
-              <NavLink href={`/w/${workspaceSlug}/weekly-review`} icon={IconCalendarWeek}>
-                Weekly Review
-              </NavLink>
-              <NavLink href={`/w/${workspaceSlug}/weekly-team-checkin`} icon={IconUsers}>
-                Weekly Team Check-in
-              </NavLink>
-              {workspace?.type !== 'personal' && (
-                <NavLink href={`/w/${workspaceSlug}/okr-checkin`} icon={IconClipboardCheck}>
-                  OKR Check-in
-                </NavLink>
-              )}
               <NavLink href={`/w/${workspaceSlug}/actions`} icon={IconLayoutKanban}>
                 Actions
               </NavLink>
               <NavLink href={`/w/${workspaceSlug}/projects`} icon={IconDeviceProjector}>
                 Projects
               </NavLink>
+
+              <div className="my-1.5 border-t border-border-primary" />
+
+              {/* Resources */}
               <NavLink href={`/w/${workspaceSlug}/knowledge-base`} icon={IconDatabase}>
                 Knowledge Hub
               </NavLink>
               <NavLink href={`/w/${workspaceSlug}/meetings`} icon={IconMicrophone}>
                 Meetings
               </NavLink>
-              <NavLink href={`/w/${workspaceSlug}/settings`} icon={IconSettings}>
-                Settings
-              </NavLink>
+
+              <div className="my-1.5 border-t border-border-primary" />
+
               {/* Plugin navigation items for workspace section */}
               {itemsBySection.workspace
                 ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
@@ -115,6 +109,9 @@ export function SidebarContent() {
                     </NavLink>
                   );
                 })}
+              <NavLink href={`/w/${workspaceSlug}/settings`} icon={IconSettings}>
+                Settings
+              </NavLink>
             </Accordion.Panel>
           </Accordion.Item>
         )}
