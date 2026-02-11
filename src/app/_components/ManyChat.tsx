@@ -230,13 +230,15 @@ interface ManyChatProps {
   };
   buttons?: React.ReactNode[];
   projectId?: string;
+  workspaceId?: string;
   initialInput?: string;
 }
 
-export default function ManyChat({ initialMessages, githubSettings, buttons, projectId: projectIdProp, initialInput }: ManyChatProps) {
+export default function ManyChat({ initialMessages, githubSettings, buttons, projectId: projectIdProp, workspaceId: workspaceIdProp, initialInput }: ManyChatProps) {
   // Get messages, conversationId, and page context from context to persist across navigation
   const { messages, setMessages, conversationId, setConversationId, pageContext } = useAgentModal();
-  const { workspaceId } = useWorkspace();
+  const { workspaceId: urlWorkspaceId } = useWorkspace();
+  const workspaceId = workspaceIdProp ?? urlWorkspaceId;
 
   // Fetch the user's custom assistant (if configured)
   const { data: customAssistant } = api.assistant.getDefault.useQuery(
@@ -777,9 +779,6 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       // Add empty AI message that will be filled by streaming
       setMessages(prev => [...prev, { type: 'ai', agentName, content: '' }]);
       setIsStreaming(true);
-
-      // Extract workspaceId from page context so agent tools can filter by workspace
-      const workspaceId = pageContext?.data?.workspaceId as string | undefined;
 
       // Build full conversation history so the agent has context from prior messages
       const coreMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [];

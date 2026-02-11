@@ -43,7 +43,10 @@ What's up?`
 
 interface AgentModalContextValue {
   isOpen: boolean;
+  workspaceId: string | null;
+  setWorkspaceId: Dispatch<SetStateAction<string | null>>;
   projectId: string | null;
+  setProjectId: Dispatch<SetStateAction<string | null>>;
   pageContext: PageContext | null;
   setPageContext: (context: PageContext | null) => void;
   messages: ChatMessage[];
@@ -58,7 +61,10 @@ interface AgentModalContextValue {
 
 const AgentModalContext = createContext<AgentModalContextValue>({
   isOpen: false,
+  workspaceId: null,
+  setWorkspaceId: () => undefined,
   projectId: null,
+  setProjectId: () => undefined,
   pageContext: null,
   setPageContext: () => undefined,
   messages: [DEFAULT_SYSTEM_MESSAGE, DEFAULT_WELCOME_MESSAGE],
@@ -77,6 +83,7 @@ export function useAgentModal() {
 
 export function AgentModalProvider({ children }: PropsWithChildren) {
   const [isOpen, setIsOpen] = useState(false);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [pageContext, setPageContextState] = useState<PageContext | null>(null);
 
@@ -152,7 +159,10 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
 
   const value: AgentModalContextValue = useMemo(() => ({
     isOpen,
+    workspaceId,
+    setWorkspaceId,
     projectId,
+    setProjectId,
     pageContext,
     setPageContext,
     messages,
@@ -165,7 +175,10 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     loadConversation,
   }), [
     isOpen,
+    workspaceId,
+    setWorkspaceId,
     projectId,
+    setProjectId,
     pageContext,
     setPageContext,
     messages,
