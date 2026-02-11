@@ -50,6 +50,8 @@ import { dailyPlanRouter } from "./routers/dailyPlan";
 import { scoringRouter } from "./routers/scoring";
 import { leaderboardRouter } from "./routers/leaderboard";
 import { assistantRouter } from "./routers/assistant";
+import { workflowPipelineRouter } from "./routers/workflowPipeline";
+import { contentRouter } from "./routers/content";
 // Plugin system
 import { pluginConfigRouter } from "./routers/pluginConfig";
 import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
@@ -110,6 +112,8 @@ export const appRouter = createTRPCRouter({
   scoring: scoringRouter,
   leaderboard: leaderboardRouter,
   assistant: assistantRouter,
+  workflowPipeline: workflowPipelineRouter,
+  content: contentRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,

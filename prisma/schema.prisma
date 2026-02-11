@@ -167,6 +167,10 @@ model User {
   assistantsCreated           Assistant[]                @relation("AssistantCreatedBy")
   // Telegram Gateway
   telegramGatewaySession      TelegramGatewaySession?
+  // Workflow Pipeline relations
+  workflowDefinitions         WorkflowDefinition[]       @relation("WorkflowDefinitionCreatedBy")
+  workflowPipelineRuns        WorkflowPipelineRun[]      @relation("WorkflowPipelineRunTriggeredBy")
+  contentDrafts               ContentDraft[]             @relation("ContentDraftCreatedBy")
 }
 
 model VerificationToken {
@@ -236,6 +240,9 @@ model Workspace {
   leaderboardEntries       LeaderboardEntry[]
   // AI Assistant customization
   assistants               Assistant[]
+  // Workflow Pipeline relations
+  workflowDefinitions      WorkflowDefinition[]
+  contentDrafts            ContentDraft[]
 
   @@index([slug])
   @@index([ownerId])
@@ -2408,9 +2415,145 @@ model Assistant {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy User      @relation("AssistantCreatedBy", fields: [createdById], references: [id])
+  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy    User           @relation("AssistantCreatedBy", fields: [createdById], references: [id])
+  contentDrafts ContentDraft[]
 
   @@index([workspaceId])
   @@index([createdById])
+}
+
+// ─── Workflow Pipeline Engine ───────────────────────────────────────────────
+
+model WorkflowTemplate {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  name            String
+  description     String   @db.Text
+  category        String
+  triggerTypes    String[]
+  configSchema    Json
+  stepDefinitions Json
+  isSystem        Boolean  @default(true)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  definitions WorkflowDefinition[]
+}
+
+model WorkflowDefinition {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  createdById  String
+  templateId   String?
+  name         String
+  description  String?
+  config       Json
+  triggerType  String    @default("manual")
+  cronSchedule String?
+  isActive     Boolean   @default(true)
+  lastRunAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User              @relation("WorkflowDefinitionCreatedBy", fields: [createdById], references: [id])
+  template  WorkflowTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  steps     WorkflowStep[]
+  runs      WorkflowPipelineRun[]
+
+  @@index([workspaceId])
+  @@index([templateId])
+  @@index([triggerType])
+}
+
+model WorkflowStep {
+  id           String   @id @default(cuid())
+  definitionId String
+  order        Int
+  type         String
+  label        String
+  config       Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  stepRuns   WorkflowStepRun[]
+
+  @@index([definitionId])
+  @@unique([definitionId, order])
+}
+
+model WorkflowPipelineRun {
+  id            String    @id @default(cuid())
+  definitionId  String
+  triggeredById String?
+  status        String    @default("RUNNING")
+  input         Json?
+  output        Json?
+  errorMessage  String?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  metadata      Json?
+
+  definition    WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  triggeredBy   User?              @relation("WorkflowPipelineRunTriggeredBy", fields: [triggeredById], references: [id])
+  stepRuns      WorkflowStepRun[]
+  contentDrafts ContentDraft[]
+
+  @@index([definitionId])
+  @@index([status])
+}
+
+model WorkflowStepRun {
+  id           String    @id @default(cuid())
+  runId        String
+  stepId       String
+  status       String    @default("PENDING")
+  input        Json?
+  output       Json?
+  errorMessage String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  durationMs   Int?
+
+  run  WorkflowPipelineRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  step WorkflowStep        @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([stepId])
+}
+
+model ContentDraft {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  createdById       String
+  pipelineRunId     String?
+  title             String
+  content           String    @db.Text
+  platform          String
+  status            String    @default("DRAFT")
+  assistantId       String?
+  tone              String?
+  version           Int       @default(1)
+  previousVersionId String?
+  wordCount         Int?
+  metadata          Json?
+  publishedAt       DateTime?
+  publishedUrl      String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  workspace       Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy       User                 @relation("ContentDraftCreatedBy", fields: [createdById], references: [id])
+  pipelineRun     WorkflowPipelineRun? @relation(fields: [pipelineRunId], references: [id], onDelete: SetNull)
+  assistant       Assistant?           @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  previousVersion ContentDraft?        @relation("ContentDraftVersions", fields: [previousVersionId], references: [id], onDelete: SetNull)
+  newerVersions   ContentDraft[]       @relation("ContentDraftVersions")
+
+  @@index([workspaceId])
+  @@index([pipelineRunId])
+  @@index([platform])
+  @@index([status])
 }
