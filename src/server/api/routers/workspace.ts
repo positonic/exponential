@@ -190,6 +190,7 @@ export const workspaceRouter = createTRPCRouter({
         workspaceId: z.string(),
         name: z.string().min(1).optional(),
         description: z.string().optional(),
+        effortUnit: z.enum(["STORY_POINTS", "T_SHIRT", "HOURS"]).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -215,6 +216,7 @@ export const workspaceRouter = createTRPCRouter({
         data: {
           name: input.name,
           description: input.description,
+          effortUnit: input.effortUnit,
         },
       });
 

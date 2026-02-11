@@ -34,7 +34,7 @@ interface ActionData {
   duration: number | null;
   timeSpentMins: number | null;
   isRecurring: boolean;
-  project: Project | null;
+  project?: Project | null;
   assignees: Assignee[];
 }
 

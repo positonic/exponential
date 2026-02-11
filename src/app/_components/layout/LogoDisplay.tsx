@@ -12,7 +12,7 @@ interface LogoDisplayProps {
   imageSize?: number; // Optional prop to control image size
 }
 
-export function LogoDisplay({ theme, href, onClick, className, imageSize = 60 }: LogoDisplayProps) {
+export function LogoDisplay({ theme, href, onClick, className: _className, imageSize = 60 }: LogoDisplayProps) {
   // Base classes for the container (now without text color/gradient)
   const containerClasses = `flex items-center`; 
   

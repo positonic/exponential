@@ -16,9 +16,11 @@ export async function getEventsMultiCalendar(
   timeMax: string,
   maxResults = 250
 ) {
+  const timeMinDate = new Date(timeMin);
+  const timeMaxDate = new Date(timeMax);
   const [googleEvents, microsoftEvents] = await Promise.allSettled([
-    googleService.getEvents(userId, { timeMin, timeMax, maxResults }),
-    microsoftService.getEvents(userId, { timeMin, timeMax, maxResults }),
+    googleService.getEvents(userId, { timeMin: timeMinDate, timeMax: timeMaxDate, maxResults }),
+    microsoftService.getEvents(userId, { timeMin: timeMinDate, timeMax: timeMaxDate, maxResults }),
   ]);
 
   const allEvents = [];

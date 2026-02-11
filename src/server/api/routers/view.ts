@@ -433,8 +433,13 @@ export const viewRouter = createTRPCRouter({
       // Exclude completed unless explicitly included
       // Include actions with null status (treated as TODO) by default.
       if (!filters.includeCompleted && !filters.statuses?.length) {
+        const existingAnd = whereClause.AND
+          ? Array.isArray(whereClause.AND)
+            ? whereClause.AND
+            : [whereClause.AND]
+          : [];
         whereClause.AND = [
-          ...(whereClause.AND ?? []),
+          ...existingAnd,
           {
             OR: [
               { kanbanStatus: { notIn: ["DONE", "CANCELLED"] } },

@@ -78,6 +78,27 @@ export function GlobalAddTaskButton() {
         assignees: [],
         tags: [],
         lists: [],
+        // Auto-scheduling fields
+        isAutoScheduled: true,
+        isHardDeadline: false,
+        scheduleId: null,
+        idealStartTime: null,
+        etaDaysOffset: null,
+        etaStatus: null,
+        timeSpentMins: 0,
+        chunkDurationMins: null,
+        parentChunkId: null,
+        chunkNumber: null,
+        totalChunks: null,
+        isRecurring: false,
+        recurringParentId: null,
+        instanceDate: null,
+        blockedByIds: [] as string[],
+        blockingIds: [] as string[],
+        isReminderOnly: false,
+        epicId: null,
+        effortEstimate: null,
+        epic: null,
         project: newAction.projectId
           ? (previousState.projects?.find((p) => p.id === newAction.projectId) ??
             null)

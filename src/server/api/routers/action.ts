@@ -121,6 +121,7 @@ export const actionRouter = createTRPCRouter({
             list: { select: { id: true, name: true, slug: true, listType: true, status: true } },
           },
         },
+        epic: { select: { id: true, name: true, status: true } },
       },
       orderBy: {
         project: {
@@ -151,6 +152,12 @@ export const actionRouter = createTRPCRouter({
           },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
           tags: { include: { tag: true } },
+          lists: {
+            include: {
+              list: { select: { id: true, name: true, slug: true, listType: true, status: true } },
+            },
+          },
+          epic: { select: { id: true, name: true, status: true } },
         },
         orderBy: [
           { kanbanOrder: { sort: "asc", nulls: "last" } },
@@ -183,6 +190,12 @@ export const actionRouter = createTRPCRouter({
           },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
           tags: { include: { tag: true } },
+          lists: {
+            include: {
+              list: { select: { id: true, name: true, slug: true, listType: true, status: true } },
+            },
+          },
+          epic: { select: { id: true, name: true, status: true } },
         },
         orderBy: { id: "asc" },
       });
@@ -329,6 +342,9 @@ export const actionRouter = createTRPCRouter({
         duration: z.number().min(1).optional(), // Duration in minutes
         priority: z.enum(PRIORITY_VALUES).default("Quick"),
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED", "DRAFT"]).default("ACTIVE"),
+        epicId: z.string().optional(),
+        effortEstimate: z.number().min(0).optional(),
+        blockedByIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -397,6 +413,7 @@ export const actionRouter = createTRPCRouter({
           },
           project: { select: { id: true, name: true } },
           tags: { include: { tag: true } },
+          epic: { select: { id: true, name: true, status: true } },
         },
       });
     }),
@@ -416,6 +433,9 @@ export const actionRouter = createTRPCRouter({
         priority: z.enum(PRIORITY_VALUES).optional(),
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED", "DRAFT"]).optional(),
         kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]).optional(),
+        epicId: z.string().nullable().optional(),
+        effortEstimate: z.number().min(0).nullable().optional(),
+        blockedByIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -729,7 +749,7 @@ export const actionRouter = createTRPCRouter({
           duration: action.duration,
           status: action.status,
           project: action.project,
-          source: "action",
+          source: "action" as const,
         })),
         ...scheduledDailyPlanTasks.map((task) => ({
           id: task.id,
@@ -741,7 +761,7 @@ export const actionRouter = createTRPCRouter({
           duration: task.duration,
           status: task.completed ? "COMPLETED" : "ACTIVE",
           project: task.action?.project ?? null,
-          source: "daily-plan",
+          source: "daily-plan" as const,
         })),
       ];
 
@@ -1725,5 +1745,36 @@ export const actionRouter = createTRPCRouter({
         action,
         parsing: parsed.parsingMetadata,
       };
+    }),
+
+  // Search actions for dependency picker
+  searchForDependencies: protectedProcedure
+    .input(
+      z.object({
+        query: z.string(),
+        workspaceId: z.string().optional(),
+        excludeId: z.string().optional(),
+        limit: z.number().default(10),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.db.action.findMany({
+        where: {
+          name: { contains: input.query, mode: "insensitive" },
+          status: { not: "COMPLETED" },
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(input.excludeId ? { id: { not: input.excludeId } } : {}),
+          createdById: ctx.session.user.id,
+        },
+        take: input.limit,
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          kanbanStatus: true,
+          project: { select: { id: true, name: true } },
+        },
+        orderBy: { name: "asc" },
+      });
     }),
 }); 

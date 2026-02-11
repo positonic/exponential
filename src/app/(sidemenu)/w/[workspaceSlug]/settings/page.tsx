@@ -17,9 +17,10 @@ import {
   ActionIcon,
   Tooltip,
   Divider,
+  SegmentedControl,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -29,6 +30,8 @@ import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTab
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
+import { EFFORT_UNIT_OPTIONS, type EffortUnit } from '~/types/effort';
+import { notifications } from '@mantine/notifications';
 
 const roleIcons = {
   owner: IconCrown,
@@ -53,6 +56,25 @@ export default function WorkspaceSettingsPage() {
   const [firefliesModalOpened, { open: openFirefliesModal, close: closeFirefliesModal }] = useDisclosure(false);
 
   const utils = api.useUtils();
+
+  // Workspace data for effort unit
+  const { data: workspaceData } = api.workspace.getBySlug.useQuery(
+    { slug: workspace?.slug ?? '' },
+    { enabled: !!workspace?.slug }
+  );
+  const currentEffortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
+
+  const updateEffortUnitMutation = api.workspace.update.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getBySlug.invalidate();
+      notifications.show({
+        title: 'Effort Unit Updated',
+        message: 'Estimation method has been updated',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+  });
 
   const updateMutation = api.workspace.update.useMutation({
     onSuccess: () => {
@@ -287,6 +309,42 @@ export default function WorkspaceSettingsPage() {
             workspaceId={workspaceId!}
             canManage={canManageMembers}
           />
+        </Card>
+
+        {/* Effort Estimation */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Group gap="md" mb="md">
+            <IconFlame size={24} className="text-text-muted" />
+            <div>
+              <Title order={3} className="text-text-primary">
+                Effort Estimation
+              </Title>
+              <Text size="sm" className="text-text-muted">
+                Choose how your team estimates task effort
+              </Text>
+            </div>
+          </Group>
+
+          <SegmentedControl
+            value={currentEffortUnit}
+            onChange={(value) => {
+              if (!workspaceId) return;
+              updateEffortUnitMutation.mutate({
+                workspaceId,
+                effortUnit: value as EffortUnit,
+              });
+            }}
+            data={EFFORT_UNIT_OPTIONS.map((o) => ({
+              value: o.value,
+              label: o.label,
+            }))}
+            fullWidth
+            disabled={!canEdit}
+          />
+
+          <Text size="xs" className="text-text-muted mt-3">
+            Changing the estimation method will not convert existing effort values on tasks.
+          </Text>
         </Card>
 
         {/* Plugins */}

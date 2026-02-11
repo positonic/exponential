@@ -586,6 +586,14 @@ export const projectRouter = createTRPCRouter({
               },
             },
           },
+          dri: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
           outcomes: {
             where: {
               type: 'weekly',

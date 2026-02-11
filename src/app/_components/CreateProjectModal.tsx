@@ -23,7 +23,7 @@ type ProjectWithRelations = Project & {
 
 interface CreateProjectModalProps {
   children: React.ReactNode;
-  project?: ProjectWithRelations;
+  project?: Partial<ProjectWithRelations> & { id: string; name: string };
   prefillName?: string;
   prefillNotionProjectId?: string;
   onClose?: () => void;
@@ -382,10 +382,6 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                   color: 'var(--color-text-primary)',
                   borderColor: 'var(--color-border-primary)',
                 },
-                dropdown: {
-                  backgroundColor: 'var(--color-surface-secondary)',
-                  borderColor: 'var(--color-border-primary)',
-                },
               }}
             />
             <DateInput
@@ -398,10 +394,6 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 input: {
                   backgroundColor: 'var(--color-surface-secondary)',
                   color: 'var(--color-text-primary)',
-                  borderColor: 'var(--color-border-primary)',
-                },
-                dropdown: {
-                  backgroundColor: 'var(--color-surface-secondary)',
                   borderColor: 'var(--color-border-primary)',
                 },
               }}

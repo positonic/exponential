@@ -277,7 +277,7 @@ function OrganizationEditForm({ organization, onSuccess, onCancel }: Organizatio
       websiteUrl: formData.websiteUrl.trim() ? formData.websiteUrl.trim() : null,
       description: formData.description.trim(),
       industry: formData.industry.trim(),
-      size: formData.size.length > 0 ? formData.size : null,
+      size: formData.size.length > 0 ? formData.size as "1-10" | "11-50" | "51-200" | "201-500" | "501-1000" | "1000+" : null,
     });
   };
 

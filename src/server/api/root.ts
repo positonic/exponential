@@ -45,6 +45,7 @@ import { taskScheduleRouter } from "./routers/taskSchedule";
 import { okrCheckinRouter } from "./routers/okrCheckin";
 import { viewRouter } from "./routers/view";
 import { listRouter } from "./routers/list";
+import { epicRouter } from "./routers/epic";
 import { dailyPlanRouter } from "./routers/dailyPlan";
 import { scoringRouter } from "./routers/scoring";
 import { leaderboardRouter } from "./routers/leaderboard";
@@ -104,6 +105,7 @@ export const appRouter = createTRPCRouter({
   okrCheckin: okrCheckinRouter,
   view: viewRouter,
   list: listRouter,
+  epic: epicRouter,
   dailyPlan: dailyPlanRouter,
   scoring: scoringRouter,
   leaderboard: leaderboardRouter,

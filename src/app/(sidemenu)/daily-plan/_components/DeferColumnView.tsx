@@ -266,8 +266,9 @@ export function DeferColumnView({
 
   const getTaskColumn = (task: DailyPlanAction): ColumnId => {
     // First check local state (for pending/optimistic drags)
-    if (deferredTasks[task.id]) {
-      return deferredTasks[task.id];
+    const localColumn = deferredTasks[task.id];
+    if (localColumn) {
+      return localColumn;
     }
 
     // Then check the task's actual scheduledStart from the database

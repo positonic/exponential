@@ -137,7 +137,8 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
           period: newGoal.period ?? null,
           lifeDomainId: newGoal.lifeDomainId ?? null,
           userId: "",
-          workspaceId: null,
+          driUserId: newGoal.driUserId ?? null,
+          workspaceId: newGoal.workspaceId ?? null,
           lifeDomain: newGoal.lifeDomainId ? {
             id: newGoal.lifeDomainId,
             title: "Loading...",
@@ -149,7 +150,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
           } : null,
           projects: [],
           outcomes: [],
-          habits: [],
         };
         return old ? [...old, optimisticGoal] : [optimisticGoal];
       });

@@ -2095,8 +2095,8 @@ export const mastraRouter = createTRPCRouter({
       if (input.provider) {
         const service = getCalendarService(input.provider);
         const events = await service.getEvents(ctx.session.user.id, {
-          timeMin: input.timeMin,
-          timeMax: input.timeMax,
+          timeMin: new Date(input.timeMin),
+          timeMax: new Date(input.timeMax),
           maxResults: input.maxResults,
         });
         return { events, provider: input.provider };

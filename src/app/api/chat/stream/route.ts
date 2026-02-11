@@ -1,6 +1,13 @@
 import { MastraClient } from "@mastra/client-js";
 import { RequestContext } from "@mastra/core/di";
-import type { CoreMessage } from "ai";
+import type { MessageListInput } from "@mastra/core/agent/message-list";
+
+// Simplified CoreMessage type compatible with Mastra's MessageListInput
+interface CoreMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  [key: string]: unknown;
+}
 import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { db } from "~/server/db";
@@ -161,15 +168,15 @@ export async function POST(req: Request) {
       ];
     }
 
-    console.log(`🔗 [chat/stream] agentId=${agentId}, assistantId=${assistantId || "none"}, projectId=${projectId || "none"}, workspaceId=${workspaceId || "none"}, messages=${finalMessages.length}`);
+    console.log(`🔗 [chat/stream] agentId=${agentId ?? "none"}, assistantId=${assistantId ?? "none"}, projectId=${projectId ?? "none"}, workspaceId=${workspaceId ?? "none"}, messages=${finalMessages.length}`);
     const requestContext = new RequestContext(entries);
 
     const agent = client.getAgent(agentId ?? "projectManagerAgent");
-    const response = await agent.stream(finalMessages, {
-      requestContext,
+    const response = await agent.stream(finalMessages as MessageListInput, {
+      requestContext: requestContext as RequestContext<unknown>,
       memory: {
         resource: session.user.id,
-        thread: conversationId || `session-${session.user.id}-${Date.now()}`,
+        thread: conversationId ?? `session-${session.user.id}-${Date.now()}`,
       },
     });
 

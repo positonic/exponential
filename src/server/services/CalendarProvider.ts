@@ -55,7 +55,8 @@ export interface CreateEventInput {
     dateTime: string;
     timeZone?: string;
   };
-  attendees?: Array<{ email: string }>;
+  location?: string;
+  attendees?: Array<{ email: string; displayName?: string }>;
   conferenceData?: {
     createRequest: {
       requestId: string;

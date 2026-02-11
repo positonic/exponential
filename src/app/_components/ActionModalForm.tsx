@@ -2,6 +2,7 @@ import { Textarea, Button, Group, Select, ActionIcon, Popover, Text, NumberInput
 import { TimeInput } from '@mantine/dates';
 import { IconPlus, IconClock, IconX, IconRobot, IconAlertCircle, IconInfoCircle } from '@tabler/icons-react';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
+import type { EffortUnit } from "~/types/effort";
 import { api } from "~/trpc/react";
 import { DeadlinePicker } from './DeadlinePicker';
 import { UnifiedDatePicker } from './UnifiedDatePicker';
@@ -9,6 +10,10 @@ import { RichTextInput } from './RichTextInput';
 import { AssigneeSelector } from './AssigneeSelector';
 import { TagSelector } from './TagSelector';
 import { CreateProjectModal } from './CreateProjectModal';
+import { SprintSelector } from './SprintSelector';
+import { EpicSelector } from './EpicSelector';
+import { EffortEstimateInput } from './EffortEstimateInput';
+import { DependencyPicker } from './DependencyPicker';
 import { useRef, useState } from 'react';
 
 interface ActionModalFormProps {
@@ -43,6 +48,16 @@ interface ActionModalFormProps {
   onClose: () => void;
   submitLabel: string;
   isSubmitting: boolean;
+  // Sprint, Epic, Effort, Dependencies
+  sprintListId?: string | null;
+  setSprintListId?: (value: string | null) => void;
+  epicId?: string | null;
+  setEpicId?: (value: string | null) => void;
+  effortEstimate?: number | null;
+  setEffortEstimate?: (value: number | null) => void;
+  effortUnit?: EffortUnit;
+  blockedByIds?: string[];
+  setBlockedByIds?: (ids: string[]) => void;
 }
 
 export function ActionModalForm({
@@ -76,6 +91,15 @@ export function ActionModalForm({
   onClose,
   submitLabel,
   isSubmitting,
+  sprintListId,
+  setSprintListId,
+  epicId,
+  setEpicId,
+  effortEstimate,
+  setEffortEstimate,
+  effortUnit,
+  blockedByIds,
+  setBlockedByIds,
 }: ActionModalFormProps) {
   const projects = api.project.getAll.useQuery();
   const taskSchedules = api.taskSchedule.list.useQuery(
@@ -373,6 +397,41 @@ export function ActionModalForm({
           />
         )}
       </Group>
+
+      {/* Row 3: Sprint, Epic, Effort, Dependencies */}
+      {(setSprintListId ?? setEpicId ?? setEffortEstimate ?? setBlockedByIds) && (
+        <Group gap="sm" mt="sm">
+          {setSprintListId && (
+            <SprintSelector
+              value={sprintListId ?? null}
+              onChange={setSprintListId}
+              workspaceId={workspaceId}
+            />
+          )}
+          {setEpicId && (
+            <EpicSelector
+              value={epicId ?? null}
+              onChange={setEpicId}
+              workspaceId={workspaceId}
+            />
+          )}
+          {setEffortEstimate && effortUnit && (
+            <EffortEstimateInput
+              value={effortEstimate ?? null}
+              onChange={setEffortEstimate}
+              effortUnit={effortUnit}
+            />
+          )}
+          {setBlockedByIds && (
+            <DependencyPicker
+              selectedIds={blockedByIds ?? []}
+              onChange={setBlockedByIds}
+              excludeActionId={actionId}
+              workspaceId={workspaceId}
+            />
+          )}
+        </Group>
+      )}
 
       <div className="border-t border-border-primary p-4 mt-4">
         <Group justify="space-between">
