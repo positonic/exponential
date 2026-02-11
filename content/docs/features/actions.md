@@ -12,6 +12,10 @@ Actions are the individual tasks that make up your daily work. Exponential provi
 - **Flexible priorities**: 11 priority levels for nuanced task ordering
 - **Due date tracking**: Schedule tasks with overdue detection
 - **Project linking**: Associate tasks with projects
+- **Epic grouping**: Bundle related actions into larger initiatives
+- **Sprint assignment**: Plan work in time-boxed sprints
+- **Effort estimates**: Size your work with story points, t-shirt sizes, or hours
+- **Dependencies**: Track which tasks are blocked by others
 - **Kanban boards**: Visual task management per project
 - **External sync**: Import from Notion, create via API
 - **Team assignment**: Assign tasks to team members
@@ -34,6 +38,10 @@ Actions are the individual tasks that make up your daily work. Exponential provi
    - **Due Date**: When it needs to be done
    - **Priority**: Importance level
    - **Project**: Associated project (optional)
+   - **Epic**: Group this action under a larger initiative (optional)
+   - **Sprint**: Assign to a sprint for time-boxed planning (optional)
+   - **Effort**: Estimate the size of this work (optional)
+   - **Blockers**: Mark other actions that need to finish first (optional)
 
 ## Priority System
 
@@ -94,6 +102,68 @@ All tasks for a specific project displayed on a Kanban board:
 | Cancelled | `CANCELLED` |
 
 Drag and drop to change status and reorder within columns.
+
+## Epics
+
+Epics let you group related actions into larger initiatives. When you're working on something that involves multiple steps — like launching a feature or running a campaign — an epic keeps everything connected.
+
+### Assigning an Epic
+
+1. Open the **Create** or **Edit Action** modal
+2. Click the **Epic** button
+3. Choose an existing epic, or click **New Epic** to create one
+4. The button turns purple to show the action is linked
+
+You can change or remove the epic at any time.
+
+[Learn more about Epics](/docs/features/epics)
+
+## Sprint Assignment
+
+Sprints are time-boxed periods (usually one or two weeks) where you commit to completing a set of actions. Assigning actions to sprints helps you plan your work in manageable chunks.
+
+### Assigning to a Sprint
+
+1. Open the **Create** or **Edit Action** modal
+2. Click the **Sprint** button
+3. Browse available sprints — each shows its date range
+4. Select a sprint
+
+The button turns teal to confirm the assignment. This makes it easy to see at a glance which actions are planned for the current sprint.
+
+## Effort Estimates
+
+Effort estimates help you understand the size of each action before you start. This is useful for planning how much you can realistically take on in a sprint or a week.
+
+Your workspace admin chooses one of three estimation methods in **Settings**:
+
+| Method | How It Works |
+|--------|-------------|
+| **Story Points** | Pick from a standard scale: 1, 2, 3, 5, 8, 13, or 21. Smaller numbers = less effort |
+| **T-shirt Sizes** | Choose XS, S, M, L, or XL — a quick, intuitive way to size work |
+| **Hours** | Enter a time estimate in hours (in 30-minute increments) |
+
+### Setting an Estimate
+
+1. Open the **Create** or **Edit Action** modal
+2. Click the **Effort** button
+3. Select or enter your estimate
+4. Click **Clear** if you want to remove it
+
+The estimation method is consistent across your whole workspace, so everyone is speaking the same language when sizing work.
+
+## Dependencies
+
+Sometimes you can't start a task until something else is finished. Dependencies let you mark these relationships so nothing falls through the cracks.
+
+### Adding Blockers
+
+1. Open the **Create** or **Edit Action** modal
+2. Click the **Blockers** button
+3. Search for the action that needs to finish first
+4. Select it to add it as a blocker
+
+You can add multiple blockers, and each one appears as a chip that you can remove individually. This gives you a clear picture of what's holding up your work and helps you prioritize accordingly.
 
 ## Action Sources
 

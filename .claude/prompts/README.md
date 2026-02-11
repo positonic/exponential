@@ -17,6 +17,7 @@ Use cases:
 | Agent | File | Purpose |
 |-------|------|---------|
 | Product Strategist | [product-strategist.md](./product-strategist.md) | Sense-making for early-stage products. Builds mental models, identifies value propositions, assesses narrative readiness. |
+| Worktree Agent | [worktree-agent.md](./worktree-agent.md) | Safety rules for AI agents working inside a git worktree while another session is active in the main directory. |
 
 ## How to Use an Agent Prompt
 

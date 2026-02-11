@@ -4,6 +4,7 @@ import { useViewportSize } from '@mantine/hooks';
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
+import type { EffortUnit } from "~/types/effort";
 import { ActionModalForm } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
 import { IconPlus } from '@tabler/icons-react';
@@ -38,9 +39,21 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
   const [createdActionId, setCreatedActionId] = useState<string | null>(null);
+  // New: Sprint, Epic, Effort, Dependencies
+  const [sprintListId, setSprintListId] = useState<string | null>(null);
+  const [epicId, setEpicId] = useState<string | null>(null);
+  const [effortEstimate, setEffortEstimate] = useState<number | null>(null);
+  const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
 
   // Workspace context
-  const { workspaceId: currentWorkspaceId } = useWorkspace();
+  const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
+
+  // Get workspace effortUnit for the effort estimate input
+  const { data: workspaceData } = api.workspace.getBySlug.useQuery(
+    { slug: workspaceSlug ?? '' },
+    { enabled: !!workspaceSlug }
+  );
+  const effortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
 
   const utils = api.useUtils();
   
@@ -48,6 +61,13 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const assignMutation = api.action.assign.useMutation({
     onError: (error) => {
       console.error('Assignment failed:', error);
+    },
+  });
+
+  // List mutation for post-creation sprint assignment
+  const addToListMutation = api.list.addAction.useMutation({
+    onError: (error) => {
+      console.error('Sprint assignment failed:', error);
     },
   });
 
@@ -114,11 +134,12 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         isRecurring: false,
         recurringParentId: null,
         instanceDate: null,
-        blockedByIds: [],
+        blockedByIds: newAction.blockedByIds ?? [],
         blockingIds: [],
         isReminderOnly: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        epicId: newAction.epicId ?? null,
+        effortEstimate: newAction.effortEstimate ?? null,
+        epic: null,
         project: newAction.projectId
           ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
           : null,
@@ -235,6 +256,20 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
       let hasAssignError = false;
       let hasTagError = false;
+      let hasSprintError = false;
+
+      // If a sprint was selected, assign the action to the sprint list
+      if (sprintListId) {
+        try {
+          await addToListMutation.mutateAsync({
+            listId: sprintListId,
+            actionId: data.id,
+          });
+        } catch (error) {
+          hasSprintError = true;
+          console.error('Failed to assign sprint:', error);
+        }
+      }
 
       // If there are assignees, assign them
       if (selectedAssigneeIds.length > 0) {
@@ -263,14 +298,16 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       }
 
       // Show success notification with any warnings
+      const hasAnyError = hasAssignError || hasTagError || hasSprintError;
       let message = "Action created successfully";
       if (hasAssignError) message += " (assignment failed)";
       if (hasTagError) message += " (tags failed)";
+      if (hasSprintError) message += " (sprint assignment failed)";
 
       notifications.show({
-        title: hasAssignError || hasTagError ? "Partial Success" : "Success",
+        title: hasAnyError ? "Partial Success" : "Success",
         message,
-        color: hasAssignError || hasTagError ? "yellow" : "green",
+        color: hasAnyError ? "yellow" : "green",
         autoClose: 3000,
       });
 
@@ -295,6 +332,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       dueDate: dueDate || undefined,
       scheduledStart: scheduledStart || undefined,
       duration: duration || undefined,
+      epicId: epicId || undefined,
+      effortEstimate: effortEstimate || undefined,
+      blockedByIds: blockedByIds.length > 0 ? blockedByIds : undefined,
     };
 
     // Reset form immediately (moved from onSuccess)
@@ -317,6 +357,10 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     setDuration(null);
     setSelectedAssigneeIds([]);
     setSelectedTagIds([]);
+    setSprintListId(null);
+    setEpicId(null);
+    setEffortEstimate(null);
+    setBlockedByIds([]);
 
     // Trigger mutation in background
     createAction.mutate(actionData);
@@ -391,6 +435,15 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           onClose={close}
           submitLabel="New action"
           isSubmitting={createAction.isPending}
+          sprintListId={sprintListId}
+          setSprintListId={setSprintListId}
+          epicId={epicId}
+          setEpicId={setEpicId}
+          effortEstimate={effortEstimate}
+          setEffortEstimate={setEffortEstimate}
+          effortUnit={effortUnit}
+          blockedByIds={blockedByIds}
+          setBlockedByIds={setBlockedByIds}
         />
       </Modal>
       

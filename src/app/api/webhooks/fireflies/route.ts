@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
+import { type Prisma } from '@prisma/client';
 import { db } from '~/server/db';
 import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
 import { getEmbeddingTriggerService } from '~/server/services/embedding';
@@ -26,7 +27,7 @@ async function logWebhookEvent(params: {
         meetingId: params.meetingId,
         meetingTitle: params.meetingTitle,
         errorMessage: params.errorMessage,
-        metadata: params.metadata,
+        metadata: params.metadata as Prisma.InputJsonValue | undefined,
         userId: params.userId,
       },
     });

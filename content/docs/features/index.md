@@ -15,9 +15,14 @@ Organize your work into projects with status tracking, priority levels, and prog
 [Learn more about Projects](/docs/features/projects)
 
 ### Actions & Tasks
-Create and manage tasks with flexible scheduling, priority levels, and project assignments. Use the Today view for daily focus.
+Create and manage tasks with flexible scheduling, priority levels, and project assignments. Estimate effort, assign to sprints, and track dependencies between tasks. Use the Today view for daily focus.
 
 [Learn more about Actions](/docs/features/actions)
+
+### Epics
+Group related actions into larger initiatives. Epics help you track progress on bigger pieces of work — like a feature launch or a campaign — without losing sight of the individual steps.
+
+[Learn more about Epics](/docs/features/epics)
 
 ### Inbox & Today
 Capture ideas quickly in Inbox. Focus on what matters with the Today view that shows your daily tasks and schedule.
@@ -138,6 +143,7 @@ Customize your navigation sidebar. Hide features you don't use to stay focused.
 |-------------|----------|
 | Manage my daily tasks | [Inbox & Today](/docs/features/inbox-today) |
 | Organize projects | [Projects](/docs/features/projects) |
+| Group related work together | [Epics](/docs/features/epics) |
 | Set strategic goals | [Goals & Outcomes](/docs/features/goals-outcomes) |
 | Collaborate with team | [Teams](/docs/features/teams) |
 | Connect external tools | [Integrations](/docs/features/integrations) |

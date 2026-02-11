@@ -30,11 +30,11 @@ export function ViewSwitcher({
 
   if (isLoading) {
     return (
-      <Tabs value={null} variant="pills" radius="xl">
+      <Tabs value={null} variant="pills" radius="md">
         <Tabs.List>
-          <Skeleton height={30} width={80} radius="xl" />
-          <Skeleton height={30} width={80} radius="xl" />
-          <Skeleton height={30} width={80} radius="xl" />
+          <Skeleton height={30} width={80} radius="md" />
+          <Skeleton height={30} width={80} radius="md" />
+          <Skeleton height={30} width={80} radius="md" />
         </Tabs.List>
       </Tabs>
     );
@@ -71,7 +71,15 @@ export function ViewSwitcher({
         }
       }}
       variant="pills"
-      radius="xl"
+      radius="md"
+      styles={{
+        tab: {
+          '&[data-active]': {
+            backgroundColor: 'var(--color-brand-primary)',
+            color: 'var(--color-text-inverse)',
+          },
+        },
+      }}
     >
       <Tabs.List>
         <Tabs.Tab value={DEFAULT_VIEW_CONFIG.id}>

@@ -18,7 +18,7 @@ import {
   Select,
 } from "@mantine/core";
 import { IconPencil } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import RecordingChat from "~/app/_components/RecordingChat";
 import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { TranscriptionContentEditor } from "~/app/_components/TranscriptionContentEditor";
@@ -144,8 +144,8 @@ function TranscriptionTabContent({
   );
 }
 
-export default function SessionPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   
   const { data: session, isLoading } = api.transcription.getById.useQuery({ 
     id: id 
@@ -310,7 +310,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           hasAutoSwitched={hasAutoSwitched}
           setHasAutoSwitched={setHasAutoSwitched}
           setActiveTab={setActiveTab}
-          actionsSavedAt={session?.actionsSavedAt}
+          actionsSavedAt={undefined}
           actionsCount={transcriptActions.length}
         />
         <Skeleton height={400} />
@@ -325,7 +325,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           hasAutoSwitched={hasAutoSwitched}
           setHasAutoSwitched={setHasAutoSwitched}
           setActiveTab={setActiveTab}
-          actionsSavedAt={session?.actionsSavedAt}
+          actionsSavedAt={undefined}
           actionsCount={transcriptActions.length}
         />
         <Paper p="md">

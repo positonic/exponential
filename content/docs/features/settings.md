@@ -9,7 +9,32 @@ The Settings page lets you customize your sidebar navigation. Hide features you 
 
 ## Accessing Settings
 
-Navigate to **Settings** in the sidebar to manage your navigation preferences.
+Navigate to **Settings** in the sidebar to manage your workspace preferences and navigation.
+
+## Effort Estimation
+
+Choose how your team estimates the size of work. This setting applies to everyone in the workspace, so your whole team uses the same method.
+
+### Choosing a Method
+
+1. Go to **Settings** in your workspace
+2. Find the **Effort Estimation** card
+3. Select your preferred method:
+
+| Method | Best For |
+|--------|----------|
+| **Story Points** | Teams familiar with agile planning. Uses a standard scale (1, 2, 3, 5, 8, 13, 21) where smaller numbers mean less effort |
+| **T-shirt Sizes** | Quick, intuitive sizing. Choose from XS, S, M, L, XL without overthinking exact numbers |
+| **Hours** | Teams that prefer time-based estimates. Enter hours in 30-minute increments |
+
+### Things to Know
+
+- Only workspace owners and admins can change this setting
+- Changing the method won't convert existing estimates — they'll keep their original values
+- The method you choose appears in the action modal for everyone in the workspace
+- Pick the method that feels most natural for your team and stick with it
+
+[Learn more about effort estimates on actions](/docs/features/actions#effort-estimates)
 
 ## Navigation Customization
 

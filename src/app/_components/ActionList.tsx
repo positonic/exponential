@@ -18,10 +18,12 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
 type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
-// Make createdBy and lists optional to support both queries that include them and those that don't
-type Action = Omit<ActionWithSyncs, 'createdBy' | 'lists'> & {
+// Make createdBy, lists, epic, and tags optional to support both queries that include them and those that don't
+type Action = Omit<ActionWithSyncs, 'createdBy' | 'lists' | 'epic' | 'tags'> & {
   createdBy?: ActionWithSyncs['createdBy'] | null;
   lists?: ActionWithSyncs['lists'];
+  epic?: ActionWithSyncs['epic'] | null;
+  tags?: ActionWithSyncs['tags'];
 };
 
 // Helper function to format date like "22 Feb"

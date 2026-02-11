@@ -7,8 +7,30 @@
 
 import { db } from "~/server/db";
 
-// Re-export scope sets for convenience
-export { GOOGLE_SCOPE_SETS, type GoogleScopeType } from "~/app/api/auth/google-calendar/route";
+/**
+ * Google OAuth scope sets for incremental authorization.
+ *
+ * We use incremental authorization to minimize permissions requested during onboarding:
+ * - "calendar": Only calendar access (sensitive scope, faster Google verification)
+ * - "contacts": Calendar + Contacts (sensitive scopes)
+ * - "crm": Calendar + Contacts + Gmail (includes restricted scope, requires security audit)
+ */
+export const GOOGLE_SCOPE_SETS = {
+  calendar: [
+    "https://www.googleapis.com/auth/calendar.events",
+  ],
+  contacts: [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/contacts.readonly",
+  ],
+  crm: [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/contacts.readonly",
+    "https://www.googleapis.com/auth/gmail.readonly",
+  ],
+} as const;
+
+export type GoogleScopeType = keyof typeof GOOGLE_SCOPE_SETS;
 
 /**
  * Individual Google OAuth scopes used in the application

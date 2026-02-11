@@ -7,10 +7,12 @@ import { HTMLContent } from "./HTMLContent";
 import Link from "next/link";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
-// Make createdBy and tags optional to support various queries that may not include them
-export type Action = Omit<ActionWithSyncs, 'createdBy' | 'tags'> & {
+// Make createdBy, tags, epic, and lists optional to support various queries that may not include them
+export type Action = Omit<ActionWithSyncs, 'createdBy' | 'tags' | 'epic' | 'lists'> & {
   createdBy?: ActionWithSyncs['createdBy'] | null;
   tags?: ActionWithSyncs['tags'];
+  epic?: ActionWithSyncs['epic'] | null;
+  lists?: ActionWithSyncs['lists'];
 };
 
 // Also export a simpler action type for components that don't need all fields

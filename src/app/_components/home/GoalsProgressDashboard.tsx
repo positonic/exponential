@@ -70,7 +70,7 @@ export function GoalsProgressDashboard() {
       { enabled: workspaceId !== null }
     );
 
-  const { data: stats, isLoading: statsLoading } = api.okr.getStats.useQuery(
+  const { data: _stats, isLoading: statsLoading } = api.okr.getStats.useQuery(
     { workspaceId: workspaceId ?? undefined },
     { enabled: workspaceId !== null }
   );

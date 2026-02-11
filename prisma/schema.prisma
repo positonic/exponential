@@ -126,6 +126,8 @@ model User {
   viewsCreated                View[]                     @relation("ViewsCreated")
   // List relations
   listsCreated                List[]                     @relation("ListsCreated")
+  // Epic relations
+  epicsOwned                  Epic[]                     @relation("EpicOwner")
   // OKR Check-in relations
   facilitatedOkrCheckins      OkrCheckin[]               @relation("OkrCheckinFacilitator")
   okrCheckinUpdates           OkrCheckinUpdate[]         @relation("OkrCheckinUpdateUser")
@@ -192,9 +194,12 @@ model Workspace {
   updatedAt   DateTime @updatedAt
   ownerId     String
 
+  effortUnit  EffortUnit  @default(STORY_POINTS)
+
   owner             User                       @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members           WorkspaceUser[]
   projects          Project[]
+  epics             Epic[]
   goals             Goal[]
   outcomes          Outcome[]
   actions           Action[]
@@ -380,12 +385,17 @@ model Action {
   // Reminder task (not scheduled on calendar)
   isReminderOnly         Boolean               @default(false)
 
+  // Epic & Effort
+  epicId                 String?
+  effortEstimate         Float?                // Story points, t-shirt mapped value, or hours
+
   createdBy              User                  @relation(fields: [createdById], references: [id])
   project                Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   team                   Team?                 @relation(fields: [teamId], references: [id])
   workspace              Workspace?            @relation(fields: [workspaceId], references: [id])
   transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
   schedule               TaskSchedule?         @relation(fields: [scheduleId], references: [id])
+  epic                   Epic?                 @relation(fields: [epicId], references: [id], onDelete: SetNull)
   recurringParent        RecurringTask?        @relation("RecurringInstances", fields: [recurringParentId], references: [id])
   parentChunk            Action?               @relation("ActionChunks", fields: [parentChunkId], references: [id], onDelete: SetNull)
   childChunks            Action[]              @relation("ActionChunks")
@@ -407,6 +417,7 @@ model Action {
   @@index([parentChunkId])
   @@index([isAutoScheduled])
   @@index([etaStatus])
+  @@index([epicId])
 }
 
 model ActionAssignee {
@@ -1439,6 +1450,29 @@ model ActionList {
   @@index([listId])
 }
 
+model Epic {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  status      EpicStatus @default(OPEN)
+  priority    String     @default("MEDIUM") // "HIGH" | "MEDIUM" | "LOW" | "NONE"
+  startDate   DateTime?
+  targetDate  DateTime?
+
+  ownerId     String
+  workspaceId String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  owner     User      @relation("EpicOwner", fields: [ownerId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actions   Action[]
+
+  @@index([workspaceId])
+  @@index([ownerId])
+  @@index([status])
+}
+
 enum ActionStatus {
   BACKLOG
   TODO
@@ -1472,6 +1506,19 @@ enum ListStatus {
   ACTIVE
   COMPLETED
   ARCHIVED
+}
+
+enum EpicStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum EffortUnit {
+  STORY_POINTS
+  T_SHIRT
+  HOURS
 }
 
 // Team Weekly Planning Models

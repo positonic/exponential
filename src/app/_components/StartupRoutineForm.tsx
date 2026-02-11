@@ -77,7 +77,7 @@ export function StartupRoutineForm() {
   const [doQuestions, setDoQuestions] = useState(false);
   
   // New state for outcome input
-  const [newOutcome, setNewOutcome] = useState("");
+  const [_newOutcome, setNewOutcome] = useState("");
   
   // Get TRPC utils for invalidating queries
   const utils = api.useUtils();
@@ -190,7 +190,7 @@ export function StartupRoutineForm() {
   });
   
   // Outcome creation mutation
-  const createOutcome = api.outcome.createOutcome.useMutation({
+  const _createOutcome = api.outcome.createOutcome.useMutation({
     onSuccess: () => {
       setNewOutcome("");
       notifications.show({

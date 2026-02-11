@@ -116,6 +116,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
                           whyThisGoal: goal.whyThisGoal,
                           notes: goal.notes,
                           dueDate: goal.dueDate,
+                          period: goal.period,
                           lifeDomainId: goal.lifeDomainId,
                           outcomes: goal.outcomes,
                         }}

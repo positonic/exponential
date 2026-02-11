@@ -2,9 +2,11 @@ import { Modal } from '@mantine/core';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
+import type { EffortUnit } from "~/types/effort";
 import { ActionModalForm } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
 import { notifications } from '@mantine/notifications';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 // Minimal action type needed for the edit modal - supports actions from various query sources
 // Only requires fields that the modal actually reads for initialization
@@ -18,8 +20,12 @@ type Action = {
   projectId: string | null;
   scheduledStart?: Date | null;
   duration?: number | null;
+  epicId?: string | null;
+  effortEstimate?: number | null;
+  blockedByIds?: string[];
   tags?: Array<{ tag: { id: string; name: string; color: string } }>;
   assignees?: Array<{ user: { id: string; name: string | null; email: string | null; image: string | null } }>;
+  lists?: Array<{ list: { id: string; name: string; listType: string } }>;
   [key: string]: unknown;
 };
 
@@ -40,13 +46,40 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
   const [duration, setDuration] = useState<number | null>(null);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
+  // New: Sprint, Epic, Effort, Dependencies
+  const [sprintListId, setSprintListId] = useState<string | null>(null);
+  const [originalSprintListId, setOriginalSprintListId] = useState<string | null>(null);
+  const [epicId, setEpicId] = useState<string | null>(null);
+  const [effortEstimate, setEffortEstimate] = useState<number | null>(null);
+  const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
 
+  const { workspaceSlug } = useWorkspace();
   const utils = api.useUtils();
+
+  // Get workspace effortUnit
+  const { data: workspaceData } = api.workspace.getBySlug.useQuery(
+    { slug: workspaceSlug ?? '' },
+    { enabled: !!workspaceSlug && opened }
+  );
+  const effortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
 
   // Tag mutation for saving tags
   const setTagsMutation = api.tag.setActionTags.useMutation({
     onError: (error) => {
       console.error('Setting tags failed:', error);
+    },
+  });
+
+  // List mutations for sprint assignment changes
+  const addToListMutation = api.list.addAction.useMutation({
+    onError: (error) => {
+      console.error('Sprint assignment failed:', error);
+    },
+  });
+
+  const removeFromListMutation = api.list.removeAction.useMutation({
+    onError: (error) => {
+      console.error('Sprint removal failed:', error);
     },
   });
 
@@ -57,7 +90,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
   });
 
   // Use fresh action data if available, fallback to prop
-  const currentAction = freshAction || action;
+  const currentAction = freshAction ?? action;
 
   useEffect(() => {
     if (currentAction) {
@@ -66,19 +99,30 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       setProjectId(currentAction.projectId ?? "");
       setPriority(currentAction.priority as ActionPriority);
       setDueDate(currentAction.dueDate ? new Date(currentAction.dueDate) : null);
-      // Load scheduling fields - cast to access new fields
-      const actionWithSchedule = currentAction as typeof currentAction & {
+      // Load scheduling fields
+      const actionData = currentAction as typeof currentAction & {
         scheduledStart?: Date | null;
         duration?: number | null;
-      };
-      setScheduledStart(actionWithSchedule.scheduledStart ? new Date(actionWithSchedule.scheduledStart) : null);
-      setDuration(actionWithSchedule.duration ?? null);
-      // Load tags - cast to access tags field
-      const actionWithTags = currentAction as typeof currentAction & {
+        epicId?: string | null;
+        effortEstimate?: number | null;
+        blockedByIds?: string[];
+        lists?: Array<{ list: { id: string; listType: string } }>;
         tags?: Array<{ tag: { id: string } }>;
       };
-      if (actionWithTags.tags) {
-        setSelectedTagIds(actionWithTags.tags.map(t => t.tag.id));
+      setScheduledStart(actionData.scheduledStart ? new Date(actionData.scheduledStart) : null);
+      setDuration(actionData.duration ?? null);
+      // Load epic & effort
+      setEpicId(actionData.epicId ?? null);
+      setEffortEstimate(actionData.effortEstimate ?? null);
+      setBlockedByIds(actionData.blockedByIds ?? []);
+      // Load sprint (first SPRINT-type list)
+      const sprintList = actionData.lists?.find(l => l.list.listType === 'SPRINT');
+      const sprintId = sprintList?.list.id ?? null;
+      setSprintListId(sprintId);
+      setOriginalSprintListId(sprintId);
+      // Load tags
+      if (actionData.tags) {
+        setSelectedTagIds(actionData.tags.map(t => t.tag.id));
       } else {
         setSelectedTagIds([]);
       }
@@ -108,37 +152,54 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
     },
 
     onSuccess: async () => {
-      // Update tags in background if there are any
+      let hasTagError = false;
+      let hasSprintError = false;
+
+      // Update tags
       if (currentAction && selectedTagIds) {
         try {
           await setTagsMutation.mutateAsync({
             actionId: currentAction.id,
             tagIds: selectedTagIds,
           });
-
-          notifications.show({
-            title: "Action Updated",
-            message: "All changes saved successfully",
-            color: "green",
-            autoClose: 3000,
-          });
         } catch (error) {
+          hasTagError = true;
           console.error('Failed to update tags:', error);
-          notifications.show({
-            title: "Partial Update",
-            message: "Action updated but tags failed to save",
-            color: "yellow",
-            autoClose: 4000,
-          });
         }
-      } else {
-        notifications.show({
-          title: "Action Updated",
-          message: "Changes saved successfully",
-          color: "green",
-          autoClose: 3000,
-        });
       }
+
+      // Handle sprint list changes
+      if (currentAction && sprintListId !== originalSprintListId) {
+        try {
+          // Remove from old sprint if it was set
+          if (originalSprintListId) {
+            await removeFromListMutation.mutateAsync({
+              listId: originalSprintListId,
+              actionId: currentAction.id,
+            });
+          }
+          // Add to new sprint if set
+          if (sprintListId) {
+            await addToListMutation.mutateAsync({
+              listId: sprintListId,
+              actionId: currentAction.id,
+            });
+          }
+        } catch (error) {
+          hasSprintError = true;
+          console.error('Failed to update sprint:', error);
+        }
+      }
+
+      const hasAnyError = hasTagError || hasSprintError;
+      notifications.show({
+        title: hasAnyError ? "Partial Update" : "Action Updated",
+        message: hasAnyError
+          ? "Action updated but some changes failed to save"
+          : "All changes saved successfully",
+        color: hasAnyError ? "yellow" : "green",
+        autoClose: 3000,
+      });
 
       // Invalidate queries to refresh data
       await utils.action.getAll.invalidate();
@@ -181,7 +242,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
     // Close modal immediately for better UX
     onClose();
 
-    // Trigger mutation in background (tags will be handled in onSuccess)
+    // Trigger mutation in background (tags and sprint changes handled in onSuccess)
     updateAction.mutate({
       id: currentAction.id,
       name,
@@ -191,6 +252,9 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       dueDate: dueDate, // Pass null explicitly to clear the date
       scheduledStart: scheduledStart,
       duration: duration,
+      epicId: epicId,
+      effortEstimate: effortEstimate,
+      blockedByIds: blockedByIds,
     });
   };
 
@@ -229,7 +293,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
         priority={priority}
         setPriority={setPriority}
         projectId={projectId}
-        setProjectId={(value: string | undefined) => setProjectId(value || "")}
+        setProjectId={(value: string | undefined) => setProjectId(value ?? "")}
         dueDate={dueDate}
         setDueDate={setDueDate}
         scheduledStart={scheduledStart}
@@ -240,15 +304,24 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
         selectedTagIds={selectedTagIds}
         onTagChange={setSelectedTagIds}
         actionId={currentAction?.id}
-        workspaceId={currentAction?.workspaceId ?? undefined}
+        workspaceId={currentAction?.workspaceId as string | undefined}
         onAssigneeClick={handleAssigneeClick}
         onSubmit={handleSubmit}
         onClose={onClose}
         submitLabel="Save changes"
         isSubmitting={updateAction.isPending}
+        sprintListId={sprintListId}
+        setSprintListId={setSprintListId}
+        epicId={epicId}
+        setEpicId={setEpicId}
+        effortEstimate={effortEstimate}
+        setEffortEstimate={setEffortEstimate}
+        effortUnit={effortUnit}
+        blockedByIds={blockedByIds}
+        setBlockedByIds={setBlockedByIds}
       />
     </Modal>
-    
+
     {currentAction && (
       <AssignActionModal
         opened={assignModalOpened}
