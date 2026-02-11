@@ -37,10 +37,10 @@ export function HowItWorksSection({ id }: HowItWorksSectionProps) {
     <section id={id} className="bg-background-primary py-20 md:py-28">
       <Container size="lg">
         <div className="text-center mb-16">
-          <p className="text-text-muted uppercase tracking-wider text-sm font-medium mb-4">
+          <p className="text-accent-indigo uppercase tracking-wider text-sm font-semibold mb-4">
             How it works
           </p>
-          <h2 className="text-3xl md:text-4xl font-bold text-text-primary">
+          <h2 className="text-3xl md:text-4xl font-bold text-text-primary font-inter">
             Three steps to clarity
           </h2>
         </div>

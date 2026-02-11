@@ -20,36 +20,36 @@ export function PricingSection({ id }: PricingSectionProps) {
     <section id={id} className="bg-background-primary py-20 md:py-28">
       <Container size="sm">
         <div className="text-center mb-12">
-          <p className="text-text-muted uppercase tracking-wider text-sm font-medium mb-4">
+          <p className="text-accent-indigo uppercase tracking-wider text-sm font-semibold mb-4">
             Pricing
           </p>
-          <h2 className="text-3xl md:text-4xl font-bold text-text-primary">
+          <h2 className="text-3xl md:text-4xl font-bold text-text-primary font-inter">
             Start free. Scale when ready.
           </h2>
         </div>
 
         {/* Pricing Card */}
-        <div className="bg-surface-secondary border-2 border-accent-indigo/30 rounded-3xl p-8 md:p-12 text-center relative overflow-hidden">
+        <div className="bg-surface-secondary border-2 border-accent-indigo/40 rounded-3xl p-8 md:p-12 text-center relative overflow-hidden shadow-xl">
           {/* Background decoration */}
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
               background:
                 "radial-gradient(circle at top right, var(--color-accent-indigo) 0%, transparent 50%)",
-              opacity: 0.05,
+              opacity: 0.08,
             }}
           />
 
           <div className="relative z-10">
             {/* Badge */}
-            <span className="inline-block px-4 py-1 rounded-full bg-accent-indigo/10 text-accent-indigo text-sm font-semibold mb-6">
+            <span className="inline-block px-5 py-2 rounded-full bg-gradient-to-r from-accent-indigo/20 to-accent-periwinkle/20 text-accent-indigo text-sm font-bold mb-6 border border-accent-indigo/30">
               START FREE
             </span>
 
             {/* Price */}
             <div className="mb-8">
-              <span className="text-6xl font-bold text-text-primary">$0</span>
-              <span className="text-text-muted ml-2">/month</span>
+              <span className="text-6xl md:text-7xl font-bold text-text-primary font-inter">$0</span>
+              <span className="text-text-secondary ml-2 text-lg">/month</span>
             </div>
 
             {/* Features */}

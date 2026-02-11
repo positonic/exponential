@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Exponential.im Homepage Redesign - Wireframe</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Comic Sans MS', 'Chalkboard SE', 'Comic Neue', cursive;
+      background: #fff;
+      color: #000;
+      line-height: 1.6;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: #fff;
+      border: 2px solid #333;
+      padding: 20px;
+    }
+    
+    h1 {
+      font-size: 28px;
+      margin-bottom: 20px;
+      border-bottom: 3px solid #333;
+      padding-bottom: 10px;
+    }
+    
+    h2 {
+      font-size: 22px;
+      margin: 30px 0 15px;
+      border-bottom: 2px solid #666;
+      padding-bottom: 8px;
+    }
+    
+    h3 {
+      font-size: 18px;
+      margin: 20px 0 10px;
+    }
+    
+    p {
+      margin-bottom: 15px;
+      color: #333;
+    }
+    
+    .wireframe-section {
+      border: 2px dashed #999;
+      padding: 20px;
+      margin: 20px 0;
+      background: #f5f5f5;
+      position: relative;
+    }
+    
+    .component-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: #4CAF50;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      z-index: 10;
+    }
+    
+    .component-badge.new {
+      background: #FF9800;
+    }
+    
+    .box {
+      border: 2px solid #666;
+      padding: 15px;
+      margin: 10px 0;
+      background: #fff;
+      position: relative;
+    }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 15px;
+      margin: 15px 0;
+    }
+    
+    .button {
+      display: inline-block;
+      padding: 12px 24px;
+      border: 2px solid #333;
+      background: #e9e9e9;
+      text-align: center;
+      font-weight: bold;
+      margin: 5px;
+      cursor: pointer;
+    }
+    
+    .button-primary {
+      background: #666;
+      color: #fff;
+    }
+    
+    .badge {
+      display: inline-block;
+      padding: 6px 12px;
+      border: 1px solid #999;
+      border-radius: 20px;
+      font-size: 12px;
+      background: #f0f0f0;
+    }
+    
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px;
+      border-bottom: 2px solid #333;
+      margin-bottom: 30px;
+    }
+    
+    .nav-links {
+      display: flex;
+      gap: 20px;
+    }
+    
+    .placeholder-img {
+      width: 100%;
+      height: 300px;
+      border: 2px dashed #999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f9f9f9;
+      color: #666;
+      font-size: 14px;
+    }
+    
+    .icon-placeholder {
+      width: 40px;
+      height: 40px;
+      border: 2px solid #666;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 10px;
+      background: #f5f5f5;
+    }
+    
+    .testimonial-card {
+      border: 2px solid #999;
+      padding: 20px;
+      background: #fff;
+      position: relative;
+    }
+    
+    .avatar {
+      width: 50px;
+      height: 50px;
+      border: 2px solid #666;
+      border-radius: 50%;
+      background: #e0e0e0;
+      display: inline-block;
+      margin-right: 10px;
+    }
+    
+    .stats {
+      display: flex;
+      gap: 30px;
+      margin: 20px 0;
+    }
+    
+    .stat-item {
+      text-align: center;
+      border: 2px solid #999;
+      padding: 15px;
+      flex: 1;
+      background: #fff;
+    }
+    
+    .footer {
+      border-top: 2px solid #333;
+      margin-top: 40px;
+      padding-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎨 Exponential.im Homepage Redesign - Wireframe</h1>
+    <p><strong>Design Approach:</strong> Modern SaaS landing page with improved visual hierarchy, stronger CTAs, and better use of whitespace. Focuses on clarity and conversion optimization.</p>
+    
+    <!-- Navigation -->
+    <div class="wireframe-section">
+      <span class="component-badge" title="src/app/(home)/page.tsx">REUSE</span>
+      <h2>Navigation Header (Fixed)</h2>
+      <!-- REUSABLE: LogoDisplay from src/app/_components/layout/LogoDisplay.tsx -->
+      <div class="nav">
+        <div style="position: relative; display: inline-block;">
+          <span class="component-badge" title="src/app/_components/layout/LogoDisplay.tsx">REUSE Logo</span>
+          <div style="font-weight: bold; font-size: 18px;">📱 Exponential.im</div>
+        </div>
+        <div class="nav-links">
+          <div style="position: relative; display: inline-block;">
+            <span class="component-badge" title="src/app/_components/home/FeaturesMenu.tsx">REUSE</span>
+            <div>Features ▼</div>
+          </div>
+          <div>How It Works</div>
+          <div>Pricing</div>
+          <div style="position: relative; display: inline-block;">
+            <span class="component-badge" title="src/app/_components/home/ResourcesMenu.tsx">REUSE</span>
+            <div>Resources ▼</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <!-- REUSABLE: ThemeToggle from src/app/_components/ThemeToggle.tsx -->
+          <div style="position: relative; display: inline-block;">
+            <span class="component-badge" title="src/app/_components/ThemeToggle.tsx">REUSE</span>
+            <div class="button">🌙</div>
+          </div>
+          <!-- REUSABLE: CTAButton from src/app/_components/home/shared/CTAButton.tsx -->
+          <div style="position: relative; display: inline-block;">
+            <span class="component-badge" title="src/app/_components/home/shared/CTAButton.tsx">REUSE</span>
+            <div class="button button-primary">Get Started →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Hero Section - Redesigned for better visual impact -->
+    <div class="wireframe-section">
+      <span class="component-badge" title="src/app/_components/home/HeroSection.tsx">REUSE</span>
+      <h2>Hero Section (Improved Layout)</h2>
+      <div class="box">
+        <div style="text-align: center; padding: 40px 20px;">
+          <!-- REUSABLE: Badge component -->
+          <div style="margin-bottom: 20px;">
+            <span class="badge">✨ For founders who ship</span>
+          </div>
+          
+          <h3 style="font-size: 48px; margin-bottom: 20px; line-height: 1.2;">
+            Stop managing work.<br/>
+            <span style="color: #666;">Start doing it.</span>
+          </h3>
+          
+          <p style="font-size: 20px; color: #666; max-width: 600px; margin: 0 auto 30px;">
+            Exponential connects your daily work to your goals—with AI that handles the noise so you can focus on what actually moves the needle.
+          </p>
+          
+          <!-- REUSABLE: CTAButton components -->
+          <div style="display: flex; justify-content: center; gap: 15px; margin-bottom: 30px; position: relative;">
+            <span class="component-badge" title="src/app/_components/home/shared/CTAButton.tsx">REUSE CTAButton</span>
+            <div class="button button-primary" style="font-size: 18px;">Try Now For Free →</div>
+            <div class="button" style="font-size: 18px;">See Demo</div>
+          </div>
+          
+          <!-- NEW: Social proof with logos -->
+          <div style="position: relative;">
+            <span class="component-badge new" title="To be created at src/app/_components/home/shared/SocialProof.tsx">NEW SocialProof</span>
+            <p style="color: #999; font-size: 14px; margin-bottom: 15px;">Trusted by 50+ founders</p>
+            <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
+              <div class="box" style="width: 80px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 12px;">Logo 1</div>
+              <div class="box" style="width: 80px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 12px;">Logo 2</div>
+              <div class="box" style="width: 80px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 12px;">Logo 3</div>
+              <div class="box" style="width: 80px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 12px;">Logo 4</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Stats Section - NEW addition for credibility -->
+    <div class="wireframe-section">
+      <span class="component-badge new" title="To be created at src/app/_components/home/StatsSection.tsx">NEW StatsSection</span>
+      <h2>Key Stats Section (NEW - Builds Trust)</h2>
+      <div class="stats">
+        <div class="stat-item">
+          <h3 style="font-size: 36px; margin-bottom: 5px;">50+</h3>
+          <p style="color: #666; margin: 0;">Active Founders</p>
+        </div>
+        <div class="stat-item">
+          <h3 style="font-size: 36px; margin-bottom: 5px;">10k+</h3>
+          <p style="color: #666; margin: 0;">Tasks Completed</p>
+        </div>
+        <div class="stat-item">
+          <h3 style="font-size: 36px; margin-bottom: 5px;">95%</h3>
+          <p style="color: #666; margin: 0;">Goal Achievement</p>
+        </div>
+        <div class="stat-item">
+          <h3 style="font-size: 36px; margin-bottom: 5px;">3x</h3>
+          <p style="color: #666; margin: 0;">Productivity Boost</p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Problem Statement - Condensed -->
+    <div class="wireframe-section">
+      <span class="component-badge" title="src/app/_components/home/ProblemStatementSection.tsx">REUSE</span>
+      <h2>Problem Statement (Simplified)</h2>
+      <div class="box" style="background: #333; color: #fff; padding: 40px;">
+        <h3 style="text-align: center; color: #fff; margin-bottom: 30px;">Sound familiar?</h3>
+        <div class="grid">
+          <div>☐ You have 6 tools open. None talk to each other.</div>
+          <div>☐ Your task list grows faster than you check things off.</div>
+          <div>☐ You finished 23 tasks. Not sure any mattered.</div>
+          <div>☐ AI writes emails, but you don't know what to focus on.</div>
+        </div>
+        <p style="text-align: center; font-style: italic; margin-top: 30px; border-top: 1px solid #666; padding-top: 20px;">
+          Task management was built for a slower world. <strong>You need something different.</strong>
+        </p>
+      </div>
+    </div>
+    
+    <!-- Solution with Product Demo - Combined section -->
+    <div class="wireframe-section">
+      <span class="component-badge new" title="Combine SolutionIntroSection + ProductDemoSection">NEW Combined</span>
+      <h2>Solution Overview + Demo (Combined Section)</h2>
+      <div class="box">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <p style="color: #999; text-transform: uppercase; font-size: 12px; margin-bottom: 10px;">The Solution</p>
+          <h3 style="font-size: 32px; margin-bottom: 15px;">From task management to collective flow</h3>
+          <p style="color: #666; max-width: 700px; margin: 0 auto;">
+            Exponential isn't another to-do list. It's the alignment layer between what you're doing today and where you want to be.
+          </p>
+        </div>
+        
+        <!-- REUSABLE: ProductDemoSection placeholder -->
+        <div style="position: relative;">
+          <span class="component-badge" title="src/app/_components/home/ProductDemoSection.tsx">REUSE Demo</span>
+          <div class="placeholder-img">
+            [Product Screenshot: Dashboard View]<br/>
+            1200 x 700px with browser chrome
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- How It Works - Step-by-step -->
+    <div class="wireframe-section">
+      <span class="component-badge" title="src/app/_components/home/HowItWorksSection.tsx">REUSE</span>
+      <h2>How It Works (3 Simple Steps)</h2>
+      <div class="box">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <p style="color: #999; text-transform: uppercase; font-size: 12px;">How it works</p>
+          <h3 style="font-size: 28px;">Three steps to clarity</h3>
+        </div>
+        
+        <div class="grid">
+          <div class="box" style="position: relative;">
+            <div class="icon-placeholder">1️⃣</div>
+            <h3>Set your outcomes</h3>
+            <p>Define what success looks like this week, month, or quarter.</p>
+          </div>
+          <div class="box" style="position: relative;">
+            <div class="icon-placeholder">2️⃣</div>
+            <h3>Let AI handle tasks</h3>
+            <p>AI generates, tracks, and updates actions automatically.</p>
+          </div>
+          <div class="box" style="position: relative;">
+            <div class="icon-placeholder">3️⃣</div>
+            <h3>See your progress</h3>
+            <p>Weekly reviews keep you aligned with goals.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Key Features - Icon Grid -->
+    <div class="wireframe-section">
+      <span class="component-badge" title="src/app/_components/home/KeyFeaturesSection.tsx">REUSE</span>
+      <h2>Key Features (Icon Grid)</h2>
+      <div class="box">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <p style="color: #999; text-transform: uppercase; font-size: 12px;">Features</p>
+          <h3 style="font-size: 28px;">Everything you need to stay aligned</h3>
+        </div>
+        
+        <!-- REUSABLE: SimpleGrid from Mantine -->
+        <div class="grid" style="position: relative;">
+          <span class="component-badge" title="@mantine/core SimpleGrid">REUSE Grid</span>
+          <div class="box">
+            <div class="icon-placeholder">🎯</div>
+            <h3>Every task connects to why</h3>
+            <p>See how daily work drives quarterly outcomes.</p>
+          </div>
+          <div class="box">
+            <div class="icon-placeholder">🤖</div>
+            <h3>AI handles the task layer</h3>
+            <p>Actions generated and tracked automatically.</p>
+          </div>
+          <div class="box">
+            <div class="icon-placeholder">👥</div>
+            <h3>Know what your team is doing</h3>
+            <p>Weekly outcomes and progress—visible without asking.</p>
+          </div>
+          <div class="box">
+            <div class="icon-placeholder">💬</div>
+            <h3>Meetings become actions</h3>
+            <p>AI captures decisions and action items automatically.</p>
+          </div>
+          <div class="box">
+            <div class="icon-placeholder">📅</div>
+            <h3>Never lose the thread</h3>
+            <p>Structured weekly reset keeps you aligned.</p>
+          </div>
+          <div class="box">
+            <div class="icon-placeholder">🔌</div>
+            <h3>Works where you work</h3>
+            <p>Connect Slack, Notion, GitHub in one workspace.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Testimonials - Carousel Style -->
+    <div class="wireframe-section">
+      <span class="component-badge" title="src/app/_components/home/TestimonialsSection.tsx">REUSE</span>
+      <h2>Testimonials (3-Column Grid)</h2>
+      <div class="box">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <p style="color: #999; text-transform: uppercase; font-size: 12px;">Testimonials</p>
+          <h3 style="font-size: 28px;">Loved by founders who ship</h3>
+        </div>
+        
+        <div class="grid">
+          <div class="testimonial-card">
+            <p>"Game changer for my productivity. Finally see how tasks connect to goals."</p>
+            <div style="margin-top: 15px; display: flex; align-items: center;">
+              <div class="avatar"></div>
+              <div>
+                <div style="font-weight: bold;">Sarah Chen</div>
+                <div style="color: #666; font-size: 14px;">CEO, TechStartup</div>
+              </div>
+            </div>
+          </div>
+          <div class="testimonial-card">
+            <p>"AI handles the busy work. I focus on what matters. Perfect for solo founders."</p>
+            <div style="margin-top: 15px; display: flex; align-items: center;">
+              <div class="avatar"></div>
+              <div>
+                <div style="font-weight: bold;">Marcus Johnson</div>
+                <div style="color: #666; font-size: 14px;">Founder, AppCo</div>
+              </div>
+            </div>
+          </div>
+          <div class="testimonial-card">
+            <p>"Weekly reviews keep my team aligned. No more status meeting marathons."</p>
+            <div style="margin-top: 15px; display: flex; align-items: center;">
+              <div class="avatar"></div>
+              <div>
+                <div style="font-weight: bold;">Emily Davis</div>
+                <div style="color: #666; font-size: 14px;">CTO, SaaS Inc</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Pricing - Single Tier -->
+    <div class="wireframe-section">
+      <span class="component-badge" title="src/app/_components/home/PricingSection.tsx">REUSE</span>
+      <h2>Pricing (Single Tier - Start Free)</h2>
+      <div class="box">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <p style="color: #999; text-transform: uppercase; font-size: 12px;">Pricing</p>
+          <h3 style="font-size: 28px;">Start free. Scale when ready.</h3>
+        </div>
+        
+        <div style="max-width: 500px; margin: 0 auto;">
+          <div class="box" style="border: 3px solid #666; padding: 40px; text-align: center;">
+            <span class="badge" style="background: #333; color: #fff;">START FREE</span>
+            <h3 style="font-size: 48px; margin: 20px 0 10px;">$0</h3>
+            <p style="color: #666; margin-bottom: 30px;">/month</p>
+            
+            <div style="text-align: left; margin-bottom: 30px;">
+              <div style="margin: 10px 0;">✓ Full platform access</div>
+              <div style="margin: 10px 0;">✓ AI features included</div>
+              <div style="margin: 10px 0;">✓ Unlimited goals & outcomes</div>
+              <div style="margin: 10px 0;">✓ Team collaboration</div>
+              <div style="margin: 10px 0;">✓ Weekly reviews & planning</div>
+            </div>
+            
+            <!-- REUSABLE: CTAButton -->
+            <div style="position: relative; display: inline-block;">
+              <span class="component-badge" title="src/app/_components/home/shared/CTAButton.tsx">REUSE</span>
+              <div class="button button-primary" style="width: 100%; font-size: 18px;">Try Now For Free →</div>
+            </div>
+            <p style="color: #999; font-size: 12px; margin-top: 10px;">No credit card required</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Final CTA - Strong conversion section -->
+    <div class="wireframe-section">
+      <span class="component-badge" title="src/app/_components/home/FinalCTASection.tsx">REUSE</span>
+      <h2>Final CTA (Conversion-Optimized)</h2>
+      <div class="box" style="background: #333; color: #fff; padding: 60px 20px; text-align: center;">
+        <h3 style="font-size: 36px; color: #fff; margin-bottom: 20px;">
+          Ready to stop managing tasks<br/>
+          and start making progress?
+        </h3>
+        <p style="color: #ccc; font-size: 18px; margin-bottom: 30px;">
+          Join founders who've moved beyond the to-do list treadmill.
+        </p>
+        
+        <!-- REUSABLE: CTAButton -->
+        <div style="position: relative; display: inline-block;">
+          <span class="component-badge" title="src/app/_components/home/shared/CTAButton.tsx">REUSE</span>
+          <div class="button button-primary" style="font-size: 20px; padding: 16px 40px;">Start Free Today →</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Footer -->
+    <div class="wireframe-section">
+      <span class="component-badge" title="src/app/_components/home/FooterSection.tsx">REUSE</span>
+      <h2>Footer</h2>
+      <div class="footer">
+        <div class="grid">
+          <div>
+            <h3>Product</h3>
+            <div style="color: #666;">Features</div>
+            <div style="color: #666;">Pricing</div>
+            <div style="color: #666;">Integrations</div>
+          </div>
+          <div>
+            <h3>Company</h3>
+            <div style="color: #666;">About</div>
+            <div style="color: #666;">Blog</div>
+            <div style="color: #666;">Careers</div>
+          </div>
+          <div>
+            <h3>Resources</h3>
+            <div style="color: #666;">Documentation</div>
+            <div style="color: #666;">Guides</div>
+            <div style="color: #666;">Support</div>
+          </div>
+          <div>
+            <h3>Legal</h3>
+            <div style="color: #666;">Privacy</div>
+            <div style="color: #666;">Terms</div>
+          </div>
+        </div>
+        <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ccc; color: #999;">
+          © 2026 Exponential.im - All rights reserved
+        </div>
+      </div>
+    </div>
+    
+    <!-- Design Notes -->
+    <div style="margin-top: 40px; padding: 20px; background: #fff9c4; border: 2px solid #f9a825;">
+      <h2>📝 Key Design Improvements</h2>
+      <ul style="line-height: 1.8;">
+        <li><strong>Visual Hierarchy:</strong> Larger hero headline, better contrast between sections</li>
+        <li><strong>Social Proof:</strong> Added company logos and stats section for credibility</li>
+        <li><strong>Combined Sections:</strong> Merged Solution Intro + Product Demo to reduce scrolling</li>
+        <li><strong>Simplified Problem:</strong> Condensed pain points to 4 key items in grid layout</li>
+        <li><strong>Stronger CTAs:</strong> More prominent buttons with arrow indicators</li>
+        <li><strong>Testimonials:</strong> 3-column grid with avatars for authenticity</li>
+        <li><strong>Whitespace:</strong> Increased padding and spacing for breathing room</li>
+        <li><strong>Component Reuse:</strong> Maximizes existing components (CTAButton, Container, SimpleGrid)</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

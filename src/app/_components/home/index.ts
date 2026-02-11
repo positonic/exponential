@@ -1,4 +1,5 @@
 export { HeroSection } from "./HeroSection";
+export { StatsSection } from "./StatsSection";
 export { FeaturesMenu } from "./FeaturesMenu";
 export { ResourcesMenu } from "./ResourcesMenu";
 export { ProblemStatementSection } from "./ProblemStatementSection";
@@ -15,3 +16,4 @@ export { FooterSection } from "./FooterSection";
 // Shared components
 export { SectionContainer } from "./shared/SectionContainer";
 export { CTAButton } from "./shared/CTAButton";
+export { SocialProof } from "./shared/SocialProof";

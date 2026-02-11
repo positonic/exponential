@@ -1,13 +1,13 @@
 import Layout from "~/app/_components/layout/Layout";
 import "~/styles/globals.css";
 import { GeistSans } from "geist/font/sans";
-import { Orbitron } from 'next/font/google';
+import { Inter } from 'next/font/google';
 
-const orbitron = Orbitron({
+const inter = Inter({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800', '900'],
+  weight: ['700', '800', '900'],
   display: 'swap',
-  variable: '--font-orbitron',
+  variable: '--font-inter',
 });
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
@@ -42,7 +42,7 @@ export default async function RootLayout({
   const domain = getThemeDomain();
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.variable} h-full`} suppressHydrationWarning>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${inter.variable} h-full`} suppressHydrationWarning>
       <head>
         <ColorSchemeScript />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />

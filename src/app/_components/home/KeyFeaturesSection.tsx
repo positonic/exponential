@@ -56,10 +56,10 @@ export function KeyFeaturesSection({ id }: KeyFeaturesSectionProps) {
     <section id={id} className="bg-surface-secondary py-20 md:py-28">
       <Container size="lg">
         <div className="text-center mb-16">
-          <p className="text-text-muted uppercase tracking-wider text-sm font-medium mb-4">
+          <p className="text-accent-indigo uppercase tracking-wider text-sm font-semibold mb-4">
             Features
           </p>
-          <h2 className="text-3xl md:text-4xl font-bold text-text-primary mb-4">
+          <h2 className="text-3xl md:text-4xl font-bold text-text-primary mb-4 font-inter">
             Everything you need to stay aligned
           </h2>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto">

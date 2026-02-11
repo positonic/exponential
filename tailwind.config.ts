@@ -8,6 +8,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ["var(--font-geist-sans)", ...fontFamily.sans],
+        inter: ["var(--font-inter)", ...fontFamily.sans],
       },
       colors: {
         // Background colors

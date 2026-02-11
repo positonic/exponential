@@ -7,6 +7,7 @@ import { themes } from "~/config/themes";
 import { getThemeDomain } from "~/config/site";
 import {
   HeroSection,
+  StatsSection,
   ProblemStatementSection,
   SolutionIntroSection,
   ProductDemoSection,
@@ -30,9 +31,9 @@ export default async function Home() {
   return (
     <div className="min-h-screen bg-background-primary text-text-primary">
       {/* Navigation */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-background-primary/80 backdrop-blur-md border-b border-border-primary">
+      <header className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md border-b border-border-primary" style={{ backgroundColor: 'rgba(12, 16, 34, 0.95)' }}>
         <div className="container mx-auto px-4 md:px-8">
-          <div className="flex justify-between items-center py-4">
+          <div className="flex justify-between items-center py-3">
             <div className="flex items-center">
               <LogoDisplay theme={theme} href="/" className="text-xl" />
             </div>
@@ -42,13 +43,13 @@ export default async function Home() {
               <FeaturesMenu />
               <Link
                 href="#how-it-works"
-                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
+                className="text-gray-300 hover:text-white transition-colors text-sm font-medium"
               >
                 How It Works
               </Link>
               <Link
                 href="#pricing"
-                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
+                className="text-gray-300 hover:text-white transition-colors text-sm font-medium"
               >
                 Pricing
               </Link>
@@ -94,41 +95,44 @@ export default async function Home() {
       </header>
 
       {/* Spacer for fixed header */}
-      <div className="h-16" />
+      <div className="h-20" />
 
       <main>
         {/* Section 1: Hero */}
         <HeroSection />
 
-        {/* Section 2: Problem Statement */}
+        {/* Section 2: Stats - Social Proof */}
+        <StatsSection />
+
+        {/* Section 3: Problem Statement */}
         <ProblemStatementSection />
 
-        {/* Section 3: Solution Introduction */}
+        {/* Section 4: Solution Introduction */}
         <SolutionIntroSection />
 
-        {/* Section 4: Product Demo */}
+        {/* Section 5: Product Demo */}
         <ProductDemoSection id="demo" />
 
-        {/* Section 5: How It Works */}
+        {/* Section 6: How It Works */}
         <HowItWorksSection id="how-it-works" />
 
-        {/* Section 6: Key Features */}
+        {/* Section 7: Key Features */}
         <KeyFeaturesSection id="features" />
 
-        {/* Section 7: Who It's For */}
+        {/* Section 8: Who It's For */}
         <PersonaSection id="personas" />
 
-        {/* Section 8: Testimonials */}
+        {/* Section 9: Testimonials */}
         <TestimonialsSection id="testimonials" />
 
-        {/* Section 9: Pricing */}
+        {/* Section 10: Pricing */}
         <PricingSection id="pricing" />
 
-        {/* Section 10: Final CTA */}
+        {/* Section 11: Final CTA */}
         <FinalCTASection />
       </main>
 
-      {/* Section 11: Footer */}
+      {/* Section 12: Footer */}
       <FooterSection />
     </div>
   );

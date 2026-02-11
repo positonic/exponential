@@ -22,8 +22,8 @@ export function LogoDisplay({ theme, href, onClick, className }: LogoDisplayProp
     <Image 
       src={theme.logo} 
       alt={`${theme.name} logo`} 
-      width={20} // Constrained size
-      height={20} // Constrained size
+      width={60} // Constrained size
+      height={60} // Constrained size
       className="mr-2 object-contain" // Margin and contain object fit
     />
   ) : (
@@ -33,9 +33,9 @@ export function LogoDisplay({ theme, href, onClick, className }: LogoDisplayProp
   const content = (
     <>
       {logoElement} {/* Render the conditional logo element */}
-      {/* Text with Orbitron font, theme-aware color, and size controlled by className */}
+      {/* Text with Inter font, white color, and size set to 1.75rem */}
       <span 
-        className={`font-bold text-text-primary ${className || 'text-xl'}`.trim()} 
+        className="font-inter font-bold text-white text-[1.75rem]"
         style={{ fontFamily: theme.fontFamily }}
       >
         {theme.name}

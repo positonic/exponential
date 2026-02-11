@@ -32,7 +32,7 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
   'forceflow.com': {
     name: 'Force Flow',
     logo: '🧘‍♂️',
-    fontFamily: 'Orbitron, sans-serif',
+    fontFamily: 'Inter, sans-serif',
     colors: {
       primary: 'from-blue-400 to-purple-600',
       secondary: 'from-blue-500 to-purple-600',
@@ -54,9 +54,9 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
     }
   },
   'exponential.im': {
-    name: 'Exponential.im',
+    name: 'exponential',
     logo: '/expo-logo-20.png',
-    fontFamily: 'Orbitron, sans-serif',
+    fontFamily: 'Inter, sans-serif',
     colors: {
         primary: 'from-blue-400 to-purple-600',
         secondary: 'from-blue-500 to-purple-600',
