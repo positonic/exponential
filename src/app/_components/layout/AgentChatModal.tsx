@@ -267,11 +267,13 @@ export function AgentChatModal() {
             onSelectDefault={handleSelectDefault}
           />
         )}
-        <ManyChat
-          projectId={projectId ?? undefined}
-          workspaceId={effectiveWorkspaceId ?? undefined}
-          initialInput={selectedAgent}
-        />
+        <div className="min-h-0 flex-1">
+          <ManyChat
+            projectId={projectId ?? undefined}
+            workspaceId={effectiveWorkspaceId ?? undefined}
+            initialInput={selectedAgent}
+          />
+        </div>
       </div>
     </Modal>
   );

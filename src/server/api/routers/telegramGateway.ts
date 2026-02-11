@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { generateJWT } from "~/server/utils/jwt";
@@ -100,14 +101,38 @@ export const telegramGatewayRouter = createTRPCRouter({
         tokenType: "telegram-gateway",
       });
 
-      const res = await fetch(`${TELEGRAM_GATEWAY_URL}/pair`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ agentId: input.agentId }),
+      // Look up the user's default assistant to pass its name to the gateway
+      const assistant = await ctx.db.assistant.findFirst({
+        where: { createdById: ctx.session.user.id, isDefault: true },
+        select: { name: true, id: true, workspaceId: true },
       });
+
+      let res: Response;
+      try {
+        res = await fetch(`${TELEGRAM_GATEWAY_URL}/pair`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            agentId: input.agentId,
+            assistantId: assistant?.id,
+            assistantName: assistant?.name,
+            workspaceId: assistant?.workspaceId,
+          }),
+        });
+      } catch (error) {
+        console.error(
+          "[telegramGateway] Failed to reach gateway for pairing:",
+          error,
+        );
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            "Unable to reach the Telegram gateway service. Please try again later.",
+        });
+      }
 
       if (!res.ok) {
         const error = (await res.json().catch(() => ({
