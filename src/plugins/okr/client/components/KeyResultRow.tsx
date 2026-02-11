@@ -127,7 +127,6 @@ export function KeyResultRow({
             <div className="w-[14px]" />
           )
         }
-        disabled={!hasProjects}
         styles={{
           control: { padding: "0.5rem 0 0.5rem 1.5rem" },
           chevron: { marginInlineStart: 0, width: 22 },

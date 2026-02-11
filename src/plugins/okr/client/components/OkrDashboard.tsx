@@ -15,18 +15,17 @@ import {
   TextInput,
   NumberInput,
   Textarea,
+  SegmentedControl,
+  Collapse,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconTargetArrow, IconPlus } from "@tabler/icons-react";
-import { OkrTableView } from "./OkrTableView";
+import { IconTargetArrow, IconPlus, IconChevronDown, IconChevronUp } from "@tabler/icons-react";
+import { keepPreviousData } from "@tanstack/react-query";
+import { PeriodTabs } from "./PeriodTabs";
 import {
-  type PeriodType,
-  getParentPeriod,
-  getCurrentYear,
-  getCurrentQuarterType,
-  isCombinedPeriodType,
   extractYearsFromPeriods,
 } from "../utils/periodUtils";
+import { useOkrSearchParams } from "../hooks/useOkrSearchParams";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
@@ -35,32 +34,6 @@ import { OkrOverview } from "./OkrOverview";
 import { ObjectiveRow } from "./ObjectiveRow";
 import { EditKeyResultModal } from "./EditKeyResultModal";
 import { OkrDetailDrawer } from "./OkrDetailDrawer";
-
-// Period type options for the dropdown
-const periodTypeOptions = [
-  {
-    group: "Quarters",
-    items: [
-      { value: "Q1", label: "Q1 (Jan-Mar)" },
-      { value: "Q2", label: "Q2 (Apr-Jun)" },
-      { value: "Q3", label: "Q3 (Jul-Sep)" },
-      { value: "Q4", label: "Q4 (Oct-Dec)" },
-    ],
-  },
-  {
-    group: "Combined View",
-    items: [
-      { value: "Q1-Annual", label: "Q1 + Annual" },
-      { value: "Q2-Annual", label: "Q2 + Annual" },
-      { value: "Q3-Annual", label: "Q3 + Annual" },
-      { value: "Q4-Annual", label: "Q4 + Annual" },
-    ],
-  },
-  {
-    group: "Annual",
-    items: [{ value: "Year", label: "Full Year" }],
-  },
-];
 
 // Unit options
 const unitOptions = [
@@ -73,10 +46,8 @@ const unitOptions = [
 
 export function OkrDashboard() {
   const { workspaceId, workspaceSlug } = useWorkspace();
-  const [selectedYear, setSelectedYear] = useState<string>(getCurrentYear());
-  const [selectedPeriodType, setSelectedPeriodType] = useState<PeriodType>(
-    getCurrentQuarterType()
-  );
+  const { year: selectedYear, period: selectedPeriod, setYear, setPeriod } = useOkrSearchParams();
+  const [statsExpanded, { toggle: toggleStats }] = useDisclosure(false);
   const [
     createModalOpened,
     { open: openCreateModal, close: closeCreateModal },
@@ -136,26 +107,10 @@ export function OkrDashboard() {
 
   const utils = api.useUtils();
 
-  // Derive the effective period string and whether to show combined view
-  const { effectivePeriod, showCombinedView } = useMemo(() => {
-    if (selectedPeriodType === "Year") {
-      return {
-        effectivePeriod: `Annual-${selectedYear}`,
-        showCombinedView: false,
-      };
-    }
-    if (isCombinedPeriodType(selectedPeriodType)) {
-      const base = selectedPeriodType.split("-")[0];
-      return {
-        effectivePeriod: `${base}-${selectedYear}`,
-        showCombinedView: true,
-      };
-    }
-    return {
-      effectivePeriod: `${selectedPeriodType}-${selectedYear}`,
-      showCombinedView: false,
-    };
-  }, [selectedYear, selectedPeriodType]);
+  // Derive the effective period string
+  const effectivePeriod = useMemo(() => {
+    return `${selectedPeriod}-${selectedYear}`;
+  }, [selectedYear, selectedPeriod]);
 
   // Sync selected period to form data
   useEffect(() => {
@@ -165,14 +120,19 @@ export function OkrDashboard() {
   // Fetch periods (used to extract available years)
   const { data: periods } = api.okr.getPeriods.useQuery();
 
-  // Extract available years from periods
-  const yearOptions = useMemo(() => {
+  // Extract available years from periods (for year selector)
+  const availableYears = useMemo(() => {
     if (!periods) return [];
-    return extractYearsFromPeriods(periods).map((year) => ({
-      value: year,
-      label: year,
-    }));
+    return extractYearsFromPeriods(periods);
   }, [periods]);
+
+  // Get period counts for badge display
+  const { data: periodCounts, isLoading: countsLoading } = api.okr.getCountsByYear.useQuery({
+    workspaceId: workspaceId ?? undefined,
+    year: selectedYear,
+  }, {
+    placeholderData: keepPreviousData,
+  });
 
   // Fetch available goals for selection
   const { data: availableGoals } = api.okr.getAvailableGoals.useQuery({
@@ -183,13 +143,17 @@ export function OkrDashboard() {
   const { data: objectives, isLoading } = api.okr.getByObjective.useQuery({
     workspaceId: workspaceId ?? undefined,
     period: effectivePeriod,
-    includePairedPeriod: showCombinedView,
+    includePairedPeriod: false,
+  }, {
+    placeholderData: keepPreviousData,
   });
 
   // Fetch stats
   const { data: stats, isLoading: statsLoading } = api.okr.getStats.useQuery({
     workspaceId: workspaceId ?? undefined,
     period: effectivePeriod,
+  }, {
+    placeholderData: keepPreviousData,
   });
 
   // Initialize expanded state when objectives load (all expanded by default)
@@ -217,6 +181,7 @@ export function OkrDashboard() {
     onSuccess: () => {
       void utils.okr.getByObjective.invalidate();
       void utils.okr.getStats.invalidate();
+      void utils.okr.getCountsByYear.invalidate();
       closeCreateModal();
       setFormData({
         goalId: "",
@@ -236,6 +201,7 @@ export function OkrDashboard() {
     onSuccess: () => {
       void utils.okr.getByObjective.invalidate();
       void utils.okr.getStats.invalidate();
+      void utils.okr.getCountsByYear.invalidate();
       void utils.okr.getAvailableGoals.invalidate();
     },
   });
@@ -370,7 +336,7 @@ export function OkrDashboard() {
     <Container size="lg" py="xl">
       <Stack gap="lg">
         {/* Header */}
-        <Group justify="space-between">
+        <Group justify="space-between" align="start">
           <div>
             <Title
               order={1}
@@ -384,27 +350,21 @@ export function OkrDashboard() {
             </Text>
           </div>
           <Group>
-            <Select
-              placeholder="Year"
-              data={yearOptions}
-              value={selectedYear}
-              onChange={(value) => setSelectedYear(value ?? getCurrentYear())}
-              className="w-24"
-            />
-            <Select
-              placeholder="Period"
-              data={periodTypeOptions}
-              value={selectedPeriodType}
-              onChange={(value) =>
-                setSelectedPeriodType((value as PeriodType) ?? "Q1")
-              }
-              className="w-40"
-            />
+            {availableYears.length > 1 && (
+              <SegmentedControl
+                value={selectedYear}
+                onChange={setYear}
+                data={availableYears.map((y) => ({ label: y, value: y }))}
+                size="sm"
+                color="brand"
+              />
+            )}
             <CreateGoalModal
               onSuccess={() => {
                 void utils.okr.getAvailableGoals.invalidate();
                 void utils.okr.getByObjective.invalidate();
                 void utils.okr.getStats.invalidate();
+                void utils.okr.getCountsByYear.invalidate();
               }}
             >
               <Button variant="outline" leftSection={<IconPlus size={16} />}>
@@ -420,83 +380,78 @@ export function OkrDashboard() {
           </Group>
         </Group>
 
-        {/* Overview Metrics */}
-        <OkrOverview stats={overviewStats} isLoading={statsLoading} />
+        {/* Period Navigation Tabs */}
+        <PeriodTabs
+          selectedPeriod={selectedPeriod}
+          onPeriodChange={setPeriod}
+          counts={periodCounts}
+          isLoading={countsLoading}
+        />
+
+        {/* Collapsible Overview Metrics */}
+        <Card className="border border-border-primary bg-surface-secondary">
+          <Group 
+            justify="space-between" 
+            onClick={toggleStats}
+            style={{ cursor: 'pointer' }}
+            className="select-none"
+          >
+            <Text size="sm" fw={500} className="text-text-primary">
+              Overview Metrics
+            </Text>
+            {statsExpanded ? (
+              <IconChevronUp size={20} className="text-text-secondary" />
+            ) : (
+              <IconChevronDown size={20} className="text-text-secondary" />
+            )}
+          </Group>
+          <Collapse in={statsExpanded} transitionDuration={200}>
+            <div className="mt-4">
+              <OkrOverview stats={overviewStats} isLoading={statsLoading} />
+            </div>
+          </Collapse>
+        </Card>
 
         {/* Objectives with Key Results */}
         {objectives && objectives.length > 0 ? (
-          showCombinedView ? (
-            // Table view: separate objectives by period and show side-by-side
-            (() => {
-              const annualPeriod = getParentPeriod(effectivePeriod);
-              const annualObjectives = objectives
-                .filter((obj) =>
-                  obj.keyResults.some((kr) => kr.period === annualPeriod)
-                )
-                .map((obj) => ({
-                  ...obj,
-                  keyResults: obj.keyResults.filter(
-                    (kr) => kr.period === annualPeriod
-                  ),
-                }));
-              const quarterlyObjectives = objectives
-                .filter((obj) =>
-                  obj.keyResults.some((kr) => kr.period === effectivePeriod)
-                )
-                .map((obj) => ({
-                  ...obj,
-                  keyResults: obj.keyResults.filter(
-                    (kr) => kr.period === effectivePeriod
-                  ),
-                }));
-              return (
-                <OkrTableView
-                  annualObjectives={annualObjectives}
-                  quarterlyObjectives={quarterlyObjectives}
-                  selectedQuarter={effectivePeriod}
-                />
-              );
-            })()
-          ) : (
-            // Tree view: default hierarchical layout
-            <Card className="border border-border-primary bg-surface-secondary">
-              {objectives
-                .filter((obj) => obj.keyResults.length > 0 || obj.period === effectivePeriod)
-                .map((objective) => (
-                <ObjectiveRow
-                  key={objective.id}
-                  objective={{
-                    ...objective,
-                    lifeDomain: objective.lifeDomain
-                      ? {
-                          id: objective.lifeDomain.id,
-                          name: objective.lifeDomain.title,
-                        }
-                      : null,
-                  }}
-                  isExpanded={expandedObjectives.has(objective.id)}
-                  onToggleExpand={() => toggleExpand(objective.id)}
-                  onDelete={handleDeleteObjective}
-                  isDeleting={deleteObjective.isPending}
-                  onEditSuccess={() => {
-                    void utils.okr.getByObjective.invalidate();
-                    void utils.okr.getStats.invalidate();
-                  }}
-                  onAddKeyResult={handleAddKeyResultToObjective}
-                  onEditKeyResult={handleEditKeyResult}
-                  onViewObjective={() => handleViewObjective({
-                    ...objective,
-                    lifeDomain: objective.lifeDomain
-                      ? { id: objective.lifeDomain.id, name: objective.lifeDomain.title }
-                      : null,
-                  })}
-                  onViewKeyResult={handleViewKeyResult}
-                  expandedKeyResults={expandedKeyResults}
-                  onToggleKeyResult={setExpandedKeyResults}
-                />
-              ))}
-            </Card>
-          )
+          <Card className="border border-border-primary bg-surface-secondary">
+            {objectives
+              .filter((obj) => obj.keyResults.length > 0 || obj.period === effectivePeriod)
+              .map((objective) => (
+              <ObjectiveRow
+                key={objective.id}
+                objective={{
+                  ...objective,
+                  lifeDomain: objective.lifeDomain
+                    ? {
+                        id: objective.lifeDomain.id,
+                        name: objective.lifeDomain.title,
+                      }
+                    : null,
+                }}
+                isExpanded={expandedObjectives.has(objective.id)}
+                onToggleExpand={() => toggleExpand(objective.id)}
+                onDelete={handleDeleteObjective}
+                isDeleting={deleteObjective.isPending}
+                onEditSuccess={() => {
+                  void utils.okr.getByObjective.invalidate();
+                  void utils.okr.getStats.invalidate();
+                  void utils.okr.getCountsByYear.invalidate();
+                }}
+                onAddKeyResult={handleAddKeyResultToObjective}
+                onEditKeyResult={handleEditKeyResult}
+                onViewObjective={() => handleViewObjective({
+                  ...objective,
+                  lifeDomain: objective.lifeDomain
+                    ? { id: objective.lifeDomain.id, name: objective.lifeDomain.title }
+                    : null,
+                })}
+                onViewKeyResult={handleViewKeyResult}
+                expandedKeyResults={expandedKeyResults}
+                onToggleKeyResult={setExpandedKeyResults}
+              />
+            ))}
+          </Card>
         ) : (
           <Card className="border border-border-primary bg-surface-secondary text-center py-12">
             <IconTargetArrow
@@ -653,6 +608,7 @@ export function OkrDashboard() {
         onSuccess={() => {
           void utils.okr.getByObjective.invalidate();
           void utils.okr.getStats.invalidate();
+          void utils.okr.getCountsByYear.invalidate();
         }}
       />
 

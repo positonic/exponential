@@ -1,4 +1,4 @@
-import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect, Tooltip, Stack, Title, Text, Alert, Loader } from '@mantine/core';
+import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect, Tooltip, Stack, Title, Text, Alert, Loader, Switch } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import { IconAlertCircle, IconBrandNotion, IconCheck, IconPlus } from '@tabler/icons-react';
 import Link from 'next/link';
@@ -46,6 +46,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [selectedDriId, setSelectedDriId] = useState<string | null>(project?.driId ?? null);
   const [startDate, setStartDate] = useState<Date | null>(project?.startDate ?? null);
   const [endDate, setEndDate] = useState<Date | null>(project?.endDate ?? null);
+  const [isPublic, setIsPublic] = useState(project?.isPublic ?? false);
 
   // Get current workspace context for new projects
   const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
@@ -317,6 +318,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 driId: selectedDriId,
                 startDate: startDate,
                 endDate: endDate,
+                isPublic,
               });
             } else {
               createMutation.mutate({
@@ -332,6 +334,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 driId: selectedDriId,
                 startDate: startDate ?? undefined,
                 endDate: endDate ?? undefined,
+                isPublic,
               });
             }
           }}
@@ -663,6 +666,29 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
             }
             return null;
           })()}
+
+          {/* Public project toggle - only owner can change */}
+          <Tooltip
+            label={cannotEditMessage}
+            disabled={isOwner}
+            position="top-start"
+            withArrow
+          >
+            <div>
+              <Switch
+                label="Public project"
+                description="Allow any user to view this project and create actions"
+                checked={isPublic}
+                onChange={(event) => setIsPublic(event.currentTarget.checked)}
+                disabled={!isOwner}
+                mt="md"
+                styles={{
+                  label: { color: 'var(--color-text-primary)' },
+                  description: { color: 'var(--color-text-secondary)' },
+                }}
+              />
+            </div>
+          </Tooltip>
 
           <Group justify="flex-end" mt="xl">
             <Button variant="subtle" color="gray" onClick={handleClose}>

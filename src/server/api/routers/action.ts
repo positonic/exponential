@@ -69,6 +69,8 @@ const buildUserActionPermissions = (userId: string) => ({
     { project: { projectMembers: { some: { userId: userId } } } },
     // User is a member of the project's team
     { project: { team: { members: { some: { userId: userId } } } } },
+    // Action belongs to a public project
+    { project: { isPublic: true } },
   ],
 });
 
@@ -356,7 +358,50 @@ export const actionRouter = createTRPCRouter({
       if (!user) {
         throw new Error(`User not found: ${ctx.session.user.id}. Please ensure your account is properly set up.`);
       }
-      
+
+      // Verify user has access to the target project
+      if (input.projectId) {
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { id: true, createdById: true, teamId: true, workspaceId: true, isPublic: true },
+        });
+
+        if (!project) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Project not found",
+          });
+        }
+
+        let hasAccess = project.createdById === ctx.session.user.id || project.isPublic;
+
+        if (!hasAccess && project.teamId) {
+          const teamMembership = await ctx.db.teamUser.findFirst({
+            where: { teamId: project.teamId, userId: ctx.session.user.id },
+          });
+          hasAccess = !!teamMembership;
+        }
+
+        if (!hasAccess && project.workspaceId) {
+          const workspaceMembership = await ctx.db.workspaceUser.findUnique({
+            where: {
+              userId_workspaceId: {
+                userId: ctx.session.user.id,
+                workspaceId: project.workspaceId,
+              },
+            },
+          });
+          hasAccess = !!workspaceMembership;
+        }
+
+        if (!hasAccess) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have permission to create actions on this project",
+          });
+        }
+      }
+
       // Set default kanban status for project tasks
       const actionData: any = {
         ...input,

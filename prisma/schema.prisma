@@ -472,6 +472,7 @@ model Project {
   taskManagementTool    String?                    @default("internal")
   notionProjectId       String?
   driId                 String?
+  isPublic              Boolean                    @default(false)
   actions               Action[]
   aiInteractionHistory  AiInteractionHistory[]
   createdBy             User                       @relation(fields: [createdById], references: [id])
@@ -498,6 +499,7 @@ model Project {
   @@index([workspaceId])
   @@index([taskManagementTool])
   @@index([driId])
+  @@index([isPublic])
 }
 
 model Video {

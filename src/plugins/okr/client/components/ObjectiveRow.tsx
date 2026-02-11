@@ -230,7 +230,16 @@ export function ObjectiveRow({
             <Accordion
               multiple
               value={expandedKeyResults ?? []}
-              onChange={onToggleKeyResult}
+              onChange={(value) => {
+                // Only allow expanding KRs that have linked projects
+                const krIdsWithProjects = new Set(
+                  objective.keyResults
+                    .filter((kr) => kr.projects && kr.projects.length > 0)
+                    .map((kr) => kr.id)
+                );
+                const filtered = value.filter((id) => krIdsWithProjects.has(id));
+                onToggleKeyResult?.(filtered);
+              }}
               variant="default"
               chevronSize={0}
               styles={{

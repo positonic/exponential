@@ -675,6 +675,46 @@ export const keyResultRouter = createTRPCRouter({
       };
     }),
 
+  // Get objective and key result counts for all periods in a year
+  getCountsByYear: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+        year: z.string(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const periods = ["Annual", "Q1", "Q2", "Q3", "Q4"];
+      const counts: Record<string, { objectives: number; keyResults: number }> = {};
+
+      await Promise.all(
+        periods.map(async (periodType) => {
+          const period = `${periodType}-${input.year}`;
+          const where = {
+            userId: ctx.session.user.id,
+            ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+            period,
+          };
+
+          const [keyResultCount, objectiveIds] = await Promise.all([
+            ctx.db.keyResult.count({ where }),
+            ctx.db.keyResult.findMany({
+              where,
+              select: { goalId: true },
+              distinct: ["goalId"],
+            }),
+          ]);
+
+          counts[periodType] = {
+            objectives: objectiveIds.length,
+            keyResults: keyResultCount,
+          };
+        })
+      );
+
+      return counts;
+    }),
+
   // Get goals that can be used as objectives (for selection in forms)
   getAvailableGoals: protectedProcedure
     .input(

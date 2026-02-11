@@ -125,7 +125,9 @@ export const projectRouter = createTRPCRouter({
                   }
                 }
               }
-            }] : [])
+            }] : []),
+            // Public projects visible when not filtering by workspace
+            ...(!input?.workspaceId ? [{ isPublic: true }] : []),
           ]
         },
         orderBy: {
@@ -207,6 +209,7 @@ export const projectRouter = createTRPCRouter({
         notionProjectId: z.string().optional(),
         workspaceId: z.string().optional(),
         driId: z.string().nullable().optional(),
+        isPublic: z.boolean().optional().default(false),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -238,6 +241,7 @@ export const projectRouter = createTRPCRouter({
           workspaceId: input.workspaceId ?? null,
           teamId: input.teamId ?? null,
           driId: input.driId ?? null,
+          isPublic: input.isPublic ?? false,
         },
       });
 
@@ -300,10 +304,11 @@ export const projectRouter = createTRPCRouter({
         nextActionDate: z.date().nullable().optional(),
         startDate: z.date().nullable().optional(),
         endDate: z.date().nullable().optional(),
+        isPublic: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, lifeDomainIds, workspaceId, driId, ...updateData } = input;
+      const { id, goalIds, outcomeIds, lifeDomainIds, workspaceId, driId, isPublic, ...updateData } = input;
       
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -350,6 +355,8 @@ export const projectRouter = createTRPCRouter({
             : driId !== undefined
               ? { connect: { id: driId } }
               : undefined,
+          // Handle public visibility toggle
+          ...(isPublic !== undefined ? { isPublic } : {}),
         },
       });
     }),
@@ -439,7 +446,9 @@ export const projectRouter = createTRPCRouter({
             { team: { members: { some: { userId } } } },
             ...(input.workspaceId ? [{
               workspace: { members: { some: { userId } } }
-            }] : [])
+            }] : []),
+            // Public projects visible when not filtering by workspace
+            ...(!input.workspaceId ? [{ isPublic: true }] : []),
           ]
         },
         include: {
@@ -654,7 +663,7 @@ export const projectRouter = createTRPCRouter({
       // First check if project exists
       const projectExists = await ctx.db.project.findUnique({
         where: { id: input.id },
-        select: { id: true, createdById: true, teamId: true, workspaceId: true },
+        select: { id: true, createdById: true, teamId: true, workspaceId: true, isPublic: true },
       });
 
       if (!projectExists) {
@@ -664,8 +673,13 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
-      // Check permission: user is creator OR team member OR workspace member
+      // Check permission: user is creator OR public project OR team member OR workspace member
       let hasPermission = projectExists.createdById === ctx.session.user.id;
+
+      // Public projects are accessible to all authenticated users
+      if (!hasPermission && projectExists.isPublic) {
+        hasPermission = true;
+      }
 
       // Check team membership
       if (!hasPermission && projectExists.teamId) {

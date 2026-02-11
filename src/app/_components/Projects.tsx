@@ -108,14 +108,19 @@ function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspa
               className="border-b border-gray-700 hover:bg-white/5"
             >
               <td className="px-4 py-2">
-                <Link
-                  href={workspaceSlug
-                    ? `/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`
-                    : `/projects/${slugify(project.name)}-${project.id}`}
-                  className="text-text-primary hover:text-brand-primary hover:underline"
-                >
-                  {project.name}
-                </Link>
+                <Group gap="xs" wrap="nowrap">
+                  <Link
+                    href={workspaceSlug
+                      ? `/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`
+                      : `/projects/${slugify(project.name)}-${project.id}`}
+                    className="text-text-primary hover:text-brand-primary hover:underline"
+                  >
+                    {project.name}
+                  </Link>
+                  {project.isPublic && (
+                    <Badge variant="light" color="green" size="xs">Public</Badge>
+                  )}
+                </Group>
               </td>
               <td className="whitespace-nowrap px-4 py-2">
                 {project.actions ? (() => {
