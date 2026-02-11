@@ -168,7 +168,9 @@ export const telegramGatewayRouter = createTRPCRouter({
         where: { userId: ctx.session.user.id },
         data: { status: "DISCONNECTED", telegramUsername: null },
       })
-      .catch(() => {}); // Ignore if no session exists
+      .catch(() => {
+        // Ignore if no session exists
+      });
 
     return { success: true };
   }),
