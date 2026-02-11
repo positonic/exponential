@@ -1,3 +1,4 @@
+import { Octokit } from "@octokit/rest";
 import { initGithubClient, parseRepoInfo } from "../../githubService";
 import { type IStepExecutor, type StepContext } from "./IStepExecutor";
 
@@ -26,13 +27,9 @@ export class FetchGitHubCommitsStep implements IStepExecutor {
     const until = (input.until as string) ?? new Date().toISOString();
 
     const githubToken = process.env.GITHUB_TOKEN;
-    if (!githubToken) {
-      throw new Error(
-        "GITHUB_TOKEN not configured. Please add it to your .env file.",
-      );
-    }
-
-    const octokit = initGithubClient(githubToken);
+    const octokit = githubToken
+      ? initGithubClient(githubToken)
+      : new Octokit();
     const { repoOwner, repoName } = parseRepoInfo(owner, repo);
 
     const allCommits: GitHubCommit[] = [];
