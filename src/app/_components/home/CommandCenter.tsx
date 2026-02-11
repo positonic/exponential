@@ -10,6 +10,7 @@ import { HabitsDueToday } from "./HabitsDueToday";
 import { ProjectStateOverview } from "./ProjectStateOverview";
 import { IntegrationSuggestions } from "./IntegrationSuggestions";
 import { RitualCards } from "./RitualCards";
+import { WorkspaceSectionCards } from "./WorkspaceSectionCards";
 interface CommandCenterProps {
   variant?: "primary" | "workspace";
 }
@@ -56,6 +57,7 @@ export function CommandCenter({ variant = "primary" }: CommandCenterProps) {
       ) : (
         <>
           <RitualCards />
+          <WorkspaceSectionCards />
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <GoalsProgressDashboard />
             <ProjectStateOverview />

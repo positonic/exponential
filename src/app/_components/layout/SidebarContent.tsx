@@ -74,7 +74,6 @@ export function SidebarContent() {
               </div>
             </Accordion.Control>
             <Accordion.Panel>
-              {/* Core */}
               <NavLink href={`/w/${workspaceSlug}/home`} icon={IconBriefcase}>
                 Workspace Home
               </NavLink>
@@ -83,34 +82,6 @@ export function SidebarContent() {
               </NavLink>
               <NavLink href={`/w/${workspaceSlug}/projects`} icon={IconDeviceProjector}>
                 Projects
-              </NavLink>
-
-              <div className="my-1.5 border-t border-border-primary" />
-
-              {/* Resources */}
-              <NavLink href={`/w/${workspaceSlug}/knowledge-base`} icon={IconDatabase}>
-                Knowledge Hub
-              </NavLink>
-              <NavLink href={`/w/${workspaceSlug}/meetings`} icon={IconMicrophone}>
-                Meetings
-              </NavLink>
-
-              <div className="my-1.5 border-t border-border-primary" />
-
-              {/* Plugin navigation items for workspace section */}
-              {itemsBySection.workspace
-                ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
-                .sort((a, b) => a.order - b.order)
-                .map((item) => {
-                  const IconComponent = getIcon(item.icon);
-                  return (
-                    <NavLink key={item.id} href={item.href} icon={IconComponent}>
-                      {item.label}
-                    </NavLink>
-                  );
-                })}
-              <NavLink href={`/w/${workspaceSlug}/settings`} icon={IconSettings}>
-                Settings
               </NavLink>
             </Accordion.Panel>
           </Accordion.Item>
