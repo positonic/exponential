@@ -105,6 +105,34 @@ Migrations are essential for:
 - **Main Branch Protection**: Additional type checking (`npm run typecheck`) runs when pushing to main
 - **Vercel Ready**: Application configured for automatic Vercel deployment
 
+## Project Management (Exponential App)
+
+**Project URL**: https://www.exponential.im/w/exponential/projects/mvp_development-cmlf3zmw40005l804w0eg28p4?tab=tasks
+
+This is the primary project board for tracking all development work. Use the `exponential` CLI to query tasks and project status.
+
+### Proactive Behavior
+- **At session start**: Run `exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json` to check current tasks and priorities
+- **When picking up new work**: Check the project board for the latest task assignments and statuses
+- **After completing work**: Update task status if applicable
+
+### Key CLI Commands
+```bash
+# Check current tasks for this project
+exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json
+
+# View kanban board
+exponential actions kanban --json
+
+# List all projects in the workspace
+exponential projects list --workspace exponential --json
+
+# Check auth status
+exponential auth status
+```
+
+The CLI outputs JSON when piped or when `--json` is passed, making it easy to parse programmatically. In a terminal it uses colored pretty output.
+
 ## Architecture Overview
 
 This is a productivity management application built with the T3 Stack (Next.js 15, tRPC, Prisma, NextAuth.js) featuring:
