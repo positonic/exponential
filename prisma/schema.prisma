@@ -163,6 +163,8 @@ model User {
   leaderboardEntries          LeaderboardEntry[]
   // AI Assistant customization
   assistantsCreated           Assistant[]                @relation("AssistantCreatedBy")
+  // Telegram Gateway
+  telegramGatewaySession      TelegramGatewaySession?
 }
 
 model VerificationToken {
@@ -1359,6 +1361,26 @@ model WhatsAppGatewaySession {
   @@index([userId])
   @@index([status])
   @@index([sessionId])
+}
+
+// Telegram Gateway Sessions (for multi-tenant Telegram bot gateway)
+enum TelegramGatewayStatus {
+  DISCONNECTED
+  CONNECTED
+}
+
+model TelegramGatewaySession {
+  id               String                @id @default(cuid())
+  userId           String                @unique
+  telegramUsername  String?
+  agentId          String                @default("assistant")
+  status           TelegramGatewayStatus @default(DISCONNECTED)
+  connectedAt      DateTime?
+  lastActiveAt     DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ============================================

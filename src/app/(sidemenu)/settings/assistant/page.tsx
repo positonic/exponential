@@ -17,6 +17,7 @@ import { IconRobot, IconCheck, IconAlertCircle } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { TelegramGatewayCard } from '~/app/_components/TelegramGatewayCard';
 
 const PERSONALITY_PLACEHOLDER = `Example: You're warm, direct, and a little playful. You have opinions and share them honestly. Skip the corporate tone — be real. When something doesn't add up, say so (kindly). You're genuinely helpful, not performatively helpful.`;
 
@@ -239,6 +240,9 @@ export default function AssistantSettingsPage() {
             autosize
           />
         </Paper>
+
+        {/* Telegram Integration */}
+        <TelegramGatewayCard />
 
         {/* Save */}
         <Stack gap="sm">

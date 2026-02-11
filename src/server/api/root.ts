@@ -25,6 +25,7 @@ import { feedbackRouter } from "./routers/feedback";
 import { featureRequestRouter } from "./routers/featureRequest";
 import { whatsappRouter } from "./routers/whatsapp";
 import { whatsappGatewayRouter } from "./routers/whatsappGateway";
+import { telegramGatewayRouter } from "./routers/telegramGateway";
 import { notificationRouter } from "./routers/notification";
 import { onboardingRouter } from "./routers/onboarding";
 import { weeklyPlanningRouter } from "./routers/weeklyPlanning";
@@ -83,6 +84,7 @@ export const appRouter = createTRPCRouter({
   featureRequest: featureRequestRouter,
   whatsapp: whatsappRouter,
   whatsappGateway: whatsappGatewayRouter,
+  telegramGateway: telegramGatewayRouter,
   notification: notificationRouter,
   onboarding: onboardingRouter,
   weeklyPlanning: weeklyPlanningRouter,

@@ -48,7 +48,7 @@ export interface JWTUserPayload {
 /**
  * Supported JWT token types in the application.
  */
-export type JWTTokenType = "agent-context" | "whatsapp-gateway" | "api-token";
+export type JWTTokenType = "agent-context" | "whatsapp-gateway" | "telegram-gateway" | "api-token";
 
 /**
  * Options for unified JWT generation.
@@ -68,6 +68,7 @@ export interface GenerateJWTOptions {
 export const DEFAULT_EXPIRY: Record<JWTTokenType, number> = {
   "agent-context": 30,      // 30 minutes
   "whatsapp-gateway": 60,   // 1 hour
+  "telegram-gateway": 60,   // 1 hour
   "api-token": 1440,        // 24 hours (default, usually overridden)
 };
 
