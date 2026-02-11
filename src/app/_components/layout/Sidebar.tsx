@@ -31,8 +31,8 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         onClick={() => setIsMenuOpen(!isMenuOpen)}
         className={`
           fixed top-4 left-4 z-[100] p-2 rounded-lg bg-surface-secondary
-          transition-transform duration-200
-          ${isMenuOpen ? 'translate-x-[-100%]' : 'translate-x-0'}
+          transition-all duration-200
+          ${isMenuOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}
         `}
       >
         <IconMenu2 size={24} className="text-text-secondary" />
