@@ -7,13 +7,22 @@ interface SolutionIntroSectionProps {
 
 export function SolutionIntroSection({ id }: SolutionIntroSectionProps) {
   return (
-    <section id={id} className="bg-background-primary py-20 md:py-28">
-      <Container size="lg">
+    <section id={id} className="bg-gradient-to-b from-background-primary to-[#0C1835]/20 py-20 md:py-28 relative overflow-hidden">
+      {/* Subtle blue radial gradient overlay */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(circle at 50% 20%, rgba(3, 57, 207, 0.08) 0%, transparent 50%)",
+        }}
+      />
+      
+      <Container size="lg" className="relative z-10">
         <div className="text-center max-w-3xl mx-auto">
           {/* Headline */}
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-text-primary mb-6">
             From task management to{" "}
-            <span className="text-accent-indigo">collective flow.</span>
+            <span className="bg-gradient-to-r from-[#0339CF] to-[#60A5FA] bg-clip-text text-transparent">collective flow.</span>
           </h2>
 
           {/* Subheadline */}
@@ -23,39 +32,39 @@ export function SolutionIntroSection({ id }: SolutionIntroSectionProps) {
           </p>
 
           {/* Flow Diagram */}
-          <div className="bg-surface-secondary border border-border-primary rounded-2xl p-8 md:p-12">
+          <div className="bg-gradient-to-br from-[#0C1835]/40 to-[#1E3A8A]/20 backdrop-blur-sm border border-[#0339CF]/30 rounded-2xl p-8 md:p-12 shadow-lg shadow-[#0339CF]/10">
             <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-6 mb-8">
               {/* Goals */}
               <div className="flex flex-col items-center">
-                <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-accent-indigo/10 border border-accent-indigo/30 flex items-center justify-center mb-3">
+                <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-[#0339CF]/20 border-2 border-[#0339CF]/40 flex items-center justify-center mb-3 shadow-lg shadow-[#0339CF]/20">
                   <span className="text-3xl md:text-4xl">🎯</span>
                 </div>
                 <span className="font-semibold text-text-primary">Goals</span>
               </div>
 
               <IconArrowRight
-                className="text-text-muted hidden md:block"
+                className="text-[#60A5FA] hidden md:block"
                 size={28}
               />
-              <span className="text-text-muted text-2xl md:hidden">↓</span>
+              <span className="text-[#60A5FA] text-2xl md:hidden">↓</span>
 
               {/* Outcomes */}
               <div className="flex flex-col items-center">
-                <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-brand-success/10 border border-brand-success/30 flex items-center justify-center mb-3">
+                <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-[#2563EB]/20 border-2 border-[#2563EB]/40 flex items-center justify-center mb-3 shadow-lg shadow-[#2563EB]/20">
                   <span className="text-3xl md:text-4xl">📊</span>
                 </div>
                 <span className="font-semibold text-text-primary">Outcomes</span>
               </div>
 
               <IconArrowRight
-                className="text-text-muted hidden md:block"
+                className="text-[#60A5FA] hidden md:block"
                 size={28}
               />
-              <span className="text-text-muted text-2xl md:hidden">↓</span>
+              <span className="text-[#60A5FA] text-2xl md:hidden">↓</span>
 
               {/* Actions */}
               <div className="flex flex-col items-center">
-                <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-brand-warning/10 border border-brand-warning/30 flex items-center justify-center mb-3">
+                <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-[#60A5FA]/20 border-2 border-[#60A5FA]/40 flex items-center justify-center mb-3 shadow-lg shadow-[#60A5FA]/20">
                   <span className="text-3xl md:text-4xl">⚡</span>
                 </div>
                 <span className="font-semibold text-text-primary">Actions</span>
@@ -63,14 +72,14 @@ export function SolutionIntroSection({ id }: SolutionIntroSectionProps) {
             </div>
 
             {/* AI Layer Indicator */}
-            <div className="border-t border-border-primary pt-6">
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent-indigo/10 border border-accent-indigo/20">
+            <div className="border-t border-[#0339CF]/20 pt-6">
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#0339CF]/20 border border-[#0339CF]/40 shadow-lg shadow-[#0339CF]/10">
                 <span className="text-lg">🤖</span>
-                <span className="text-sm font-medium text-accent-indigo">
+                <span className="text-sm font-medium text-[#60A5FA]">
                   AI manages this layer
                 </span>
               </div>
-              <p className="text-text-muted mt-4 text-sm">
+              <p className="text-text-secondary mt-4 text-sm">
                 Humans stay aligned. AI handles the execution details.
               </p>
             </div>

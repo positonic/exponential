@@ -4,7 +4,7 @@ export function TodayLinkButton() {
   return (
     <Link
       href="/home"
-      className="px-5 py-2 text-sm font-semibold rounded-md flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-purple-500/20 text-white bg-gradient-to-r from-purple-500 to-blue-500"
+      className="px-5 py-2 text-sm font-semibold rounded-md flex items-center gap-2 transition-all hover:shadow-lg text-white bg-[#0339CF] hover:bg-[#0253E0]"
     >
       Dashboard
     </Link>

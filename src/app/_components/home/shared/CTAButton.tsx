@@ -27,7 +27,7 @@ export function CTAButton({
 
   const variantClasses = {
     primary:
-      "bg-cta-gradient text-white font-semibold rounded-lg shadow-lg hover:opacity-90 transition-all duration-200 hover:shadow-xl hover:scale-105",
+      "bg-[#0339CF] text-white font-semibold rounded-lg shadow-lg hover:bg-[#0253E0] transition-all duration-200 hover:shadow-xl hover:scale-105",
     secondary:
       "bg-surface-secondary border-2 border-border-primary text-text-primary font-semibold rounded-lg hover:bg-surface-hover hover:border-border-focus transition-all duration-200",
   };

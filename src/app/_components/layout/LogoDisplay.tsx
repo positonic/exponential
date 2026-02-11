@@ -9,9 +9,10 @@ interface LogoDisplayProps {
   href?: string;
   onClick?: () => void;
   className?: string; // This className will now primarily affect the text size
+  imageSize?: number; // Optional prop to control image size
 }
 
-export function LogoDisplay({ theme, href, onClick, className }: LogoDisplayProps) {
+export function LogoDisplay({ theme, href, onClick, className, imageSize = 60 }: LogoDisplayProps) {
   // Base classes for the container (now without text color/gradient)
   const containerClasses = `flex items-center`; 
   
@@ -22,8 +23,8 @@ export function LogoDisplay({ theme, href, onClick, className }: LogoDisplayProp
     <Image 
       src={theme.logo} 
       alt={`${theme.name} logo`} 
-      width={60} // Constrained size
-      height={60} // Constrained size
+      width={imageSize} // Use prop for size
+      height={imageSize} // Use prop for size
       className="mr-2 object-contain" // Margin and contain object fit
     />
   ) : (
@@ -33,9 +34,9 @@ export function LogoDisplay({ theme, href, onClick, className }: LogoDisplayProp
   const content = (
     <>
       {logoElement} {/* Render the conditional logo element */}
-      {/* Text with Inter font, white color, and size set to 1.75rem */}
+      {/* Text with Inter font, white color */}
       <span 
-        className="font-inter font-bold text-white text-[1.75rem]"
+        className="font-inter font-bold text-white"
         style={{ fontFamily: theme.fontFamily }}
       >
         {theme.name}

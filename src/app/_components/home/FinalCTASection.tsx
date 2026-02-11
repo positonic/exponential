@@ -38,9 +38,8 @@ export function FinalCTASection({ id }: FinalCTASectionProps) {
 
           <CTAButton
             href="/signin"
-            variant="secondary"
+            variant="primary"
             size="large"
-            className="bg-white text-accent-indigo hover:bg-white/90 border-white"
           >
             Try Now For Free
           </CTAButton>

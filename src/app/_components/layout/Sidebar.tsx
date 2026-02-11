@@ -62,6 +62,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
             href="/" 
             onClick={() => setIsMenuOpen(false)}
             className="text"
+            imageSize={40}
           />
           
           {/* Close button */}
