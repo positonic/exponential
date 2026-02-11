@@ -22,7 +22,7 @@ export function GetStartedButton({
   return (
     <Link 
       href={href} 
-      className={`${sizeClasses} font-semibold rounded-md flex items-center gap-2 transition-all hover:shadow-lg text-white bg-[#0339CF] hover:bg-[#0253E0] ${className}`}
+      className={`${sizeClasses} font-semibold rounded-md flex items-center gap-2 transition-all hover:shadow-lg text-white bg-brand-primary hover:bg-brand-primary-hover ${className}`}
     >
       Get Started {showArrow && <span className="ml-1">→</span>}
     </Link>
