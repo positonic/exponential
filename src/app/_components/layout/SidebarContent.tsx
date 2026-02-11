@@ -83,6 +83,9 @@ export function SidebarContent() {
               <NavLink href={`/w/${workspaceSlug}/projects`} icon={IconDeviceProjector}>
                 Projects
               </NavLink>
+              <NavLink href={`/w/${workspaceSlug}/content`} icon={IconWriting}>
+                Content
+              </NavLink>
             </Accordion.Panel>
           </Accordion.Item>
         )}
