@@ -1,6 +1,6 @@
 "use client";
 
-import { Text, Progress, Badge, Collapse, ActionIcon, Tooltip } from "@mantine/core";
+import { Text, Progress, Badge, Collapse, ActionIcon, Tooltip, Accordion } from "@mantine/core";
 import { IconChevronRight, IconTrash, IconPencil, IconPlus, IconMessageCircle } from "@tabler/icons-react";
 import { ObjectiveIndicator, getObjectiveColor } from "./ObjectiveIndicator";
 import { DeltaIndicator, calculateAggregateDelta } from "./DeltaIndicator";
@@ -71,8 +71,8 @@ interface ObjectiveRowProps {
   onEditKeyResult?: (keyResult: KeyResult) => void;
   onViewObjective?: () => void;
   onViewKeyResult?: (keyResult: KeyResult) => void;
-  expandedKeyResults?: Set<string>;
-  onToggleKeyResult?: (krId: string) => void;
+  expandedKeyResults?: string[];
+  onToggleKeyResult?: (value: string[]) => void;
 }
 
 /**
@@ -227,19 +227,30 @@ export function ObjectiveRow({
       <Collapse in={isExpanded}>
         <div className="ml-4 mb-2">
           {hasKeyResults ? (
-            objective.keyResults.map((kr, index) => (
-              <KeyResultRow
-                key={kr.id}
-                keyResult={kr}
-                parentColor={objectiveColor}
-                isLastChild={index === objective.keyResults.length - 1}
-                onEdit={onEditKeyResult}
-                onViewDetails={onViewKeyResult ? () => onViewKeyResult(kr) : undefined}
-                isExpanded={expandedKeyResults?.has(kr.id)}
-                onToggleExpand={onToggleKeyResult ? () => onToggleKeyResult(kr.id) : undefined}
-                linkedProjects={kr.projects?.map((p) => p.project)}
-              />
-            ))
+            <Accordion
+              multiple
+              value={expandedKeyResults ?? []}
+              onChange={onToggleKeyResult}
+              variant="default"
+              chevronSize={0}
+              styles={{
+                item: { borderBottom: "none" },
+                control: { padding: 0 },
+                content: { padding: 0 },
+              }}
+            >
+              {objective.keyResults.map((kr, index) => (
+                <KeyResultRow
+                  key={kr.id}
+                  keyResult={kr}
+                  parentColor={objectiveColor}
+                  isLastChild={index === objective.keyResults.length - 1}
+                  onEdit={onEditKeyResult}
+                  onViewDetails={onViewKeyResult ? () => onViewKeyResult(kr) : undefined}
+                  linkedProjects={kr.projects?.map((p) => p.project)}
+                />
+              ))}
+            </Accordion>
           ) : (
             <Text size="sm" className="text-text-muted py-2 pl-8">
               No key results yet. Add one to track progress.

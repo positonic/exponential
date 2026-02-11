@@ -6,7 +6,7 @@ import {
   Avatar,
   Tooltip,
   ActionIcon,
-  Collapse,
+  Accordion,
   Badge,
 } from "@mantine/core";
 import {
@@ -58,8 +58,6 @@ interface KeyResultRowProps {
   isLastChild: boolean;
   onEdit?: (keyResult: KeyResultData) => void;
   onViewDetails?: () => void;
-  isExpanded?: boolean;
-  onToggleExpand?: () => void;
   linkedProjects?: LinkedProject[];
 }
 
@@ -93,8 +91,9 @@ function calculateProgress(keyResult: KeyResultData): number {
 }
 
 /**
- * A single key result row with tree connector, color indicator,
- * title, avatar, delta, and compact progress bar.
+ * A single key result rendered as an Accordion.Item.
+ * Shows tree connector, color indicator, title, avatar, delta, progress bar.
+ * Expands to reveal linked projects.
  */
 export function KeyResultRow({
   keyResult,
@@ -102,8 +101,6 @@ export function KeyResultRow({
   isLastChild,
   onEdit,
   onViewDetails,
-  isExpanded,
-  onToggleExpand,
   linkedProjects,
 }: KeyResultRowProps) {
   const delta = calculateDelta(keyResult);
@@ -120,137 +117,119 @@ export function KeyResultRow({
   const hasProjects = linkedProjects && linkedProjects.length > 0;
 
   return (
-    <div>
-      <div
-        className={`group flex items-center gap-3 py-2 pl-6 hover:bg-surface-hover rounded transition-colors ${hasProjects && onToggleExpand ? 'cursor-pointer' : ''}`}
-        onClick={hasProjects && onToggleExpand ? onToggleExpand : undefined}
-        role={hasProjects && onToggleExpand ? "button" : undefined}
-        tabIndex={hasProjects && onToggleExpand ? 0 : undefined}
-        onKeyDown={(e) => {
-          if (hasProjects && onToggleExpand && (e.key === "Enter" || e.key === " ")) {
-            e.preventDefault();
-            onToggleExpand();
-          }
+    <Accordion.Item value={keyResult.id} className="border-none">
+      <Accordion.Control
+        className="group hover:bg-surface-hover rounded transition-colors"
+        chevron={
+          hasProjects ? (
+            <IconChevronRight size={14} className="text-text-muted" />
+          ) : (
+            <div className="w-[14px]" />
+          )
+        }
+        disabled={!hasProjects}
+        styles={{
+          control: { padding: "0.5rem 0 0.5rem 1.5rem" },
+          chevron: { marginInlineStart: 0, width: 22 },
         }}
       >
-        {/* Expand/collapse chevron (only if has linked projects) */}
-        {hasProjects && onToggleExpand ? (
-          <ActionIcon
-            variant="subtle"
-            size="xs"
-            className="flex-shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleExpand();
-            }}
-            aria-label={isExpanded ? "Collapse projects" : "Expand projects"}
-          >
-            <IconChevronRight
-              size={14}
-              className={`text-text-muted transition-transform ${
-                isExpanded ? "rotate-90" : ""
+        <div className="flex items-center gap-3">
+          {/* Tree connector line */}
+          <div className="relative w-5 flex-shrink-0">
+            {/* Horizontal line to item */}
+            <div className="absolute top-1/2 left-0 w-full h-px bg-border-secondary" />
+            {/* Vertical line (hidden for last child bottom half) */}
+            <div
+              className={`absolute left-0 w-px bg-border-secondary ${
+                isLastChild ? "top-0 h-1/2" : "top-0 h-full"
               }`}
             />
-          </ActionIcon>
-        ) : (
-          <div className="w-[22px] flex-shrink-0" /> // Spacer when no projects
-        )}
+          </div>
 
-        {/* Tree connector line */}
-        <div className="relative w-5 flex-shrink-0">
-        {/* Horizontal line to item */}
-        <div className="absolute top-1/2 left-0 w-full h-px bg-border-secondary" />
-        {/* Vertical line (hidden for last child bottom half) */}
-        <div
-          className={`absolute left-0 w-px bg-border-secondary ${
-            isLastChild ? "top-0 h-1/2" : "top-0 h-full"
-          }`}
-        />
-      </div>
+          {/* Color indicator (inherits parent objective color) */}
+          <div
+            className="w-1 h-4 rounded-sm flex-shrink-0"
+            style={{ backgroundColor: parentColor }}
+          />
 
-      {/* Color indicator (inherits parent objective color) */}
-      <div
-        className="w-1 h-4 rounded-sm flex-shrink-0"
-        style={{ backgroundColor: parentColor }}
-      />
+          {/* Title - takes remaining space */}
+          <Text size="sm" className="flex-1 truncate text-text-primary">
+            {keyResult.title}
+          </Text>
 
-      {/* Title - takes remaining space */}
-      <Text size="sm" className="flex-1 truncate text-text-primary">
-        {keyResult.title}
-      </Text>
+          {/* Edit button */}
+          {onEdit && (
+            <Tooltip label="Edit">
+              <ActionIcon
+                variant="subtle"
+                size="xs"
+                className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                aria-label="Edit key result"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit(keyResult);
+                }}
+              >
+                <IconPencil size={14} />
+              </ActionIcon>
+            </Tooltip>
+          )}
 
-      {/* Edit button */}
-      {onEdit && (
-        <Tooltip label="Edit">
-          <ActionIcon
-            variant="subtle"
-            size="xs"
-            className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-            aria-label="Edit key result"
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit(keyResult);
-            }}
-          >
-            <IconPencil size={14} />
-          </ActionIcon>
-        </Tooltip>
-      )}
+          {/* Discussion button */}
+          {onViewDetails && (
+            <Tooltip label="Discussion">
+              <ActionIcon
+                variant="subtle"
+                size="xs"
+                className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                aria-label="View discussion"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewDetails();
+                }}
+              >
+                <IconMessageCircle size={14} />
+              </ActionIcon>
+            </Tooltip>
+          )}
 
-      {/* Discussion button */}
-      {onViewDetails && (
-        <Tooltip label="Discussion">
-          <ActionIcon
-            variant="subtle"
-            size="xs"
-            className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-            aria-label="View discussion"
-            onClick={(e) => {
-              e.stopPropagation();
-              onViewDetails();
-            }}
-          >
-            <IconMessageCircle size={14} />
-          </ActionIcon>
-        </Tooltip>
-      )}
+          {/* DRI Avatar */}
+          {user ? (
+            <Tooltip label={user.name ?? user.email ?? "Owner"}>
+              <Avatar
+                size="sm"
+                src={user.image}
+                radius="xl"
+                className="flex-shrink-0"
+                styles={{
+                  root: {
+                    backgroundColor: avatarBgColor,
+                    color: avatarTextColor,
+                    fontWeight: 600,
+                    fontSize: "12px",
+                  },
+                }}
+              >
+                {!user.image && initial}
+              </Avatar>
+            </Tooltip>
+          ) : (
+            <div className="w-[26px] flex-shrink-0" />
+          )}
 
-      {/* DRI Avatar */}
-      {user ? (
-        <Tooltip label={user.name ?? user.email ?? "Owner"}>
-          <Avatar
-            size="sm"
-            src={user.image}
-            radius="xl"
-            className="flex-shrink-0"
-            styles={{
-              root: {
-                backgroundColor: avatarBgColor,
-                color: avatarTextColor,
-                fontWeight: 600,
-                fontSize: "12px",
-              },
-            }}
-          >
-            {!user.image && initial}
-          </Avatar>
-        </Tooltip>
-      ) : (
-        <div className="w-[26px] flex-shrink-0" /> // Spacer when no avatar
-      )}
+          {/* Delta indicator */}
+          <DeltaIndicator delta={delta} size="xs" />
 
-      {/* Delta indicator */}
-      <DeltaIndicator delta={delta} size="xs" />
+          {/* Compact progress bar - fixed width on right side */}
+          <div className="w-24 flex-shrink-0">
+            <Progress value={progress} size="sm" color={statusColor} radius="xl" />
+          </div>
+        </div>
+      </Accordion.Control>
 
-      {/* Compact progress bar - fixed width on right side */}
-      <div className="w-24 flex-shrink-0">
-        <Progress value={progress} size="sm" color={statusColor} radius="xl" />
-      </div>
-      </div>
-
-      {/* Linked Projects (collapsible) */}
+      {/* Linked Projects panel */}
       {hasProjects && (
-        <Collapse in={isExpanded ?? false}>
+        <Accordion.Panel>
           <div className="ml-16 py-1 space-y-1">
             {linkedProjects.map((project) => (
               <div
@@ -268,8 +247,8 @@ export function KeyResultRow({
               </div>
             ))}
           </div>
-        </Collapse>
+        </Accordion.Panel>
       )}
-    </div>
+    </Accordion.Item>
   );
 }

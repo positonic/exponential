@@ -3,8 +3,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Modal, Menu, ActionIcon, Tooltip, Avatar } from '@mantine/core';
-import { IconPlus, IconFolder, IconChevronDown, IconBuilding } from '@tabler/icons-react';
-import { useAgentModal } from '~/providers/AgentModalProvider';
+import { IconPlus, IconFolder, IconChevronDown, IconBuilding, IconHistory } from '@tabler/icons-react';
+import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 
@@ -22,12 +22,14 @@ function AgentChatModalHeader({
   activeAgentName,
   onSelectAgent,
   onSelectDefault,
+  onSelectConversation,
 }: {
   activeAgentName: string;
   onSelectAgent: (name: string) => void;
   onSelectDefault: () => void;
+  onSelectConversation: (convId: string) => void;
 }) {
-  const { isOpen, workspaceId: overrideWorkspaceId, setWorkspaceId, projectId, setProjectId, clearChat } = useAgentModal();
+  const { isOpen, workspaceId: overrideWorkspaceId, setWorkspaceId, projectId, setProjectId, conversationId, clearChat } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
   const effectiveWorkspaceId = overrideWorkspaceId ?? urlWorkspaceId;
 
@@ -50,6 +52,11 @@ function AgentChatModalHeader({
     staleTime: 10 * 60 * 1000,
   });
 
+  const { data: conversations } = api.aiInteraction.getConversationList.useQuery(
+    { limit: 15 },
+    { enabled: isOpen }
+  );
+
   const selectedWorkspaceName = workspaces?.find(w => w.id === effectiveWorkspaceId)?.name ?? 'Workspace';
   const selectedProjectName = projectId
     ? projects?.find(p => p.id === projectId)?.name ?? 'Project'
@@ -61,6 +68,18 @@ function AgentChatModalHeader({
   }, [setWorkspaceId, setProjectId]);
 
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase();
+
+  const formatRelativeTime = (date: Date) => {
+    const now = new Date();
+    const diffMs = now.getTime() - new Date(date).getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  };
 
   return (
     <div className="flex flex-shrink-0 items-center justify-between gap-1 border-b border-border-primary px-2 py-1.5">
@@ -122,7 +141,7 @@ function AgentChatModalHeader({
         </Menu>
       </div>
 
-      {/* Right: Agent selector + New Chat */}
+      {/* Right: Agent selector + Conversation history + New Chat */}
       <div className="flex items-center gap-1">
         {/* Agent selector */}
         <Menu shadow="md" width={200}>
@@ -173,6 +192,41 @@ function AgentChatModalHeader({
           </Menu.Dropdown>
         </Menu>
 
+        {/* Conversation history selector */}
+        <Menu shadow="md" width={280}>
+          <Menu.Target>
+            <Tooltip label="Conversation history" position="bottom">
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                className="text-text-secondary hover:text-text-primary"
+              >
+                <IconHistory size={16} />
+              </ActionIcon>
+            </Tooltip>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Label>Recent Conversations</Menu.Label>
+            {(!conversations || conversations.length === 0) && (
+              <Menu.Item disabled>No conversations yet</Menu.Item>
+            )}
+            {conversations?.map(conv => (
+              <Menu.Item
+                key={conv.conversationId}
+                onClick={() => onSelectConversation(conv.conversationId)}
+                className={conversationId === conv.conversationId ? 'bg-surface-secondary' : ''}
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="truncate text-sm">{conv.title}</span>
+                  <span className="text-xs text-text-muted">
+                    {conv.agentName ? `${conv.agentName} · ` : ''}{formatRelativeTime(conv.lastActivity)}
+                  </span>
+                </div>
+              </Menu.Item>
+            ))}
+          </Menu.Dropdown>
+        </Menu>
+
         {/* New Chat button */}
         <Tooltip label="New chat" position="bottom">
           <ActionIcon
@@ -190,12 +244,15 @@ function AgentChatModalHeader({
 }
 
 export function AgentChatModal() {
-  const { isOpen, workspaceId: overrideWorkspaceId, projectId, messages, closeModal } = useAgentModal();
+  const { isOpen, workspaceId: overrideWorkspaceId, projectId, messages, conversationId, loadConversation, closeModal } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
   const effectiveWorkspaceId = overrideWorkspaceId ?? urlWorkspaceId;
 
   // Agent selection state (same pattern as AgentChatPage)
   const [selectedAgent, setSelectedAgent] = useState<string>('');
+
+  // Conversation loading state (same pattern as AgentChatPage)
+  const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
 
   // Fetch custom assistant to determine default agent name
   const { data: customAssistant } = api.assistant.getDefault.useQuery(
@@ -210,6 +267,32 @@ export function AgentChatModal() {
     );
     return lastAiMessage?.agentName ?? customAssistant?.name ?? 'Zoe';
   }, [messages, customAssistant?.name]);
+
+  // Fetch conversation history when loading a previous conversation
+  const { data: conversationHistory } = api.aiInteraction.getConversationHistory.useQuery(
+    { conversationId: loadingConversationId! },
+    {
+      enabled: !!loadingConversationId,
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  // Load conversation when history is fetched
+  useEffect(() => {
+    if (conversationHistory && loadingConversationId) {
+      const msgs: ChatMessage[] = conversationHistory.flatMap(h => [
+        { type: 'human' as const, content: h.userMessage },
+        { type: 'ai' as const, content: h.aiResponse, agentName: h.agentName ?? undefined },
+      ]);
+      loadConversation(loadingConversationId, msgs);
+      setLoadingConversationId(null);
+    }
+  }, [conversationHistory, loadingConversationId, loadConversation]);
+
+  const handleSelectConversation = useCallback((convId: string) => {
+    if (convId === conversationId) return;
+    setLoadingConversationId(convId);
+  }, [conversationId]);
 
   const handleSelectAgent = useCallback((agentName: string) => {
     setSelectedAgent(`@${agentName} `);
@@ -265,7 +348,13 @@ export function AgentChatModal() {
             activeAgentName={activeAgentName}
             onSelectAgent={handleSelectAgent}
             onSelectDefault={handleSelectDefault}
+            onSelectConversation={handleSelectConversation}
           />
+        )}
+        {loadingConversationId && (
+          <div className="flex items-center justify-center py-2 text-xs text-text-muted">
+            Loading conversation...
+          </div>
         )}
         <div className="min-h-0 flex-1">
           <ManyChat
