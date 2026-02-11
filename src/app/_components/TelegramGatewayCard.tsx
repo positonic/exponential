@@ -23,7 +23,11 @@ const AGENT_OPTIONS = [
   { value: "weather", label: "Weather Agent" },
 ];
 
-export function TelegramGatewayCard() {
+interface TelegramGatewayCardProps {
+  assistantSaved?: boolean;
+}
+
+export function TelegramGatewayCard({ assistantSaved = false }: TelegramGatewayCardProps) {
   const [agentId, setAgentId] = useState("assistant");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -151,8 +155,9 @@ export function TelegramGatewayCard() {
             onClick={() => initiatePairing.mutate({ agentId })}
             loading={initiatePairing.isPending}
             leftSection={<IconBrandTelegram size={18} />}
+            disabled={!assistantSaved}
           >
-            Connect Telegram
+            {assistantSaved ? 'Connect Telegram' : '1st - Click Update Assistant'}
           </Button>
         </Stack>
       )}

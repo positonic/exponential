@@ -242,7 +242,7 @@ export default function AssistantSettingsPage() {
         </Paper>
 
         {/* Telegram Integration */}
-        <TelegramGatewayCard />
+        <TelegramGatewayCard assistantSaved={!!assistant || saved} />
 
         {/* Save */}
         <Stack gap="sm">
