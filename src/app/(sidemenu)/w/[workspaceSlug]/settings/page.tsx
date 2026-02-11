@@ -18,9 +18,10 @@ import {
   Tooltip,
   Divider,
   SegmentedControl,
+  Switch,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -63,6 +64,21 @@ export default function WorkspaceSettingsPage() {
     { enabled: !!workspace?.slug }
   );
   const currentEffortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
+  const advancedActionsEnabled = workspaceData?.enableAdvancedActions ?? false;
+
+  const updateAdvancedActionsMutation = api.workspace.update.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getBySlug.invalidate();
+      notifications.show({
+        title: 'Settings Updated',
+        message: advancedActionsEnabled
+          ? 'Advanced action features have been disabled'
+          : 'Advanced action features have been enabled',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+  });
 
   const updateEffortUnitMutation = api.workspace.update.useMutation({
     onSuccess: () => {
@@ -311,7 +327,37 @@ export default function WorkspaceSettingsPage() {
           />
         </Card>
 
+        {/* Advanced Action Features */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Group justify="space-between" align="flex-start">
+            <Group gap="md">
+              <IconRocket size={24} className="text-text-muted" />
+              <div>
+                <Title order={3} className="text-text-primary">
+                  Advanced Action Features
+                </Title>
+                <Text size="sm" className="text-text-muted" maw={500}>
+                  Enable epics, sprint assignment, effort estimates, and dependency tracking for actions in this workspace.
+                </Text>
+              </div>
+            </Group>
+            <Switch
+              checked={advancedActionsEnabled}
+              onChange={(event) => {
+                if (!workspaceId) return;
+                updateAdvancedActionsMutation.mutate({
+                  workspaceId,
+                  enableAdvancedActions: event.currentTarget.checked,
+                });
+              }}
+              disabled={!canEdit || updateAdvancedActionsMutation.isPending}
+              size="lg"
+            />
+          </Group>
+        </Card>
+
         {/* Effort Estimation */}
+        {advancedActionsEnabled && (
         <Card className="bg-surface-secondary border-border-primary" withBorder>
           <Group gap="md" mb="md">
             <IconFlame size={24} className="text-text-muted" />
@@ -346,6 +392,7 @@ export default function WorkspaceSettingsPage() {
             Changing the estimation method will not convert existing effort values on tasks.
           </Text>
         </Card>
+        )}
 
         {/* Plugins */}
         <Card

@@ -103,6 +103,10 @@ All tasks for a specific project displayed on a Kanban board:
 
 Drag and drop to change status and reorder within columns.
 
+## Advanced Action Features
+
+The features below — Epics, Sprint Assignment, Effort Estimates, and Dependencies — are available when **Advanced Action Features** is turned on in your [Workspace Settings](/docs/features/settings#advanced-action-features). A workspace owner or admin can enable this at any time.
+
 ## Epics
 
 Epics let you group related actions into larger initiatives. When you're working on something that involves multiple steps — like launching a feature or running a campaign — an epic keeps everything connected.

@@ -9,6 +9,8 @@ Sometimes a single action isn't enough to capture a bigger piece of work. That's
 
 Think of epics like chapters in a book — each chapter (epic) contains several pages (actions) that all contribute to the same story.
 
+> **Getting started:** Epics are part of the Advanced Action Features. To use them, a workspace owner or admin needs to turn on **Advanced Action Features** in [Workspace Settings](/docs/features/settings#advanced-action-features).
+
 ### What You Can Do With Epics
 
 - **Group related work** — Bundle actions that belong to the same initiative

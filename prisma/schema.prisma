@@ -194,7 +194,8 @@ model Workspace {
   updatedAt   DateTime @updatedAt
   ownerId     String
 
-  effortUnit  EffortUnit  @default(STORY_POINTS)
+  effortUnit              EffortUnit  @default(STORY_POINTS)
+  enableAdvancedActions   Boolean     @default(false)
 
   owner             User                       @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members           WorkspaceUser[]

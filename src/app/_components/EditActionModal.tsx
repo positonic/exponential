@@ -62,6 +62,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
     { enabled: !!workspaceSlug && opened }
   );
   const effortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
+  const advancedActionsEnabled = workspaceData?.enableAdvancedActions ?? false;
 
   // Tag mutation for saving tags
   const setTagsMutation = api.tag.setActionTags.useMutation({
@@ -310,15 +311,17 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
         onClose={onClose}
         submitLabel="Save changes"
         isSubmitting={updateAction.isPending}
-        sprintListId={sprintListId}
-        setSprintListId={setSprintListId}
-        epicId={epicId}
-        setEpicId={setEpicId}
-        effortEstimate={effortEstimate}
-        setEffortEstimate={setEffortEstimate}
-        effortUnit={effortUnit}
-        blockedByIds={blockedByIds}
-        setBlockedByIds={setBlockedByIds}
+        {...(advancedActionsEnabled ? {
+          sprintListId,
+          setSprintListId,
+          epicId,
+          setEpicId,
+          effortEstimate,
+          setEffortEstimate,
+          effortUnit,
+          blockedByIds,
+          setBlockedByIds,
+        } : {})}
       />
     </Modal>
 

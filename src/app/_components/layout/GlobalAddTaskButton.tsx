@@ -10,6 +10,8 @@ import { AssignActionModal } from "../AssignActionModal";
 import { IconPlus } from "@tabler/icons-react";
 import type { ActionStatus } from "@prisma/client";
 import { useSession } from "next-auth/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+import type { EffortUnit } from "~/types/effort";
 
 export function GlobalAddTaskButton() {
   const { data: session } = useSession();
@@ -26,6 +28,20 @@ export function GlobalAddTaskButton() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
   const [createdActionId, setCreatedActionId] = useState<string | null>(null);
+  // Advanced action fields
+  const [sprintListId, setSprintListId] = useState<string | null>(null);
+  const [epicId, setEpicId] = useState<string | null>(null);
+  const [effortEstimate, setEffortEstimate] = useState<number | null>(null);
+  const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
+
+  // Workspace context for advanced features
+  const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
+  const { data: workspaceData } = api.workspace.getBySlug.useQuery(
+    { slug: workspaceSlug ?? "" },
+    { enabled: !!workspaceSlug }
+  );
+  const advancedActionsEnabled = workspaceData?.enableAdvancedActions ?? false;
+  const effortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? "STORY_POINTS";
 
   const utils = api.useUtils();
 
@@ -33,6 +49,13 @@ export function GlobalAddTaskButton() {
   const assignMutation = api.action.assign.useMutation({
     onError: (error) => {
       console.error("Assignment failed:", error);
+    },
+  });
+
+  // List mutation for post-creation sprint assignment
+  const addToListMutation = api.list.addAction.useMutation({
+    onError: (error) => {
+      console.error("Sprint assignment failed:", error);
     },
   });
 
@@ -69,7 +92,7 @@ export function GlobalAddTaskButton() {
         duration: null,
         transcriptionSessionId: null,
         teamId: null,
-        workspaceId: null,
+        workspaceId: currentWorkspaceId ?? null,
         kanbanStatus: newAction.projectId ? ("TODO" as ActionStatus) : null,
         kanbanOrder: null,
         completedAt: null,
@@ -93,11 +116,11 @@ export function GlobalAddTaskButton() {
         isRecurring: false,
         recurringParentId: null,
         instanceDate: null,
-        blockedByIds: [] as string[],
+        blockedByIds: newAction.blockedByIds ?? ([] as string[]),
         blockingIds: [] as string[],
         isReminderOnly: false,
-        epicId: null,
-        effortEstimate: null,
+        epicId: newAction.epicId ?? null,
+        effortEstimate: newAction.effortEstimate ?? null,
         epic: null,
         project: newAction.projectId
           ? (previousState.projects?.find((p) => p.id === newAction.projectId) ??
@@ -189,6 +212,18 @@ export function GlobalAddTaskButton() {
     onSuccess: async (data) => {
       setCreatedActionId(data.id);
 
+      // Handle sprint assignment
+      if (sprintListId) {
+        try {
+          await addToListMutation.mutateAsync({
+            listId: sprintListId,
+            actionId: data.id,
+          });
+        } catch (error) {
+          console.error("Failed to assign sprint:", error);
+        }
+      }
+
       if (selectedAssigneeIds.length > 0) {
         try {
           await assignMutation.mutateAsync({
@@ -210,6 +245,10 @@ export function GlobalAddTaskButton() {
       setDuration(null);
       setSelectedAssigneeIds([]);
       setSelectedTagIds([]);
+      setSprintListId(null);
+      setEpicId(null);
+      setEffortEstimate(null);
+      setBlockedByIds([]);
       close();
     },
   });
@@ -221,10 +260,14 @@ export function GlobalAddTaskButton() {
       name,
       description: description || undefined,
       projectId: projectId || undefined,
+      workspaceId: currentWorkspaceId ?? undefined,
       priority: priority || "Quick",
       dueDate: dueDate || undefined,
       scheduledStart: scheduledStart || undefined,
       duration: duration || undefined,
+      epicId: epicId || undefined,
+      effortEstimate: effortEstimate || undefined,
+      blockedByIds: blockedByIds.length > 0 ? blockedByIds : undefined,
     };
 
     createAction.mutate(actionData);
@@ -289,11 +332,23 @@ export function GlobalAddTaskButton() {
           selectedTagIds={selectedTagIds}
           onTagChange={setSelectedTagIds}
           actionId={createdActionId || undefined}
+          workspaceId={currentWorkspaceId ?? undefined}
           onAssigneeClick={handleAssigneeClick}
           onSubmit={handleSubmit}
           onClose={close}
           submitLabel="New action"
           isSubmitting={createAction.isPending}
+          {...(advancedActionsEnabled ? {
+            sprintListId,
+            setSprintListId,
+            epicId,
+            setEpicId,
+            effortEstimate,
+            setEffortEstimate,
+            effortUnit,
+            blockedByIds,
+            setBlockedByIds,
+          } : {})}
         />
       </Modal>
 

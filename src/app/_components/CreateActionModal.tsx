@@ -54,6 +54,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     { enabled: !!workspaceSlug }
   );
   const effortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
+  const advancedActionsEnabled = workspaceData?.enableAdvancedActions ?? false;
 
   const utils = api.useUtils();
   
@@ -435,15 +436,17 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           onClose={close}
           submitLabel="New action"
           isSubmitting={createAction.isPending}
-          sprintListId={sprintListId}
-          setSprintListId={setSprintListId}
-          epicId={epicId}
-          setEpicId={setEpicId}
-          effortEstimate={effortEstimate}
-          setEffortEstimate={setEffortEstimate}
-          effortUnit={effortUnit}
-          blockedByIds={blockedByIds}
-          setBlockedByIds={setBlockedByIds}
+          {...(advancedActionsEnabled ? {
+            sprintListId,
+            setSprintListId,
+            epicId,
+            setEpicId,
+            effortEstimate,
+            setEffortEstimate,
+            effortUnit,
+            blockedByIds,
+            setBlockedByIds,
+          } : {})}
         />
       </Modal>
       

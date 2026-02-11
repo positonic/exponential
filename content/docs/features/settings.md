@@ -11,7 +11,25 @@ The Settings page lets you customize your sidebar navigation. Hide features you 
 
 Navigate to **Settings** in the sidebar to manage your workspace preferences and navigation.
 
+## Advanced Action Features
+
+This toggle enables a richer set of tools for managing your actions, including epics, sprint assignment, effort estimates, and dependency tracking. These features are designed for teams or individuals who want more structure in how they plan and execute work.
+
+### Turning It On
+
+1. Go to **Settings** in your workspace
+2. Find the **Advanced Action Features** card
+3. Flip the toggle to turn it on
+
+Once enabled, you'll see new options when creating or editing any action — including buttons for Epic, Sprint, Effort, and Blockers. Turning it off hides these options, but doesn't delete any data you've already entered.
+
+Only workspace owners and admins can change this setting.
+
+[Learn more about Epics](/docs/features/epics) | [Learn more about Actions](/docs/features/actions#advanced-action-features)
+
 ## Effort Estimation
+
+> This setting only appears when [Advanced Action Features](#advanced-action-features) is turned on.
 
 Choose how your team estimates the size of work. This setting applies to everyone in the workspace, so your whole team uses the same method.
 
