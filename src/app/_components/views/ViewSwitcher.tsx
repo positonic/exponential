@@ -75,8 +75,8 @@ export function ViewSwitcher({
       styles={{
         tab: {
           '&[data-active]': {
-            backgroundColor: '#1F5DE0',
-            color: '#ffffff',
+            backgroundColor: 'var(--color-brand-primary)',
+            color: 'var(--color-text-inverse)',
           },
         },
       }}

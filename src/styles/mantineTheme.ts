@@ -3,16 +3,16 @@ import { createTheme, type MantineColorsTuple } from '@mantine/core';
 
 // Create Mantine color tuples for brand colors
 const brandColors: MantineColorsTuple = [
-  '#e6f7ff', // 0 - lightest
-  '#bae7ff',
-  '#91d5ff',
-  '#69c0ff',
-  '#40a9ff',
-  '#1890ff', // 5 - main
-  '#096dd9',
-  '#0050b3',
-  '#003a8c',
-  '#002766', // 9 - darkest
+  '#EEF3FF', // 0 - lightest
+  '#D4E2FF',
+  '#A8C5FF',
+  '#7BA7FF',
+  '#4E89FF',
+  '#1F5DE0', // 5 - main
+  '#1A4EC4',
+  '#153FA8',
+  '#10308C',
+  '#0A2070', // 9 - darkest
 ];
 
 // Component styles that apply to both light and dark themes
