@@ -34,9 +34,9 @@ export function LogoDisplay({ theme, href, onClick, className: _className, image
   const content = (
     <>
       {logoElement} {/* Render the conditional logo element */}
-      {/* Text with Inter font, white color */}
+      {/* Text with Inter font, theme-aware color */}
       <span 
-        className="font-inter font-bold text-white"
+        className="font-inter font-bold text-text-primary"
         style={{ fontFamily: theme.fontFamily }}
       >
         {theme.name}
