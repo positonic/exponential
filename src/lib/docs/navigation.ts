@@ -26,6 +26,7 @@ import {
   IconKey,
   IconPlayerPlay,
   IconLayoutNavbar,
+  IconMicrophone,
 } from "@tabler/icons-react";
 import type { DocNavSection, DocBreadcrumb } from "./types";
 
@@ -122,6 +123,11 @@ export const docsNavigation: DocNavSection[] = [
         title: "Fireflies Workflow",
         href: "/docs/features/fireflies",
         icon: IconFlame,
+      },
+      {
+        title: "Chrome Extension",
+        href: "/docs/features/chrome-extension",
+        icon: IconMicrophone,
       },
       {
         title: "Knowledge Base",

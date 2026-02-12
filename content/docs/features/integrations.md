@@ -25,7 +25,7 @@ Integrations work in two directions:
 | [Fireflies](/docs/features/fireflies) | Available | Capture meeting action items automatically |
 | [Slack](/docs/features/slack) | Available | Create tasks from messages, receive notifications |
 | [WhatsApp](/docs/features/whatsapp-gateway) | Available | Interact with Exponential via WhatsApp |
-| Browser Extension | Active | Capture actions while browsing |
+| [Chrome Extension](/docs/features/chrome-extension) | Available | Capture voice notes and screenshots while browsing |
 
 ### Task Management Sync
 
