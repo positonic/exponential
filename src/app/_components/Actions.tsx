@@ -306,15 +306,19 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       await utils.action.getAll.cancel();
       const previousData = utils.action.getAll.getData();
 
-      // Optimistically update ALL selected actions at once
+      // Optimistically update ALL selected actions at once (scheduledStart + dueDate)
       if (previousData) {
         utils.action.getAll.setData(undefined, (old) => {
           if (!old) return [];
-          return old.map((action) =>
-            actionIds.includes(action.id)
-              ? { ...action, dueDate: dueDate ?? null }
-              : action
-          );
+          return old.map((action) => {
+            if (!actionIds.includes(action.id)) return action;
+            const newScheduledStart = dueDate ?? null;
+            // Update dueDate only if it's before the new date or null
+            const newDueDate = dueDate
+              ? (!action.dueDate || action.dueDate < dueDate ? dueDate : action.dueDate)
+              : null;
+            return { ...action, scheduledStart: newScheduledStart, dueDate: newDueDate };
+          });
         });
       }
 

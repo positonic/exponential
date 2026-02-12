@@ -966,25 +966,57 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
-  // Bulk reschedule actions (update dueDate)
+  // Bulk reschedule actions (update scheduledStart/doDate and dueDate)
   bulkReschedule: protectedProcedure
     .input(z.object({
       actionIds: z.array(z.string()),
       dueDate: z.date().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const result = await ctx.db.action.updateMany({
-        where: {
-          id: { in: input.actionIds },
-          ...buildUserActionPermissions(ctx.session.user.id),
-        },
-        data: {
-          dueDate: input.dueDate,
-        },
-      });
+      // Always update scheduledStart (the "do date" - when the action is scheduled)
+      // Also update dueDate if it would be before the new scheduledStart
+      if (input.dueDate) {
+        // First: update scheduledStart for all actions
+        await ctx.db.action.updateMany({
+          where: {
+            id: { in: input.actionIds },
+            ...buildUserActionPermissions(ctx.session.user.id),
+          },
+          data: {
+            scheduledStart: input.dueDate,
+          },
+        });
+
+        // Second: update dueDate only for actions where dueDate is before the new date (or null)
+        await ctx.db.action.updateMany({
+          where: {
+            id: { in: input.actionIds },
+            ...buildUserActionPermissions(ctx.session.user.id),
+            OR: [
+              { dueDate: null },
+              { dueDate: { lt: input.dueDate } },
+            ],
+          },
+          data: {
+            dueDate: input.dueDate,
+          },
+        });
+      } else {
+        // Clearing the schedule: remove both dates
+        await ctx.db.action.updateMany({
+          where: {
+            id: { in: input.actionIds },
+            ...buildUserActionPermissions(ctx.session.user.id),
+          },
+          data: {
+            scheduledStart: null,
+            dueDate: null,
+          },
+        });
+      }
 
       return {
-        count: result.count,
+        count: input.actionIds.length,
         actionIds: input.actionIds,
       };
     }),

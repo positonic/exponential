@@ -50,6 +50,7 @@ export function TodayActions() {
     actionIds.forEach((actionId) => {
       bulkUpdateMutation.mutate({
         id: actionId,
+        scheduledStart: date,
         dueDate: date ?? undefined
       }, {
         onSuccess: () => {
