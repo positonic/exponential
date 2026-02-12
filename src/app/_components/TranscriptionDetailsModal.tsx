@@ -52,6 +52,7 @@ interface ScreenshotWithTranscript {
     end_time: number;
   }>;
   plainText?: string;
+  prelude?: string;
 }
 
 function buildScreenshotTranscriptPairs(
@@ -92,7 +93,7 @@ function buildScreenshotTranscriptPairs(
       };
     });
   }
-
+  let prelude = "";
   // Plain text mode: check for [SCREENSHOT] markers first
   if (transcription) {
     if (transcription.includes("[SCREENSHOT]")) {
@@ -102,6 +103,7 @@ function buildScreenshotTranscriptPairs(
       // When fewer markers than screenshots, first screenshots get no text
       const gap = Math.max(0, sorted.length - markerCount);
       // segments[0] = intro text before first screenshot
+      prelude = segments[0] ? segments[0].trim() : "";
       // segments[1..N] = text segments after each marker
       return sorted.map((screenshot, index) => {
         const segmentIndex = index - gap + 1;
@@ -116,6 +118,7 @@ function buildScreenshotTranscriptPairs(
             text = text ? `${text} ${remaining.join(" ")}` : remaining.join(" ");
           }
         }
+        
         return {
           screenshot,
           sentences: [],
@@ -138,6 +141,7 @@ function buildScreenshotTranscriptPairs(
       const startIdx = index * chunkSize;
       const endIdx = Math.min(startIdx + chunkSize, paragraphs.length);
       return {
+        prelude: index === 0 ? prelude : undefined,
         screenshot,
         sentences: [],
         plainText: paragraphs.slice(startIdx, endIdx).join("\n\n"),
@@ -398,8 +402,11 @@ export function TranscriptionDetailsModal({
   };
 
   // Determine which accordion sections to open by default
+  const hasScreenshots = transcription.screenshots && transcription.screenshots.length > 0;
   const defaultOpenSections = ['description'];
-  if (!transcription.description && transcription.transcription) {
+  if (hasScreenshots && transcription.transcription) {
+    defaultOpenSections.push('transcription-screenshots');
+  } else if (transcription.transcription) {
     defaultOpenSections.push('transcription');
   }
 
@@ -502,7 +509,7 @@ export function TranscriptionDetailsModal({
 
           {/* Accordion for main content sections */}
           <Accordion multiple defaultValue={defaultOpenSections}>
-            {/* Description Section - Now Primary */}
+            {/* 1. Description Section */}
             <Accordion.Item value="description">
               <Accordion.Control>
                 <Group justify="space-between" style={{ width: '100%' }}>
@@ -563,11 +570,93 @@ export function TranscriptionDetailsModal({
               </Accordion.Panel>
             </Accordion.Item>
 
-            {/* Transcription Section - Now Secondary/Collapsed */}
+            {/* 2. Transcription with Screenshots Section */}
+            {transcription.screenshots && transcription.screenshots.length > 0 && transcription.transcription && (() => {
+              const pairs = buildScreenshotTranscriptPairs(
+                transcription.screenshots as Array<{ id: string; url: string; timestamp: string; createdAt: string | Date }>,
+                transcription.transcription as string,
+              );
+              if (pairs.length === 0) return null;
+
+              return (
+                <Accordion.Item value="transcription-screenshots">
+                  <Accordion.Control>
+                    <Group justify="space-between" style={{ width: '100%' }}>
+                      <Title order={5}>Transcription with Screenshots</Title>
+                    </Group>
+                  </Accordion.Control>
+                  <Accordion.Panel>
+                    <Text mb="xl">{transcription.transcription.substring(0, transcription.transcription.indexOf("[SCREENSHOT]")).trim()}</Text>
+                    <Stack gap="lg">
+                      {pairs.map((pair, index) => (
+                        <div key={pair.screenshot.id} className="flex gap-4">
+                          <div className="shrink-0">
+                            <a
+                              href={pair.screenshot.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Image
+                                src={pair.screenshot.url}
+                                alt={`Screenshot ${index + 1}`}
+                                w={200}
+                                h={150}
+                                fit="cover"
+                                radius="sm"
+                                className="cursor-pointer transition-opacity hover:opacity-80"
+                              />
+                            </a>
+                            <Text size="xs" c="dimmed" mt={4} ta="center">
+                              {pair.screenshot.timestamp}
+                            </Text>
+                          </div>
+                          <Paper
+                            p="md"
+                            radius="sm"
+                            className="bg-surface-tertiary flex-1"
+                            style={{ minHeight: 150 }}
+                          >
+                            {pair.sentences.length > 0 ? (
+                              <Stack gap="xs">
+                                {pair.sentences.map((sentence, sIdx) => (
+                                  <Group key={sIdx} align="flex-start" gap="sm" wrap="nowrap">
+                                    <Badge
+                                      size="xs"
+                                      variant="light"
+                                      color="blue"
+                                      style={{ minWidth: "fit-content" }}
+                                    >
+                                      {sentence.speaker_name}
+                                    </Badge>
+                                    <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                                      {sentence.text}
+                                    </Text>
+                                  </Group>
+                                ))}
+                              </Stack>
+                            ) : pair.plainText ? (
+                              <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                                {pair.plainText}
+                              </Text>
+                            ) : (
+                              <Text size="sm" c="dimmed" fs="italic">
+                                No transcription text for this segment.
+                              </Text>
+                            )}
+                          </Paper>
+                        </div>
+                      ))}
+                    </Stack>
+                  </Accordion.Panel>
+                </Accordion.Item>
+              );
+            })()}
+
+            {/* 3. Transcription only Section */}
             <Accordion.Item value="transcription">
               <Accordion.Control>
                 <Group justify="space-between" style={{ width: '100%' }}>
-                  <Title order={5}>Full Transcription</Title>
+                  <Title order={5}>Transcription only</Title>
                   {!editingTranscription && (
                     <ActionIcon
                       variant="subtle"
@@ -643,7 +732,7 @@ export function TranscriptionDetailsModal({
               </Accordion.Panel>
             </Accordion.Item>
 
-            {/* Associated Actions Section */}
+            {/* 4. Associated Actions Section */}
             <Accordion.Item value="actions">
               <Accordion.Control>
                 <Group justify="space-between" style={{ width: '100%' }}>
@@ -746,31 +835,7 @@ export function TranscriptionDetailsModal({
               </Accordion.Panel>
             </Accordion.Item>
 
-            {/* Summary Sections */}
-            {transcription.summary && (() => {
-              const summaryData = parseFirefliesSummary(transcription.summary);
-
-              if (!summaryData) {
-                return (
-                  <Accordion.Item value="summary">
-                    <Accordion.Control>
-                      <Title order={5}>Summary</Title>
-                    </Accordion.Control>
-                    <Accordion.Panel>
-                      <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                        {transcription.summary}
-                      </Text>
-                    </Accordion.Panel>
-                  </Accordion.Item>
-                );
-              }
-
-              if (isEmptyFirefliesSummary(summaryData)) return null;
-
-              return <FirefliesSummaryAccordionItems summary={summaryData} />;
-            })()}
-
-            {/* Screenshots Section */}
+            {/* 5. Screenshots Section */}
             {transcription.screenshots && transcription.screenshots.length > 0 && (
               <Accordion.Item value="screenshots">
                 <Accordion.Control>
@@ -807,88 +872,28 @@ export function TranscriptionDetailsModal({
               </Accordion.Item>
             )}
 
-            {/* Transcription with Screenshots Section */}
-            {transcription.screenshots && transcription.screenshots.length > 0 && transcription.transcription && (() => {
-              const pairs = buildScreenshotTranscriptPairs(
-                transcription.screenshots as Array<{ id: string; url: string; timestamp: string; createdAt: string | Date }>,
-                transcription.transcription as string,
-              );
-              if (pairs.length === 0) return null;
+            {/* Summary Sections */}
+            {transcription.summary && (() => {
+              const summaryData = parseFirefliesSummary(transcription.summary);
 
-              return (
-                <Accordion.Item value="transcription-screenshots">
-                  <Accordion.Control>
-                    <Group justify="space-between" style={{ width: '100%' }}>
-                      <Title order={5}>Transcription with Screenshots</Title>
-                      <Badge variant="light" color="violet" size="sm">
-                        {pairs.length} segments
-                      </Badge>
-                    </Group>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <Stack gap="lg">
-                      {pairs.map((pair, index) => (
-                        <div key={pair.screenshot.id} className="flex gap-4">
-                          <div className="shrink-0">
-                            <a
-                              href={pair.screenshot.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <Image
-                                src={pair.screenshot.url}
-                                alt={`Screenshot ${index + 1}`}
-                                w={200}
-                                h={150}
-                                fit="cover"
-                                radius="sm"
-                                className="cursor-pointer transition-opacity hover:opacity-80"
-                              />
-                            </a>
-                            <Text size="xs" c="dimmed" mt={4} ta="center">
-                              {pair.screenshot.timestamp}
-                            </Text>
-                          </div>
-                          <Paper
-                            p="md"
-                            radius="sm"
-                            className="bg-surface-tertiary flex-1"
-                            style={{ minHeight: 150 }}
-                          >
-                            {pair.sentences.length > 0 ? (
-                              <Stack gap="xs">
-                                {pair.sentences.map((sentence, sIdx) => (
-                                  <Group key={sIdx} align="flex-start" gap="sm" wrap="nowrap">
-                                    <Badge
-                                      size="xs"
-                                      variant="light"
-                                      color="blue"
-                                      style={{ minWidth: "fit-content" }}
-                                    >
-                                      {sentence.speaker_name}
-                                    </Badge>
-                                    <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                                      {sentence.text}
-                                    </Text>
-                                  </Group>
-                                ))}
-                              </Stack>
-                            ) : pair.plainText ? (
-                              <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                                {pair.plainText}
-                              </Text>
-                            ) : (
-                              <Text size="sm" c="dimmed" fs="italic">
-                                No transcription text for this segment.
-                              </Text>
-                            )}
-                          </Paper>
-                        </div>
-                      ))}
-                    </Stack>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              );
+              if (!summaryData) {
+                return (
+                  <Accordion.Item value="summary">
+                    <Accordion.Control>
+                      <Title order={5}>Summary</Title>
+                    </Accordion.Control>
+                    <Accordion.Panel>
+                      <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                        {transcription.summary}
+                      </Text>
+                    </Accordion.Panel>
+                  </Accordion.Item>
+                );
+              }
+
+              if (isEmptyFirefliesSummary(summaryData)) return null;
+
+              return <FirefliesSummaryAccordionItems summary={summaryData} />;
             })()}
           </Accordion>
 
