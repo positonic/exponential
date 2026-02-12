@@ -1064,6 +1064,70 @@ export const transcriptionRouter = createTRPCRouter({
       return { publishedCount: result.count };
     }),
 
+  publishSelectedDraftActions: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        actionIds: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const transcription = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+      });
+
+      if (!transcription) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (transcription.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this transcription",
+        });
+      }
+
+      if (input.actionIds.length === 0) {
+        return { publishedCount: 0 };
+      }
+
+      const result = await ctx.db.action.updateMany({
+        where: {
+          id: { in: input.actionIds },
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          status: "ACTIVE",
+        },
+      });
+
+      // Check if any drafts remain; if not, mark transcription as processed
+      const remainingDrafts = await ctx.db.action.count({
+        where: {
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+      });
+
+      if (remainingDrafts === 0) {
+        await ctx.db.transcriptionSession.update({
+          where: { id: input.transcriptionId },
+          data: {
+            processedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      return { publishedCount: result.count };
+    }),
+
   sendSlackNotification: protectedProcedure
     .input(z.object({ transcriptionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
