@@ -730,6 +730,7 @@ export const projectRouter = createTRPCRouter({
           },
           transcriptionSessions: {
             include: {
+              screenshots: true,
               sourceIntegration: {
                 select: {
                   id: true,
