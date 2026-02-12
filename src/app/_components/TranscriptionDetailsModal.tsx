@@ -107,11 +107,11 @@ function buildScreenshotTranscriptPairs(
         const segmentIndex = index - gap + 1;
         let text = "";
         if (segmentIndex >= 1 && segmentIndex < segments.length) {
-          text = segments[segmentIndex]!.replace(/^[.,]\s*/, "").trim();
+          text = segments[segmentIndex]!.trim();
         }
         // If last screenshot, append any remaining segments
         if (index === sorted.length - 1) {
-          const remaining = segments.slice(Math.max(segmentIndex + 1, 1)).map(s => s.replace(/^[.,]\s*/, "").trim()).filter(Boolean);
+          const remaining = segments.slice(Math.max(segmentIndex + 1, 1)).map(s => s.trim()).filter(Boolean);
           if (remaining.length > 0) {
             text = text ? `${text} ${remaining.join(" ")}` : remaining.join(" ");
           }
