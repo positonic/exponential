@@ -223,10 +223,13 @@ export function TranscriptionRenderer({
   }
 
   // Handle plain text transcription (exponential-plugin or other providers)
+  // Strip [SCREENSHOT] markers from display text
+  const cleanedTranscription = transcription.replace(/\s*\[SCREENSHOT\]\.?\s*/g, ' ').trim();
+
   if (isPreview) {
     return (
       <Text size="sm" c="dimmed" lineClamp={maxLines}>
-        {transcription}
+        {cleanedTranscription}
       </Text>
     );
   } else {
@@ -239,14 +242,14 @@ export function TranscriptionRenderer({
               size="xs"
               color="gray"
               leftSection={copied ? <IconCheck size={14} color="green" /> : <IconCopy size={14} />}
-              onClick={() => copyToClipboard(transcription)}
+              onClick={() => copyToClipboard(cleanedTranscription)}
             >
               {copied ? 'Copied!' : 'Copy All'}
             </Button>
           </Group>
         )}
         <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
-          {transcription}
+          {cleanedTranscription}
         </Text>
       </Stack>
     );

@@ -93,8 +93,38 @@ function buildScreenshotTranscriptPairs(
     });
   }
 
-  // Plain text mode: split paragraphs evenly between screenshots
+  // Plain text mode: check for [SCREENSHOT] markers first
   if (transcription) {
+    if (transcription.includes("[SCREENSHOT]")) {
+      // Split by [SCREENSHOT] markers (with surrounding whitespace and trailing dots)
+      const segments = transcription.split(/\s*\[SCREENSHOT\]\.?\s*/);
+      const markerCount = (transcription.match(/\[SCREENSHOT\]/g) ?? []).length;
+      // When fewer markers than screenshots, first screenshots get no text
+      const gap = Math.max(0, sorted.length - markerCount);
+      // segments[0] = intro text before first screenshot
+      // segments[1..N] = text segments after each marker
+      return sorted.map((screenshot, index) => {
+        const segmentIndex = index - gap + 1;
+        let text = "";
+        if (segmentIndex >= 1 && segmentIndex < segments.length) {
+          text = segments[segmentIndex]!.replace(/^[.,]\s*/, "").trim();
+        }
+        // If last screenshot, append any remaining segments
+        if (index === sorted.length - 1) {
+          const remaining = segments.slice(Math.max(segmentIndex + 1, 1)).map(s => s.replace(/^[.,]\s*/, "").trim()).filter(Boolean);
+          if (remaining.length > 0) {
+            text = text ? `${text} ${remaining.join(" ")}` : remaining.join(" ");
+          }
+        }
+        return {
+          screenshot,
+          sentences: [],
+          plainText: text || undefined,
+        };
+      });
+    }
+
+    // Fallback: split paragraphs evenly between screenshots
     const paragraphs = transcription.split(/\n\n+/).filter((p) => p.trim());
     if (paragraphs.length === 0) {
       return sorted.map((screenshot) => ({
