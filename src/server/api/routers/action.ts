@@ -1102,15 +1102,31 @@ export const actionRouter = createTRPCRouter({
       for (const userId of input.userIds) {
         let canAssign = false;
         
-        // Check if action has a project - users must be project members or team members
+        // Check if action has a project - users must be project members, team members, project creator, or workspace members
         if (action.projectId && action.project) {
           // Check if user is a project member
           const isProjectMember = action.project.projectMembers.some((member: any) => member.userId === userId);
-          
+
           // Check if user is a team member (if project has a team)
           const isTeamMember = action.project.team?.members.some((member: any) => member.userId === userId);
-          
-          canAssign = isProjectMember || isTeamMember || false;
+
+          // Check if user is the project creator
+          const isProjectCreator = action.project.createdById === userId;
+
+          // Check if user is a workspace member
+          let isWorkspaceMember = false;
+          if (action.project.workspaceId) {
+            const workspaceUser = await ctx.db.workspaceUser.findFirst({
+              where: {
+                workspaceId: action.project.workspaceId,
+                userId,
+              },
+              select: { id: true },
+            });
+            isWorkspaceMember = !!workspaceUser;
+          }
+
+          canAssign = isProjectMember || isTeamMember || isProjectCreator || isWorkspaceMember;
         }
         // Check if action has a team (but no project) - users must be team members
         else if (action.teamId && action.team) {
@@ -1129,7 +1145,7 @@ export const actionRouter = createTRPCRouter({
             select: { name: true, email: true }
           });
           const userName = user?.name || user?.email || userId;
-          
+
           throw new Error(`User ${userName} cannot be assigned to this action. They must be a member of the ${action.projectId ? 'project' : 'team'}.`);
         }
       }
@@ -1255,15 +1271,31 @@ export const actionRouter = createTRPCRouter({
         for (const userId of input.userIds) {
           let canAssign = false;
           
-          // Check if action has a project - users must be project members or team members
+          // Check if action has a project - users must be project members, team members, project creator, or workspace members
           if (action.projectId && action.project) {
             // Check if user is a project member
             const isProjectMember = action.project.projectMembers.some((member: any) => member.userId === userId);
-            
+
             // Check if user is a team member (if project has a team)
             const isTeamMember = action.project.team?.members.some((member: any) => member.userId === userId);
-            
-            canAssign = isProjectMember || isTeamMember || false;
+
+            // Check if user is the project creator
+            const isProjectCreator = action.project.createdById === userId;
+
+            // Check if user is a workspace member
+            let isWorkspaceMember = false;
+            if (action.project.workspaceId) {
+              const workspaceUser = await ctx.db.workspaceUser.findFirst({
+                where: {
+                  workspaceId: action.project.workspaceId,
+                  userId,
+                },
+                select: { id: true },
+              });
+              isWorkspaceMember = !!workspaceUser;
+            }
+
+            canAssign = isProjectMember || isTeamMember || isProjectCreator || isWorkspaceMember;
           }
           // Check if action has a team (but no project) - users must be team members
           else if (action.teamId && action.team) {
@@ -1282,7 +1314,7 @@ export const actionRouter = createTRPCRouter({
               select: { name: true, email: true }
             });
             const userName = user?.name || user?.email || userId;
-            
+
             throw new Error(`User ${userName} cannot be assigned to action "${action.name}". They must be a member of the ${action.projectId ? 'project' : 'team'}.`);
           }
         }
@@ -1324,7 +1356,10 @@ export const actionRouter = createTRPCRouter({
         throw new Error("Action not found");
       }
 
-      // Get all teams the current user is a member of
+      // Collect assignable users from multiple sources
+      const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
+
+      // 1. Get users from teams the current user belongs to
       const userTeams = await ctx.db.team.findMany({
         where: {
           members: {
@@ -1344,13 +1379,52 @@ export const actionRouter = createTRPCRouter({
         },
       });
 
-      // Deduplicate users across all teams
-      const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
       userTeams.forEach(team => {
         team.members.forEach(member => {
           userMap.set(member.user.id, member.user);
         });
       });
+
+      // 2. Get workspace members (if action belongs to a project in a workspace)
+      if (action.project?.workspaceId) {
+        const workspaceUsers = await ctx.db.workspaceUser.findMany({
+          where: { workspaceId: action.project.workspaceId },
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, image: true },
+            },
+          },
+        });
+        workspaceUsers.forEach(wu => {
+          userMap.set(wu.user.id, wu.user);
+        });
+      }
+
+      // 3. Get project members (if action belongs to a project)
+      if (action.projectId) {
+        const projectMembers = await ctx.db.projectMember.findMany({
+          where: { projectId: action.projectId },
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, image: true },
+            },
+          },
+        });
+        projectMembers.forEach(pm => {
+          userMap.set(pm.user.id, pm.user);
+        });
+      }
+
+      // 4. Always include the current user
+      if (!userMap.has(ctx.session.user.id)) {
+        const currentUser = await ctx.db.user.findUnique({
+          where: { id: ctx.session.user.id },
+          select: { id: true, name: true, email: true, image: true },
+        });
+        if (currentUser) {
+          userMap.set(currentUser.id, currentUser);
+        }
+      }
 
       const assignableUsers = Array.from(userMap.values());
 
