@@ -18,7 +18,7 @@ import {
   ActionIcon,
   Image,
 } from "@mantine/core";
-import { IconPencil, IconCheck, IconX, IconPlayerPlay } from "@tabler/icons-react";
+import { IconPencil, IconCheck, IconX, IconPlayerPlay, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { SmartContentRenderer } from "./SmartContentRenderer";
 import { FirefliesSummaryAccordionItems } from "./FirefliesSummaryRenderer";
@@ -175,6 +175,7 @@ export function TranscriptionDetailsModal({
   onTranscriptionUpdate,
 }: TranscriptionDetailsModalProps) {
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Edit state
   const [editingTitle, setEditingTitle] = useState(false);
@@ -401,8 +402,25 @@ export function TranscriptionDetailsModal({
     generateDraftsMutation.mutate({ transcriptionId: transcription.id });
   };
 
-  // Determine which accordion sections to open by default
+  // Build screenshot-transcript pairs at component level for lightbox access
   const hasScreenshots = transcription.screenshots && transcription.screenshots.length > 0;
+  const screenshotPairs = hasScreenshots && transcription.transcription
+    ? buildScreenshotTranscriptPairs(
+        transcription.screenshots as Array<{ id: string; url: string; timestamp: string; createdAt: string | Date }>,
+        transcription.transcription as string,
+      )
+    : [];
+
+  const openLightbox = (index: number) => setLightboxIndex(index);
+  const closeLightbox = () => setLightboxIndex(null);
+  const goToPrev = () => setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : prev));
+  const goToNext = () => setLightboxIndex((prev) => (prev !== null && prev < screenshotPairs.length - 1 ? prev + 1 : prev));
+
+  // Find pair index by screenshot id (for Screenshots section)
+  const findPairIndex = (screenshotId: string) =>
+    screenshotPairs.findIndex((p) => p.screenshot.id === screenshotId);
+
+  // Determine which accordion sections to open by default
   const defaultOpenSections = ['description'];
   if (hasScreenshots && transcription.transcription) {
     defaultOpenSections.push('transcription-screenshots');
@@ -571,86 +589,80 @@ export function TranscriptionDetailsModal({
             </Accordion.Item>
 
             {/* 2. Transcription with Screenshots Section */}
-            {transcription.screenshots && transcription.screenshots.length > 0 && transcription.transcription && (() => {
-              const pairs = buildScreenshotTranscriptPairs(
-                transcription.screenshots as Array<{ id: string; url: string; timestamp: string; createdAt: string | Date }>,
-                transcription.transcription as string,
-              );
-              if (pairs.length === 0) return null;
-
-              return (
-                <Accordion.Item value="transcription-screenshots">
-                  <Accordion.Control>
-                    <Group justify="space-between" style={{ width: '100%' }}>
-                      <Title order={5}>Transcription with Screenshots</Title>
-                    </Group>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <Text mb="xl">{transcription.transcription.substring(0, transcription.transcription.indexOf("[SCREENSHOT]")).trim()}</Text>
-                    <Stack gap="lg">
-                      {pairs.map((pair, index) => (
-                        <div key={pair.screenshot.id} className="flex gap-4">
-                          <div className="shrink-0">
-                            <a
-                              href={pair.screenshot.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <Image
-                                src={pair.screenshot.url}
-                                alt={`Screenshot ${index + 1}`}
-                                w={200}
-                                h={150}
-                                fit="cover"
-                                radius="sm"
-                                className="cursor-pointer transition-opacity hover:opacity-80"
-                              />
-                            </a>
-                            <Text size="xs" c="dimmed" mt={4} ta="center">
-                              {pair.screenshot.timestamp}
-                            </Text>
-                          </div>
-                          <Paper
-                            p="md"
-                            radius="sm"
-                            className="bg-surface-tertiary flex-1"
-                            style={{ minHeight: 150 }}
+            {screenshotPairs.length > 0 && (
+              <Accordion.Item value="transcription-screenshots">
+                <Accordion.Control>
+                  <Group justify="space-between" style={{ width: '100%' }}>
+                    <Title order={5}>Transcription with Screenshots</Title>
+                  </Group>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <Text mb="xl">{(transcription.transcription as string).substring(0, (transcription.transcription as string).indexOf("[SCREENSHOT]")).trim()}</Text>
+                  <Stack gap="lg">
+                    {screenshotPairs.map((pair, index) => (
+                      <div key={pair.screenshot.id} className="flex gap-4">
+                        <div className="shrink-0">
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openLightbox(index)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openLightbox(index); }}
+                            className="cursor-pointer"
                           >
-                            {pair.sentences.length > 0 ? (
-                              <Stack gap="xs">
-                                {pair.sentences.map((sentence, sIdx) => (
-                                  <Group key={sIdx} align="flex-start" gap="sm" wrap="nowrap">
-                                    <Badge
-                                      size="xs"
-                                      variant="light"
-                                      color="blue"
-                                      style={{ minWidth: "fit-content" }}
-                                    >
-                                      {sentence.speaker_name}
-                                    </Badge>
-                                    <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                                      {sentence.text}
-                                    </Text>
-                                  </Group>
-                                ))}
-                              </Stack>
-                            ) : pair.plainText ? (
-                              <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                                {pair.plainText}
-                              </Text>
-                            ) : (
-                              <Text size="sm" c="dimmed" fs="italic">
-                                No transcription text for this segment.
-                              </Text>
-                            )}
-                          </Paper>
+                            <Image
+                              src={pair.screenshot.url}
+                              alt={`Screenshot ${index + 1}`}
+                              w={200}
+                              h={150}
+                              fit="cover"
+                              radius="sm"
+                              className="transition-opacity hover:opacity-80"
+                            />
+                          </div>
+                          <Text size="xs" c="dimmed" mt={4} ta="center">
+                            {pair.screenshot.timestamp}
+                          </Text>
                         </div>
-                      ))}
-                    </Stack>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              );
-            })()}
+                        <Paper
+                          p="md"
+                          radius="sm"
+                          className="bg-surface-tertiary flex-1"
+                          style={{ minHeight: 150 }}
+                        >
+                          {pair.sentences.length > 0 ? (
+                            <Stack gap="xs">
+                              {pair.sentences.map((sentence, sIdx) => (
+                                <Group key={sIdx} align="flex-start" gap="sm" wrap="nowrap">
+                                  <Badge
+                                    size="xs"
+                                    variant="light"
+                                    color="blue"
+                                    style={{ minWidth: "fit-content" }}
+                                  >
+                                    {sentence.speaker_name}
+                                  </Badge>
+                                  <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                                    {sentence.text}
+                                  </Text>
+                                </Group>
+                              ))}
+                            </Stack>
+                          ) : pair.plainText ? (
+                            <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                              {pair.plainText}
+                            </Text>
+                          ) : (
+                            <Text size="sm" c="dimmed" fs="italic">
+                              No transcription text for this segment.
+                            </Text>
+                          )}
+                        </Paper>
+                      </div>
+                    ))}
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+            )}
 
             {/* 3. Transcription only Section */}
             <Accordion.Item value="transcription">
@@ -848,25 +860,47 @@ export function TranscriptionDetailsModal({
                 </Accordion.Control>
                 <Accordion.Panel>
                   <div className="flex flex-wrap gap-3">
-                    {transcription.screenshots.map((screenshot: any) => (
-                      <a
-                        key={screenshot.id}
-                        href={screenshot.url as string}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block shrink-0"
-                      >
-                        <Image
-                          src={screenshot.url as string}
-                          alt={`Screenshot from ${screenshot.timestamp}`}
-                          w={100}
-                          h={75}
-                          fit="cover"
-                          radius="sm"
-                          className="cursor-pointer transition-opacity hover:opacity-80"
-                        />
-                      </a>
-                    ))}
+                    {transcription.screenshots.map((screenshot: any) => {
+                      const pairIdx = findPairIndex(screenshot.id as string);
+                      return pairIdx >= 0 ? (
+                        <div
+                          key={screenshot.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openLightbox(pairIdx)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openLightbox(pairIdx); }}
+                          className="block shrink-0 cursor-pointer"
+                        >
+                          <Image
+                            src={screenshot.url as string}
+                            alt={`Screenshot from ${screenshot.timestamp}`}
+                            w={100}
+                            h={75}
+                            fit="cover"
+                            radius="sm"
+                            className="transition-opacity hover:opacity-80"
+                          />
+                        </div>
+                      ) : (
+                        <a
+                          key={screenshot.id}
+                          href={screenshot.url as string}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block shrink-0"
+                        >
+                          <Image
+                            src={screenshot.url as string}
+                            alt={`Screenshot from ${screenshot.timestamp}`}
+                            w={100}
+                            h={75}
+                            fit="cover"
+                            radius="sm"
+                            className="cursor-pointer transition-opacity hover:opacity-80"
+                          />
+                        </a>
+                      );
+                    })}
                   </div>
                 </Accordion.Panel>
               </Accordion.Item>
@@ -923,6 +957,115 @@ export function TranscriptionDetailsModal({
         onClose={() => setDraftActionsOpened(false)}
         transcriptionId={transcription.id}
       />
+
+      {/* Screenshot Lightbox */}
+      <Modal
+        opened={lightboxIndex !== null}
+        onClose={closeLightbox}
+        size="xl"
+        centered
+        padding={0}
+        withCloseButton={false}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft') goToPrev();
+          else if (e.key === 'ArrowRight') goToNext();
+          else if (e.key === 'Escape') closeLightbox();
+        }}
+      >
+        {lightboxIndex !== null && screenshotPairs[lightboxIndex] && (() => {
+          const pair = screenshotPairs[lightboxIndex];
+          return (
+            <Stack gap={0}>
+              <div className="relative">
+                <Image
+                  src={pair.screenshot.url}
+                  alt={`Screenshot ${lightboxIndex + 1}`}
+                  fit="contain"
+                  style={{ maxHeight: '60vh' }}
+                />
+                {/* Navigation overlay */}
+                <Group
+                  justify="space-between"
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: 0,
+                    right: 0,
+                    transform: 'translateY(-50%)',
+                    pointerEvents: 'none',
+                    padding: '0 8px',
+                  }}
+                >
+                  <ActionIcon
+                    variant="filled"
+                    size="lg"
+                    radius="xl"
+                    onClick={goToPrev}
+                    disabled={lightboxIndex === 0}
+                    style={{ pointerEvents: 'auto', opacity: lightboxIndex === 0 ? 0.3 : 0.8 }}
+                    className="bg-surface-secondary"
+                  >
+                    <IconChevronLeft size={20} />
+                  </ActionIcon>
+                  <ActionIcon
+                    variant="filled"
+                    size="lg"
+                    radius="xl"
+                    onClick={goToNext}
+                    disabled={lightboxIndex === screenshotPairs.length - 1}
+                    style={{ pointerEvents: 'auto', opacity: lightboxIndex === screenshotPairs.length - 1 ? 0.3 : 0.8 }}
+                    className="bg-surface-secondary"
+                  >
+                    <IconChevronRight size={20} />
+                  </ActionIcon>
+                </Group>
+                {/* Counter badge */}
+                <Badge
+                  variant="filled"
+                  size="sm"
+                  style={{ position: 'absolute', top: 8, right: 8, opacity: 0.8 }}
+                  className="bg-surface-secondary text-text-primary"
+                >
+                  {lightboxIndex + 1} / {screenshotPairs.length}
+                </Badge>
+              </div>
+              {/* Associated text below the image */}
+              <Paper p="md" className="bg-surface-secondary">
+                <Text size="xs" c="dimmed" mb="xs">
+                  {pair.screenshot.timestamp}
+                </Text>
+                {pair.sentences.length > 0 ? (
+                  <Stack gap="xs">
+                    {pair.sentences.map((sentence, sIdx) => (
+                      <Group key={sIdx} align="flex-start" gap="sm" wrap="nowrap">
+                        <Badge
+                          size="xs"
+                          variant="light"
+                          color="blue"
+                          style={{ minWidth: "fit-content" }}
+                        >
+                          {sentence.speaker_name}
+                        </Badge>
+                        <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                          {sentence.text}
+                        </Text>
+                      </Group>
+                    ))}
+                  </Stack>
+                ) : pair.plainText ? (
+                  <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                    {pair.plainText}
+                  </Text>
+                ) : (
+                  <Text size="sm" c="dimmed" fs="italic">
+                    No transcription text for this segment.
+                  </Text>
+                )}
+              </Paper>
+            </Stack>
+          );
+        })()}
+      </Modal>
     </Modal>
   );
 }
