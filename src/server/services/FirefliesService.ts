@@ -1,4 +1,5 @@
 import { type ParsedActionItem } from './processors/ActionProcessor';
+import { isEmptyFirefliesSummary } from '~/lib/fireflies-summary';
 
 export interface FirefliesSummary {
   keywords?: string[];
@@ -33,7 +34,7 @@ export interface FirefliesTranscript {
 }
 
 export interface ProcessedTranscriptionData {
-  summary: FirefliesSummary;
+  summary: FirefliesSummary | null;
   actionItems: ParsedActionItem[];
   transcriptText: string;
 }
@@ -340,40 +341,34 @@ export class FirefliesService {
   }
 
   /**
-   * Structure summary data for storage and display
+   * Structure summary data for storage and display.
+   * Returns null if summary is missing or all fields are empty.
    */
-  static processSummary(summary: FirefliesSummary | null | undefined): FirefliesSummary {
+  static processSummary(summary: FirefliesSummary | null | undefined): FirefliesSummary | null {
     if (!summary) {
-      return {
-        keywords: [],
-        action_items: [],
-        outline: '',
-        shorthand_bullet: [],
-        overview: '',
-        bullet_gist: [],
-        gist: '',
-        short_summary: '',
-        short_overview: '',
-        meeting_type: '',
-        topics_discussed: [],
-        transcript_chapters: [],
-      };
+      return null;
     }
 
-    return {
-      keywords: summary.keywords || [],
-      action_items: summary.action_items || [],
-      outline: summary.outline || '',
-      shorthand_bullet: summary.shorthand_bullet || [],
-      overview: summary.overview || '',
-      bullet_gist: summary.bullet_gist || [],
-      gist: summary.gist || '',
-      short_summary: summary.short_summary || '',
-      short_overview: summary.short_overview || '',
-      meeting_type: summary.meeting_type || '',
-      topics_discussed: summary.topics_discussed || [],
-      transcript_chapters: summary.transcript_chapters || [],
+    const processed: FirefliesSummary = {
+      keywords: summary.keywords ?? [],
+      action_items: summary.action_items ?? [],
+      outline: summary.outline ?? '',
+      shorthand_bullet: summary.shorthand_bullet ?? [],
+      overview: summary.overview ?? '',
+      bullet_gist: summary.bullet_gist ?? [],
+      gist: summary.gist ?? '',
+      short_summary: summary.short_summary ?? '',
+      short_overview: summary.short_overview ?? '',
+      meeting_type: summary.meeting_type ?? '',
+      topics_discussed: summary.topics_discussed ?? [],
+      transcript_chapters: summary.transcript_chapters ?? [],
     };
+
+    if (isEmptyFirefliesSummary(processed)) {
+      return null;
+    }
+
+    return processed;
   }
 
   /**
@@ -398,8 +393,7 @@ export class FirefliesService {
   static processTranscription(transcript: FirefliesTranscript): ProcessedTranscriptionData {
     try {
       const summary = this.processSummary(transcript.summary);
-      console.log('📚 summary', summary);
-      const actionItems = this.parseActionItems(summary);
+      const actionItems = summary ? this.parseActionItems(summary) : [];
       const transcriptText = JSON.stringify(transcript, null, 2);
 
       return {
@@ -409,10 +403,9 @@ export class FirefliesService {
       };
     } catch (error) {
       console.error(`Failed to process transcript ${transcript.id}:`, error);
-      
-      // Return minimal data if processing fails
+
       return {
-        summary: this.processSummary(null), // Returns empty summary
+        summary: null,
         actionItems: [],
         transcriptText: JSON.stringify(transcript, null, 2),
       };

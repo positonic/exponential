@@ -264,9 +264,9 @@ export class FirefliesSyncService {
           
           
           const sessionData = {
-            title: transcript.title || `Fireflies Meeting ${transcript.id}`,
-            transcription: processedData.transcriptText || '',
-            summary: processedData ? JSON.stringify(processedData.summary, null, 2) : null,
+            title: transcript.title ?? `Fireflies Meeting ${transcript.id}`,
+            transcription: processedData.transcriptText ?? '',
+            summary: processedData.summary ? JSON.stringify(processedData.summary, null, 2) : null,
             sourceIntegrationId: integrationId,
             meetingDate: transcript.date ? new Date(transcript.date) : null,
           };

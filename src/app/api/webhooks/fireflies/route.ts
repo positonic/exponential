@@ -389,8 +389,8 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
 
     const sessionData = {
       title,
-      transcription: processedData?.transcriptText || '',
-      summary: processedData ? JSON.stringify(processedData.summary, null, 2) : null,
+      transcription: processedData?.transcriptText ?? '',
+      summary: processedData?.summary ? JSON.stringify(processedData.summary, null, 2) : null,
       sourceIntegrationId: firefliesIntegration.integrationId,
     };
 

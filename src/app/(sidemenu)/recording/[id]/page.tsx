@@ -24,6 +24,8 @@ import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { TranscriptionContentEditor } from "~/app/_components/TranscriptionContentEditor";
 import { TranscriptionRenderer } from "~/app/_components/TranscriptionRenderer";
 import SaveActionsButton from "~/app/_components/SaveActionsButton";
+import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRenderer";
+import { parseFirefliesSummary, isEmptyFirefliesSummary } from "~/lib/fireflies-summary";
 import { notifications } from "@mantine/notifications";
 import { useAgentModal } from "~/providers/AgentModalProvider";
 import { ActionList } from "~/app/_components/ActionList";
@@ -554,7 +556,15 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
                   </Group>
                 </Stack>
               ) : session.summary ? (
-                <SmartContentRenderer content={session.summary} />
+                (() => {
+                  const firefliesSummary = parseFirefliesSummary(session.summary);
+                  if (firefliesSummary) {
+                    return isEmptyFirefliesSummary(firefliesSummary)
+                      ? <Text c="dimmed">No summary available</Text>
+                      : <FirefliesSummaryDisplay summary={firefliesSummary} />;
+                  }
+                  return <SmartContentRenderer content={session.summary} />;
+                })()
               ) : (
                 <Text c="dimmed">No summary available</Text>
               )}

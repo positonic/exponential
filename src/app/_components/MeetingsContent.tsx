@@ -47,7 +47,7 @@ import { FirefliesSyncPanel } from "./FirefliesSyncPanel";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 import { HTMLContent } from "./HTMLContent";
-import { type FirefliesSummary } from "~/server/services/FirefliesService";
+import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 
 type TabValue = "transcriptions" | "upcoming" | "archive" | "activity";
@@ -73,26 +73,11 @@ interface MeetingsContentProps {
 
 // Helper function to check if a transcription has extractable action items
 function hasExtractableActions(session: { summary: string | null }): boolean {
-  if (!session.summary) return false;
-
-  try {
-    const summary = JSON.parse(session.summary) as FirefliesSummary;
-
-    // Check if action_items exists and has content
-    if (!summary.action_items) return false;
-
-    if (Array.isArray(summary.action_items)) {
-      return summary.action_items.length > 0;
-    }
-
-    if (typeof summary.action_items === 'string') {
-      return summary.action_items.trim().length > 0;
-    }
-
-    return false;
-  } catch {
-    return false; // Invalid JSON
-  }
+  const summary = parseFirefliesSummary(session.summary);
+  if (!summary?.action_items) return false;
+  if (Array.isArray(summary.action_items)) return summary.action_items.length > 0;
+  if (typeof summary.action_items === "string") return summary.action_items.trim().length > 0;
+  return false;
 }
 
 export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
