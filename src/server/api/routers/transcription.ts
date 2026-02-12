@@ -665,7 +665,7 @@ export const transcriptionRouter = createTRPCRouter({
     }),
 
   // Add to your transcriptionRouter
-  saveScreenshot: protectedProcedure
+  saveScreenshot: apiKeyMiddleware
     .input(
       z.object({
         sessionId: z.string(),
