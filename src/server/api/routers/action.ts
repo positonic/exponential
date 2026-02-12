@@ -1126,7 +1126,22 @@ export const actionRouter = createTRPCRouter({
             isWorkspaceMember = !!workspaceUser;
           }
 
-          canAssign = isProjectMember || isTeamMember || isProjectCreator || isWorkspaceMember;
+          // Check if user shares a team with the assigning user
+          let sharesTeam = false;
+          if (!isProjectMember && !isTeamMember && !isProjectCreator && !isWorkspaceMember) {
+            const sharedTeam = await ctx.db.team.findFirst({
+              where: {
+                AND: [
+                  { members: { some: { userId } } },
+                  { members: { some: { userId: ctx.session.user.id } } },
+                ],
+              },
+              select: { id: true },
+            });
+            sharesTeam = !!sharedTeam;
+          }
+
+          canAssign = isProjectMember || isTeamMember || isProjectCreator || isWorkspaceMember || sharesTeam;
         }
         // Check if action has a team (but no project) - users must be team members
         else if (action.teamId && action.team) {
