@@ -1,57 +1,8 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
-
-// Middleware to check API key (similar to transcription router)
-const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
-  const apiKey = ctx.headers.get("x-api-key");
-
-  if (!apiKey) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "API key is required",
-    });
-  }
-
-  // Find the verification token and associated user
-  const verificationToken = await ctx.db.verificationToken.findFirst({
-    where: {
-      token: apiKey,
-      expires: {
-        gt: new Date(), // Only non-expired tokens
-      },
-    },
-    include: {
-      user: true,
-    },
-  });
-
-  if (!verificationToken) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "Invalid or expired API key",
-    });
-  }
-
-  // Type-safe error handling
-  const userId = verificationToken.userId;
-  if (!userId) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "No user associated with this API key",
-    });
-  }
-
-  // Add the user id to the context
-  return next({
-    ctx: {
-      ...ctx,
-      userId, // Now type-safe
-      user: verificationToken.user,
-    },
-  });
-});
+import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 
 export const projectRouter = createTRPCRouter({
   // API endpoint for browser plugin - uses API key authentication

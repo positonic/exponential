@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   createTRPCRouter,
-  publicProcedure,
   protectedProcedure,
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
@@ -9,52 +8,10 @@ import { TRPCError } from "@trpc/server";
 import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
+import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
-
-// Middleware to check API key
-const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
-  const apiKey = ctx.headers.get("x-api-key");
-
-  if (!apiKey) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "API key is required",
-    });
-  }
-
-  // Find the verification token and associated user
-  const verificationToken = await ctx.db.verificationToken.findFirst({
-    where: {
-      token: apiKey,
-    },
-  });
-
-  if (!verificationToken) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "Invalid or expired API key",
-    });
-  }
-
-  // Type-safe error handling
-  const userId = verificationToken.userId;
-  if (!userId) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "No user associated with this API key",
-    });
-  }
-
-  // Add the user id to the context
-  return next({
-    ctx: {
-      ...ctx,
-      userId, // Now type-safe
-    },
-  });
-});
 
 export const transcriptionRouter = createTRPCRouter({
   startSession: apiKeyMiddleware

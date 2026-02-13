@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   createTRPCRouter,
   protectedProcedure,
-  publicProcedure,
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { PRIORITY_VALUES } from "~/types/priority";
@@ -10,51 +9,7 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess } from "~/server/services/access";
-
-// Middleware to check API key for external integrations (iOS shortcuts, etc.)
-const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
-  const apiKey = ctx.headers.get("x-api-key");
-
-  if (!apiKey) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "API key is required. Use x-api-key header.",
-    });
-  }
-
-  // Find the verification token and associated user
-  const verificationToken = await ctx.db.verificationToken.findFirst({
-    where: {
-      token: apiKey,
-      expires: {
-        gt: new Date(), // Only non-expired tokens
-      },
-    },
-  });
-
-  if (!verificationToken) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "Invalid or expired API key",
-    });
-  }
-
-  const userId = verificationToken.userId;
-  if (!userId) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "No user associated with this API key",
-    });
-  }
-
-  // Add the user id to the context
-  return next({
-    ctx: {
-      ...ctx,
-      userId,
-    },
-  });
-});
+import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 
 // Helper to build permission check for user's accessible actions
 // Includes: action creator, assignees, and project membership (creator, member, team member)
@@ -601,7 +556,7 @@ export const actionRouter = createTRPCRouter({
       };
 
       // Update the kanban status
-      return ctx.db.action.update({
+      const updated = await ctx.db.action.update({
         where: { id: input.actionId },
         data: updateData,
         include: {
@@ -611,6 +566,22 @@ export const actionRouter = createTRPCRouter({
           },
         },
       });
+
+      // Track status change for PM agent analytics (cycle time, lead time)
+      if (action.kanbanStatus !== input.kanbanStatus) {
+        await ctx.db.actionStatusChange.create({
+          data: {
+            actionId: input.actionId,
+            fromStatus: action.kanbanStatus,
+            toStatus: input.kanbanStatus,
+            changedById: ctx.session.user.id,
+          },
+        }).catch((err: unknown) => {
+          console.error("Failed to record status change:", err);
+        });
+      }
+
+      return updated;
     }),
 
   getToday: protectedProcedure
@@ -1599,11 +1570,14 @@ export const actionRouter = createTRPCRouter({
       }
 
       // Update the action
-      return ctx.db.action.update({
+      const updated = await ctx.db.action.update({
         where: { id: actionId },
         data: {
           kanbanStatus,
           kanbanOrder: newOrder,
+          // Track completion timestamp
+          ...(kanbanStatus === "DONE" && action.kanbanStatus !== "DONE" && { completedAt: new Date() }),
+          ...(kanbanStatus !== "DONE" && action.kanbanStatus === "DONE" && { completedAt: null }),
         },
         include: {
           assignees: {
@@ -1612,6 +1586,22 @@ export const actionRouter = createTRPCRouter({
           project: { select: { id: true, name: true } },
         },
       });
+
+      // Track status change for PM agent analytics (cycle time, lead time)
+      if (action.kanbanStatus !== kanbanStatus) {
+        await ctx.db.actionStatusChange.create({
+          data: {
+            actionId,
+            fromStatus: action.kanbanStatus,
+            toStatus: kanbanStatus,
+            changedById: ctx.session.user.id,
+          },
+        }).catch((err: unknown) => {
+          console.error("Failed to record status change:", err);
+        });
+      }
+
+      return updated;
     }),
 
   reorderKanbanCard: protectedProcedure

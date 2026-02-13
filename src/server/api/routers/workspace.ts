@@ -1,50 +1,8 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership, buildWorkspaceAccessWhere } from "~/server/services/access";
-
-// Middleware to check API key for external integrations (browser extension, etc.)
-const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
-  const apiKey = ctx.headers.get("x-api-key");
-
-  if (!apiKey) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "API key is required",
-    });
-  }
-
-  const verificationToken = await ctx.db.verificationToken.findFirst({
-    where: {
-      token: apiKey,
-      expires: {
-        gt: new Date(),
-      },
-    },
-  });
-
-  if (!verificationToken) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "Invalid or expired API key",
-    });
-  }
-
-  const userId = verificationToken.userId;
-  if (!userId) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "No user associated with this API key",
-    });
-  }
-
-  return next({
-    ctx: {
-      ...ctx,
-      userId,
-    },
-  });
-});
+import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   generateSecureToken,
   generateInviteUrl,

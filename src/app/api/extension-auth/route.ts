@@ -1,3 +1,8 @@
+/**
+ * @deprecated Use POST /api/auth/extension-token instead.
+ * This endpoint returns the raw NextAuth token object, not a usable JWT for API calls.
+ * The new endpoint generates a proper Bearer JWT that works with tRPC endpoints.
+ */
 import { NextResponse } from 'next/server';
 import { auth } from "~/server/auth";
 import { getToken } from "next-auth/jwt";
