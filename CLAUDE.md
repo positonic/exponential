@@ -211,6 +211,16 @@ src/
 - Authentication middleware protects authenticated endpoints
 - Database operations use Prisma with proper error handling
 
+### Access Control
+
+**REMINDER: Read `/docs/ACCESS_CONTROL.md` before modifying any access control logic.**
+
+- Centralized access control service at `src/server/services/access/`
+- Use middleware (`requireActionAccess`, `requireWorkspaceMembership`, etc.) for new endpoints
+- Use `buildActionAccessWhere()` for bulk queries that need permission scoping
+- 5 access paths: workspace membership, team membership, project membership, ownership, admin
+- Never duplicate inline permission checks — use the centralized resolvers
+
 ### Authentication
 - NextAuth.js v5 with JWT strategy
 - Multiple OAuth providers (Discord, Google, Notion)
