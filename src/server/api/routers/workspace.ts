@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { getWorkspaceMembership, buildWorkspaceAccessWhere } from "~/server/services/access";
 
 // Middleware to check API key for external integrations (browser extension, etc.)
 const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
@@ -60,13 +61,7 @@ export const workspaceRouter = createTRPCRouter({
     }))
     .query(async ({ ctx }) => {
       const workspaces = await ctx.db.workspace.findMany({
-        where: {
-          members: {
-            some: {
-              userId: ctx.userId,
-            },
-          },
-        },
+        where: buildWorkspaceAccessWhere(ctx.userId),
         select: {
           id: true,
           name: true,
@@ -144,16 +139,10 @@ export const workspaceRouter = createTRPCRouter({
       return workspace;
     }),
 
-  // Get all workspaces for the current user
+  // Get all workspaces for the current user (direct membership or team-based access)
   list: protectedProcedure.query(async ({ ctx }) => {
     const workspaces = await ctx.db.workspace.findMany({
-      where: {
-        members: {
-          some: {
-            userId: ctx.session.user.id,
-          },
-        },
-      },
+      where: buildWorkspaceAccessWhere(ctx.session.user.id),
       include: {
         members: {
           include: {
@@ -164,6 +153,19 @@ export const workspaceRouter = createTRPCRouter({
                 email: true,
                 image: true,
               },
+            },
+          },
+        },
+        // Include teams the current user belongs to (for computing role on team-based access)
+        teams: {
+          where: {
+            members: { some: { userId: ctx.session.user.id } },
+          },
+          select: {
+            id: true,
+            members: {
+              where: { userId: ctx.session.user.id },
+              select: { role: true },
             },
           },
         },
@@ -184,9 +186,16 @@ export const workspaceRouter = createTRPCRouter({
       const currentMember = workspace.members.find(
         (m) => m.userId === ctx.session.user.id
       );
+
+      // Direct member role, or synthesized "member" role for team-based access
+      const currentUserRole: string | null =
+        currentMember?.role ?? (workspace.teams.length > 0 ? "member" : null);
+
+      // Remove internal teams field from response
+      const { teams: _teams, ...workspaceData } = workspace;
       return {
-        ...workspace,
-        currentUserRole: currentMember?.role ?? null,
+        ...workspaceData,
+        currentUserRole,
       };
     });
   }),
@@ -240,11 +249,26 @@ export const workspaceRouter = createTRPCRouter({
         });
       }
 
-      // Check if user is a member
+      // Check if user is a direct member
       const currentMember = workspace.members.find(
         (member) => member.userId === ctx.session.user.id
       );
-      if (!currentMember) {
+
+      if (currentMember) {
+        return {
+          ...workspace,
+          currentUserRole: currentMember.role,
+        };
+      }
+
+      // Fallback: check team-based workspace access
+      const teamBasedMembership = await getWorkspaceMembership(
+        ctx.db,
+        ctx.session.user.id,
+        workspace.id,
+      );
+
+      if (!teamBasedMembership) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "You are not a member of this workspace",
@@ -253,7 +277,7 @@ export const workspaceRouter = createTRPCRouter({
 
       return {
         ...workspace,
-        currentUserRole: currentMember.role,
+        currentUserRole: teamBasedMembership.role,
       };
     }),
 
@@ -571,15 +595,9 @@ export const workspaceRouter = createTRPCRouter({
     });
 
     if (!user?.defaultWorkspaceId) {
-      // Return the first workspace user is a member of (preferably personal)
+      // Return the first workspace user has access to (preferably personal)
       const firstWorkspace = await ctx.db.workspace.findFirst({
-        where: {
-          members: {
-            some: {
-              userId: ctx.session.user.id,
-            },
-          },
-        },
+        where: buildWorkspaceAccessWhere(ctx.session.user.id),
         orderBy: [{ type: "asc" }, { createdAt: "asc" }],
         select: { id: true, slug: true, name: true, type: true },
       });
