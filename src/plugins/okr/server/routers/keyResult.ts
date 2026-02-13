@@ -207,6 +207,7 @@ export const keyResultRouter = createTRPCRouter({
                       id: true,
                       name: true,
                       status: true,
+                      slug: true,
                     },
                   },
                 },

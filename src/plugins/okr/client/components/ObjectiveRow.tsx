@@ -24,6 +24,7 @@ interface LinkedProject {
     id: string;
     name: string;
     status: string;
+    slug: string;
   };
 }
 

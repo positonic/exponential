@@ -14,6 +14,8 @@ import {
   IconPencil,
   IconChevronRight,
 } from "@tabler/icons-react";
+import Link from "next/link";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { DeltaIndicator, calculateDelta } from "./DeltaIndicator";
 import {
   getAvatarColor,
@@ -38,6 +40,7 @@ interface LinkedProject {
   id: string;
   name: string;
   status: string;
+  slug: string;
 }
 
 interface KeyResultData {
@@ -103,6 +106,7 @@ export function KeyResultRow({
   onViewDetails,
   linkedProjects,
 }: KeyResultRowProps) {
+  const { workspaceSlug } = useWorkspace();
   const delta = calculateDelta(keyResult);
   const progress = calculateProgress(keyResult);
   const statusColor = getStatusColor(keyResult.status);
@@ -237,9 +241,13 @@ export function KeyResultRow({
               >
                 {/* Project connector line */}
                 <div className="w-3 h-px bg-border-secondary flex-shrink-0" />
-                <Text size="xs" className="text-text-secondary truncate">
+                <Link
+                  href={workspaceSlug ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}` : `/projects/${project.slug}-${project.id}`}
+                  className="text-xs text-text-secondary truncate hover:text-brand-primary transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {project.name}
-                </Text>
+                </Link>
                 <Badge size="xs" variant="light" color="gray">
                   {project.status}
                 </Badge>
