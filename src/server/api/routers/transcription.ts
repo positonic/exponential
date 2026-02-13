@@ -18,11 +18,12 @@ export const transcriptionRouter = createTRPCRouter({
     .input(z.object({
       projectId: z.string().nullable(),
       workspaceId: z.string().nullable().optional(),
+      title: z.string().nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       // Type-safe userId access
       const userId = ctx.userId;
-      const { projectId, workspaceId } = input;
+      const { projectId, workspaceId, title } = input;
 
       // Create record in database using ctx.db
       const session = await ctx.db.transcriptionSession.create({
@@ -32,6 +33,7 @@ export const transcriptionRouter = createTRPCRouter({
           userId,
           projectId, // Save projectId
           workspaceId: workspaceId ?? null,
+          title: title ?? null,
         },
       });
 
