@@ -56,16 +56,20 @@ const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
 export const projectRouter = createTRPCRouter({
   // API endpoint for browser plugin - uses API key authentication
   getUserProjects: apiKeyMiddleware
+    .input(z.object({
+      workspaceId: z.string().optional(),
+    }).optional())
     .output(z.object({
       projects: z.array(z.object({
         id: z.string(),
         name: z.string(),
       }))
     }))
-    .query(async ({ ctx }) => {
+    .query(async ({ ctx, input }) => {
       const projects = await ctx.db.project.findMany({
         where: {
           createdById: ctx.userId,
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
         },
         select: {
           id: true,
