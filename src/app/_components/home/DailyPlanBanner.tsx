@@ -18,7 +18,7 @@ function getTodayKey(): string {
   return startOfDay(new Date()).toISOString().split("T")[0] ?? "";
 }
 
-export function DailyPlanBanner() {
+export function DailyPlanBanner({ compact }: { compact?: boolean } = {}) {
   const [dismissed, setDismissed] = useState(() => {
     const dismissedDate = getDismissedDate();
     const today = getTodayKey();
@@ -43,6 +43,35 @@ export function DailyPlanBanner() {
   }
 
   const hasStarted = dailyPlan && dailyPlan.plannedActions.length > 0;
+
+  if (compact) {
+    return (
+      <Paper
+        p="md"
+        radius="md"
+        className="flex h-full flex-1 flex-col justify-between border border-amber-500/20 bg-gradient-to-r from-amber-500/10 to-orange-500/10"
+      >
+        <Group gap="sm" wrap="nowrap" mb="xs">
+          <IconSun size={20} className="text-amber-400 flex-shrink-0" />
+          <Text fw={600} size="sm" className="text-text-primary">
+            {hasStarted ? "Continue Planning" : "Plan Your Day"}
+          </Text>
+          <CloseButton
+            size="xs"
+            onClick={handleDismiss}
+            aria-label="Dismiss"
+            className="ml-auto"
+          />
+        </Group>
+        <Text size="xs" className="text-text-secondary mb-2">
+          {hasStarted ? "Finish setting up your day." : "Set your tasks for a productive day."}
+        </Text>
+        <Button component={Link} href="/daily-plan" size="xs" variant="filled" color="orange" fullWidth>
+          {hasStarted ? "Continue" : "Start Planning"}
+        </Button>
+      </Paper>
+    );
+  }
 
   return (
     <Paper

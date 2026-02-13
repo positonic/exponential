@@ -19,7 +19,7 @@ function getCurrentWeekKey(): string {
   return getSundayWeekStart(new Date()).toISOString().split("T")[0] ?? "";
 }
 
-export function WeeklyReviewBanner() {
+export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
   const { workspace, workspaceId } = useWorkspace();
   const [dismissed, setDismissed] = useState(() => {
     const dismissedWeek = getDismissedWeek();
@@ -53,6 +53,35 @@ export function WeeklyReviewBanner() {
   }
 
   const reviewPath = `/w/${workspace.slug}/weekly-review`;
+
+  if (compact) {
+    return (
+      <Paper
+        p="md"
+        radius="md"
+        className="flex h-full flex-1 flex-col justify-between border border-blue-500/20 bg-gradient-to-r from-blue-500/10 to-cyan-500/10"
+      >
+        <Group gap="sm" wrap="nowrap" mb="xs">
+          <IconCalendarCheck size={20} className="text-blue-400 flex-shrink-0" />
+          <Text fw={600} size="sm" className="text-text-primary">
+            Weekly Review
+          </Text>
+          <CloseButton
+            size="xs"
+            onClick={handleDismiss}
+            aria-label="Dismiss"
+            className="ml-auto"
+          />
+        </Group>
+        <Text size="xs" className="text-text-secondary mb-2">
+          Review your projects and plan next week.
+        </Text>
+        <Button component={Link} href={reviewPath} size="xs" variant="filled" fullWidth>
+          Start Review
+        </Button>
+      </Paper>
+    );
+  }
 
   return (
     <Paper
