@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Group, Button, Text, Loader, Stack } from "@mantine/core";
 import { IconPlus, IconSettings } from "@tabler/icons-react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -17,11 +17,38 @@ export default function PipelinePage() {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
 
-  const { data: pipeline, isLoading: pipelineLoading } =
-    api.pipeline.getOrCreate.useQuery(
-      { workspaceId: workspaceId! },
-      { enabled: !!workspaceId },
-    );
+  const utils = api.useUtils();
+
+  // Query for existing pipeline
+  const {
+    data: pipeline,
+    isLoading: pipelineLoading,
+    error: pipelineError,
+  } = api.pipeline.get.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: !!workspaceId },
+  );
+
+  // Mutation to create pipeline if it doesn't exist
+  const createPipelineMutation = api.pipeline.create.useMutation({
+    onSuccess: () => {
+      void utils.pipeline.get.invalidate({ workspaceId: workspaceId! });
+    },
+  });
+
+  // Auto-create pipeline if none exists
+  useEffect(() => {
+    if (
+      workspaceId &&
+      !pipelineLoading &&
+      !pipeline &&
+      !pipelineError &&
+      !createPipelineMutation.isPending &&
+      !createPipelineMutation.isSuccess
+    ) {
+      createPipelineMutation.mutate({ workspaceId });
+    }
+  }, [workspaceId, pipelineLoading, pipeline, pipelineError, createPipelineMutation]);
 
   const { data: deals, isLoading: dealsLoading } =
     api.pipeline.getDeals.useQuery(
@@ -36,7 +63,7 @@ export default function PipelinePage() {
 
   if (!workspace) return null;
 
-  if (pipelineLoading) {
+  if (pipelineLoading || createPipelineMutation.isPending) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader />

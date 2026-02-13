@@ -15,14 +15,34 @@ const DEFAULT_STAGES = [
 export const pipelineRouter = createTRPCRouter({
   // ─── Pipeline (Project) management ──────────────────────────
 
-  getOrCreate: protectedProcedure
+  get: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string(),
       }),
     )
     .query(async ({ ctx, input }) => {
-      // Look for existing pipeline project in this workspace
+      return ctx.db.project.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          type: "pipeline",
+        },
+        include: {
+          pipelineStages: {
+            orderBy: { order: "asc" },
+          },
+        },
+      });
+    }),
+
+  create: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Check if one already exists
       const existing = await ctx.db.project.findFirst({
         where: {
           workspaceId: input.workspaceId,
@@ -46,7 +66,7 @@ export const pipelineRouter = createTRPCRouter({
         counter++;
       }
 
-      const pipeline = await ctx.db.project.create({
+      return ctx.db.project.create({
         data: {
           name: "Pipeline",
           slug,
@@ -70,8 +90,6 @@ export const pipelineRouter = createTRPCRouter({
           },
         },
       });
-
-      return pipeline;
     }),
 
   update: protectedProcedure
