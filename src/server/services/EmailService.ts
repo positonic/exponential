@@ -167,7 +167,7 @@ function generateWelcomeEmailContent(options: {
   greeting: string;
 }): { htmlBody: string; textBody: string } {
   const { brandColor, appName, appUrl, ctaUrl, ctaText, showExpiration, greeting } = options;
-  const dailyPlannerUrl = `${appUrl}/daily-planner`;
+  const dailyPlannerUrl = `${appUrl}/daily-plan`;
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -188,7 +188,7 @@ function generateWelcomeEmailContent(options: {
           <tr>
             <td style="padding: 32px 32px 24px; text-align: center;">
               <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #111827;">
-                Your 14-day trial starts now
+                Welcome to ${appName}
               </h1>
             </td>
           </tr>
@@ -200,7 +200,7 @@ function generateWelcomeEmailContent(options: {
                 ${greeting}
               </p>
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                Your trial of ${appName} starts today.
+                Thanks for signing up for ${appName}.
               </p>
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
                 I'm not going to pretend you need to watch 12 tutorial videos and set up the "perfect workflow" before you can use it. That's procrastination dressed up as productivity.
@@ -270,7 +270,7 @@ function generateWelcomeEmailContent(options: {
           <tr>
             <td style="padding: 0 32px 32px;">
               <p style="margin: 0 0 16px; font-size: 14px; color: #4b5563; border-top: 1px solid #e5e7eb; padding-top: 24px;">
-                I'll check in over the next two weeks with ideas on getting the most from your trial. Reply anytime—I read everything.
+                I'll check in with ideas on getting the most from ${appName}. Reply anytime—I read everything.
               </p>
               <p style="margin: 0; font-size: 14px; color: #374151;">
                 — James
@@ -286,11 +286,11 @@ function generateWelcomeEmailContent(options: {
 `.trim();
 
   const textBody = `
-Your 14-day trial starts now
+Welcome to ${appName}
 
 ${greeting}
 
-Your trial of ${appName} starts today.
+Thanks for signing up for ${appName}.
 
 I'm not going to pretend you need to watch 12 tutorial videos and set up the "perfect workflow" before you can use it. That's procrastination dressed up as productivity.
 
@@ -326,7 +326,7 @@ The AI handles execution. You handle intent. That's the deal.
 
 ---
 
-I'll check in over the next two weeks with ideas on getting the most from your trial. Reply anytime—I read everything.
+I'll check in with ideas on getting the most from ${appName}. Reply anytime—I read everything.
 
 — James
 `.trim();
@@ -357,7 +357,7 @@ export async function sendWelcomeWithMagicLinkEmail(
 
   await sendEmail({
     to: email,
-    subject: "Your 14-day trial starts now. Here's the only thing you need to do.",
+    subject: `Welcome to ${appName} — here's the only thing you need to do`,
     htmlBody,
     textBody,
   });
@@ -398,7 +398,7 @@ export async function sendWelcomeEmail(
 
   await sendEmail({
     to: email,
-    subject: "Your 14-day trial starts now. Here's the only thing you need to do.",
+    subject: `Welcome to ${appName} — here's the only thing you need to do`,
     htmlBody,
     textBody,
   });
