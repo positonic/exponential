@@ -29,6 +29,7 @@ export function TodayActions() {
 
   // Bulk update mutation for rescheduling
   const bulkUpdateMutation = api.action.update.useMutation();
+  const markProcessedOverdue = api.dailyPlan.markProcessedOverdue.useMutation();
 
   // Handle overdue bulk delete
   const handleOverdueBulkAction = (action: 'delete', actionIds: string[]) => {
@@ -57,7 +58,7 @@ export function TodayActions() {
           completedCount++;
           // Show final notification when all are done
           if (completedCount === totalCount) {
-            const message = date 
+            const message = date
               ? `Successfully rescheduled ${totalCount} action${totalCount !== 1 ? 's' : ''} to ${date.toDateString()}`
               : `Successfully removed due date from ${totalCount} action${totalCount !== 1 ? 's' : ''}`;
             notifications.show({
@@ -65,6 +66,8 @@ export function TodayActions() {
               message,
               color: 'green',
             });
+            // Award inbox processing bonus for handling overdue tasks
+            markProcessedOverdue.mutate({});
             void todayActions.refetch();
           }
         },

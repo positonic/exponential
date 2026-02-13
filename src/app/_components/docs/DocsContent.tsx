@@ -1,17 +1,18 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Title, Text } from "@mantine/core";
 import type { DocContent } from "~/lib/docs/types";
 import { DocsBreadcrumb } from "./DocsBreadcrumb";
 import { DocsPrevNext } from "./DocsPrevNext";
 import { DocsCallout } from "./DocsCallout";
-import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 interface DocsContentProps {
   doc: DocContent;
+  children: ReactNode;
 }
 
-export function DocsContent({ doc }: DocsContentProps) {
+export function DocsContent({ doc, children }: DocsContentProps) {
   return (
     <article className="min-w-0 flex-1 px-8 py-6">
       <div className="mx-auto max-w-3xl">
@@ -31,7 +32,7 @@ export function DocsContent({ doc }: DocsContentProps) {
 
         {/* Main content */}
         <div className="docs-content">
-          <MarkdownRenderer content={doc.content} />
+          {children}
         </div>
 
         <DocsPrevNext />

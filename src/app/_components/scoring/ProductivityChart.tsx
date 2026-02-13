@@ -1,14 +1,19 @@
 "use client";
 
-import { Card, Text, Group, Stack, Loader } from "@mantine/core";
+import { useState } from "react";
+import { Card, Text, Group, Stack, Loader, Collapse, ActionIcon } from "@mantine/core";
+import { IconX } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { format, startOfDay } from "date-fns";
+import { ScoreBreakdown } from "./ScoreBreakdown";
 
 interface ProductivityChartProps {
   workspaceId?: string;
 }
 
 export function ProductivityChart({ workspaceId }: ProductivityChartProps) {
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
+
   // Fetch last 30 days of scores
   const { data: scores, isLoading } = api.scoring.getLast30Days.useQuery({
     workspaceId,
@@ -50,6 +55,13 @@ export function ProductivityChart({ workspaceId }: ProductivityChartProps) {
     return "var(--mantine-color-orange-6)";
   };
 
+  const handleBarClick = (index: number) => {
+    setSelectedDayIndex((prev) => (prev === index ? null : index));
+  };
+
+  const selectedScore =
+    selectedDayIndex !== null ? scores[selectedDayIndex] : null;
+
   return (
     <Card className="bg-surface-primary border-border-primary">
       <Stack gap="md">
@@ -71,12 +83,14 @@ export function ProductivityChart({ workspaceId }: ProductivityChartProps) {
             const height = (score.totalScore / maxScore) * 100;
             const isToday = index === scores.length - 1;
             const isWeekend = new Date(score.date).getDay() === 0 || new Date(score.date).getDay() === 6;
+            const isSelected = selectedDayIndex === index;
 
             return (
               <div
                 key={score.id}
                 className="flex-1 relative group cursor-pointer"
                 style={{ height: "100%" }}
+                onClick={() => handleBarClick(index)}
               >
                 {/* Bar */}
                 <div
@@ -84,8 +98,11 @@ export function ProductivityChart({ workspaceId }: ProductivityChartProps) {
                   style={{
                     height: `${height}%`,
                     backgroundColor: getBarColor(score.totalScore),
-                    opacity: isToday ? 1 : 0.7,
+                    opacity: isSelected ? 1 : isToday ? 0.85 : 0.7,
                     minHeight: score.totalScore > 0 ? "4px" : "0px",
+                    boxShadow: isSelected
+                      ? `0 0 0 2px ${getBarColor(score.totalScore)}`
+                      : undefined,
                   }}
                 />
 
@@ -109,6 +126,40 @@ export function ProductivityChart({ workspaceId }: ProductivityChartProps) {
             );
           })}
         </div>
+
+        {/* Hint text when nothing selected */}
+        {selectedDayIndex === null && (
+          <Text className="text-text-muted text-xs text-center">
+            Click a bar to see point breakdown
+          </Text>
+        )}
+
+        {/* Selected day breakdown */}
+        <Collapse in={selectedScore !== null}>
+          {selectedScore && (
+            <div className="border-t border-border-primary pt-4">
+              <Group className="justify-between mb-2">
+                <Text className="text-text-secondary text-sm font-medium">
+                  {format(startOfDay(new Date(selectedScore.date)), "EEEE, MMMM d")}
+                  {" \u2014 "}
+                  <span className="font-bold" style={{ color: getBarColor(selectedScore.totalScore) }}>
+                    {selectedScore.totalScore}
+                  </span>
+                  /100
+                </Text>
+                <ActionIcon
+                  variant="subtle"
+                  size="sm"
+                  onClick={() => setSelectedDayIndex(null)}
+                  aria-label="Close breakdown"
+                >
+                  <IconX size={14} />
+                </ActionIcon>
+              </Group>
+              <ScoreBreakdown score={selectedScore} />
+            </div>
+          )}
+        </Collapse>
 
         {/* Legend */}
         <Group gap="sm" className="justify-center text-xs">

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getDocContent, getAllDocSlugs } from "~/lib/docs/getDoc";
 import { DocsSidebar, DocsContent, DocsTableOfContents } from "~/app/_components/docs";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 interface DocsPageProps {
   params: Promise<{ slug?: string[] }>;
@@ -24,7 +25,9 @@ export default async function DocsPage({ params }: DocsPageProps) {
   return (
     <>
       <DocsSidebar />
-      <DocsContent doc={doc} />
+      <DocsContent doc={doc}>
+        <MarkdownRenderer content={doc.content} />
+      </DocsContent>
       <div className="hidden lg:block">
         <DocsTableOfContents headings={doc.headings} />
       </div>

@@ -162,6 +162,52 @@ export const dailyPlanRouter = createTRPCRouter({
     }),
 
   /**
+   * Mark that the user has processed their overdue tasks for today.
+   * Awards 5-point "Inbox Processing Bonus" via score recalculation.
+   */
+  markProcessedOverdue: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+        date: z.date().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const planDate = input.date ?? startOfDay(new Date());
+
+      const plan = await ctx.db.dailyPlan.findFirst({
+        where: {
+          userId,
+          date: planDate,
+          workspaceId: input.workspaceId ?? null,
+        },
+      });
+
+      if (!plan) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No daily plan found for this date",
+        });
+      }
+
+      const updatedPlan = await ctx.db.dailyPlan.update({
+        where: { id: plan.id },
+        data: { processedOverdue: true },
+      });
+
+      await ScoringService.calculateDailyScore(
+        ctx,
+        planDate,
+        input.workspaceId
+      ).catch((err) => {
+        console.error("[dailyPlan.markProcessedOverdue] Failed to recalculate score:", err);
+      });
+
+      return updatedPlan;
+    }),
+
+  /**
    * Add a task to the daily plan
    */
   addTask: protectedProcedure
