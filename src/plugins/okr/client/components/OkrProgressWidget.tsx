@@ -29,7 +29,7 @@ export function OkrProgressWidget({ period }: OkrProgressWidgetProps) {
 
   const { data: stats, isLoading } = api.okr.getStats.useQuery(
     { workspaceId: workspaceId ?? undefined, period },
-    { enabled: true }
+    { enabled: !!workspaceId }
   );
 
   if (isLoading) {

@@ -131,12 +131,15 @@ export function OkrDashboard() {
     workspaceId: workspaceId ?? undefined,
     year: selectedYear,
   }, {
+    enabled: !!workspaceId,
     placeholderData: keepPreviousData,
   });
 
   // Fetch available goals for selection
   const { data: availableGoals } = api.okr.getAvailableGoals.useQuery({
     workspaceId: workspaceId ?? undefined,
+  }, {
+    enabled: !!workspaceId,
   });
 
   // Fetch OKRs grouped by objective
@@ -145,6 +148,7 @@ export function OkrDashboard() {
     period: effectivePeriod,
     includePairedPeriod: false,
   }, {
+    enabled: !!workspaceId,
     placeholderData: keepPreviousData,
   });
 
@@ -153,6 +157,7 @@ export function OkrDashboard() {
     workspaceId: workspaceId ?? undefined,
     period: effectivePeriod,
   }, {
+    enabled: !!workspaceId,
     placeholderData: keepPreviousData,
   });
 
