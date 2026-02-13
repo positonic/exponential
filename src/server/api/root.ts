@@ -53,6 +53,7 @@ import { assistantRouter } from "./routers/assistant";
 import { workflowPipelineRouter } from "./routers/workflowPipeline";
 import { pipelineRouter } from "./routers/pipeline";
 import { contentRouter } from "./routers/content";
+import { sprintAnalyticsRouter } from "./routers/sprintAnalytics";
 // Plugin system
 import { pluginConfigRouter } from "./routers/pluginConfig";
 import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
@@ -116,6 +117,7 @@ export const appRouter = createTRPCRouter({
   workflowPipeline: workflowPipelineRouter,
   content: contentRouter,
   pipeline: pipelineRouter,
+  sprintAnalytics: sprintAnalyticsRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,
