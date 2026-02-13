@@ -404,8 +404,115 @@ export async function sendWelcomeEmail(
   });
 }
 
+/**
+ * Send team invitation email to invitee
+ */
+export async function sendTeamInvitationEmail(params: {
+  to: string;
+  teamName: string;
+  inviterName: string;
+  inviteUrl: string;
+}): Promise<void> {
+  const { to, teamName, inviterName, inviteUrl } = params;
+  const brandColor = "#5850EC";
+  const appName = "Exponential";
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>Join ${teamName} on ${appName}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 480px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
+          <!-- Header -->
+          <tr>
+            <td style="padding: 32px 32px 24px; text-align: center;">
+              <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
+                You've been invited to join ${teamName}
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding: 0 32px;">
+              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                <strong>${inviterName}</strong> has invited you to join <strong>${teamName}</strong> on ${appName}.
+              </p>
+
+              <!-- CTA Button -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 24px;">
+                    <a href="${inviteUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                      Accept Invitation
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Fallback Link -->
+              <p style="margin: 0 0 8px; font-size: 13px; color: #6b7280;">
+                Or copy and paste this link into your browser:
+              </p>
+              <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
+                ${inviteUrl}
+              </p>
+
+              <!-- Expiration Notice -->
+              <p style="margin: 0; padding: 12px 16px; background-color: #f3f4f6; border-radius: 6px; font-size: 13px; color: #6b7280;">
+                This invitation expires in 7 days.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 24px 32px 32px;">
+              <p style="margin: 0; font-size: 13px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 24px;">
+                If you weren't expecting this invitation, you can safely ignore this email.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`.trim();
+
+  const textBody = `
+You've been invited to join ${teamName}
+
+${inviterName} has invited you to join ${teamName} on ${appName}.
+
+Accept the invitation: ${inviteUrl}
+
+This invitation expires in 7 days.
+
+If you weren't expecting this invitation, you can safely ignore this email.
+`.trim();
+
+  await sendEmail({
+    to,
+    subject: `You've been invited to join ${teamName} on ${appName}`,
+    htmlBody,
+    textBody,
+  });
+}
+
 export const EmailService = {
   sendMagicLinkEmail,
   sendWelcomeEmail,
   sendWelcomeWithMagicLinkEmail,
+  sendTeamInvitationEmail,
 };

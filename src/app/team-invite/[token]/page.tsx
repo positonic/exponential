@@ -154,7 +154,7 @@ export default function TeamInviteAcceptPage() {
             </Alert>
 
             <Group justify="center">
-              <Button onClick={() => router.push("/signin")} leftSection={<IconCheck size={16} />}>
+              <Button onClick={() => router.push(`/signin?callbackUrl=${encodeURIComponent(`/team-invite/${token}`)}`)} leftSection={<IconCheck size={16} />}>
                 Sign In to Accept
               </Button>
             </Group>
@@ -177,7 +177,7 @@ export default function TeamInviteAcceptPage() {
               This invitation was sent to <strong>{invitation.email}</strong>.
               Please sign in with that email address to accept.
             </Text>
-            <Button variant="light" onClick={() => router.push("/signin")}>
+            <Button variant="light" onClick={() => router.push(`/signin?callbackUrl=${encodeURIComponent(`/team-invite/${token}`)}`)}>
               Sign In with Different Account
             </Button>
           </Stack>

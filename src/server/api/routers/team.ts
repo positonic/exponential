@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { generateSecureToken, generateTeamInviteUrl } from "~/server/utils/tokens";
+import { sendTeamInvitationEmail } from "~/server/services/EmailService";
 
 export const teamRouter = createTRPCRouter({
   // Create a new team
@@ -305,10 +306,28 @@ export const teamRouter = createTRPCRouter({
           },
         });
 
+        const inviteUrl = generateTeamInviteUrl(token);
+
+        // Fetch team name for email
+        const team = await ctx.db.team.findUnique({
+          where: { id: input.teamId },
+          select: { name: true },
+        });
+
+        // Fire-and-forget: send invitation email
+        sendTeamInvitationEmail({
+          to: input.email,
+          teamName: team?.name ?? "a team",
+          inviterName: ctx.session.user.name ?? ctx.session.user.email ?? "A team member",
+          inviteUrl,
+        }).catch((err: unknown) => {
+          console.error("[team.addMember] Failed to send invitation email:", err);
+        });
+
         return {
           type: "invitation_created" as const,
           invitation,
-          inviteUrl: generateTeamInviteUrl(token),
+          inviteUrl,
         };
       }
     }),
@@ -637,9 +656,27 @@ export const teamRouter = createTRPCRouter({
         },
       });
 
+      const inviteUrl = generateTeamInviteUrl(newToken);
+
+      // Fetch team name for email
+      const team = await ctx.db.team.findUnique({
+        where: { id: invitation.teamId },
+        select: { name: true },
+      });
+
+      // Fire-and-forget: send invitation email
+      sendTeamInvitationEmail({
+        to: invitation.email,
+        teamName: team?.name ?? "a team",
+        inviterName: ctx.session.user.name ?? ctx.session.user.email ?? "A team member",
+        inviteUrl,
+      }).catch((err: unknown) => {
+        console.error("[team.resendInvitation] Failed to send invitation email:", err);
+      });
+
       return {
         invitation: updated,
-        inviteUrl: generateTeamInviteUrl(newToken),
+        inviteUrl,
       };
     }),
 
