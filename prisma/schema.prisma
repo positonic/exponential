@@ -171,6 +171,7 @@ model User {
   workflowDefinitions         WorkflowDefinition[]       @relation("WorkflowDefinitionCreatedBy")
   workflowPipelineRuns        WorkflowPipelineRun[]      @relation("WorkflowPipelineRunTriggeredBy")
   contentDrafts               ContentDraft[]             @relation("ContentDraftCreatedBy")
+  teamInvitationsCreated      TeamInvitation[]            @relation("TeamInvitationCreator")
 }
 
 model VerificationToken {
@@ -692,6 +693,7 @@ model Team {
   slackConfig             SlackChannelConfig?
   slackRegistrationTokens SlackRegistrationToken[]
   members                 TeamUser[]
+  invitations             TeamInvitation[]
   weeklyOutcomes          WeeklyOutcome[]
   memberCapacities        TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacities")
   weeklyReviewSharing     WeeklyReviewSharing[]
@@ -714,6 +716,28 @@ model TeamUser {
   @@unique([userId, teamId])
   @@index([userId])
   @@index([teamId])
+}
+
+model TeamInvitation {
+  id          String    @id @default(cuid())
+  teamId      String
+  email       String
+  role        String    @default("member") // "admin" | "member"
+  token       String    @unique
+  status      String    @default("pending") // "pending" | "accepted" | "expired" | "cancelled"
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  createdById String
+
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy User @relation("TeamInvitationCreator", fields: [createdById], references: [id])
+
+  @@unique([teamId, email])
+  @@index([token])
+  @@index([email])
+  @@index([teamId])
+  @@index([status])
 }
 
 model Differentiator {

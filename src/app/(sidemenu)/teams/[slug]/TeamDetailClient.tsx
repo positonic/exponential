@@ -1,7 +1,7 @@
 'use client';
 
-// import { useState } from 'react';
 import {
+  Alert,
   Container,
   Title,
   Text,
@@ -11,10 +11,6 @@ import {
   Stack,
   Avatar,
   Badge,
-  Modal,
-  TextInput,
-  Select,
-  Alert,
   ActionIcon,
   Menu,
   Grid,
@@ -22,17 +18,12 @@ import {
   Paper,
   Switch,
   Tooltip,
-  // Divider,
-  // List,
-  // ListItem
 } from '@mantine/core';
 import {
   IconUsers,
   IconSettings,
   IconUserPlus,
   IconDots,
-  // IconTrash,
-  // IconEdit,
   IconCrown,
   IconShield,
   IconUser,
@@ -44,22 +35,17 @@ import {
   IconCalendarWeek
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
-import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
 import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
-// import { useRouter } from 'next/navigation';
 import { AddProjectToTeamModal } from '~/app/_components/AddProjectToTeamModal';
 import { AssignProjectToTeamModal } from '~/app/_components/AssignProjectToTeamModal';
 import { EditTeamModal } from '~/app/_components/EditTeamModal';
 import { AddExistingIntegrationModal } from '~/app/_components/AddExistingIntegrationModal';
-
-interface AddMemberForm {
-  email: string;
-  role: 'admin' | 'member';
-}
+import { AddTeamMemberModal } from '~/app/_components/AddTeamMemberModal';
+import { PendingTeamInvitationsTable } from '~/app/_components/PendingTeamInvitationsTable';
 
 interface TeamDetailClientProps {
   team: any; // TODO: Add proper type
@@ -102,27 +88,6 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
     router.push(newUrl);
   };
 
-  // Add member mutation
-  const addMember = api.team.addMember.useMutation({
-    onSuccess: () => {
-      notifications.show({
-        title: 'Member Added',
-        message: 'Team member has been added successfully.',
-        color: 'green',
-      });
-      closeAddMemberModal();
-      addMemberForm.reset();
-      void refetch();
-    },
-    onError: (error) => {
-      notifications.show({
-        title: 'Error',
-        message: error.message || 'Failed to add member',
-        color: 'red',
-      });
-    },
-  });
-
   // Remove member mutation
   const removeMember = api.team.removeMember.useMutation({
     onSuccess: () => {
@@ -160,28 +125,6 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
       });
     },
   });
-
-  // Add member form
-  const addMemberForm = useForm<AddMemberForm>({
-    initialValues: {
-      email: '',
-      role: 'member',
-    },
-    validate: {
-      email: (value) => {
-        if (value.trim().length === 0) return 'Email is required';
-        if (!/\S+@\S+\.\S+/.test(value)) return 'Invalid email format';
-        return null;
-      },
-    },
-  });
-
-  const handleAddMember = (values: AddMemberForm) => {
-    addMember.mutate({
-      teamId: team.id,
-      ...values,
-    });
-  };
 
   const handleRemoveMember = (userId: string) => {
     if (confirm('Are you sure you want to remove this member from the team?')) {
@@ -385,6 +328,10 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                     </Group>
                   ))}
                 </Stack>
+
+                {isOwnerOrAdmin && (
+                  <PendingTeamInvitationsTable teamId={team.id} canManage={isOwnerOrAdmin} />
+                )}
               </Stack>
             </Card>
           </Tabs.Panel>
@@ -591,50 +538,12 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
         </Tabs>
 
         {/* Add Member Modal */}
-        <Modal 
-          opened={addMemberModalOpened} 
+        <AddTeamMemberModal
+          teamId={team.id}
+          opened={addMemberModalOpened}
           onClose={closeAddMemberModal}
-          title="Add Team Member"
-          size="md"
-        >
-          <form onSubmit={addMemberForm.onSubmit(handleAddMember)}>
-            <Stack gap="md">
-              <TextInput
-                label="Email Address"
-                placeholder="colleague@company.com"
-                required
-                {...addMemberForm.getInputProps('email')}
-              />
-
-              <Select
-                label="Role"
-                description="Members have access to team projects. Admins can also manage team settings and members."
-                data={[
-                  { value: 'member', label: 'Member' },
-                  { value: 'admin', label: 'Admin' },
-                ]}
-                {...addMemberForm.getInputProps('role')}
-              />
-
-              <Alert color="blue" title="Team Invitation">
-                The user must already have an account to be added to the team.
-              </Alert>
-
-              <Group justify="flex-end">
-                <Button variant="light" onClick={closeAddMemberModal}>
-                  Cancel
-                </Button>
-                <Button 
-                  type="submit" 
-                  loading={addMember.isPending}
-                  leftSection={<IconUserPlus size={16} />}
-                >
-                  Add Member
-                </Button>
-              </Group>
-            </Stack>
-          </form>
-        </Modal>
+          onSuccess={() => void refetch()}
+        />
 
         {/* Add Existing Integration Modal */}
         <AddExistingIntegrationModal

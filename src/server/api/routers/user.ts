@@ -38,6 +38,35 @@ export const userRouter = createTRPCRouter({
       return user;
     }),
 
+  searchByEmail: protectedProcedure
+    .input(z.object({
+      query: z.string().min(2),
+      excludeTeamId: z.string().optional(),
+      limit: z.number().min(1).max(20).default(5),
+    }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.user.findMany({
+        where: {
+          OR: [
+            { email: { contains: input.query, mode: 'insensitive' } },
+            { name: { contains: input.query, mode: 'insensitive' } },
+          ],
+          id: { not: ctx.session.user.id },
+          ...(input.excludeTeamId ? {
+            teams: { none: { teamId: input.excludeTeamId } },
+          } : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+        },
+        take: input.limit,
+        orderBy: { name: 'asc' },
+      });
+    }),
+
   getSelectedTools: protectedProcedure
     .query(async ({ ctx }) => {
       const user = await ctx.db.user.findUnique({

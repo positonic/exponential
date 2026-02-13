@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { generateSecureToken, generateTeamInviteUrl } from "~/server/utils/tokens";
 
 export const teamRouter = createTRPCRouter({
   // Create a new team
@@ -192,7 +193,7 @@ export const teamRouter = createTRPCRouter({
       return updatedTeam;
     }),
 
-  // Add a member to the team
+  // Add a member to the team (or create invitation if user doesn't exist)
   addMember: protectedProcedure
     .input(z.object({
       teamId: z.string(),
@@ -222,50 +223,94 @@ export const teamRouter = createTRPCRouter({
         where: { email: input.email },
       });
 
-      if (!userToAdd) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'User with this email not found',
-        });
-      }
-
-      // Check if user is already a member
-      const existingMember = await ctx.db.teamUser.findUnique({
-        where: {
-          userId_teamId: {
-            userId: userToAdd.id,
-            teamId: input.teamId,
-          },
-        },
-      });
-
-      if (existingMember) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'User is already a member of this team',
-        });
-      }
-
-      // Add user to team
-      const newMember = await ctx.db.teamUser.create({
-        data: {
-          userId: userToAdd.id,
-          teamId: input.teamId,
-          role: input.role,
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
+      if (userToAdd) {
+        // User exists - add directly
+        const existingMember = await ctx.db.teamUser.findUnique({
+          where: {
+            userId_teamId: {
+              userId: userToAdd.id,
+              teamId: input.teamId,
             },
           },
-        },
-      });
+        });
 
-      return newMember;
+        if (existingMember) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'User is already a member of this team',
+          });
+        }
+
+        const newMember = await ctx.db.teamUser.create({
+          data: {
+            userId: userToAdd.id,
+            teamId: input.teamId,
+            role: input.role,
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                image: true,
+              },
+            },
+          },
+        });
+
+        return { type: "member_added" as const, member: newMember };
+      } else {
+        // User doesn't exist - create invitation
+        const existingInvitation = await ctx.db.teamInvitation.findUnique({
+          where: {
+            teamId_email: {
+              teamId: input.teamId,
+              email: input.email,
+            },
+          },
+        });
+
+        if (existingInvitation?.status === "pending") {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'An invitation has already been sent to this email',
+          });
+        }
+
+        const token = generateSecureToken();
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+        const invitation = await ctx.db.teamInvitation.upsert({
+          where: {
+            teamId_email: {
+              teamId: input.teamId,
+              email: input.email,
+            },
+          },
+          update: {
+            token,
+            role: input.role,
+            status: "pending",
+            expiresAt,
+            createdById: ctx.session.user.id,
+          },
+          create: {
+            teamId: input.teamId,
+            email: input.email,
+            role: input.role,
+            token,
+            expiresAt,
+            createdById: ctx.session.user.id,
+          },
+        });
+
+        return {
+          type: "invitation_created" as const,
+          invitation,
+          inviteUrl: generateTeamInviteUrl(token),
+        };
+      }
     }),
 
   // Remove a member from the team
@@ -482,5 +527,210 @@ export const teamRouter = createTRPCRouter({
       });
 
       return sharedReviews;
+    }),
+
+  // List pending invitations for a team
+  listInvitations: protectedProcedure
+    .input(z.object({ teamId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const member = await ctx.db.teamUser.findUnique({
+        where: {
+          userId_teamId: {
+            userId: ctx.session.user.id,
+            teamId: input.teamId,
+          },
+        },
+      });
+
+      if (!member) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You must be a team member to view invitations',
+        });
+      }
+
+      return ctx.db.teamInvitation.findMany({
+        where: {
+          teamId: input.teamId,
+          status: "pending",
+        },
+        include: {
+          createdBy: {
+            select: { id: true, name: true, email: true, image: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    }),
+
+  // Cancel a pending team invitation
+  cancelInvitation: protectedProcedure
+    .input(z.object({ invitationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const invitation = await ctx.db.teamInvitation.findUnique({
+        where: { id: input.invitationId },
+      });
+
+      if (!invitation) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Invitation not found' });
+      }
+
+      const member = await ctx.db.teamUser.findUnique({
+        where: {
+          userId_teamId: {
+            userId: ctx.session.user.id,
+            teamId: invitation.teamId,
+          },
+        },
+      });
+
+      if (!member || (member.role !== 'owner' && member.role !== 'admin')) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Only team owners and admins can cancel invitations',
+        });
+      }
+
+      return ctx.db.teamInvitation.update({
+        where: { id: input.invitationId },
+        data: { status: "cancelled" },
+      });
+    }),
+
+  // Resend a team invitation (regenerate token + expiry)
+  resendInvitation: protectedProcedure
+    .input(z.object({ invitationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const invitation = await ctx.db.teamInvitation.findUnique({
+        where: { id: input.invitationId },
+      });
+
+      if (!invitation) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Invitation not found' });
+      }
+
+      const member = await ctx.db.teamUser.findUnique({
+        where: {
+          userId_teamId: {
+            userId: ctx.session.user.id,
+            teamId: invitation.teamId,
+          },
+        },
+      });
+
+      if (!member || (member.role !== 'owner' && member.role !== 'admin')) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Only team owners and admins can resend invitations',
+        });
+      }
+
+      const newToken = generateSecureToken();
+      const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      const updated = await ctx.db.teamInvitation.update({
+        where: { id: input.invitationId },
+        data: {
+          token: newToken,
+          expiresAt: newExpiry,
+          status: "pending",
+        },
+      });
+
+      return {
+        invitation: updated,
+        inviteUrl: generateTeamInviteUrl(newToken),
+      };
+    }),
+
+  // Get invitation details by token (for accept page - public so invite links work before login)
+  getInvitationByToken: publicProcedure
+    .input(z.object({ token: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const invitation = await ctx.db.teamInvitation.findUnique({
+        where: { token: input.token },
+        include: {
+          team: {
+            select: { id: true, name: true, slug: true, description: true },
+          },
+          createdBy: {
+            select: { name: true, email: true, image: true },
+          },
+        },
+      });
+
+      if (!invitation) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Invalid invitation link' });
+      }
+
+      return {
+        ...invitation,
+        isExpired: invitation.expiresAt < new Date(),
+        isLoggedIn: !!ctx.session?.user,
+        isForCurrentUser: invitation.email === ctx.session?.user?.email,
+      };
+    }),
+
+  // Accept a team invitation
+  acceptInvitation: protectedProcedure
+    .input(z.object({ token: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const invitation = await ctx.db.teamInvitation.findUnique({
+        where: { token: input.token },
+        include: { team: true },
+      });
+
+      if (!invitation) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Invalid invitation link' });
+      }
+
+      if (invitation.status !== "pending") {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'This invitation is no longer valid' });
+      }
+
+      if (invitation.expiresAt < new Date()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'This invitation has expired' });
+      }
+
+      if (invitation.email !== ctx.session.user.email) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'This invitation was sent to a different email address',
+        });
+      }
+
+      // Check if already a member
+      const existingMember = await ctx.db.teamUser.findUnique({
+        where: {
+          userId_teamId: {
+            userId: ctx.session.user.id,
+            teamId: invitation.teamId,
+          },
+        },
+      });
+
+      if (existingMember) {
+        await ctx.db.teamInvitation.update({
+          where: { id: invitation.id },
+          data: { status: "accepted", acceptedAt: new Date() },
+        });
+        return { success: true, team: invitation.team };
+      }
+
+      await ctx.db.$transaction([
+        ctx.db.teamInvitation.update({
+          where: { id: invitation.id },
+          data: { status: "accepted", acceptedAt: new Date() },
+        }),
+        ctx.db.teamUser.create({
+          data: {
+            userId: ctx.session.user.id,
+            teamId: invitation.teamId,
+            role: invitation.role,
+          },
+        }),
+      ]);
+
+      return { success: true, team: invitation.team };
     }),
 });

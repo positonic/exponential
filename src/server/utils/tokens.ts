@@ -16,3 +16,12 @@ export function generateInviteUrl(token: string): string {
   const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
   return `${baseUrl}/invite/${token}`;
 }
+
+/**
+ * Generate a team invite URL with the given token
+ * @param token - The team invitation token
+ */
+export function generateTeamInviteUrl(token: string): string {
+  const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  return `${baseUrl}/team-invite/${token}`;
+}
