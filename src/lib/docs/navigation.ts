@@ -27,6 +27,7 @@ import {
   IconPlayerPlay,
   IconLayoutNavbar,
   IconMicrophone,
+  IconChartBar,
 } from "@tabler/icons-react";
 import type { DocNavSection, DocBreadcrumb } from "./types";
 
@@ -153,6 +154,11 @@ export const docsNavigation: DocNavSection[] = [
         title: "AI Assistant",
         href: "/docs/features/ai-assistant",
         icon: IconRobot,
+      },
+      {
+        title: "Sprint Insights",
+        href: "/docs/features/sprint-insights",
+        icon: IconChartBar,
       },
       {
         title: "Workflows",
