@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Paper, Group, Text, Button, CloseButton } from "@mantine/core";
+import { Paper, Group, Text, CloseButton } from "@mantine/core";
 import { IconSun } from "@tabler/icons-react";
-import Link from "next/link";
 import { api } from "~/trpc/react";
 import { startOfDay } from "date-fns";
 
@@ -63,12 +62,9 @@ export function DailyPlanBanner({ compact }: { compact?: boolean } = {}) {
             className="ml-auto"
           />
         </Group>
-        <Text size="xs" className="text-text-secondary mb-2">
+        <Text size="xs" className="text-text-secondary">
           {hasStarted ? "Finish setting up your day." : "Set your tasks for a productive day."}
         </Text>
-        <Button component={Link} href="/daily-plan" size="xs" variant="filled" color="orange" fullWidth>
-          {hasStarted ? "Continue" : "Start Planning"}
-        </Button>
       </Paper>
     );
   }
@@ -95,9 +91,6 @@ export function DailyPlanBanner({ compact }: { compact?: boolean } = {}) {
           </div>
         </Group>
         <Group gap="sm" wrap="nowrap">
-          <Button component={Link} href="/daily-plan" size="xs" variant="filled" color="orange">
-            {hasStarted ? "Continue" : "Start Planning"}
-          </Button>
           <CloseButton
             size="sm"
             onClick={handleDismiss}

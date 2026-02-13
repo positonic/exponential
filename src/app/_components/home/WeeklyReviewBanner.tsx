@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Paper, Group, Text, Button, CloseButton } from "@mantine/core";
+import { Paper, Group, Text, CloseButton } from "@mantine/core";
 import { IconCalendarCheck } from "@tabler/icons-react";
-import Link from "next/link";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { getSundayWeekStart } from "~/lib/weekUtils";
@@ -73,12 +72,9 @@ export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
             className="ml-auto"
           />
         </Group>
-        <Text size="xs" className="text-text-secondary mb-2">
+        <Text size="xs" className="text-text-secondary">
           Review your projects and plan next week.
         </Text>
-        <Button component={Link} href={reviewPath} size="xs" variant="filled" fullWidth>
-          Start Review
-        </Button>
       </Paper>
     );
   }
@@ -103,9 +99,6 @@ export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
           </div>
         </Group>
         <Group gap="sm" wrap="nowrap">
-          <Button component={Link} href={reviewPath} size="xs" variant="filled">
-            Start Review
-          </Button>
           <CloseButton
             size="sm"
             onClick={handleDismiss}
