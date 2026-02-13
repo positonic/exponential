@@ -7,6 +7,7 @@ import {
   IconUsers,
   IconBuilding,
   IconLayoutDashboard,
+  IconLayoutKanban,
   IconMail,
 } from '@tabler/icons-react';
 
@@ -15,6 +16,7 @@ const crmNavigation = [
     title: null,
     items: [
       { title: 'Dashboard', href: '', icon: IconLayoutDashboard },
+      { title: 'Pipeline', href: '/pipeline', icon: IconLayoutKanban },
       { title: 'Contacts', href: '/contacts', icon: IconUsers },
       { title: 'Organizations', href: '/organizations', icon: IconBuilding },
     ],

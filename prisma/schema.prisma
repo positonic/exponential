@@ -172,6 +172,12 @@ model User {
   workflowPipelineRuns        WorkflowPipelineRun[]      @relation("WorkflowPipelineRunTriggeredBy")
   contentDrafts               ContentDraft[]             @relation("ContentDraftCreatedBy")
   teamInvitationsCreated      TeamInvitation[]            @relation("TeamInvitationCreator")
+  // PM Agent config
+  pmAgentConfig               PMAgentConfig?
+  // Deal Pipeline relations
+  dealsCreated                Deal[]                     @relation("DealCreatedBy")
+  dealsAssigned               Deal[]                     @relation("DealAssignedTo")
+  dealActivities              DealActivity[]             @relation("DealActivityUser")
 }
 
 model VerificationToken {
@@ -244,6 +250,11 @@ model Workspace {
   // Workflow Pipeline relations
   workflowDefinitions      WorkflowDefinition[]
   contentDrafts            ContentDraft[]
+  // PM Agent relations
+  githubActivities         GitHubActivity[]
+  pmAgentConfigs           PMAgentConfig[]
+  // Deal Pipeline relations
+  deals                    Deal[]
 
   @@index([slug])
   @@index([ownerId])
@@ -338,6 +349,9 @@ model List {
   workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy    User       @relation("ListsCreated", fields: [createdById], references: [id])
   actions      ActionList[]
+  // PM Agent sprint tracking
+  snapshots    SprintSnapshot[]
+  metrics      SprintMetrics?
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -414,6 +428,9 @@ model Action {
   tags                   ActionTag[]
   lists                  ActionList[]
   dailyPlanActions       DailyPlanAction[]
+  // PM Agent tracking
+  githubActivities       GitHubActivity[]
+  statusChanges          ActionStatusChange[]
 
   @@index([projectId])
   @@index([createdById])
@@ -481,6 +498,7 @@ model Project {
   notionProjectId       String?
   driId                 String?
   isPublic              Boolean                    @default(false)
+  type                  String                     @default("standard") // "standard" | "pipeline"
   actions               Action[]
   aiInteractionHistory  AiInteractionHistory[]
   createdBy             User                       @relation(fields: [createdById], references: [id])
@@ -499,6 +517,9 @@ model Project {
   resources             Resource[]
   recurringTasks        RecurringTask[]
   keyResults            KeyResultProject[]         // Key results this project contributes to
+  // Deal Pipeline relations (when type = "pipeline")
+  pipelineStages        PipelineStage[]
+  deals                 Deal[]
 
   @@index([name])
   @@index([status])
@@ -836,6 +857,8 @@ model Integration {
   transcriptionSessions   TranscriptionSession[]
   whatsappConfig          WhatsAppConfig?
   workflows               Workflow[]
+  // PM Agent GitHub tracking
+  githubActivities        GitHubActivity[]
 
   @@index([userId])
   @@index([teamId])
@@ -1829,6 +1852,7 @@ model CrmContact {
   createdBy      User?                   @relation("CrmContactCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   interactions   CrmContactInteraction[]
   communications CrmCommunication[]
+  deals          Deal[]
 
   @@index([workspaceId])
   @@index([organizationId])
@@ -1856,6 +1880,7 @@ model CrmOrganization {
   workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy User?        @relation("CrmOrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   contacts  CrmContact[]
+  deals     Deal[]
 
   @@index([workspaceId])
   @@index([createdById])
@@ -2580,4 +2605,278 @@ model ContentDraft {
   @@index([pipelineRunId])
   @@index([platform])
   @@index([status])
+}
+
+// ============================================
+// AI Product Manager Agent Models
+// ============================================
+
+model GitHubActivity {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  integrationId   String
+
+  // Event data
+  eventType       String    // "push", "pull_request", "pull_request_review"
+  eventAction     String?   // "opened", "merged", "closed", "submitted", etc.
+  externalId      String    // GitHub delivery ID or commit SHA or PR node_id
+  deliveryId      String?   // x-github-delivery header for dedup
+
+  // Commit data (for push events)
+  commitSha       String?
+  commitMessage   String?   @db.Text
+  commitAuthor    String?
+  commitUrl       String?
+  branchName      String?
+
+  // PR data (for pull_request events)
+  prNumber        Int?
+  prTitle         String?
+  prState         String?   // "open", "closed", "merged"
+  prUrl           String?
+  prAuthor        String?
+  prMergedAt      DateTime?
+  prReviewState   String?   // "approved", "changes_requested", "commented"
+  prReviewer      String?
+
+  // Repository
+  repoFullName    String
+  repoUrl         String?
+
+  // Mapping to internal entities
+  actionId        String?
+  mappingMethod   String?   // "explicit", "branch", "semantic", "manual"
+  mappingConfidence Float?
+
+  // Timestamps
+  eventTimestamp  DateTime
+  createdAt       DateTime  @default(now())
+
+  workspace       Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration     Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  action          Action?     @relation(fields: [actionId], references: [id], onDelete: SetNull)
+
+  @@unique([externalId, eventType])
+  @@index([workspaceId])
+  @@index([integrationId])
+  @@index([actionId])
+  @@index([eventTimestamp])
+  @@index([repoFullName])
+  @@index([branchName])
+}
+
+model SprintSnapshot {
+  id              String   @id @default(cuid())
+  listId          String
+  snapshotDate    DateTime @db.Date
+
+  // Counts by kanban status
+  backlogCount    Int      @default(0)
+  todoCount       Int      @default(0)
+  inProgressCount Int      @default(0)
+  inReviewCount   Int      @default(0)
+  doneCount       Int      @default(0)
+  cancelledCount  Int      @default(0)
+
+  // Effort tracking
+  totalEffort     Float    @default(0)
+  completedEffort Float    @default(0)
+  addedEffort     Float    @default(0) // Effort added after sprint start (scope creep)
+
+  // Velocity
+  actionsCompleted Int     @default(0)
+
+  // GitHub activity summary
+  commitsCount    Int      @default(0)
+  prsOpened       Int      @default(0)
+  prsMerged       Int      @default(0)
+  prsReviewed     Int      @default(0)
+
+  createdAt       DateTime @default(now())
+
+  list            List     @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, snapshotDate])
+  @@index([listId])
+  @@index([snapshotDate])
+}
+
+model SprintMetrics {
+  id              String    @id @default(cuid())
+  listId          String    @unique
+
+  // Velocity
+  plannedEffort   Float     @default(0)
+  completedEffort Float     @default(0)
+  velocity        Float     @default(0)
+
+  // Throughput
+  plannedActions  Int       @default(0)
+  completedActions Int      @default(0)
+  addedActions    Int       @default(0)
+  removedActions  Int       @default(0)
+
+  // Cycle times (averages in hours)
+  avgCycleTime    Float?    // Average time from TODO to DONE
+  avgLeadTime     Float?    // Average time from BACKLOG to DONE
+  avgReviewTime   Float?    // Average time in IN_REVIEW
+
+  // GitHub metrics
+  totalCommits    Int       @default(0)
+  totalPRs        Int       @default(0)
+  avgPrTurnaround Float?   // Average hours from PR open to merge
+
+  // Completion
+  completionRate  Float?
+
+  calculatedAt    DateTime  @default(now())
+
+  list            List      @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@index([listId])
+}
+
+model ActionStatusChange {
+  id          String        @id @default(cuid())
+  actionId    String
+  fromStatus  ActionStatus?
+  toStatus    ActionStatus
+  changedById String?
+  changedAt   DateTime      @default(now())
+
+  action      Action        @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@index([actionId])
+  @@index([changedAt])
+  @@index([toStatus])
+}
+
+model PMAgentConfig {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  workspaceId       String
+
+  // Feature flags
+  enabled           Boolean  @default(true)
+
+  // Standup configuration
+  standupEnabled    Boolean  @default(true)
+  standupTime       String   @default("08:30")
+
+  // Wrapup configuration
+  wrapupEnabled     Boolean  @default(true)
+  wrapupTime        String   @default("18:00")
+
+  // Sprint review configuration
+  sprintReviewEnabled Boolean @default(true)
+  sprintReviewDay   Int      @default(5) // Day of week (1=Mon, 5=Fri)
+  sprintReviewTime  String   @default("15:00")
+
+  // Risk monitoring
+  riskCheckEnabled  Boolean  @default(true)
+  riskCheckInterval Int      @default(4) // Hours between risk checks
+
+  // Notification preferences
+  preferredChannel  String   @default("whatsapp") // "whatsapp" | "slack" | "email"
+
+  // Behavior preferences
+  verbosity         String   @default("normal") // "concise" | "normal" | "detailed"
+  includeGitHub     Boolean  @default(true)
+  includeKanban     Boolean  @default(true)
+
+  // Timezone
+  timezone          String   @default("UTC")
+
+  // Workflow definition references
+  standupDefinitionId      String?
+  wrapupDefinitionId       String?
+  sprintReviewDefinitionId String?
+  riskCheckDefinitionId    String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+// ============================================
+// Deal Pipeline Models
+// ============================================
+
+model PipelineStage {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  color     String   @default("blue")
+  order     Int
+  type      String   @default("active") // "active" | "won" | "lost"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deals   Deal[]
+
+  @@unique([projectId, order])
+  @@index([projectId])
+}
+
+model Deal {
+  id                String    @id @default(cuid())
+  projectId         String
+  stageId           String
+  title             String
+  description       String?   @db.Text
+  value             Float?
+  currency          String    @default("USD")
+  probability       Int?
+  expectedCloseDate DateTime?
+  closedAt          DateTime?
+  stageOrder        Int       @default(0)
+
+  // CRM links
+  contactId      String?
+  organizationId String?
+
+  // Ownership
+  workspaceId String
+  createdById String
+  assignedToId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stage        PipelineStage    @relation(fields: [stageId], references: [id])
+  contact      CrmContact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  organization CrmOrganization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  workspace    Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy    User             @relation("DealCreatedBy", fields: [createdById], references: [id])
+  assignedTo   User?            @relation("DealAssignedTo", fields: [assignedToId], references: [id])
+  activities   DealActivity[]
+
+  @@index([projectId])
+  @@index([stageId])
+  @@index([contactId])
+  @@index([organizationId])
+  @@index([workspaceId])
+}
+
+model DealActivity {
+  id        String   @id @default(cuid())
+  dealId    String
+  userId    String?
+  type      String // "STAGE_CHANGE" | "NOTE" | "VALUE_CHANGE" | "CREATED" | "CLOSED"
+  content   String?  @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  deal Deal  @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user User? @relation("DealActivityUser", fields: [userId], references: [id])
+
+  @@index([dealId])
+  @@index([createdAt])
 }

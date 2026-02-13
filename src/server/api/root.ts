@@ -51,6 +51,7 @@ import { scoringRouter } from "./routers/scoring";
 import { leaderboardRouter } from "./routers/leaderboard";
 import { assistantRouter } from "./routers/assistant";
 import { workflowPipelineRouter } from "./routers/workflowPipeline";
+import { pipelineRouter } from "./routers/pipeline";
 import { contentRouter } from "./routers/content";
 // Plugin system
 import { pluginConfigRouter } from "./routers/pluginConfig";
@@ -114,6 +115,7 @@ export const appRouter = createTRPCRouter({
   assistant: assistantRouter,
   workflowPipeline: workflowPipelineRouter,
   content: contentRouter,
+  pipeline: pipelineRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,
