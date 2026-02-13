@@ -27,7 +27,7 @@ export async function middleware(request: NextRequest) {
     '/journal',
     '/meetings',
     '/videos',
-    '/settings/api-keys',
+    '/settings',  // All settings pages require auth
     '/days',
     '/recordings',
     '/multi-agent',
