@@ -542,3 +542,53 @@ Copy the prompt content into a new Claude session, then provide your inputs. See
 - Update references to external docs
 - Maintain links between related rules
 - Document breaking changes
+
+## Beads Workflow (Task Tracking)
+
+**All task tracking in this project uses [beads](https://github.com/beads-project/beads) (`bd` CLI). This is mandatory.**
+
+### Rules
+- **Use `bd` for ALL task tracking** — never use `TodoWrite`, `TaskCreate`, or markdown task lists
+- **Create a beads issue BEFORE writing code**: `bd create --title="..." --type=task|bug|feature --priority=2`
+- **Claim work** before starting: `bd update <id> --status=in_progress`
+- **Close issues on completion**: `bd close <id>` (or `bd close <id1> <id2> ...` for batch)
+- **Sync at session end**: `bd sync`
+
+### Session Close Protocol
+Before saying "done" or "complete", run this checklist:
+```
+1. git status              (check what changed)
+2. git add <files>         (stage code changes)
+3. bd sync                 (commit beads changes)
+4. git commit -m "..."     (commit code)
+5. bd sync                 (commit any new beads changes)
+6. git push                (push to remote)
+```
+
+### Essential Commands
+```bash
+# Finding work
+bd ready                              # Show issues ready to work (no blockers)
+bd list --status=open                 # All open issues
+bd list --status=in_progress          # Active work
+bd show <id>                          # Detailed issue view
+
+# Creating & updating
+bd create --title="..." --type=task --priority=2   # New issue
+bd update <id> --status=in_progress                # Claim work
+bd close <id>                                      # Mark complete
+bd close <id> --reason="explanation"               # Close with reason
+
+# Dependencies
+bd dep add <issue> <depends-on>       # Add dependency
+bd blocked                            # Show blocked issues
+
+# Sync
+bd sync                               # Sync with git remote
+```
+
+### Priority Values
+Use numeric priorities: 0-4 or P0-P4 (0=critical, 2=medium, 4=backlog). Do NOT use "high"/"medium"/"low".
+
+### Warning
+Do NOT use `bd edit` — it opens `$EDITOR` (vim/nano) which blocks agents. Use `bd update` instead.
