@@ -2,10 +2,12 @@
 
 import { useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Group, Title, SegmentedControl, ActionIcon } from "@mantine/core";
+import { Group, Title, SegmentedControl, ActionIcon, Modal, Text } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
 import { IconFilter } from "@tabler/icons-react";
 import { Actions } from "./Actions";
-import { DailyScoreCard } from "./scoring/DailyScoreCard";
+import { ScoreBreakdown } from "./scoring/ScoreBreakdown";
+import { StreakBadge } from "./scoring/StreakBadge";
 import { api } from "~/trpc/react";
 
 export type DoFilter = "today" | "tomorrow" | "upcoming";
@@ -18,6 +20,18 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: preferences } = api.navigationPreference.getPreferences.useQuery();
+  const [breakdownOpened, { open: openBreakdown, close: closeBreakdown }] = useDisclosure(false);
+
+  // Fetch score data for inline display (only on "today" filter)
+  const gamificationEnabled = preferences?.showGamification !== false;
+  const { data: score } = api.scoring.getTodayScore.useQuery({}, {
+    enabled: gamificationEnabled,
+  });
+  const { data: streak } = api.scoring.getStreakByType.useQuery({
+    streakType: "daily_planning",
+  }, {
+    enabled: gamificationEnabled,
+  });
 
   // Read filter from URL, fall back to initial or default to 'today'
   const filterFromUrl = searchParams.get("filter");
@@ -70,6 +84,16 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
     }
   };
 
+  // Determine score color
+  const getScoreColor = (totalScore: number) => {
+    if (totalScore >= 80) return "var(--mantine-color-green-6)";
+    if (totalScore >= 60) return "var(--mantine-color-blue-6)";
+    if (totalScore >= 40) return "var(--mantine-color-yellow-6)";
+    return "var(--mantine-color-orange-6)";
+  };
+
+  const showScore = filter === "today" && preferences?.showGamification !== false && score;
+
   return (
     <>
       {/* Page Header */}
@@ -82,8 +106,27 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
             </Title>
           </div>
 
-          {/* Right side: Filter selector */}
-          <Group gap="sm" wrap="nowrap">
+          {/* Right side: Filter selector + inline score */}
+          <Group gap="md" wrap="nowrap" className="items-center">
+            {showScore && (
+              <button
+                onClick={openBreakdown}
+                className="flex items-center gap-2 text-left transition-opacity hover:opacity-80"
+              >
+                <div>
+                  <Text className="text-text-muted text-xs leading-tight">Daily Score</Text>
+                  <Group gap={4} className="items-baseline">
+                    <Text className="text-2xl font-bold leading-tight" style={{ color: getScoreColor(score.totalScore) }}>
+                      {score.totalScore}
+                    </Text>
+                    <Text className="text-text-muted text-xs">/100</Text>
+                  </Group>
+                </div>
+                {streak && streak.currentStreak > 0 && (
+                  <StreakBadge streakCount={streak.currentStreak} streakType="daily_planning" />
+                )}
+              </button>
+            )}
             <SegmentedControl
               value={filter}
               onChange={(value) => handleFilterChange(value as DoFilter)}
@@ -106,11 +149,17 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
         </div>
       </div>
 
-      {/* Daily Score Card - Only show on "today" filter when gamification enabled */}
-      {filter === "today" && preferences?.showGamification !== false && (
-        <div className="mb-6 w-full">
-          <DailyScoreCard />
-        </div>
+      {/* Score Breakdown Modal */}
+      {score && (
+        <Modal
+          opened={breakdownOpened}
+          onClose={closeBreakdown}
+          title="Daily Productivity Score"
+          size="md"
+          overlayProps={{ backgroundOpacity: 0.55, blur: 3 }}
+        >
+          <ScoreBreakdown score={score} />
+        </Modal>
       )}
 
       {/* Actions List */}

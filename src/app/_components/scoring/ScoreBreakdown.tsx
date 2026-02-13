@@ -1,6 +1,13 @@
 "use client";
 
-import { Stack, Text, Group, Progress } from "@mantine/core";
+import { Stack, Text, Group, Progress, RingProgress, Paper, SimpleGrid, ThemeIcon, Alert } from "@mantine/core";
+import {
+  IconClipboardCheck,
+  IconChecklist,
+  IconRepeat,
+  IconStar,
+  IconBulb,
+} from "@tabler/icons-react";
 
 interface ScoreBreakdownProps {
   score: {
@@ -25,98 +32,84 @@ interface ScoreBreakdownProps {
   };
 }
 
+// Score tier color
+function getScoreColor(totalScore: number) {
+  if (totalScore >= 80) return "green";
+  if (totalScore >= 60) return "blue";
+  if (totalScore >= 40) return "yellow";
+  return "orange";
+}
+
+// Score tier label
+function getScoreLabel(totalScore: number) {
+  if (totalScore >= 90) return "Exceptional!";
+  if (totalScore >= 80) return "Great day!";
+  if (totalScore >= 70) return "Good work!";
+  if (totalScore >= 60) return "Making progress";
+  if (totalScore >= 40) return "Keep going";
+  return "Just getting started";
+}
+
 export function ScoreBreakdown({ score }: ScoreBreakdownProps) {
   const { breakdown, metadata } = score;
+  const color = getScoreColor(score.totalScore);
 
-  // Category definitions with max points
   const categories = [
     {
       name: "Planning",
+      icon: IconClipboardCheck,
+      color: "blue" as const,
       items: [
-        {
-          label: "Plan Created",
-          points: breakdown.planCreated,
-          maxPoints: 20,
-          color: "blue",
-        },
-        {
-          label: "Plan Completed",
-          points: breakdown.planCompleted,
-          maxPoints: 20,
-          color: "green",
-        },
+        { label: "Plan Created", points: breakdown.planCreated, maxPoints: 20 },
+        { label: "Plan Completed", points: breakdown.planCompleted, maxPoints: 20 },
       ],
       total: breakdown.planCreated + breakdown.planCompleted,
       maxTotal: 40,
     },
     {
-      name: "Task Execution",
+      name: "Tasks",
+      icon: IconChecklist,
+      color: "teal" as const,
       items: [
         {
-          label: `Completed ${metadata.completedTasks}/${metadata.totalPlannedTasks} tasks`,
+          label: `${metadata.completedTasks}/${metadata.totalPlannedTasks} completed`,
           points: breakdown.taskCompletion,
           maxPoints: 25,
-          color: "teal",
         },
       ],
       total: breakdown.taskCompletion,
       maxTotal: 25,
     },
     {
-      name: "Habit Completion",
+      name: "Habits",
+      icon: IconRepeat,
+      color: "violet" as const,
       items: [
         {
-          label: `Completed ${metadata.completedHabits}/${metadata.scheduledHabits} habits`,
+          label: `${metadata.completedHabits}/${metadata.scheduledHabits} completed`,
           points: breakdown.habitCompletion,
           maxPoints: 20,
-          color: "violet",
         },
       ],
       total: breakdown.habitCompletion,
       maxTotal: 20,
     },
     {
-      name: "Bonus Points",
+      name: "Bonus",
+      icon: IconStar,
+      color: "yellow" as const,
       items: [
         ...(breakdown.schedulingBonus > 0
-          ? [
-              {
-                label: "Used AI Scheduling",
-                points: breakdown.schedulingBonus,
-                maxPoints: 5,
-                color: "indigo",
-              },
-            ]
+          ? [{ label: "AI Scheduling", points: breakdown.schedulingBonus, maxPoints: 5 }]
           : []),
         ...(breakdown.inboxBonus > 0
-          ? [
-              {
-                label: "Processed Overdue Tasks",
-                points: breakdown.inboxBonus,
-                maxPoints: 5,
-                color: "cyan",
-              },
-            ]
+          ? [{ label: "Overdue Tasks", points: breakdown.inboxBonus, maxPoints: 5 }]
           : []),
         ...(breakdown.estimationBonus > 0
-          ? [
-              {
-                label: `Accurate Estimates (${metadata.estimationAccuracy?.toFixed(0)}%)`,
-                points: breakdown.estimationBonus,
-                maxPoints: 5,
-                color: "lime",
-              },
-            ]
+          ? [{ label: `Estimates (${metadata.estimationAccuracy?.toFixed(0)}%)`, points: breakdown.estimationBonus, maxPoints: 5 }]
           : []),
         ...(breakdown.weeklyReviewBonus > 0
-          ? [
-              {
-                label: "Weekly Review Bonus",
-                points: breakdown.weeklyReviewBonus,
-                maxPoints: 10,
-                color: "yellow",
-              },
-            ]
+          ? [{ label: "Weekly Review", points: breakdown.weeklyReviewBonus, maxPoints: 10 }]
           : []),
       ],
       total:
@@ -128,58 +121,101 @@ export function ScoreBreakdown({ score }: ScoreBreakdownProps) {
     },
   ];
 
+  // Build tips list
+  const tips: string[] = [];
+  if (breakdown.planCreated === 0) tips.push("Create your daily plan to earn 20 points");
+  if (breakdown.planCompleted === 0 && breakdown.planCreated > 0) tips.push("Complete your plan to earn another 20 points");
+  if (metadata.totalPlannedTasks > 0 && metadata.completedTasks / metadata.totalPlannedTasks < 0.5) tips.push("Complete more of your planned tasks");
+  if (metadata.scheduledHabits > 0 && metadata.completedHabits === 0) tips.push("Complete your scheduled habits");
+
   return (
-    <Stack gap="lg" className="pt-4 border-t border-border-primary">
-      <Text className="text-text-primary font-semibold text-sm">Point Breakdown</Text>
-
-      {categories.map((category) => (
-        <div key={category.name}>
-          <Group className="justify-between mb-2">
-            <Text className="text-text-secondary text-sm">{category.name}</Text>
-            <Text className="text-text-primary text-sm font-medium">
-              {category.total}/{category.maxTotal}
+    <Stack gap="lg">
+      {/* Hero: Ring Progress */}
+      <div className="flex flex-col items-center gap-1 py-2">
+        <RingProgress
+          size={120}
+          thickness={10}
+          roundCaps
+          sections={[{ value: score.totalScore, color }]}
+          label={
+            <Text ta="center" size="xl" fw={700} className="text-text-primary">
+              {score.totalScore}
             </Text>
-          </Group>
+          }
+        />
+        <Text size="sm" className="text-text-secondary">
+          {getScoreLabel(score.totalScore)}
+        </Text>
+      </div>
 
-          <Stack gap="xs">
-            {category.items.map((item, index) => (
-              <div key={index}>
-                <Group className="justify-between mb-1">
-                  <Text className="text-text-muted text-xs">{item.label}</Text>
-                  <Text className="text-text-secondary text-xs">
-                    {item.points}/{item.maxPoints}
-                  </Text>
-                </Group>
-                <Progress
-                  value={(item.points / item.maxPoints) * 100}
-                  size="sm"
-                  radius="sm"
-                  color={item.color}
-                />
-              </div>
-            ))}
-          </Stack>
-        </div>
-      ))}
+      {/* Category Grid */}
+      <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
+        {categories.map((cat) => (
+          <Paper
+            key={cat.name}
+            p="sm"
+            radius="md"
+            className="bg-surface-secondary border border-border-primary"
+          >
+            <Group gap="xs" className="mb-2" justify="space-between">
+              <Group gap="xs">
+                <ThemeIcon size="sm" variant="light" color={cat.color} radius="sm">
+                  <cat.icon size={14} />
+                </ThemeIcon>
+                <Text size="xs" fw={600} className="text-text-primary">
+                  {cat.name}
+                </Text>
+              </Group>
+              <Text size="xs" fw={600} className="text-text-secondary">
+                {cat.total}/{cat.maxTotal}
+              </Text>
+            </Group>
 
-      {/* Tips section */}
-      {score.totalScore < 60 && (
-        <div className="bg-surface-secondary rounded-md p-3 border border-border-primary">
-          <Text className="text-text-secondary text-xs font-medium mb-1">💡 Tips to improve:</Text>
-          <ul className="text-text-muted text-xs list-disc list-inside space-y-1">
-            {breakdown.planCreated === 0 && <li>Create your daily plan to earn 20 points</li>}
-            {breakdown.planCompleted === 0 && breakdown.planCreated > 0 && (
-              <li>Complete your plan to earn another 20 points</li>
-            )}
-            {metadata.totalPlannedTasks > 0 &&
-              metadata.completedTasks / metadata.totalPlannedTasks < 0.5 && (
-                <li>Complete more of your planned tasks</li>
+            <Stack gap={6}>
+              {cat.items.length > 0 ? (
+                cat.items.map((item, i) => (
+                  <div key={i}>
+                    <Group justify="space-between" className="mb-0.5">
+                      <Text size="xs" className="text-text-muted">
+                        {item.label}
+                      </Text>
+                      <Text size="xs" className="text-text-muted">
+                        {item.points}/{item.maxPoints}
+                      </Text>
+                    </Group>
+                    <Progress
+                      value={(item.points / item.maxPoints) * 100}
+                      size={6}
+                      radius="xl"
+                      color={cat.color}
+                    />
+                  </div>
+                ))
+              ) : (
+                <Text size="xs" className="text-text-muted">
+                  No bonuses earned yet
+                </Text>
               )}
-            {metadata.scheduledHabits > 0 && metadata.completedHabits === 0 && (
-              <li>Complete your scheduled habits</li>
-            )}
+            </Stack>
+          </Paper>
+        ))}
+      </SimpleGrid>
+
+      {/* Tips */}
+      {score.totalScore < 60 && tips.length > 0 && (
+        <Alert
+          icon={<IconBulb size={18} />}
+          color="yellow"
+          variant="light"
+          title="Tips to improve"
+          radius="md"
+        >
+          <ul className="text-xs list-disc list-inside space-y-0.5">
+            {tips.map((tip, i) => (
+              <li key={i}>{tip}</li>
+            ))}
           </ul>
-        </div>
+        </Alert>
       )}
     </Stack>
   );
