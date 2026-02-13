@@ -9,6 +9,7 @@ import { PRIORITY_VALUES } from "~/types/priority";
 import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
+import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess } from "~/server/services/access";
 
 // Middleware to check API key for external integrations (iOS shortcuts, etc.)
 const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
@@ -204,13 +205,21 @@ export const actionRouter = createTRPCRouter({
     }),
 
   getProjectActions: protectedProcedure
-    .input(z.object({ 
+    .input(z.object({
       projectId: z.string(),
       assigneeId: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
+      // Verify user has access to this project
+      const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!hasProjectAccess(projectAccess)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this project",
+        });
+      }
+
       const whereClause: any = {
-        // createdById: ctx.session.user.id,
         projectId: input.projectId,
         status: {
           notIn: ["DELETED", "DRAFT"],
@@ -485,6 +494,15 @@ export const actionRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updateData } = input;
+
+      // Verify user has edit access to this action
+      const access = await getActionAccess(ctx.db, ctx.session.user.id, id);
+      if (!access || !canEditAction(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have permission to edit this action",
+        });
+      }
 
       // Check if action is being marked as completed
       const isCompleting = updateData.status === "COMPLETED" || updateData.kanbanStatus === "DONE";
