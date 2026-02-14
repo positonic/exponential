@@ -5,7 +5,7 @@ description: Add actions to Exponential by voice or text from your iPhone, iPad,
 
 Quickly capture tasks using your voice or keyboard — straight from your iPhone, iPad, or Mac — without opening the app.
 
-Once set up, just say **"Hey Siri, Add to Exponential"** and dictate your task. It gets added instantly.
+Once set up, just say **"Hey Siri, Save Action"** and dictate your task. It gets added instantly.
 
 Exponential understands natural language, so you can say things like:
 
@@ -68,15 +68,31 @@ Now you'll paste your API key into the shortcut so it can connect to your accoun
 
 ---
 
+## Step 4: Rename for Siri
+
+The shortcut name is what Siri listens for. We recommend renaming it to **"Save Action"** so you can simply say **"Hey Siri, Save Action"**.
+
+1. Open the **Shortcuts** app
+2. Long-press the shortcut
+3. Tap **Rename**
+4. Type **Save Action** (or any phrase you'd like to say to Siri)
+5. Tap **Done**
+
+![The Save Action shortcut on your home screen](/docs/save-action.jpg)
+
+You can name it anything you like — whatever you choose becomes your Siri trigger phrase. For example, naming it "Quick Add" means you'd say **"Hey Siri, Quick Add"**.
+
+---
+
 ## How to Use It
 
 ### With Siri (voice)
-Say: **"Hey Siri, Add to Exponential"**
+Say: **"Hey Siri, Save Action"**
 
 Siri will ask what you'd like to add. Just speak your task naturally.
 
 ### From the Shortcuts app
-Open the Shortcuts app and tap the **Exponential** shortcut. Type or dictate your task.
+Open the Shortcuts app and tap the **Save Action** shortcut. Type or dictate your task.
 
 ### From your Home Screen
 Long-press the shortcut in the Shortcuts app and tap **Add to Home Screen** for one-tap access.
