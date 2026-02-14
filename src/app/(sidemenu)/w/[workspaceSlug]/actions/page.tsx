@@ -5,9 +5,11 @@ import { Container, Stack, Skeleton, Text } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { ViewBoard } from "~/app/_components/views/ViewBoard";
 import { DEFAULT_VIEW_CONFIG } from "~/types/view";
+import { useActionDeepLink } from "~/hooks/useActionDeepLink";
 
 function ActionsContent() {
   const { workspace, workspaceId, isLoading: workspaceLoading } = useWorkspace();
+  const { actionIdFromUrl, setActionId, clearActionId } = useActionDeepLink();
 
   if (workspaceLoading) {
     return (
@@ -37,6 +39,9 @@ function ActionsContent() {
           name: `${workspace.name} Workspace Actions`,
           isVirtual: true,
         }}
+        deepLinkActionId={actionIdFromUrl}
+        onActionOpen={setActionId}
+        onActionClose={clearActionId}
       />
     </Container>
   );

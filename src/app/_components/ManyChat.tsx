@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import {
   Paper,
-  TextInput,
+  Textarea,
   ScrollArea,
   Avatar,
   Group,
@@ -232,9 +232,10 @@ interface ManyChatProps {
   projectId?: string;
   workspaceId?: string;
   initialInput?: string;
+  defaultAgentId?: string | null;
 }
 
-export default function ManyChat({ initialMessages, githubSettings, buttons, projectId: projectIdProp, workspaceId: workspaceIdProp, initialInput }: ManyChatProps) {
+export default function ManyChat({ initialMessages, githubSettings, buttons, projectId: projectIdProp, workspaceId: workspaceIdProp, initialInput, defaultAgentId }: ManyChatProps) {
   // Get messages, conversationId, and page context from context to persist across navigation
   const { messages, setMessages, conversationId, setConversationId, pageContext } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
@@ -428,7 +429,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const [showAgentDropdown, setShowAgentDropdown] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const [isStreaming, setIsStreaming] = useState(false);
@@ -598,37 +599,45 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   }, [initialInput]);
 
   // Handle input changes and autocomplete
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const position = e.target.selectionStart || 0;
-    
+
     setInput(value);
     setCursorPosition(position);
     setSelectedAgentIndex(0);
-    
+
     const shouldShowDropdown = checkForMention(value, position);
     setShowAgentDropdown(shouldShowDropdown);
   };
 
-  // Handle keyboard navigation in dropdown
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showAgentDropdown) return;
+  // Handle keyboard navigation in dropdown + Enter to submit / Shift+Enter for newline
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showAgentDropdown) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedAgentIndex(prev =>
+          prev < filteredAgentsForMention.length - 1 ? prev + 1 : 0
+        );
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedAgentIndex(prev =>
+          prev > 0 ? prev - 1 : filteredAgentsForMention.length - 1
+        );
+      } else if (e.key === 'Enter' && filteredAgentsForMention.length > 0) {
+        e.preventDefault();
+        selectAgent(filteredAgentsForMention[selectedAgentIndex]!);
+      } else if (e.key === 'Escape') {
+        setShowAgentDropdown(false);
+      }
+      return;
+    }
 
-    if (e.key === 'ArrowDown') {
+    // Enter submits, Shift+Enter inserts newline
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      setSelectedAgentIndex(prev =>
-        prev < filteredAgentsForMention.length - 1 ? prev + 1 : 0
-      );
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedAgentIndex(prev =>
-        prev > 0 ? prev - 1 : filteredAgentsForMention.length - 1
-      );
-    } else if (e.key === 'Enter' && filteredAgentsForMention.length > 0) {
-      e.preventDefault();
-      selectAgent(filteredAgentsForMention[selectedAgentIndex]!);
-    } else if (e.key === 'Escape') {
-      setShowAgentDropdown(false);
+      const form = e.currentTarget.closest('form');
+      if (form) form.requestSubmit();
     }
   };
 
@@ -746,6 +755,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         // Use the mentioned agent directly
         targetAgentId = mentionedAgentId;
         console.log('🔒 [SECURITY AUDIT] Using mentioned agent:', { agentId: mentionedAgentId });
+      } else if (defaultAgentId) {
+        // Use the persistently selected agent from dropdown
+        targetAgentId = defaultAgentId;
+        console.log('🤖 [AGENT] Using dropdown-selected agent:', { agentId: defaultAgentId });
       } else if (customAssistant) {
         // If user has a custom assistant, route to the blank-canvas assistantAgent
         targetAgentId = 'assistantAgent';
@@ -980,7 +993,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       <div className="flex-shrink-0 bg-surface-primary backdrop-blur-lg border-t border-border-primary p-4">
         <form onSubmit={handleSubmit}>
           <div className="relative">
-            <TextInput
+            <Textarea
               ref={inputRef}
               value={input}
               onChange={handleInputChange}
@@ -988,9 +1001,12 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               placeholder="Ask anything"
               radius="md"
               size="lg"
+              autosize
+              minRows={1}
+              maxRows={6}
               styles={TEXT_INPUT_STYLES}
             />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            <div className="absolute right-3 bottom-2 flex items-center gap-2">
               <ActionIcon
                 onClick={handleMicClick}
                 variant={isRecording ? "filled" : "subtle"}

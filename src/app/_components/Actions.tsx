@@ -11,6 +11,7 @@ import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { notifications } from "@mantine/notifications";
 import type { SchedulingSuggestionData } from "./SchedulingSuggestion";
+import { useActionDeepLink } from "~/hooks/useActionDeepLink";
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
@@ -35,6 +36,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [isSyncing, setIsSyncing] = useState(false);
   const [showNotionUnassigned, setShowNotionUnassigned] = useState(false);
   const utils = api.useUtils();
+  const { actionIdFromUrl, setActionId, clearActionId } = useActionDeepLink();
 
   // Check if this project has a Notion integration
   const hasNotionSync = projectSyncInfo?.taskManagementTool === 'notion' &&
@@ -904,6 +906,9 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           onDismissSchedulingSuggestion={handleDismissSchedulingSuggestion}
           applyingSuggestionId={applyingSuggestionId}
           isLoading={projectId ? projectActionsQuery.isLoading : allActionsQuery.isLoading}
+          deepLinkActionId={actionIdFromUrl}
+          onActionOpen={setActionId}
+          onActionClose={clearActionId}
         />
       )}
       <div className="mt-6">

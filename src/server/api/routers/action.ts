@@ -89,6 +89,44 @@ export const actionRouter = createTRPCRouter({
     });
   }),
 
+  getById: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const action = await ctx.db.action.findFirst({
+        where: {
+          id: input.id,
+          status: { notIn: ["DELETED", "DRAFT"] },
+          ...buildUserActionPermissions(userId),
+        },
+        include: {
+          project: true,
+          syncs: true,
+          assignees: {
+            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+          },
+          createdBy: { select: { id: true, name: true, email: true, image: true } },
+          tags: { include: { tag: true } },
+          lists: {
+            include: {
+              list: { select: { id: true, name: true, slug: true, listType: true, status: true } },
+            },
+          },
+          epic: { select: { id: true, name: true, status: true } },
+        },
+      });
+
+      if (!action) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Action not found or access denied",
+        });
+      }
+
+      return action;
+    }),
+
   getByTranscription: protectedProcedure
     .input(
       z.object({
@@ -1916,6 +1954,9 @@ export const actionRouter = createTRPCRouter({
 
       return {
         success: true,
+        message: "✅ Added to Exponential",
+        title: action.name,
+        url: `https://exponential.im/actions?actionId=${action.id}`,
         action,
         parsing: parsed.parsingMetadata,
       };

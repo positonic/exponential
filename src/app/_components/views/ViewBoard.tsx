@@ -33,6 +33,7 @@ import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { WorkspaceKanbanBoard } from "./WorkspaceKanbanBoard";
 import { ActionList } from "../ActionList";
+import { EditActionModal } from "../EditActionModal";
 import { ViewSwitcher } from "./ViewSwitcher";
 import { SaveViewModal } from "./SaveViewModal";
 import { CreateListModal } from "./CreateListModal";
@@ -69,9 +70,13 @@ interface ViewBoardProps {
     filters: ViewFilters;
     isVirtual?: boolean;
   };
+  // Deep linking props
+  deepLinkActionId?: string | null;
+  onActionOpen?: (id: string) => void;
+  onActionClose?: () => void;
 }
 
-export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
+export function ViewBoard({ workspaceId, viewConfig, deepLinkActionId, onActionOpen, onActionClose }: ViewBoardProps) {
   const [activeView, setActiveView] = useState<ViewConfig>({
     id: viewConfig?.id ?? DEFAULT_VIEW_CONFIG.id,
     name: viewConfig?.name ?? DEFAULT_VIEW_CONFIG.name,
@@ -86,6 +91,8 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
   const [groupBy, setGroupBy] = useState<ViewGroupBy>(activeView.groupBy);
   const [saveModalOpened, { open: openSaveModal, close: closeSaveModal }] = useDisclosure(false);
   const [createListOpened, { open: openCreateList, close: closeCreateList }] = useDisclosure(false);
+  const [kanbanDeepLinkOpen, setKanbanDeepLinkOpen] = useState(false);
+  const kanbanDeepLinkHandled = useRef(false);
   const utils = api.useUtils();
 
   // URL sync for linkable views
@@ -131,6 +138,27 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
     setGroupBy(urlView.groupBy as ViewGroupBy);
     hasInitializedFromUrl.current = true;
   }, [urlView, urlViewLoading, urlViewError, viewSlugFromUrl, setViewSlug]);
+
+  // Deep link: fetch action by ID for kanban view (list view handles it internally)
+  const { data: kanbanDeepLinkedAction } = api.action.getById.useQuery(
+    { id: deepLinkActionId! },
+    { enabled: !!deepLinkActionId && viewType === "KANBAN" && !kanbanDeepLinkHandled.current },
+  );
+
+  // Auto-open modal in kanban view when deep link action is fetched
+  useEffect(() => {
+    if (!deepLinkActionId || viewType !== "KANBAN" || kanbanDeepLinkHandled.current) return;
+    if (kanbanDeepLinkedAction) {
+      setKanbanDeepLinkOpen(true);
+      kanbanDeepLinkHandled.current = true;
+    }
+  }, [deepLinkActionId, viewType, kanbanDeepLinkedAction]);
+
+  // Reset kanban deep link tracking when action ID changes
+  useEffect(() => {
+    kanbanDeepLinkHandled.current = false;
+    setKanbanDeepLinkOpen(false);
+  }, [deepLinkActionId]);
 
   // Fetch projects for filter dropdown
   const { data: projects, isLoading: projectsLoading } = api.project.getAll.useQuery(
@@ -667,6 +695,9 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
           onAllBulkReschedule={handleBulkReschedule}
           onAllBulkAssignProject={handleBulkAssignProject}
           isLoading={isLoading}
+          deepLinkActionId={deepLinkActionId}
+          onActionOpen={onActionOpen}
+          onActionClose={onActionClose}
         />
       )}
 
@@ -688,6 +719,18 @@ export function ViewBoard({ workspaceId, viewConfig }: ViewBoardProps) {
         currentGroupBy={groupBy}
         onSaved={handleViewSaved}
       />
+
+      {/* Deep link modal for kanban view */}
+      {viewType === "KANBAN" && kanbanDeepLinkedAction && (
+        <EditActionModal
+          action={kanbanDeepLinkedAction}
+          opened={kanbanDeepLinkOpen}
+          onClose={() => {
+            setKanbanDeepLinkOpen(false);
+            onActionClose?.();
+          }}
+        />
+      )}
     </Stack>
   );
 }

@@ -248,8 +248,8 @@ export function AgentChatModal() {
   const { workspaceId: urlWorkspaceId } = useWorkspace();
   const effectiveWorkspaceId = overrideWorkspaceId ?? urlWorkspaceId;
 
-  // Agent selection state (same pattern as AgentChatPage)
-  const [selectedAgent, setSelectedAgent] = useState<string>('');
+  // Persistent agent selection — dropdown switches the default agent for all messages
+  const [defaultAgent, setDefaultAgent] = useState<{ id: string; name: string } | null>(null);
 
   // Conversation loading state (same pattern as AgentChatPage)
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
@@ -260,13 +260,20 @@ export function AgentChatModal() {
     { enabled: !!effectiveWorkspaceId && isOpen }
   );
 
-  // Determine active agent from last AI message
+  // Fetch agents list to resolve name→id for dropdown selection
+  const { data: agents } = api.mastra.getMastraAgents.useQuery(undefined, {
+    enabled: isOpen,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Determine active agent: dropdown selection takes priority, then last AI message, then defaults
   const activeAgentName = useMemo(() => {
+    if (defaultAgent) return defaultAgent.name;
     const lastAiMessage = [...messages].reverse().find(
       m => m.type === 'ai' && m.agentName && m.agentName !== 'System Error'
     );
     return lastAiMessage?.agentName ?? customAssistant?.name ?? 'Zoe';
-  }, [messages, customAssistant?.name]);
+  }, [defaultAgent, messages, customAssistant?.name]);
 
   // Fetch conversation history when loading a previous conversation
   const { data: conversationHistory } = api.aiInteraction.getConversationHistory.useQuery(
@@ -295,20 +302,15 @@ export function AgentChatModal() {
   }, [conversationId]);
 
   const handleSelectAgent = useCallback((agentName: string) => {
-    setSelectedAgent(`@${agentName} `);
-  }, []);
+    const agent = agents?.find(a => a.name.toLowerCase() === agentName.toLowerCase());
+    if (agent) {
+      setDefaultAgent({ id: agent.id, name: agent.name });
+    }
+  }, [agents]);
 
   const handleSelectDefault = useCallback(() => {
-    setSelectedAgent('');
+    setDefaultAgent(null);
   }, []);
-
-  // Clear selected agent after it's consumed by ManyChat
-  useEffect(() => {
-    if (selectedAgent) {
-      const timer = setTimeout(() => setSelectedAgent(''), 100);
-      return () => clearTimeout(timer);
-    }
-  }, [selectedAgent]);
 
   return (
     <Modal
@@ -360,7 +362,7 @@ export function AgentChatModal() {
           <ManyChat
             projectId={projectId ?? undefined}
             workspaceId={effectiveWorkspaceId ?? undefined}
-            initialInput={selectedAgent}
+            defaultAgentId={defaultAgent?.id}
           />
         </div>
       </div>

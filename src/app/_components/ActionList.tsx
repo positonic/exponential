@@ -3,7 +3,7 @@ import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTras
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import React from "react";
 import { useSession } from 'next-auth/react';
 import { EditActionModal } from "./EditActionModal";
@@ -172,7 +172,10 @@ export function ActionList({
   onApplySchedulingSuggestion,
   onDismissSchedulingSuggestion,
   applyingSuggestionId,
-  isLoading = false
+  isLoading = false,
+  deepLinkActionId,
+  onActionOpen,
+  onActionClose,
 }: {
   viewName: string,
   actions: Action[],
@@ -204,7 +207,11 @@ export function ActionList({
   onApplySchedulingSuggestion?: (actionId: string, suggestedDate: string, suggestedTime: string) => void,
   onDismissSchedulingSuggestion?: (actionId: string) => void,
   applyingSuggestionId?: string | null,
-  isLoading?: boolean
+  isLoading?: boolean,
+  // Deep linking props
+  deepLinkActionId?: string | null,
+  onActionOpen?: (id: string) => void,
+  onActionClose?: () => void,
 }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
@@ -226,6 +233,39 @@ export function ActionList({
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
   const utils = api.useUtils();
+
+  // Deep link: fetch action by ID when URL has ?action=<id> and it's not in the current list
+  const deepLinkHandled = useRef(false);
+  const { data: deepLinkedAction } = api.action.getById.useQuery(
+    { id: deepLinkActionId! },
+    { enabled: !!deepLinkActionId && !deepLinkHandled.current },
+  );
+
+  // Auto-open modal when deep link action is available
+  useEffect(() => {
+    if (!deepLinkActionId || deepLinkHandled.current) return;
+
+    // First check if the action exists in the current list
+    const actionInList = actions.find(a => a.id === deepLinkActionId);
+    if (actionInList) {
+      setSelectedAction(actionInList);
+      setEditModalOpened(true);
+      deepLinkHandled.current = true;
+      return;
+    }
+
+    // Otherwise use the fetched action
+    if (deepLinkedAction) {
+      setSelectedAction(deepLinkedAction as Action);
+      setEditModalOpened(true);
+      deepLinkHandled.current = true;
+    }
+  }, [deepLinkActionId, actions, deepLinkedAction]);
+
+  // Reset deep link tracking when the action ID changes
+  useEffect(() => {
+    deepLinkHandled.current = false;
+  }, [deepLinkActionId]);
 
   // Fetch projects for bulk assignment dropdown (when inbox or general bulk edit is enabled)
   const projectsQuery = api.project.getAll.useQuery(undefined, {
@@ -347,6 +387,7 @@ export function ActionList({
   const handleActionClick = (action: Action) => {
     setSelectedAction(action);
     setEditModalOpened(true);
+    onActionOpen?.(action.id);
   };
 
   // --- Filtering Logic --- 
@@ -1403,6 +1444,7 @@ export function ActionList({
         onClose={() => {
           setEditModalOpened(false);
           setSelectedAction(null);
+          onActionClose?.();
         }}
       />
       

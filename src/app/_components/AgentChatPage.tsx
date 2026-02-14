@@ -88,7 +88,7 @@ function AgentHeader({
 }
 
 export function AgentChatPage() {
-  const [selectedAgent, setSelectedAgent] = useState<string>('');
+  const [defaultAgent, setDefaultAgent] = useState<{ id: string; name: string } | null>(null);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const { conversationId, loadConversation, clearChat, messages } = useAgentModal();
   const { workspaceId } = useWorkspace();
@@ -99,13 +99,19 @@ export function AgentChatPage() {
     { enabled: !!workspaceId }
   );
 
-  // Determine active agent from last AI message in conversation
+  // Fetch agents list to resolve name→id for dropdown selection
+  const { data: agents } = api.mastra.getMastraAgents.useQuery(undefined, {
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Determine active agent: dropdown selection takes priority, then last AI message, then defaults
   const activeAgentName = useMemo(() => {
+    if (defaultAgent) return defaultAgent.name;
     const lastAiMessage = [...messages].reverse().find(
       m => m.type === 'ai' && m.agentName && m.agentName !== 'System Error'
     );
     return lastAiMessage?.agentName ?? customAssistant?.name ?? 'Zoe';
-  }, [messages, customAssistant?.name]);
+  }, [defaultAgent, messages, customAssistant?.name]);
 
   // Query for conversation history when we want to load a specific conversation
   const { data: conversationHistory, isLoading: isLoadingHistory } = api.aiInteraction.getConversationHistory.useQuery(
@@ -135,26 +141,21 @@ export function AgentChatPage() {
   }, [conversationId]);
 
   const handleSelectAgent = useCallback((agentName: string) => {
-    setSelectedAgent(`@${agentName} `);
-  }, []);
+    const agent = agents?.find(a => a.name.toLowerCase() === agentName.toLowerCase());
+    if (agent) {
+      setDefaultAgent({ id: agent.id, name: agent.name });
+    }
+  }, [agents]);
 
-  // Select the custom assistant (clear any @mention so it routes through default path)
+  // Select the custom assistant (clear dropdown selection so it routes through default path)
   const handleSelectDefault = useCallback(() => {
-    setSelectedAgent('');
+    setDefaultAgent(null);
   }, []);
 
   const handleNewChat = useCallback(() => {
     clearChat();
-    setSelectedAgent('');
+    setDefaultAgent(null);
   }, [clearChat]);
-
-  // Clear selected agent after it's used
-  useEffect(() => {
-    if (selectedAgent) {
-      const timer = setTimeout(() => setSelectedAgent(''), 100);
-      return () => clearTimeout(timer);
-    }
-  }, [selectedAgent]);
 
   return (
     <div className="-m-4 lg:-m-8 flex h-screen">
@@ -179,7 +180,7 @@ export function AgentChatPage() {
             <div className="text-text-muted">Loading conversation...</div>
           </div>
         )}
-        <ManyChat initialInput={selectedAgent} />
+        <ManyChat defaultAgentId={defaultAgent?.id} />
       </div>
     </div>
   );
