@@ -126,6 +126,11 @@ export const docsNavigation: DocNavSection[] = [
         icon: IconFlame,
       },
       {
+        title: "iOS Shortcut",
+        href: "/docs/features/ios-shortcut",
+        icon: IconDeviceMobile,
+      },
+      {
         title: "Chrome Extension",
         href: "/docs/features/chrome-extension",
         icon: IconMicrophone,

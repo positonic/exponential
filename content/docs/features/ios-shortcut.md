@@ -1,4 +1,7 @@
-# Add Actions to Exponential from Your Phone
+---
+title: iOS Shortcut
+description: Add actions to Exponential by voice or text from your iPhone, iPad, or Mac using Apple Shortcuts
+---
 
 Quickly capture tasks using your voice or keyboard — straight from your iPhone, iPad, or Mac — without opening the app.
 
