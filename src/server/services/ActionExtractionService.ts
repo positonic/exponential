@@ -4,6 +4,15 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { FirefliesService } from "./FirefliesService";
 import { type ParsedActionItem } from "./processors/ActionProcessor";
 
+export function numberScreenshotMarkers(text: string): { numberedText: string; count: number } {
+  let count = 0;
+  const numberedText = text.replace(/\[SCREENSHOT\]/g, () => {
+    count++;
+    return `[SCREENSHOT-${count}]`;
+  });
+  return { numberedText, count };
+}
+
 const extractionSchema = z.object({
   actions: z.array(
     z.object({
@@ -12,6 +21,7 @@ const extractionSchema = z.object({
       dueDateText: z.string().optional(),
       confidence: z.number().min(0).max(1).optional(),
       isFirstPerson: z.boolean().optional(),
+      screenshotRefs: z.array(z.number()).optional(),
     })
   ),
 });
@@ -69,7 +79,7 @@ function buildSystemPrompt(): string {
   return [
     "You extract actionable tasks from transcribed audio. The input may be a meeting transcript, a voice note, a personal reminder, or any spoken recording.",
     "Return ONLY valid JSON matching this schema:",
-    '{"actions":[{"text":"...", "assigneeName":"...", "dueDateText":"...", "confidence":0.0, "isFirstPerson":true}]}',
+    '{"actions":[{"text":"...", "assigneeName":"...", "dueDateText":"...", "confidence":0.0, "isFirstPerson":true, "screenshotRefs":[1]}]}',
     "Rules:",
     "- Extract ANY task, to-do, reminder, commitment, or next step mentioned in the text.",
     "- Include personal tasks and reminders (e.g. \"call mom\", \"buy groceries\", \"schedule dentist\").",
@@ -82,6 +92,10 @@ function buildSystemPrompt(): string {
     "- dueDateText should be a short phrase like \"next week\" or \"by Friday\" if mentioned.",
     "- Keep action text concise and imperative (e.g. \"Call mom\" not \"You should call your mom\").",
     "- When a single sentence contains multiple tasks, split them into separate actions.",
+    "- The transcript may contain [SCREENSHOT-N] markers indicating screenshots taken during recording.",
+    "- If an action relates to text near a [SCREENSHOT-N] marker, include the number(s) in screenshotRefs.",
+    "- Example: if speaker says 'fix this layout' near [SCREENSHOT-3], return screenshotRefs: [3].",
+    "- An action can reference zero or multiple screenshots. Omit screenshotRefs if none are relevant.",
   ].join("\n");
 }
 
@@ -168,6 +182,7 @@ export class ActionExtractionService {
           assignee: assignee,
           dueDate: dueDate,
           context: `From transcript: "${action.text}"`,
+          screenshotRefs: action.screenshotRefs,
         });
 
         if (results.length >= maxActions) {

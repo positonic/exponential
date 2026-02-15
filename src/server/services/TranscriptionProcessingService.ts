@@ -1,6 +1,6 @@
 import { db } from '~/server/db';
 import { FirefliesService } from './FirefliesService';
-import { ActionExtractionService } from './ActionExtractionService';
+import { ActionExtractionService, numberScreenshotMarkers } from './ActionExtractionService';
 import { ActionProcessorFactory } from './processors/ActionProcessorFactory';
 import { InternalActionProcessor } from './processors/InternalActionProcessor';
 import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
@@ -196,6 +196,14 @@ export class TranscriptionProcessingService {
 
       console.log(`[generateDraftActions] Found transcription: title="${transcription.title}", hasSummary=${!!transcription.summary}, hasTranscription=${!!transcription.transcription}, summaryLength=${transcription.summary?.length ?? 0}, transcriptionLength=${transcription.transcription?.length ?? 0}`);
 
+      // Fetch screenshots for this session (ordered by creation time for marker correlation)
+      const screenshots = await db.screenshot.findMany({
+        where: { transcriptionSessionId: transcriptionId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      console.log(`[generateDraftActions] Found ${screenshots.length} screenshots for session`);
+
       if (transcription.userId !== userId) {
         const hasAccess = await this.verifyUserAccess(
           userId,
@@ -247,7 +255,8 @@ export class TranscriptionProcessingService {
 
           if (actionItems.length === 0 && transcriptText) {
             console.log(`[generateDraftActions] No Fireflies actions, falling back to AI extraction on transcript (${transcriptText.length} chars)`);
-            actionItems = await ActionExtractionService.extractFromTranscript(transcriptText);
+            const { numberedText } = numberScreenshotMarkers(transcriptText);
+            actionItems = await ActionExtractionService.extractFromTranscript(screenshots.length > 0 ? numberedText : transcriptText);
             console.log(`[generateDraftActions] AI extraction returned ${actionItems.length} items`);
           } else if (actionItems.length === 0) {
             console.log("[generateDraftActions] No Fireflies actions and no transcript text available");
@@ -265,7 +274,8 @@ export class TranscriptionProcessingService {
       } else if (transcription.transcription) {
         const transcriptText = transcription.transcription;
         console.log(`[generateDraftActions] No summary, using AI extraction on transcript (${transcriptText.length} chars)`);
-        const actionItems = await ActionExtractionService.extractFromTranscript(transcriptText);
+        const { numberedText } = numberScreenshotMarkers(transcriptText);
+        const actionItems = await ActionExtractionService.extractFromTranscript(screenshots.length > 0 ? numberedText : transcriptText);
         console.log(`[generateDraftActions] AI extraction returned ${actionItems.length} items`);
         processedData = {
           summary: {},
@@ -305,6 +315,29 @@ export class TranscriptionProcessingService {
       result.draftCount = actionResult.processedCount;
       result.errors = actionResult.errors;
       result.success = actionResult.errors.length === 0;
+
+      // Create screenshot-action associations based on AI screenshotRefs
+      if (screenshots.length > 0 && actionResult.createdItems.length > 0) {
+        const junctionData: { actionId: string; screenshotId: string }[] = [];
+
+        for (let i = 0; i < actionResult.createdItems.length && i < processedData.actionItems.length; i++) {
+          const item = processedData.actionItems[i];
+          const created = actionResult.createdItems[i];
+          if (!item?.screenshotRefs?.length || !created) continue;
+
+          for (const ref of item.screenshotRefs) {
+            const screenshot = screenshots[ref - 1]; // ref is 1-based
+            if (screenshot) {
+              junctionData.push({ actionId: created.id, screenshotId: screenshot.id });
+            }
+          }
+        }
+
+        if (junctionData.length > 0) {
+          await db.actionScreenshot.createMany({ data: junctionData, skipDuplicates: true });
+          console.log(`[generateDraftActions] Created ${junctionData.length} screenshot-action associations`);
+        }
+      }
 
       await db.transcriptionSession.update({
         where: { id: transcriptionId },

@@ -431,6 +431,7 @@ model Action {
   // PM Agent tracking
   githubActivities       GitHubActivity[]
   statusChanges          ActionStatusChange[]
+  actionScreenshots      ActionScreenshot[]
 
   @@index([projectId])
   @@index([createdById])
@@ -830,6 +831,21 @@ model Screenshot {
   transcriptionSessionId String
   createdAt              DateTime             @default(now())
   transcriptionSession   TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id])
+  actionScreenshots      ActionScreenshot[]
+}
+
+model ActionScreenshot {
+  id           String     @id @default(cuid())
+  actionId     String
+  screenshotId String
+  createdAt    DateTime   @default(now())
+
+  action       Action     @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  screenshot   Screenshot @relation(fields: [screenshotId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, screenshotId])
+  @@index([actionId])
+  @@index([screenshotId])
 }
 
 model Integration {

@@ -4,6 +4,7 @@ export interface ParsedActionItem {
   dueDate?: Date;
   priority?: string;
   context?: string;
+  screenshotRefs?: number[];
 }
 
 export interface ActionProcessorResult {
