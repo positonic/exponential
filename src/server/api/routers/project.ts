@@ -14,6 +14,7 @@ export const projectRouter = createTRPCRouter({
       projects: z.array(z.object({
         id: z.string(),
         name: z.string(),
+        slug: z.string(),
       }))
     }))
     .query(async ({ ctx, input }) => {
@@ -25,6 +26,7 @@ export const projectRouter = createTRPCRouter({
         select: {
           id: true,
           name: true,
+          slug: true,
         },
         orderBy: {
           name: "asc",
