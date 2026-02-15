@@ -16,6 +16,8 @@ const brandColors: MantineColorsTuple = [
 ];
 
 // Component styles that apply to both light and dark themes
+// NOTE: Mantine v7's styles prop only supports flat CSS properties (inline styles).
+// CSS selectors (&:hover, &[data-*], etc.) are defined in globals.css instead.
 const componentStyles = {
   // Paper component (used by Modal, Popover, etc.)
   Paper: {
@@ -27,7 +29,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   // Modal specific styles
   Modal: {
     defaultProps: {
@@ -44,9 +46,6 @@ const componentStyles = {
         },
         close: {
           color: 'var(--color-text-secondary)',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
         overlay: {
           backgroundColor: 'var(--color-bg-overlay)',
@@ -71,9 +70,6 @@ const componentStyles = {
         },
         close: {
           color: 'var(--color-text-secondary)',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
         body: {
           backgroundColor: 'var(--color-bg-elevated)',
@@ -120,26 +116,13 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
           borderColor: 'var(--color-border-primary)',
-          '&:focus': {
-            borderColor: 'var(--color-border-focus)',
-          },
-          '&::placeholder': {
-            color: 'var(--color-text-muted)',
-          },
         },
         dropdown: {
           backgroundColor: 'var(--color-bg-elevated)',
           borderColor: 'var(--color-border-primary)',
         },
-        item: {
+        option: {
           color: 'var(--color-text-primary)',
-          '&[data-selected]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
-          '&[data-hovered]': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
         label: {
           color: 'var(--color-text-primary)',
@@ -147,7 +130,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   // TextInput and Textarea
   TextInput: {
     defaultProps: {
@@ -156,12 +139,6 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
           borderColor: 'var(--color-border-primary)',
-          '&:focus': {
-            borderColor: 'var(--color-border-focus)',
-          },
-          '&::placeholder': {
-            color: 'var(--color-text-muted)',
-          },
         },
         label: {
           color: 'var(--color-text-primary)',
@@ -169,7 +146,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   Textarea: {
     defaultProps: {
       styles: {
@@ -177,12 +154,6 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
           borderColor: 'var(--color-border-primary)',
-          '&:focus': {
-            borderColor: 'var(--color-border-focus)',
-          },
-          '&::placeholder': {
-            color: 'var(--color-text-muted)',
-          },
         },
         label: {
           color: 'var(--color-text-primary)',
@@ -190,38 +161,7 @@ const componentStyles = {
       },
     },
   },
-  
-  // Button component
-  Button: {
-    defaultProps: {
-      styles: {
-        root: {
-          '&[dataVariant="filled"]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-            '&:hover': {
-              backgroundColor: 'var(--color-brand-primary-hover)',
-            },
-          },
-          '&[dataVariant="subtle"]': {
-            color: 'var(--color-text-secondary)',
-            '&:hover': {
-              backgroundColor: 'var(--color-surface-hover)',
-            },
-          },
-          '&[dataVariant="default"]': {
-            backgroundColor: 'var(--color-surface-secondary)',
-            color: 'var(--color-text-primary)',
-            borderColor: 'var(--color-border-primary)',
-            '&:hover': {
-              backgroundColor: 'var(--color-surface-hover)',
-            },
-          },
-        },
-      },
-    },
-  },
-  
+
   // DateInput and DatePicker components
   DateInput: {
     defaultProps: {
@@ -239,12 +179,6 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
           borderColor: 'var(--color-border-primary)',
-          '&:focus': {
-            borderColor: 'var(--color-border-focus)',
-          },
-          '&::placeholder': {
-            color: 'var(--color-text-muted)',
-          },
         },
         label: {
           color: 'var(--color-text-primary)',
@@ -258,15 +192,9 @@ const componentStyles = {
         },
         calendarHeaderControl: {
           color: 'var(--color-text-primary)',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
         calendarHeaderLevel: {
           color: 'var(--color-text-primary)',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
         month: {
           backgroundColor: 'var(--color-bg-primary)',
@@ -277,13 +205,6 @@ const componentStyles = {
         monthsListCell: {
           color: 'var(--color-text-primary)',
           border: '1px solid transparent',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
-          '&[data-selected]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
         },
         yearsList: {
           backgroundColor: 'var(--color-bg-primary)',
@@ -291,13 +212,6 @@ const componentStyles = {
         yearsListCell: {
           color: 'var(--color-text-primary)',
           border: '1px solid transparent',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
-          '&[data-selected]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
         },
         weekday: {
           color: 'var(--color-text-muted)',
@@ -306,30 +220,11 @@ const componentStyles = {
           color: 'var(--color-text-primary)',
           backgroundColor: 'transparent',
           border: '1px solid transparent',
-          '&[data-selected]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
-          '&[data-in-range]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            opacity: 0.2,
-          },
-          '&[data-outside]': {
-            color: 'var(--color-text-disabled)',
-          },
-          '&[data-today]': {
-            backgroundColor: 'var(--color-brand-success)',
-            color: 'var(--color-text-inverse)',
-            fontWeight: 600,
-          },
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
       },
     },
   },
-  
+
   DatePicker: {
     styles: {
       calendar: {
@@ -341,15 +236,9 @@ const componentStyles = {
       },
       calendarHeaderControl: {
         color: 'var(--color-text-primary)',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
       calendarHeaderLevel: {
         color: 'var(--color-text-primary)',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
       month: {
         backgroundColor: 'transparent',
@@ -360,13 +249,6 @@ const componentStyles = {
       monthsListCell: {
         color: 'var(--color-text-primary)',
         border: '1px solid transparent',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
       },
       yearsList: {
         backgroundColor: 'transparent',
@@ -374,13 +256,6 @@ const componentStyles = {
       yearsListCell: {
         color: 'var(--color-text-primary)',
         border: '1px solid transparent',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
       },
       weekday: {
         color: 'var(--color-text-muted)',
@@ -389,29 +264,10 @@ const componentStyles = {
         color: 'var(--color-text-primary)',
         backgroundColor: 'transparent',
         border: '1px solid transparent',
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
-        '&[data-in-range]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          opacity: 0.2,
-        },
-        '&[data-outside]': {
-          color: 'var(--color-text-disabled)',
-        },
-        '&[data-today]': {
-          backgroundColor: 'var(--color-brand-error)',
-          color: 'var(--color-text-inverse)',
-          fontWeight: 600,
-        },
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
     },
   },
-  
+
   Calendar: {
     styles: {
       calendar: {
@@ -423,15 +279,9 @@ const componentStyles = {
       },
       calendarHeaderControl: {
         color: 'var(--color-text-primary)',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
       calendarHeaderLevel: {
         color: 'var(--color-text-primary)',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
       month: {
         backgroundColor: 'transparent',
@@ -442,13 +292,6 @@ const componentStyles = {
       monthsListCell: {
         color: 'var(--color-text-primary)',
         border: '1px solid transparent',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
       },
       yearsList: {
         backgroundColor: 'transparent',
@@ -456,13 +299,6 @@ const componentStyles = {
       yearsListCell: {
         color: 'var(--color-text-primary)',
         border: '1px solid transparent',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
       },
       weekday: {
         color: 'var(--color-text-muted)',
@@ -471,28 +307,6 @@ const componentStyles = {
         color: 'var(--color-text-primary)',
         backgroundColor: 'transparent',
         border: '1px solid transparent',
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
-        '&[data-in-range]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          opacity: 0.2,
-        },
-        '&[data-outside]': {
-          color: 'var(--color-text-disabled)',
-        },
-        '&[data-weekend]': {
-          color: 'var(--color-brand-primary)',
-        },
-        '&[data-today]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-          fontWeight: 600,
-        },
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
     },
   },
@@ -531,7 +345,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   // Card component
   Card: {
     defaultProps: {
@@ -541,33 +355,21 @@ const componentStyles = {
       },
     },
   },
-  
+
   // Tabs component
   Tabs: {
     defaultProps: {
       styles: {
         list: {
-          flexWrap: 'nowrap',
-          overflowX: 'auto',
           scrollbarWidth: 'none',
-          '&::-webkit-scrollbar': {
-            display: 'none',
-          },
         },
         tab: {
           color: 'var(--color-text-secondary)',
-          '&[data-active]': {
-            borderColor: 'var(--color-brand-primary)',
-            color: 'var(--color-brand-primary)',
-          },
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
       },
     },
   },
-  
+
   // MultiSelect component
   MultiSelect: {
     defaultProps: {
@@ -576,21 +378,11 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
           borderColor: 'var(--color-border-primary)',
-          '&:focus': {
-            borderColor: 'var(--color-border-focus)',
-          },
         },
         pill: {
           backgroundColor: 'var(--color-surface-secondary)',
           color: 'var(--color-text-primary)',
           border: '1px solid var(--color-border-primary)',
-          '& .mantine-MultiSelect-defaultValueRemove': {
-            color: 'var(--color-text-secondary)',
-            '&:hover': {
-              color: 'var(--color-text-primary)',
-              backgroundColor: 'var(--color-surface-hover)',
-            },
-          },
         },
         dropdown: {
           backgroundColor: 'var(--color-bg-elevated)',
@@ -598,18 +390,11 @@ const componentStyles = {
         },
         option: {
           color: 'var(--color-text-primary)',
-          '&[data-selected]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
-          '&[data-hovered]': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
       },
     },
   },
-  
+
   // Title component
   Title: {
     defaultProps: {
@@ -620,7 +405,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   // Text component
   Text: {
     defaultProps: {

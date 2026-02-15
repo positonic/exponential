@@ -203,14 +203,198 @@
   }
 }
 
-/* Mantine Calendar weekend highlighting */
+/* =================================================================
+   Mantine Component Theme Overrides
+   Mantine v7's styles prop only supports flat CSS properties (inline
+   styles), not CSS selectors. These rules provide the interactive
+   states (hover, focus, data-attributes) that cannot be expressed
+   as inline styles.
+   ================================================================= */
+
+/* --- Modal & Drawer close button --- */
+.mantine-Modal-close:hover,
+.mantine-Drawer-close:hover {
+  background-color: var(--color-surface-hover);
+}
+
+/* --- Input focus & placeholder --- */
+.mantine-Select-input:focus,
+.mantine-TextInput-input:focus,
+.mantine-Textarea-input:focus,
+.mantine-DateInput-input:focus,
+.mantine-MultiSelect-input:focus {
+  border-color: var(--color-border-focus);
+}
+
+.mantine-Select-input::placeholder,
+.mantine-TextInput-input::placeholder,
+.mantine-Textarea-input::placeholder,
+.mantine-DateInput-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* --- Select / MultiSelect option states --- */
+.mantine-Select-option[data-combobox-selected],
+.mantine-MultiSelect-option[data-combobox-selected] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+
+.mantine-Select-option:hover:not([data-combobox-selected]),
+.mantine-MultiSelect-option:hover:not([data-combobox-selected]) {
+  background-color: var(--color-surface-hover);
+}
+
+/* --- MultiSelect pill remove button --- */
+.mantine-MultiSelect-pill .mantine-CloseButton-root:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-surface-hover);
+}
+
+/* --- Button variant styles --- */
+.mantine-Button-root[data-variant="filled"] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+.mantine-Button-root[data-variant="filled"]:hover {
+  background-color: var(--color-brand-primary-hover);
+}
+
+.mantine-Button-root[data-variant="subtle"] {
+  color: var(--color-text-secondary);
+}
+.mantine-Button-root[data-variant="subtle"]:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.mantine-Button-root[data-variant="default"] {
+  background-color: var(--color-surface-secondary);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-primary);
+}
+.mantine-Button-root[data-variant="default"]:hover {
+  background-color: var(--color-surface-hover);
+}
+
+/* --- Calendar header controls (DateInput, DatePicker, Calendar) --- */
+.mantine-DateInput-calendarHeaderControl:hover,
+.mantine-DatePicker-calendarHeaderControl:hover,
+.mantine-Calendar-calendarHeaderControl:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.mantine-DateInput-calendarHeaderLevel:hover,
+.mantine-DatePicker-calendarHeaderLevel:hover,
+.mantine-Calendar-calendarHeaderLevel:hover {
+  background-color: var(--color-surface-hover);
+}
+
+/* --- Months/Years list controls --- */
+.mantine-DateInput-monthsListControl:hover,
+.mantine-DatePicker-monthsListControl:hover,
+.mantine-Calendar-monthsListControl:hover,
+.mantine-DateInput-yearsListControl:hover,
+.mantine-DatePicker-yearsListControl:hover,
+.mantine-Calendar-yearsListControl:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.mantine-DateInput-monthsListControl[data-selected],
+.mantine-DatePicker-monthsListControl[data-selected],
+.mantine-Calendar-monthsListControl[data-selected],
+.mantine-DateInput-yearsListControl[data-selected],
+.mantine-DatePicker-yearsListControl[data-selected],
+.mantine-Calendar-yearsListControl[data-selected] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+
+/* --- Day states (DateInput) --- */
+.mantine-DateInput-day:hover:not([data-selected], [data-disabled]) {
+  background-color: var(--color-surface-hover);
+}
+.mantine-DateInput-day[data-selected] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+.mantine-DateInput-day[data-in-range] {
+  background-color: var(--color-brand-primary);
+  opacity: 0.2;
+}
+.mantine-DateInput-day[data-outside] {
+  color: var(--color-text-disabled);
+}
+.mantine-DateInput-day[data-today] {
+  background-color: var(--color-brand-success);
+  color: var(--color-text-inverse);
+  font-weight: 600;
+}
+
+/* --- Day states (DatePicker) --- */
+.mantine-DatePicker-day:hover:not([data-selected], [data-disabled]) {
+  background-color: var(--color-surface-hover);
+}
+.mantine-DatePicker-day[data-selected] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+.mantine-DatePicker-day[data-in-range] {
+  background-color: var(--color-brand-primary);
+  opacity: 0.2;
+}
+.mantine-DatePicker-day[data-outside] {
+  color: var(--color-text-disabled);
+}
+.mantine-DatePicker-day[data-today] {
+  background-color: var(--color-brand-error);
+  color: var(--color-text-inverse);
+  font-weight: 600;
+}
+
+/* --- Day states (Calendar) --- */
+.mantine-Calendar-day:hover:not([data-selected], [data-disabled]) {
+  background-color: var(--color-surface-hover);
+}
+.mantine-Calendar-day[data-selected] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+.mantine-Calendar-day[data-in-range] {
+  background-color: var(--color-brand-primary);
+  opacity: 0.2;
+}
+.mantine-Calendar-day[data-outside] {
+  color: var(--color-text-disabled);
+}
 .mantine-Calendar-day[data-weekend] {
   color: var(--color-brand-primary) !important;
 }
-
-/* Today should keep its special styling even on weekends */
 .mantine-Calendar-day[data-today] {
   background-color: var(--color-brand-primary) !important;
   color: var(--color-text-inverse) !important;
   font-weight: 600 !important;
+}
+
+/* --- Tabs --- */
+.mantine-Tabs-list {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.mantine-Tabs-list::-webkit-scrollbar {
+  display: none;
+}
+.mantine-Tabs-tab[data-active] {
+  border-color: var(--color-brand-primary);
+  color: var(--color-brand-primary);
+  font-weight: 500;
+}
+.mantine-Tabs-tab:hover {
+  background-color: var(--color-surface-hover);
+}
+
+/* Tabs pills variant (used by ViewSwitcher) */
+.mantine-Tabs-tab[data-active][data-variant="pills"] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
 }

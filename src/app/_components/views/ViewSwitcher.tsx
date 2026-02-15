@@ -72,14 +72,7 @@ export function ViewSwitcher({
       }}
       variant="pills"
       radius="md"
-      styles={{
-        tab: {
-          '&[data-active]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
-        },
-      }}
+      styles={{}}
     >
       <Tabs.List>
         <Tabs.Tab value={DEFAULT_VIEW_CONFIG.id}>

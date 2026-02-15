@@ -149,9 +149,6 @@ function CalendarDrawerContent({ opened, onClose, selectedDate = new Date() }: C
         },
         close: {
           color: 'var(--mantine-color-gray-4)',
-          '&:hover': {
-            backgroundColor: 'var(--mantine-color-dark-6)',
-          }
         }
       }}
     >

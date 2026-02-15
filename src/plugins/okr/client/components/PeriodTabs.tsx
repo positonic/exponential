@@ -39,14 +39,6 @@ export function PeriodTabs({
         },
         tab: {
           color: 'var(--color-text-secondary)',
-          '&[data-active]': {
-            borderBottomColor: 'var(--color-brand-primary)',
-            color: 'var(--color-brand-primary)',
-            fontWeight: 500,
-          },
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
       }}
     >

@@ -15,10 +15,9 @@ export const HTMLContent = ({ html, className }: HTMLContentProps) => {
   });
 
   return (
-    <div 
+    <span
       className={className || "text-text-primary"}
       dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-      style={{ display: 'inline' }}
     />
   );
 };
