@@ -24,7 +24,9 @@ export function parseDictation(
   return {
     cleanedName,
     originalInput,
-    dueDate: dateResult.date,
+    scheduledStart:
+      dateResult.dateType === "schedule" ? dateResult.date : null,
+    dueDate: dateResult.dateType === "deadline" ? dateResult.date : null,
     matchedProject: projectResult.project,
     extractionDetails: {
       datePhrase: dateResult.phrase,

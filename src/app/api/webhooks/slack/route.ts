@@ -1260,7 +1260,7 @@ async function createActionFromSlack(title: string, user: any, channelId: string
       text: parsed.name,
       priority: 'medium' as const,
       context: 'Created from Slack',
-      dueDate: parsed.dueDate ?? undefined,
+      dueDate: parsed.dueDate ?? parsed.scheduledStart ?? undefined,
     };
 
     for (const processor of processors) {
@@ -1271,7 +1271,14 @@ async function createActionFromSlack(title: string, user: any, channelId: string
     let confirmationMessage = `✅ Created action: *${parsed.name}*`;
 
     const details: string[] = [];
-    if (parsed.dueDate) {
+    if (parsed.scheduledStart) {
+      const dateStr = parsed.scheduledStart.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric'
+      });
+      details.push(`📅 Do: ${dateStr}`);
+    } else if (parsed.dueDate) {
       const dateStr = parsed.dueDate.toLocaleDateString('en-US', {
         weekday: 'short',
         month: 'short',

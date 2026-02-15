@@ -872,7 +872,7 @@ export const mastraRouter = createTRPCRouter({
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
       const parsed = await parseActionInput(input.text, userId, ctx.db);
 
-      console.log(`🎯 [tRPC quickCreateAction] PARSED: name="${parsed.name}", parsedProjectId=${parsed.projectId ?? "none"}, dueDate=${String(parsed.dueDate ?? "none")}`);
+      console.log(`🎯 [tRPC quickCreateAction] PARSED: name="${parsed.name}", parsedProjectId=${parsed.projectId ?? "none"}, scheduledStart=${String(parsed.scheduledStart ?? "none")}, dueDate=${String(parsed.dueDate ?? "none")}`);
 
       // Use context projectId as fallback if text parsing didn't match a project
       if (!parsed.projectId && input.projectId) {
@@ -898,6 +898,7 @@ export const mastraRouter = createTRPCRouter({
           priority: "Quick",
           status: "ACTIVE",
           createdById: userId,
+          scheduledStart: parsed.scheduledStart,
           dueDate: parsed.dueDate,
           source: "whatsapp",
           kanbanStatus: parsed.projectId ? "TODO" : null,

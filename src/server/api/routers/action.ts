@@ -1932,6 +1932,7 @@ export const actionRouter = createTRPCRouter({
           priority: input.priority,
           status: "ACTIVE",
           createdById: userId,
+          scheduledStart: parsed.scheduledStart,
           dueDate: parsed.dueDate,
           source: input.source,
           kanbanStatus: parsed.projectId ? "TODO" : null,

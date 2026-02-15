@@ -5,6 +5,7 @@ import type { ProjectForMatching } from "./types";
 
 export interface ParseActionInputResult {
   name: string;
+  scheduledStart: Date | null;
   dueDate: Date | null;
   projectId: string | null;
   parsingMetadata: {
@@ -43,6 +44,7 @@ export async function parseActionInput(
   if (!shouldParse) {
     return {
       name: input.trim(),
+      scheduledStart: null,
       dueDate: null,
       projectId: options?.projectId ?? null,
       parsingMetadata: null,
@@ -70,6 +72,7 @@ export async function parseActionInput(
 
   return {
     name: parsed.cleanedName,
+    scheduledStart: parsed.scheduledStart,
     dueDate: parsed.dueDate,
     projectId: finalProjectId,
     parsingMetadata: {

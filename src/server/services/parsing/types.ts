@@ -1,6 +1,7 @@
 export interface ParsedDictation {
   cleanedName: string;
   originalInput: string;
+  scheduledStart: Date | null;
   dueDate: Date | null;
   matchedProject: { id: string; name: string; score: number } | null;
   extractionDetails: {
@@ -16,6 +17,7 @@ export interface ProjectForMatching {
 
 export interface DateExtractionResult {
   date: Date | null;
+  dateType: "schedule" | "deadline" | null;
   phrase: string | null;
   originalText: string;
   cleanedText: string;

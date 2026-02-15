@@ -18,6 +18,7 @@ export function parseDateFromText(
   if (parsed.length === 0) {
     return {
       date: null,
+      dateType: null,
       phrase: null,
       originalText: text,
       cleanedText: text,
@@ -29,6 +30,7 @@ export function parseDateFromText(
   if (!result) {
     return {
       date: null,
+      dateType: null,
       phrase: null,
       originalText: text,
       cleanedText: text,
@@ -37,15 +39,38 @@ export function parseDateFromText(
   const extractedDate = result.start.date();
   const extractedPhrase = result.text;
 
+  // Determine if this is a deadline ("by Friday", "before Monday", "due tomorrow")
+  // or a schedule date ("tomorrow", "on Friday", "next week")
+  const dateType = isDeadlinePhrase(text, extractedPhrase)
+    ? "deadline"
+    : "schedule";
+
   // Remove the date phrase from the text
   const cleanedText = removePhrase(text, extractedPhrase);
 
   return {
     date: extractedDate,
+    dateType,
     phrase: extractedPhrase,
     originalText: text,
     cleanedText: cleanedText.trim(),
   };
+}
+
+/**
+ * Check if the date phrase is preceded by deadline indicators (by, before, until, due)
+ */
+function isDeadlinePhrase(fullText: string, phrase: string): boolean {
+  const lowerText = fullText.toLowerCase();
+  const phraseIndex = lowerText.indexOf(phrase.toLowerCase());
+  if (phraseIndex < 0) return false;
+
+  // Check the text immediately before the date phrase for deadline keywords
+  const prefixText = lowerText.substring(
+    Math.max(0, phraseIndex - 10),
+    phraseIndex
+  );
+  return /\b(?:by|before|until|due)\s*$/.test(prefixText);
 }
 
 /**
