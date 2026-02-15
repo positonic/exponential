@@ -176,6 +176,8 @@ export class TranscriptionProcessingService {
     };
 
     try {
+      console.log(`[generateDraftActions] Starting for transcriptionId=${transcriptionId}`);
+
       const transcription = await db.transcriptionSession.findUnique({
         where: { id: transcriptionId },
         include: {
@@ -187,9 +189,12 @@ export class TranscriptionProcessingService {
       });
 
       if (!transcription) {
+        console.log("[generateDraftActions] Transcription not found");
         result.errors.push("Transcription not found");
         return result;
       }
+
+      console.log(`[generateDraftActions] Found transcription: title="${transcription.title}", hasSummary=${!!transcription.summary}, hasTranscription=${!!transcription.transcription}, summaryLength=${transcription.summary?.length ?? 0}, transcriptionLength=${transcription.transcription?.length ?? 0}`);
 
       if (transcription.userId !== userId) {
         const hasAccess = await this.verifyUserAccess(
@@ -197,6 +202,7 @@ export class TranscriptionProcessingService {
           transcription.projectId
         );
         if (!hasAccess) {
+          console.log("[generateDraftActions] User does not have access");
           result.errors.push("User does not have access to this transcription");
           return result;
         }
@@ -210,6 +216,7 @@ export class TranscriptionProcessingService {
       });
 
       if (existingActiveCount > 0) {
+        console.log(`[generateDraftActions] Already has ${existingActiveCount} active actions, returning alreadyPublished`);
         result.alreadyPublished = true;
         result.success = true;
         return result;
@@ -223,6 +230,7 @@ export class TranscriptionProcessingService {
       });
 
       if (existingDraftCount > 0) {
+        console.log(`[generateDraftActions] Already has ${existingDraftCount} drafts, returning existing`);
         result.success = true;
         result.draftCount = existingDraftCount;
         return result;
@@ -231,12 +239,18 @@ export class TranscriptionProcessingService {
       let processedData;
       if (transcription.summary) {
         try {
+          console.log(`[generateDraftActions] Parsing summary JSON (first 200 chars): ${transcription.summary.slice(0, 200)}`);
           const summary = JSON.parse(transcription.summary);
           let actionItems = FirefliesService.parseActionItems(summary);
+          console.log(`[generateDraftActions] FirefliesService.parseActionItems returned ${actionItems.length} items`);
           const transcriptText = transcription.transcription || "";
 
           if (actionItems.length === 0 && transcriptText) {
+            console.log(`[generateDraftActions] No Fireflies actions, falling back to AI extraction on transcript (${transcriptText.length} chars)`);
             actionItems = await ActionExtractionService.extractFromTranscript(transcriptText);
+            console.log(`[generateDraftActions] AI extraction returned ${actionItems.length} items`);
+          } else if (actionItems.length === 0) {
+            console.log("[generateDraftActions] No Fireflies actions and no transcript text available");
           }
 
           processedData = {
@@ -245,28 +259,36 @@ export class TranscriptionProcessingService {
             transcriptText,
           };
         } catch (parseError) {
-          console.error("Failed to parse transcription summary:", parseError);
+          console.error("[generateDraftActions] Failed to parse transcription summary:", parseError);
           result.errors.push("Failed to parse transcription data");
         }
       } else if (transcription.transcription) {
         const transcriptText = transcription.transcription;
+        console.log(`[generateDraftActions] No summary, using AI extraction on transcript (${transcriptText.length} chars)`);
         const actionItems = await ActionExtractionService.extractFromTranscript(transcriptText);
+        console.log(`[generateDraftActions] AI extraction returned ${actionItems.length} items`);
         processedData = {
           summary: {},
           actionItems,
           transcriptText,
         };
+      } else {
+        console.log("[generateDraftActions] No summary and no transcription text available");
       }
 
       if (!processedData) {
+        console.log("[generateDraftActions] No processedData, returning early");
         result.success = true;
         return result;
       }
 
       if (!processedData.actionItems || processedData.actionItems.length === 0) {
+        console.log("[generateDraftActions] processedData exists but 0 action items found");
         result.success = true;
         return result;
       }
+
+      console.log(`[generateDraftActions] Creating ${processedData.actionItems.length} draft actions`);
 
       const draftProcessor = new InternalActionProcessor({
         userId,
