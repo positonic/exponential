@@ -758,7 +758,6 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       } else if (defaultAgentId) {
         // Use the persistently selected agent from dropdown
         targetAgentId = defaultAgentId;
-        console.log('🤖 [AGENT] Using dropdown-selected agent:', { agentId: defaultAgentId });
       } else if (customAssistant) {
         // If user has a custom assistant, route to the blank-canvas assistantAgent
         targetAgentId = 'assistantAgent';
