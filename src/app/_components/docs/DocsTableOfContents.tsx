@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import type { Heading } from "~/lib/docs/types";
 
 interface DocsTableOfContentsProps {
@@ -9,6 +10,8 @@ interface DocsTableOfContentsProps {
 
 export function DocsTableOfContents({ headings }: DocsTableOfContentsProps) {
   const [activeId, setActiveId] = useState<string>("");
+  const { status } = useSession();
+  const isLoggedIn = status === "authenticated";
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -42,7 +45,7 @@ export function DocsTableOfContents({ headings }: DocsTableOfContentsProps) {
 
   return (
     <nav className="w-56 shrink-0 border-l border-border-primary bg-background-primary">
-      <div className="sticky top-0 p-4">
+      <div className={`sticky ${isLoggedIn ? "top-0 p-4" : "top-16 pt-10 px-4 pb-4"}`}>
         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
           On this page
         </h4>

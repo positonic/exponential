@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { docsNavigation } from "~/lib/docs/navigation";
 
 export function DocsSidebar() {
   const pathname = usePathname();
+  const { status } = useSession();
+  const isLoggedIn = status === "authenticated";
 
   return (
     <nav className="w-64 shrink-0 border-r border-border-primary bg-background-primary">
-      <div className="sticky top-0 h-screen overflow-y-auto p-4">
+      <div className={`sticky overflow-y-auto ${isLoggedIn ? "top-0 h-screen p-4" : "top-16 h-[calc(100vh-4rem)] pt-10 px-4 pb-4"}`}>
         {docsNavigation.map((section) => (
           <div key={section.title} className="mb-6">
             {/* Section header */}

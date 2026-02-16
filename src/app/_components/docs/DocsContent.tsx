@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Title, Text } from "@mantine/core";
+import { useSession } from "next-auth/react";
 import type { DocContent } from "~/lib/docs/types";
 import { DocsBreadcrumb } from "./DocsBreadcrumb";
 import { DocsPrevNext } from "./DocsPrevNext";
@@ -13,8 +14,11 @@ interface DocsContentProps {
 }
 
 export function DocsContent({ doc, children }: DocsContentProps) {
+  const { status } = useSession();
+  const isLoggedIn = status === "authenticated";
+
   return (
-    <article className="min-w-0 flex-1 px-8 py-6">
+    <article className={`min-w-0 flex-1 px-8 pb-6 ${isLoggedIn ? "py-6" : "pt-10"}`}>
       <div className="mx-auto max-w-3xl">
         <DocsBreadcrumb />
 
