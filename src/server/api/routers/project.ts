@@ -73,8 +73,8 @@ export const projectRouter = createTRPCRouter({
                 }
               }
             },
-            // User is a member of the workspace
-            ...(input?.workspaceId ? [{
+            // User is a member of the workspace (always check, for cross-workspace visibility)
+            {
               workspace: {
                 members: {
                   some: {
@@ -82,7 +82,7 @@ export const projectRouter = createTRPCRouter({
                   }
                 }
               }
-            }] : []),
+            },
             // Public projects visible when not filtering by workspace
             ...(!input?.workspaceId ? [{ isPublic: true }] : []),
           ]
