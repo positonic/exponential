@@ -39,6 +39,14 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const utils = api.useUtils();
   const { actionIdFromUrl, setActionId, clearActionId } = useActionDeepLink();
 
+  // Mutation to award inbox processing bonus when overdue tasks are handled
+  const markProcessedOverdue = api.dailyPlan.markProcessedOverdue.useMutation({
+    onSuccess: () => {
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
+    },
+  });
+
   // Query available tags for filtering
   const tagsQuery = api.tag.list.useQuery();
   const tagOptions = useMemo(() => 
@@ -314,6 +322,8 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       console.log(`🔧 [MUTATION DEBUG] Starting invalidation for action ${variables.id}`);
       void utils.action.getAll.invalidate();
       void utils.action.getToday.invalidate();
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
     },
   });
 
@@ -349,6 +359,8 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     onSettled: () => {
       void utils.action.getAll.invalidate();
       void utils.action.getToday.invalidate();
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
     },
   });
 
@@ -422,6 +434,9 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       if (projectId) {
         void utils.action.getProjectActions.invalidate({ projectId });
       }
+
+      // Award inbox processing bonus for handling overdue tasks
+      markProcessedOverdue.mutate({});
     } catch (error) {
       notifications.update({
         id: 'bulk-reschedule',
@@ -449,6 +464,8 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         void allActionsQuery.refetch();
         void notionUnassignedQuery.refetch();
       }
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -464,6 +481,11 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     if (action === 'delete') {
       bulkDeleteMutation.mutate({
         actionIds,
+      }, {
+        onSuccess: () => {
+          // Award inbox processing bonus for handling overdue tasks
+          markProcessedOverdue.mutate({});
+        },
       });
     }
   };

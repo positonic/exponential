@@ -333,7 +333,8 @@ export function ActionList({
         void utils.action.getAll.invalidate();
       }
       // Also invalidate scoring queries for productivity updates
-      void utils.scoring.getDailyScore.invalidate();
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
     },
   });;
 
