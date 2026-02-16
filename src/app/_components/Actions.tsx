@@ -4,8 +4,8 @@ import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
-import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff } from "@tabler/icons-react";
-import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge } from "@mantine/core";
+import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag } from "@tabler/icons-react";
+import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge, MultiSelect } from "@mantine/core";
 import { useState, useEffect, useMemo } from "react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
@@ -35,8 +35,15 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [isKanbanMode, setIsKanbanMode] = useState(defaultView === 'kanban');
   const [isSyncing, setIsSyncing] = useState(false);
   const [showNotionUnassigned, setShowNotionUnassigned] = useState(false);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const utils = api.useUtils();
   const { actionIdFromUrl, setActionId, clearActionId } = useActionDeepLink();
+
+  // Query available tags for filtering
+  const tagsQuery = api.tag.list.useQuery();
+  const tagOptions = useMemo(() => 
+    tagsQuery.data?.allTags?.map((tag: { id: string; name: string }) => ({ value: tag.id.toString(), label: tag.name })) ?? []
+  , [tagsQuery.data]);
 
   // Check if this project has a Notion integration
   const hasNotionSync = projectSyncInfo?.taskManagementTool === 'notion' &&
@@ -114,9 +121,17 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
   // Use filtered results if Notion unassigned filter is active, otherwise use normal query
   // All three queries return the same shape, so we can safely union them
-  const actions = projectId
+  const actionsBeforeTagFilter = projectId
     ? projectActionsQuery.data
     : (showNotionUnassigned ? notionUnassignedTodayData : allActionsQuery.data);
+
+  // Apply tag filter if tags are selected
+  const actions = useMemo(() => {
+    if (!actionsBeforeTagFilter || selectedTagIds.length === 0) return actionsBeforeTagFilter;
+    return actionsBeforeTagFilter.filter(action => 
+      action.tags?.some(actionTag => selectedTagIds.includes(actionTag.tagId.toString()))
+    );
+  }, [actionsBeforeTagFilter, selectedTagIds]);
 
   // Count of unassigned Notion imports for today (for badge)
   const notionUnassignedCount = notionUnassignedTodayData.length;
@@ -765,6 +780,45 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               leftSection={<IconFilterOff size={16} />}
             >
               Clear Filter
+            </Button>
+          )}
+        </Group>
+      )}
+
+      {/* Tag filter - available on all non-project pages */}
+      {!projectId && tagOptions.length > 0 && (
+        <Group gap="xs" mb="md" align="flex-end">
+          <MultiSelect
+            data={tagOptions}
+            value={selectedTagIds}
+            onChange={setSelectedTagIds}
+            placeholder="Filter by tags..."
+            leftSection={<IconTag size={16} />}
+            clearable
+            searchable
+            size="sm"
+            maxDropdownHeight={200}
+            styles={{
+              input: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+                minWidth: 200,
+              },
+              dropdown: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+            }}
+          />
+          {selectedTagIds.length > 0 && (
+            <Button
+              variant="subtle"
+              size="sm"
+              color="gray"
+              onClick={() => setSelectedTagIds([])}
+              leftSection={<IconFilterOff size={16} />}
+            >
+              Clear Tags
             </Button>
           )}
         </Group>

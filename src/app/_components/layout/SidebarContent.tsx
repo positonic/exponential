@@ -106,6 +106,12 @@ export function SidebarContent() {
                   My Projects
                 </NavLink>
               )}
+              {/* All Actions link - available when not in workspace context */}
+              {!workspaceSlug && (
+                <NavLink href="/actions" icon={IconLayoutKanban}>
+                  All Actions
+                </NavLink>
+              )}
               {isItemVisible("projects/project-list") && <ProjectList />}
               {isItemVisible("projects/add-project") && <AddProjectButton />}
             </Accordion.Panel>

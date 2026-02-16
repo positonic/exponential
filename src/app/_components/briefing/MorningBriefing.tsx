@@ -31,7 +31,7 @@ interface MorningBriefingProps {
 }
 
 export function MorningBriefing({ workspaceId, compact = false }: MorningBriefingProps) {
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+  const [expandedSections, setExpandedSections] = useState({
     calendar: true,
     actions: true,
     overdue: true,

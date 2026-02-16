@@ -51,7 +51,8 @@ interface ActionData {
   timeSpentMins: number;
   isRecurring: boolean;
   projectId: string | null;
-  project?: Project | null;
+  workspaceId?: string | null;
+  project?: { workspaceId?: string | null } | null;
   assignees: Assignee[];
   tags: ActionTag[];
   [key: string]: unknown;
