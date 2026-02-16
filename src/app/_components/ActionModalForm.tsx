@@ -122,9 +122,14 @@ export function ActionModalForm({
       return;
     }
 
-    // Parse the time string and create a date for today (or dueDate if set)
+    // Parse the time string and update the date
+    // Priority: preserve existing scheduledStart date > use dueDate > use today
     const [hours, minutes] = timeString.split(':').map(Number);
-    const baseDate = dueDate ? new Date(dueDate) : new Date();
+    const baseDate = scheduledStart 
+      ? new Date(scheduledStart) 
+      : dueDate 
+        ? new Date(dueDate) 
+        : new Date();
     baseDate.setHours(hours ?? 0, minutes ?? 0, 0, 0);
     setScheduledStart(baseDate);
   };
