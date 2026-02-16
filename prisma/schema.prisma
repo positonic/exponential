@@ -255,6 +255,8 @@ model Workspace {
   pmAgentConfigs           PMAgentConfig[]
   // Deal Pipeline relations
   deals                    Deal[]
+  // Integration relations
+  integrations             Integration[]
 
   @@index([slug])
   @@index([ownerId])
@@ -859,10 +861,12 @@ model Integration {
   updatedAt               DateTime                 @updatedAt
   userId                  String?
   teamId                  String?
+  workspaceId             String?
   lastSyncAt              DateTime?
   allowTeamMemberAccess   Boolean                  @default(false)
   team                    Team?                    @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user                    User?                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace               Workspace?               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   credentials             IntegrationCredential[]
   permissions             IntegrationPermission[]
   userMappings            IntegrationUserMapping[]
@@ -879,6 +883,7 @@ model Integration {
   @@index([userId])
   @@index([teamId])
   @@index([provider])
+  @@index([workspaceId])
 }
 
 model IntegrationCredential {

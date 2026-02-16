@@ -4,6 +4,10 @@
  * Each user connects their email (Gmail, Outlook, etc.) with an app password.
  * Credentials are stored encrypted in the Integration + IntegrationCredential tables.
  * This service handles reading (IMAP) and sending (SMTP) on behalf of the user.
+ *
+ * Supports workspace-scoped email accounts: each workspace can have its own
+ * email configuration, with a user-level default as fallback.
+ * Resolution order: workspace-specific > user default (workspaceId IS NULL).
  */
 
 import { ImapFlow } from "imapflow";
@@ -113,14 +117,30 @@ export function detectProviderSettings(email: string) {
 export class UserEmailService {
   /**
    * Get decrypted email credentials for a user from the Integration table.
+   * If workspaceId is provided, tries workspace-specific email first,
+   * then falls back to the user's default email (workspaceId IS NULL).
    */
   private async getUserCredentials(
-    userId: string
+    userId: string,
+    workspaceId?: string
   ): Promise<EmailCredentials | null> {
-    const integration = await db.integration.findFirst({
-      where: { userId, provider: "email", status: "ACTIVE" },
-      include: { credentials: true },
-    });
+    let integration = null;
+
+    // Try workspace-specific email first
+    if (workspaceId) {
+      integration = await db.integration.findFirst({
+        where: { userId, provider: "email", status: "ACTIVE", workspaceId },
+        include: { credentials: true },
+      });
+    }
+
+    // Fall back to user default (workspaceId is null)
+    if (!integration) {
+      integration = await db.integration.findFirst({
+        where: { userId, provider: "email", status: "ACTIVE", workspaceId: null },
+        include: { credentials: true },
+      });
+    }
 
     if (!integration) return null;
 
@@ -187,9 +207,10 @@ export class UserEmailService {
    * Check if user has email configured and test the connection.
    */
   async checkConnection(
-    userId: string
+    userId: string,
+    workspaceId?: string
   ): Promise<{ isConnected: boolean; email?: string; error?: string }> {
-    const creds = await this.getUserCredentials(userId);
+    const creds = await this.getUserCredentials(userId, workspaceId);
     if (!creds) {
       return { isConnected: false };
     }
@@ -214,9 +235,10 @@ export class UserEmailService {
       maxResults?: number;
       unreadOnly?: boolean;
       since?: string;
+      workspaceId?: string;
     } = {}
   ): Promise<{ emails: EmailSummary[] }> {
-    const creds = await this.getUserCredentials(userId);
+    const creds = await this.getUserCredentials(userId, options.workspaceId);
     if (!creds)
       throw new Error(
         "Email not configured. Please connect your email in Settings → Integrations."
@@ -286,9 +308,10 @@ export class UserEmailService {
    */
   async getEmailById(
     userId: string,
-    emailId: string
+    emailId: string,
+    workspaceId?: string
   ): Promise<{ email: EmailFull }> {
-    const creds = await this.getUserCredentials(userId);
+    const creds = await this.getUserCredentials(userId, workspaceId);
     if (!creds)
       throw new Error(
         "Email not configured. Please connect your email in Settings → Integrations."
@@ -376,9 +399,10 @@ export class UserEmailService {
   async searchEmails(
     userId: string,
     query: string,
-    maxResults = 10
+    maxResults = 10,
+    workspaceId?: string
   ): Promise<{ emails: EmailSummary[] }> {
-    const creds = await this.getUserCredentials(userId);
+    const creds = await this.getUserCredentials(userId, workspaceId);
     if (!creds)
       throw new Error(
         "Email not configured. Please connect your email in Settings → Integrations."
@@ -441,9 +465,10 @@ export class UserEmailService {
    */
   async sendEmail(
     userId: string,
-    input: SendEmailInput
+    input: SendEmailInput,
+    workspaceId?: string
   ): Promise<{ success: boolean; messageId: string }> {
-    const creds = await this.getUserCredentials(userId);
+    const creds = await this.getUserCredentials(userId, workspaceId);
     if (!creds)
       throw new Error(
         "Email not configured. Please connect your email in Settings → Integrations."
@@ -482,9 +507,10 @@ export class UserEmailService {
   async replyToEmail(
     userId: string,
     emailId: string,
-    body: string
+    body: string,
+    workspaceId?: string
   ): Promise<{ success: boolean; messageId: string }> {
-    const creds = await this.getUserCredentials(userId);
+    const creds = await this.getUserCredentials(userId, workspaceId);
     if (!creds)
       throw new Error(
         "Email not configured. Please connect your email in Settings → Integrations."
@@ -534,7 +560,40 @@ export class UserEmailService {
       body,
       inReplyTo: originalMessageId,
       references: originalMessageId,
+    }, workspaceId);
+  }
+
+  /**
+   * Get the configured email for a user, optionally scoped to a workspace.
+   * Returns whether the email is workspace-specific or the user default.
+   */
+  async getConfiguredEmail(
+    userId: string,
+    workspaceId?: string
+  ): Promise<{ email: string; isWorkspaceSpecific: boolean } | null> {
+    // Check workspace-specific first
+    if (workspaceId) {
+      const wsIntegration = await db.integration.findFirst({
+        where: { userId, provider: "email", status: "ACTIVE", workspaceId },
+        include: { credentials: true },
+      });
+      if (wsIntegration) {
+        const emailCred = wsIntegration.credentials.find(c => c.keyType === "email_address");
+        if (emailCred) return { email: emailCred.key, isWorkspaceSpecific: true };
+      }
+    }
+
+    // Fall back to default
+    const defaultIntegration = await db.integration.findFirst({
+      where: { userId, provider: "email", status: "ACTIVE", workspaceId: null },
+      include: { credentials: true },
     });
+    if (defaultIntegration) {
+      const emailCred = defaultIntegration.credentials.find(c => c.keyType === "email_address");
+      if (emailCred) return { email: emailCred.key, isWorkspaceSpecific: false };
+    }
+
+    return null;
   }
 
   /**

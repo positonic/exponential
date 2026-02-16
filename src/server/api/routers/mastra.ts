@@ -2630,8 +2630,11 @@ export const mastraRouter = createTRPCRouter({
   // ==================== EMAIL ENDPOINTS FOR AGENT TOOLS ====================
 
   checkEmailConnectionStatus: protectedProcedure
-    .mutation(async ({ ctx }) => {
-      return await userEmailService.checkConnection(ctx.session.user.id);
+    .input(z.object({
+      workspaceId: z.string().optional(),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      return await userEmailService.checkConnection(ctx.session.user.id, input?.workspaceId);
     }),
 
   getEmails: protectedProcedure
@@ -2639,30 +2642,34 @@ export const mastraRouter = createTRPCRouter({
       maxResults: z.number().min(1).max(50).default(10),
       unreadOnly: z.boolean().default(false),
       since: z.string().optional(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       return await userEmailService.getEmails(ctx.session.user.id, {
         maxResults: input.maxResults,
         unreadOnly: input.unreadOnly,
         since: input.since,
+        workspaceId: input.workspaceId,
       });
     }),
 
   getEmailById: protectedProcedure
     .input(z.object({
       emailId: z.string(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return await userEmailService.getEmailById(ctx.session.user.id, input.emailId);
+      return await userEmailService.getEmailById(ctx.session.user.id, input.emailId, input.workspaceId);
     }),
 
   searchEmails: protectedProcedure
     .input(z.object({
       query: z.string().min(1),
       maxResults: z.number().min(1).max(50).default(10),
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return await userEmailService.searchEmails(ctx.session.user.id, input.query, input.maxResults);
+      return await userEmailService.searchEmails(ctx.session.user.id, input.query, input.maxResults, input.workspaceId);
     }),
 
   sendEmail: protectedProcedure
@@ -2673,18 +2680,21 @@ export const mastraRouter = createTRPCRouter({
       body: z.string(),
       inReplyTo: z.string().optional(),
       references: z.string().optional(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return await userEmailService.sendEmail(ctx.session.user.id, input);
+      const { workspaceId, ...emailInput } = input;
+      return await userEmailService.sendEmail(ctx.session.user.id, emailInput, workspaceId);
     }),
 
   replyToEmail: protectedProcedure
     .input(z.object({
       emailId: z.string(),
       body: z.string(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return await userEmailService.replyToEmail(ctx.session.user.id, input.emailId, input.body);
+      return await userEmailService.replyToEmail(ctx.session.user.id, input.emailId, input.body, input.workspaceId);
     }),
 
   // ============================================

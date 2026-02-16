@@ -8,7 +8,7 @@ import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
 import { encryptCredential } from "~/server/utils/credentialHelper";
-import { UserEmailService, detectProviderSettings } from "~/server/services/UserEmailService";
+import { UserEmailService, detectProviderSettings, userEmailService } from "~/server/services/UserEmailService";
 
 // Test Fireflies API connection
 export async function testFirefliesConnection(
@@ -2997,9 +2997,23 @@ export const integrationRouter = createTRPCRouter({
         smtpHost: z.string().optional(),
         description: z.string().optional(),
         allowTeamMemberAccess: z.boolean().optional().default(false),
+        workspaceId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Verify workspace membership if workspace-scoped
+      if (input.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findFirst({
+          where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+        });
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace.",
+          });
+        }
+      }
+
       // Detect IMAP/SMTP settings from email domain or use provider defaults
       const detected = detectProviderSettings(input.emailAddress);
       const imapHost = input.imapHost ?? detected?.imapHost ?? "imap.gmail.com";
@@ -3021,9 +3035,14 @@ export const integrationRouter = createTRPCRouter({
         });
       }
 
-      // Delete any existing email integration for this user (one active email per user)
+      // Delete existing email integration for this user+workspace scope only
+      // (null = user default, string = workspace-specific)
       await ctx.db.integration.deleteMany({
-        where: { userId: ctx.session.user.id, provider: "email" },
+        where: {
+          userId: ctx.session.user.id,
+          provider: "email",
+          workspaceId: input.workspaceId ?? null,
+        },
       });
 
       // Create the integration
@@ -3034,6 +3053,7 @@ export const integrationRouter = createTRPCRouter({
           provider: "email",
           description: input.description ?? `Email integration (${input.emailProvider})`,
           userId: ctx.session.user.id,
+          workspaceId: input.workspaceId ?? null,
           allowTeamMemberAccess: input.allowTeamMemberAccess,
           status: "ACTIVE",
         },
@@ -3079,5 +3099,43 @@ export const integrationRouter = createTRPCRouter({
           email: input.emailAddress,
         },
       };
+    }),
+
+  // Get configured email status for a workspace (with user default fallback info)
+  getWorkspaceEmailStatus: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      return await userEmailService.getConfiguredEmail(
+        ctx.session.user.id,
+        input.workspaceId
+      );
+    }),
+
+  // Remove workspace-specific email integration (reverts to user default)
+  removeWorkspaceEmail: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace.",
+        });
+      }
+
+      await ctx.db.integration.deleteMany({
+        where: {
+          userId: ctx.session.user.id,
+          provider: "email",
+          workspaceId: input.workspaceId,
+        },
+      });
+      return { success: true };
     }),
 });

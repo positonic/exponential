@@ -19,9 +19,12 @@ import {
   Divider,
   SegmentedControl,
   Switch,
+  Modal,
+  Select,
+  Alert,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -55,6 +58,12 @@ export default function WorkspaceSettingsPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [inviteModalOpened, { open: openInviteModal, close: closeInviteModal }] = useDisclosure(false);
   const [firefliesModalOpened, { open: openFirefliesModal, close: closeFirefliesModal }] = useDisclosure(false);
+  const [emailModalOpened, { open: openEmailModal, close: closeEmailModal }] = useDisclosure(false);
+  const [emailProvider, setEmailProvider] = useState<string>('gmail');
+  const [emailAddress, setEmailAddress] = useState('');
+  const [emailAppPassword, setEmailAppPassword] = useState('');
+  const [emailImapHost, setEmailImapHost] = useState('');
+  const [emailSmtpHost, setEmailSmtpHost] = useState('');
 
   const utils = api.useUtils();
 
@@ -105,6 +114,67 @@ export default function WorkspaceSettingsPage() {
       refetchWorkspace();
     },
   });
+
+  // Workspace email configuration
+  const { data: emailStatus, refetch: refetchEmailStatus } = api.integration.getWorkspaceEmailStatus.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: !!workspaceId }
+  );
+
+  const createEmailMutation = api.integration.createEmailIntegration.useMutation({
+    onSuccess: () => {
+      void refetchEmailStatus();
+      closeEmailModal();
+      setEmailAddress('');
+      setEmailAppPassword('');
+      setEmailImapHost('');
+      setEmailSmtpHost('');
+      setEmailProvider('gmail');
+      notifications.show({
+        title: 'Email Connected',
+        message: 'Workspace email has been configured successfully.',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Email Connection Failed',
+        message: error.message,
+        color: 'red',
+      });
+    },
+  });
+
+  const removeEmailMutation = api.integration.removeWorkspaceEmail.useMutation({
+    onSuccess: () => {
+      void refetchEmailStatus();
+      notifications.show({
+        title: 'Email Removed',
+        message: 'Workspace-specific email has been removed. Agents will use your default email.',
+        color: 'blue',
+        autoClose: 3000,
+      });
+    },
+  });
+
+  const handleSaveEmail = () => {
+    if (!workspaceId || !emailAddress || !emailAppPassword) return;
+    createEmailMutation.mutate({
+      name: `${workspace?.name ?? 'Workspace'} Email`,
+      emailAddress,
+      appPassword: emailAppPassword,
+      emailProvider: emailProvider as 'gmail' | 'outlook' | 'custom',
+      imapHost: emailImapHost || undefined,
+      smtpHost: emailSmtpHost || undefined,
+      workspaceId,
+    });
+  };
+
+  const handleRemoveWorkspaceEmail = () => {
+    if (!workspaceId) return;
+    removeEmailMutation.mutate({ workspaceId });
+  };
 
   const handleStartEdit = () => {
     if (workspace) {
@@ -417,6 +487,75 @@ export default function WorkspaceSettingsPage() {
           </Group>
         </Card>
 
+        {/* Email Account */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Group justify="space-between" align="flex-start">
+            <Group gap="md">
+              <IconMail size={24} className="text-text-muted" />
+              <div>
+                <Title order={3} className="text-text-primary">
+                  Email Account
+                </Title>
+                <Text size="sm" className="text-text-muted" maw={500}>
+                  Configure which email address agents use when operating in this workspace.
+                </Text>
+              </div>
+            </Group>
+          </Group>
+
+          <Stack gap="sm" mt="md">
+            {emailStatus?.isWorkspaceSpecific ? (
+              <Group justify="space-between">
+                <div>
+                  <Text size="sm" className="text-text-secondary">
+                    {emailStatus.email}
+                  </Text>
+                  <Text size="xs" className="text-text-muted">
+                    Workspace-specific email
+                  </Text>
+                </div>
+                <Group gap="xs">
+                  <Button variant="light" size="xs" onClick={openEmailModal}>
+                    Change
+                  </Button>
+                  <Button
+                    variant="subtle"
+                    size="xs"
+                    color="red"
+                    onClick={handleRemoveWorkspaceEmail}
+                    loading={removeEmailMutation.isPending}
+                  >
+                    Remove
+                  </Button>
+                </Group>
+              </Group>
+            ) : emailStatus ? (
+              <Group justify="space-between">
+                <div>
+                  <Text size="sm" className="text-text-secondary">
+                    Using default email: {emailStatus.email}
+                  </Text>
+                  <Text size="xs" className="text-text-muted">
+                    From your account settings
+                  </Text>
+                </div>
+                <Button variant="light" size="xs" onClick={openEmailModal}>
+                  Override for this workspace
+                </Button>
+              </Group>
+            ) : (
+              <Group justify="space-between">
+                <Text size="sm" className="text-text-muted">
+                  No email configured
+                </Text>
+                <Button variant="light" size="xs" onClick={openEmailModal}>
+                  Add email
+                </Button>
+              </Group>
+            )}
+          </Stack>
+        </Card>
+
         {/* Integrations */}
         <Card className="bg-surface-secondary border-border-primary" withBorder>
           <Group justify="space-between" align="center" mb="md">
@@ -457,6 +596,83 @@ export default function WorkspaceSettingsPage() {
         onClose={closeFirefliesModal}
         teamId={workspaceId ?? undefined}
       />
+
+      {/* Email Configuration Modal */}
+      <Modal
+        opened={emailModalOpened}
+        onClose={closeEmailModal}
+        title="Configure Workspace Email"
+        size="md"
+      >
+        <Stack gap="md">
+          <Alert
+            icon={<IconPlugConnected size={16} />}
+            title="Email Setup"
+            color="blue"
+          >
+            Connect an email for agents to use in this workspace. You&apos;ll need an App Password — not your regular password.
+            For Gmail: Google Account &rarr; Security &rarr; 2-Step Verification &rarr; App Passwords.
+          </Alert>
+
+          <Select
+            label="Email Provider"
+            data={[
+              { value: 'gmail', label: 'Gmail / Google Workspace' },
+              { value: 'outlook', label: 'Outlook / Microsoft 365' },
+              { value: 'custom', label: 'Custom (IMAP/SMTP)' },
+            ]}
+            value={emailProvider}
+            onChange={(v) => setEmailProvider(v ?? 'gmail')}
+          />
+
+          <TextInput
+            label="Email Address"
+            placeholder="you@example.com"
+            required
+            value={emailAddress}
+            onChange={(e) => setEmailAddress(e.currentTarget.value)}
+          />
+
+          <TextInput
+            label="App Password"
+            placeholder="xxxx-xxxx-xxxx-xxxx"
+            required
+            type="password"
+            value={emailAppPassword}
+            onChange={(e) => setEmailAppPassword(e.currentTarget.value)}
+          />
+
+          {emailProvider === 'custom' && (
+            <>
+              <TextInput
+                label="IMAP Host"
+                placeholder="imap.example.com"
+                value={emailImapHost}
+                onChange={(e) => setEmailImapHost(e.currentTarget.value)}
+              />
+              <TextInput
+                label="SMTP Host"
+                placeholder="smtp.example.com"
+                value={emailSmtpHost}
+                onChange={(e) => setEmailSmtpHost(e.currentTarget.value)}
+              />
+            </>
+          )}
+
+          <Group justify="flex-end" mt="md">
+            <Button variant="subtle" onClick={closeEmailModal}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEmail}
+              loading={createEmailMutation.isPending}
+              disabled={!emailAddress || !emailAppPassword}
+            >
+              Connect Email
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Container>
   );
 }
