@@ -163,10 +163,16 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
     },
     onSettled: () => {
       void utils.goal.getAllMyGoals.invalidate();
-      // Also invalidate project-specific goals if a project was selected
-      if (selectedProjectId) {
+      // Invalidate project-specific goals for both the prop projectId and selected projectId
+      // This ensures the cache is updated regardless of which was used
+      if (projectId) {
+        void utils.goal.getProjectGoals.invalidate({ projectId });
+      }
+      if (selectedProjectId && selectedProjectId !== projectId) {
         void utils.goal.getProjectGoals.invalidate({ projectId: selectedProjectId });
       }
+      // Also invalidate the project query to update goal counts in project lists
+      void utils.project.getAll.invalidate();
     },
     onSuccess: async (newGoal) => {
       // Create pending key results for the new goal
