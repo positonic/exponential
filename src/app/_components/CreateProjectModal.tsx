@@ -215,14 +215,34 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
     });
   }
 
-  // Reset step state when modal closes
+  // Reset all modal state when closing
   const handleClose = () => {
+    // Reset step/workflow state
     setStep('create');
     setCreatedProjectId(null);
     setCreatedProjectSlug(null);
     setSelectedWorkflowId('');
     setSyncStrategy('notion_canonical');
     setSyncedTaskCount(0);
+    
+    // Reset form fields to defaults (only if not editing an existing project)
+    if (!project) {
+      setProjectName(prefillName ?? "");
+      setDescription("");
+      setStatus("ACTIVE");
+      setPriority("NONE");
+      setSelectedGoals([]);
+      setSelectedOutcomes([]);
+      setSelectedLifeDomainIds([]);
+      setGoalSearchValue("");
+      setOutcomeSearchValue("");
+      setSelectedWorkspaceId(currentWorkspaceId ?? null);
+      setSelectedDriId(null);
+      setStartDate(null);
+      setEndDate(null);
+      setIsPublic(false);
+    }
+    
     close();
   };
 
