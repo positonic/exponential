@@ -820,17 +820,33 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         coreMessages.splice(0, coreMessages.length, system, ...recent);
       }
 
+      const streamPayload = {
+        messages: coreMessages,
+        agentId: targetAgentId,
+        assistantId: customAssistant?.id,
+        workspaceId,
+        projectId,
+        conversationId,
+      };
+
+      // Debug: always log what we're sending to Mastra
+      console.log('📤 [ManyChat → Mastra] Request payload:', {
+        agentId: streamPayload.agentId,
+        assistantId: streamPayload.assistantId,
+        workspaceId: streamPayload.workspaceId,
+        projectId: streamPayload.projectId,
+        conversationId: streamPayload.conversationId,
+        messageCount: coreMessages.length,
+        messages: coreMessages.map(m => ({
+          role: m.role,
+          contentPreview: m.content.slice(0, 200) + (m.content.length > 200 ? '...' : ''),
+        })),
+      });
+
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: coreMessages,
-          agentId: targetAgentId,
-          assistantId: customAssistant?.id,
-          workspaceId,
-          projectId,
-          conversationId,
-        }),
+        body: JSON.stringify(streamPayload),
       });
 
       if (!response.ok) {
@@ -866,6 +882,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       setIsStreaming(false);
       const responseTime = Date.now() - startTime;
 
+      // Debug: log what we received back
+      console.log('📥 [Mastra → ManyChat] Response:', {
+        responseLength: fullResponse.length,
+        responsePreview: fullResponse.slice(0, 300) + (fullResponse.length > 300 ? '...' : ''),
+        responseTime,
+        agentId: targetAgentId,
+        isEmpty: !fullResponse,
+      });
+
       // Log the successful interaction after streaming completes
       let interactionId: string | undefined;
       try {
@@ -874,7 +899,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           conversationId: conversationId || undefined,
           userMessage: input,
           cleanMessage: messageToSend !== input ? messageToSend : undefined,
-          aiResponse: fullResponse,
+          aiResponse: fullResponse || "(empty response from agent)",
           agentId: targetAgentId,
           agentName: agentName,
           model: "mastra-agents",

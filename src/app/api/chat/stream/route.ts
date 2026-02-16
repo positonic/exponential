@@ -169,6 +169,8 @@ export async function POST(req: Request) {
     }
 
     console.log(`🔗 [chat/stream] agentId=${agentId ?? "none"}, assistantId=${assistantId ?? "none"}, projectId=${projectId ?? "none"}, workspaceId=${workspaceId ?? "none"}, messages=${finalMessages.length}`);
+    console.log('📤 [chat/stream] RequestContext entries:', entries.map(([k, v]) => [k, k.includes('Token') || k.includes('token') || k.includes('JWT') || k.includes('auth') ? `${v.slice(0, 20)}...` : v]));
+    console.log('📤 [chat/stream] Messages to agent:', finalMessages.map(m => ({ role: m.role, contentLength: m.content.length, contentPreview: m.content.slice(0, 150) })));
     const requestContext = new RequestContext(entries);
 
     const agent = client.getAgent(agentId ?? "projectManagerAgent");
@@ -181,18 +183,30 @@ export async function POST(req: Request) {
     });
 
     // Extract text from Mastra's chunk protocol (text-delta events)
+    let chunkCount = 0;
+    let textChunkCount = 0;
+    const nonTextChunkTypes = new Set<string>();
     const textStream = new ReadableStream({
       async start(controller) {
         try {
           await response.processDataStream({
             onChunk: async (chunk) => {
+              chunkCount++;
               if (chunk.type === "text-delta") {
+                textChunkCount++;
                 controller.enqueue(
                   new TextEncoder().encode(chunk.payload.text),
                 );
+              } else {
+                nonTextChunkTypes.add(chunk.type);
+                // Log non-text chunks for debugging (first 5 only to avoid noise)
+                if (chunkCount <= 5) {
+                  console.log(`📦 [chat/stream] Non-text chunk: type=${chunk.type}`, JSON.stringify(chunk).slice(0, 300));
+                }
               }
             },
           });
+          console.log(`📊 [chat/stream] Stream complete: ${chunkCount} total chunks, ${textChunkCount} text chunks, non-text types: [${[...nonTextChunkTypes].join(', ')}]`);
           controller.close();
         } catch (err) {
           controller.error(err);

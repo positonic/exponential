@@ -190,7 +190,7 @@ export function DeadlinePicker({
     });
   };
 
-  // Format trigger button display
+  // Format trigger button display - consistent with UnifiedDatePicker
   const getTriggerContent = () => {
     if (!value) {
       return (
@@ -202,21 +202,13 @@ export function DeadlinePicker({
     }
 
     const isToday = value.toDateString() === new Date().toDateString();
-    const timeDisplay = value.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
 
     if (isToday) {
       return (
         <Group gap="xs">
-          <IconCalendar size={16} style={{ color: "var(--color-brand-success)" }} />
-          <Text size="sm" style={{ color: "var(--color-brand-success)" }}>
-            Today
-          </Text>
-          <Text size="sm" c="dimmed">
-            {timeDisplay}
+          <IconCalendar size={16} style={{ color: "var(--color-brand-error)" }} />
+          <Text size="sm" style={{ color: "var(--color-brand-error)" }}>
+            Due Today
           </Text>
           <IconX
             size={14}
@@ -232,15 +224,13 @@ export function DeadlinePicker({
 
     return (
       <Group gap="xs">
-        <IconCalendar size={16} />
+        <IconCalendar size={16} style={{ color: "var(--color-brand-warning)" }} />
         <Text size="sm">
+          Due{" "}
           {value.toLocaleDateString("en-US", {
             day: "numeric",
             month: "short",
           })}
-        </Text>
-        <Text size="sm" c="dimmed">
-          {timeDisplay}
         </Text>
         <IconX
           size={14}
