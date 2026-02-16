@@ -10,7 +10,7 @@ import { modals } from "@mantine/modals";
 import { useDisclosure } from "@mantine/hooks";
 import { slugify } from "~/utils/slugify";
 import { getAvatarColor, getInitial } from "~/utils/avatarColors";
-import { IconEdit, IconTrash, IconBrandNotion, IconPlus } from "@tabler/icons-react";
+import { IconEdit, IconTrash, IconBrandNotion, IconPlus, IconLayoutList } from "@tabler/icons-react";
 import Link from "next/link";
 import { calculateProjectHealth, HealthRing, HealthIndicatorIcons } from "~/app/_components/home/ProjectHealth";
 
@@ -359,16 +359,26 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
     <div className="w-full max-w-4xl">
       <Group justify="space-between" align="center" mb="md">
         <h2 className="text-2xl font-bold">Projects</h2>
-        {unlinkedCount > 0 && (
+        <Group gap="sm">
           <Button
+            component={Link}
+            href={workspace?.slug ? `/w/${workspace.slug}/projects-tasks` : '/projects-tasks'}
             variant="light"
-            leftSection={<IconBrandNotion size={16} />}
-            rightSection={<Badge size="xs">{unlinkedCount}</Badge>}
-            onClick={openNotionModal}
+            leftSection={<IconLayoutList size={16} />}
           >
-            Notion Suggestions
+            Projects &amp; Tasks
           </Button>
-        )}
+          {unlinkedCount > 0 && (
+            <Button
+              variant="light"
+              leftSection={<IconBrandNotion size={16} />}
+              rightSection={<Badge size="xs">{unlinkedCount}</Badge>}
+              onClick={openNotionModal}
+            >
+              Notion Suggestions
+            </Button>
+          )}
+        </Group>
       </Group>
 
       <ProjectList projects={projects.data ?? []} workspaceSlug={showAllWorkspaces ? undefined : workspace?.slug} />
