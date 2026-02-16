@@ -1,7 +1,19 @@
 import { type PrismaClient } from "@prisma/client";
 import { contentGenerationTemplate } from "./templates/contentGeneration";
+import { pmStandupSummaryTemplate } from "./templates/pmStandupSummary";
+import { pmSprintPlanningTemplate } from "./templates/pmSprintPlanning";
+import { pmProjectHealthReportTemplate } from "./templates/pmProjectHealthReport";
+import { pmMeetingPrepTemplate } from "./templates/pmMeetingPrep";
 
-const SYSTEM_TEMPLATES = [contentGenerationTemplate];
+const SYSTEM_TEMPLATES = [
+  // Content
+  contentGenerationTemplate,
+  // PM
+  pmStandupSummaryTemplate,
+  pmSprintPlanningTemplate,
+  pmProjectHealthReportTemplate,
+  pmMeetingPrepTemplate,
+];
 
 export async function seedWorkflowTemplates(db: PrismaClient): Promise<void> {
   for (const template of SYSTEM_TEMPLATES) {
