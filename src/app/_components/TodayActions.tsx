@@ -6,6 +6,7 @@ import { CreateActionModal } from './CreateActionModal';
 import { notifications } from "@mantine/notifications";
 
 export function TodayActions() {
+  const utils = api.useUtils();
   const todayActions = api.action.getToday.useQuery();
 
   // Bulk delete mutation for overdue actions
@@ -29,13 +30,24 @@ export function TodayActions() {
 
   // Bulk update mutation for rescheduling
   const bulkUpdateMutation = api.action.update.useMutation();
-  const markProcessedOverdue = api.dailyPlan.markProcessedOverdue.useMutation();
+  const markProcessedOverdue = api.dailyPlan.markProcessedOverdue.useMutation({
+    onSuccess: () => {
+      // Invalidate scoring queries so the daily score updates in the UI
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
+    },
+  });
 
   // Handle overdue bulk delete
   const handleOverdueBulkAction = (action: 'delete', actionIds: string[]) => {
     if (action === 'delete') {
       bulkDeleteMutation.mutate({
         actionIds,
+      }, {
+        onSuccess: () => {
+          // Award inbox processing bonus for handling overdue tasks
+          markProcessedOverdue.mutate({});
+        },
       });
     }
   };
