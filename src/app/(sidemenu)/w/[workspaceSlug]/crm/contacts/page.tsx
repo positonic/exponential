@@ -4,6 +4,7 @@ import { useState } from 'react';
 import {
   Text,
   TextInput,
+  Textarea,
   Button,
   Avatar,
   Skeleton,
@@ -70,6 +71,10 @@ function ContactForm({
     email: '',
     phone: '',
     linkedIn: '',
+    github: '',
+    bluesky: '',
+    about: '',
+    profileType: '',
     organizationId: '',
   });
 
@@ -109,6 +114,10 @@ function ContactForm({
       email: formData.email || undefined,
       phone: formData.phone || undefined,
       linkedIn: formData.linkedIn || undefined,
+      github: formData.github || undefined,
+      bluesky: formData.bluesky || undefined,
+      about: formData.about || undefined,
+      profileType: formData.profileType || undefined,
       organizationId: formData.organizationId || undefined,
     });
   };
@@ -143,6 +152,44 @@ function ContactForm({
           label="LinkedIn URL"
           value={formData.linkedIn}
           onChange={(e) => setFormData({ ...formData, linkedIn: e.target.value })}
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <TextInput
+            label="GitHub"
+            placeholder="username"
+            value={formData.github}
+            onChange={(e) => setFormData({ ...formData, github: e.target.value })}
+          />
+          <TextInput
+            label="BlueSky"
+            placeholder="@handle.bsky.social"
+            value={formData.bluesky}
+            onChange={(e) => setFormData({ ...formData, bluesky: e.target.value })}
+          />
+        </div>
+        <Textarea
+          label="Description"
+          minRows={2}
+          value={formData.about}
+          onChange={(e) => setFormData({ ...formData, about: e.target.value })}
+        />
+        <Select
+          label="Profile Type"
+          placeholder="Select type"
+          data={[
+            { value: 'Developer', label: 'Developer' },
+            { value: 'Designer', label: 'Designer' },
+            { value: 'Founder', label: 'Founder' },
+            { value: 'Product Manager', label: 'Product Manager' },
+            { value: 'Investor', label: 'Investor' },
+            { value: 'Marketing', label: 'Marketing' },
+            { value: 'Sales', label: 'Sales' },
+            { value: 'Other', label: 'Other' },
+          ]}
+          value={formData.profileType}
+          onChange={(value) => setFormData({ ...formData, profileType: value ?? '' })}
+          clearable
+          searchable
         />
         <Select
           label="Organization"

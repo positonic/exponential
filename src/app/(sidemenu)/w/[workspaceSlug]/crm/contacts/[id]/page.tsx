@@ -31,6 +31,7 @@ import {
   IconBrandTelegram,
   IconBrandTwitter,
   IconBrandGithub,
+  IconBrandBluesky,
   IconBuilding,
   IconPlus,
   IconPhoneCall,
@@ -352,7 +353,9 @@ interface ContactEditFormProps {
     telegram: string | null;
     twitter: string | null;
     github: string | null;
+    bluesky: string | null;
     about: string | null;
+    profileType: string | null;
     organizationId: string | null;
   };
   workspaceId: string;
@@ -375,7 +378,9 @@ function ContactEditForm({
     telegram: '',
     twitter: '',
     github: '',
+    bluesky: '',
     about: '',
+    profileType: '',
     organizationId: '',
   });
 
@@ -416,7 +421,9 @@ function ContactEditForm({
       telegram: contact.telegram ?? '',
       twitter: contact.twitter ?? '',
       github: contact.github ?? '',
+      bluesky: contact.bluesky ?? '',
       about: contact.about ?? '',
+      profileType: contact.profileType ?? '',
       organizationId: contact.organizationId ?? '',
     });
   }, [contact]);
@@ -440,7 +447,9 @@ function ContactEditForm({
       telegram: getOptionalValue(formData.telegram),
       twitter: getOptionalValue(formData.twitter),
       github: getOptionalValue(formData.github),
+      bluesky: getOptionalValue(formData.bluesky),
       about: formData.about.trim(),
+      profileType: formData.profileType.trim() || undefined,
       organizationId: formData.organizationId.length > 0 ? formData.organizationId : null,
     });
   };
@@ -498,11 +507,35 @@ function ContactEditForm({
           value={formData.github}
           onChange={(event) => setFormData({ ...formData, github: event.target.value })}
         />
+        <TextInput
+          label="BlueSky"
+          placeholder="@handle.bsky.social"
+          value={formData.bluesky}
+          onChange={(event) => setFormData({ ...formData, bluesky: event.target.value })}
+        />
         <Textarea
           label="Description"
           minRows={3}
           value={formData.about}
           onChange={(event) => setFormData({ ...formData, about: event.target.value })}
+        />
+        <Select
+          label="Profile Type"
+          placeholder="Select type"
+          data={[
+            { value: 'Developer', label: 'Developer' },
+            { value: 'Designer', label: 'Designer' },
+            { value: 'Founder', label: 'Founder' },
+            { value: 'Product Manager', label: 'Product Manager' },
+            { value: 'Investor', label: 'Investor' },
+            { value: 'Marketing', label: 'Marketing' },
+            { value: 'Sales', label: 'Sales' },
+            { value: 'Other', label: 'Other' },
+          ]}
+          value={formData.profileType}
+          onChange={(value) => setFormData({ ...formData, profileType: value ?? '' })}
+          clearable
+          searchable
         />
         <Select
           label="Company"
@@ -1399,6 +1432,20 @@ export default function ContactDetailPage() {
                     value={<Text className="text-text-muted">Set Job title...</Text>}
                   />
 
+                  <DetailRow
+                    icon={<IconUser size={14} />}
+                    label="Profile Type"
+                    value={
+                      contact.profileType ? (
+                        <Badge variant="light" size="sm">
+                          {contact.profileType}
+                        </Badge>
+                      ) : (
+                        <Text className="text-text-muted">—</Text>
+                      )
+                    }
+                  />
+
                   {contact.telegram && (
                     <DetailRow
                       icon={<IconBrandTelegram size={14} />}
@@ -1446,6 +1493,22 @@ export default function ContactDetailPage() {
                           size="sm"
                         >
                           {contact.github}
+                        </Anchor>
+                      }
+                    />
+                  )}
+
+                  {contact.bluesky && (
+                    <DetailRow
+                      icon={<IconBrandBluesky size={14} />}
+                      label="BlueSky"
+                      value={
+                        <Anchor
+                          href={`https://bsky.app/profile/${contact.bluesky.replace('@', '')}`}
+                          target="_blank"
+                          size="sm"
+                        >
+                          {contact.bluesky}
                         </Anchor>
                       }
                     />

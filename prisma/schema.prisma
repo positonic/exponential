@@ -1846,7 +1846,9 @@ model CrmContact {
   telegram            Bytes?   @map("telegram_encrypted") @db.ByteA
   twitter             Bytes?   @map("twitter_encrypted") @db.ByteA
   github              Bytes?   @map("github_encrypted") @db.ByteA
+  bluesky             Bytes?   @map("bluesky_encrypted") @db.ByteA
   about               String?   @db.Text
+  profileType         String?
   skills              String[]
   tags                String[]
   lastInteractionAt   DateTime?

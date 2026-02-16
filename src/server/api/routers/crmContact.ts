@@ -10,7 +10,7 @@ import { GoogleTokenManager } from "~/server/services/GoogleTokenManager";
 // Type for decrypted contact - replaces Bytes fields with string | null
 type DecryptedContact<T extends CrmContact> = Omit<
   T,
-  "email" | "phone" | "linkedIn" | "telegram" | "twitter" | "github"
+  "email" | "phone" | "linkedIn" | "telegram" | "twitter" | "github" | "bluesky"
 > & {
   email: string | null;
   phone: string | null;
@@ -18,6 +18,7 @@ type DecryptedContact<T extends CrmContact> = Omit<
   telegram: string | null;
   twitter: string | null;
   github: string | null;
+  bluesky: string | null;
 };
 
 // Helper to decrypt PII fields and return properly typed contact
@@ -32,6 +33,7 @@ function decryptContactPII<T extends CrmContact>(
     telegram: decryptBuffer(contact.telegram) ?? null,
     twitter: decryptBuffer(contact.twitter) ?? null,
     github: decryptBuffer(contact.github) ?? null,
+    bluesky: decryptBuffer(contact.bluesky) ?? null,
   };
 }
 
@@ -46,7 +48,9 @@ const createContactInput = z.object({
   telegram: z.string().optional(),
   twitter: z.string().optional(),
   github: z.string().optional(),
+  bluesky: z.string().optional(),
   about: z.string().optional(),
+  profileType: z.string().optional(),
   skills: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   organizationId: z.string().optional(),
@@ -62,7 +66,9 @@ const updateContactInput = z.object({
   telegram: z.string().optional(),
   twitter: z.string().optional(),
   github: z.string().optional(),
+  bluesky: z.string().optional(),
   about: z.string().optional(),
+  profileType: z.string().optional(),
   skills: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   organizationId: z.string().optional().nullable(),
@@ -182,6 +188,7 @@ export const crmContactRouter = createTRPCRouter({
             telegram: null,
             twitter: null,
             github: null,
+            bluesky: null,
           };
         }
       });
@@ -271,6 +278,7 @@ export const crmContactRouter = createTRPCRouter({
           telegram: null,
           twitter: null,
           github: null,
+          bluesky: null,
         };
       }
     }),
@@ -320,6 +328,7 @@ export const crmContactRouter = createTRPCRouter({
         firstName: contactData.firstName ?? undefined,
         lastName: contactData.lastName ?? undefined,
         about: contactData.about ?? undefined,
+        profileType: contactData.profileType ?? undefined,
         organizationId: contactData.organizationId ?? undefined,
       };
 
@@ -332,6 +341,8 @@ export const crmContactRouter = createTRPCRouter({
       if (contactData.twitter)
         dbData.twitter = encryptString(contactData.twitter);
       if (contactData.github) dbData.github = encryptString(contactData.github);
+      if (contactData.bluesky)
+        dbData.bluesky = encryptString(contactData.bluesky);
 
       const contact = await ctx.db.crmContact.create({
         data: dbData,
@@ -365,6 +376,7 @@ export const crmContactRouter = createTRPCRouter({
           telegram: null,
           twitter: null,
           github: null,
+          bluesky: null,
         };
       }
     }),
@@ -435,6 +447,11 @@ export const crmContactRouter = createTRPCRouter({
             ? encryptString(updateData.github)
             : null;
         }
+        if (updateData.bluesky !== undefined) {
+          dbUpdate.bluesky = updateData.bluesky
+            ? encryptString(updateData.bluesky)
+            : null;
+        }
       } catch (e) {
         console.error("Failed to encrypt PII on update for contact", id, e);
         throw new TRPCError({
@@ -476,6 +493,7 @@ export const crmContactRouter = createTRPCRouter({
           telegram: null,
           twitter: null,
           github: null,
+          bluesky: null,
         };
       }
     }),
