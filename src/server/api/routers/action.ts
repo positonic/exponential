@@ -541,17 +541,21 @@ export const actionRouter = createTRPCRouter({
       });
 
       // Recalculate score if completion status changed and action is linked to daily plan
+      // Run async without blocking the response for faster UI
       if ((isCompleting && !wasCompleted) || (isUncompleting && wasCompleted)) {
         if (updatedAction.dailyPlanActions.length > 0) {
-          for (const dpa of updatedAction.dailyPlanActions) {
-            await ScoringService.calculateDailyScore(
-              ctx,
-              startOfDay(dpa.dailyPlan.date),
-              dpa.dailyPlan.workspaceId ?? undefined
-            ).catch((err) => {
-              console.error("[action.update] Failed to recalculate score:", err);
-            });
-          }
+          // Fire and forget - don't await scoring calculation
+          void Promise.all(
+            updatedAction.dailyPlanActions.map((dpa) =>
+              ScoringService.calculateDailyScore(
+                ctx,
+                startOfDay(dpa.dailyPlan.date),
+                dpa.dailyPlan.workspaceId ?? undefined
+              ).catch((err) => {
+                console.error("[action.update] Failed to recalculate score:", err);
+              })
+            )
+          );
         }
       }
 

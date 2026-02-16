@@ -320,18 +320,20 @@ export function ActionList({
       utils.action.getToday.setData(undefined, context.todayActions);
     },
     
-    onSettled: async (data) => {
-      // Invalidate queries after mutation finishes
+    onSettled: (data) => {
+      // Invalidate queries after mutation finishes (non-blocking for faster UI)
       const projectId = data?.projectId;
       if (viewName === 'transcription-actions') {
-        await utils.action.getByTranscription.invalidate();
-      } else if(viewName.toLowerCase() === 'today') {
-        await utils.action.getToday.invalidate();
-      } else if(projectId) {
-        await utils.action.getProjectActions.invalidate();
+        void utils.action.getByTranscription.invalidate();
+      } else if (viewName.toLowerCase() === 'today') {
+        void utils.action.getToday.invalidate();
+      } else if (projectId) {
+        void utils.action.getProjectActions.invalidate({ projectId });
       } else {
-        await utils.action.getAll.invalidate();
+        void utils.action.getAll.invalidate();
       }
+      // Also invalidate scoring queries for productivity updates
+      void utils.scoring.getDailyScore.invalidate();
     },
   });;
 
