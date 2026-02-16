@@ -18,6 +18,8 @@ type Action = {
   priority: string;
   dueDate: Date | null;
   projectId: string | null;
+  workspaceId?: string | null;
+  project?: { workspaceId?: string | null } | null;
   scheduledStart?: Date | null;
   duration?: number | null;
   epicId?: string | null;
@@ -53,7 +55,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
   const [effortEstimate, setEffortEstimate] = useState<number | null>(null);
   const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
 
-  const { workspaceSlug } = useWorkspace();
+  const { workspaceSlug, workspaceId: contextWorkspaceId } = useWorkspace();
   const utils = api.useUtils();
 
   // Get workspace effortUnit
@@ -305,7 +307,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
         selectedTagIds={selectedTagIds}
         onTagChange={setSelectedTagIds}
         actionId={currentAction?.id}
-        workspaceId={currentAction?.workspaceId as string | undefined}
+        workspaceId={(currentAction?.workspaceId ?? currentAction?.project?.workspaceId ?? contextWorkspaceId) as string | undefined}
         onAssigneeClick={handleAssigneeClick}
         onSubmit={handleSubmit}
         onClose={onClose}
