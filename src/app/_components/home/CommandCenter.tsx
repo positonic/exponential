@@ -14,6 +14,7 @@ import { ProjectStateOverview } from "./ProjectStateOverview";
 import { IntegrationSuggestions } from "./IntegrationSuggestions";
 import { RitualCards } from "./RitualCards";
 import { WorkspaceSectionCards } from "./WorkspaceSectionCards";
+import { PMAgentWidget } from "./PMAgentWidget";
 interface CommandCenterProps {
   variant?: "primary" | "workspace";
 }
@@ -62,10 +63,11 @@ export function CommandCenter({ variant = "primary" }: CommandCenterProps) {
 
           {/* 6. Main content grid */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            {/* Left sidebar - momentum + habits */}
+            {/* Left sidebar - momentum + habits + PM agent */}
             <div className="space-y-6 lg:col-span-3">
               <MomentumWidget />
               <HabitsDueToday />
+              <PMAgentWidget />
             </div>
 
             {/* Main content - projects */}
