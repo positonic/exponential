@@ -1,6 +1,8 @@
 import cron from 'node-cron';
 import { db } from '~/server/db';
 import { addDays, startOfDay } from 'date-fns';
+import { WorkflowEngine } from '../workflows/WorkflowEngine';
+import { createStepRegistry } from '../workflows/StepRegistry';
 
 interface ScheduledTask {
   id: string;
@@ -43,9 +45,16 @@ export class PMScheduler {
   private initializeDefaultTasks(): void {
     this.taskConfigs = [
       {
+        id: 'daily-standup-workflow',
+        name: 'Daily Standup Summary Workflow',
+        cronExpression: '0 9 * * 1-5', // 9 AM weekdays
+        handler: this.runStandupWorkflows.bind(this),
+        enabled: true,
+      },
+      {
         id: 'daily-overdue-check',
         name: 'Daily Overdue Actions Check',
-        cronExpression: '0 9 * * *', // 9 AM daily
+        cronExpression: '30 9 * * *', // 9:30 AM daily
         handler: this.checkOverdueActions.bind(this),
         enabled: true,
       },
@@ -64,10 +73,10 @@ export class PMScheduler {
         enabled: true,
       },
       {
-        id: 'project-health-check',
-        name: 'Project Health Check',
+        id: 'project-health-workflow',
+        name: 'Project Health Report Workflow',
         cronExpression: '0 10 * * 1', // 10 AM on Mondays
-        handler: this.checkProjectHealth.bind(this),
+        handler: this.runProjectHealthWorkflows.bind(this),
         enabled: true,
       },
       {
@@ -163,6 +172,78 @@ export class PMScheduler {
       enabled: config.enabled,
       running: this.tasks.has(config.id),
     }));
+  }
+
+  // ============= Workflow Pipeline Integration =============
+
+  /**
+   * Execute a workflow pipeline by template slug for all users with active definitions
+   */
+  private async executeWorkflowsForTemplate(templateSlug: string): Promise<void> {
+    const registry = createStepRegistry(db);
+    const engine = new WorkflowEngine(db, registry);
+
+    // Find all active workflow definitions using this template
+    const definitions = await db.workflowDefinition.findMany({
+      where: {
+        isActive: true,
+        template: {
+          slug: templateSlug,
+        },
+      },
+      include: {
+        template: true,
+      },
+    });
+
+    if (definitions.length === 0) {
+      console.log(`[PMScheduler] No active definitions found for template: ${templateSlug}`);
+      return;
+    }
+
+    console.log(`[PMScheduler] Found ${definitions.length} active definitions for ${templateSlug}`);
+
+    // Execute each definition
+    for (const definition of definitions) {
+      try {
+        console.log(`[PMScheduler] Executing workflow: ${definition.name} (${definition.id})`);
+        const result = await engine.execute(definition.id, definition.createdById);
+        console.log(`[PMScheduler] Workflow completed: ${definition.name}, status: ${result.status}`);
+      } catch (error) {
+        console.error(`[PMScheduler] Workflow failed: ${definition.name}`, error);
+      }
+    }
+  }
+
+  /**
+   * Execute a workflow for a specific user
+   */
+  async executeWorkflowForUser(
+    templateSlug: string,
+    userId: string,
+    overrideConfig?: Record<string, unknown>
+  ): Promise<void> {
+    const registry = createStepRegistry(db);
+    const engine = new WorkflowEngine(db, registry);
+
+    // Find user's active definition for this template
+    const definition = await db.workflowDefinition.findFirst({
+      where: {
+        createdById: userId,
+        isActive: true,
+        template: {
+          slug: templateSlug,
+        },
+      },
+    });
+
+    if (!definition) {
+      console.log(`[PMScheduler] No definition found for user ${userId} and template ${templateSlug}`);
+      return;
+    }
+
+    const result = await engine.execute(definition.id, userId, overrideConfig);
+    console.log(`[PMScheduler] Workflow completed for user ${userId}: ${result.status}`);
   }
 
   // ============= Task Handlers =============
@@ -330,6 +411,24 @@ export class PMScheduler {
       console.log(`[PMScheduler] ${upcomingMeetings.length} meetings in the next hour`);
       // TODO: Send prep reminders with meeting context
     }
+  }
+
+  // ============= Workflow-Based Tasks =============
+
+  /**
+   * Run standup summary workflows for all users with active definitions
+   */
+  private async runStandupWorkflows(): Promise<void> {
+    console.log('[PMScheduler] Running standup summary workflows...');
+    await this.executeWorkflowsForTemplate('pm-standup-summary');
+  }
+
+  /**
+   * Run project health report workflows for all users with active definitions
+   */
+  private async runProjectHealthWorkflows(): Promise<void> {
+    console.log('[PMScheduler] Running project health report workflows...');
+    await this.executeWorkflowsForTemplate('pm-project-health-report');
   }
 }
 
