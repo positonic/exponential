@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Paper, Text, Group, Badge, Stack, Button } from "@mantine/core";
+import { Paper, Text, Group, Badge, Stack, Button, Tooltip } from "@mantine/core";
 import { IconGripVertical, IconSparkles, IconRobot } from "@tabler/icons-react";
 import {
   DndContext,
@@ -130,11 +130,13 @@ function DraggableTask({ task }: DraggableTaskProps) {
       {...attributes}
     >
       <Group justify="space-between" wrap="nowrap">
-        <Group gap="xs" wrap="nowrap" flex={1}>
+        <Group gap="xs" wrap="nowrap" flex={1} style={{ minWidth: 0 }}>
           <IconGripVertical size={14} className="text-text-muted flex-shrink-0" />
-          <Text size="sm" fw={500} className="text-text-primary truncate" component="div">
-            <HTMLContent html={task.name} />
-          </Text>
+          <Tooltip label={task.name} multiline maw={300} withArrow>
+            <Text size="sm" fw={500} className="text-text-primary" lineClamp={2} component="div" style={{ minWidth: 0, flex: 1 }}>
+              <HTMLContent html={task.name} />
+            </Text>
+          </Tooltip>
         </Group>
         <Group gap={4} wrap="nowrap">
           {isAutoScheduled && (
@@ -165,13 +167,13 @@ function TaskOverlay({ task }: TaskOverlayProps) {
     <Paper
       p="sm"
       className="bg-surface-secondary border-2 border-brand-primary shadow-lg"
-      style={{ width: 250 }}
+      style={{ width: 280 }}
     >
       <Group justify="space-between" wrap="nowrap">
-        <Text size="sm" fw={500} className="text-text-primary truncate" component="div">
+        <Text size="sm" fw={500} className="text-text-primary" lineClamp={2} component="div" style={{ flex: 1, minWidth: 0 }}>
           <HTMLContent html={task.name} />
         </Text>
-        <Badge variant="light" color="gray" size="xs">
+        <Badge variant="light" color="gray" size="xs" className="flex-shrink-0">
           {formatDuration(task.duration)}
         </Badge>
       </Group>
@@ -216,10 +218,12 @@ function ScheduledTaskBlock({ task, gridStartHour }: ScheduledTaskBlockProps) {
       {...listeners}
       {...attributes}
     >
-      <Group gap={4} wrap="nowrap">
-        <Text size="xs" fw={500} className="text-brand-primary truncate flex-1" component="div">
-          <HTMLContent html={task.name} className="text-brand-primary" />
-        </Text>
+      <Group gap={4} wrap="nowrap" style={{ minWidth: 0 }}>
+        <Tooltip label={task.name} multiline maw={300} withArrow>
+          <Text size="xs" fw={500} className="text-brand-primary" lineClamp={1} component="div" style={{ flex: 1, minWidth: 0 }}>
+            <HTMLContent html={task.name} className="text-brand-primary" />
+          </Text>
+        </Tooltip>
         {isAutoScheduled && (
           <Badge
             size="xs"
