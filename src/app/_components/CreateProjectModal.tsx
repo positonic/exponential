@@ -90,7 +90,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const updateMutation = api.project.update.useMutation({
     onSuccess: () => {
       void utils.project.getAll.invalidate();
-      close();
+      handleClose();
     },
   });
 
@@ -111,7 +111,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
           setSelectedWorkflowId(notionWorkflows[0].id);
         }
       } else {
-        close();
+        handleClose();
         onClose?.();
       }
     },
