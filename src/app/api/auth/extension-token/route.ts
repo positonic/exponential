@@ -41,12 +41,13 @@ function getSessionCookieName(): string {
     : "authjs.session-token";
 }
 
-function getCorsHeaders(): Record<string, string> {
+function getCorsHeaders(): Record<string, string> | null {
   const extensionId = process.env.CHROME_EXTENSION_ID;
+  if (!extensionId) {
+    return null; // CORS not configured - endpoint disabled
+  }
   return {
-    "Access-Control-Allow-Origin": extensionId
-      ? `chrome-extension://${extensionId}`
-      : "*",
+    "Access-Control-Allow-Origin": `chrome-extension://${extensionId}`,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, x-session-token",
     "Access-Control-Max-Age": "86400",
@@ -54,14 +55,28 @@ function getCorsHeaders(): Record<string, string> {
 }
 
 export function OPTIONS() {
+  const corsHeaders = getCorsHeaders();
+  if (!corsHeaders) {
+    return NextResponse.json(
+      { error: "Extension endpoint not configured" },
+      { status: 503 },
+    );
+  }
   return new NextResponse(null, {
     status: 204,
-    headers: getCorsHeaders(),
+    headers: corsHeaders,
   });
 }
 
 export async function POST(request: NextRequest) {
   const corsHeaders = getCorsHeaders();
+
+  if (!corsHeaders) {
+    return NextResponse.json(
+      { error: "Extension endpoint not configured. Set CHROME_EXTENSION_ID." },
+      { status: 503 },
+    );
+  }
 
   try {
     // Rate limiting
@@ -77,17 +92,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Optional origin validation
-    const extensionId = process.env.CHROME_EXTENSION_ID;
-    if (extensionId) {
-      const origin = request.headers.get("origin");
-      if (origin && origin !== `chrome-extension://${extensionId}`) {
-        console.warn("[extension-token] Origin mismatch:", origin);
-        return NextResponse.json(
-          { error: "Forbidden" },
-          { status: 403, headers: corsHeaders },
-        );
-      }
+    // Strict origin validation (CHROME_EXTENSION_ID is required at this point)
+    const extensionId = process.env.CHROME_EXTENSION_ID!;
+    const origin = request.headers.get("origin");
+    if (origin && origin !== `chrome-extension://${extensionId}`) {
+      console.warn("[extension-token] Origin mismatch:", origin);
+      return NextResponse.json(
+        { error: "Forbidden" },
+        { status: 403, headers: corsHeaders },
+      );
     }
 
     // Get session token from header

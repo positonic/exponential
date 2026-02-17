@@ -84,13 +84,13 @@ export const toolRouter = createTRPCRouter({
                 "  - name: The activity in past tense\n" +
                 "  - description: Details about the activity\n" +
                 "  - dueDate: Today's date (unless a specific date is mentioned)\n" +
-                "  - projectId: For exercise activities, use the exercise project ID \"cm7q7bjf80000zu1r77bdcqdj\"\n" +
+                "  - projectId: For exercise activities, look up the exercise/fitness project from the available projects list above and use its ID\n" +
                 `  Examples:\n` +
                 `  For "I went for a run for 2.3 hours" use:\n` +
-                `  { \"create\": true, \"name\": \"Completed a 2.3 hour run\", \"description\": \"Went for a run that lasted 2.3 hours\", \"status\": \"COMPLETED\", \"dueDate\": \"${today}\", \"projectId\": \"cm7q7bjf80000zu1r77bdcqdj\"}\n` +
+                `  { \"create\": true, \"name\": \"Completed a 2.3 hour run\", \"description\": \"Went for a run that lasted 2.3 hours\", \"status\": \"COMPLETED\", \"dueDate\": \"${today}\", \"projectId\": \"<exercise-project-id-from-available-projects>\"}\n` +
                 `  For "I called my mom for 12 mins" use:\n` +
                 `  { \"create\": true, \"name\": \"Called mom for 12 minutes\", \"description\": \"Had a phone call with mom that lasted 12 minutes\", \"status\": \"COMPLETED\", \"dueDate\": \"${today}\" }\n` +
-                "  Note: Always create the action even if no project is specified. The projectId is optional.\n" +
+                "  Note: Always create the action even if no project is specified. The projectId is optional. Match project names from the available projects list when relevant.\n" +
                 "- add_video: Adds a YouTube video to the database. Use this when users want to analyze or process a video.\n" +
                 "- read_action: Retrieves an action's details by ID. Only use this when you have a specific action ID.\n" +
                 "- update_status_action: Updates the status of an existing action. Favoured over create_action for existing actions\n" +
