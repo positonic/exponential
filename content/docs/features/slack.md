@@ -1,209 +1,196 @@
 ---
 title: Slack Integration
-description: Connect Exponential to Slack for team notifications and AI-powered project management
+description: Let Exponential read, search, and manage your Slack - because staying across 47 channels shouldn't require 47 tabs
 ---
 
-## Overview
+## What This Does
 
-The Slack integration enables:
+The Slack integration gives your AI assistants (Zoe, Paddy, and custom assistants) the ability to:
 
-- Meeting summaries and action items sent to channels
-- Chat with Paddy (AI assistant) directly in Slack
-- Create and manage tasks via slash commands
-- Smart channel routing per project or team
+- **Read** channel history and catch you up
+- **Search** messages across your workspace
+- **Send** updates to channels and threads
+- **List** your channels and unread counts
 
-## Quick Setup
+Translation: you can ask "what happened in #engineering while I was in meetings" and get an actual answer.
 
-### Step 1: Install the Slack App
+## Setup (5 minutes)
 
-1. Go to **Integrations** in your Exponential dashboard
-2. Click **Add Slack Integration**
-3. Authorize the app in your Slack workspace
+### 1. Create a Slack App
 
-### Step 2: Invite the Bot
+Head to [api.slack.com/apps](https://api.slack.com/apps) and create a new app "from scratch."
 
-Invite @Exponential to channels where you want notifications:
+Name it whatever you want. "Exponential" works. "Productivity Daemon" works too.
 
-```
-/invite @Exponential
-```
+### 2. Add Bot Permissions
 
-### Step 3: Configure Project Channels (Optional)
+In **OAuth & Permissions**, add these scopes:
 
-1. Go to **Project Settings**
-2. Select **Slack Channel**
-3. Choose the channel for project notifications
+| Scope | Why |
+|-------|-----|
+| `channels:history` | Read public channel messages |
+| `channels:read` | List channels |
+| `groups:history` | Read private channel messages |
+| `groups:read` | List private channels |
+| `im:history` | Read DMs (if you want that) |
+| `im:read` | List DMs |
+| `chat:write` | Send messages |
+| `users:read` | Look up user info |
+| `search:read` | Search message history |
 
-## Using Slack Commands
+Yes, that's a lot of permissions. The alternative is an AI that can only wave at Slack from across the room.
 
-### Slash Commands
+### 3. Install to Workspace
 
-| Command | Description |
-|---------|-------------|
-| `/paddy <question>` | Chat with Paddy AI |
-| `/expo create <task>` | Create a new action |
-| `/expo list` | List your actions |
-| `/expo projects` | List your projects |
-| `/expo help` | Show available commands |
+Click **Install to Workspace** and authorize. Copy the **Bot User OAuth Token** (starts with `xoxb-`).
 
-### Examples
+### 4. Add to Exponential
 
-```
-/paddy What was discussed in yesterday's standup?
+In your Mastra environment (`.env`):
 
-/expo create Review the API documentation
-
-/expo list
+```bash
+SLACK_BOT_TOKEN="xoxb-your-token-here"
 ```
 
-### Natural Conversations
+Restart the service. Done.
 
-You can also chat naturally with Paddy:
+## What You Can Ask
 
-- **DM the bot** for private conversations
-- **@Exponential** in channels for team discussions
-- **Reply in threads** for contextual follow-ups
+Once connected, your AI assistants have full Slack awareness.
 
-#### Example Conversation
+### Catch Up On Channels
 
 ```
-You: @Exponential What should I prioritize today?
-
-Paddy: Based on your current projects, here are your high-priority items:
-       - Complete user research analysis (Project: Product Launch)
-       - Review staging environment (Project: API Upgrade)
-       - Prepare client presentation (Project: Q3 Sales)
-
-You: Create a task to follow up on the API integration
-
-Paddy: Created action: "Follow up on the API integration"
-       Added to your Exponential inbox
+"What happened in #engineering today?"
+"Summarize #product-launch since yesterday"
+"Any urgent messages in #support?"
 ```
+
+The AI reads the recent history and gives you the highlights. No more scrolling through 200 messages to find the one decision that matters.
+
+### Search Across Everything
+
+```
+"Find messages about the API deadline"
+"What did Sarah say about the launch date?"
+"Search for discussions about pricing"
+```
+
+Uses Slack's search API, so it's fast and comprehensive.
+
+### Send Updates
+
+```
+"Post the standup summary to #engineering"
+"Tell #product we're deploying at 3pm"
+"Update the thread about the bug fix"
+```
+
+### Get Channel Overview
+
+```
+"What channels am I in?"
+"Show me my unread counts"
+"Which channels have been most active today?"
+```
+
+## How It Works
+
+### The Tools
+
+Under the hood, these tools do the work:
+
+| Tool | What It Does |
+|------|--------------|
+| `getSlackChannelsTool` | Lists channels with unread counts |
+| `getSlackChannelHistoryTool` | Reads recent messages from a channel |
+| `searchSlackTool` | Searches messages across workspace |
+| `sendSlackMessageTool` | Posts messages to channels/threads |
+| `updateSlackMessageTool` | Edits existing messages |
+| `getSlackUserInfoTool` | Looks up user details |
+
+### Which Agents Have Access
+
+All of them:
+- **Zoe** - Your personal AI companion
+- **Paddy** - The project manager agent  
+- **Custom Assistants** - Any assistant you create
+
+They all share the same Slack connection and capabilities.
+
+### Security Notes
+
+- **Your token is server-side only** - Never exposed to the AI context
+- **Scoped to your workspace** - Can't access other workspaces
+- **Read-only by default** - Sending requires explicit user request
+- **No credential leakage** - See our [security post](/blog/ai-agent-security-lessons-from-clawdbot) for how we prevent prompt injection from exfiltrating tokens
+
+## Slash Commands (Optional)
+
+If you want direct Slack commands, you can set up slash commands that hit your Mastra API:
+
+| Command | What It Does |
+|---------|--------------|
+| `/paddy <question>` | Chat with Paddy |
+| `/expo create <task>` | Create an action |
+| `/expo list` | Show your tasks |
+
+This requires additional setup (Event Subscriptions, Request URL verification). The AI-chat-based approach works without any of that.
 
 ## Meeting Notifications
 
-When paired with [Fireflies Integration](/docs/features/fireflies), Slack receives automatic meeting notifications.
-
-### Notification Content
-
-- Meeting title and summary
-- Key discussion points
-- Extracted action items with priorities
-- Interactive buttons to view details
-
-### Notification Format
+When paired with [Fireflies](/docs/features/fireflies), meeting summaries automatically post to configured channels:
 
 ```
-New Action Items from Meeting
+📋 Meeting Summary: Weekly Standup
 
-Meeting: Weekly Standup with Team
+Key Points:
+• API integration on track for Thursday
+• Design review moved to Friday
+• Need decision on pricing tier names
 
 Action Items:
-- Review API security audit (High)
-- Deploy staging environment (Medium)
-- Prepare client presentation (Normal)
+• Review staging deployment (High) → @james
+• Prepare client demo (Medium) → @sarah
 
-[View All Actions] [Create Action]
+[View in Exponential]
 ```
 
-## Channel Routing
+### Configure Per-Project
 
-Notifications are routed based on your configuration:
-
-| Priority | Configuration | Use Case |
-|----------|--------------|----------|
-| 1st | Project Channel | Project-specific updates |
-| 2nd | Team Channel | Team-wide notifications |
-| 3rd | User Default | Personal integration fallback |
-
-### Configuring Project Channels
-
-1. Open your project in Exponential
-2. Go to **Project Settings**
-3. Under **Notifications**, select **Slack Channel**
-4. Choose the target channel from the dropdown
-
-The bot must be invited to the channel before it can send notifications.
-
-## Features
-
-### Meeting Transcriptions
-
-Paddy can access and search through your meeting transcriptions:
-
-```
-You: What was the meeting with the design team about?
-
-Paddy: I found a meeting with the design team from Tuesday. Here are the key points:
-       - Discussed new dashboard layout
-       - Reviewed user feedback on navigation
-       - Action items: Update mockups, Schedule user testing
-```
-
-### Project Management
-
-Full project and task management capabilities:
-
-```
-You: Show me my active projects
-
-Paddy: Here are your active projects:
-       - API Integration (High Priority) - 3 tasks
-       - User Research (Medium Priority) - 1 task
-       - Q3 Planning (Low Priority) - 5 tasks
-```
-
-### Smart Responses
-
-Paddy provides contextual, intelligent responses including:
-
-- Meeting queries with summaries
-- Task management and prioritization
-- Project progress updates
-- Goal tracking and alignment
-- Decision history recall
+1. Open project settings
+2. Under **Notifications**, pick a Slack channel
+3. Meeting summaries for that project auto-route there
 
 ## Troubleshooting
 
-### Bot Not Responding
+### "I can't see any messages"
 
-- Ensure the bot is invited to the channel (`/invite @Exponential`)
-- Check that your Slack email matches your Exponential account
-- Try a simple command: `/expo help`
+Check your bot token scopes. The `*:history` scopes are required to read messages. Slack's permissions are annoyingly granular.
 
-### Missing Notifications
+### "Search returns nothing"
 
-- Verify the project has a Slack channel configured
-- Check that the bot has permission to post in the channel
-- Ensure your Fireflies integration is active (for meeting notifications)
+The `search:read` scope is separate from history scopes. You need both.
 
-### Authentication Issues
+### "Bot can't post to a channel"
 
-- Your Slack email must match your Exponential account
-- Contact your team admin if you're not automatically mapped
-- Try reconnecting the integration from the Integrations page
+The bot needs to be invited to private channels. For public channels, `chat:write.public` lets it post without being a member.
 
-### Generic Responses
+### "User mapping is wrong"
 
-If Paddy gives generic responses instead of accessing your data:
+Exponential maps Slack users to accounts by email. If someone's Slack email differs from their Exponential email, it won't match. Team admins can set up manual mappings in Settings.
 
-- Verify your team membership in Exponential
-- Check that the integration is properly linked to your team
-- Try disconnecting and reconnecting the Slack app
+## The Real Talk
 
-## Security
+Slack is overwhelming by design. It's a firehose that makes you feel productive while actually fragmenting your attention across 47 channels.
 
-- **Request verification** - All requests verified with cryptographic signatures
-- **Team-scoped access** - Users can only access their team's data
-- **Permission inheritance** - Same permissions as web application
-- **Secure tokens** - Token management with automatic expiration
+This integration doesn't fix that. What it does:
+- Lets you catch up without the scroll
+- Surfaces what actually matters
+- Keeps Slack as a reference instead of a live obligation
 
-## User Mapping
+Your AI reads Slack so you can read less of it. That's the goal.
 
-The integration automatically maps Slack users to Exponential accounts based on:
+---
 
-1. Matching email addresses
-2. Matching usernames
-3. Manual mapping by team admins
-
-If automatic mapping fails, contact your team admin to set up manual mapping in the Exponential dashboard.
+*Something not working? Reach out: support@exponential.im*
