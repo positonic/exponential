@@ -11,6 +11,7 @@ interface CoreMessage {
 import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { db } from "~/server/db";
+import { SECURITY_POLICY } from "~/lib/security-policy";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
@@ -153,6 +154,13 @@ export async function POST(req: Request) {
         ...finalMessages,
       ];
     }
+
+    // Inject ACIP security policy as the highest-priority system message
+    // This teaches the model to recognize and resist prompt injection attacks
+    finalMessages = [
+      { role: 'system' as const, content: SECURITY_POLICY },
+      ...finalMessages,
+    ];
 
     console.log(`🔗 [chat/stream] agentId=${agentId ?? "none"}, assistantId=${assistantId ?? "none"}, projectId=${projectId ?? "none"}, workspaceId=${workspaceId ?? "none"}, messages=${finalMessages.length}`);
     console.log('📤 [chat/stream] RequestContext entries:', entries.map(([k, v]) => [k, k.includes('Token') || k.includes('token') || k.includes('JWT') || k.includes('auth') ? `${v.slice(0, 20)}...` : v]));

@@ -154,7 +154,9 @@ export async function POST(request: NextRequest) {
     const token = generateJWT(user, { tokenType: "extension-token" });
     const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
 
-    console.log(`[extension-token] Token issued for user: ${user.id}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[extension-token] Token issued for user: ${user.id}`);
+    }
 
     return NextResponse.json(
       { jwt: token, expiresAt },

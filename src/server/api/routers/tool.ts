@@ -14,6 +14,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { createReadStream } from "fs";
+import { SECURITY_POLICY } from "~/lib/security-policy";
 
 const adderSchema = z.object({
     a: z.number(),
@@ -67,6 +68,7 @@ export const toolRouter = createTRPCRouter({
             });
 
             const systemMessage = new SystemMessage(
+                SECURITY_POLICY + "\n\n" +
                 "Tools are equivalent to actions in this system. You have access to the following tools:\n" +
                 "- adder: Adds two numbers together. Use this when asked to perform addition.\n" +
                 "- video_search: Search through video transcripts semantically. Use this when asked about video content or to find specific topics in videos.\n" +
