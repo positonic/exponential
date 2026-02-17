@@ -158,7 +158,7 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   chooseAgent: protectedProcedure
-    .input(z.object({ message: z.string() }))
+    .input(z.object({ message: z.string().max(10000) }))
     .mutation(async ({ input }) => {
       // 1. load agent embeddings and ensure non-empty
       const embeddings = await loadAgentEmbeddings();
@@ -197,10 +197,11 @@ export const mastraRouter = createTRPCRouter({
         messages: z
           .array(
             z.object({
-              role: z.string(),        // e.g. 'user' or 'assistant'
-              content: z.string(),
+              role: z.string(),
+              content: z.string().max(100000),
             })
           )
+          .max(200)
           .nonempty(),
         threadId: z.string().optional(),
         resourceId: z.string().optional(),

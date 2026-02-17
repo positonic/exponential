@@ -43,13 +43,13 @@ const today = new Date().toISOString().split('T')[0];
 export const toolRouter = createTRPCRouter({
   chat: protectedProcedure
     .input(z.object({
-      message: z.string(),
+      message: z.string().max(50000),
       history: z.array(z.object({
         type: z.enum(['system', 'human', 'ai', 'tool']),
-        content: z.string(),
+        content: z.string().max(100000),
         name: z.string().optional(),
         tool_call_id: z.string().optional()
-      }))
+      })).max(200)
     }))
     .mutation(async ({ ctx, input }) => {
         try {
