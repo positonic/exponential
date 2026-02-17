@@ -689,8 +689,9 @@ You are communicating via WhatsApp, so keep responses concise and mobile-friendl
         if (tool) {
           try {
             const toolResult = await (tool as any).invoke(toolCall.args as any);
+            const resultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
             toolMessages.push(new ToolMessage({
-              content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult),
+              content: `<tool_output name="${toolCall.name}">\n${resultStr}\n</tool_output>`,
               tool_call_id: toolCall.id || '',
               name: toolCall.name
             }));

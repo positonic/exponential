@@ -206,9 +206,11 @@ export const toolRouter = createTRPCRouter({
                             throw new Error(`Unknown tool: ${toolCall.name}`);
                     }
                     
-                    // Add tool result to messages
+                    // Add tool result to messages, wrapped in delimiters to prevent injection
+                    const resultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
+                    const wrappedResult = `<tool_output name="${toolCall.name}">\n${resultStr}\n</tool_output>`;
                     messages.push(new AIMessage({ content: "", tool_calls: [toolCall] }));
-                    messages.push(new ToolMessage(toolResult, toolCall.id ?? ''));
+                    messages.push(new ToolMessage(wrappedResult, toolCall.id ?? ''));
                     
                     return toolResult;
                 } catch (error) {
