@@ -27,6 +27,17 @@ if (!MASTRA_API_URL) {
   throw new Error("MASTRA_API_URL environment variable is not set");
 }
 
+// Allowlist of valid agent IDs that clients can route to.
+const ALLOWED_AGENT_IDS = new Set([
+  'projectManagerAgent',
+  'zoeAgent',
+  'expoAgent',
+  'assistantAgent',
+  'weatherAgent',
+  'pierreAgent',
+  'ashAgent',
+]);
+
 
 
 // Utility to cache agent instruction embeddings
@@ -288,6 +299,11 @@ export const mastraRouter = createTRPCRouter({
           ].join('\n');
           messages = [{ role: 'system' as const, content: wsNav }, ...messages];
         }
+      }
+
+      // Validate agentId against allowlist
+      if (!ALLOWED_AGENT_IDS.has(agentId)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Invalid agent: ${agentId}` });
       }
 
       const res = await fetch(

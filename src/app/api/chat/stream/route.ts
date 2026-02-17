@@ -16,6 +16,19 @@ import { sanitizeAIOutput } from "~/lib/sanitize-output";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
+// Allowlist of valid agent IDs that clients can route to.
+// This prevents clients from targeting arbitrary internal agents.
+// Update this list when adding new agents to the Mastra system.
+const ALLOWED_AGENT_IDS = new Set([
+  'projectManagerAgent',
+  'zoeAgent',
+  'expoAgent',
+  'assistantAgent',
+  'weatherAgent',
+  'pierreAgent',
+  'ashAgent',
+]);
+
 export async function POST(req: Request) {
   try {
     // Require authentication
@@ -179,7 +192,16 @@ export async function POST(req: Request) {
     console.log('📤 [chat/stream] Messages to agent:', finalMessages.map(m => ({ role: m.role, contentLength: m.content.length, contentPreview: m.content.slice(0, 150) })));
     const requestContext = new RequestContext(entries);
 
-    const agent = client.getAgent(agentId ?? "projectManagerAgent");
+    // Validate agentId against allowlist to prevent routing to arbitrary agents
+    const resolvedAgentId = agentId ?? "projectManagerAgent";
+    if (!ALLOWED_AGENT_IDS.has(resolvedAgentId)) {
+      console.warn(`🔒 [chat/stream] Rejected invalid agentId: ${resolvedAgentId}`);
+      return new Response(
+        JSON.stringify({ error: "Invalid agent" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const agent = client.getAgent(resolvedAgentId);
     const response = await agent.stream(finalMessages as MessageListInput, {
       requestContext: requestContext as RequestContext<unknown>,
       memory: {
