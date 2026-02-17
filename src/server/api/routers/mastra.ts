@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTRPCRouter, publicProcedure, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
@@ -11,8 +11,6 @@ import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { decryptBuffer, encryptString } from "~/server/utils/encryption";
-import { decryptCredential } from "~/server/utils/credentialHelper";
-import type { PrismaClient } from "@prisma/client";
 import { addDays, startOfDay, endOfDay } from "date-fns";
 import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } from "~/server/services";
 import { userEmailService } from "~/server/services/UserEmailService";
@@ -28,19 +26,7 @@ if (!MASTRA_API_URL) {
   throw new Error("MASTRA_API_URL environment variable is not set");
 }
 
-/** Fetch the user's decrypted Notion OAuth token, or null if not connected. */
-async function getUserNotionToken(db: PrismaClient, userId: string): Promise<string | null> {
-  const integration = await db.integration.findFirst({
-    where: { userId, provider: "notion", status: "ACTIVE" },
-    include: { credentials: { where: { keyType: "access_token" } } },
-    orderBy: { createdAt: "desc" },
-  });
 
-  const cred = integration?.credentials[0];
-  if (!cred) return null;
-
-  return decryptCredential(cred.key, cred.isEncrypted);
-}
 
 // Utility to cache agent instruction embeddings
 let agentEmbeddingsCache: { id: string; vector: number[] }[] | null = null;
@@ -113,7 +99,7 @@ function parseExpiration(expiresIn: string): number {
 
 
 export const mastraRouter = createTRPCRouter({
-  getMastraAgents: publicProcedure
+  getMastraAgents: protectedProcedure
     .output(MastraAgentsResponseSchema) // Output is still the validated array
     .query(async () => {
       const mastraApiUrl = `${MASTRA_API_URL}/api/agents`; // Use environment variable
@@ -171,7 +157,7 @@ export const mastraRouter = createTRPCRouter({
       }
     }),
 
-  chooseAgent: publicProcedure
+  chooseAgent: protectedProcedure
     .input(z.object({ message: z.string() }))
     .mutation(async ({ input }) => {
       // 1. load agent embeddings and ensure non-empty
@@ -261,9 +247,6 @@ export const mastraRouter = createTRPCRouter({
         }
       }
 
-      // Fetch per-user Notion OAuth token (null if not connected)
-      const notionAccessToken = await getUserNotionToken(ctx.db, ctx.session.user.id);
-
       // Look up workspace details if workspaceId provided
       const todoAppBaseUrl = process.env.TODO_APP_BASE_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000';
       let workspaceContext: Record<string, string> = {};
@@ -304,7 +287,6 @@ export const mastraRouter = createTRPCRouter({
               userId: ctx.session.user.id,
               userEmail: ctx.session.user.email,
               todoAppBaseUrl,
-              ...(notionAccessToken && { notionAccessToken }),
               ...workspaceContext,
             }
           }),
@@ -511,7 +493,7 @@ export const mastraRouter = createTRPCRouter({
 
 
   // Debug endpoint to inspect JWT tokens (including agent JWTs)
-  debugToken: publicProcedure
+  debugToken: protectedProcedure
     .input(z.object({
       token: z.string().optional(),
     }))

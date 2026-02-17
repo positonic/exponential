@@ -11,7 +11,6 @@ interface CoreMessage {
 import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { db } from "~/server/db";
-import { decryptCredential } from "~/server/utils/credentialHelper";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
@@ -50,19 +49,9 @@ export async function POST(req: Request) {
       image: session.user.image,
     });
 
-    // Fetch per-user Notion OAuth token (null if not connected)
-    let notionAccessToken: string | null = null;
-    const notionIntegration = await db.integration.findFirst({
-      where: { userId: session.user.id, provider: "notion", status: "ACTIVE" },
-      include: { credentials: { where: { keyType: "access_token" } } },
-      orderBy: { createdAt: "desc" },
-    });
-    const notionCred = notionIntegration?.credentials[0];
-    if (notionCred) {
-      notionAccessToken = decryptCredential(notionCred.key, notionCred.isEncrypted);
-    }
-
     // Create RequestContext with auth data for agent tools
+    // NOTE: Notion OAuth tokens are no longer passed to agents to prevent exfiltration via prompt injection.
+    // Agents that need Notion access should call back to authenticated app endpoints instead.
     const entries: [string, string][] = [
       ["authToken", agentJWT],
       ["userId", session.user.id],
@@ -74,9 +63,6 @@ export async function POST(req: Request) {
           "http://localhost:3000",
       ],
     ];
-    if (notionAccessToken) {
-      entries.push(["notionAccessToken", notionAccessToken]);
-    }
     
     // Verify workspace access and fetch workspace details for agent context
     let workspaceInfo: { slug: string; name: string; type: string } | null = null;

@@ -1,5 +1,6 @@
 import { OpenAIEmbeddings } from "@langchain/openai";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "crypto";
 import type {
   EmbeddingSource,
@@ -462,19 +463,19 @@ export class KnowledgeService {
     const queryEmbedding = await this.generateEmbedding(query);
     const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
-    // Build source type filter
-    const sourceTypeFilter =
+    // Build parameterized query with conditional filters
+    // Using Prisma.sql tagged template to prevent SQL injection
+    const sourceTypeCondition =
       sourceTypes && sourceTypes.length > 0
-        ? `AND kc."sourceType" IN (${sourceTypes.map((t) => `'${t}'`).join(",")})`
-        : "";
+        ? Prisma.sql`AND kc."sourceType" = ANY(${sourceTypes}::text[])`
+        : Prisma.empty;
 
-    // Build project filter
-    const projectFilter = projectId
-      ? `AND (kc."projectId" = '${projectId}' OR kc."projectId" IS NULL)`
-      : "";
+    const projectCondition = projectId
+      ? Prisma.sql`AND (kc."projectId" = ${projectId} OR kc."projectId" IS NULL)`
+      : Prisma.empty;
 
-    // Execute vector search
-    const results = await this.db.$queryRawUnsafe<
+    // Execute vector search with parameterized query
+    const results = await this.db.$queryRaw<
       Array<{
         id: string;
         content: string;
@@ -487,14 +488,14 @@ export class KnowledgeService {
         url: string | null;
         contentType: string | null;
       }>
-    >(`
+    >`
       SELECT
         kc.id,
         kc.content,
         kc."sourceType",
         kc."sourceId",
         kc."chunkIndex",
-        1 - (kc.embedding <=> '${embeddingStr}'::vector) as similarity,
+        1 - (kc.embedding <=> ${embeddingStr}::vector) as similarity,
         CASE
           WHEN kc."sourceType" = 'transcription' THEN ts.title
           WHEN kc."sourceType" = 'resource' THEN r.title
@@ -507,12 +508,12 @@ export class KnowledgeService {
         ON kc."sourceType" = 'transcription' AND kc."sourceId" = ts.id
       LEFT JOIN "Resource" r
         ON kc."sourceType" = 'resource' AND kc."sourceId" = r.id
-      WHERE kc."userId" = '${userId}'
-        ${projectFilter}
-        ${sourceTypeFilter}
-      ORDER BY kc.embedding <=> '${embeddingStr}'::vector
+      WHERE kc."userId" = ${userId}
+        ${projectCondition}
+        ${sourceTypeCondition}
+      ORDER BY kc.embedding <=> ${embeddingStr}::vector
       LIMIT ${limit}
-    `);
+    `;
 
     return results.map((r) => ({
       id: r.id,

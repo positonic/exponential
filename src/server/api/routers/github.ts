@@ -16,8 +16,6 @@ export const githubRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input }) => {
-      // Initialize GitHub client
-      console.log("GITHUB_TOKEN", process.env.GITHUB_TOKEN);
       const octokit = githubService.initGithubClient(process.env.GITHUB_TOKEN || "");
       
       // Create the issue using the shared service

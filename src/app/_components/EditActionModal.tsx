@@ -95,8 +95,12 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
   // Use fresh action data if available, fallback to prop
   const currentAction = freshAction ?? action;
 
+  // Only re-initialize form when a different action is loaded or modal reopens.
+  // Using currentAction?.id + opened as deps prevents the form from resetting
+  // when the user is actively editing (e.g., picking a date then selecting a time).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (currentAction) {
+    if (currentAction && opened) {
       setName(currentAction.name);
       setDescription(currentAction.description ?? "");
       setProjectId(currentAction.projectId ?? "");
@@ -130,7 +134,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
         setSelectedTagIds([]);
       }
     }
-  }, [currentAction]);
+  }, [currentAction?.id, opened]);
 
   const updateAction = api.action.update.useMutation({
     onMutate: async (updatedAction) => {
