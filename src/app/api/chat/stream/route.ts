@@ -12,6 +12,7 @@ import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { db } from "~/server/db";
 import { SECURITY_POLICY } from "~/lib/security-policy";
+import { sanitizeAIOutput } from "~/lib/sanitize-output";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
@@ -199,8 +200,13 @@ export async function POST(req: Request) {
               chunkCount++;
               if (chunk.type === "text-delta") {
                 textChunkCount++;
+                // Sanitize streaming output to redact leaked secrets
+                const { text: safeText, redacted } = sanitizeAIOutput(chunk.payload.text);
+                if (redacted) {
+                  console.warn('🔒 [chat/stream] Redacted potential secret leak from AI response');
+                }
                 controller.enqueue(
-                  new TextEncoder().encode(chunk.payload.text),
+                  new TextEncoder().encode(safeText),
                 );
               } else {
                 nonTextChunkTypes.add(chunk.type);

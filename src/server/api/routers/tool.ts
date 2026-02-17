@@ -15,6 +15,7 @@ import path from "path";
 import os from "os";
 import { createReadStream } from "fs";
 import { SECURITY_POLICY } from "~/lib/security-policy";
+import { sanitizeAIOutput } from "~/lib/sanitize-output";
 
 const adderSchema = z.object({
     a: z.number(),
@@ -138,7 +139,8 @@ export const toolRouter = createTRPCRouter({
             
             if(!response.tool_calls || response.tool_calls.length === 0) {
                 console.log('=== No tool calls made');
-                return { response: response.content };
+                const { text: safeContent } = sanitizeAIOutput(typeof response.content === 'string' ? response.content : JSON.stringify(response.content));
+                return { response: safeContent };
             }
             
             // Handle tool calls
@@ -229,7 +231,8 @@ export const toolRouter = createTRPCRouter({
                 response = await llmWithTools.invoke(messages);
             }
             
-            return { response: response.content };
+            const { text: safeFinalContent } = sanitizeAIOutput(typeof response.content === 'string' ? response.content : JSON.stringify(response.content));
+            return { response: safeFinalContent };
         } catch (error) {
             console.error('Error:', error);
             throw new Error(`AI chat error: ${error instanceof Error ? error.message : String(error)}`);

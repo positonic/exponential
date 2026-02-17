@@ -13,6 +13,7 @@ import { OptimizedQueries } from "~/server/services/whatsapp/OptimizedQueries";
 import { WhatsAppPermissionService, WhatsAppPermission } from "~/server/services/whatsapp/PermissionService";
 import { WhatsAppSecurityAuditService, SecurityEventType } from "~/server/services/whatsapp/SecurityAuditService";
 import { SECURITY_POLICY_COMPACT } from "~/lib/security-policy";
+import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import type { User } from '@prisma/client';
 
 // WhatsApp webhook verification
@@ -711,6 +712,13 @@ You are communicating via WhatsApp, so keep responses concise and mobile-friendl
       const finalAIResponse = await model.invoke(finalMessages);
       finalResponse = finalAIResponse.content as string;
     }
+
+    // Sanitize AI output to redact leaked secrets before storing/returning
+    const { text: safeResponse, redacted } = sanitizeAIOutput(finalResponse);
+    if (redacted) {
+      console.warn('🔒 [whatsapp] Redacted potential secret leak from AI response');
+    }
+    finalResponse = safeResponse;
 
     // Add AI response to history
     history.push({

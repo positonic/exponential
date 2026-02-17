@@ -15,6 +15,7 @@ import { addDays, startOfDay, endOfDay } from "date-fns";
 import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } from "~/server/services";
 import { userEmailService } from "~/server/services/UserEmailService";
 import { slugify } from "~/utils/slugify";
+import { sanitizeAIOutput } from "~/lib/sanitize-output";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -338,16 +339,23 @@ export const mastraRouter = createTRPCRouter({
           }
         }
 
-        return { 
-          response: finalResponse, 
+        // Sanitize AI output to redact any leaked secrets
+        const { text: safeResponse, redacted } = sanitizeAIOutput(finalResponse);
+        if (redacted) {
+          console.warn('🔒 [mastra/callAgent] Redacted potential secret leak from AI response');
+        }
+
+        return {
+          response: safeResponse,
           agentName: agentId,
           toolCalls: responseData.toolCalls || [],
           toolResults: responseData.toolResults || []
         };
       } catch (parseError) {
         console.error(`[mastraRouter] Failed to parse JSON response:`, parseError);
-        // Return raw text if JSON parsing fails
-        return { response: text, agentName: agentId };
+        // Return raw text if JSON parsing fails, sanitized for safety
+        const { text: safeText } = sanitizeAIOutput(text);
+        return { response: safeText, agentName: agentId };
       }
     }),
 
