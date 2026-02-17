@@ -198,8 +198,6 @@ export async function GET(request: NextRequest) {
         userId: userId,
       };
 
-      console.log("github auth data: ", githubAuthData);
-
       const githubAuthParam = Buffer.from(
         JSON.stringify(githubAuthData),
       ).toString("base64");
@@ -207,11 +205,6 @@ export async function GET(request: NextRequest) {
     } else {
       redirectUrl = `${BASE_URL}/settings/integrations`;
     }
-
-    console.log(
-      `[GitHub Callback ${requestId}] Successfully processed, redirecting to:`,
-      redirectUrl,
-    );
 
     // Clean up processed installation after successful completion
     setTimeout(() => {
