@@ -12,6 +12,7 @@ import { messageQueue } from "~/server/services/whatsapp/MessageQueue";
 import { OptimizedQueries } from "~/server/services/whatsapp/OptimizedQueries";
 import { WhatsAppPermissionService, WhatsAppPermission } from "~/server/services/whatsapp/PermissionService";
 import { WhatsAppSecurityAuditService, SecurityEventType } from "~/server/services/whatsapp/SecurityAuditService";
+import { SECURITY_POLICY_COMPACT } from "~/lib/security-policy";
 import type { User } from '@prisma/client';
 
 // WhatsApp webhook verification
@@ -616,25 +617,13 @@ async function processAIMessage(user: User, message: string, phoneNumber: string
   const startTime = Date.now();
   
   try {
-    // Get or create conversation history from database
+    // Get conversation history from database (already sanitized — system messages stripped)
     const history = await getConversationHistory(phoneNumber, configId);
-    
-    // If no history, add system message
-    if (history.length === 0) {
-      history.push({
-        type: 'system',
-        content: `You are a personal assistant who helps manage tasks in our Task Management System. 
-                  You never give IDs to the user since those are just for you to keep track of. 
-                  When a user asks to create a task and you don't know the project to add it to for sure, clarify with the user.
-                  The current date is: ${new Date().toISOString().split('T')[0]}
-                  You are communicating via WhatsApp, so keep responses concise and mobile-friendly.`
-      });
-    }
 
-    // Add user message to history
+    // Add user message to history (truncate to prevent oversized injection)
     history.push({
       type: 'human',
-      content: message
+      content: message.slice(0, 10000)
     });
 
     // Create AI model with tools
@@ -656,25 +645,34 @@ async function processAIMessage(user: User, message: string, phoneNumber: string
     // Bind tools to model
     const modelWithTools = model.bind({ tools });
 
-    // Convert history to Langchain messages
-    const messages = history.map(msg => {
-      switch (msg.type) {
-        case 'system':
-          return new SystemMessage(msg.content);
-        case 'human':
-          return new HumanMessage(msg.content);
-        case 'ai':
-          return new AIMessage(msg.content);
-        case 'tool':
-          return new ToolMessage({
-            content: msg.content,
-            tool_call_id: msg.tool_call_id || '',
-            name: msg.name || ''
-          });
-        default:
-          return new HumanMessage(msg.content);
-      }
-    });
+    // Build messages with server-constructed system prompt (never from stored history)
+    const systemPrompt = SECURITY_POLICY_COMPACT + '\n\n' +
+      `You are a personal assistant who helps manage tasks in our Task Management System.
+You never give IDs to the user since those are just for you to keep track of.
+When a user asks to create a task and you don't know the project to add it to for sure, clarify with the user.
+The current date is: ${new Date().toISOString().split('T')[0]}
+You are communicating via WhatsApp, so keep responses concise and mobile-friendly.`;
+
+    // Convert history to Langchain messages — system messages are server-only
+    const messages = [
+      new SystemMessage(systemPrompt),
+      ...history.map(msg => {
+        switch (msg.type) {
+          case 'human':
+            return new HumanMessage(msg.content);
+          case 'ai':
+            return new AIMessage(msg.content);
+          case 'tool':
+            return new ToolMessage({
+              content: msg.content,
+              tool_call_id: msg.tool_call_id || '',
+              name: msg.name || ''
+            });
+          default:
+            return new HumanMessage(msg.content);
+        }
+      }),
+    ];
 
     // Get AI response
     const response = await modelWithTools.invoke(messages);
@@ -886,8 +884,18 @@ async function getConversationHistory(phoneNumber: string, configId: string): Pr
       return [];
     }
 
-    // Parse messages from JSON
-    const messages = conversation.messages as any[];
+    // Parse messages from JSON and sanitize:
+    // - Strip any stored system messages (prevents persistent prompt injection)
+    // - Truncate overly long messages
+    const MAX_MSG_LENGTH = 10000;
+    const messages = (conversation.messages as any[])
+      .filter(msg => msg.type !== 'system')
+      .map(msg => ({
+        ...msg,
+        content: typeof msg.content === 'string'
+          ? msg.content.slice(0, MAX_MSG_LENGTH)
+          : String(msg.content).slice(0, MAX_MSG_LENGTH),
+      }));
     return messages;
   } catch (error) {
     console.error('Error getting conversation history:', error);
