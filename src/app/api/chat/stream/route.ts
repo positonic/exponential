@@ -117,17 +117,17 @@ export async function POST(req: Request) {
         // Route to the blank-canvas assistantAgent
         agentId = 'assistantAgent';
 
-        // Build personality overlay
+        // Build personality overlay with delimiter-wrapped user content
         const personalityParts: string[] = [];
         personalityParts.push(`# Your Identity\nName: ${assistant.name}${assistant.emoji ? ` ${assistant.emoji}` : ''}`);
         if (assistant.personality) {
-          personalityParts.push(`# Personality & Soul\n${assistant.personality}`);
+          personalityParts.push(`# Personality & Soul\n<user_data type="personality">\n${assistant.personality}\n</user_data>`);
         }
         if (assistant.instructions) {
-          personalityParts.push(`# Instructions\n${assistant.instructions}`);
+          personalityParts.push(`# Instructions\n<user_data type="instructions">\n${assistant.instructions}\n</user_data>`);
         }
         if (assistant.userContext) {
-          personalityParts.push(`# About the User/Team\n${assistant.userContext}`);
+          personalityParts.push(`# About the User/Team\n<user_data type="user_context">\n${assistant.userContext}\n</user_data>`);
         }
 
         // Inject assistant personality as a server-constructed system message

@@ -59,10 +59,10 @@ export const toolRouter = createTRPCRouter({
               select: { id: true, name: true }
             });
 
-            // Convert projects to a more structured format
+            // Convert projects to a more structured format, wrapped in delimiters for prompt safety
             const projectsJson = JSON.stringify(projects);
 
-            const model = new ChatOpenAI({ 
+            const model = new ChatOpenAI({
                 modelName: process.env.LLM_MODEL,
                 modelKwargs: { "tool_choice": "auto" }
             });
@@ -77,7 +77,7 @@ export const toolRouter = createTRPCRouter({
                 `  * For all tasks including completed: { "query_type": "today", "include_completed": true }\n` +
                 `  * For specific date: { "query_type": "date", "date": "${today}" }\n` +
                 `  * For all tasks: { "query_type": "all" }\n` +
-                `Available projects: ${projectsJson}\n` +
+                `<user_data type="projects">\n${projectsJson}\n</user_data>\n` +
                 "- create_action: Creates a new action item. MUST include create: true flag. Example:\n" +
                 "  { \"create\": true, \"name\": \"Task name\", \"description\": \"Task description\", \"projectId\": \"project-id\" }\n" +
                 "  If a user mentions a project by name, try to match it to one of the available projects above and pass the projectId to the create_action tool.\n" +
@@ -116,14 +116,17 @@ export const toolRouter = createTRPCRouter({
             
             const llmWithTools = model.bindTools(tools);
 
-            const messages = [systemMessage, ...input.history.map(msg => {
-                switch (msg.type) {
-                    case 'system': return new SystemMessage(msg.content);
-                    case 'human': return new HumanMessage(msg.content);
-                    case 'ai': return new AIMessage(msg.content);
-                    case 'tool': return new ToolMessage(msg.content, msg.tool_call_id ?? '');
-                }
-            })];
+            // SECURITY: Strip system messages from client history — system prompts are server-only
+            const messages = [systemMessage, ...input.history
+                .filter(msg => msg.type !== 'system')
+                .map(msg => {
+                    switch (msg.type) {
+                        case 'human': return new HumanMessage(msg.content);
+                        case 'ai': return new AIMessage(msg.content);
+                        case 'tool': return new ToolMessage(msg.content, msg.tool_call_id ?? '');
+                        default: return new HumanMessage(msg.content);
+                    }
+                })];
 
             messages.push(new HumanMessage(input.message));
 
