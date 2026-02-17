@@ -1,7 +1,10 @@
 import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
-const SECRET_KEY = process.env.ENCRYPTION_KEY || 'your-32-char-secret-key-here-1234';
+const SECRET_KEY = process.env.ENCRYPTION_KEY;
+if (!SECRET_KEY) {
+  throw new Error('ENCRYPTION_KEY environment variable is required but not set');
+}
 
 // Ensure the key is exactly 32 bytes
 const KEY = crypto.scryptSync(SECRET_KEY, 'salt', 32);
