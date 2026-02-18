@@ -1160,7 +1160,11 @@ export const mastraRouter = createTRPCRouter({
           chunkIndex: result.chunkIndex,
         }));
 
-        return { results };
+        // SECURITY: Also return provenance-wrapped format for safe AI context injection
+        const { KnowledgeService } = await import("~/server/services/KnowledgeService");
+        const aiContext = KnowledgeService.formatForAIContext(searchResults);
+
+        return { results, aiContext };
       } catch (error) {
         console.error('Error in queryMeetingContext:', error);
 

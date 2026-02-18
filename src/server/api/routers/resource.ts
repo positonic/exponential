@@ -385,6 +385,7 @@ export const resourceRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
+      const { KnowledgeService } = await import("~/server/services/KnowledgeService");
       const knowledgeService = getKnowledgeService(ctx.db);
       const results = await knowledgeService.search(input.query, {
         userId,
@@ -393,6 +394,9 @@ export const resourceRouter = createTRPCRouter({
         limit: input.limit,
       });
 
-      return { results };
+      // SECURITY: Include provenance-wrapped format for safe AI context injection
+      const aiContext = KnowledgeService.formatForAIContext(results);
+
+      return { results, aiContext };
     }),
 });
