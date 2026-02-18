@@ -1251,17 +1251,17 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      // If actions have already been generated, delete them
-      if (transcription.processedAt && transcription.actions.length > 0) {
+      // If actions have already been generated (active or draft), delete them
+      if ((transcription.processedAt ?? transcription.actionsSavedAt) && transcription.actions.length > 0) {
         // Delete all actions linked to this transcription
         const deletedCount = await ctx.db.action.deleteMany({
           where: { transcriptionSessionId: input.transcriptionId },
         });
 
-        // Clear the processedAt flag
+        // Clear processing flags
         await ctx.db.transcriptionSession.update({
           where: { id: input.transcriptionId },
-          data: { processedAt: null },
+          data: { processedAt: null, actionsSavedAt: null },
         });
 
         return {
@@ -1270,8 +1270,8 @@ export const transcriptionRouter = createTRPCRouter({
         };
       }
 
-      // Otherwise, process the transcription to generate actions
-      const result = await TranscriptionProcessingService.processTranscription(
+      // Generate draft actions (requires human review before publishing)
+      const result = await TranscriptionProcessingService.generateDraftActions(
         input.transcriptionId,
         ctx.session.user.id,
       );
@@ -1279,7 +1279,7 @@ export const transcriptionRouter = createTRPCRouter({
       if (!result.success) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: result.errors.join(", ") || "Failed to process transcription",
+          message: result.errors.join(", ") || "Failed to generate draft actions",
         });
       }
 
