@@ -10,7 +10,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
-import { decryptBuffer, encryptString } from "~/server/utils/encryption";
+import { decryptBuffer, encryptString, encryptToBase64 } from "~/server/utils/encryption";
 import { addDays, startOfDay, endOfDay } from "date-fns";
 import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } from "~/server/services";
 import { userEmailService } from "~/server/services/UserEmailService";
@@ -49,7 +49,25 @@ const ALLOWED_AGENT_IDS = new Set([
   'ashAgent',
 ]);
 
+/**
+ * SECURITY: Hash an API key for storage. We store sha256 hashes instead of
+ * plaintext keys so a database compromise doesn't immediately expose usable keys.
+ * The plaintext key is shown to the user exactly once at generation time.
+ */
+const API_KEY_HASH_PREFIX = 'sha256:';
+function hashApiKey(key: string): string {
+  return API_KEY_HASH_PREFIX + crypto.createHash('sha256').update(key).digest('hex');
+}
 
+/**
+ * SECURITY: Encrypt an API key for storage when the original value is needed later
+ * (e.g., Fireflies HMAC signature verification). Encrypted keys are prefixed with
+ * 'enc:' to distinguish them from hashed keys.
+ */
+const API_KEY_ENC_PREFIX = 'enc:';
+function encryptApiKey(key: string): string {
+  return API_KEY_ENC_PREFIX + encryptToBase64(key);
+}
 
 // Utility to cache agent instruction embeddings
 let agentEmbeddingsCache: { id: string; vector: number[] }[] | null = null;
@@ -434,11 +452,16 @@ export const mastraRouter = createTRPCRouter({
           apiKey = crypto.randomBytes(16).toString('hex'); // 32 characters
           tokenId = crypto.randomUUID(); // For UI tracking
 
-          // Store hex API key and metadata in VerificationToken table
+          // SECURITY: Determine storage strategy based on key usage.
+          // Fireflies keys need HMAC verification → store encrypted (recoverable).
+          // All other keys → store SHA-256 hash (irreversible, more secure).
+          const isWebhookKey = input.name.toLowerCase().includes('fireflies') || input.name.toLowerCase().includes('webhook');
+          const storedToken = isWebhookKey ? encryptApiKey(apiKey) : hashApiKey(apiKey);
+
           await ctx.db.verificationToken.create({
             data: {
               identifier: `api-key:${input.name}`,
-              token: apiKey, // Store the actual API key for validation
+              token: storedToken,
               expires: expiresAt,
               userId: ctx.session.user.id,
             }
@@ -508,13 +531,16 @@ export const mastraRouter = createTRPCRouter({
           expiresIn = `${Math.ceil(timeUntilExpiry / (7 * 24 * 60 * 60 * 1000))}w`;
         }
 
+        // SECURITY: Use the identifier (not the stored token) as the key for
+        // listing and revocation. The stored token may be a hash or encrypted
+        // value and should never be sent to the client.
         return {
-          tokenId: token.token, // For hex: actual key, for JWT: the jti
+          tokenId: token.identifier,
           name: name,
           expiresAt: token.expires.toISOString(),
           expiresIn: expiresIn,
-          userId: token.userId ?? ctx.session.user.id, // Use session userId as fallback (tokens are filtered by userId)
-          type: isJWT ? 'jwt' : 'hex', // Add token type
+          userId: token.userId ?? ctx.session.user.id,
+          type: isJWT ? 'jwt' : 'hex',
         };
       });
     }),
@@ -522,13 +548,13 @@ export const mastraRouter = createTRPCRouter({
   // Revoke API key
   revokeApiToken: protectedProcedure
     .input(z.object({
-      tokenId: z.string(),
+      tokenId: z.string(), // This is now the identifier (e.g., "api-key:My Key")
     }))
     .mutation(async ({ ctx, input }) => {
-      // Delete the API key from VerificationToken table
+      // SECURITY: Delete by identifier (not token value) since tokens are now hashed/encrypted.
       const deleted = await ctx.db.verificationToken.deleteMany({
         where: {
-          token: input.tokenId,
+          identifier: input.tokenId,
           userId: ctx.session.user.id, // Ensure user can only delete their own keys
           OR: [
             { identifier: { startsWith: 'api-key:' } },
@@ -1732,11 +1758,12 @@ export const mastraRouter = createTRPCRouter({
       const expirationMs = parseExpiration(input.expiresIn);
       const expiresAt = new Date(Date.now() + expirationMs);
 
-      // Store token for webhook validation
+      // SECURITY: Fireflies keys are encrypted (not hashed) because we need the original
+      // key to verify HMAC signatures on incoming webhooks.
       await ctx.db.verificationToken.create({
         data: {
           identifier: `api-key:Fireflies Webhook - ${integration.name}`,
-          token: apiKey,
+          token: encryptApiKey(apiKey),
           expires: expiresAt,
           userId: userId,
         },

@@ -4,6 +4,7 @@ import { type Prisma } from '@prisma/client';
 import { db } from '~/server/db';
 import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
 import { getEmbeddingTriggerService } from '~/server/services/embedding';
+import { decryptFromBase64 } from '~/server/utils/encryption';
 // import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
 // import { NotificationServiceFactory } from '~/server/services/notifications/NotificationServiceFactory';
 
@@ -83,11 +84,26 @@ async function findValidApiKeyAndUser(payload: string, signature: string) {
       }
     });
 
-    // Try each API key to see if it validates the signature
+    // Try each API key to see if it validates the signature.
+    // Keys may be stored encrypted (enc:...), hashed (sha256:...), or as legacy plaintext.
+    // Hashed keys can't be used for HMAC; encrypted keys are decrypted first.
     for (const keyRecord of activeApiKeys) {
-      if (verifySignatureWithApiKey(payload, signature, keyRecord.token) && keyRecord.user) {
+      let rawKey: string | null = null;
+
+      if (keyRecord.token.startsWith('enc:')) {
+        // Encrypted key — decrypt to recover original for HMAC
+        rawKey = decryptFromBase64(keyRecord.token.slice(4));
+      } else if (keyRecord.token.startsWith('sha256:')) {
+        // Hashed key — cannot recover original, skip for HMAC verification
+        continue;
+      } else {
+        // Legacy plaintext key
+        rawKey = keyRecord.token;
+      }
+
+      if (rawKey && verifySignatureWithApiKey(payload, signature, rawKey) && keyRecord.user) {
         return {
-          apiKey: keyRecord.token,
+          apiKey: rawKey,
           user: keyRecord.user,
           keyName: keyRecord.identifier.replace('api-key:', '')
         };
