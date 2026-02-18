@@ -27,6 +27,17 @@ if (!MASTRA_API_URL) {
   throw new Error("MASTRA_API_URL environment variable is not set");
 }
 
+// Server-to-server API key for authenticating with Mastra API.
+// Used for calls without a user-specific JWT (e.g., listing agents).
+const MASTRA_SERVER_KEY = process.env.MASTRA_SERVER_API_KEY;
+
+/** Build Authorization headers for Mastra API calls */
+function mastraAuthHeaders(jwt?: string): Record<string, string> {
+  const token = jwt ?? MASTRA_SERVER_KEY;
+  if (!token) return {};
+  return { Authorization: `Bearer ${token}` };
+}
+
 // Allowlist of valid agent IDs that clients can route to.
 const ALLOWED_AGENT_IDS = new Set([
   'projectManagerAgent',
@@ -52,7 +63,9 @@ async function loadAgentEmbeddings(): Promise<{ id: string; vector: number[] }[]
   // Use direct fetch instead of mastraClient
   let data: Record<string, { instructions: string; [key: string]: any }>;
   try {
-    const response = await fetch(`${MASTRA_API_URL}/api/agents`);
+    const response = await fetch(`${MASTRA_API_URL}/api/agents`, {
+      headers: mastraAuthHeaders(),
+    });
     if (!response.ok) {
       throw new Error(`Mastra API returned status ${response.status}`);
     }
@@ -121,9 +134,11 @@ export const mastraRouter = createTRPCRouter({
         // // console.log("Mastra API data from client:", agentsData);
 
         // console.log("Mastra API data from client:", agentsData);
-        // Use direct fetch instead of mastraClient
-        const response = await fetch(mastraApiUrl);
-        
+        // Use direct fetch with server auth
+        const response = await fetch(mastraApiUrl, {
+          headers: mastraAuthHeaders(),
+        });
+
         if (!response.ok) {
           console.error(`Mastra API returned status ${response.status}`);
           return [];
@@ -311,7 +326,8 @@ export const mastraRouter = createTRPCRouter({
         {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...mastraAuthHeaders(agentJWT),
           },
           body: JSON.stringify({
             messages,
@@ -1804,7 +1820,7 @@ export const mastraRouter = createTRPCRouter({
           `${MASTRA_API_URL}/api/agents/ashagent/generate`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...mastraAuthHeaders(agentJWT) },
             body: JSON.stringify({
               messages: [{ role: "user", content: prompt }],
               requestContext: {

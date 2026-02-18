@@ -60,16 +60,19 @@ export async function POST(req: Request) {
       .join('\n');
     let finalMessages: CoreMessage[] = messages.filter(m => m.role !== 'system');
 
-    const client = new MastraClient({
-      baseUrl: MASTRA_API_URL,
-    });
-
     // Generate JWT for agent authentication (enables tools to callback to this app)
     const agentJWT = generateAgentJWT({
       id: session.user.id,
       email: session.user.email,
       name: session.user.name,
       image: session.user.image,
+    });
+
+    const client = new MastraClient({
+      baseUrl: MASTRA_API_URL,
+      headers: {
+        Authorization: `Bearer ${agentJWT}`,
+      },
     });
 
     // Create RequestContext with auth data for agent tools
