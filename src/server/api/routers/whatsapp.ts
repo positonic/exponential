@@ -157,7 +157,7 @@ export const whatsappRouter = createTRPCRouter({
     .input(z.object({
       integrationId: z.string(),
       phoneNumber: z.string(),
-      message: z.string(),
+      message: z.string().max(10000),
     }))
     .mutation(async ({ ctx, input }) => {
       // Get integration and credentials

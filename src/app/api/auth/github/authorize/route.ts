@@ -47,8 +47,6 @@ export async function GET(request: NextRequest) {
     installUrl.searchParams.set("state", state);
     
     // The installation process will redirect back to our setup-url configured in the GitHub App
-    console.log(`Redirecting to GitHub App installation: ${installUrl.toString()}`);
-    
     return NextResponse.redirect(installUrl.toString());
   } catch (error) {
     console.error("GitHub OAuth authorization error:", error);

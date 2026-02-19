@@ -445,7 +445,10 @@ export const schedulingRouter = createTRPCRouter({
           `${MASTRA_API_URL}/api/agents/ashagent/generate`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${agentJWT}`,
+            },
             body: JSON.stringify({
               messages: [
                 { role: "system", content: SCHEDULING_SYSTEM_PROMPT },
@@ -685,7 +688,10 @@ export const schedulingRouter = createTRPCRouter({
             `${MASTRA_API_URL}/api/agents/ashagent/generate`,
             {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${agentJWT}`,
+              },
               body: JSON.stringify({
                 messages: [
                   { role: "system", content: DAILY_PLAN_SCHEDULING_PROMPT },

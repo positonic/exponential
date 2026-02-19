@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import crypto from "crypto";
 import { publicProcedure } from "~/server/api/trpc";
 
 /**
@@ -30,14 +31,25 @@ export const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
     });
   }
 
-  const verificationToken = await ctx.db.verificationToken.findFirst({
+  // SECURITY: Try hashed lookup first (new keys are stored as sha256 hashes).
+  // Fall back to plaintext lookup for legacy keys created before hashing was enabled.
+  const hashedKey = `sha256:${crypto.createHash("sha256").update(apiKey).digest("hex")}`;
+  let verificationToken = await ctx.db.verificationToken.findFirst({
     where: {
-      token: apiKey,
-      expires: {
-        gt: new Date(),
-      },
+      token: hashedKey,
+      expires: { gt: new Date() },
     },
   });
+
+  if (!verificationToken) {
+    // Legacy fallback: try plaintext match for keys created before hashing
+    verificationToken = await ctx.db.verificationToken.findFirst({
+      where: {
+        token: apiKey,
+        expires: { gt: new Date() },
+      },
+    });
+  }
 
   if (!verificationToken) {
     throw new TRPCError({

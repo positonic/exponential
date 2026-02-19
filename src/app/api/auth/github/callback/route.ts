@@ -23,33 +23,33 @@ const BASE_URL = process.env.NEXTAUTH_URL || "http://localhost:3000";
 const processedInstallations = new Set<string>();
 
 export async function GET(request: NextRequest) {
+  const isDev = process.env.NODE_ENV !== "production";
   try {
     // Add request tracking for debugging
     const requestId = crypto.randomUUID().slice(0, 8);
-    console.log(
-      `[GitHub Callback ${requestId}] Processing request: ${request.url}`,
-    );
+    if (isDev) {
+      console.log(
+        `[GitHub Callback ${requestId}] Processing request: ${request.url}`,
+      );
+    }
 
     // Check if this is a favicon, prefetch or other non-OAuth request
     const url = new URL(request.url);
     const headers = request.headers;
 
     if (url.pathname.includes("favicon") || url.pathname.includes(".ico")) {
-      console.log(`[GitHub Callback ${requestId}] Ignoring favicon request`);
       return new NextResponse(null, { status: 404 });
     }
 
     // Check for prefetch requests
     const purpose = headers.get("Sec-Purpose") || headers.get("Purpose");
     if (purpose === "prefetch" || headers.get("X-Purpose") === "preview") {
-      console.log(`[GitHub Callback ${requestId}] Ignoring prefetch request`);
       return new NextResponse(null, { status: 204 });
     }
 
     const session = await auth();
 
     if (!session?.user?.id) {
-      console.log(`[GitHub Callback ${requestId}] Unauthorized - no session`);
       return NextResponse.redirect(
         `${BASE_URL}/auth/signin?error=unauthorized`,
       );
@@ -58,12 +58,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const params = Object.fromEntries(searchParams);
 
-    console.log(`[GitHub Callback ${requestId}] URL params:`, {
-      hasInstallationId: !!params.installation_id,
-      hasSetupAction: !!params.setup_action,
-      hasState: !!params.state,
-      hasError: !!params.error,
-    });
+    if (isDev) {
+      console.log(`[GitHub Callback ${requestId}] URL params:`, {
+        hasInstallationId: !!params.installation_id,
+        hasSetupAction: !!params.setup_action,
+        hasState: !!params.state,
+        hasError: !!params.error,
+      });
+    }
 
     const validatedParams = callbackSchema.parse(params);
 
@@ -71,10 +73,6 @@ export async function GET(request: NextRequest) {
     if (validatedParams.error) {
       const errorMessage =
         validatedParams.error_description || validatedParams.error;
-      console.log(
-        `[GitHub Callback ${requestId}] Installation error:`,
-        errorMessage,
-      );
       return NextResponse.redirect(
         `${BASE_URL}/settings/integrations/github?error=${encodeURIComponent(errorMessage)}`,
       );
@@ -84,9 +82,6 @@ export async function GET(request: NextRequest) {
 
     // Check if this installation has already been processed
     if (processedInstallations.has(installation_id)) {
-      console.log(
-        `[GitHub Callback ${requestId}] Installation already processed, redirecting to avoid duplicate`,
-      );
       // Determine redirect URL based on state
       let redirectUrl = `${BASE_URL}/settings/integrations`;
       if (state) {
@@ -107,9 +102,6 @@ export async function GET(request: NextRequest) {
 
     // Mark this installation as being processed
     processedInstallations.add(installation_id);
-    console.log(
-      `[GitHub Callback ${requestId}] Processing new installation: ${installation_id}`,
-    );
 
     // Parse state to get project ID if provided
     let projectId: string | undefined = undefined;
@@ -125,18 +117,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Create GitHub App instance
-    console.log(`[GitHub Callback ${requestId}] Creating GitHub App instance`);
-
     const app = new App({
       appId: GITHUB_APP_ID,
       privateKey: GITHUB_PRIVATE_KEY,
     });
 
     // Get installation Octokit instance (this handles token creation automatically)
-    console.log(
-      `[GitHub Callback ${requestId}] Getting installation Octokit for installation ${installation_id}`,
-    );
-
     const installationOctokit = await app.getInstallationOctokit(
       parseInt(installation_id),
     );
@@ -150,10 +136,6 @@ export async function GET(request: NextRequest) {
     const githubUser = installationData.account;
 
     // Get repositories accessible by this installation
-    console.log(
-      `[GitHub Callback ${requestId}] Fetching repositories for installation`,
-    );
-
     const reposResponse =
       await installationOctokit.rest.apps.listReposAccessibleToInstallation({
         installation_id: parseInt(installation_id),
@@ -161,9 +143,6 @@ export async function GET(request: NextRequest) {
       });
 
     const repositories = reposResponse.data.repositories;
-
-    console.log("Repositories: ", repositories);
-    console.log("Github user: ", githubUser);
 
     // For compatibility with the existing service, we need to get an access token
     // We'll create one manually to store it (though normally you'd use the installation Octokit)
@@ -219,8 +198,6 @@ export async function GET(request: NextRequest) {
         userId: userId,
       };
 
-      console.log("github auth data: ", githubAuthData);
-
       const githubAuthParam = Buffer.from(
         JSON.stringify(githubAuthData),
       ).toString("base64");
@@ -228,11 +205,6 @@ export async function GET(request: NextRequest) {
     } else {
       redirectUrl = `${BASE_URL}/settings/integrations`;
     }
-
-    console.log(
-      `[GitHub Callback ${requestId}] Successfully processed, redirecting to:`,
-      redirectUrl,
-    );
 
     // Clean up processed installation after successful completion
     setTimeout(() => {
