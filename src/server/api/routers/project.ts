@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 
 export const projectRouter = createTRPCRouter({
   // API endpoint for browser plugin - uses API key authentication
@@ -73,12 +74,26 @@ export const projectRouter = createTRPCRouter({
                 }
               }
             },
-            // User is a member of the workspace (always check, for cross-workspace visibility)
+            // User is a direct member of the workspace
             {
               workspace: {
                 members: {
                   some: {
                     userId: ctx.session.user.id
+                  }
+                }
+              }
+            },
+            // User is a member of a team linked to the project's workspace
+            {
+              workspace: {
+                teams: {
+                  some: {
+                    members: {
+                      some: {
+                        userId: ctx.session.user.id
+                      }
+                    }
                   }
                 }
               }
@@ -401,9 +416,10 @@ export const projectRouter = createTRPCRouter({
           OR: [
             { createdById: userId },
             { team: { members: { some: { userId } } } },
-            ...(input.workspaceId ? [{
-              workspace: { members: { some: { userId } } }
-            }] : []),
+            ...(input.workspaceId ? [
+              { workspace: { members: { some: { userId } } } },
+              { workspace: { teams: { some: { members: { some: { userId } } } } } },
+            ] : []),
             // Public projects visible when not filtering by workspace
             ...(!input.workspaceId ? [{ isPublic: true }] : []),
           ]
@@ -649,16 +665,13 @@ export const projectRouter = createTRPCRouter({
         hasPermission = !!teamMembership;
       }
 
-      // Check workspace membership
+      // Check workspace membership (includes team-based workspace access)
       if (!hasPermission && projectExists.workspaceId) {
-        const workspaceMembership = await ctx.db.workspaceUser.findUnique({
-          where: {
-            userId_workspaceId: {
-              userId: ctx.session.user.id,
-              workspaceId: projectExists.workspaceId,
-            },
-          },
-        });
+        const workspaceMembership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          projectExists.workspaceId,
+        );
         hasPermission = !!workspaceMembership;
       }
 

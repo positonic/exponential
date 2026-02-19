@@ -4,6 +4,8 @@ import {
   protectedProcedure,
   publicProcedure,
 } from "~/server/api/trpc";
+import { TRPCError } from "@trpc/server";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 
 import {
   getMyPublicGoals,
@@ -21,10 +23,23 @@ export const goalRouter = createTRPCRouter({
       workspaceId: z.string().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
+      // When workspace-scoped, validate membership and show all workspace goals
+      const workspaceId = input?.workspaceId;
+      if (workspaceId) {
+        const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, workspaceId);
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+      }
+
       return await ctx.db.goal.findMany({
         where: {
-          userId: ctx.session.user.id,
-          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(workspaceId
+            ? { workspaceId }
+            : { userId: ctx.session.user.id }),
         },
         include: {
           lifeDomain: true,

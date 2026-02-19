@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 
 // Input validation schemas
 const createKeyResultInput = z.object({
@@ -133,6 +134,19 @@ export const keyResultRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
+      // When workspaceId is provided, validate membership and show all workspace OKRs
+      // When no workspaceId, show only the current user's OKRs
+      const isWorkspaceScoped = !!input.workspaceId;
+      if (isWorkspaceScoped) {
+        const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId!);
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+      }
+
       // Build period filter - optionally include parent annual period
       let periodFilter: { period: string } | { period: { in: string[] } } | undefined;
       if (input.period) {
@@ -173,12 +187,13 @@ export const keyResultRouter = createTRPCRouter({
         }
       }
 
-      // Show goals matching the selected period (by goal.period) or with no period set
-      // Goals without key results in the period will still show so users can add KRs
+      // When workspace-scoped, show all goals in the workspace (not just user's own)
+      // When not workspace-scoped, show only the current user's goals
       const goals = await ctx.db.goal.findMany({
         where: {
-          userId: ctx.session.user.id,
-          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(isWorkspaceScoped
+            ? { workspaceId: input.workspaceId }
+            : { userId: ctx.session.user.id }),
           ...goalPeriodFilter,
         },
         include: {
@@ -186,8 +201,8 @@ export const keyResultRouter = createTRPCRouter({
           keyResults: {
             where: {
               ...periodFilter,
-              // Only show KeyResults owned by the current user
-              userId: ctx.session.user.id,
+              // When workspace-scoped, show all key results; otherwise only user's own
+              ...(isWorkspaceScoped ? {} : { userId: ctx.session.user.id }),
             },
             include: {
               checkIns: {
@@ -605,9 +620,22 @@ export const keyResultRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
+      // When workspace-scoped, validate membership and show all workspace stats
+      const isWorkspaceScoped = !!input.workspaceId;
+      if (isWorkspaceScoped) {
+        const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId!);
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+      }
+
       const where = {
-        userId: ctx.session.user.id,
-        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        ...(isWorkspaceScoped
+          ? { workspaceId: input.workspaceId }
+          : { userId: ctx.session.user.id }),
         ...(input.period ? { period: input.period } : {}),
       };
 
@@ -620,10 +648,9 @@ export const keyResultRouter = createTRPCRouter({
           ctx.db.keyResult.count({ where: { ...where, status: "achieved" } }),
           ctx.db.goal.count({
             where: {
-              userId: ctx.session.user.id,
-              ...(input.workspaceId
+              ...(isWorkspaceScoped
                 ? { workspaceId: input.workspaceId }
-                : {}),
+                : { userId: ctx.session.user.id }),
             },
           }),
         ]);
@@ -685,6 +712,18 @@ export const keyResultRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
+      // When workspace-scoped, validate membership and show all workspace counts
+      const isWorkspaceScoped = !!input.workspaceId;
+      if (isWorkspaceScoped) {
+        const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId!);
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+      }
+
       const periods = ["Annual", "Q1", "Q2", "Q3", "Q4"];
       const counts: Record<string, { objectives: number; keyResults: number }> = {};
 
@@ -692,8 +731,9 @@ export const keyResultRouter = createTRPCRouter({
         periods.map(async (periodType) => {
           const period = `${periodType}-${input.year}`;
           const where = {
-            userId: ctx.session.user.id,
-            ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+            ...(isWorkspaceScoped
+              ? { workspaceId: input.workspaceId }
+              : { userId: ctx.session.user.id }),
             period,
           };
 

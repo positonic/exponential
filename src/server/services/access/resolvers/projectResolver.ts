@@ -11,6 +11,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import type { ProjectAccess, TeamRole, WorkspaceRole } from "../types";
+import { getWorkspaceMembership } from "./workspaceResolver";
 
 export async function getProjectAccess(
   db: PrismaClient,
@@ -61,18 +62,15 @@ export async function getProjectAccess(
   }
 
   // Check workspace membership (if project has a workspace)
+  // Uses getWorkspaceMembership which checks both direct WorkspaceUser
+  // and team-based access (user in a team linked to the workspace)
   let isWorkspaceMember = false;
   let workspaceRole: WorkspaceRole | undefined;
   if (project.workspaceId) {
-    const wsMembership = await db.workspaceUser.findUnique({
-      where: {
-        userId_workspaceId: { userId, workspaceId: project.workspaceId },
-      },
-      select: { role: true },
-    });
+    const wsMembership = await getWorkspaceMembership(db, userId, project.workspaceId);
     if (wsMembership) {
       isWorkspaceMember = true;
-      workspaceRole = wsMembership.role as WorkspaceRole;
+      workspaceRole = wsMembership.role;
     }
   }
 
