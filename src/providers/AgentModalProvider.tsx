@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, type PropsWithChildren, type Dispatch, type SetStateAction } from 'react';
 
-// localStorage keys for persistence across tabs
+// sessionStorage keys for per-tab isolation (prevents context bleeding between tabs)
 const CHAT_STORAGE_KEY = 'agent-chat-messages';
 const CONVERSATION_STORAGE_KEY = 'agent-chat-conversation-id';
 
@@ -92,16 +92,16 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
   }, []);
 
   // Always initialize with defaults for SSR/hydration consistency.
-  // localStorage values are loaded in a useEffect after hydration.
+  // sessionStorage values are loaded in a useEffect after hydration.
   const [messages, setMessages] = useState<ChatMessage[]>(
     [DEFAULT_SYSTEM_MESSAGE, DEFAULT_WELCOME_MESSAGE]
   );
 
   const [conversationId, setConversationId] = useState<string>('');
 
-  // Hydrate state from localStorage after mount (avoids SSR mismatch)
+  // Hydrate state from sessionStorage after mount (per-tab, avoids SSR mismatch)
   useEffect(() => {
-    const storedMessages = localStorage.getItem(CHAT_STORAGE_KEY);
+    const storedMessages = sessionStorage.getItem(CHAT_STORAGE_KEY);
     if (storedMessages) {
       try {
         setMessages(JSON.parse(storedMessages) as ChatMessage[]);
@@ -110,24 +110,24 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
       }
     }
 
-    const storedConvId = localStorage.getItem(CONVERSATION_STORAGE_KEY);
+    const storedConvId = sessionStorage.getItem(CONVERSATION_STORAGE_KEY);
     if (storedConvId) {
       setConversationId(storedConvId);
     }
   }, []);
 
-  // Sync messages to localStorage when they change (debounced to avoid thrashing during streaming)
+  // Sync messages to sessionStorage when they change (debounced to avoid thrashing during streaming)
   useEffect(() => {
     const timer = setTimeout(() => {
-      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
+      sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
     }, 500);
     return () => clearTimeout(timer);
   }, [messages]);
 
-  // Sync conversationId to localStorage when it changes
+  // Sync conversationId to sessionStorage when it changes
   useEffect(() => {
     if (conversationId) {
-      localStorage.setItem(CONVERSATION_STORAGE_KEY, conversationId);
+      sessionStorage.setItem(CONVERSATION_STORAGE_KEY, conversationId);
     }
   }, [conversationId]);
 
@@ -144,8 +144,8 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
   const clearChat = useCallback(() => {
     setMessages([DEFAULT_SYSTEM_MESSAGE, DEFAULT_WELCOME_MESSAGE]);
     setConversationId('');
-    localStorage.removeItem(CHAT_STORAGE_KEY);
-    localStorage.removeItem(CONVERSATION_STORAGE_KEY);
+    sessionStorage.removeItem(CHAT_STORAGE_KEY);
+    sessionStorage.removeItem(CONVERSATION_STORAGE_KEY);
   }, []);
 
   const loadConversation = useCallback((newConversationId: string, newMessages: ChatMessage[]) => {
@@ -153,8 +153,8 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     const messagesWithSystem = [DEFAULT_SYSTEM_MESSAGE, ...newMessages];
     setConversationId(newConversationId);
     setMessages(messagesWithSystem);
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messagesWithSystem));
-    localStorage.setItem(CONVERSATION_STORAGE_KEY, newConversationId);
+    sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messagesWithSystem));
+    sessionStorage.setItem(CONVERSATION_STORAGE_KEY, newConversationId);
   }, []);
 
   const value: AgentModalContextValue = useMemo(() => ({
