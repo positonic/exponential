@@ -2,6 +2,8 @@ import { type Metadata } from "next";
 import { api, HydrateClient } from "~/trpc/server";
 import { ExplorePageClient } from "./ExplorePageClient";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Explore Bounties | Exponential",
   description:

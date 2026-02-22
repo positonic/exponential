@@ -2,6 +2,8 @@ import { type Metadata } from "next";
 import { api, HydrateClient } from "~/trpc/server";
 import { BountyDetailClient } from "./BountyDetailClient";
 
+export const dynamic = "force-dynamic";
+
 interface Props {
   params: Promise<{ projectSlug: string; id: string }>;
 }
