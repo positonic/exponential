@@ -27,13 +27,13 @@ export function FinalCTASection({ id }: FinalCTASectionProps) {
       <Container size="md" className="relative z-10">
         <div className="text-center">
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-6">
-            Ready to stop managing tasks
+            Ready to coordinate your
             <br />
-            and start making progress?
+            AI-first organization?
           </h2>
 
           <p className="text-xl text-white/80 mb-10 max-w-xl mx-auto">
-            Join founders who&apos;ve moved beyond the to-do list.
+            Join teams building the future where humans and AI work as one.
           </p>
 
           <CTAButton
@@ -41,7 +41,7 @@ export function FinalCTASection({ id }: FinalCTASectionProps) {
             variant="primary"
             size="large"
           >
-            Try Now For Free
+            Get Started Free
           </CTAButton>
         </div>
       </Container>

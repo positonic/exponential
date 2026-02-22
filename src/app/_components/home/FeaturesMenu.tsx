@@ -99,41 +99,41 @@ const featureColumns: FeatureColumn[] = [
     ],
   },
   {
-    label: "AI AUTOMATION",
+    label: "AI COORDINATION",
     items: [
       {
         icon: "👔",
         title: "AI Project Manager",
-        description: "Your AI that runs projects",
+        description: "AI agents that run your projects",
         href: "/features/ai-project-manager",
       },
       {
         icon: "⚡",
         title: "AI Workflows",
-        description: "Automate repetitive work",
+        description: "Coordinate human and AI execution",
         href: "/features/ai-workflows",
       },
     ],
   },
   {
-    label: "TEAM",
+    label: "ORGANIZATION",
     items: [
       {
         icon: "👥",
         title: "Workspaces",
-        description: "Organize by client or project",
+        description: "Organize teams and AI agents",
         href: "/features/workspaces",
       },
       {
         icon: "📊",
         title: "Weekly Planning",
-        description: "See what everyone's doing",
+        description: "See what everyone and every agent is doing",
         href: "/features/weekly-planning",
       },
       {
         icon: "📆",
         title: "Team Capacity",
-        description: "Track who's available",
+        description: "Track human and AI capacity",
         href: "/features/team-capacity",
       },
     ],

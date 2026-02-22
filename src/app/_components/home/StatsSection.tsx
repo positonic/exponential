@@ -7,19 +7,19 @@ interface StatsSectionProps {
 const stats = [
   {
     value: "50+",
-    label: "Active Founders",
+    label: "Organizations",
   },
   {
     value: "10k+",
-    label: "Tasks Completed",
+    label: "AI-Coordinated Actions",
   },
   {
     value: "95%",
-    label: "Goal Achievement",
+    label: "Outcome Achievement",
   },
   {
     value: "3x",
-    label: "Productivity Boost",
+    label: "Coordination Speed",
   },
 ];
 

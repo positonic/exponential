@@ -9,25 +9,25 @@ const steps = [
   {
     number: "01",
     icon: IconTarget,
-    title: "Set your outcomes",
+    title: "Define outcomes, not tasks",
     description:
-      "Define what success looks like this week, month, or quarter. Not tasks—results.",
+      "Set what success looks like for your organization this week, month, or quarter. AI breaks it down from there.",
     color: "var(--color-accent-indigo)",
   },
   {
     number: "02",
     icon: IconSparkles,
-    title: "AI connects the dots",
+    title: "AI agents execute",
     description:
-      "AI breaks outcomes into actions, tracks progress, and surfaces what needs attention.",
+      "AI decomposes outcomes into actions, assigns work, tracks progress, and surfaces what needs human attention.",
     color: "var(--color-brand-success)",
   },
   {
     number: "03",
     icon: IconUsers,
-    title: "Your team stays aligned",
+    title: "Your organization stays aligned",
     description:
-      "Everyone sees the same picture. No status meetings. No 'what are you working on?'",
+      "Everyone — humans and AI — sees the same picture. No status meetings. No coordination overhead.",
     color: "var(--color-brand-warning)",
   },
 ];
@@ -41,7 +41,7 @@ export function HowItWorksSection({ id }: HowItWorksSectionProps) {
             How it works
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-text-primary font-inter">
-            Three steps to clarity
+            Three steps to AI-native coordination
           </h2>
         </div>
 

@@ -8,26 +8,26 @@ interface PersonaSectionProps {
 const personas = [
   {
     icon: IconUser,
-    title: "For founders who think in outcomes",
+    title: "For AI-native founders",
     description:
-      "You don't need a task manager. You need to know the 3 things that matter this week—and ignore everything else.",
-    audience: "Solo Founders",
+      "You're building with AI agents already. Now give them — and yourself — a system that connects capability to outcomes.",
+    audience: "Founders",
     color: "var(--color-accent-indigo)",
   },
   {
     icon: IconUsersGroup,
-    title: "For teams that move as one",
+    title: "For product teams going AI-first",
     description:
-      "2-10 people who want to stay aligned without endless standups. See what everyone's doing. Ship together.",
-    audience: "Small Teams",
+      "Coordinate humans and AI agents across projects. See what everyone — and every agent — is working on. Ship together.",
+    audience: "Product Teams",
     color: "var(--color-brand-success)",
   },
   {
     icon: IconCpu,
-    title: "For those building with AI",
+    title: "For organizations scaling with AI",
     description:
-      "Your AI agents need a home base. Exponential is where human judgment and AI capability meet.",
-    audience: "AI-Forward Builders",
+      "As AI takes on more execution, coordination becomes the bottleneck. Exponential is the operating system that solves it.",
+    audience: "AI-First Organizations",
     color: "var(--color-brand-warning)",
   },
 ];
@@ -41,7 +41,7 @@ export function PersonaSection({ id }: PersonaSectionProps) {
             Who it&apos;s for
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-text-primary">
-            Built for people who ship
+            Built for AI-first organizations
           </h2>
         </div>
 

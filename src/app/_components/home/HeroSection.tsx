@@ -27,32 +27,32 @@ export function HeroSection({ id }: HeroSectionProps) {
           {/* Badge */}
           <div className="mb-6 md:mb-8 animate-fade-in">
             <span className="inline-flex items-center px-5 py-2.5 rounded-full bg-gradient-to-r from-accent-indigo/10 to-accent-periwinkle/10 border border-accent-indigo/20 text-accent-indigo text-sm font-semibold backdrop-blur-sm">
-              ✨ For founders who ship
+              🤖 The OS for AI-native organizations
             </span>
           </div>
 
           {/* Headline */}
           <h1 className="text-4xl md:text-5xl lg:text-[3.5rem] font-bold text-text-primary mb-6 leading-[1.15] font-inter">
-            Stop managing work.{" "}
+            Where humans and AI{" "}
             <span className="bg-gradient-to-r from-accent-indigo to-accent-periwinkle bg-clip-text text-transparent">
-              Start doing it.
+              build together.
             </span>
           </h1>
 
           {/* Subheadline */}
           <p className="text-lg md:text-xl text-text-secondary max-w-2xl mx-auto mb-8 md:mb-10 leading-relaxed">
-            Exponential connects your daily work to your goals—with AI that
-            handles the noise so you can focus on what actually moves the
-            needle.
+            Exponential is the coordination layer for AI-first organizations.
+            Goals cascade into outcomes. AI handles execution. Your team stays
+            aligned.
           </p>
 
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10 md:mb-12">
             <CTAButton href="/signin" variant="primary" size="large">
-              Try Now For Free
+              Get Started Free
             </CTAButton>
             <CTAButton
-              href="#demo"
+              href="#how-it-works"
               variant="secondary"
               size="large"
               showArrow={false}

@@ -6,10 +6,10 @@ interface ProblemStatementSectionProps {
 }
 
 const painPoints = [
-  "You have 6 tools open. None of them talk to each other.",
-  "Your task list grows faster than you can check things off.",
-  "You finished 23 tasks last week. You're not sure any of them mattered.",
-  "AI can write your emails, but you still don't know what to focus on.",
+  "Your AI agents can do anything — but nobody's coordinating them.",
+  "Your team ships fast, but you're not sure it's the right things.",
+  "You have more AI capability than ever, and less organizational clarity.",
+  "Humans set direction in one tool. AI executes in another. Nothing connects.",
 ];
 
 export function ProblemStatementSection({ id }: ProblemStatementSectionProps) {
@@ -19,7 +19,7 @@ export function ProblemStatementSection({ id }: ProblemStatementSectionProps) {
         <div className="text-center">
           {/* Headline */}
           <h2 className="text-3xl md:text-4xl font-bold text-white mb-12 font-inter">
-            Sound familiar?
+            The AI coordination gap
           </h2>
 
           {/* Pain Points - Grid Layout */}
@@ -42,10 +42,10 @@ export function ProblemStatementSection({ id }: ProblemStatementSectionProps) {
           {/* Transition Line */}
           <div className="border-t border-border-primary/30 pt-12 mt-12">
             <p className="text-lg md:text-xl text-text-muted italic max-w-2xl mx-auto">
-              Task management was built for a slower world.
+              AI capability isn&apos;t the bottleneck anymore.
               <br />
               <span className="text-white font-semibold">
-                You need something different.
+                Coordination is.
               </span>
             </p>
           </div>

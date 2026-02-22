@@ -48,8 +48,8 @@ export function FooterSection({ id }: FooterSectionProps) {
           <div className="col-span-2">
             <LogoDisplay theme={theme} href="/" className="text-xl mb-4" />
             <p className="text-text-muted text-sm max-w-xs leading-relaxed">
-              The alignment layer for teams that ship. Connect your daily work
-              to what matters.
+              The operating system for AI-native organizations. Where humans
+              and AI coordinate to build what matters.
             </p>
           </div>
 

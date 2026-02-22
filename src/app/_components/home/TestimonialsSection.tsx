@@ -8,7 +8,7 @@ interface TestimonialsSectionProps {
 const testimonials = [
   {
     quote:
-      "I went from 47 tasks to 5 outcomes. For the first time, I know exactly what to focus on.",
+      "We went from 47 tasks to 5 outcomes. Now our AI agents and team are working toward the same goals.",
     name: "Sarah Chen",
     title: "Founder",
     company: "TechStart",
@@ -16,7 +16,7 @@ const testimonials = [
   },
   {
     quote:
-      "We cut our planning time by 60%. The weekly rhythm keeps everyone aligned without the meetings.",
+      "Our AI agents handle execution. Exponential is the layer that keeps them coordinated with the humans. Planning time dropped 60%.",
     name: "Marcus Rivera",
     title: "CTO",
     company: "BuildFast",
@@ -24,7 +24,7 @@ const testimonials = [
   },
   {
     quote:
-      "Finally, a tool that understands outcomes matter more than task counts. Game changer for our team.",
+      "Finally, a system designed for how AI-first orgs actually work. Outcomes over tasks. Coordination over management.",
     name: "Alex Kim",
     title: "Product Lead",
     company: "ShipCo",
@@ -41,7 +41,7 @@ export function TestimonialsSection({ id }: TestimonialsSectionProps) {
             Testimonials
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-text-primary">
-            Loved by founders who ship
+            Loved by AI-first teams
           </h2>
         </div>
 

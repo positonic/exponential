@@ -15,38 +15,38 @@ interface KeyFeaturesSectionProps {
 const features = [
   {
     icon: IconTarget,
-    title: "Every task connects to why",
-    description: "See how your daily work drives quarterly outcomes.",
+    title: "Goals cascade to execution",
+    description: "Every action traces back to an organizational outcome. Nothing happens in isolation.",
     color: "var(--color-accent-indigo)",
   },
   {
     icon: IconRobot,
-    title: "AI handles the task layer",
-    description: "Actions generated, tracked, and updated—so you don't have to.",
+    title: "AI agents run the execution layer",
+    description: "Actions generated, assigned, tracked, and updated — by AI that understands the bigger picture.",
     color: "var(--color-brand-success)",
   },
   {
     icon: IconUsers,
-    title: "Know what your team is doing",
-    description: "Weekly outcomes, capacity, and progress—visible without asking.",
+    title: "Organization-wide visibility",
+    description: "Outcomes, capacity, and progress across every team — visible without asking.",
     color: "var(--color-brand-info)",
   },
   {
     icon: IconMessageCircle,
     title: "Meetings become actions",
-    description: "AI captures decisions and action items. They appear in your workflow.",
+    description: "AI captures decisions and action items. They flow into the right projects automatically.",
     color: "var(--color-brand-warning)",
   },
   {
     icon: IconCalendarWeek,
-    title: "Never lose the thread",
-    description: "Structured weekly reset that keeps you aligned with your goals.",
+    title: "Built-in cadence",
+    description: "Weekly reviews and planning rhythms that keep humans and AI in sync.",
     color: "var(--color-brand-primary)",
   },
   {
     icon: IconPlug,
-    title: "Works where you work",
-    description: "Connect Slack, Notion, GitHub. One workspace, not five apps.",
+    title: "Connects your stack",
+    description: "Slack, Notion, GitHub, and more. One coordination layer, not five disconnected tools.",
     color: "var(--color-accent-periwinkle)",
   },
 ];
@@ -60,10 +60,10 @@ export function KeyFeaturesSection({ id }: KeyFeaturesSectionProps) {
             Features
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-text-primary mb-4 font-inter">
-            Everything you need to stay aligned
+            Everything your AI-first org needs
           </h2>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            Built for teams who want to focus on outcomes, not process.
+            Built for organizations where humans and AI work side by side.
           </p>
         </div>
 

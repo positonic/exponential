@@ -50,7 +50,7 @@ export default async function HomeLayout({
               "@context": "https://schema.org",
               "@type": "SoftwareApplication",
               "name": "Exponential",
-              "description": "AI-powered productivity platform for solo founders to turn ideas into working products faster with project management, task automation, and GitHub integration.",
+              "description": "The coordination layer for AI-first organizations. Goals cascade into outcomes, AI handles execution, and your team stays aligned.",
               "url": "https://exponential.im",
               "applicationCategory": "ProductivityApplication",
               "operatingSystem": "Web Browser",
@@ -65,11 +65,11 @@ export default async function HomeLayout({
                 "url": "https://exponential.im"
               },
               "featureList": [
-                "AI-powered project management",
-                "GitHub integration",
-                "Task automation",
-                "Solo founder optimization",
-                "Product execution engine"
+                "AI-native organization coordination",
+                "Goals to outcomes to actions framework",
+                "AI-powered execution layer",
+                "Human-AI collaboration workspace",
+                "Team alignment without status meetings"
               ]
             })
           }}

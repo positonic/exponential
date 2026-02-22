@@ -21,14 +21,15 @@ export function SolutionIntroSection({ id }: SolutionIntroSectionProps) {
         <div className="text-center max-w-3xl mx-auto">
           {/* Headline */}
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-text-primary mb-6">
-            From task management to{" "}
-            <span className="bg-gradient-to-r from-accent-indigo to-accent-periwinkle bg-clip-text text-transparent">collective flow.</span>
+            The operating system for{" "}
+            <span className="bg-gradient-to-r from-accent-indigo to-accent-periwinkle bg-clip-text text-transparent">AI-first teams.</span>
           </h2>
 
           {/* Subheadline */}
           <p className="text-lg md:text-xl text-text-secondary mb-16 leading-relaxed">
-            Exponential isn&apos;t another to-do list. It&apos;s the alignment
-            layer where your goals, your team, and your AI stay in sync.
+            Exponential isn&apos;t another project tool. It&apos;s the
+            coordination layer where your goals, your team, and your AI agents
+            work as one system.
           </p>
 
           {/* Flow Diagram */}
@@ -76,11 +77,12 @@ export function SolutionIntroSection({ id }: SolutionIntroSectionProps) {
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent-indigo/20 border border-accent-indigo/40 shadow-lg shadow-accent-indigo/10">
                 <span className="text-lg">🤖</span>
                 <span className="text-sm font-medium text-accent-periwinkle">
-                  AI manages this layer
+                  AI agents execute this layer
                 </span>
               </div>
               <p className="text-text-secondary mt-4 text-sm">
-                Humans stay aligned. AI handles the execution details.
+                Humans set direction. AI handles execution. The system keeps
+                everything in sync.
               </p>
             </div>
           </div>
