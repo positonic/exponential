@@ -10,6 +10,9 @@ jobs:
   lint-and-typecheck:
     name: Lint & Typecheck
     runs-on: ubuntu-latest
+    env:
+      SKIP_ENV_VALIDATION: true
+      NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,10 +20,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run check
-        env:
-          SKIP_ENV_VALIDATION: true
-          NODE_OPTIONS: --max-old-space-size=4096
+      - run: npx tsc --noEmit
+      - run: npx next lint
 
   unit-tests:
     name: Unit Tests
@@ -76,7 +77,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SKIP_ENV_VALIDATION: true
-      AUTH_POSTMARK_KEY: test-key-for-ci
+      # Dummy env vars for modules that check at build/import time.
+      # No real API calls are made during build — these just prevent throws.
+      AUTH_SECRET: build-secret
+      OPENAI_API_KEY: sk-build-dummy
+      AUTH_POSTMARK_KEY: build-dummy
+      MASTRA_API_URL: http://localhost:4111
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
