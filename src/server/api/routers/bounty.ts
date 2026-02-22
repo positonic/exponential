@@ -1,13 +1,16 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import {
   createTRPCRouter,
   publicProcedure,
+  protectedProcedure,
 } from "~/server/api/trpc";
 
 /**
- * Public bounty board endpoints.
- * All queries are unauthenticated — only expose data from
+ * Bounty board endpoints.
+ * Public queries are unauthenticated — only expose data from
  * public projects and never leak private user details.
+ * Protected mutations require authentication for claim lifecycle.
  */
 export const bountyRouter = createTRPCRouter({
   /**
@@ -241,5 +244,247 @@ export const bountyRouter = createTRPCRouter({
       });
 
       return project;
+    }),
+
+  // ─── Protected Procedures (Claim Lifecycle) ──────────────────────
+
+  /**
+   * Claim a bounty. Creates a BountyClaim for the authenticated user.
+   */
+  claim: protectedProcedure
+    .input(z.object({ bountyId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const bounty = await ctx.db.action.findFirst({
+        where: {
+          id: input.bountyId,
+          isBounty: true,
+          project: { isPublic: true },
+        },
+        select: {
+          id: true,
+          bountyStatus: true,
+          bountyDeadline: true,
+          bountyMaxClaimants: true,
+        },
+      });
+
+      if (!bounty) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Bounty not found" });
+      }
+      if (bounty.bountyStatus !== "OPEN" && bounty.bountyStatus !== "IN_PROGRESS") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Bounty is not open for claims" });
+      }
+      if (bounty.bountyDeadline && new Date() > bounty.bountyDeadline) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Bounty deadline has passed" });
+      }
+
+      // Check max claimants (only count non-terminal claims)
+      const activeClaimCount = await ctx.db.bountyClaim.count({
+        where: { actionId: input.bountyId, status: { in: ["ACTIVE", "SUBMITTED"] } },
+      });
+      if (activeClaimCount >= bounty.bountyMaxClaimants) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Maximum claimants reached" });
+      }
+
+      // Check for existing claim
+      const existingClaim = await ctx.db.bountyClaim.findUnique({
+        where: { actionId_claimantId: { actionId: input.bountyId, claimantId: userId } },
+      });
+
+      if (existingClaim && existingClaim.status !== "WITHDRAWN" && existingClaim.status !== "REJECTED") {
+        throw new TRPCError({ code: "CONFLICT", message: "You have already claimed this bounty" });
+      }
+
+      // Create or re-activate claim
+      const claim = existingClaim
+        ? await ctx.db.bountyClaim.update({
+            where: { id: existingClaim.id },
+            data: {
+              status: "ACTIVE",
+              claimedAt: new Date(),
+              submissionUrl: null,
+              submissionNotes: null,
+              reviewNotes: null,
+              submittedAt: null,
+              reviewedAt: null,
+            },
+          })
+        : await ctx.db.bountyClaim.create({
+            data: { actionId: input.bountyId, claimantId: userId },
+          });
+
+      // Update bounty status to IN_PROGRESS
+      if (bounty.bountyStatus === "OPEN") {
+        await ctx.db.action.update({
+          where: { id: input.bountyId },
+          data: { bountyStatus: "IN_PROGRESS" },
+        });
+      }
+
+      return claim;
+    }),
+
+  /**
+   * Submit work for a claim.
+   */
+  submit: protectedProcedure
+    .input(
+      z.object({
+        claimId: z.string(),
+        submissionUrl: z.string().url().optional(),
+        submissionNotes: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const claim = await ctx.db.bountyClaim.findFirst({
+        where: { id: input.claimId, claimantId: ctx.session.user.id },
+      });
+      if (!claim) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Claim not found" });
+      }
+      if (claim.status !== "ACTIVE") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only active claims can be submitted" });
+      }
+
+      const updated = await ctx.db.bountyClaim.update({
+        where: { id: input.claimId },
+        data: {
+          status: "SUBMITTED",
+          submissionUrl: input.submissionUrl,
+          submissionNotes: input.submissionNotes,
+          submittedAt: new Date(),
+        },
+      });
+
+      // Update bounty status to IN_REVIEW
+      await ctx.db.action.update({
+        where: { id: claim.actionId },
+        data: { bountyStatus: "IN_REVIEW" },
+      });
+
+      return updated;
+    }),
+
+  /**
+   * Approve a submitted claim. Only the project owner can approve.
+   */
+  approve: protectedProcedure
+    .input(
+      z.object({
+        claimId: z.string(),
+        reviewNotes: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const claim = await ctx.db.bountyClaim.findFirst({
+        where: { id: input.claimId },
+        include: { action: { include: { project: true } } },
+      });
+      if (!claim) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Claim not found" });
+      }
+      if (claim.status !== "SUBMITTED") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only submitted claims can be approved" });
+      }
+      if (claim.action.project?.createdById !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the project owner can approve claims" });
+      }
+
+      const updated = await ctx.db.bountyClaim.update({
+        where: { id: input.claimId },
+        data: {
+          status: "APPROVED",
+          reviewNotes: input.reviewNotes,
+          reviewedAt: new Date(),
+        },
+      });
+
+      // Check if bounty should be completed
+      const approvedCount = await ctx.db.bountyClaim.count({
+        where: { actionId: claim.actionId, status: "APPROVED" },
+      });
+      if (approvedCount >= claim.action.bountyMaxClaimants) {
+        await ctx.db.action.update({
+          where: { id: claim.actionId },
+          data: { bountyStatus: "COMPLETED" },
+        });
+      }
+
+      return updated;
+    }),
+
+  /**
+   * Reject a submitted claim. Only the project owner can reject.
+   */
+  reject: protectedProcedure
+    .input(
+      z.object({
+        claimId: z.string(),
+        reviewNotes: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const claim = await ctx.db.bountyClaim.findFirst({
+        where: { id: input.claimId },
+        include: { action: { include: { project: true } } },
+      });
+      if (!claim) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Claim not found" });
+      }
+      if (claim.status !== "SUBMITTED") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only submitted claims can be rejected" });
+      }
+      if (claim.action.project?.createdById !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the project owner can reject claims" });
+      }
+
+      return ctx.db.bountyClaim.update({
+        where: { id: input.claimId },
+        data: {
+          status: "REJECTED",
+          reviewNotes: input.reviewNotes,
+          reviewedAt: new Date(),
+        },
+      });
+    }),
+
+  /**
+   * Withdraw a claim. Only the claimant can withdraw.
+   */
+  withdraw: protectedProcedure
+    .input(z.object({ claimId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const claim = await ctx.db.bountyClaim.findFirst({
+        where: { id: input.claimId, claimantId: ctx.session.user.id },
+      });
+      if (!claim) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Claim not found" });
+      }
+      if (claim.status !== "ACTIVE" && claim.status !== "SUBMITTED") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only active or submitted claims can be withdrawn" });
+      }
+
+      return ctx.db.bountyClaim.update({
+        where: { id: input.claimId },
+        data: { status: "WITHDRAWN" },
+      });
+    }),
+
+  /**
+   * Get the authenticated user's claim for a specific bounty.
+   */
+  getMyClaimForBounty: protectedProcedure
+    .input(z.object({ bountyId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.bountyClaim.findUnique({
+        where: {
+          actionId_claimantId: {
+            actionId: input.bountyId,
+            claimantId: ctx.session.user.id,
+          },
+        },
+      });
     }),
 });

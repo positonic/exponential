@@ -129,7 +129,7 @@ export function ProjectPageClient({ slug }: { slug: string }) {
           ) : (
             <Stack gap="sm">
               {openBounties.map((bounty) => (
-                <BountyCard key={bounty.id} bounty={bounty} />
+                <BountyCard key={bounty.id} bounty={bounty} slug={slug} />
               ))}
             </Stack>
           )}
@@ -143,7 +143,7 @@ export function ProjectPageClient({ slug }: { slug: string }) {
             </Title>
             <Stack gap="sm">
               {otherBounties.map((bounty) => (
-                <BountyCard key={bounty.id} bounty={bounty} />
+                <BountyCard key={bounty.id} bounty={bounty} slug={slug} />
               ))}
             </Stack>
           </div>
@@ -167,15 +167,18 @@ interface BountyAction {
   _count: { bountyClaims: number };
 }
 
-function BountyCard({ bounty }: { bounty: BountyAction }) {
+function BountyCard({ bounty, slug }: { bounty: BountyAction; slug: string }) {
   const status = bounty.bountyStatus ?? "OPEN";
 
   return (
     <Card
+      component={Link}
+      href={`/explore/${slug}/bounties/${bounty.id}`}
       withBorder
       radius="md"
-      className="border-border-primary bg-surface-secondary"
+      className="border-border-primary bg-surface-secondary transition-colors hover:bg-surface-hover"
       p="md"
+      style={{ textDecoration: "none" }}
     >
       <Group justify="space-between" wrap="nowrap">
         <div style={{ minWidth: 0, flex: 1 }}>

@@ -359,6 +359,15 @@ export const actionRouter = createTRPCRouter({
         epicId: z.string().optional(),
         effortEstimate: z.number().min(0).optional(),
         blockedByIds: z.array(z.string()).optional(),
+        // Bounty fields
+        isBounty: z.boolean().optional(),
+        bountyAmount: z.number().positive().optional(),
+        bountyToken: z.string().optional(),
+        bountyDifficulty: z.enum(["beginner", "intermediate", "advanced"]).optional(),
+        bountySkills: z.array(z.string()).optional(),
+        bountyDeadline: z.date().optional(),
+        bountyMaxClaimants: z.number().int().min(1).optional(),
+        bountyExternalUrl: z.string().url().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -418,6 +427,8 @@ export const actionRouter = createTRPCRouter({
       const actionData: any = {
         ...input,
         createdById: ctx.session.user.id,
+        // Auto-set bountyStatus when creating a bounty
+        ...(input.isBounty ? { bountyStatus: "OPEN" } : {}),
       };
 
       // If this action is being created for a project, set default kanban status to TODO
@@ -493,6 +504,16 @@ export const actionRouter = createTRPCRouter({
         epicId: z.string().nullable().optional(),
         effortEstimate: z.number().min(0).nullable().optional(),
         blockedByIds: z.array(z.string()).optional(),
+        // Bounty fields
+        isBounty: z.boolean().optional(),
+        bountyAmount: z.number().positive().nullable().optional(),
+        bountyToken: z.string().nullable().optional(),
+        bountyStatus: z.enum(["OPEN", "IN_PROGRESS", "IN_REVIEW", "COMPLETED", "CANCELLED"]).nullable().optional(),
+        bountyDifficulty: z.enum(["beginner", "intermediate", "advanced"]).nullable().optional(),
+        bountySkills: z.array(z.string()).optional(),
+        bountyDeadline: z.date().nullable().optional(),
+        bountyMaxClaimants: z.number().int().min(1).optional(),
+        bountyExternalUrl: z.string().url().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

@@ -44,6 +44,15 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const [epicId, setEpicId] = useState<string | null>(null);
   const [effortEstimate, setEffortEstimate] = useState<number | null>(null);
   const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
+  // Bounty fields
+  const [isBounty, setIsBounty] = useState(false);
+  const [bountyAmount, setBountyAmount] = useState<number | null>(null);
+  const [bountyToken, setBountyToken] = useState<string | null>(null);
+  const [bountyDifficulty, setBountyDifficulty] = useState<string | null>('beginner');
+  const [bountySkills, setBountySkills] = useState<string[]>([]);
+  const [bountyDeadline, setBountyDeadline] = useState<Date | null>(null);
+  const [bountyMaxClaimants, setBountyMaxClaimants] = useState(1);
+  const [bountyExternalUrl, setBountyExternalUrl] = useState<string | null>(null);
 
   // Workspace context
   const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
@@ -140,16 +149,16 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         isReminderOnly: false,
         epicId: newAction.epicId ?? null,
         effortEstimate: newAction.effortEstimate ?? null,
-        // Bounty fields (defaults for non-bounty actions)
-        isBounty: false,
-        bountyAmount: null,
-        bountyToken: null,
-        bountyStatus: null,
-        bountyDifficulty: null,
-        bountySkills: [],
-        bountyDeadline: null,
-        bountyMaxClaimants: 1,
-        bountyExternalUrl: null,
+        // Bounty fields
+        isBounty: newAction.isBounty ?? false,
+        bountyAmount: newAction.bountyAmount ?? null,
+        bountyToken: newAction.bountyToken ?? null,
+        bountyStatus: newAction.isBounty ? "OPEN" : null,
+        bountyDifficulty: newAction.bountyDifficulty ?? null,
+        bountySkills: newAction.bountySkills ?? [],
+        bountyDeadline: newAction.bountyDeadline ? new Date(newAction.bountyDeadline) : null,
+        bountyMaxClaimants: newAction.bountyMaxClaimants ?? 1,
+        bountyExternalUrl: newAction.bountyExternalUrl ?? null,
         epic: null,
         project: newAction.projectId
           ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
@@ -163,9 +172,11 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       };
 
       // Helper function to add action to a list
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- optimistic action uses number for bountyAmount vs Prisma Decimal
+      const typedOptimisticAction = optimisticAction as any;
       const addActionToList = (list: typeof previousState.actions) => {
-        if (!list) return [optimisticAction];
-        return [...list, optimisticAction];
+        if (!list) return [typedOptimisticAction];
+        return [...list, typedOptimisticAction];
       };
 
       // Update all action lists
@@ -182,27 +193,27 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         // Optimistically update the project.getAll list
         utils.project.getAll.setData(undefined, (old) => {
           if (!old) return previousState.projects;
-          
-          return old.map(project => 
+
+          return old.map(project =>
             project.id === newAction.projectId
               ? {
                   ...project,
                   actions: Array.isArray(project.actions)
-                    ? [...project.actions, optimisticAction]
-                    : [optimisticAction],
+                    ? [...project.actions, typedOptimisticAction]
+                    : [typedOptimisticAction],
                 }
               : project
           );
         });
 
-        // ---> ADDED: Optimistically update the specific project.getById data <--- 
+        // ---> ADDED: Optimistically update the specific project.getById data <---
         utils.project.getById.setData({ id: newAction.projectId }, (oldProject) => {
           if (!oldProject) return undefined; // Or handle appropriately if cache might not exist
           return {
             ...oldProject,
             actions: Array.isArray(oldProject.actions)
-              ? [...oldProject.actions, optimisticAction]
-              : [optimisticAction],
+              ? [...oldProject.actions, typedOptimisticAction]
+              : [typedOptimisticAction],
           };
         });
       }
@@ -346,6 +357,17 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       epicId: epicId || undefined,
       effortEstimate: effortEstimate || undefined,
       blockedByIds: blockedByIds.length > 0 ? blockedByIds : undefined,
+      // Bounty fields
+      ...(isBounty ? {
+        isBounty: true,
+        bountyAmount: bountyAmount ?? undefined,
+        bountyToken: bountyToken ?? undefined,
+        bountyDifficulty: bountyDifficulty as "beginner" | "intermediate" | "advanced" | undefined,
+        bountySkills: bountySkills.length > 0 ? bountySkills : undefined,
+        bountyDeadline: bountyDeadline ?? undefined,
+        bountyMaxClaimants: bountyMaxClaimants,
+        bountyExternalUrl: bountyExternalUrl ?? undefined,
+      } : {}),
     };
 
     // Reset form immediately (moved from onSuccess)
@@ -372,6 +394,15 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     setEpicId(null);
     setEffortEstimate(null);
     setBlockedByIds([]);
+    // Reset bounty fields
+    setIsBounty(false);
+    setBountyAmount(null);
+    setBountyToken(null);
+    setBountyDifficulty('beginner');
+    setBountySkills([]);
+    setBountyDeadline(null);
+    setBountyMaxClaimants(1);
+    setBountyExternalUrl(null);
 
     // Trigger mutation in background
     createAction.mutate(actionData);
@@ -457,6 +488,22 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
             blockedByIds,
             setBlockedByIds,
           } : {})}
+          isBounty={isBounty}
+          setIsBounty={setIsBounty}
+          bountyAmount={bountyAmount}
+          setBountyAmount={setBountyAmount}
+          bountyToken={bountyToken}
+          setBountyToken={setBountyToken}
+          bountyDifficulty={bountyDifficulty}
+          setBountyDifficulty={setBountyDifficulty}
+          bountySkills={bountySkills}
+          setBountySkills={setBountySkills}
+          bountyDeadline={bountyDeadline}
+          setBountyDeadline={setBountyDeadline}
+          bountyMaxClaimants={bountyMaxClaimants}
+          setBountyMaxClaimants={setBountyMaxClaimants}
+          bountyExternalUrl={bountyExternalUrl}
+          setBountyExternalUrl={setBountyExternalUrl}
         />
       </Modal>
       

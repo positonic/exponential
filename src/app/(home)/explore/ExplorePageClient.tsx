@@ -139,7 +139,7 @@ export function ExplorePageClient() {
                 <Card
                   key={bounty.id}
                   component={Link}
-                  href={`/explore/${bounty.project?.slug ?? ""}?bounty=${bounty.id}`}
+                  href={`/explore/${bounty.project?.slug ?? ""}/bounties/${bounty.id}`}
                   withBorder
                   radius="md"
                   className="border-border-primary bg-surface-secondary transition-colors hover:bg-surface-hover"

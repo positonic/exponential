@@ -28,6 +28,15 @@ type Action = {
   tags?: Array<{ tag: { id: string; name: string; color: string } }>;
   assignees?: Array<{ user: { id: string; name: string | null; email: string | null; image: string | null } }>;
   lists?: Array<{ list: { id: string; name: string; listType: string } }>;
+  // Bounty fields
+  isBounty?: boolean;
+  bountyAmount?: { toNumber?: () => number } | number | null;
+  bountyToken?: string | null;
+  bountyDifficulty?: string | null;
+  bountySkills?: string[];
+  bountyDeadline?: Date | null;
+  bountyMaxClaimants?: number;
+  bountyExternalUrl?: string | null;
   [key: string]: unknown;
 };
 
@@ -54,6 +63,15 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
   const [epicId, setEpicId] = useState<string | null>(null);
   const [effortEstimate, setEffortEstimate] = useState<number | null>(null);
   const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
+  // Bounty fields
+  const [isBounty, setIsBounty] = useState(false);
+  const [bountyAmount, setBountyAmount] = useState<number | null>(null);
+  const [bountyToken, setBountyToken] = useState<string | null>(null);
+  const [bountyDifficulty, setBountyDifficulty] = useState<string | null>('beginner');
+  const [bountySkills, setBountySkills] = useState<string[]>([]);
+  const [bountyDeadline, setBountyDeadline] = useState<Date | null>(null);
+  const [bountyMaxClaimants, setBountyMaxClaimants] = useState(1);
+  const [bountyExternalUrl, setBountyExternalUrl] = useState<string | null>(null);
 
   const { workspaceSlug, workspaceId: contextWorkspaceId } = useWorkspace();
   const utils = api.useUtils();
@@ -133,6 +151,21 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       } else {
         setSelectedTagIds([]);
       }
+      // Load bounty fields
+      setIsBounty(currentAction.isBounty ?? false);
+      const rawAmount = currentAction.bountyAmount;
+      setBountyAmount(
+        rawAmount == null ? null
+          : typeof rawAmount === 'number' ? rawAmount
+          : typeof rawAmount === 'object' && rawAmount && 'toNumber' in rawAmount ? (rawAmount as { toNumber: () => number }).toNumber()
+          : Number(rawAmount) || null
+      );
+      setBountyToken(currentAction.bountyToken ?? null);
+      setBountyDifficulty(currentAction.bountyDifficulty ?? 'beginner');
+      setBountySkills(currentAction.bountySkills ?? []);
+      setBountyDeadline(currentAction.bountyDeadline ? new Date(currentAction.bountyDeadline) : null);
+      setBountyMaxClaimants(currentAction.bountyMaxClaimants ?? 1);
+      setBountyExternalUrl(currentAction.bountyExternalUrl ?? null);
     }
   }, [currentAction?.id, opened]);
 
@@ -148,11 +181,12 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       // Optimistically update the action in cache
       utils.action.getAll.setData(undefined, (old) => {
         if (!old) return old;
-        return old.map(action =>
-          action.id === updatedAction.id
-            ? { ...action, ...updatedAction }
-            : action
-        );
+        return old.map(action => {
+          if (action.id !== updatedAction.id) return action;
+          // Spread update but preserve original bountyAmount (Decimal type)
+          // to avoid type mismatch with optimistic number values
+          return { ...action, ...updatedAction, bountyAmount: action.bountyAmount };
+        });
       });
 
       return { previousActions };
@@ -262,6 +296,15 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       epicId: epicId,
       effortEstimate: effortEstimate,
       blockedByIds: blockedByIds,
+      // Bounty fields
+      isBounty,
+      bountyAmount,
+      bountyToken,
+      bountyDifficulty: bountyDifficulty as "beginner" | "intermediate" | "advanced" | null | undefined,
+      bountySkills: bountySkills,
+      bountyDeadline,
+      bountyMaxClaimants,
+      bountyExternalUrl,
     });
   };
 
@@ -328,6 +371,22 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
           blockedByIds,
           setBlockedByIds,
         } : {})}
+        isBounty={isBounty}
+        setIsBounty={setIsBounty}
+        bountyAmount={bountyAmount}
+        setBountyAmount={setBountyAmount}
+        bountyToken={bountyToken}
+        setBountyToken={setBountyToken}
+        bountyDifficulty={bountyDifficulty}
+        setBountyDifficulty={setBountyDifficulty}
+        bountySkills={bountySkills}
+        setBountySkills={setBountySkills}
+        bountyDeadline={bountyDeadline}
+        setBountyDeadline={setBountyDeadline}
+        bountyMaxClaimants={bountyMaxClaimants}
+        setBountyMaxClaimants={setBountyMaxClaimants}
+        bountyExternalUrl={bountyExternalUrl}
+        setBountyExternalUrl={setBountyExternalUrl}
       />
     </Modal>
 
