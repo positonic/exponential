@@ -1,113 +1,148 @@
 # Exponential.im
 
-A personal productivity and project management system built with the T3 Stack.
+An open-source productivity and project management platform built with the T3 Stack. Manage projects, track goals and outcomes, plan your day with AI, and collaborate across workspaces.
 
 ## Features
 
-- 🚀 Project Management
-  - Create and track projects with status, priority, and progress
-  - Set review dates and next action dates
-  - Organize projects with custom priorities
+- **Project Management** - Create and track projects with status, priority, and progress across workspaces
+- **Action Management** - Flexible task system with priorities, tags, and project linking
+- **Goals & Outcomes** - Hierarchical goal-outcome-action alignment (daily/weekly/monthly/quarterly)
+- **Daily Planning** - Journal system with reflection, planning tools, and daily scoring
+- **AI Assistant** - Chat interface powered by Mastra agents with semantic video search
+- **Meetings** - Calendar integration with transcription and auto-generated action items
+- **CRM** - Contact/organization management, deal pipeline (Kanban), Gmail/Calendar import
+- **Workspaces** - Organize everything by team or client (personal, team, organization)
+- **Bounty System** - Attach bounties to actions for open-source contributors *(coming soon)*
 
-- ⚡ Action Management
-  - Create and track actions linked to projects
-  - Flexible priority system (Quick, Scheduled, Priority levels 1-5, etc.)
-  - Smart action organization and filtering
-    
 <img width="1709" alt="image" src="https://github.com/user-attachments/assets/bbc16660-53c9-4bf1-ac87-af756ad3ec8c" />
 
-- 🤖 AI Assistant
-  - Built-in chat interface for task management
-  - Semantic video search capabilities
-  - YouTube video processing and analysis
-    
 <img width="1713" alt="image" src="https://github.com/user-attachments/assets/5a7fd477-64f2-4e4a-9768-5bf237b3ce28" />
 
 ## Tech Stack
 
-- **Framework**: [Next.js 15](https://nextjs.org/)
-- **Authentication**: [NextAuth.js](https://next-auth.js.org/) with Discord provider
-- **Database**: PostgreSQL with [Prisma](https://prisma.io)
-- **API**: [tRPC](https://trpc.io) for end-to-end typesafe APIs
-- **UI**: 
-  - [Mantine](https://mantine.dev/) for components
-  - [Tailwind CSS](https://tailwindcss.com) for styling
-- **Deployment**: Ready for [Vercel](https://vercel.com)
+- **Framework**: [Next.js 15](https://nextjs.org/) with App Router
+- **Language**: TypeScript (strict mode)
+- **Authentication**: [NextAuth.js v5](https://authjs.dev/) (Discord, Google, Microsoft, Notion, Email)
+- **Database**: PostgreSQL with [Prisma ORM](https://prisma.io)
+- **API**: [tRPC](https://trpc.io) for end-to-end type-safe APIs
+- **UI**: [Mantine v7](https://mantine.dev/) + [Tailwind CSS](https://tailwindcss.com)
+- **AI**: OpenAI, Langchain, [Mastra](https://mastra.ai/) multi-agent system
+- **Testing**: Vitest with Testcontainers for integration tests
+- **Deployment**: [Vercel](https://vercel.com)
 
 ## Getting Started
 
-1. Clone the repository
-2. Install dependencies:
+### Prerequisites
 
-```bash
-npm install
-```
+- **Node.js** >= 20
+- **npm** >= 10
+- **PostgreSQL** (local or remote)
 
-3. Copy `.env.example` to `.env` and fill in the required environment variables:
-```
-DATABASE_URL=
-AUTH_SECRET=
-AUTH_DISCORD_ID=
-AUTH_DISCORD_SECRET=
-```
+### Setup
 
-4. Initialize the database:
-```bash
-npm run db:push
-```
+1. **Clone the repository**
 
-5. Start the development server:
-```bash
-npm run dev
-```
+   ```bash
+   git clone https://github.com/positonic/exponential.git
+   cd exponential
+   ```
 
-## Environment Variables
+2. **Install dependencies**
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `AUTH_SECRET` | NextAuth.js secret |
-| `AUTH_DISCORD_ID` | Discord OAuth client ID |
-| `AUTH_DISCORD_SECRET` | Discord OAuth client secret |
+   ```bash
+   npm install
+   ```
+
+3. **Configure environment variables**
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+   Edit `.env.local` and fill in the required values. At minimum:
+
+   | Variable | Description |
+   |----------|-------------|
+   | `DATABASE_URL` | PostgreSQL connection string |
+   | `AUTH_SECRET` | Generate with `npx auth secret` |
+   | OAuth provider | At least one: Discord, Google, Microsoft, or Notion |
+
+   See [.env.example](.env.example) for all available configuration options.
+
+4. **Set up the database**
+
+   ```bash
+   npx prisma migrate dev
+   ```
+
+5. **Start the development server**
+
+   ```bash
+   npm run dev
+   ```
+
+   Open [http://localhost:3000](http://localhost:3000).
 
 ## Scripts
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run db:push` - Push database schema changes
-- `npm run db:studio` - Open Prisma Studio
-- `npm run lint` - Run ESLint
-- `npm run format:write` - Format code with Prettier
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start dev server (Turbopack) |
+| `npm run build` | Production build |
+| `npm run start` | Start production server |
+| `npm run check` | Lint + type check (run before committing) |
+| `npm run lint:fix` | Auto-fix ESLint issues |
+| `npm run format:write` | Format with Prettier |
+| `npm run test` | Run unit tests |
+| `npm run test:integration` | Run integration tests (requires Docker) |
+| `npm run test:all` | Run all tests |
+| `npx prisma migrate dev` | Create/apply database migrations |
+| `npx prisma studio` | Open Prisma Studio GUI |
 
 ## Project Structure
 
 ```
 src/
-├── app/                 # Next.js app directory
-│   ├── _components/    # Shared components
-│   ├── actions/        # Actions page
-│   ├── projects/       # Projects page
-│   └── api/           # API routes
-├── server/             # Server-side code
-│   ├── api/           # tRPC routers
-│   ├── auth/          # Authentication configuration
-│   └── db.ts          # Database client
-├── styles/            # Global styles
-└── utils/             # Utility functions
+├── app/                        # Next.js App Router
+│   ├── (home)/                 # Landing page & auth
+│   ├── (sidemenu)/             # Main authenticated app
+│   │   └── w/[workspaceSlug]/  # Workspace-scoped routes
+│   │       ├── projects/       #   Project management
+│   │       ├── actions/        #   Action/task tracking
+│   │       ├── goals/          #   Goal setting
+│   │       ├── outcomes/       #   Outcome tracking
+│   │       ├── crm/            #   CRM pipeline
+│   │       ├── meetings/       #   Meeting notes
+│   │       └── settings/       #   Workspace settings
+│   ├── _components/            # Shared components
+│   └── api/                    # API routes & tRPC
+├── providers/                  # React context providers
+├── server/                     # Server-side code
+│   ├── api/                    # tRPC routers
+│   ├── auth/                   # Authentication config
+│   ├── services/               # Business logic layer
+│   └── tools/                  # AI tools
+├── lib/                        # Shared utilities
+├── styles/                     # Global styles & theme
+└── types/                      # TypeScript definitions
 ```
 
 ## Contributing
 
-1. Fork the repository
-2. Create a new branch
-3. Make your changes
-4. Submit a pull request
+We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) for details on:
+
+- Development setup
+- Code style and linting rules
+- Pull request process
+- Claiming bounties
+- Database migration safety
+
+Please also review our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-MIT License
+[MIT](LICENSE)
 
 ## Acknowledgments
 
-This project was bootstrapped with [create-t3-app](https://create.t3.gg/).
+Built with [create-t3-app](https://create.t3.gg/) and the T3 Stack ecosystem.
