@@ -97,8 +97,39 @@ Migrations are essential for:
 - Rollback capabilities
 
 ### Testing
-- Always run `npm run check` before committing to ensure code quality
-- No specific test framework configured - check if tests exist before running
+
+Uses **Vitest** with a multi-project config (unit + integration). Tests run automatically in CI on every PR.
+
+**Commands:**
+- `npm run test` — Run unit tests (<1s, no dependencies)
+- `npm run test:integration` — Run integration tests (~75s, requires Docker/OrbStack)
+- `npm run test:all` — Run both unit and integration tests
+- `npm run check` — Lint + typecheck (always run before committing)
+
+**Unit tests** (`*.test.ts`) — pure function tests, no DB needed:
+- Access control permissions (`src/server/services/access/__tests__/`)
+- Parsing logic (`src/server/services/parsing/__tests__/`)
+- JWT utilities (`src/server/utils/__tests__/`)
+
+**Integration tests** (`*.integration.test.ts`) — real DB via Testcontainers:
+- tRPC router tests (`src/server/api/routers/__tests__/`)
+- Tests workspace, action, project, goal/outcome routers
+- Requires **Docker** (OrbStack recommended on macOS) OR `DATABASE_URL_TEST` env var
+
+**Writing new tests:**
+- Unit tests: add `*.test.ts` files anywhere, use `happy-dom` environment
+- Integration tests: add `*.integration.test.ts` files, use factories from `src/test/factories/`
+- Use `createTestCaller(userId)` from `src/test/trpc-helpers.ts` to call tRPC procedures
+- Use factory functions (`createUser`, `createWorkspace`, etc.) to set up test data
+
+**Key test infrastructure files:**
+- `vitest.config.ts` — multi-project config (unit + integration)
+- `src/test/test-db.ts` — Testcontainers PostgreSQL setup + cleanup
+- `src/test/integration-setup.ts` — mocks for Next.js/auth modules + DB lifecycle
+- `src/test/factories/index.ts` — test data factories (user, workspace, project, action, etc.)
+- `src/test/trpc-helpers.ts` — `createTestCaller()`, `createQueryCounter()`
+
+**CI:** GitHub Actions runs lint, unit tests, integration tests, and build on every PR (`.github/workflows/test.yml`)
 
 ### Deployment
 - **Automated Build Checks**: Pre-push git hook automatically runs `Vercel build` before pushing
