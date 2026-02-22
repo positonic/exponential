@@ -47,9 +47,6 @@ export class FetchBlockersStep implements IStepExecutor {
         project: {
           select: { name: true },
         },
-        blockedBy: {
-          select: { id: true },
-        },
       },
       orderBy: [
         { priority: "desc" },
@@ -70,7 +67,7 @@ export class FetchBlockersStep implements IStepExecutor {
         scheduledStart: action.scheduledStart,
         daysOverdue,
         priority: action.priority,
-        blockedByCount: action.blockedBy.length,
+        blockedByCount: action.blockedByIds.length,
       };
     });
 

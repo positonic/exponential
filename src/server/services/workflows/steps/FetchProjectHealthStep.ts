@@ -81,10 +81,16 @@ export class FetchProjectHealthStep implements IStepExecutor {
           },
         });
 
+        // Compute health score from available data (no healthScore field in schema yet)
+        const overdueRatio = openActions.length > 0
+          ? overdueActions.length / openActions.length
+          : 0;
+        const healthScore = Math.round(100 * (1 - overdueRatio));
+
         return {
           id: project.id,
           name: project.name,
-          healthScore: project.healthScore ?? 100,
+          healthScore,
           status: project.status,
           openActionsCount: openActions.length,
           overdueActionsCount: overdueActions.length,

@@ -24,7 +24,7 @@ interface ScheduledTask {
  */
 export class PMScheduler {
   private static instance: PMScheduler;
-  private tasks = new Map<string, cron.ScheduledTask>();
+  private tasks = new Map<string, ReturnType<typeof cron.schedule>>();
   private taskConfigs: ScheduledTask[] = [];
   private isRunning = false;
 
@@ -113,7 +113,6 @@ export class PMScheduler {
             console.error(`[PMScheduler] Error in task ${config.name}:`, error);
           }
         }, {
-          scheduled: true,
           timezone: 'Europe/Berlin', // TODO: Make this configurable per user
         });
 
@@ -140,7 +139,7 @@ export class PMScheduler {
     console.log('[PMScheduler] Stopping scheduler...');
 
     for (const [id, task] of this.tasks) {
-      task.stop();
+      void task.stop();
       console.log(`[PMScheduler] Stopped task: ${id}`);
     }
 
@@ -340,77 +339,49 @@ export class PMScheduler {
       },
     });
 
-    // Get projects updated this week
-    const projectsUpdated = await db.project.count({
-      where: {
-        updatedAt: {
-          gte: weekStart,
-          lte: today,
-        },
-      },
-    });
+    // TODO: Re-enable when Project.updatedAt field is added via migration
+    // const projectsUpdated = await db.project.count({
+    //   where: {
+    //     updatedAt: {
+    //       gte: weekStart,
+    //       lte: today,
+    //     },
+    //   },
+    // });
 
-    console.log(`[PMScheduler] Weekly summary: ${completedActions} actions completed, ${projectsUpdated} projects updated`);
+    console.log(`[PMScheduler] Weekly summary: ${completedActions} actions completed`);
 
     // TODO: Generate detailed weekly review and send to users
   }
 
   /**
    * Check project health scores
+   * TODO: Re-enable when Project.healthScore field is added via migration
    */
   private async checkProjectHealth(): Promise<void> {
-    const projects = await db.project.findMany({
-      where: {
-        status: 'ACTIVE',
-      },
-      select: {
-        id: true,
-        name: true,
-        healthScore: true,
-        createdById: true,
-      },
-    });
-
-    const unhealthyProjects = projects.filter(p => (p.healthScore ?? 100) < 50);
-
-    if (unhealthyProjects.length > 0) {
-      console.log(`[PMScheduler] ${unhealthyProjects.length} projects need attention:`);
-      for (const project of unhealthyProjects) {
-        console.log(`  - ${project.name} (health: ${project.healthScore ?? 'unknown'})`);
-      }
-    } else {
-      console.log('[PMScheduler] All projects healthy');
-    }
-
-    // TODO: Create alerts for unhealthy projects
+    // Commented out: requires Project.healthScore field (not yet in schema)
+    // const projects = await db.project.findMany({
+    //   where: { status: 'ACTIVE' },
+    //   select: { id: true, name: true, healthScore: true, createdById: true },
+    // });
+    // const unhealthyProjects = projects.filter(p => (p.healthScore ?? 100) < 50);
+    console.log('[PMScheduler] Project health check skipped (healthScore field not yet in schema)');
   }
 
   /**
    * Check for upcoming meetings and send prep reminders
+   * TODO: Re-enable when Meeting model is added via migration
    */
   private async checkUpcomingMeetings(): Promise<void> {
-    const now = new Date();
-    const inOneHour = addDays(now, 0);
-    inOneHour.setHours(now.getHours() + 1);
-
-    // Find meetings starting in the next hour
-    const upcomingMeetings = await db.meeting.findMany({
-      where: {
-        date: {
-          gte: now,
-          lte: inOneHour,
-        },
-      },
-      include: {
-        createdBy: true,
-        project: true,
-      },
-    });
-
-    if (upcomingMeetings.length > 0) {
-      console.log(`[PMScheduler] ${upcomingMeetings.length} meetings in the next hour`);
-      // TODO: Send prep reminders with meeting context
-    }
+    // Commented out: requires Meeting model (not yet in schema)
+    // const now = new Date();
+    // const inOneHour = addDays(now, 0);
+    // inOneHour.setHours(now.getHours() + 1);
+    // const upcomingMeetings = await db.meeting.findMany({
+    //   where: { date: { gte: now, lte: inOneHour } },
+    //   include: { createdBy: true, project: true },
+    // });
+    console.log('[PMScheduler] Meeting check skipped (Meeting model not yet in schema)');
   }
 
   // ============= Workflow-Based Tasks =============

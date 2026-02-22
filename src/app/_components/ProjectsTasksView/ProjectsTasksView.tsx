@@ -35,6 +35,7 @@ interface ActionTag {
 interface Project {
   id: string;
   name: string;
+  workspaceId?: string | null;
 }
 
 interface ActionData {
@@ -52,7 +53,7 @@ interface ActionData {
   isRecurring: boolean;
   projectId: string | null;
   workspaceId?: string | null;
-  project?: { workspaceId?: string | null } | null;
+  project?: Project | null;
   assignees: Assignee[];
   tags: ActionTag[];
   [key: string]: unknown;
