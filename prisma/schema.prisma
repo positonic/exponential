@@ -178,6 +178,14 @@ model User {
   dealsCreated                Deal[]                     @relation("DealCreatedBy")
   dealsAssigned               Deal[]                     @relation("DealAssignedTo")
   dealActivities              DealActivity[]             @relation("DealActivityUser")
+
+  // Contributor & Wallet fields (bounty board)
+  displayName                 String?
+  bio                         String?
+  contributorSkills           String[]                   @default([])
+  isContributor               Boolean                    @default(false)
+  wallets                     Wallet[]
+  bountyClaims                BountyClaim[]
 }
 
 model VerificationToken {
@@ -435,6 +443,18 @@ model Action {
   statusChanges          ActionStatusChange[]
   actionScreenshots      ActionScreenshot[]
 
+  // Bounty fields
+  isBounty               Boolean               @default(false)
+  bountyAmount           Decimal?
+  bountyToken            String?               // e.g. "USDC", "ETH"
+  bountyStatus           BountyStatus?
+  bountyDifficulty       String?               // "beginner", "intermediate", "advanced"
+  bountySkills           String[]              @default([])
+  bountyDeadline         DateTime?
+  bountyMaxClaimants     Int                   @default(1)
+  bountyExternalUrl      String?
+  bountyClaims           BountyClaim[]
+
   @@index([projectId])
   @@index([createdById])
   @@index([teamId])
@@ -447,6 +467,47 @@ model Action {
   @@index([isAutoScheduled])
   @@index([etaStatus])
   @@index([epicId])
+  @@index([isBounty])
+  @@index([bountyStatus])
+}
+
+model BountyClaim {
+  id              String      @id @default(cuid())
+  actionId        String
+  claimantId      String
+  status          ClaimStatus @default(ACTIVE)
+  submissionUrl   String?
+  submissionNotes String?
+  reviewNotes     String?
+  claimedAt       DateTime    @default(now())
+  submittedAt     DateTime?
+  reviewedAt      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  action          Action      @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  claimant        User        @relation(fields: [claimantId], references: [id])
+
+  @@unique([actionId, claimantId])
+  @@index([actionId])
+  @@index([claimantId])
+  @@index([status])
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String
+  address   String   @unique
+  chain     String?  // e.g. "ethereum", "solana", "polygon"
+  label     String?  // user-defined label, e.g. "Hardware wallet"
+  isPrimary Boolean  @default(false)
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model ActionAssignee {
@@ -1597,6 +1658,22 @@ enum EffortUnit {
   STORY_POINTS
   T_SHIRT
   HOURS
+}
+
+enum BountyStatus {
+  OPEN
+  IN_PROGRESS
+  IN_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum ClaimStatus {
+  ACTIVE
+  SUBMITTED
+  APPROVED
+  REJECTED
+  WITHDRAWN
 }
 
 // Team Weekly Planning Models
