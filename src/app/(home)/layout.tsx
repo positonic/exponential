@@ -21,6 +21,7 @@ import { getThemeDomain } from '~/config/site';
 import { mantineThemes } from '~/config/themes';
 import { ModalsProvider } from '@mantine/modals';
 import { Analytics } from '@vercel/analytics/next';
+import { GoogleAnalytics } from '@next/third-parties/google';
 import { FloatingFeedbackButton } from '~/app/_components/FloatingFeedbackButton';
 
 const domain = getThemeDomain();
@@ -82,6 +83,9 @@ export default async function HomeLayout({
                 <Notifications position="top-right" />
                 {children}
                 <Analytics />
+                {process.env.NEXT_PUBLIC_GA_ID && (
+                  <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+                )}
                 <FloatingFeedbackButton />
               </ModalsProvider>
             </MantineProvider>

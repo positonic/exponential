@@ -55,6 +55,7 @@
     "@mantine/tiptap": "^7.17.8",
     "@mastra/client-js": "^0.0.0-om-20260204032032",
     "@mastra/core": "^0.0.0-om-20260204032032",
+    "@next/third-parties": "^16.1.6",
     "@notionhq/client": "^4.0.1",
     "@octokit/rest": "^21.1.1",
     "@openai/realtime-api-beta": "github:simliai/openai-realtime-api-beta",

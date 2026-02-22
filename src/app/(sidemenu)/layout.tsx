@@ -19,6 +19,7 @@ import { AgentModalProvider } from '~/providers/AgentModalProvider';
 import { themes } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { Analytics } from '@vercel/analytics/next';
+import { GoogleAnalytics } from '@next/third-parties/google';
 import { FloatingChatButton } from '~/app/_components/FloatingChatButton';
 import { ColorSchemeScript } from '~/app/_components/layout/ColorSchemeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
@@ -58,6 +59,9 @@ export default async function RootLayout({
                       <Layout domain={domain}>
                         {children}
                         <Analytics />
+                        {process.env.NEXT_PUBLIC_GA_ID && (
+                          <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+                        )}
                       </Layout>
                       <FloatingChatButton />
                     </WorkspaceProvider>
