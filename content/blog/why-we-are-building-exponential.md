@@ -1,7 +1,7 @@
 ---
 title: "Why We're Building Exponential"
 description: "AI is creating more entrepreneurs than ever — but most people aren't ready. We're building the operating system where humans and AI actually get things done together."
-date: "2026-02-12"
+date: "2026-02-07"
 author: "Exponential Team"
 tags: ["building-in-public", "vision", "AI"]
 ---

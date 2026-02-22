@@ -1,7 +1,7 @@
 ---
 title: "Welcome to the Exponential Blog"
 description: "We're launching our blog to share insights on productivity, AI-powered project management, and building products as a solo founder."
-date: "2026-02-12"
+date: "2026-02-03"
 author: "Exponential Team"
 tags: ["announcement", "product"]
 ---
