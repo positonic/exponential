@@ -141,7 +141,7 @@ Please also review our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-[MIT](LICENSE)
+[AGPL-3.0](LICENSE) — see [LICENSING.md](LICENSING.md) for a plain-language explanation of what this means for users, contributors, and integrations.
 
 ## Acknowledgments
 

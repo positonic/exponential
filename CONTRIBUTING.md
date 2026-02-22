@@ -191,6 +191,10 @@ Open a [GitHub Issue](https://github.com/positonic/exponential/issues) with:
 - Browser/OS details if relevant
 - Screenshots or screen recordings when helpful
 
+## License
+
+By contributing to Exponential, you agree that your contributions are licensed under the [AGPL-3.0](LICENSE), the same license as the project. See [LICENSING.md](LICENSING.md) for a plain-language explanation.
+
 ## Questions?
 
 - Open a [Discussion](https://github.com/positonic/exponential/discussions) for general questions
