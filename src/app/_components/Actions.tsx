@@ -6,12 +6,15 @@ import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
 import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge, MultiSelect } from "@mantine/core";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { notifications } from "@mantine/notifications";
 import type { SchedulingSuggestionData } from "./SchedulingSuggestion";
 import { useActionDeepLink } from "~/hooks/useActionDeepLink";
+import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
@@ -38,6 +41,20 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const utils = api.useUtils();
   const { actionIdFromUrl, setActionId, clearActionId } = useActionDeepLink();
+  const detailedEnabled = useDetailedActionsEnabled(projectId);
+  const { workspace } = useWorkspace();
+  const actionsRouter = useRouter();
+
+  const handleActionOpen = useCallback(
+    (id: string) => {
+      if (detailedEnabled && workspace?.slug) {
+        actionsRouter.push(`/w/${workspace.slug}/actions/${id}`);
+      } else {
+        setActionId(id);
+      }
+    },
+    [detailedEnabled, workspace?.slug, actionsRouter, setActionId],
+  );
 
   // Mutation to award inbox processing bonus when overdue tasks are handled
   const markProcessedOverdue = api.dailyPlan.markProcessedOverdue.useMutation({
@@ -982,8 +999,8 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           onDismissSchedulingSuggestion={handleDismissSchedulingSuggestion}
           applyingSuggestionId={applyingSuggestionId}
           isLoading={projectId ? projectActionsQuery.isLoading : allActionsQuery.isLoading}
-          deepLinkActionId={actionIdFromUrl}
-          onActionOpen={setActionId}
+          deepLinkActionId={detailedEnabled ? null : actionIdFromUrl}
+          onActionOpen={handleActionOpen}
           onActionClose={clearActionId}
         />
       )}

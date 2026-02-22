@@ -24,7 +24,7 @@ import {
   Alert,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -74,6 +74,7 @@ export default function WorkspaceSettingsPage() {
   );
   const currentEffortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
   const advancedActionsEnabled = workspaceData?.enableAdvancedActions ?? false;
+  const detailedActionsEnabled = workspaceData?.enableDetailedActions ?? false;
 
   const updateAdvancedActionsMutation = api.workspace.update.useMutation({
     onSuccess: () => {
@@ -83,6 +84,20 @@ export default function WorkspaceSettingsPage() {
         message: advancedActionsEnabled
           ? 'Advanced action features have been disabled'
           : 'Advanced action features have been enabled',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+  });
+
+  const updateDetailedActionsMutation = api.workspace.update.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getBySlug.invalidate();
+      notifications.show({
+        title: 'Settings Updated',
+        message: detailedActionsEnabled
+          ? 'Detailed action pages have been disabled'
+          : 'Detailed action pages have been enabled',
         color: 'green',
         autoClose: 3000,
       });
@@ -463,6 +478,36 @@ export default function WorkspaceSettingsPage() {
           </Text>
         </Card>
         )}
+
+        {/* Detailed Action Pages */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Group justify="space-between" align="flex-start">
+            <Group gap="md">
+              <IconLayoutList size={24} className="text-text-muted" />
+              <div>
+                <Title order={3} className="text-text-primary">
+                  Detailed Action Pages
+                </Title>
+                <Text size="sm" className="text-text-muted" maw={500}>
+                  Enable full detail pages for actions with activity threads, comments,
+                  and a properties sidebar. Individual projects can override this setting.
+                </Text>
+              </div>
+            </Group>
+            <Switch
+              checked={detailedActionsEnabled}
+              onChange={(event) => {
+                if (!workspaceId) return;
+                updateDetailedActionsMutation.mutate({
+                  workspaceId,
+                  enableDetailedActions: event.currentTarget.checked,
+                });
+              }}
+              disabled={!canEdit || updateDetailedActionsMutation.isPending}
+              size="lg"
+            />
+          </Group>
+        </Card>
 
         {/* Plugins */}
         <Card

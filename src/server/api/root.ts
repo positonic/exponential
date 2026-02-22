@@ -57,6 +57,7 @@ import { sprintAnalyticsRouter } from "./routers/sprintAnalytics";
 import { briefingRouter } from "./routers/briefing";
 import { pmSchedulerRouter } from "./routers/pmScheduler";
 import { bountyRouter } from "./routers/bounty";
+import { actionCommentRouter } from "./routers/actionComment";
 // Plugin system
 import { pluginConfigRouter } from "./routers/pluginConfig";
 import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
@@ -124,6 +125,7 @@ export const appRouter = createTRPCRouter({
   briefing: briefingRouter,
   pmScheduler: pmSchedulerRouter,
   bounty: bountyRouter,
+  actionComment: actionCommentRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,

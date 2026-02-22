@@ -24,6 +24,7 @@ import {
   Badge,
   ActionIcon,
   Card,
+  SegmentedControl,
 } from "@mantine/core";
 import { api } from "~/trpc/react";
 import {
@@ -43,6 +44,7 @@ import {
   IconEdit,
   IconPlayerPlay,
   IconTrash,
+  IconLayoutList,
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
@@ -144,6 +146,25 @@ export function ProjectContent({
     };
   }, [projectId, project?.name, pathname, workspaceId, workspace?.name, workspace?.slug]);
   useRegisterPageContext(projectPageContext);
+  // Workspace data for detailed actions setting
+  const { data: workspaceData } = api.workspace.getBySlug.useQuery(
+    { slug: workspace?.slug ?? "" },
+    { enabled: !!workspace?.slug },
+  );
+  const workspaceDetailedEnabled = workspaceData?.enableDetailedActions ?? false;
+
+  const updateDetailedActionsMutation = api.project.update.useMutation({
+    onSuccess: () => {
+      void utils.project.getById.invalidate({ id: projectId });
+      notifications.show({
+        title: "Settings Updated",
+        message: "Detailed action pages setting has been updated",
+        color: "green",
+        autoClose: 3000,
+      });
+    },
+  });
+
   const { data: projectActions } = api.action.getProjectActions.useQuery({ projectId });
   const goalsQuery = api.goal.getProjectGoals.useQuery({ projectId });
   const outcomesQuery = api.outcome.getProjectOutcomes.useQuery({ projectId });
@@ -768,6 +789,53 @@ export function ProjectContent({
             />
           )}
           
+          {/* Detailed Action Pages Override */}
+          <Stack gap="xs">
+            <Group gap="xs" align="center">
+              <IconLayoutList size={16} className="text-brand-primary" />
+              <Text size="sm" fw={600} className="text-brand-primary">
+                ACTION DETAIL PAGES
+              </Text>
+            </Group>
+            <Card withBorder p="md" radius="lg" className="bg-surface-secondary border-border-primary">
+              <Stack gap="sm">
+                <Text size="sm" className="text-text-secondary">
+                  Override the workspace default for detailed action pages in this project.
+                </Text>
+                <SegmentedControl
+                  value={
+                    project?.enableDetailedActions == null
+                      ? "inherit"
+                      : project.enableDetailedActions
+                        ? "on"
+                        : "off"
+                  }
+                  onChange={(value) => {
+                    if (!project) return;
+                    const newValue = value === "inherit" ? null : value === "on";
+                    updateDetailedActionsMutation.mutate({
+                      id: project.id,
+                      name: project.name,
+                      status: project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
+                      priority: project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
+                      enableDetailedActions: newValue,
+                    });
+                  }}
+                  data={[
+                    {
+                      label: `Inherit (${workspaceDetailedEnabled ? "ON" : "OFF"})`,
+                      value: "inherit",
+                    },
+                    { label: "On", value: "on" },
+                    { label: "Off", value: "off" },
+                  ]}
+                  fullWidth
+                  disabled={updateDetailedActionsMutation.isPending}
+                />
+              </Stack>
+            </Card>
+          </Stack>
+
           {/* Team Members */}
           <Team projectId={projectId} />
         </Stack>

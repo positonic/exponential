@@ -277,10 +277,11 @@ export const projectRouter = createTRPCRouter({
         startDate: z.date().nullable().optional(),
         endDate: z.date().nullable().optional(),
         isPublic: z.boolean().optional(),
+        enableDetailedActions: z.boolean().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, lifeDomainIds, workspaceId, driId, isPublic, ...updateData } = input;
+      const { id, goalIds, outcomeIds, lifeDomainIds, workspaceId, driId, isPublic, enableDetailedActions, ...updateData } = input;
       
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -329,6 +330,8 @@ export const projectRouter = createTRPCRouter({
               : undefined,
           // Handle public visibility toggle
           ...(isPublic !== undefined ? { isPublic } : {}),
+          // Handle detailed actions override (null = inherit from workspace)
+          ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
         },
       });
     }),
