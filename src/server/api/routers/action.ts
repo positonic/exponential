@@ -10,6 +10,7 @@ import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
+import { uploadToBlob } from "~/lib/blob";
 
 // Helper to build permission check for user's accessible actions
 // Includes: action creator, assignees, and project membership (creator, member, team member)
@@ -2027,5 +2028,43 @@ export const actionRouter = createTRPCRouter({
         },
         orderBy: { name: "asc" },
       });
+    }),
+
+  // Save a screenshot and associate it with an action
+  saveScreenshot: apiKeyMiddleware
+    .input(
+      z.object({
+        actionId: z.string(),
+        screenshot: z.string(),
+        timestamp: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const filename = `screenshots/actions/${input.actionId}/${input.timestamp.replace(/[/:]/g, "-")}.png`;
+        const blob = await uploadToBlob(input.screenshot, filename);
+
+        const screenshot = await ctx.db.screenshot.create({
+          data: {
+            url: blob.url,
+            timestamp: input.timestamp,
+          },
+        });
+
+        await ctx.db.actionScreenshot.create({
+          data: {
+            actionId: input.actionId,
+            screenshotId: screenshot.id,
+          },
+        });
+
+        return { success: true, url: blob.url };
+      } catch (error) {
+        console.error("Error saving action screenshot:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to save screenshot",
+        });
+      }
     }),
 }); 

@@ -888,12 +888,12 @@ model TranscriptionSession {
 }
 
 model Screenshot {
-  id                     String               @id @default(cuid())
+  id                     String                @id @default(cuid())
   url                    String
   timestamp              String
-  transcriptionSessionId String
-  createdAt              DateTime             @default(now())
-  transcriptionSession   TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id])
+  transcriptionSessionId String?
+  createdAt              DateTime              @default(now())
+  transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
   actionScreenshots      ActionScreenshot[]
 }
 
