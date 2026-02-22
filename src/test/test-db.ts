@@ -21,7 +21,7 @@ export async function startTestDatabase(): Promise<PrismaClient> {
     connectionUrl = existingUrl;
   } else {
     // Locally, spin up a testcontainer
-    container = await new PostgreSqlContainer("postgres:16")
+    container = await new PostgreSqlContainer("pgvector/pgvector:pg16")
       .withDatabase("exponential_test")
       .withUsername("test")
       .withPassword("test")

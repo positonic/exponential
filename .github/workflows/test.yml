@@ -20,6 +20,7 @@ jobs:
       - run: npm run check
         env:
           SKIP_ENV_VALIDATION: true
+          NODE_OPTIONS: --max-old-space-size=4096
 
   unit-tests:
     name: Unit Tests
@@ -41,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
@@ -75,6 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SKIP_ENV_VALIDATION: true
+      AUTH_POSTMARK_KEY: test-key-for-ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
