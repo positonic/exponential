@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { api } from "~/trpc/react";
+import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
@@ -22,6 +23,18 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 // Module-level constants to avoid re-creation on every render
 const VIDEO_PATTERN = /\[Video ([a-zA-Z0-9_-]+)\]/g;
+const HTML_PATTERN = /<(table|thead|tbody|tr|td|th|p|div|ul|ol|li|h[1-6]|strong|em|br|a|blockquote|pre|code)[^>]*>/i;
+
+const HTML_SANITIZE_CONFIG = {
+  ALLOWED_TAGS: [
+    'p', 'div', 'span', 'br', 'a', 'strong', 'em', 'b', 'i', 'u', 's',
+    'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'blockquote', 'pre', 'code',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+  ],
+  ALLOWED_ATTR: ['href', 'target', 'rel'],
+  ALLOW_DATA_ATTR: false,
+};
 
 const MARKDOWN_COMPONENTS: Partial<Components> = {
   h1: ({children}) => <Text size="xl" fw={700} mb="sm">{children}</Text>,
@@ -62,6 +75,43 @@ const MARKDOWN_COMPONENTS: Partial<Components> = {
     >
       {children}
     </Box>
+  ),
+  table: ({children}) => (
+    <Box component="table" style={{ width: '100%', borderCollapse: 'collapse', margin: '8px 0', fontSize: '13px' }}>
+      {children}
+    </Box>
+  ),
+  thead: ({children}) => (
+    <Box component="thead" style={{ borderBottom: '2px solid var(--color-border-primary)' }}>
+      {children}
+    </Box>
+  ),
+  tbody: ({children}) => <tbody>{children}</tbody>,
+  tr: ({children}) => <Box component="tr">{children}</Box>,
+  th: ({children}) => (
+    <Box component="th" style={{
+      padding: '8px 12px',
+      textAlign: 'left' as const,
+      fontWeight: 600,
+      backgroundColor: 'var(--color-surface-secondary)',
+      color: 'var(--color-text-primary)',
+    }}>
+      {children}
+    </Box>
+  ),
+  td: ({children}) => (
+    <Box component="td" style={{
+      padding: '8px 12px',
+      borderBottom: '1px solid var(--color-border-secondary)',
+      color: 'var(--color-text-primary)',
+    }}>
+      {children}
+    </Box>
+  ),
+  a: ({children, href}) => (
+    <a href={href} style={{ color: 'var(--color-brand-primary)', textDecoration: 'none' }} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
   ),
 };
 
@@ -143,8 +193,19 @@ function renderMessageContent(content: string, messageType: string) {
     });
   }
 
+  // Detect HTML content from AI responses (tables, formatted paragraphs, etc.)
+  if (messageType === 'ai' && HTML_PATTERN.test(content)) {
+    const sanitizedHtml = DOMPurify.sanitize(content, HTML_SANITIZE_CONFIG);
+    return (
+      <div
+        className="chat-html-content"
+        dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+      />
+    );
+  }
+
   // For AI messages, check if content looks like markdown and render accordingly
-  if (messageType === 'ai' && (content.includes('###') || content.includes('**') || content.includes('- '))) {
+  if (messageType === 'ai' && (content.includes('###') || content.includes('**') || content.includes('- ') || content.includes('| ') || content.includes('```'))) {
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
