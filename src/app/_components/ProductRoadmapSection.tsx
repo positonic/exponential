@@ -92,7 +92,7 @@ export const ProductRoadmapSection: React.FC<ProductRoadmapSectionProps> = ({ id
     {
       status: 'in-progress',
       timeline: '3 months',
-      title: 'Phase 1: MVP for Solo Founders',
+      title: 'Phase 1: Core Coordination Layer',
       items: [
         'GitHub integration for issue tracking and milestone setting',
         'AI-driven task breakdown and prioritization',
@@ -108,7 +108,7 @@ export const ProductRoadmapSection: React.FC<ProductRoadmapSectionProps> = ({ id
         'Progress visualization and burn-down charts',
         'Feedback-driven AI iteration engine',
         'Automated weekly planning and retrospectives',
-        'Launch guided project templates for founders'
+        'Launch guided project templates for AI-first teams'
       ]
     },
     {
@@ -119,7 +119,7 @@ export const ProductRoadmapSection: React.FC<ProductRoadmapSectionProps> = ({ id
         'Multi-project workspace view',
         'Built-in mentor/peer feedback loops',
         'Marketplace for AI playbooks and workflows',
-        'Integrate with founder-focused accelerators and tools'
+        'Integrate with tools for AI-native organizations'
       ]
     }
   ];
@@ -132,7 +132,7 @@ export const ProductRoadmapSection: React.FC<ProductRoadmapSectionProps> = ({ id
             Product Roadmap
           </Title>
           <p className="text-gray-300 text-lg mb-8 max-w-[60%] mx-auto">
-            What we&apos;re building to help founders execute better and faster.
+            What we&apos;re building to help AI-first teams coordinate and ship faster.
           </p>
         </div>
 

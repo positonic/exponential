@@ -13,7 +13,7 @@ export function SocialProof({ className = "" }: SocialProofProps) {
   return (
     <div className={className}>
       <p className="text-text-muted text-sm font-medium mb-4">
-        Trusted by 50+ founders
+        Trusted by 50+ AI-first teams
       </p>
       <div className="flex items-center justify-center gap-6 md:gap-8 flex-wrap opacity-60">
         {companies.map((company, index) => (

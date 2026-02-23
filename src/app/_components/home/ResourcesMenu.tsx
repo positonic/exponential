@@ -70,8 +70,8 @@ export function ResourcesMenu() {
                     Blog
                   </p>
                   <p className="text-sm text-text-muted leading-snug mt-1">
-                    Insights on productivity, AI, and building products as a
-                    solo founder
+                    Insights on AI-native coordination, building products, and
+                    the future of human-AI teams
                   </p>
                 </div>
               </Link>

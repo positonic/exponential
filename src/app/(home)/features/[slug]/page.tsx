@@ -171,7 +171,7 @@ export default async function FeaturePage({ params }: FeaturePageProps) {
                 Ready to try {feature.title}?
               </h2>
               <p className="text-xl text-white/80 mb-10 max-w-xl mx-auto">
-                Join founders who&apos;ve moved beyond task management.
+                Join teams where humans and AI coordinate as one.
               </p>
               <CTAButton
                 href="/signin"

@@ -211,7 +211,7 @@ function generateWelcomeEmailContent(options: {
                 Here's what actually matters:
               </p>
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${appName} isn't a to-do list. It's an alignment layer. The difference is simple: to-do lists help you track what you're doing. ${appName} helps you know if any of it matters.
+                ${appName} isn't a to-do list. It's a coordination layer for AI-first teams. The difference is simple: to-do lists help you track what you're doing. ${appName} helps humans and AI work toward what actually matters.
               </p>
 
               <!-- Today section -->
@@ -296,7 +296,7 @@ I'm not going to pretend you need to watch 12 tutorial videos and set up the "pe
 
 HERE'S WHAT ACTUALLY MATTERS:
 
-${appName} isn't a to-do list. It's an alignment layer. The difference is simple: to-do lists help you track what you're doing. ${appName} helps you know if any of it matters.
+${appName} isn't a to-do list. It's a coordination layer for AI-first teams. The difference is simple: to-do lists help you track what you're doing. ${appName} helps humans and AI work toward what actually matters.
 
 TODAY, DO ONE THING:
 
