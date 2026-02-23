@@ -3,9 +3,19 @@ import {
   Text,
   Stack,
 } from "@mantine/core";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { SignInButtons } from "./SignInButtons";
 import { auth } from "~/server/auth";
+
+export const metadata: Metadata = {
+  title: "Sign In | Exponential",
+  description: "Sign in to Exponential with your Google or Discord account.",
+  robots: { index: false, follow: false },
+  alternates: {
+    canonical: "/signin",
+  },
+};
 
 export default async function SignIn() {
   const session = await auth();

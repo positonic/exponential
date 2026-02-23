@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { getAllBlogPosts } from "~/lib/blog/getBlogPost";
 
 export const metadata: Metadata = {
-  title: "Blog | Exponential",
+  title: "Blog | Exponential Blog",
   description:
     "Insights on productivity, AI-powered project management, and building products as a solo founder.",
 };

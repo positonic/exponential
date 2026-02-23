@@ -30,9 +30,13 @@ import { WorkspaceProvider } from '~/providers/WorkspaceProvider';
 const domain = getThemeDomain();
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://www.exponential.im'),
   title: themes[domain].branding.title,
   description: themes[domain].branding.description,
   icons: themes[domain].branding.icons,
+  alternates: {
+    canonical: './',
+  },
 };
 
 export default async function RootLayout({
