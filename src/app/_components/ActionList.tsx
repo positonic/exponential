@@ -176,6 +176,7 @@ export function ActionList({
   deepLinkActionId,
   onActionOpen,
   onActionClose,
+  onTagClick,
 }: {
   viewName: string,
   actions: Action[],
@@ -212,6 +213,7 @@ export function ActionList({
   deepLinkActionId?: string | null,
   onActionOpen?: (id: string) => void,
   onActionClose?: () => void,
+  onTagClick?: (tagId: string) => void,
 }) {
   const [filter, setFilter] = useState<"ACTIVE" | "COMPLETED">("ACTIVE");
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
@@ -910,6 +912,7 @@ export function ActionList({
                       tags={actionWithTags.tags.map(t => t.tag)}
                       maxDisplay={2}
                       size="xs"
+                      onTagClick={onTagClick}
                     />
                   );
                 }

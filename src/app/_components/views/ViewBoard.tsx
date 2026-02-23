@@ -357,6 +357,15 @@ export function ViewBoard({ workspaceId, viewConfig, deepLinkActionId, onActionO
     setLocalFilters({});
   };
 
+  const handleTagClick = useCallback((tagId: string) => {
+    setLocalFilters(prev => {
+      const currentTagIds = prev.tagIds ?? [];
+      if (currentTagIds.includes(tagId)) return prev;
+      return { ...prev, tagIds: [...currentTagIds, tagId] };
+    });
+    setShowFilters(true);
+  }, []);
+
   const handleViewChange = useCallback((view: ViewConfig) => {
     setActiveView(view);
     setLocalFilters(view.filters);
@@ -698,6 +707,7 @@ export function ViewBoard({ workspaceId, viewConfig, deepLinkActionId, onActionO
           deepLinkActionId={deepLinkActionId}
           onActionOpen={onActionOpen}
           onActionClose={onActionClose}
+          onTagClick={handleTagClick}
         />
       )}
 

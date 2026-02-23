@@ -10,14 +10,17 @@ interface TagBadgeProps {
   };
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   withTooltip?: boolean;
+  onClick?: (tagId: string) => void;
 }
 
-export function TagBadge({ tag, size = 'sm', withTooltip = false }: TagBadgeProps) {
+export function TagBadge({ tag, size = 'sm', withTooltip = false, onClick }: TagBadgeProps) {
   const badge = (
     <Badge
       size={size}
       variant="light"
       color={getTagMantineColor(tag.color)}
+      style={onClick ? { cursor: 'pointer' } : undefined}
+      onClick={onClick ? (e) => { e.stopPropagation(); onClick(tag.id); } : undefined}
     >
       {tag.name}
     </Badge>
@@ -25,7 +28,7 @@ export function TagBadge({ tag, size = 'sm', withTooltip = false }: TagBadgeProp
 
   if (withTooltip) {
     return (
-      <Tooltip label={tag.name}>
+      <Tooltip label={onClick ? `Filter by "${tag.name}"` : tag.name}>
         {badge}
       </Tooltip>
     );
@@ -43,9 +46,10 @@ interface TagBadgeListProps {
   }>;
   maxDisplay?: number;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  onTagClick?: (tagId: string) => void;
 }
 
-export function TagBadgeList({ tags, maxDisplay = 3, size = 'sm' }: TagBadgeListProps) {
+export function TagBadgeList({ tags, maxDisplay = 3, size = 'sm', onTagClick }: TagBadgeListProps) {
   if (!tags || tags.length === 0) return null;
 
   const displayTags = tags.slice(0, maxDisplay);
@@ -54,7 +58,7 @@ export function TagBadgeList({ tags, maxDisplay = 3, size = 'sm' }: TagBadgeList
   return (
     <>
       {displayTags.map((tag) => (
-        <TagBadge key={tag.id} tag={tag} size={size} />
+        <TagBadge key={tag.id} tag={tag} size={size} onClick={onTagClick} withTooltip={!!onTagClick} />
       ))}
       {overflowCount > 0 && (
         <Tooltip
