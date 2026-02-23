@@ -154,6 +154,7 @@ export function ActionList({
   onOverdueBulkReschedule,
   enableBulkEditForProject = false,
   onProjectBulkDelete,
+  onProjectBulkAssignProject,
   enableBulkEditForFocus = false,
   onFocusBulkDelete,
   onFocusBulkReschedule,
@@ -189,6 +190,7 @@ export function ActionList({
   onOverdueBulkReschedule?: (date: Date | null, actionIds: string[]) => void,
   enableBulkEditForProject?: boolean,
   onProjectBulkDelete?: (actionIds: string[]) => void,
+  onProjectBulkAssignProject?: (projectId: string, actionIds: string[]) => Promise<void>,
   enableBulkEditForFocus?: boolean,
   onFocusBulkDelete?: (actionIds: string[]) => void,
   onFocusBulkReschedule?: (date: Date | null, actionIds: string[]) => void,
@@ -224,6 +226,7 @@ export function ActionList({
   const [selectedOverdueActionIds, setSelectedOverdueActionIds] = useState<Set<string>>(new Set());
   const [bulkEditProjectMode, setBulkEditProjectMode] = useState(false);
   const [selectedProjectActionIds, setSelectedProjectActionIds] = useState<Set<string>>(new Set());
+  const [selectedProjectBulkProjectId, setSelectedProjectBulkProjectId] = useState<string | null>(null);
   const [bulkEditFocusMode, setBulkEditFocusMode] = useState(false);
   const [selectedFocusActionIds, setSelectedFocusActionIds] = useState<Set<string>>(new Set());
   const [bulkEditInboxMode, setBulkEditInboxMode] = useState(false);
@@ -271,7 +274,7 @@ export function ActionList({
 
   // Fetch projects for bulk assignment dropdown (when inbox or general bulk edit is enabled)
   const projectsQuery = api.project.getAll.useQuery(undefined, {
-    enabled: enableBulkEditForInbox || enableBulkEditForAll,
+    enabled: enableBulkEditForInbox || enableBulkEditForAll || enableBulkEditForProject,
   });
   
   const updateAction = api.action.update.useMutation({
@@ -586,6 +589,15 @@ export function ActionList({
       setSelectedProjectActionIds(new Set());
       setBulkEditProjectMode(false);
     }
+  };
+
+  const handleProjectBulkAssignProject = async () => {
+    if (selectedProjectActionIds.size === 0 || !selectedProjectBulkProjectId || !onProjectBulkAssignProject) return;
+
+    await onProjectBulkAssignProject(selectedProjectBulkProjectId, Array.from(selectedProjectActionIds));
+    setSelectedProjectActionIds(new Set());
+    setSelectedProjectBulkProjectId(null);
+    setBulkEditProjectMode(false);
   };
 
   // Helper functions for focus view bulk operations (today, this week, this month)
@@ -1278,7 +1290,7 @@ export function ActionList({
 
       {/* Bulk actions toolbar for project tasks */}
       {bulkEditProjectMode && enableBulkEditForProject && (
-        <Group mb="md" gap="sm">
+        <Group mb="md" gap="sm" wrap="wrap">
           <Button size="xs" variant="light" onClick={handleSelectAllProject}>
             Select All
           </Button>
@@ -1286,6 +1298,26 @@ export function ActionList({
             Select None
           </Button>
           <Badge>{selectedProjectActionIds.size} selected</Badge>
+          <Select
+            placeholder="Move to project"
+            size="xs"
+            data={projectsQuery.data?.map((p) => ({ value: p.id, label: p.name })) ?? []}
+            value={selectedProjectBulkProjectId}
+            onChange={setSelectedProjectBulkProjectId}
+            disabled={selectedProjectActionIds.size === 0}
+            clearable
+            searchable
+            w={180}
+          />
+          {selectedProjectBulkProjectId && selectedProjectActionIds.size > 0 && (
+            <Button
+              size="xs"
+              variant="filled"
+              onClick={() => void handleProjectBulkAssignProject()}
+            >
+              Move
+            </Button>
+          )}
           <Button
             size="xs"
             variant="filled"
