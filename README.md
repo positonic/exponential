@@ -1,5 +1,9 @@
 # Exponential.im
 
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://github.com/positonic/exponential/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/positonic/exponential)](https://github.com/positonic/exponential)
+[![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9D%A4-green)](https://github.com/positonic/exponential)
+
 An open-source productivity and project management platform built with the T3 Stack. Manage projects, track goals and outcomes, plan your day with AI, and collaborate across workspaces.
 
 ## Features
