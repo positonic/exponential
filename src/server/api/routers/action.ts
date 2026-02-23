@@ -2061,4 +2061,48 @@ export const actionRouter = createTRPCRouter({
         });
       }
     }),
+
+  // Upload an image from the web UI and associate it with an action
+  uploadImage: protectedProcedure
+    .input(
+      z.object({
+        actionId: z.string(),
+        base64Data: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const access = await getActionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.actionId,
+      );
+      if (!access || !canEditAction(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have permission to upload images to this action",
+        });
+      }
+
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[/:]/g, "-");
+      const filename = `screenshots/actions/${input.actionId}/${timestamp}.png`;
+      const blob = await uploadToBlob(input.base64Data, filename);
+
+      const screenshot = await ctx.db.screenshot.create({
+        data: {
+          url: blob.url,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      await ctx.db.actionScreenshot.create({
+        data: {
+          actionId: input.actionId,
+          screenshotId: screenshot.id,
+        },
+      });
+
+      return { url: blob.url };
+    }),
 }); 

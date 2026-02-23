@@ -41,7 +41,7 @@ export const actionCommentRouter = createTRPCRouter({
     .input(
       z.object({
         actionId: z.string(),
-        content: z.string().min(1).max(5000),
+        content: z.string().min(1).max(10000),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -104,7 +104,7 @@ export const actionCommentRouter = createTRPCRouter({
     .input(
       z.object({
         commentId: z.string(),
-        content: z.string().min(1).max(5000),
+        content: z.string().min(1).max(10000),
       }),
     )
     .mutation(async ({ ctx, input }) => {

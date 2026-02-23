@@ -1,7 +1,7 @@
 "use client";
 
-import { type ReactNode, useState } from "react";
-import { Text, Avatar, ActionIcon, Group, Textarea, Button, Badge } from "@mantine/core";
+import { useState } from "react";
+import { Text, Avatar, ActionIcon, Group, Textarea, Button } from "@mantine/core";
 import { IconTrash, IconPencil } from "@tabler/icons-react";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -10,6 +10,7 @@ import {
   getColorSeed,
   getTextColor,
 } from "~/utils/avatarColors";
+import { InlineImageRenderer } from "~/app/_components/shared/InlineImageRenderer";
 
 interface CommentAuthor {
   id: string;
@@ -31,56 +32,6 @@ interface CommentThreadProps {
   onEditComment?: (commentId: string, newContent: string) => Promise<void>;
   currentUserId?: string;
   mentionNames?: string[];
-}
-
-/** Mention pattern: @[Name Here] or @[Name Here](userId) */
-const MENTION_REGEX = /@\[([^\]]+)\](?:\([^)]+\))?/g;
-
-function renderCommentContent(
-  content: string,
-  mentionNames: string[],
-): ReactNode[] {
-  const mentionSet = new Set(mentionNames.map((n) => n.toLowerCase()));
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  // Reset regex state
-  MENTION_REGEX.lastIndex = 0;
-
-  while ((match = MENTION_REGEX.exec(content)) !== null) {
-    // Add text before match
-    if (match.index > lastIndex) {
-      parts.push(content.substring(lastIndex, match.index));
-    }
-
-    const name = match[1]!;
-    if (mentionSet.has(name.toLowerCase())) {
-      parts.push(
-        <Badge
-          key={`mention-${match.index}`}
-          size="xs"
-          variant="light"
-          color="blue"
-          className="mx-0.5 align-middle"
-        >
-          @{name}
-        </Badge>,
-      );
-    } else {
-      // Unknown mention — render as plain text with brackets
-      parts.push(match[0]);
-    }
-
-    lastIndex = match.index + match[0].length;
-  }
-
-  // Add remaining text
-  if (lastIndex < content.length) {
-    parts.push(content.substring(lastIndex));
-  }
-
-  return parts.length > 0 ? parts : [content];
 }
 
 /**
@@ -234,13 +185,12 @@ export function CommentThread({
                       </Group>
                     </div>
                   ) : (
-                    <Text
-                      size="sm"
-                      className="text-text-secondary whitespace-pre-wrap"
-                      component="div"
-                    >
-                      {renderCommentContent(comment.content, mentionNames)}
-                    </Text>
+                    <div className="text-sm text-text-secondary">
+                      <InlineImageRenderer
+                        content={comment.content}
+                        mentionNames={mentionNames}
+                      />
+                    </div>
                   )}
                 </div>
               </Group>

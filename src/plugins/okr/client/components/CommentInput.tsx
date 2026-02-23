@@ -9,12 +9,14 @@ import {
   type MentionCandidate,
 } from "~/hooks/useMentionAutocomplete";
 import { MentionDropdown } from "~/app/_components/MentionDropdown";
+import { useImagePaste } from "~/hooks/useImagePaste";
 
 interface CommentInputProps {
   onSubmit: (content: string) => Promise<void>;
   isSubmitting?: boolean;
   placeholder?: string;
   mentionCandidates?: MentionCandidate[];
+  actionId?: string;
 }
 
 /**
@@ -26,6 +28,7 @@ export function CommentInput({
   isSubmitting = false,
   placeholder = "Add a comment...",
   mentionCandidates,
+  actionId,
 }: CommentInputProps) {
   const hasMentions = mentionCandidates && mentionCandidates.length > 0;
   const [plainContent, setPlainContent] = useState("");
@@ -39,6 +42,14 @@ export function CommentInput({
   // The active content: use mention-managed text when mentions are enabled
   const content = hasMentions ? mention.text : plainContent;
   const setContent = hasMentions ? mention.setText : setPlainContent;
+
+  // Image paste handling
+  const { handlePaste: handleImagePaste, isUploading } = useImagePaste({
+    actionId: actionId ?? "",
+    onImageUploaded: (markdownRef) => {
+      setContent(content + markdownRef + " ");
+    },
+  });
 
   const handleSubmit = useCallback(async () => {
     const trimmedContent = content.trim();
@@ -124,11 +135,12 @@ export function CommentInput({
             value={content}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            onPaste={actionId ? handleImagePaste : undefined}
             placeholder={placeholder}
             minRows={2}
             maxRows={4}
             autosize
-            disabled={isSubmitting}
+            disabled={isSubmitting || isUploading}
             className="flex-1"
             styles={{
               input: {
@@ -171,6 +183,8 @@ export function CommentInput({
       </div>
       <p className="text-xs text-text-muted mt-1">
         Press Cmd+Enter to send{hasMentions ? " | @ to mention" : ""}
+        {actionId ? " | Paste images" : ""}
+        {isUploading ? " | Uploading image..." : ""}
       </p>
     </div>
   );

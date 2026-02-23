@@ -46,6 +46,8 @@ import { AssignActionModal } from "./AssignActionModal";
 import { DeadlinePicker } from "./DeadlinePicker";
 import { UnifiedDatePicker } from "./UnifiedDatePicker";
 import { TagSelector } from "./TagSelector";
+import { useImagePaste } from "~/hooks/useImagePaste";
+import { InlineImageRenderer } from "./shared/InlineImageRenderer";
 
 const KANBAN_STATUS_OPTIONS = [
   { value: "BACKLOG", label: "Backlog" },
@@ -114,6 +116,17 @@ export function ActionDetailContent({
   const [assignModalOpened, setAssignModalOpened] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // Image paste handling for description
+  const {
+    handlePaste: handleDescriptionPaste,
+    isUploading: isDescriptionUploading,
+  } = useImagePaste({
+    actionId,
+    onImageUploaded: (markdownRef) => {
+      setDescriptionValue((prev) => prev + "\n" + markdownRef + "\n");
+    },
+  });
 
   // Sync state when action loads
   useEffect(() => {
@@ -411,40 +424,45 @@ export function ActionDetailContent({
         {/* Description - Editable */}
         <div className="mb-8">
           {isEditingDescription ? (
-            <Textarea
-              value={descriptionValue}
-              onChange={(e) =>
-                setDescriptionValue(e.currentTarget.value)
-              }
-              onBlur={handleDescriptionSave}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setDescriptionValue(action.description ?? "");
-                  setIsEditingDescription(false);
+            <>
+              <Textarea
+                value={descriptionValue}
+                onChange={(e) =>
+                  setDescriptionValue(e.currentTarget.value)
                 }
-              }}
-              autoFocus
-              minRows={3}
-              maxRows={10}
-              autosize
-              classNames={{
-                input:
-                  "bg-surface-secondary border-border-primary text-text-primary",
-              }}
-              placeholder="Add a description..."
-            />
+                onBlur={handleDescriptionSave}
+                onPaste={handleDescriptionPaste}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setDescriptionValue(action.description ?? "");
+                    setIsEditingDescription(false);
+                  }
+                }}
+                autoFocus
+                minRows={3}
+                maxRows={10}
+                autosize
+                classNames={{
+                  input:
+                    "bg-surface-secondary border-border-primary text-text-primary",
+                }}
+                placeholder="Add a description..."
+              />
+              {isDescriptionUploading && (
+                <Text size="xs" className="text-text-muted mt-1">
+                  Uploading image...
+                </Text>
+              )}
+            </>
           ) : (
             <div
               className="min-h-[60px] cursor-text rounded p-2 -mx-2 hover:bg-surface-hover transition-colors"
               onClick={() => setIsEditingDescription(true)}
             >
               {action.description ? (
-                <Text
-                  className="text-text-secondary whitespace-pre-wrap"
-                  size="sm"
-                >
-                  {action.description}
-                </Text>
+                <div className="text-sm text-text-secondary">
+                  <InlineImageRenderer content={action.description} />
+                </div>
               ) : (
                 <Text className="text-text-muted" size="sm">
                   Add a description...
@@ -510,6 +528,7 @@ export function ActionDetailContent({
             isSubmitting={addCommentMutation.isPending}
             placeholder="Leave a comment... Use @ to mention"
             mentionCandidates={mentionCandidates}
+            actionId={actionId}
           />
         </div>
       </div>
