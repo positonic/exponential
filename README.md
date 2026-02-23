@@ -127,6 +127,39 @@ src/
 └── types/                      # TypeScript definitions
 ```
 
+## CLI & Integrations
+
+### Exponential CLI
+
+Manage actions, projects, and workspaces from the command line:
+
+```bash
+npm install -g exponential-cli
+exponential auth login --token <your-jwt> --api-url https://www.exponential.im
+exponential actions list
+exponential actions create -n "My task" -p <project-id>
+```
+
+See [exponential-cli](https://github.com/positonic/exponential-cli) for full docs.
+
+### OpenClaw (AI Agent)
+
+Give your AI agent access to Exponential via [OpenClaw](https://github.com/openclaw/openclaw):
+
+```bash
+npx clawhub install exponential
+```
+
+Your agent can then create tasks, manage kanban boards, and track projects through natural conversation.
+
+### Bounty API
+
+All bounties are machine-readable — no auth required to browse:
+
+- **REST API:** [`GET /api/bounties`](https://www.exponential.im/api/bounties)
+- **LLMs.txt:** [`/llms.txt`](https://www.exponential.im/llms.txt)
+- **RSS Feed:** [`/api/bounties/feed.xml`](https://www.exponential.im/api/bounties/feed.xml)
+
 ## Contributing
 
 We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) for details on:
