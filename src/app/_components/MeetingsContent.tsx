@@ -117,6 +117,8 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
   const [bulkProjectAssignment, setBulkProjectAssignment] = useState<string | null>(null);
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
+  // Per-meeting workspace selections (undefined = use session.workspaceId, null = cleared)
+  const [meetingWorkspaceSelections, setMeetingWorkspaceSelections] = useState<Record<string, string | null | undefined>>({});
   
   const shouldUseCachedTranscriptions = Boolean(workspaceId);
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery(
@@ -136,7 +138,8 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       staleTime: shouldUseCachedTranscriptions ? 5 * 60 * 1000 : undefined,
     }
   );
-  const { data: projects } = api.project.getAll.useQuery({ workspaceId });
+  const { data: projects } = api.project.getAll.useQuery({});
+  const { data: workspaces } = api.workspace.list.useQuery();
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const { data: webhookLogsData, isLoading: isLoadingLogs, refetch: refetchLogs } = api.transcription.getWebhookLogs.useQuery(
     { workspaceId, limit: 50 },
@@ -192,6 +195,19 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
         title: 'Project Assigned',
         message: 'Project assigned to this meeting',
         color: 'green',
+      });
+    },
+    onSettled: () => {
+      void utils.transcription.getAllTranscriptions.invalidate();
+    },
+  });
+
+  const assignWorkspaceMutation = api.transcription.assignWorkspace.useMutation({
+    onError: (err) => {
+      notifications.show({
+        title: 'Error',
+        message: err.message || 'Failed to assign workspace',
+        color: 'red',
       });
     },
     onSettled: () => {
@@ -385,6 +401,23 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
         autoProcess: false
       });
     }
+  };
+
+  const handleWorkspaceAssignment = (transcriptionId: string, newWorkspaceId: string | null) => {
+    setMeetingWorkspaceSelections(prev => ({ ...prev, [transcriptionId]: newWorkspaceId ?? null }));
+    assignWorkspaceMutation.mutate({ transcriptionId, workspaceId: newWorkspaceId });
+  };
+
+  const getWorkspaceForMeeting = (sessionId: string, sessionWorkspaceId: string | null | undefined) => {
+    return sessionId in meetingWorkspaceSelections
+      ? meetingWorkspaceSelections[sessionId]
+      : sessionWorkspaceId;
+  };
+
+  const getProjectsForMeeting = (sessionId: string, sessionWorkspaceId: string | null | undefined) => {
+    const wId = getWorkspaceForMeeting(sessionId, sessionWorkspaceId);
+    if (!wId) return [];
+    return (projects ?? []).filter(p => p.workspaceId === wId);
   };
 
   const handleSlackSummaryModal = (session: any) => {
@@ -775,19 +808,36 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                                 <Group gap="xs">
                                   <Select
                                     searchable
-                                    placeholder="Assign to project"
-                                    value={session.projectId || ''}
-                                    onChange={(value) => void handleProjectAssignment(session.id, value)}
+                                    placeholder="Assign to workspace"
+                                    value={getWorkspaceForMeeting(session.id, session.workspaceId) ?? ''}
+                                    onChange={(value) => handleWorkspaceAssignment(session.id, value || null)}
                                     data={[
-                                      { value: "", label: "No project" },
-                                      ...(projects?.map((p) => ({
-                                        value: p.id,
-                                        label: p.name,
-                                      })) || []),
+                                      { value: "", label: "No workspace" },
+                                      ...(workspaces?.map((w) => ({
+                                        value: w.id,
+                                        label: w.name,
+                                      })) ?? []),
                                     ]}
                                     size="sm"
-                                    style={{ minWidth: 200 }}
+                                    style={{ minWidth: 180 }}
                                   />
+                                  {getWorkspaceForMeeting(session.id, session.workspaceId) && (
+                                    <Select
+                                      searchable
+                                      placeholder="Assign to project (optional)"
+                                      value={session.projectId || ''}
+                                      onChange={(value) => void handleProjectAssignment(session.id, value)}
+                                      data={[
+                                        { value: "", label: "No project" },
+                                        ...getProjectsForMeeting(session.id, session.workspaceId).map((p) => ({
+                                          value: p.id,
+                                          label: p.name,
+                                        })),
+                                      ]}
+                                      size="sm"
+                                      style={{ minWidth: 200 }}
+                                    />
+                                  )}
 
                                   {/* Extract Actions Button - show when project assigned but not processed and has extractable actions */}
                                   {session.projectId && !session.processedAt && hasExtractableActions(session) && (

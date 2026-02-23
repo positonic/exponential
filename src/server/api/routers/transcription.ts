@@ -623,6 +623,49 @@ export const transcriptionRouter = createTRPCRouter({
       return { count: result.count };
     }),
 
+  assignWorkspace: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        workspaceId: z.string().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify ownership
+      const existing = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+        select: {
+          userId: true,
+          projectId: true,
+          project: { select: { workspaceId: true } },
+        },
+      });
+
+      if (!existing || existing.userId !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized" });
+      }
+
+      // Clear project if it doesn't belong to the new workspace
+      let projectId = existing.projectId;
+      if (input.workspaceId) {
+        if (existing.project?.workspaceId !== input.workspaceId) {
+          projectId = null;
+        }
+      } else {
+        // Clearing workspace also clears project
+        projectId = null;
+      }
+
+      return ctx.db.transcriptionSession.update({
+        where: { id: input.transcriptionId },
+        data: {
+          workspaceId: input.workspaceId,
+          projectId,
+          updatedAt: new Date(),
+        },
+      });
+    }),
+
   // Add to your transcriptionRouter
   saveScreenshot: apiKeyMiddleware
     .input(
