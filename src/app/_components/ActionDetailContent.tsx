@@ -90,12 +90,15 @@ export function ActionDetailContent({
   const [titleValue, setTitleValue] = useState("");
   const [descriptionValue, setDescriptionValue] = useState("");
   const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [assignModalOpened, setAssignModalOpened] = useState(false);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
 
   // Sync state when action loads
   useEffect(() => {
     if (action) {
       setTitleValue(action.name);
       setDescriptionValue(action.description ?? "");
+      setSelectedTagIds(action.tags?.map((t) => t.tag.id) ?? []);
     }
   }, [action]);
 
@@ -131,6 +134,13 @@ export function ActionDetailContent({
   const deleteCommentMutation = api.actionComment.deleteComment.useMutation({
     onSuccess: () => {
       void utils.actionComment.getComments.invalidate({ actionId });
+    },
+  });
+
+  const setTagsMutation = api.tag.setActionTags.useMutation({
+    onSuccess: () => {
+      void utils.action.getById.invalidate({ id: actionId });
+      void utils.action.getAll.invalidate();
     },
   });
 
@@ -171,6 +181,14 @@ export function ActionDetailContent({
       });
     },
     [action, updateStatus],
+  );
+
+  const handleTagChange = useCallback(
+    (tagIds: string[]) => {
+      setSelectedTagIds(tagIds);
+      setTagsMutation.mutate({ actionId, tagIds });
+    },
+    [actionId, setTagsMutation],
   );
 
   const handleAddComment = async (content: string) => {
@@ -222,6 +240,7 @@ export function ActionDetailContent({
   const statusColor = STATUS_COLORS[action.kanbanStatus ?? ""] ?? "gray";
 
   return (
+    <>
     <div className="flex h-[calc(100vh-60px)]">
       {/* Left Panel - Main Content */}
       <div className="flex-1 overflow-y-auto px-8 py-6">
@@ -401,6 +420,9 @@ export function ActionDetailContent({
               classNames={{
                 input: "text-text-primary font-medium",
               }}
+              styles={{
+                option: { paddingLeft: 12, paddingRight: 12 },
+              }}
             />
           </PropertyRow>
 
@@ -420,30 +442,38 @@ export function ActionDetailContent({
               classNames={{
                 input: "text-text-primary font-medium",
               }}
+              styles={{
+                option: { paddingLeft: 12, paddingRight: 12 },
+              }}
             />
           </PropertyRow>
 
           {/* Assignees */}
           <PropertyRow icon={<IconUser size={16} />} label="Assignees">
-            {action.assignees && action.assignees.length > 0 ? (
-              <Group gap="xs">
-                {action.assignees.map((a) => (
-                  <Tooltip key={a.user.id} label={a.user.name ?? a.user.email}>
-                    <Avatar
-                      src={a.user.image}
-                      size="sm"
-                      radius="xl"
-                    >
-                      {(a.user.name ?? a.user.email ?? "?")[0]?.toUpperCase()}
-                    </Avatar>
-                  </Tooltip>
-                ))}
-              </Group>
-            ) : (
-              <Text size="xs" className="text-text-muted">
-                Unassigned
-              </Text>
-            )}
+            <div
+              className="cursor-pointer rounded px-1 -mx-1 hover:bg-surface-hover transition-colors"
+              onClick={() => setAssignModalOpened(true)}
+            >
+              {action.assignees && action.assignees.length > 0 ? (
+                <Group gap="xs">
+                  {action.assignees.map((a) => (
+                    <Tooltip key={a.user.id} label={a.user.name ?? a.user.email}>
+                      <Avatar
+                        src={a.user.image}
+                        size="sm"
+                        radius="xl"
+                      >
+                        {(a.user.name ?? a.user.email ?? "?")[0]?.toUpperCase()}
+                      </Avatar>
+                    </Tooltip>
+                  ))}
+                </Group>
+              ) : (
+                <Text size="xs" className="text-text-muted">
+                  Unassigned
+                </Text>
+              )}
+            </div>
           </PropertyRow>
 
           {/* Project */}
@@ -467,6 +497,9 @@ export function ActionDetailContent({
               classNames={{
                 input: "text-text-primary font-medium",
               }}
+              styles={{
+                option: { paddingLeft: 12, paddingRight: 12 },
+              }}
               clearable
               placeholder="None"
               searchable
@@ -475,39 +508,20 @@ export function ActionDetailContent({
 
           {/* Due Date */}
           <PropertyRow icon={<IconCalendar size={16} />} label="Due Date">
-            <DatePickerInput
+            <DeadlinePicker
               value={action.dueDate ? new Date(action.dueDate) : null}
               onChange={(date) => handlePropertyUpdate("dueDate", date)}
-              size="xs"
-              variant="unstyled"
-              classNames={{
-                input: "text-text-primary font-medium",
-              }}
-              placeholder="No due date"
-              clearable
+              notificationContext="action"
             />
           </PropertyRow>
 
           {/* Tags */}
           <PropertyRow icon={<IconTag size={16} />} label="Tags">
-            {action.tags && action.tags.length > 0 ? (
-              <Group gap={4}>
-                {action.tags.map((t) => (
-                  <Badge
-                    key={t.tag.id}
-                    size="xs"
-                    variant="light"
-                    color={t.tag.color || "gray"}
-                  >
-                    {t.tag.name}
-                  </Badge>
-                ))}
-              </Group>
-            ) : (
-              <Text size="xs" className="text-text-muted">
-                No tags
-              </Text>
-            )}
+            <TagSelector
+              selectedTagIds={selectedTagIds}
+              onChange={handleTagChange}
+              workspaceId={workspace?.id}
+            />
           </PropertyRow>
 
           {/* Epic */}
@@ -543,6 +557,18 @@ export function ActionDetailContent({
         </Stack>
       </div>
     </div>
+    <AssignActionModal
+      opened={assignModalOpened}
+      onClose={() => {
+        setAssignModalOpened(false);
+        void utils.action.getById.invalidate({ id: actionId });
+      }}
+      actionId={action.id}
+      actionName={action.name}
+      projectId={action.projectId}
+      currentAssignees={action.assignees ?? []}
+    />
+    </>
   );
 }
 
