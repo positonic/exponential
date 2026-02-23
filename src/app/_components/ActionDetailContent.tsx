@@ -27,7 +27,6 @@ import {
   IconFlag,
   IconCircleDot,
 } from "@tabler/icons-react";
-import { DatePickerInput } from "@mantine/dates";
 import Link from "next/link";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
@@ -35,6 +34,9 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { PRIORITY_OPTIONS } from "~/types/action";
 import { CommentThread } from "~/plugins/okr/client/components/CommentThread";
 import { CommentInput } from "~/plugins/okr/client/components/CommentInput";
+import { AssignActionModal } from "./AssignActionModal";
+import { DeadlinePicker } from "./DeadlinePicker";
+import { TagSelector } from "./TagSelector";
 
 const KANBAN_STATUS_OPTIONS = [
   { value: "BACKLOG", label: "Backlog" },

@@ -393,9 +393,12 @@ export function ActionList({
   };
 
   const handleActionClick = (action: Action) => {
-    setSelectedAction(action);
-    setEditModalOpened(true);
-    onActionOpen?.(action.id);
+    if (onActionOpen) {
+      onActionOpen(action.id);
+    } else {
+      setSelectedAction(action);
+      setEditModalOpened(true);
+    }
   };
 
   // --- Filtering Logic --- 
