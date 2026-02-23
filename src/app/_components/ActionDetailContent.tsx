@@ -17,6 +17,8 @@ import {
   Skeleton,
   Breadcrumbs,
   Anchor,
+  Image,
+  Modal,
 } from "@mantine/core";
 import {
   IconArrowLeft,
@@ -27,6 +29,9 @@ import {
   IconFolder,
   IconFlag,
   IconCircleDot,
+  IconPhoto,
+  IconChevronLeft,
+  IconChevronRight,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
@@ -108,6 +113,7 @@ export function ActionDetailContent({
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Sync state when action loads
   useEffect(() => {
@@ -448,6 +454,37 @@ export function ActionDetailContent({
           )}
         </div>
 
+        {/* Screenshots */}
+        {action.actionScreenshots && action.actionScreenshots.length > 0 && (
+          <div className="mb-8">
+            <Group gap="xs" mb="sm">
+              <IconPhoto size={16} className="text-text-muted" />
+              <Text className="text-text-primary font-semibold" size="sm">
+                Screenshots
+              </Text>
+              <Badge size="xs" variant="light" color="gray">
+                {action.actionScreenshots.length}
+              </Badge>
+            </Group>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {action.actionScreenshots.map((as, idx) => (
+                <div
+                  key={as.screenshot.id}
+                  className="cursor-pointer rounded-lg overflow-hidden border border-border-primary hover:border-brand-primary transition-colors"
+                  onClick={() => setLightboxIndex(idx)}
+                >
+                  <Image
+                    src={as.screenshot.url}
+                    alt={`Screenshot ${idx + 1}`}
+                    fit="cover"
+                    h={140}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <Divider className="border-border-primary" mb="lg" />
 
         {/* Activity / Discussion */}
@@ -657,6 +694,71 @@ export function ActionDetailContent({
         </Stack>
       </div>
     </div>
+    {/* Screenshot Lightbox */}
+    {action.actionScreenshots && action.actionScreenshots.length > 0 && (
+      <Modal
+        opened={lightboxIndex !== null}
+        onClose={() => setLightboxIndex(null)}
+        size="xl"
+        centered
+        withCloseButton={false}
+        classNames={{
+          body: "p-0",
+          content: "bg-transparent shadow-none",
+        }}
+        overlayProps={{ backgroundOpacity: 0.8 }}
+      >
+        {lightboxIndex !== null && (
+          <div className="relative">
+            <Image
+              src={action.actionScreenshots[lightboxIndex]?.screenshot.url}
+              alt={`Screenshot ${lightboxIndex + 1}`}
+              fit="contain"
+              radius="md"
+            />
+            {action.actionScreenshots.length > 1 && (
+              <>
+                <ActionIcon
+                  variant="filled"
+                  color="dark"
+                  size="lg"
+                  radius="xl"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 opacity-80 hover:opacity-100"
+                  onClick={() =>
+                    setLightboxIndex(
+                      (lightboxIndex - 1 + action.actionScreenshots.length) %
+                        action.actionScreenshots.length,
+                    )
+                  }
+                >
+                  <IconChevronLeft size={20} />
+                </ActionIcon>
+                <ActionIcon
+                  variant="filled"
+                  color="dark"
+                  size="lg"
+                  radius="xl"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 opacity-80 hover:opacity-100"
+                  onClick={() =>
+                    setLightboxIndex(
+                      (lightboxIndex + 1) % action.actionScreenshots.length,
+                    )
+                  }
+                >
+                  <IconChevronRight size={20} />
+                </ActionIcon>
+              </>
+            )}
+            <Text
+              size="xs"
+              className="text-text-muted text-center mt-2"
+            >
+              {lightboxIndex + 1} / {action.actionScreenshots.length}
+            </Text>
+          </div>
+        )}
+      </Modal>
+    )}
     <AssignActionModal
       opened={assignModalOpened}
       onClose={() => {

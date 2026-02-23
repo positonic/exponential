@@ -97,6 +97,11 @@ export const actionRouter = createTRPCRouter({
             },
           },
           epic: { select: { id: true, name: true, status: true } },
+          actionScreenshots: {
+            include: {
+              screenshot: { select: { id: true, url: true, timestamp: true } },
+            },
+          },
         },
       });
 
