@@ -203,7 +203,28 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   });
 
   const assignWorkspaceMutation = api.transcription.assignWorkspace.useMutation({
-    onError: (err) => {
+    onMutate: async ({ transcriptionId, workspaceId: newWorkspaceId }) => {
+      // Capture previous workspace selection before optimistic update
+      const previousWorkspaceSelection = meetingWorkspaceSelections[transcriptionId];
+
+      // Optimistically update state
+      setMeetingWorkspaceSelections(prev => ({ ...prev, [transcriptionId]: newWorkspaceId ?? null }));
+
+      return { previousWorkspaceSelection, transcriptionId };
+    },
+    onError: (err, _variables, context) => {
+      // Rollback optimistic update on error
+      if (context) {
+        setMeetingWorkspaceSelections(prev => {
+          const next = { ...prev };
+          if (context.previousWorkspaceSelection === undefined) {
+            delete next[context.transcriptionId];
+          } else {
+            next[context.transcriptionId] = context.previousWorkspaceSelection;
+          }
+          return next;
+        });
+      }
       notifications.show({
         title: 'Error',
         message: err.message || 'Failed to assign workspace',
@@ -404,7 +425,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   };
 
   const handleWorkspaceAssignment = (transcriptionId: string, newWorkspaceId: string | null) => {
-    setMeetingWorkspaceSelections(prev => ({ ...prev, [transcriptionId]: newWorkspaceId ?? null }));
     assignWorkspaceMutation.mutate({ transcriptionId, workspaceId: newWorkspaceId });
   };
 
