@@ -93,6 +93,12 @@ export function ActionDetailContent({
     staleTime: 5 * 60 * 1000,
   });
 
+  // Fetch teams linked to this workspace (for @mention of team members)
+  const { data: teamsForLinking } = api.workspace.getUserTeamsForLinking.useQuery(
+    { workspaceId: workspace?.id ?? "" },
+    { enabled: !!workspace?.id },
+  );
+
   // Local state for inline editing
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState("");
@@ -217,14 +223,39 @@ export function ActionDetailContent({
     await updateCommentMutation.mutateAsync({ commentId, content });
   };
 
-  // Build mention candidates from workspace members + agents
+  // Build mention candidates from workspace members + linked team members + agents
   const mentionCandidates: MentionCandidate[] = useMemo(() => {
-    const members: MentionCandidate[] = (workspace?.members ?? []).map((m) => ({
-      id: m.user.id,
-      name: m.user.name ?? m.user.email ?? "Unknown",
-      type: "member" as const,
-      image: m.user.image,
-    }));
+    const seenIds = new Set<string>();
+    const members: MentionCandidate[] = [];
+
+    // Direct workspace members
+    for (const m of workspace?.members ?? []) {
+      if (!seenIds.has(m.user.id)) {
+        seenIds.add(m.user.id);
+        members.push({
+          id: m.user.id,
+          name: m.user.name ?? m.user.email ?? "Unknown",
+          type: "member" as const,
+          image: m.user.image,
+        });
+      }
+    }
+
+    // Members from teams linked to this workspace
+    const linkedTeams = (teamsForLinking ?? []).filter((t) => t.isLinkedToThisWorkspace);
+    for (const team of linkedTeams) {
+      for (const tm of team.members) {
+        if (!seenIds.has(tm.user.id)) {
+          seenIds.add(tm.user.id);
+          members.push({
+            id: tm.user.id,
+            name: tm.user.name ?? tm.user.email ?? "Unknown",
+            type: "member" as const,
+            image: tm.user.image,
+          });
+        }
+      }
+    }
 
     const agents: MentionCandidate[] = (mastraAgents ?? []).map((a) => ({
       id: a.id,
@@ -234,7 +265,7 @@ export function ActionDetailContent({
     }));
 
     return [...members, ...agents];
-  }, [workspace?.members, mastraAgents]);
+  }, [workspace?.members, teamsForLinking, mastraAgents]);
 
   const mentionNames = useMemo(
     () => mentionCandidates.map((c) => c.name),
