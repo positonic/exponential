@@ -694,8 +694,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       return;
     }
 
-    // Enter submits, Shift+Enter inserts newline
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Submit on Enter, Cmd+Enter (macOS), or Ctrl+Enter (Windows/Linux)
+    // Shift+Enter inserts a newline
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
       e.preventDefault();
       const form = e.currentTarget.closest('form');
       if (form) form.requestSubmit();
