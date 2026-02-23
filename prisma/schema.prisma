@@ -188,6 +188,8 @@ model User {
   isContributor               Boolean                    @default(false)
   wallets                     Wallet[]
   bountyClaims                BountyClaim[]
+  // Notification override relations
+  workspaceNotificationOverrides WorkspaceNotificationOverride[]
 }
 
 model VerificationToken {
@@ -220,7 +222,8 @@ model Workspace {
   enableDetailedActions   Boolean     @default(false)
   enableBounties          Boolean     @default(false)
   enableDailyPlanBanner    Boolean     @default(true)
-  enableWeeklyReviewBanner Boolean     @default(true)
+  enableWeeklyReviewBanner  Boolean     @default(true)
+  enableEmailNotifications  Boolean     @default(true)
 
   owner             User                       @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members           WorkspaceUser[]
@@ -271,6 +274,8 @@ model Workspace {
   deals                    Deal[]
   // Integration relations
   integrations             Integration[]
+  // Notification override relations
+  notificationOverrides    WorkspaceNotificationOverride[]
 
   @@index([slug])
   @@index([ownerId])
@@ -1324,6 +1329,22 @@ model NotificationPreference {
 
   @@index([userId])
   @@index([enabled])
+}
+
+model WorkspaceNotificationOverride {
+  id                 String   @id @default(cuid())
+  userId             String
+  workspaceId        String
+  emailNotifications Boolean
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([userId])
+  @@index([workspaceId])
 }
 
 model NavigationPreference {

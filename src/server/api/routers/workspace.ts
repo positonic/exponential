@@ -252,6 +252,7 @@ export const workspaceRouter = createTRPCRouter({
         enableBounties: z.boolean().optional(),
         enableDailyPlanBanner: z.boolean().optional(),
         enableWeeklyReviewBanner: z.boolean().optional(),
+        enableEmailNotifications: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -283,6 +284,7 @@ export const workspaceRouter = createTRPCRouter({
           enableBounties: input.enableBounties,
           enableDailyPlanBanner: input.enableDailyPlanBanner,
           enableWeeklyReviewBanner: input.enableWeeklyReviewBanner,
+          enableEmailNotifications: input.enableEmailNotifications,
         },
       });
 

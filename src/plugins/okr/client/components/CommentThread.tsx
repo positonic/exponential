@@ -33,8 +33,8 @@ interface CommentThreadProps {
   mentionNames?: string[];
 }
 
-/** Mention pattern: @[Name Here] */
-const MENTION_REGEX = /@\[([^\]]+)\]/g;
+/** Mention pattern: @[Name Here] or @[Name Here](userId) */
+const MENTION_REGEX = /@\[([^\]]+)\](?:\([^)]+\))?/g;
 
 function renderCommentContent(
   content: string,

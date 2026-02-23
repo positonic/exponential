@@ -91,7 +91,7 @@ export function useMentionAutocomplete({
       const { triggerIndex } = mentionTrigger;
       const beforeTrigger = text.substring(0, triggerIndex);
       const afterCursor = text.substring(cursorPosition);
-      const insertion = `@[${candidate.name}] `;
+      const insertion = `@[${candidate.name}](${candidate.id}) `;
       const newText = beforeTrigger + insertion + afterCursor;
 
       setText(newText);
