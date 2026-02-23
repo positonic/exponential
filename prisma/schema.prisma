@@ -219,6 +219,8 @@ model Workspace {
   enableAdvancedActions   Boolean     @default(false)
   enableDetailedActions   Boolean     @default(false)
   enableBounties          Boolean     @default(false)
+  enableDailyPlanBanner    Boolean     @default(true)
+  enableWeeklyReviewBanner Boolean     @default(true)
 
   owner             User                       @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members           WorkspaceUser[]

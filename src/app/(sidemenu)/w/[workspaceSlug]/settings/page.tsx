@@ -24,7 +24,7 @@ import {
   Alert,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin, IconSun, IconCalendarCheck } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -76,6 +76,8 @@ export default function WorkspaceSettingsPage() {
   const advancedActionsEnabled = workspaceData?.enableAdvancedActions ?? false;
   const detailedActionsEnabled = workspaceData?.enableDetailedActions ?? false;
   const bountiesEnabled = workspaceData?.enableBounties ?? false;
+  const dailyPlanBannerEnabled = workspaceData?.enableDailyPlanBanner ?? true;
+  const weeklyReviewBannerEnabled = workspaceData?.enableWeeklyReviewBanner ?? true;
 
   const updateAdvancedActionsMutation = api.workspace.update.useMutation({
     onSuccess: () => {
@@ -113,6 +115,34 @@ export default function WorkspaceSettingsPage() {
         message: bountiesEnabled
           ? 'Bounties have been disabled'
           : 'Bounties have been enabled',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+  });
+
+  const updateDailyPlanBannerMutation = api.workspace.update.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getBySlug.invalidate();
+      notifications.show({
+        title: 'Settings Updated',
+        message: dailyPlanBannerEnabled
+          ? 'Daily plan banner has been disabled'
+          : 'Daily plan banner has been enabled',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+  });
+
+  const updateWeeklyReviewBannerMutation = api.workspace.update.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getBySlug.invalidate();
+      notifications.show({
+        title: 'Settings Updated',
+        message: weeklyReviewBannerEnabled
+          ? 'Weekly review banner has been disabled'
+          : 'Weekly review banner has been enabled',
         color: 'green',
         autoClose: 3000,
       });
@@ -549,6 +579,64 @@ export default function WorkspaceSettingsPage() {
                 });
               }}
               disabled={!canEdit || updateBountiesMutation.isPending}
+              size="lg"
+            />
+          </Group>
+        </Card>
+
+        {/* Daily Plan Banner */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Group justify="space-between" align="flex-start">
+            <Group gap="md">
+              <IconSun size={24} className="text-text-muted" />
+              <div>
+                <Title order={3} className="text-text-primary">
+                  Daily Plan Banner
+                </Title>
+                <Text size="sm" className="text-text-muted" maw={500}>
+                  Show a daily planning reminder on the home page when the daily plan has not been completed.
+                </Text>
+              </div>
+            </Group>
+            <Switch
+              checked={dailyPlanBannerEnabled}
+              onChange={(event) => {
+                if (!workspaceId) return;
+                updateDailyPlanBannerMutation.mutate({
+                  workspaceId,
+                  enableDailyPlanBanner: event.currentTarget.checked,
+                });
+              }}
+              disabled={!canEdit || updateDailyPlanBannerMutation.isPending}
+              size="lg"
+            />
+          </Group>
+        </Card>
+
+        {/* Weekly Review Banner */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Group justify="space-between" align="flex-start">
+            <Group gap="md">
+              <IconCalendarCheck size={24} className="text-text-muted" />
+              <div>
+                <Title order={3} className="text-text-primary">
+                  Weekly Review Banner
+                </Title>
+                <Text size="sm" className="text-text-muted" maw={500}>
+                  Show a weekly review reminder on the home page when the weekly review has not been completed.
+                </Text>
+              </div>
+            </Group>
+            <Switch
+              checked={weeklyReviewBannerEnabled}
+              onChange={(event) => {
+                if (!workspaceId) return;
+                updateWeeklyReviewBannerMutation.mutate({
+                  workspaceId,
+                  enableWeeklyReviewBanner: event.currentTarget.checked,
+                });
+              }}
+              disabled={!canEdit || updateWeeklyReviewBannerMutation.isPending}
               size="lg"
             />
           </Group>

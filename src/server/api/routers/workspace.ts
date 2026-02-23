@@ -250,6 +250,8 @@ export const workspaceRouter = createTRPCRouter({
         enableAdvancedActions: z.boolean().optional(),
         enableDetailedActions: z.boolean().optional(),
         enableBounties: z.boolean().optional(),
+        enableDailyPlanBanner: z.boolean().optional(),
+        enableWeeklyReviewBanner: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -279,6 +281,8 @@ export const workspaceRouter = createTRPCRouter({
           enableAdvancedActions: input.enableAdvancedActions,
           enableDetailedActions: input.enableDetailedActions,
           enableBounties: input.enableBounties,
+          enableDailyPlanBanner: input.enableDailyPlanBanner,
+          enableWeeklyReviewBanner: input.enableWeeklyReviewBanner,
         },
       });
 
