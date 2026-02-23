@@ -21,6 +21,7 @@ import {
 import {
   IconArrowLeft,
   IconCalendar,
+  IconClock,
   IconUser,
   IconTag,
   IconFolder,
@@ -38,6 +39,7 @@ import { CommentThread } from "~/plugins/okr/client/components/CommentThread";
 import { CommentInput } from "~/plugins/okr/client/components/CommentInput";
 import { AssignActionModal } from "./AssignActionModal";
 import { DeadlinePicker } from "./DeadlinePicker";
+import { UnifiedDatePicker } from "./UnifiedDatePicker";
 import { TagSelector } from "./TagSelector";
 
 const KANBAN_STATUS_OPTIONS = [
@@ -588,6 +590,27 @@ export function ActionDetailContent({
             <DeadlinePicker
               value={action.dueDate ? new Date(action.dueDate) : null}
               onChange={(date) => handlePropertyUpdate("dueDate", date)}
+              notificationContext="action"
+            />
+          </PropertyRow>
+
+          {/* Scheduled Start */}
+          <PropertyRow icon={<IconClock size={16} />} label="Scheduled">
+            <UnifiedDatePicker
+              value={action.scheduledStart ? new Date(action.scheduledStart) : null}
+              onChange={(date) => {
+                if (date) {
+                  const existing = action.scheduledStart ? new Date(action.scheduledStart) : null;
+                  const existingHours = existing?.getHours() ?? 9;
+                  const existingMinutes = existing?.getMinutes() ?? 0;
+                  const newDate = new Date(date);
+                  newDate.setHours(existingHours, existingMinutes, 0, 0);
+                  handlePropertyUpdate("scheduledStart", newDate);
+                } else {
+                  handlePropertyUpdate("scheduledStart", null);
+                }
+              }}
+              mode="single"
               notificationContext="action"
             />
           </PropertyRow>
