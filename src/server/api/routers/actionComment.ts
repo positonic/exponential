@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getActionAccess } from "~/server/services/access";
+import { sendMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
 
 function hasViewAccess(access: {
   isCreator: boolean;
@@ -56,7 +57,7 @@ export const actionCommentRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.actionComment.create({
+      const comment = await ctx.db.actionComment.create({
         data: {
           actionId: input.actionId,
           authorId: ctx.session.user.id,
@@ -66,6 +67,15 @@ export const actionCommentRouter = createTRPCRouter({
           author: { select: { id: true, name: true, image: true } },
         },
       });
+
+      // Fire-and-forget mention notifications
+      void sendMentionNotifications(ctx.db, {
+        actionId: input.actionId,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+      });
+
+      return comment;
     }),
 
   deleteComment: protectedProcedure

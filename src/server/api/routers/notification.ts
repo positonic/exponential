@@ -264,4 +264,97 @@ export const notificationRouter = createTRPCRouter({
         successRate: total > 0 ? Math.round((sent / total) * 100) : 0,
       };
     }),
+
+  // Get user's per-workspace email notification override
+  getWorkspaceOverride: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const override = await ctx.db.workspaceNotificationOverride.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+      });
+
+      const workspace = await ctx.db.workspace.findUnique({
+        where: { id: input.workspaceId },
+        select: { enableEmailNotifications: true, name: true },
+      });
+
+      return {
+        override,
+        workspaceDefault: workspace?.enableEmailNotifications ?? true,
+        workspaceName: workspace?.name ?? "",
+      };
+    }),
+
+  // Set or remove user's per-workspace email notification override
+  setWorkspaceOverride: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        emailNotifications: z.boolean().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.emailNotifications === null) {
+        await ctx.db.workspaceNotificationOverride.deleteMany({
+          where: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        });
+        return { status: "removed" as const };
+      }
+
+      return ctx.db.workspaceNotificationOverride.upsert({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+        update: { emailNotifications: input.emailNotifications },
+        create: {
+          userId: ctx.session.user.id,
+          workspaceId: input.workspaceId,
+          emailNotifications: input.emailNotifications,
+        },
+      });
+    }),
+
+  // Get all workspace overrides for the current user (for settings page)
+  getAllWorkspaceOverrides: protectedProcedure.query(async ({ ctx }) => {
+    const overrides = await ctx.db.workspaceNotificationOverride.findMany({
+      where: { userId: ctx.session.user.id },
+      include: {
+        workspace: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            enableEmailNotifications: true,
+          },
+        },
+      },
+    });
+
+    const memberships = await ctx.db.workspaceUser.findMany({
+      where: { userId: ctx.session.user.id },
+      include: {
+        workspace: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            enableEmailNotifications: true,
+          },
+        },
+      },
+    });
+
+    return { overrides, memberships };
+  }),
 });

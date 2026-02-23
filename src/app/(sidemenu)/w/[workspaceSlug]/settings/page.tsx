@@ -78,6 +78,7 @@ export default function WorkspaceSettingsPage() {
   const bountiesEnabled = workspaceData?.enableBounties ?? false;
   const dailyPlanBannerEnabled = workspaceData?.enableDailyPlanBanner ?? true;
   const weeklyReviewBannerEnabled = workspaceData?.enableWeeklyReviewBanner ?? true;
+  const emailNotificationsEnabled = workspaceData?.enableEmailNotifications ?? true;
 
   const updateAdvancedActionsMutation = api.workspace.update.useMutation({
     onSuccess: () => {
@@ -143,6 +144,20 @@ export default function WorkspaceSettingsPage() {
         message: weeklyReviewBannerEnabled
           ? 'Weekly review banner has been disabled'
           : 'Weekly review banner has been enabled',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+  });
+
+  const updateEmailNotificationsMutation = api.workspace.update.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getBySlug.invalidate();
+      notifications.show({
+        title: 'Settings Updated',
+        message: emailNotificationsEnabled
+          ? 'Email notifications have been disabled'
+          : 'Email notifications have been enabled',
         color: 'green',
         autoClose: 3000,
       });
@@ -637,6 +652,35 @@ export default function WorkspaceSettingsPage() {
                 });
               }}
               disabled={!canEdit || updateWeeklyReviewBannerMutation.isPending}
+              size="lg"
+            />
+          </Group>
+        </Card>
+
+        {/* Email Notifications */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Group justify="space-between" align="flex-start">
+            <Group gap="md">
+              <IconMail size={24} className="text-text-muted" />
+              <div>
+                <Title order={3} className="text-text-primary">
+                  Email Notifications
+                </Title>
+                <Text size="sm" className="text-text-muted" maw={500}>
+                  Send email notifications to members when they are assigned to actions or mentioned in comments. Members can override this in their personal notification settings.
+                </Text>
+              </div>
+            </Group>
+            <Switch
+              checked={emailNotificationsEnabled}
+              onChange={(event) => {
+                if (!workspaceId) return;
+                updateEmailNotificationsMutation.mutate({
+                  workspaceId,
+                  enableEmailNotifications: event.currentTarget.checked,
+                });
+              }}
+              disabled={!canEdit || updateEmailNotificationsMutation.isPending}
               size="lg"
             />
           </Group>

@@ -56,13 +56,10 @@ async function resolveActionWorkspace(
 ): Promise<{ workspaceId: string; workspaceSlug: string; workspaceName: string } | null> {
   const action = await db.action.findUnique({
     where: { id: actionId },
-    select: {
-      title: true,
-      workspaceId: true,
+    include: {
       workspace: { select: { id: true, slug: true, name: true } },
       project: {
-        select: {
-          workspaceId: true,
+        include: {
           workspace: { select: { id: true, slug: true, name: true } },
         },
       },
@@ -105,7 +102,7 @@ export async function sendAssignmentNotifications(
     const [action, assigner] = await Promise.all([
       db.action.findUnique({
         where: { id: actionId },
-        select: { title: true },
+        select: { name: true },
       }),
       db.user.findUnique({
         where: { id: assignerId },
@@ -142,7 +139,7 @@ export async function sendAssignmentNotifications(
           to: recipient.email,
           assigneeName: recipient.name ?? "",
           assignerName,
-          actionName: action.title,
+          actionName: action.name,
           actionUrl: urls.actionUrl,
           workspaceName: ws.workspaceName,
           personalSettingsUrl: urls.personalSettingsUrl,
@@ -233,7 +230,7 @@ export async function sendMentionNotifications(
     const [action, author, recipients] = await Promise.all([
       db.action.findUnique({
         where: { id: actionId },
-        select: { title: true },
+        select: { name: true },
       }),
       db.user.findUnique({
         where: { id: commentAuthorId },
@@ -270,7 +267,7 @@ export async function sendMentionNotifications(
           to: recipient.email,
           mentionedName: recipient.name ?? "",
           authorName,
-          actionName: action.title,
+          actionName: action.name,
           commentPreview,
           actionUrl: urls.actionUrl,
           workspaceName: ws.workspaceName,

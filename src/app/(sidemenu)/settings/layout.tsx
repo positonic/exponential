@@ -11,11 +11,13 @@ import {
   IconBrain,
   IconSparkles,
   IconRobot,
+  IconBell,
 } from '@tabler/icons-react';
 import { type Icon as TablerIcon } from '@tabler/icons-react';
 
 const SETTINGS_TABS = [
   { label: 'Profile', href: '/settings/profile', icon: IconUser },
+  { label: 'Notifications', href: '/settings/notifications', icon: IconBell },
   { label: 'Navigation', href: '/settings', icon: IconLayoutSidebar },
   { label: 'Appearance', href: '/settings/appearance', icon: IconPalette },
   { label: 'Integrations', href: '/settings/integrations', icon: IconPlug },

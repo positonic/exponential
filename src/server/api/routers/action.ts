@@ -11,6 +11,7 @@ import { startOfDay } from "date-fns";
 import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, buildActionAccessWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
+import { sendAssignmentNotifications } from "~/server/services/notifications/EmailNotificationService";
 
 
 export const actionRouter = createTRPCRouter({
@@ -1216,6 +1217,13 @@ export const actionRouter = createTRPCRouter({
           userId,
         })),
         skipDuplicates: true,
+      });
+
+      // Fire-and-forget email notifications for newly assigned users
+      void sendAssignmentNotifications(ctx.db, {
+        actionId: input.actionId,
+        assignedUserIds: input.userIds,
+        assignerId: ctx.session.user.id,
       });
 
       // Return updated action with assignees
