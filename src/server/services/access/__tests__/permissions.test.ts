@@ -212,10 +212,10 @@ describe("checkActionPermission", () => {
 // ── buildActionAccessWhere ───────────────────────────────────────────
 
 describe("buildActionAccessWhere", () => {
-  it("returns OR clause with 6 access paths", () => {
+  it("returns OR clause with 8 access paths", () => {
     const where = buildActionAccessWhere("user-123");
     expect(where).toHaveProperty("OR");
-    expect(where.OR).toHaveLength(6);
+    expect(where.OR).toHaveLength(8);
   });
 
   it("includes creator+unassigned path", () => {
@@ -236,6 +236,20 @@ describe("buildActionAccessWhere", () => {
   it("includes public project path", () => {
     const where = buildActionAccessWhere("user-123");
     expect(where.OR[5]).toEqual({ project: { isPublic: true } });
+  });
+
+  it("includes workspace member path", () => {
+    const where = buildActionAccessWhere("user-123");
+    expect(where.OR[6]).toEqual({
+      project: { workspace: { members: { some: { userId: "user-123" } } } },
+    });
+  });
+
+  it("includes team-based workspace member path", () => {
+    const where = buildActionAccessWhere("user-123");
+    expect(where.OR[7]).toEqual({
+      project: { workspace: { teams: { some: { members: { some: { userId: "user-123" } } } } } },
+    });
   });
 });
 

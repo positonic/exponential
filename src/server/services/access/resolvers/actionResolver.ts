@@ -121,6 +121,10 @@ export function buildActionAccessWhere(userId: string) {
       { project: { team: { members: { some: { userId } } } } },
       // Action belongs to a public project
       { project: { isPublic: true } },
+      // User is a direct workspace member
+      { project: { workspace: { members: { some: { userId } } } } },
+      // User is in a team linked to the workspace
+      { project: { workspace: { teams: { some: { members: { some: { userId } } } } } } },
     ],
   };
 }

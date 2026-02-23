@@ -8,28 +8,10 @@ import { PRIORITY_VALUES } from "~/types/priority";
 import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
-import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess } from "~/server/services/access";
+import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, buildActionAccessWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 
-// Helper to build permission check for user's accessible actions
-// Includes: action creator, assignees, and project membership (creator, member, team member)
-const buildUserActionPermissions = (userId: string) => ({
-  OR: [
-    // Created by user AND no assignees
-    { createdById: userId, assignees: { none: {} } },
-    // Assigned to user
-    { assignees: { some: { userId: userId } } },
-    // User is the project creator
-    { project: { createdById: userId } },
-    // User is a direct project member
-    { project: { projectMembers: { some: { userId: userId } } } },
-    // User is a member of the project's team
-    { project: { team: { members: { some: { userId: userId } } } } },
-    // Action belongs to a public project
-    { project: { isPublic: true } },
-  ],
-});
 
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure
@@ -38,7 +20,6 @@ export const actionRouter = createTRPCRouter({
       workspaceId: z.string().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
-    console.log("in getAll")
     const userId = ctx.session.user.id;
 
     // Base condition: show tasks I created (with no assignees) OR assigned to me
@@ -99,7 +80,7 @@ export const actionRouter = createTRPCRouter({
         where: {
           id: input.id,
           status: { notIn: ["DELETED", "DRAFT"] },
-          ...buildUserActionPermissions(userId),
+          ...buildActionAccessWhere(userId),
         },
         include: {
           project: true,
@@ -139,7 +120,7 @@ export const actionRouter = createTRPCRouter({
         where: {
           transcriptionSessionId: input.transcriptionId,
           status: { notIn: ["DELETED", "DRAFT"] },
-          ...buildUserActionPermissions(ctx.session.user.id),
+          ...buildActionAccessWhere(ctx.session.user.id),
         },
         include: {
           project: true,
@@ -595,7 +576,7 @@ export const actionRouter = createTRPCRouter({
       const action = await ctx.db.action.findFirst({
         where: {
           id: input.actionId,
-          ...buildUserActionPermissions(ctx.session.user.id),
+          ...buildActionAccessWhere(ctx.session.user.id),
         },
         select: {
           id: true,
@@ -1019,7 +1000,7 @@ export const actionRouter = createTRPCRouter({
       const result = await ctx.db.action.deleteMany({
         where: {
           id: { in: input.actionIds },
-          ...buildUserActionPermissions(ctx.session.user.id),
+          ...buildActionAccessWhere(ctx.session.user.id),
         },
       });
 
@@ -1043,7 +1024,7 @@ export const actionRouter = createTRPCRouter({
         await ctx.db.action.updateMany({
           where: {
             id: { in: input.actionIds },
-            ...buildUserActionPermissions(ctx.session.user.id),
+            ...buildActionAccessWhere(ctx.session.user.id),
           },
           data: {
             scheduledStart: input.dueDate,
@@ -1054,7 +1035,7 @@ export const actionRouter = createTRPCRouter({
         await ctx.db.action.updateMany({
           where: {
             id: { in: input.actionIds },
-            ...buildUserActionPermissions(ctx.session.user.id),
+            ...buildActionAccessWhere(ctx.session.user.id),
             OR: [
               { dueDate: null },
               { dueDate: { lt: input.dueDate } },
@@ -1069,7 +1050,7 @@ export const actionRouter = createTRPCRouter({
         await ctx.db.action.updateMany({
           where: {
             id: { in: input.actionIds },
-            ...buildUserActionPermissions(ctx.session.user.id),
+            ...buildActionAccessWhere(ctx.session.user.id),
           },
           data: {
             scheduledStart: null,
@@ -1094,7 +1075,7 @@ export const actionRouter = createTRPCRouter({
       const result = await ctx.db.action.updateMany({
         where: {
           id: { in: input.actionIds },
-          ...buildUserActionPermissions(ctx.session.user.id),
+          ...buildActionAccessWhere(ctx.session.user.id),
         },
         data: {
           projectId: input.projectId,
@@ -1152,7 +1133,7 @@ export const actionRouter = createTRPCRouter({
       const hasPermission = await ctx.db.action.findFirst({
         where: {
           id: input.actionId,
-          ...buildUserActionPermissions(ctx.session.user.id),
+          ...buildActionAccessWhere(ctx.session.user.id),
         },
         select: { id: true },
       });
@@ -1265,7 +1246,7 @@ export const actionRouter = createTRPCRouter({
           id: input.actionId,
           // For self-removal, just verify the action exists
           // For unassigning others, verify user has permission
-          ...(isSelfRemoval ? {} : buildUserActionPermissions(ctx.session.user.id)),
+          ...(isSelfRemoval ? {} : buildActionAccessWhere(ctx.session.user.id)),
         },
       });
 
