@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { getProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
 
 export const projectRouter = createTRPCRouter({
   // API endpoint for browser plugin - uses API key authentication
@@ -300,11 +301,17 @@ export const projectRouter = createTRPCRouter({
         counter++;
       }
       
+      // Check edit access (creator, workspace admin+, team admin+)
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, id);
+      if (!canEditProject(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have edit access to this project",
+        });
+      }
+
       return ctx.db.project.update({
-        where: {
-          id,
-          createdById: ctx.session.user.id,
-        },
+        where: { id },
         data: {
           ...updateData,
           slug,
