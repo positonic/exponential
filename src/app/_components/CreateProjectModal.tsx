@@ -76,9 +76,14 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const isOwner = !project || project.createdById === session?.user?.id;
   const cannotEditMessage = "Only the project owner can change this field";
 
-  // Fetch goals and outcomes for the select boxes
-  const { data: goals } = api.goal.getAllMyGoals.useQuery();
-  const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
+  // Fetch goals and outcomes for the select boxes (workspace-scoped when applicable)
+  const effectiveWorkspaceId = selectedWorkspaceId ?? currentWorkspaceId;
+  const { data: goals } = api.goal.getAllMyGoals.useQuery(
+    effectiveWorkspaceId ? { workspaceId: effectiveWorkspaceId } : undefined
+  );
+  const { data: outcomes } = api.outcome.getMyOutcomes.useQuery(
+    effectiveWorkspaceId ? { workspaceId: effectiveWorkspaceId } : undefined
+  );
   const { data: lifeDomains } = api.lifeDomain.getAllLifeDomains.useQuery();
 
   // Fetch workflows for Notion imports (only when we have a prefillNotionProjectId)
@@ -188,10 +193,20 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   });
 
   // Build goal data with create option
-  const goalData = goals?.map(goal => ({ 
-    value: goal.id.toString(), 
-    label: goal.title 
+  const goalData = goals?.map(goal => ({
+    value: goal.id.toString(),
+    label: goal.title
   })) ?? [];
+
+  // Merge in goals from the project prop that may not appear in the query results
+  if (project?.goals) {
+    const existingValues = new Set(goalData.map(g => g.value));
+    for (const goal of project.goals) {
+      if (!existingValues.has(goal.id.toString())) {
+        goalData.push({ value: goal.id.toString(), label: goal.title });
+      }
+    }
+  }
 
   // Add create option if there's a search value
   if (goalSearchValue.trim()) {
@@ -202,10 +217,20 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   }
 
   // Build outcome data with create option
-  const outcomeData = outcomes?.map(outcome => ({ 
-    value: outcome.id.toString(), 
-    label: outcome.description 
+  const outcomeData = outcomes?.map(outcome => ({
+    value: outcome.id.toString(),
+    label: outcome.description
   })) ?? [];
+
+  // Merge in outcomes from the project prop that may not appear in the query results
+  if (project?.outcomes) {
+    const existingValues = new Set(outcomeData.map(o => o.value));
+    for (const outcome of project.outcomes) {
+      if (!existingValues.has(outcome.id.toString())) {
+        outcomeData.push({ value: outcome.id.toString(), label: outcome.description });
+      }
+    }
+  }
 
   // Add create option if there's a search value
   if (outcomeSearchValue.trim()) {
