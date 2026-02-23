@@ -20,10 +20,22 @@ export const projectRouter = createTRPCRouter({
       }))
     }))
     .query(async ({ ctx, input }) => {
+      const userId = ctx.userId;
       const projects = await ctx.db.project.findMany({
         where: {
-          createdById: ctx.userId,
           ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          OR: [
+            // User is the project creator
+            { createdById: userId },
+            // User is a member of the project's team
+            { team: { members: { some: { userId } } } },
+            // User is a direct member of the workspace
+            { workspace: { members: { some: { userId } } } },
+            // User is a member of a team linked to the project's workspace
+            { workspace: { teams: { some: { members: { some: { userId } } } } } },
+            // Public projects (only when not filtering by workspace)
+            ...(!input?.workspaceId ? [{ isPublic: true }] : []),
+          ],
         },
         select: {
           id: true,
