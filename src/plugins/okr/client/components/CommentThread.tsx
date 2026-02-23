@@ -1,7 +1,8 @@
 "use client";
 
-import { Text, Avatar, ActionIcon, Group } from "@mantine/core";
-import { IconTrash } from "@tabler/icons-react";
+import { type ReactNode, useState } from "react";
+import { Text, Avatar, ActionIcon, Group, Textarea, Button, Badge } from "@mantine/core";
+import { IconTrash, IconPencil } from "@tabler/icons-react";
 import { formatDistanceToNow } from "date-fns";
 import {
   getAvatarColor,
@@ -20,23 +21,115 @@ interface Comment {
   id: string;
   content: string;
   createdAt: Date;
+  updatedAt?: Date;
   author: CommentAuthor;
 }
 
 interface CommentThreadProps {
   comments: Comment[];
   onDeleteComment?: (commentId: string) => void;
+  onEditComment?: (commentId: string, newContent: string) => Promise<void>;
   currentUserId?: string;
+  mentionNames?: string[];
+}
+
+/** Mention pattern: @[Name Here] */
+const MENTION_REGEX = /@\[([^\]]+)\]/g;
+
+function renderCommentContent(
+  content: string,
+  mentionNames: string[],
+): ReactNode[] {
+  const mentionSet = new Set(mentionNames.map((n) => n.toLowerCase()));
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  // Reset regex state
+  MENTION_REGEX.lastIndex = 0;
+
+  while ((match = MENTION_REGEX.exec(content)) !== null) {
+    // Add text before match
+    if (match.index > lastIndex) {
+      parts.push(content.substring(lastIndex, match.index));
+    }
+
+    const name = match[1]!;
+    if (mentionSet.has(name.toLowerCase())) {
+      parts.push(
+        <Badge
+          key={`mention-${match.index}`}
+          size="xs"
+          variant="light"
+          color="blue"
+          className="mx-0.5 align-middle"
+        >
+          @{name}
+        </Badge>,
+      );
+    } else {
+      // Unknown mention — render as plain text with brackets
+      parts.push(match[0]);
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (lastIndex < content.length) {
+    parts.push(content.substring(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : [content];
 }
 
 /**
  * Displays a thread of comments with author avatars and timestamps.
+ * Supports inline editing and @mention rendering.
  */
 export function CommentThread({
   comments,
   onDeleteComment,
+  onEditComment,
   currentUserId,
+  mentionNames = [],
 }: CommentThreadProps) {
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const startEditing = (comment: Comment) => {
+    setEditingCommentId(comment.id);
+    setEditContent(comment.content);
+  };
+
+  const cancelEditing = () => {
+    setEditingCommentId(null);
+    setEditContent("");
+  };
+
+  const saveEdit = async () => {
+    if (!editingCommentId || !editContent.trim() || !onEditComment) return;
+    setIsSaving(true);
+    try {
+      await onEditComment(editingCommentId, editContent.trim());
+      setEditingCommentId(null);
+      setEditContent("");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      cancelEditing();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      void saveEdit();
+    }
+  };
+
   if (comments.length === 0) {
     return (
       <Text size="sm" className="text-text-muted py-4 text-center">
@@ -53,7 +146,12 @@ export function CommentThread({
         const avatarBgColor = !author.image ? getAvatarColor(colorSeed) : undefined;
         const avatarTextColor = avatarBgColor ? getTextColor(avatarBgColor) : "white";
         const initial = getInitial(author.name, null);
-        const canDelete = !currentUserId || author.id === currentUserId;
+        const isOwnComment = currentUserId != null && author.id === currentUserId;
+        const isEditing = editingCommentId === comment.id;
+        const isEdited =
+          comment.updatedAt &&
+          new Date(comment.updatedAt).getTime() >
+            new Date(comment.createdAt).getTime() + 1000;
 
         return (
           <div
@@ -88,24 +186,90 @@ export function CommentThread({
                         addSuffix: true,
                       })}
                     </Text>
+                    {isEdited && (
+                      <Text size="xs" className="text-text-muted">
+                        (edited)
+                      </Text>
+                    )}
                   </Group>
-                  <Text size="sm" className="text-text-secondary whitespace-pre-wrap">
-                    {comment.content}
-                  </Text>
+
+                  {isEditing ? (
+                    <div>
+                      <Textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.currentTarget.value)}
+                        onKeyDown={handleEditKeyDown}
+                        minRows={2}
+                        maxRows={6}
+                        autosize
+                        autoFocus
+                        disabled={isSaving}
+                        styles={{
+                          input: {
+                            backgroundColor: "var(--surface-primary)",
+                            borderColor: "var(--border-focus)",
+                            color: "var(--text-primary)",
+                          },
+                        }}
+                      />
+                      <Group gap="xs" mt="xs">
+                        <Button
+                          size="xs"
+                          variant="filled"
+                          color="brand"
+                          onClick={() => void saveEdit()}
+                          loading={isSaving}
+                          disabled={!editContent.trim()}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="subtle"
+                          onClick={cancelEditing}
+                          disabled={isSaving}
+                        >
+                          Cancel
+                        </Button>
+                      </Group>
+                    </div>
+                  ) : (
+                    <Text
+                      size="sm"
+                      className="text-text-secondary whitespace-pre-wrap"
+                      component="div"
+                    >
+                      {renderCommentContent(comment.content, mentionNames)}
+                    </Text>
+                  )}
                 </div>
               </Group>
 
-              {canDelete && onDeleteComment && (
-                <ActionIcon
-                  variant="subtle"
-                  color="red"
-                  size="xs"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                  onClick={() => onDeleteComment(comment.id)}
-                  aria-label="Delete comment"
-                >
-                  <IconTrash size={14} />
-                </ActionIcon>
+              {isOwnComment && !isEditing && (
+                <Group gap={4} className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                  {onEditComment && (
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="xs"
+                      onClick={() => startEditing(comment)}
+                      aria-label="Edit comment"
+                    >
+                      <IconPencil size={14} />
+                    </ActionIcon>
+                  )}
+                  {onDeleteComment && (
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      size="xs"
+                      onClick={() => onDeleteComment(comment.id)}
+                      aria-label="Delete comment"
+                    >
+                      <IconTrash size={14} />
+                    </ActionIcon>
+                  )}
+                </Group>
               )}
             </Group>
           </div>

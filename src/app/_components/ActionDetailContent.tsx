@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Text,
@@ -28,9 +28,11 @@ import {
   IconCircleDot,
 } from "@tabler/icons-react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 import { PRIORITY_OPTIONS } from "~/types/action";
 import { CommentThread } from "~/plugins/okr/client/components/CommentThread";
 import { CommentInput } from "~/plugins/okr/client/components/CommentInput";
@@ -66,6 +68,7 @@ export function ActionDetailContent({
   workspaceSlug,
 }: ActionDetailContentProps) {
   const router = useRouter();
+  const { data: session } = useSession();
   const { workspace } = useWorkspace();
   const utils = api.useUtils();
 
@@ -84,6 +87,11 @@ export function ActionDetailContent({
 
   // Fetch projects for the dropdown
   const { data: projects } = api.project.getAll.useQuery();
+
+  // Fetch agents for @mention autocomplete
+  const { data: mastraAgents } = api.mastra.getMastraAgents.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+  });
 
   // Local state for inline editing
   const [editingTitle, setEditingTitle] = useState(false);
@@ -132,6 +140,12 @@ export function ActionDetailContent({
   });
 
   const deleteCommentMutation = api.actionComment.deleteComment.useMutation({
+    onSuccess: () => {
+      void utils.actionComment.getComments.invalidate({ actionId });
+    },
+  });
+
+  const updateCommentMutation = api.actionComment.updateComment.useMutation({
     onSuccess: () => {
       void utils.actionComment.getComments.invalidate({ actionId });
     },
@@ -198,6 +212,34 @@ export function ActionDetailContent({
   const handleDeleteComment = (commentId: string) => {
     deleteCommentMutation.mutate({ commentId });
   };
+
+  const handleEditComment = async (commentId: string, content: string) => {
+    await updateCommentMutation.mutateAsync({ commentId, content });
+  };
+
+  // Build mention candidates from workspace members + agents
+  const mentionCandidates: MentionCandidate[] = useMemo(() => {
+    const members: MentionCandidate[] = (workspace?.members ?? []).map((m) => ({
+      id: m.user.id,
+      name: m.user.name ?? m.user.email ?? "Unknown",
+      type: "member" as const,
+      image: m.user.image,
+    }));
+
+    const agents: MentionCandidate[] = (mastraAgents ?? []).map((a) => ({
+      id: a.id,
+      name: a.name,
+      type: "agent" as const,
+      image: null,
+    }));
+
+    return [...members, ...agents];
+  }, [workspace?.members, mastraAgents]);
+
+  const mentionNames = useMemo(
+    () => mentionCandidates.map((c) => c.name),
+    [mentionCandidates],
+  );
 
   if (isLoading) {
     return (
@@ -382,18 +424,22 @@ export function ActionDetailContent({
           </Text>
 
           <CommentThread
-            comments={comments.map((c: { id: string; content: string; createdAt: Date | string; author: { id: string; name: string | null; image: string | null } }) => ({
+            comments={comments.map((c: { id: string; content: string; createdAt: Date | string; updatedAt?: Date | string; author: { id: string; name: string | null; image: string | null } }) => ({
               ...c,
               createdAt: new Date(c.createdAt),
+              updatedAt: c.updatedAt ? new Date(c.updatedAt) : undefined,
             }))}
             onDeleteComment={handleDeleteComment}
-            currentUserId={action.createdBy?.id}
+            onEditComment={handleEditComment}
+            currentUserId={session?.user?.id}
+            mentionNames={mentionNames}
           />
 
           <CommentInput
             onSubmit={handleAddComment}
             isSubmitting={addCommentMutation.isPending}
-            placeholder="Leave a comment..."
+            placeholder="Leave a comment... Use @ to mention"
+            mentionCandidates={mentionCandidates}
           />
         </div>
       </div>

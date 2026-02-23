@@ -89,4 +89,35 @@ export const actionCommentRouter = createTRPCRouter({
         where: { id: input.commentId },
       });
     }),
+
+  updateComment: protectedProcedure
+    .input(
+      z.object({
+        commentId: z.string(),
+        content: z.string().min(1).max(5000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const comment = await ctx.db.actionComment.findFirst({
+        where: {
+          id: input.commentId,
+          authorId: ctx.session.user.id,
+        },
+      });
+
+      if (!comment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Comment not found or not yours",
+        });
+      }
+
+      return ctx.db.actionComment.update({
+        where: { id: input.commentId },
+        data: { content: input.content },
+        include: {
+          author: { select: { id: true, name: true, image: true } },
+        },
+      });
+    }),
 });
