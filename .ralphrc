@@ -1,0 +1,2 @@
+RALPH_RULES_FILE="$HOME/code/ai-tooling/ralph-rules-global.md"
+TEST_CMD="npm run check"
