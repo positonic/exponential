@@ -218,6 +218,7 @@ model Workspace {
   effortUnit              EffortUnit  @default(STORY_POINTS)
   enableAdvancedActions   Boolean     @default(false)
   enableDetailedActions   Boolean     @default(false)
+  enableBounties          Boolean     @default(false)
 
   owner             User                       @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members           WorkspaceUser[]
@@ -567,6 +568,7 @@ model Project {
   driId                 String?
   isPublic              Boolean                    @default(false)
   enableDetailedActions Boolean?                   // null = inherit from workspace
+  enableBounties        Boolean?                   // null = inherit from workspace
   type                  String                     @default("standard") // "standard" | "pipeline"
   actions               Action[]
   aiInteractionHistory  AiInteractionHistory[]

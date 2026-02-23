@@ -249,6 +249,7 @@ export const workspaceRouter = createTRPCRouter({
         effortUnit: z.enum(["STORY_POINTS", "T_SHIRT", "HOURS"]).optional(),
         enableAdvancedActions: z.boolean().optional(),
         enableDetailedActions: z.boolean().optional(),
+        enableBounties: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -277,6 +278,7 @@ export const workspaceRouter = createTRPCRouter({
           effortUnit: input.effortUnit,
           enableAdvancedActions: input.enableAdvancedActions,
           enableDetailedActions: input.enableDetailedActions,
+          enableBounties: input.enableBounties,
         },
       });
 

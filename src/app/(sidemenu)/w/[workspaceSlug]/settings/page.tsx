@@ -24,7 +24,7 @@ import {
   Alert,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -75,6 +75,7 @@ export default function WorkspaceSettingsPage() {
   const currentEffortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
   const advancedActionsEnabled = workspaceData?.enableAdvancedActions ?? false;
   const detailedActionsEnabled = workspaceData?.enableDetailedActions ?? false;
+  const bountiesEnabled = workspaceData?.enableBounties ?? false;
 
   const updateAdvancedActionsMutation = api.workspace.update.useMutation({
     onSuccess: () => {
@@ -98,6 +99,20 @@ export default function WorkspaceSettingsPage() {
         message: detailedActionsEnabled
           ? 'Detailed action pages have been disabled'
           : 'Detailed action pages have been enabled',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+  });
+
+  const updateBountiesMutation = api.workspace.update.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getBySlug.invalidate();
+      notifications.show({
+        title: 'Settings Updated',
+        message: bountiesEnabled
+          ? 'Bounties have been disabled'
+          : 'Bounties have been enabled',
         color: 'green',
         autoClose: 3000,
       });
@@ -504,6 +519,36 @@ export default function WorkspaceSettingsPage() {
                 });
               }}
               disabled={!canEdit || updateDetailedActionsMutation.isPending}
+              size="lg"
+            />
+          </Group>
+        </Card>
+
+        {/* Bounties */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Group justify="space-between" align="flex-start">
+            <Group gap="md">
+              <IconCoin size={24} className="text-text-muted" />
+              <div>
+                <Title order={3} className="text-text-primary">
+                  Bounties
+                </Title>
+                <Text size="sm" className="text-text-muted" maw={500}>
+                  Enable bounty rewards on actions in public projects.
+                  Individual projects can override this setting.
+                </Text>
+              </div>
+            </Group>
+            <Switch
+              checked={bountiesEnabled}
+              onChange={(event) => {
+                if (!workspaceId) return;
+                updateBountiesMutation.mutate({
+                  workspaceId,
+                  enableBounties: event.currentTarget.checked,
+                });
+              }}
+              disabled={!canEdit || updateBountiesMutation.isPending}
               size="lg"
             />
           </Group>

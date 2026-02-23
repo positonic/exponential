@@ -45,6 +45,7 @@ import {
   IconPlayerPlay,
   IconTrash,
   IconLayoutList,
+  IconCoin,
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
@@ -152,6 +153,7 @@ export function ProjectContent({
     { enabled: !!workspace?.slug },
   );
   const workspaceDetailedEnabled = workspaceData?.enableDetailedActions ?? false;
+  const workspaceBountiesEnabled = workspaceData?.enableBounties ?? false;
 
   const updateDetailedActionsMutation = api.project.update.useMutation({
     onSuccess: () => {
@@ -159,6 +161,18 @@ export function ProjectContent({
       notifications.show({
         title: "Settings Updated",
         message: "Detailed action pages setting has been updated",
+        color: "green",
+        autoClose: 3000,
+      });
+    },
+  });
+
+  const updateBountiesMutation = api.project.update.useMutation({
+    onSuccess: () => {
+      void utils.project.getById.invalidate({ id: projectId });
+      notifications.show({
+        title: "Settings Updated",
+        message: "Bounties setting has been updated",
         color: "green",
         autoClose: 3000,
       });
@@ -831,6 +845,53 @@ export function ProjectContent({
                   ]}
                   fullWidth
                   disabled={updateDetailedActionsMutation.isPending}
+                />
+              </Stack>
+            </Card>
+          </Stack>
+
+          {/* Bounties Override */}
+          <Stack gap="xs">
+            <Group gap="xs" align="center">
+              <IconCoin size={16} className="text-brand-primary" />
+              <Text size="sm" fw={600} className="text-brand-primary">
+                BOUNTIES
+              </Text>
+            </Group>
+            <Card withBorder p="md" radius="lg" className="bg-surface-secondary border-border-primary">
+              <Stack gap="sm">
+                <Text size="sm" className="text-text-secondary">
+                  Override the workspace default for bounties in this project.
+                </Text>
+                <SegmentedControl
+                  value={
+                    project?.enableBounties == null
+                      ? "inherit"
+                      : project.enableBounties
+                        ? "on"
+                        : "off"
+                  }
+                  onChange={(value) => {
+                    if (!project) return;
+                    const newValue = value === "inherit" ? null : value === "on";
+                    updateBountiesMutation.mutate({
+                      id: project.id,
+                      name: project.name,
+                      status: project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
+                      priority: project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
+                      enableBounties: newValue,
+                    });
+                  }}
+                  data={[
+                    {
+                      label: `Inherit (${workspaceBountiesEnabled ? "ON" : "OFF"})`,
+                      value: "inherit",
+                    },
+                    { label: "On", value: "on" },
+                    { label: "Off", value: "off" },
+                  ]}
+                  fullWidth
+                  disabled={updateBountiesMutation.isPending}
                 />
               </Stack>
             </Card>

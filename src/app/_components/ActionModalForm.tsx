@@ -15,6 +15,7 @@ import { EpicSelector } from './EpicSelector';
 import { EffortEstimateInput } from './EffortEstimateInput';
 import { DependencyPicker } from './DependencyPicker';
 import { useRef, useState } from 'react';
+import { useBountiesEnabled } from '~/hooks/useBountiesEnabled';
 
 interface ActionModalFormProps {
   name: string;
@@ -141,6 +142,7 @@ export function ActionModalForm({
   );
   const [schedulePopoverOpened, setSchedulePopoverOpened] = useState(false);
   const timeInputRef = useRef<HTMLInputElement>(null);
+  const bountiesEnabled = useBountiesEnabled(projectId);
 
   // Format scheduled time for display
   const formatScheduledTime = (date: Date | null): string => {
@@ -474,7 +476,7 @@ export function ActionModalForm({
       {/* Bounty section - only show when setIsBounty is provided and project is public */}
       {setIsBounty && (() => {
         const selectedProjectIsPublic = projects.data?.find(p => p.id === projectId)?.isPublic ?? false;
-        if (!selectedProjectIsPublic) return null;
+        if (!selectedProjectIsPublic || !bountiesEnabled) return null;
         return (
           <div className="border-t border-border-primary mt-4 pt-4 px-4">
             <Group justify="space-between" align="center">
