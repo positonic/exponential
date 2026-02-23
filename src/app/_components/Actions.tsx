@@ -514,6 +514,48 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     });
   };
 
+  // Handle project bulk assign to different project
+  const handleProjectBulkAssignProject = async (targetProjectId: string, actionIds: string[]) => {
+    if (actionIds.length === 0) return;
+
+    const totalCount = actionIds.length;
+    const projectName = projectsQuery.data?.find(p => p.id === targetProjectId)?.name ?? 'project';
+
+    notifications.show({
+      id: 'bulk-assign-project-from-project',
+      title: 'Moving to project...',
+      message: `Moving ${totalCount} action${totalCount !== 1 ? 's' : ''}...`,
+      loading: true,
+      autoClose: false,
+    });
+
+    try {
+      const result = await bulkAssignProjectMutation.mutateAsync({
+        actionIds,
+        projectId: targetProjectId,
+      });
+
+      notifications.update({
+        id: 'bulk-assign-project-from-project',
+        title: 'Moved',
+        message: `Successfully moved ${result.count} action${result.count !== 1 ? 's' : ''} to ${projectName}`,
+        loading: false,
+        autoClose: 3000,
+        color: 'green',
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      notifications.update({
+        id: 'bulk-assign-project-from-project',
+        title: 'Error',
+        message: `Failed to move actions: ${errMsg}`,
+        loading: false,
+        autoClose: 5000,
+        color: 'red',
+      });
+    }
+  };
+
   // Helper to detect focus views (today, this week, this month)
   const isFocusView = (name: string) => {
     const focusViews = ['today', 'this-week', 'this-month', 'tomorrow'];
@@ -729,6 +771,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               variant={!isKanbanMode ? "filled" : "subtle"}
               size="sm"
               onClick={() => setIsKanbanMode(false)}
+              styles={{ root: { color: 'var(--color-text-primary)' } }}
             >
               <Group gap="xs">
                 <IconList size={16} />
@@ -739,6 +782,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               variant={isKanbanMode ? "filled" : "subtle"}
               size="sm"
               onClick={() => setIsKanbanMode(true)}
+              styles={{ root: { color: 'var(--color-text-primary)' } }}
             >
               <Group gap="xs">
                 <IconLayoutKanban size={16} />
@@ -984,6 +1028,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           onOverdueBulkReschedule={handleOverdueBulkReschedule}
           enableBulkEditForProject={!!projectId}
           onProjectBulkDelete={handleProjectBulkDelete}
+          onProjectBulkAssignProject={handleProjectBulkAssignProject}
           enableBulkEditForFocus={!projectId && isFocusView(viewName)}
           onFocusBulkDelete={handleFocusBulkDelete}
           onFocusBulkReschedule={handleFocusBulkReschedule}
