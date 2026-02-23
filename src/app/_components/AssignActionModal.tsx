@@ -198,7 +198,7 @@ export function AssignActionModal({
       centered
     >
       <Stack gap="md">
-        <div>
+        <div className="pt-2">
           <Text size="sm" fw={500} mb="xs">
             Action: <HTMLContent html={actionName} className="inline" />
           </Text>
