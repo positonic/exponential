@@ -7,6 +7,7 @@ import Link from "next/link";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { getSundayWeekStart } from "~/lib/weekUtils";
+import { HomeTile } from "./HomeTile";
 
 const BANNER_DISMISS_KEY = "weekly-review-banner-dismissed";
 
@@ -21,6 +22,8 @@ function getCurrentWeekKey(): string {
 
 export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
   const { workspace, workspaceId } = useWorkspace();
+
+  // Weekly-scoped dismiss state (used by full-size banner only)
   const [dismissed, setDismissed] = useState(() => {
     const dismissedWeek = getDismissedWeek();
     const currentWeek = getCurrentWeekKey();
@@ -29,24 +32,52 @@ export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
 
   const { data, isLoading } = api.weeklyReview.isCompletedThisWeek.useQuery(
     { workspaceId: workspaceId ?? undefined },
-    { enabled: !!workspaceId }
+    { enabled: !!workspaceId },
   );
 
-  // Check if user has any projects
   const { data: projectsData, isLoading: projectsLoading } =
     api.project.getAll.useQuery(
       { workspaceId: workspaceId ?? undefined },
-      { enabled: !!workspaceId }
+      { enabled: !!workspaceId },
     );
 
-  // Check workspace setting
   const { data: workspaceData } = api.workspace.getBySlug.useQuery(
     { slug: workspace?.slug ?? "" },
-    { enabled: !!workspace?.slug }
+    { enabled: !!workspace?.slug },
   );
 
   const hasProjects = (projectsData?.length ?? 0) > 0;
+  const reviewPath = `/w/${workspace?.slug ?? ""}/weekly-review`;
 
+  const isBusinessHidden =
+    isLoading ||
+    projectsLoading ||
+    !!data?.isCompleted ||
+    !workspace ||
+    !hasProjects ||
+    workspaceData?.enableWeeklyReviewBanner === false;
+
+  // Compact mode: delegate to HomeTile (daily-scoped dismiss + visited tracking)
+  if (compact) {
+    return (
+      <HomeTile
+        tileId="weekly-review"
+        href={reviewPath}
+        icon={
+          <IconCalendarCheck
+            size={20}
+            className="flex-shrink-0 text-blue-400"
+          />
+        }
+        title="Weekly Review"
+        description="Review your projects and plan next week."
+        hidden={isBusinessHidden}
+        gradientClassName="border-blue-500/20 bg-gradient-to-r from-blue-500/10 to-cyan-500/10"
+      />
+    );
+  }
+
+  // Full-size banner: keep existing weekly-scoped dismiss logic
   const handleDismiss = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -55,40 +86,8 @@ export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
     setDismissed(true);
   };
 
-  // Don't show if: loading, already completed, dismissed, no workspace, no projects, or disabled in workspace settings
-  if (isLoading || projectsLoading || data?.isCompleted || dismissed || !workspace || !hasProjects || workspaceData?.enableWeeklyReviewBanner === false) {
+  if (isBusinessHidden || dismissed) {
     return null;
-  }
-
-  const reviewPath = `/w/${workspace.slug}/weekly-review`;
-
-  if (compact) {
-    return (
-      <Paper
-        component={Link}
-        href={reviewPath}
-        p="md"
-        radius="md"
-        className="flex h-full flex-1 cursor-pointer flex-col justify-between border border-blue-500/20 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 transition-opacity hover:opacity-90"
-        style={{ textDecoration: "none" }}
-      >
-        <Group gap="sm" wrap="nowrap" mb="xs">
-          <IconCalendarCheck size={20} className="text-blue-400 flex-shrink-0" />
-          <Text fw={600} size="sm" className="text-text-primary">
-            Weekly Review
-          </Text>
-          <CloseButton
-            size="xs"
-            onClick={handleDismiss}
-            aria-label="Dismiss"
-            className="ml-auto"
-          />
-        </Group>
-        <Text size="xs" className="text-text-secondary">
-          Review your projects and plan next week.
-        </Text>
-      </Paper>
-    );
   }
 
   return (
@@ -109,7 +108,9 @@ export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
               Time for your weekly review
             </Text>
             <Text size="xs" className="text-text-secondary">
-              The weekly review is the keystone habit of GTD and other trusted productivity systems. Review your projects to ensure they are prioritised correctly and you know what to focus on next week.
+              The weekly review is the keystone habit of GTD and other trusted
+              productivity systems. Review your projects to ensure they are
+              prioritised correctly and you know what to focus on next week.
             </Text>
           </div>
         </Group>
