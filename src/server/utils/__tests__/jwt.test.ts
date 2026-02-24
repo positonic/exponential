@@ -87,7 +87,7 @@ describe("generateJWT", () => {
     const token = generateJWT(testUser, { tokenType: "whatsapp-gateway" });
     const decoded = jwt.verify(token, TEST_SECRET) as Record<string, unknown>;
 
-    expect(decoded.aud).toBe("mastra-agents");
+    expect(decoded.aud).toBe("whatsapp-gateway");
     expect(decoded.iss).toBe("todo-app");
     expect(decoded.jti).toBeDefined();
     expect(decoded.tokenType).toBe("whatsapp-gateway");

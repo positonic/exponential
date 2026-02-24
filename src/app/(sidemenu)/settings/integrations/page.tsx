@@ -16,6 +16,7 @@ import {
   IconUnlink,
   IconCheck,
   IconAlertCircle,
+  IconBrandWhatsapp,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
@@ -24,9 +25,11 @@ import { CalendarMultiSelect } from '~/app/_components/calendar/CalendarMultiSel
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import IntegrationsClient from '~/app/(sidemenu)/integrations/IntegrationsClient';
+import { WhatsAppGatewayModal } from '~/app/_components/WhatsAppGatewayModal';
 
 export default function IntegrationsSettingsPage() {
   const [firefliesModalOpened, setFirefliesModalOpened] = useState(false);
+  const [whatsappModalOpened, setWhatsappModalOpened] = useState(false);
   const utils = api.useUtils();
 
   // Calendar connection status
@@ -85,6 +88,17 @@ export default function IntegrationsSettingsPage() {
   const handleCalendarSelectionChange = (calendarIds: string[]) => {
     updateSelectedCalendars.mutate({ calendarIds });
   };
+
+  // WhatsApp Gateway
+  const { data: whatsappConfig } =
+    api.whatsappGateway.isConfigured.useQuery();
+  const { data: whatsappSessions } =
+    api.whatsappGateway.listSessions.useQuery(undefined, {
+      enabled: whatsappConfig?.configured ?? false,
+    });
+  const connectedWhatsAppSession = whatsappSessions?.find(
+    (s: { status: string }) => s.status === 'CONNECTED',
+  );
 
   return (
     <Container size="md" py="xl">
@@ -170,6 +184,34 @@ export default function IntegrationsSettingsPage() {
           <FirefliesIntegrationsList />
         </Paper>
 
+        {/* WhatsApp */}
+        <Paper p="lg" withBorder className="bg-surface-secondary">
+          <Group justify="space-between" align="center">
+            <Group gap="sm">
+              <IconBrandWhatsapp size={20} className="text-brand-success" />
+              <div>
+                <Text fw={500} className="text-text-primary">
+                  WhatsApp
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {connectedWhatsAppSession
+                    ? `Connected — ${connectedWhatsAppSession.phoneNumber ?? 'Unknown number'}`
+                    : 'Connect your WhatsApp to interact with agents'}
+                </Text>
+              </div>
+            </Group>
+            <Button
+              variant={connectedWhatsAppSession ? 'light' : 'filled'}
+              color="green"
+              size="sm"
+              leftSection={<IconBrandWhatsapp size={16} />}
+              onClick={() => setWhatsappModalOpened(true)}
+            >
+              {connectedWhatsAppSession ? 'Manage' : 'Connect WhatsApp'}
+            </Button>
+          </Group>
+        </Paper>
+
         <Divider />
 
         {/* Full Integrations Management */}
@@ -179,6 +221,11 @@ export default function IntegrationsSettingsPage() {
       <FirefliesWizardModal
         opened={firefliesModalOpened}
         onClose={() => setFirefliesModalOpened(false)}
+      />
+
+      <WhatsAppGatewayModal
+        opened={whatsappModalOpened}
+        onClose={() => setWhatsappModalOpened(false)}
       />
     </Container>
   );

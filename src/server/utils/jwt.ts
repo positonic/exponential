@@ -73,6 +73,18 @@ export const DEFAULT_EXPIRY: Record<JWTTokenType, number> = {
   "extension-token": 1440,  // 24 hours
 };
 
+/**
+ * JWT audience per token type. Gateway tokens use their own audience
+ * so the receiving service can scope validation to its own tokens.
+ */
+const TOKEN_AUDIENCE: Record<JWTTokenType, string> = {
+  "agent-context": "mastra-agents",
+  "whatsapp-gateway": "whatsapp-gateway",
+  "telegram-gateway": "telegram-gateway",
+  "api-token": "mastra-agents",
+  "extension-token": "mastra-agents",
+};
+
 // =============================================================================
 // Functions
 // =============================================================================
@@ -125,7 +137,7 @@ export function generateJWT(
       nbf: SECURITY_FIX_TIMESTAMP,
       jti: crypto.randomUUID(),
       tokenType,
-      aud: "mastra-agents",
+      aud: TOKEN_AUDIENCE[tokenType],
       iss: "todo-app",
       securityVersion: CURRENT_SECURITY_VERSION,
       ...(tokenName && { tokenName }),
