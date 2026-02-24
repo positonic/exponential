@@ -342,7 +342,16 @@ export function ActionDetailContent({
         <Group gap="md" mb="lg">
           <ActionIcon
             variant="subtle"
-            onClick={() => router.back()}
+            component={Link}
+            href={`/w/${workspaceSlug}/actions`}
+            onClick={(e: React.MouseEvent) => {
+              // Use browser back if there's a same-origin referrer (user navigated here)
+              if (document.referrer && new URL(document.referrer).origin === window.location.origin) {
+                e.preventDefault();
+                router.back();
+              }
+              // Otherwise the Link navigates to the actions list
+            }}
             className="text-text-muted hover:text-text-primary"
           >
             <IconArrowLeft size={18} />

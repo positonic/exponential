@@ -658,11 +658,18 @@ export const projectRouter = createTRPCRouter({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      // First check if project exists
-      const projectExists = await ctx.db.project.findUnique({
+      // Try finding by id first, then fall back to slug lookup
+      let projectExists = await ctx.db.project.findUnique({
         where: { id: input.id },
         select: { id: true, createdById: true, teamId: true, workspaceId: true, isPublic: true },
       });
+
+      if (!projectExists) {
+        projectExists = await ctx.db.project.findUnique({
+          where: { slug: input.id },
+          select: { id: true, createdById: true, teamId: true, workspaceId: true, isPublic: true },
+        });
+      }
 
       if (!projectExists) {
         throw new TRPCError({
@@ -707,9 +714,9 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
-      // Return full project with includes
+      // Return full project with includes (use resolved id in case input was a slug)
       return ctx.db.project.findUnique({
-        where: { id: input.id },
+        where: { id: projectExists.id },
         include: {
           goals: true,
           outcomes: true,

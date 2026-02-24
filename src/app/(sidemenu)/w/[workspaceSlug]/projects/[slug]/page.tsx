@@ -35,10 +35,7 @@ async function ProjectWrapper({ slug, initialTab }: { slug: string; initialTab?:
   if (!session?.user) {
     return <Welcome />;
   }
-  const projectId = slug.split('-').pop();
-  if (!projectId) {
-    return <div>Project not found</div>;
-  }
 
-  return <ProjectContent viewName={viewName} projectId={projectId} initialTab={initialTab} />;
+  // Pass slug directly - getById handles both id and slug lookup
+  return <ProjectContent viewName={viewName} projectId={slug} initialTab={initialTab} />;
 }
