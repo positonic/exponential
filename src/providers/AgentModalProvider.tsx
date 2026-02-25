@@ -16,6 +16,12 @@ export interface ChatMessage {
   interactionId?: string;
 }
 
+// Notification from background workflows (e.g. standup report ready)
+export interface PendingNotification {
+  message: string;
+  preview: string;
+}
+
 // Page context for giving the agent awareness of the current page
 export interface PageContext {
   pageType: string;
@@ -57,6 +63,9 @@ interface AgentModalContextValue {
   closeModal: () => void;
   clearChat: () => void;
   loadConversation: (conversationId: string, messages: ChatMessage[]) => void;
+  pendingNotification: PendingNotification | null;
+  setPendingNotification: (notification: PendingNotification | null) => void;
+  openModalWithNotification: () => void;
 }
 
 const AgentModalContext = createContext<AgentModalContextValue>({
@@ -75,6 +84,9 @@ const AgentModalContext = createContext<AgentModalContextValue>({
   closeModal: () => undefined,
   clearChat: () => undefined,
   loadConversation: () => undefined,
+  pendingNotification: null,
+  setPendingNotification: () => undefined,
+  openModalWithNotification: () => undefined,
 });
 
 export function useAgentModal() {
@@ -98,6 +110,7 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
   );
 
   const [conversationId, setConversationId] = useState<string>('');
+  const [pendingNotification, setPendingNotification] = useState<PendingNotification | null>(null);
 
   // Hydrate state from sessionStorage after mount (per-tab, avoids SSR mismatch)
   useEffect(() => {
@@ -148,6 +161,22 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     sessionStorage.removeItem(CONVERSATION_STORAGE_KEY);
   }, []);
 
+  const openModalWithNotification = useCallback(() => {
+    if (pendingNotification) {
+      const standupMessage: ChatMessage = {
+        type: 'ai',
+        agentName: 'PM Agent',
+        content: pendingNotification.message,
+      };
+      setMessages([DEFAULT_SYSTEM_MESSAGE, standupMessage]);
+      setConversationId('');
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+      sessionStorage.removeItem(CONVERSATION_STORAGE_KEY);
+      setPendingNotification(null);
+    }
+    setIsOpen(true);
+  }, [pendingNotification]);
+
   const loadConversation = useCallback((newConversationId: string, newMessages: ChatMessage[]) => {
     // Prepend system message to loaded messages
     const messagesWithSystem = [DEFAULT_SYSTEM_MESSAGE, ...newMessages];
@@ -173,6 +202,9 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     closeModal,
     clearChat,
     loadConversation,
+    pendingNotification,
+    setPendingNotification,
+    openModalWithNotification,
   }), [
     isOpen,
     workspaceId,
@@ -187,6 +219,8 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     closeModal,
     clearChat,
     loadConversation,
+    pendingNotification,
+    openModalWithNotification,
   ]);
 
   return (

@@ -37,7 +37,7 @@ export const pmSchedulerRouter = createTRPCRouter({
   runTask: protectedProcedure
     .input(z.object({ taskId: z.string() }))
     .mutation(async ({ input }) => {
-      await pmScheduler.runTask(input.taskId);
-      return { success: true, message: `Task ${input.taskId} executed` };
+      const summary = await pmScheduler.runTask(input.taskId);
+      return { success: true, message: `Task ${input.taskId} executed`, summary };
     }),
 });

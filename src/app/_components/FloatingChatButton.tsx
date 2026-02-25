@@ -6,19 +6,46 @@ import { useAgentModal } from "~/providers/AgentModalProvider";
 
 export function FloatingChatButton() {
   const pathname = usePathname();
-  const { openModal } = useAgentModal();
+  const { openModal, pendingNotification, openModalWithNotification } =
+    useAgentModal();
 
   if (pathname?.includes("/agent")) {
     return null;
   }
 
+  const handleClick = () => {
+    if (pendingNotification) {
+      openModalWithNotification();
+    } else {
+      openModal();
+    }
+  };
+
   return (
-    <button
-      onClick={() => openModal()}
-      className="fixed bottom-20 right-6 z-50 rounded-full border border-brand-primary/30 bg-brand-primary/10 p-4 text-brand-primary transition-all duration-200 hover:border-brand-primary/50 hover:bg-brand-primary/20 hover:text-white sm:bottom-6"
-      aria-label="Open AI Assistant"
-    >
-      <IconSparkles size={24} />
-    </button>
+    <div className="fixed bottom-20 right-6 z-50 sm:bottom-6">
+      {/* Speech bubble notification */}
+      {pendingNotification && (
+        <div className="absolute bottom-full right-0 mb-3 w-48 animate-fade-in">
+          <div className="rounded-lg border border-border-primary bg-surface-secondary px-3 py-2 text-xs font-medium text-text-primary shadow-lg">
+            {pendingNotification.preview}
+          </div>
+          {/* Bubble tail */}
+          <div className="absolute -bottom-1 right-6 h-2 w-2 rotate-45 border-b border-r border-border-primary bg-surface-secondary" />
+        </div>
+      )}
+
+      {/* Main button */}
+      <button
+        onClick={handleClick}
+        className="relative rounded-full border border-brand-primary/30 bg-brand-primary/10 p-4 text-brand-primary transition-all duration-200 hover:border-brand-primary/50 hover:bg-brand-primary/20 hover:text-white"
+        aria-label="Open AI Assistant"
+      >
+        <IconSparkles size={24} />
+        {/* Notification dot */}
+        {pendingNotification && (
+          <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-background-primary bg-brand-primary" />
+        )}
+      </button>
+    </div>
   );
 }

@@ -25,6 +25,7 @@ import {
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { formatDistanceToNow } from "date-fns";
+import { useAgentModal } from "~/providers/AgentModalProvider";
 
 interface WorkflowRun {
   id: string;
@@ -38,6 +39,7 @@ interface WorkflowRun {
 
 export function PMAgentWidget() {
   const [expanded, setExpanded] = useState(false);
+  const { setPendingNotification } = useAgentModal();
 
   // Fetch scheduler status
   const schedulerStatus = api.pmScheduler.getStatus.useQuery(undefined, {
@@ -60,7 +62,15 @@ export function PMAgentWidget() {
     onSuccess: () => schedulerStatus.refetch(),
   });
   const runTask = api.pmScheduler.runTask.useMutation({
-    onSuccess: () => recentRuns.refetch(),
+    onSuccess: (data) => {
+      void recentRuns.refetch();
+      if (data.summary) {
+        setPendingNotification({
+          message: data.summary,
+          preview: "Your standup is ready",
+        });
+      }
+    },
   });
 
   const activeTasks = schedulerStatus.data?.filter((t) => t.running).length ?? 0;

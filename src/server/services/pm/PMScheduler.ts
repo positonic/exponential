@@ -8,7 +8,7 @@ interface ScheduledTask {
   id: string;
   name: string;
   cronExpression: string;
-  handler: () => Promise<void>;
+  handler: () => Promise<string | undefined>;
   enabled: boolean;
 }
 
@@ -151,14 +151,15 @@ export class PMScheduler {
   /**
    * Run a specific task immediately (for testing)
    */
-  async runTask(taskId: string): Promise<void> {
+  async runTask(taskId: string): Promise<string | null> {
     const config = this.taskConfigs.find(t => t.id === taskId);
     if (!config) {
       throw new Error(`Task not found: ${taskId}`);
     }
 
     console.log(`[PMScheduler] Manually running task: ${config.name}`);
-    await config.handler();
+    const result = await config.handler();
+    return result ?? null;
   }
 
   /**
@@ -178,7 +179,7 @@ export class PMScheduler {
   /**
    * Execute a workflow pipeline by template slug for all users with active definitions
    */
-  private async executeWorkflowsForTemplate(templateSlug: string): Promise<void> {
+  private async executeWorkflowsForTemplate(templateSlug: string): Promise<string | undefined> {
     const registry = createStepRegistry(db);
     const engine = new WorkflowEngine(db, registry);
 
@@ -197,21 +198,27 @@ export class PMScheduler {
 
     if (definitions.length === 0) {
       console.log(`[PMScheduler] No active definitions found for template: ${templateSlug}`);
-      return;
+      return undefined;
     }
 
     console.log(`[PMScheduler] Found ${definitions.length} active definitions for ${templateSlug}`);
 
-    // Execute each definition
+    // Execute each definition, return summary from first successful run
     for (const definition of definitions) {
       try {
         console.log(`[PMScheduler] Executing workflow: ${definition.name} (${definition.id})`);
         const result = await engine.execute(definition.id, definition.createdById);
         console.log(`[PMScheduler] Workflow completed: ${definition.name}, status: ${result.status}`);
+
+        const output = result.output as Record<string, unknown> | null;
+        if (output?.standupSummary) {
+          return output.standupSummary as string;
+        }
       } catch (error) {
         console.error(`[PMScheduler] Workflow failed: ${definition.name}`, error);
       }
     }
+    return undefined;
   }
 
   /**
@@ -250,7 +257,7 @@ export class PMScheduler {
   /**
    * Check for overdue actions and create alerts
    */
-  private async checkOverdueActions(): Promise<void> {
+  private async checkOverdueActions(): Promise<string | undefined> {
     const today = startOfDay(new Date());
 
     const overdueActions = await db.action.findMany({
@@ -286,12 +293,13 @@ export class PMScheduler {
       console.log(`[PMScheduler] User ${userId} has ${actions.length} overdue actions`);
       // TODO: Create notification or trigger Mastra agent
     }
+    return undefined;
   }
 
   /**
    * Send daily planning reminder
    */
-  private async sendDailyPlanningReminder(): Promise<void> {
+  private async sendDailyPlanningReminder(): Promise<string | undefined> {
     const today = startOfDay(new Date());
     
     // Find users who haven't created a daily plan for today
@@ -319,12 +327,13 @@ export class PMScheduler {
     console.log(`[PMScheduler] ${activeUsers.length} users need daily planning reminder`);
 
     // TODO: Send notifications via preferred channel
+    return undefined;
   }
 
   /**
    * Prepare weekly review summary
    */
-  private async prepareWeeklyReview(): Promise<void> {
+  private async prepareWeeklyReview(): Promise<string | undefined> {
     const today = new Date();
     const weekStart = addDays(today, -7);
 
@@ -352,13 +361,14 @@ export class PMScheduler {
     console.log(`[PMScheduler] Weekly summary: ${completedActions} actions completed`);
 
     // TODO: Generate detailed weekly review and send to users
+    return undefined;
   }
 
   /**
    * Check project health scores
    * TODO: Re-enable when Project.healthScore field is added via migration
    */
-  private async checkProjectHealth(): Promise<void> {
+  private async checkProjectHealth(): Promise<string | undefined> {
     // Commented out: requires Project.healthScore field (not yet in schema)
     // const projects = await db.project.findMany({
     //   where: { status: 'ACTIVE' },
@@ -366,13 +376,14 @@ export class PMScheduler {
     // });
     // const unhealthyProjects = projects.filter(p => (p.healthScore ?? 100) < 50);
     console.log('[PMScheduler] Project health check skipped (healthScore field not yet in schema)');
+    return undefined;
   }
 
   /**
    * Check for upcoming meetings and send prep reminders
    * TODO: Re-enable when Meeting model is added via migration
    */
-  private async checkUpcomingMeetings(): Promise<void> {
+  private async checkUpcomingMeetings(): Promise<string | undefined> {
     // Commented out: requires Meeting model (not yet in schema)
     // const now = new Date();
     // const inOneHour = addDays(now, 0);
@@ -382,6 +393,7 @@ export class PMScheduler {
     //   include: { createdBy: true, project: true },
     // });
     console.log('[PMScheduler] Meeting check skipped (Meeting model not yet in schema)');
+    return undefined;
   }
 
   // ============= Workflow-Based Tasks =============
@@ -389,17 +401,17 @@ export class PMScheduler {
   /**
    * Run standup summary workflows for all users with active definitions
    */
-  private async runStandupWorkflows(): Promise<void> {
+  private async runStandupWorkflows(): Promise<string | undefined> {
     console.log('[PMScheduler] Running standup summary workflows...');
-    await this.executeWorkflowsForTemplate('pm-standup-summary');
+    return this.executeWorkflowsForTemplate('pm-standup-summary');
   }
 
   /**
    * Run project health report workflows for all users with active definitions
    */
-  private async runProjectHealthWorkflows(): Promise<void> {
+  private async runProjectHealthWorkflows(): Promise<string | undefined> {
     console.log('[PMScheduler] Running project health report workflows...');
-    await this.executeWorkflowsForTemplate('pm-project-health-report');
+    return this.executeWorkflowsForTemplate('pm-project-health-report');
   }
 }
 
