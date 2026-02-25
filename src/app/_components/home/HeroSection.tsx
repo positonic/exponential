@@ -26,7 +26,7 @@ export function HeroSection({ id }: HeroSectionProps) {
         <div className="text-center max-w-4xl mx-auto">
           {/* Badge */}
           <div className="mb-6 md:mb-8 animate-fade-in">
-            <span className="inline-flex items-center px-5 py-2.5 rounded-full bg-gradient-to-r from-accent-indigo/10 to-accent-periwinkle/10 border border-accent-indigo/20 text-accent-indigo text-sm font-semibold backdrop-blur-sm">
+            <span className="inline-flex items-center px-5 py-2.5 rounded-full bg-gradient-to-r from-accent-indigo/10 to-accent-periwinkle/10 border border-accent-indigo/20 text-white text-sm font-semibold backdrop-blur-sm">
               🤖 The OS for AI-native organizations
             </span>
           </div>
