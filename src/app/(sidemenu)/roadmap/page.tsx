@@ -244,7 +244,7 @@ export default function RoadmapPage() {
           🚀 Want to influence our roadmap? Join the discussion on{" "}
           <Text
             component="a"
-            href="https://github.com/positonic/ai-todo/discussions"
+            href="https://github.com/positonic/exponential/discussions"
             target="_blank"
             rel="noopener noreferrer"
             className="text-violet-400 hover:text-violet-300 transition-colors"

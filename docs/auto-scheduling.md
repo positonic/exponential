@@ -263,9 +263,9 @@ status = daysOffset > 1 ? "on_track"
 
 ## Related GitHub Issues
 
-- [#75](https://github.com/exponential-hq/exponential/issues/75) - Phase 1: Core Auto-Scheduling Engine
-- [#76](https://github.com/exponential-hq/exponential/issues/76) - Phase 2: Recurring Tasks & Dependencies
-- [#77](https://github.com/exponential-hq/exponential/issues/77) - Phase 3: Templates & Stages
-- [#78](https://github.com/exponential-hq/exponential/issues/78) - Phase 4: Predictive Planning & Ghost Tasks
-- [#79](https://github.com/exponential-hq/exponential/issues/79) - Phase 5: Advanced Features
-- [#80](https://github.com/exponential-hq/exponential/issues/80) - Epic: Motion-like Intelligent Task Management
+- [#75](https://github.com/positonic/exponential/issues/75) - Phase 1: Core Auto-Scheduling Engine
+- [#76](https://github.com/positonic/exponential/issues/76) - Phase 2: Recurring Tasks & Dependencies
+- [#77](https://github.com/positonic/exponential/issues/77) - Phase 3: Templates & Stages
+- [#78](https://github.com/positonic/exponential/issues/78) - Phase 4: Predictive Planning & Ghost Tasks
+- [#79](https://github.com/positonic/exponential/issues/79) - Phase 5: Advanced Features
+- [#80](https://github.com/positonic/exponential/issues/80) - Epic: Motion-like Intelligent Task Management
