@@ -24,6 +24,7 @@ import {
   TIME_LABEL_WIDTH,
 } from "./types";
 import { CalendarEventBlock, CalendarActionBlock } from "./CalendarEventBlock";
+import { HTMLContent } from "~/app/_components/HTMLContent";
 import {
   calculateOverlappingPositions,
   convertEventToCalendarItem,
@@ -98,8 +99,8 @@ function ActionDragOverlay({ action }: { action: ScheduledAction }) {
       className="overflow-hidden rounded-sm border-l-4 border-l-brand-primary bg-brand-primary/30 p-1.5 shadow-lg"
       style={{ width: 200, pointerEvents: "none" }}
     >
-      <Text size="xs" fw={600} lineClamp={1} style={{ fontSize: "11px" }}>
-        {action.name}
+      <Text size="xs" fw={600} lineClamp={1} component="div" style={{ fontSize: "11px" }}>
+        <HTMLContent html={action.name} />
       </Text>
       <Text size="xs" c="dimmed" style={{ fontSize: "10px" }}>
         {format(new Date(action.scheduledStart), "h:mm a")}

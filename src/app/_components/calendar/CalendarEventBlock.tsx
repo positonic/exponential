@@ -5,6 +5,7 @@ import { format, parseISO } from "date-fns";
 import type { CalendarEvent } from "~/server/services/GoogleCalendarService";
 import type { ScheduledAction } from "./types";
 import { stripHtml } from "~/lib/utils";
+import { HTMLContent } from "~/app/_components/HTMLContent";
 
 interface EventBlockProps {
   event: CalendarEvent;
@@ -126,7 +127,7 @@ export function CalendarActionBlock({
       label={
         <Stack gap={4}>
           <Text size="sm" fw={600}>
-            {action.name}
+            {stripHtml(action.name)}
           </Text>
           <Text size="xs">
             {format(new Date(action.scheduledStart), "h:mm a")}
@@ -152,6 +153,7 @@ export function CalendarActionBlock({
           size="xs"
           fw={600}
           className="leading-tight"
+          component="div"
           style={{
             fontSize: "11px",
             lineHeight: "1.2",
@@ -162,7 +164,7 @@ export function CalendarActionBlock({
             wordBreak: "break-word",
           }}
         >
-          {action.name}
+          <HTMLContent html={action.name} />
         </Text>
 
         {height >= 35 && (
