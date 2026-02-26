@@ -7,6 +7,7 @@ import Image from "next/image";
 
 interface Slide {
   id: string;
+  name: string;
   title: string;
   description: string;
   image?: string;
@@ -15,20 +16,15 @@ interface Slide {
 const SLIDES: Slide[] = [
   {
     id: "exponential-home",
+    name: "Home",
     title: "Your AI-native execution OS",
     description:
       "A unified home for goals, projects, meetings, and actions — intelligently connected.",
     image: "/product-shots/exponential-home.jpg",
   },
   {
-    id: "exponential-workspace-home",
-    title: "Workspace command center",
-    description:
-      "Dedicated workspaces for teams, clients, or initiatives — each with focused visibility.",
-    image: "/product-shots/exponential-workspace-home.jpg",
-  },
-  {
     id: "exponential-projects",
+    name: "Projects",
     title: "Projects with intelligence",
     description:
       "Track health, progress, ownership, and outcomes across every active initiative.",
@@ -36,6 +32,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-project-action-page",
+    name: "Actions",
     title: "Project action hub",
     description:
       "Every action, owner, and dependency in one focused execution view.",
@@ -43,6 +40,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-projects-chat",
+    name: "Project Chat",
     title: "Chat inside projects",
     description:
       "Discuss work where it happens — with AI summarization and context linking.",
@@ -50,6 +48,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-meetings",
+    name: "Meetings",
     title: "Meeting OS",
     description:
       "Prepare, capture, and execute meetings without losing context.",
@@ -57,34 +56,23 @@ const SLIDES: Slide[] = [
   },
   {
     id: "expo-auto-actions-from-meeting",
+    name: "Meeting Actions",
     title: "Turn meetings into actions automatically",
     description:
       "AI converts discussions into structured, assignable next steps in seconds.",
     image: "/product-shots/expo-auto-actions-from-meeting.jpg",
   },
   {
-    id: "expo-meeting-auto-actions",
-    title: "Automatic follow-ups",
-    description:
-      "Every decision becomes trackable, scheduled execution — nothing gets lost.",
-    image: "/product-shots/expo-meeting auto-actions.jpg",
-  },
-  {
-    id: "expo-discuss-meeting-notes",
-    title: "Interrogate your meeting notes",
-    description:
-      "Summarize, extract decisions, surface risks, and generate actions instantly.",
-    image: "/product-shots/expo-discuss-meeting-notes.jpg",
-  },
-  {
     id: "expo-meetings-discuss",
-    title: "Search across conversations",
+    name: "Meeting Search",
+    title: "Interrogate your meeting notes / search across conversations",
     description:
-      "Connect meetings, decisions, and actions across projects and teams.",
+      "Connect meetings, decisions, and actions across projects and teams. Summarize, extract decisions, surface risks, and generate actions instantly.",
     image: "/product-shots/expo-meetings-discuss.jpg",
   },
   {
     id: "expo-draft-actions",
+    name: "Draft Actions",
     title: "AI-drafted next steps",
     description:
       "Generate clear, outcome-driven actions from context, goals, or chat.",
@@ -92,6 +80,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-calendar-connect",
+    name: "Calendar Setup",
     title: "Connect your calendar",
     description:
       "Sync Google, Apple, or Outlook to unify planning and execution.",
@@ -99,6 +88,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-calendar-multi",
+    name: "Calendars",
     title: "Multiple calendars, one view",
     description:
       "Overlay personal, team, and project calendars in a single timeline.",
@@ -106,6 +96,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-calendar-today",
+    name: "Today's Calendar",
     title: "Calendar meets execution",
     description:
       "See meetings, actions, and outcomes together in one streamlined view.",
@@ -113,6 +104,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-daily-plan",
+    name: "Daily Plan",
     title: "Plan your day with AI",
     description:
       "Turn goals into a realistic, optimized daily schedule.",
@@ -120,6 +112,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-plan-day-schedule",
+    name: "Schedule",
     title: "Drag, drop, rebalance",
     description:
       "Restructure your day dynamically with AI-aware scheduling.",
@@ -127,6 +120,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-plan-time",
+    name: "Time Tracking",
     title: "Own your time",
     description:
       "Understand where your time goes — and redirect it toward outcomes.",
@@ -134,6 +128,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-schedule-tasks",
+    name: "Task Scheduling",
     title: "Schedule actions instantly",
     description:
       "Convert any action into a time-blocked commitment in one click.",
@@ -141,13 +136,15 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-today-calm",
-    title: "A calm today view",
+    name: "Today",
+    title: "A calm unified today view - which aggregates all SaaS products, organizations and workspaces",
     description:
       "A distraction-free interface designed for clarity and focused execution.",
     image: "/product-shots/exponential-today-calm.jpg",
   },
   {
     id: "exponential-weekly-checkin",
+    name: "Weekly Check-in",
     title: "Smart weekly check-ins",
     description:
       "AI-generated reflections that surface wins, blockers, and priorities.",
@@ -155,6 +152,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-weekly-team-review",
+    name: "Team Review",
     title: "Weekly team alignment",
     description:
       "Run structured team reviews with metrics, accountability, and AI insight.",
@@ -162,6 +160,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-knowledge-base",
+    name: "Knowledge Base",
     title: "Conversational knowledge base",
     description:
       "Your documents and notes — searchable, contextual, and AI-powered.",
@@ -169,6 +168,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "exponential-integrations",
+    name: "Integrations",
     title: "Integrate your stack",
     description:
       "Connect Slack, WhatsApp, calendar, and more into one intelligent workflow.",
@@ -176,6 +176,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "expo-whatsapp-connect",
+    name: "WhatsApp",
     title: "Capture from WhatsApp",
     description:
       "Send ideas, tasks, and voice notes directly into your workspace.",
@@ -183,6 +184,7 @@ const SLIDES: Slide[] = [
   },
   {
     id: "expo-whatsapp-qr",
+    name: "WhatsApp QR",
     title: "Instant WhatsApp onboarding",
     description:
       "Scan a QR code and start sending tasks to your AI OS immediately.",
@@ -190,13 +192,15 @@ const SLIDES: Slide[] = [
   },
   {
     id: "expo-specialist-agents",
-    title: "Specialist AI agents",
+    name: "AI Agents",
+    title: "Bring your own, or use our specialist AI agents",
     description:
       "Deploy focused agents for planning, research, strategy, and execution.",
     image: "/product-shots/expo-specialist-agents.jpg",
   },
   {
     id: "exponential-os-ai-assistant",
+    name: "AI Assistant",
     title: "Your embedded AI assistant",
     description:
       "An always-on assistant that understands your goals, projects, and context.",
@@ -217,7 +221,7 @@ const SLIDE_ICONS: Record<string, string> = {
   team: "👥",
 };
 
-const AUTO_CYCLE_MS = 6000;
+const AUTO_CYCLE_MS = 7200;
 
 function ChevronLeft() {
   return (
@@ -267,6 +271,7 @@ export function ProductDemoSection({ id }: ProductDemoSectionProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
   const shouldReduceMotion = useReducedMotion();
 
   const activeSlide = SLIDES[activeIndex]!;
@@ -294,6 +299,14 @@ export function ProductDemoSection({ id }: ProductDemoSectionProps) {
     }
     return stopTimer;
   }, [isHovered, startTimer, stopTimer]);
+
+  // Auto-scroll active tab into view
+  useEffect(() => {
+    const container = tabsRef.current;
+    if (!container) return;
+    const activeTab = container.children[activeIndex] as HTMLElement | undefined;
+    activeTab?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [activeIndex]);
 
   const goTo = useCallback(
     (index: number) => {
@@ -351,16 +364,34 @@ export function ProductDemoSection({ id }: ProductDemoSectionProps) {
           onKeyDown={handleKeyDown}
         >
           {/* Browser Chrome */}
-          <div className="bg-surface-tertiary px-4 py-3 flex items-center gap-2 border-b border-border-primary">
-            <div className="flex gap-2">
-              <div className="w-3 h-3 rounded-full bg-brand-error/60" />
-              <div className="w-3 h-3 rounded-full bg-brand-warning/60" />
-              <div className="w-3 h-3 rounded-full bg-brand-success/60" />
-            </div>
-            <div className="flex-1 flex justify-center">
-              <div className="bg-surface-secondary px-4 py-1 rounded-md text-sm text-text-muted">
-                exponential.im
+          <div className="bg-surface-tertiary border-b border-border-primary">
+            <div className="px-4 py-2.5 flex items-center gap-3">
+              <div className="flex gap-2 shrink-0">
+                <div className="w-3 h-3 rounded-full bg-brand-error/60" />
+                <div className="w-3 h-3 rounded-full bg-brand-warning/60" />
+                <div className="w-3 h-3 rounded-full bg-brand-success/60" />
               </div>
+              <span className="text-xs text-text-muted/60 shrink-0">exponential.im</span>
+            </div>
+            {/* Tab Navigation */}
+            <div
+              ref={tabsRef}
+              className="flex overflow-x-auto px-2 pb-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {SLIDES.map((slide, index) => (
+                <button
+                  key={slide.id}
+                  onClick={() => goTo(index)}
+                  aria-label={`Go to slide ${index + 1}: ${slide.title}`}
+                  className={`shrink-0 px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors duration-200 ${
+                    index === activeIndex
+                      ? "text-accent-indigo border-accent-indigo bg-surface-secondary/50"
+                      : "text-text-muted border-transparent hover:text-text-secondary hover:bg-surface-secondary/30"
+                  }`}
+                >
+                  {slide.name}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -457,21 +488,6 @@ export function ProductDemoSection({ id }: ProductDemoSectionProps) {
               <ChevronRight />
             </button>
 
-            {/* Dot Indicators */}
-            <div className="absolute bottom-20 md:bottom-24 left-0 right-0 z-20 flex justify-center gap-2">
-              {SLIDES.map((slide, index) => (
-                <button
-                  key={slide.id}
-                  onClick={() => goTo(index)}
-                  aria-label={`Go to slide ${index + 1}: ${slide.title}`}
-                  className={`rounded-full transition-all duration-300 ${
-                    index === activeIndex
-                      ? "w-6 h-2 bg-brand-primary"
-                      : "w-2 h-2 bg-text-muted/40 hover:bg-text-muted/60"
-                  }`}
-                />
-              ))}
-            </div>
           </div>
         </div>
       </Container>
