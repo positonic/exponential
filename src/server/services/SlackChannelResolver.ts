@@ -93,7 +93,7 @@ export class SlackChannelResolver {
     channelId: string,
     botToken: string,
     integrationId?: string
-  ): Promise<{ project: { id: string; name: string; status: string | null; description: string | null } | null; team: { id: string; name: string } | null }> {
+  ): Promise<{ projects: Array<{ id: string; name: string; status: string | null; description: string | null }>; teams: Array<{ id: string; name: string }> }> {
     try {
       // Call Slack API to get channel info (name) from channel ID
       const channelInfoResponse = await fetch(
@@ -108,12 +108,12 @@ export class SlackChannelResolver {
 
       if (!channelInfo.ok || !channelInfo.channel?.name) {
         console.log(`[SlackChannelResolver] Could not resolve channel name for ${channelId}`);
-        return { project: null, team: null };
+        return { projects: [], teams: [] };
       }
 
       const channelName = `#${channelInfo.channel.name}`;
 
-      // Query SlackChannelConfig matching this channel name
+      // Query all SlackChannelConfigs matching this channel name
       const whereClause: Record<string, unknown> = {
         slackChannel: channelName,
         isActive: true,
@@ -122,7 +122,7 @@ export class SlackChannelResolver {
         whereClause.integrationId = integrationId;
       }
 
-      const config = await db.slackChannelConfig.findFirst({
+      const configs = await db.slackChannelConfig.findMany({
         where: whereClause,
         include: {
           project: {
@@ -134,18 +134,22 @@ export class SlackChannelResolver {
         },
       });
 
-      if (!config) {
+      if (configs.length === 0) {
         console.log(`[SlackChannelResolver] No channel config found for ${channelName}`);
-        return { project: null, team: null };
+        return { projects: [], teams: [] };
       }
 
-      return {
-        project: config.project,
-        team: config.team,
-      };
+      const projects = configs
+        .map(c => c.project)
+        .filter((p): p is NonNullable<typeof p> => p !== null);
+      const teams = configs
+        .map(c => c.team)
+        .filter((t): t is NonNullable<typeof t> => t !== null);
+
+      return { projects, teams };
     } catch (error) {
       console.error('[SlackChannelResolver] Error resolving project from channel:', error);
-      return { project: null, team: null };
+      return { projects: [], teams: [] };
     }
   }
 

@@ -935,20 +935,30 @@ async function chatWithZoeUsingTRPC(
       const botToken = channelContext.integrationData?.credentials?.BOT_TOKEN;
       const integrationId = channelContext.integrationData?.integration?.id;
       if (botToken) {
-        const { project, team } = await SlackChannelResolver.resolveProjectFromChannelId(
+        const { projects, teams } = await SlackChannelResolver.resolveProjectFromChannelId(
           channelContext.channelId,
           botToken,
           integrationId
         );
-        if (project) {
+        if (projects.length === 1) {
+          const project = projects[0]!;
           projectContext = `\n\nCHANNEL PROJECT CONTEXT:
 This Slack channel is linked to the project "${project.name}" (ID: ${project.id}).
 Project status: ${project.status ?? 'unknown'}
 ${project.description ? `Project description: ${project.description}` : ''}
 When the user says "this project" or "the project", they are referring to "${project.name}".
 Use the project ID ${project.id} when querying for project-specific data.`;
+        } else if (projects.length > 1) {
+          const projectDetails = projects
+            .map(p => `- "${p.name}" (ID: ${p.id}, status: ${p.status ?? 'unknown'})${p.description ? ` — ${p.description}` : ''}`)
+            .join('\n');
+          projectContext = `\n\nCHANNEL PROJECT CONTEXT:
+This Slack channel is linked to ${projects.length} projects:
+${projectDetails}
+When the user says "this project", ask which one they mean or use context clues.
+Use the project IDs above when querying for project-specific data.`;
         }
-        if (team) {
+        for (const team of teams) {
           projectContext += `\nThis channel is associated with team "${team.name}" (ID: ${team.id}).`;
         }
       }
