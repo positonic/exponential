@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { useSession } from 'next-auth/react';
 import { api } from "~/trpc/react";
 import { 
   Paper, 
@@ -35,6 +36,11 @@ interface ChatProps {
 
 export default function Chat({ initialMessages, githubSettings, buttons }: ChatProps) {
   const conversationId = useMemo(() => `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`, []);
+  const { data: session } = useSession();
+  const sessionUser = session?.user;
+  const userInitials = sessionUser?.name
+    ? sessionUser.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+    : 'U';
   const [messages, setMessages] = useState<Message[]>(
     initialMessages ?? [
       {
@@ -275,7 +281,7 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
                     p="sm"
                     radius="lg"
                     style={{
-                      maxWidth: '70%',
+                      maxWidth: '85%',
                       backgroundColor: message.type === 'human' ? 'var(--color-brand-primary)' : 'var(--color-surface-secondary)',  // Theme-aware backgrounds
                     }}
                   >
@@ -290,12 +296,15 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
                     </Text>
                   </Paper>
                   {message.type === 'human' && (
-                    <Avatar 
-                      size="md" 
-                      radius="xl" 
-                      src={null}
-                      alt="User"
-                    />
+                    <Avatar
+                      size="md"
+                      radius="xl"
+                      src={sessionUser?.image ?? null}
+                      alt={sessionUser?.name ?? 'User'}
+                      className="bg-brand-primary text-white"
+                    >
+                      {!sessionUser?.image && userInitials}
+                    </Avatar>
                   )}
                 </Group>
               </Box>
