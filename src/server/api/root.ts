@@ -58,6 +58,7 @@ import { briefingRouter } from "./routers/briefing";
 import { pmSchedulerRouter } from "./routers/pmScheduler";
 import { bountyRouter } from "./routers/bounty";
 import { actionCommentRouter } from "./routers/actionComment";
+import { blogCommentRouter } from "./routers/blogComment";
 import { crmApiRouter } from "./routers/crmApi";
 // Plugin system
 import { pluginConfigRouter } from "./routers/pluginConfig";
@@ -127,6 +128,7 @@ export const appRouter = createTRPCRouter({
   pmScheduler: pmSchedulerRouter,
   bounty: bountyRouter,
   actionComment: actionCommentRouter,
+  blogComment: blogCommentRouter,
   crmApi: crmApiRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,

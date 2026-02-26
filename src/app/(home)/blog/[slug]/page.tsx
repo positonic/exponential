@@ -37,5 +37,11 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     notFound();
   }
 
-  return <BlogContent post={post} isLoggedIn={!!session?.user} />;
+  return (
+    <BlogContent
+      post={post}
+      isLoggedIn={!!session?.user}
+      userId={session?.user?.id}
+    />
+  );
 }

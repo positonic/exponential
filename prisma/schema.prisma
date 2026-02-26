@@ -137,6 +137,8 @@ model User {
   keyResultComments           KeyResultComment[]         @relation("KeyResultCommentAuthor")
   // Action Discussion relations
   actionComments              ActionComment[]            @relation("ActionCommentAuthor")
+  // Blog Discussion relations
+  blogComments                BlogComment[]              @relation("BlogCommentAuthor")
   // Daily Planning relations
   dailyPlans                  DailyPlan[]
   // Webhook activity logs
@@ -2341,6 +2343,22 @@ model ActionComment {
 
   @@index([actionId])
   @@index([authorId])
+}
+
+// Blog Discussion Comments
+model BlogComment {
+  id        String   @id @default(cuid())
+  slug      String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author User @relation("BlogCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([slug])
+  @@index([authorId])
+  @@index([createdAt])
 }
 
 model OkrCheckinAgendaItem {

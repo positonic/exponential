@@ -5,10 +5,14 @@ import { Title, Text, Badge } from "@mantine/core";
 import { IconArrowLeft } from "@tabler/icons-react";
 import type { BlogPost } from "~/lib/blog/types";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { CommentThread } from "~/plugins/okr/client/components/CommentThread";
+import { CommentInput } from "~/plugins/okr/client/components/CommentInput";
+import { api } from "~/trpc/react";
 
 interface BlogContentProps {
   post: BlogPost;
   isLoggedIn?: boolean;
+  userId?: string;
 }
 
 function formatDate(dateString: string): string {
@@ -19,7 +23,39 @@ function formatDate(dateString: string): string {
   });
 }
 
-export function BlogContent({ post, isLoggedIn }: BlogContentProps) {
+export function BlogContent({ post, isLoggedIn, userId }: BlogContentProps) {
+  const utils = api.useUtils();
+  const slug = post.slug;
+
+  const { data: comments = [] } = api.blogComment.getComments.useQuery(
+    { slug },
+    { enabled: !!isLoggedIn },
+  );
+
+  const addCommentMutation = api.blogComment.addComment.useMutation({
+    onSuccess: () => void utils.blogComment.getComments.invalidate({ slug }),
+  });
+
+  const deleteCommentMutation = api.blogComment.deleteComment.useMutation({
+    onSuccess: () => void utils.blogComment.getComments.invalidate({ slug }),
+  });
+
+  const updateCommentMutation = api.blogComment.updateComment.useMutation({
+    onSuccess: () => void utils.blogComment.getComments.invalidate({ slug }),
+  });
+
+  const handleAddComment = async (content: string) => {
+    await addCommentMutation.mutateAsync({ slug, content });
+  };
+
+  const handleDeleteComment = (commentId: string) => {
+    deleteCommentMutation.mutate({ commentId });
+  };
+
+  const handleEditComment = async (commentId: string, newContent: string) => {
+    await updateCommentMutation.mutateAsync({ commentId, content: newContent });
+  };
+
   return (
     <div>
       {/* Hero banner */}
@@ -84,8 +120,31 @@ export function BlogContent({ post, isLoggedIn }: BlogContentProps) {
           <MarkdownRenderer content={post.content} />
         </div>
 
-        {/* Call to Action */}
-        {!isLoggedIn && (
+        {/* Discussion */}
+        {isLoggedIn ? (
+          <div className="mt-16 border-t border-border-primary pt-8">
+            <Text className="text-text-primary font-semibold" size="sm" mb="md">
+              Discussion
+            </Text>
+
+            <CommentThread
+              comments={comments.map((c) => ({
+                ...c,
+                createdAt: new Date(c.createdAt),
+                updatedAt: new Date(c.updatedAt),
+              }))}
+              onDeleteComment={handleDeleteComment}
+              onEditComment={handleEditComment}
+              currentUserId={userId}
+            />
+
+            <CommentInput
+              onSubmit={handleAddComment}
+              isSubmitting={addCommentMutation.isPending}
+              placeholder="Leave a comment..."
+            />
+          </div>
+        ) : (
           <div className="mt-16 rounded-xl border border-border-primary bg-surface-secondary p-8 text-center md:p-12">
             <Title order={3} className="mb-3 text-2xl">
               Ready to try the Self-Steering Method?
