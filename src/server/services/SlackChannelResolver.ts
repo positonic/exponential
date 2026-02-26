@@ -86,6 +86,70 @@ export class SlackChannelResolver {
   }
 
   /**
+   * Reverse lookup: given a Slack channel ID and bot token, find the associated project.
+   * Calls Slack API to resolve channel ID → channel name, then matches against SlackChannelConfig.
+   */
+  static async resolveProjectFromChannelId(
+    channelId: string,
+    botToken: string,
+    integrationId?: string
+  ): Promise<{ project: { id: string; name: string; status: string | null; description: string | null } | null; team: { id: string; name: string } | null }> {
+    try {
+      // Call Slack API to get channel info (name) from channel ID
+      const channelInfoResponse = await fetch(
+        `https://slack.com/api/conversations.info?channel=${channelId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${botToken}`,
+          },
+        }
+      );
+      const channelInfo = await channelInfoResponse.json() as { ok: boolean; channel?: { name: string } };
+
+      if (!channelInfo.ok || !channelInfo.channel?.name) {
+        console.log(`[SlackChannelResolver] Could not resolve channel name for ${channelId}`);
+        return { project: null, team: null };
+      }
+
+      const channelName = `#${channelInfo.channel.name}`;
+
+      // Query SlackChannelConfig matching this channel name
+      const whereClause: Record<string, unknown> = {
+        slackChannel: channelName,
+        isActive: true,
+      };
+      if (integrationId) {
+        whereClause.integrationId = integrationId;
+      }
+
+      const config = await db.slackChannelConfig.findFirst({
+        where: whereClause,
+        include: {
+          project: {
+            select: { id: true, name: true, status: true, description: true },
+          },
+          team: {
+            select: { id: true, name: true },
+          },
+        },
+      });
+
+      if (!config) {
+        console.log(`[SlackChannelResolver] No channel config found for ${channelName}`);
+        return { project: null, team: null };
+      }
+
+      return {
+        project: config.project,
+        team: config.team,
+      };
+    } catch (error) {
+      console.error('[SlackChannelResolver] Error resolving project from channel:', error);
+      return { project: null, team: null };
+    }
+  }
+
+  /**
    * Get all available Slack integrations for a user
    */
   static async getUserSlackIntegrations(userId: string) {

@@ -5,6 +5,7 @@ import { ActionProcessorFactory } from '~/server/services/processors/ActionProce
 import { createCallerFactory } from '~/server/api/trpc';
 import { appRouter } from '~/server/api/root';
 import { parseActionInput } from '~/server/services/parsing';
+import { SlackChannelResolver } from '~/server/services/SlackChannelResolver';
 
 // Slack API client
 const SLACK_API_BASE = 'https://slack.com/api';
@@ -703,7 +704,10 @@ async function handleSlashCommand(payload: SlackSlashCommandPayload, integration
       case '/z':
         // Primary AI companion
         if (text.trim()) {
-          void handleDeferredZoeResponse(text, authenticatedUser, response_url);
+          void handleDeferredZoeResponse(text, authenticatedUser, response_url, {
+            channelId: channel_id,
+            integrationData,
+          });
           return {
             response_type: 'ephemeral',
             text: '🔮 Zoe is thinking...'
@@ -719,7 +723,10 @@ async function handleSlashCommand(payload: SlackSlashCommandPayload, integration
       case '/p':
         // Legacy support - redirects to Zoe
         if (text.trim()) {
-          void handleDeferredZoeResponse(text, authenticatedUser, response_url);
+          void handleDeferredZoeResponse(text, authenticatedUser, response_url, {
+            channelId: channel_id,
+            integrationData,
+          });
           return {
             response_type: 'ephemeral',
             text: '🔮 Zoe is thinking...'
@@ -871,7 +878,11 @@ async function findTeamMemberFromSlackUser(
   }
 }
 
-async function chatWithZoeUsingTRPC(message: string, user: any): Promise<string> {
+async function chatWithZoeUsingTRPC(
+  message: string,
+  user: any,
+  channelContext?: { channelId: string; integrationData: any }
+): Promise<string> {
   const startTime = Date.now();
   
   try {
@@ -918,6 +929,31 @@ async function chatWithZoeUsingTRPC(message: string, user: any): Promise<string>
     }
     console.log(`🔍 [Zoe] Using agent: ${targetAgentId}`);
 
+    // Resolve channel-to-project context if available
+    let projectContext = '';
+    if (channelContext?.channelId && !channelContext.channelId.startsWith('D')) {
+      const botToken = channelContext.integrationData?.credentials?.BOT_TOKEN;
+      const integrationId = channelContext.integrationData?.integration?.id;
+      if (botToken) {
+        const { project, team } = await SlackChannelResolver.resolveProjectFromChannelId(
+          channelContext.channelId,
+          botToken,
+          integrationId
+        );
+        if (project) {
+          projectContext = `\n\nCHANNEL PROJECT CONTEXT:
+This Slack channel is linked to the project "${project.name}" (ID: ${project.id}).
+Project status: ${project.status ?? 'unknown'}
+${project.description ? `Project description: ${project.description}` : ''}
+When the user says "this project" or "the project", they are referring to "${project.name}".
+Use the project ID ${project.id} when querying for project-specific data.`;
+        }
+        if (team) {
+          projectContext += `\nThis channel is associated with team "${team.name}" (ID: ${team.id}).`;
+        }
+      }
+    }
+
     // Generate system context for Slack interaction
     const systemContext = `You are Zoe 🔮, an AI companion integrated with Slack.
 The user is ${user.name || 'User'} (ID: ${user.id}).
@@ -932,7 +968,7 @@ You can help with:
 
 Be concise, direct, and genuinely helpful. Skip the corporate fluff. Use Slack formatting when helpful (like *bold* or _italic_).
 
-IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
+IMPORTANT: Keep responses under 3000 characters due to Slack message limits.${projectContext}`;
 
     // Call agent through authenticated tRPC
     console.log(`🔍 [Zoe] Calling agent ${targetAgentId} with message: "${message.slice(0, 80)}..."`);
@@ -1028,9 +1064,14 @@ function formatResponseForSlack(response: string): string {
 }
 
 
-async function handleDeferredZoeResponse(message: string, user: any, responseUrl: string) {
+async function handleDeferredZoeResponse(
+  message: string,
+  user: any,
+  responseUrl: string,
+  channelContext?: { channelId: string; integrationData: any }
+) {
   try {
-    const zoeResponse = await chatWithZoeUsingTRPC(message, user);
+    const zoeResponse = await chatWithZoeUsingTRPC(message, user, channelContext);
     const formattedResponse = formatResponseForSlack(zoeResponse);
     
     // Send the response back to Slack using the response_url
@@ -1161,7 +1202,10 @@ You can chat with me naturally here - no commands needed!
 
   try {
     // Process the request and respond directly (no "thinking" message)
-    const response = await chatWithZoeUsingTRPC(cleanText, user);
+    const response = await chatWithZoeUsingTRPC(cleanText, user, {
+      channelId: event.channel!,
+      integrationData,
+    });
     const formattedResponse = formatResponseForSlack(response);
     
     await sendSlackResponse(
@@ -1219,7 +1263,10 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
       const chatMessage = args.slice(1).join(' ');
       if (chatMessage) {
         // Immediately return acknowledgment and process in background
-        void handleDeferredZoeResponse(chatMessage, user, responseUrl);
+        void handleDeferredZoeResponse(chatMessage, user, responseUrl, {
+          channelId,
+          integrationData,
+        });
         return {
           response_type: 'ephemeral',
           text: '🔮 Zoe is thinking...'
