@@ -283,17 +283,27 @@ export function ActionModalForm({
               size="sm"
               leftSection={<IconClock size={16} />}
               rightSection={scheduledStart ? (
-                <ActionIcon
-                  size="xs"
-                  variant="transparent"
+                <span
+                  role="button"
+                  tabIndex={0}
                   onClick={(e) => {
                     e.stopPropagation();
+                    e.preventDefault();
                     setScheduledStart(null);
                     setDuration(null);
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setScheduledStart(null);
+                      setDuration(null);
+                    }
+                  }}
+                  className="flex cursor-pointer items-center rounded-sm opacity-60 hover:opacity-100"
                 >
                   <IconX size={12} />
-                </ActionIcon>
+                </span>
               ) : undefined}
               onClick={() => setSchedulePopoverOpened(true)}
             >
