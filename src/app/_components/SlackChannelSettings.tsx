@@ -33,6 +33,10 @@ interface SlackChannelSettingsProps {
     id: string;
     name: string;
   };
+  workspace?: {
+    id: string;
+    name: string;
+  };
 }
 
 interface SlackChannelConfig {
@@ -45,16 +49,18 @@ interface SlackChannelConfig {
   };
 }
 
-export function SlackChannelSettings({ project, team }: SlackChannelSettingsProps) {
+export function SlackChannelSettings({ project, team, workspace }: SlackChannelSettingsProps) {
   const [selectedIntegration, setSelectedIntegration] = useState<string>('');
   const [selectedChannel, setSelectedChannel] = useState<string>('');
   const [isActive, setIsActive] = useState<boolean>(true);
   const [availableChannels, setAvailableChannels] = useState<Array<{ value: string; label: string }>>([]);
   const [config, setConfig] = useState<SlackChannelConfig | null>(null);
-  
-  const entityId = project?.id || team?.id;
-  const entityName = project?.name || team?.name;
+
+  const entityId = project?.id ?? team?.id ?? workspace?.id;
+  const entityName = project?.name ?? team?.name ?? workspace?.name;
+  const entityType = project ? 'project' : team ? 'team' : 'workspace';
   const isProject = !!project;
+  const isWorkspace = !!workspace;
   
   // Get user's accessible Slack integrations
   const { data: integrations, isLoading: loadingIntegrations } = api.integrationPermission.getAccessibleIntegrations.useQuery({
@@ -62,21 +68,25 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
   });
   
   // Get existing config
+  const configQueryInput = isProject
+    ? { projectId: entityId! }
+    : isWorkspace
+      ? { workspaceId: entityId! }
+      : { teamId: entityId! };
   const { data: existingConfig, refetch: refetchConfig } = api.slack.getChannelConfig.useQuery(
-    isProject 
-      ? { projectId: entityId! }
-      : { teamId: entityId! },
+    configQueryInput,
     { enabled: !!entityId }
   );
 
   // Check if user has permission to view channels for selected integration
+  // For workspace-level config, skip permission check (handled by workspace membership on the server)
   const { data: hasChannelPermission } = api.integrationPermission.hasPermission.useQuery(
     {
       integrationId: selectedIntegration,
       permission: 'CONFIGURE_CHANNELS',
       context: isProject ? { projectId: entityId } : { teamId: entityId }
     },
-    { enabled: !!selectedIntegration && !!entityId }
+    { enabled: !!selectedIntegration && !!entityId && !isWorkspace }
   );
 
   // Get available channels for selected integration (only if user owns or has been granted access)
@@ -160,7 +170,7 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
       return;
     }
 
-    if (!hasChannelPermission) {
+    if (!isWorkspace && !hasChannelPermission) {
       notifications.show({
         title: 'Permission Error',
         message: 'You do not have permission to configure channels for this integration',
@@ -175,11 +185,17 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
       channel = `#${channel}`;
     }
 
+    const entityInput = isProject
+      ? { projectId: entityId! }
+      : isWorkspace
+        ? { workspaceId: entityId! }
+        : { teamId: entityId! };
+
     configureChannelMutation.mutate({
       integrationId: selectedIntegration,
       channel,
       isActive,
-      ...(isProject ? { projectId: entityId! } : { teamId: entityId! })
+      ...entityInput
     });
   };
 
@@ -208,7 +224,7 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
           <Title order={4}>Slack Notifications</Title>
         </Group>
         <Alert icon={<IconAlertCircle size={16} />} color="orange">
-          No Slack integrations found. Please set up a Slack integration first to configure notifications for this {isProject ? 'project' : 'team'}.
+          No Slack integrations found. Please set up a Slack integration first to configure notifications for this {entityType}.
         </Alert>
       </Card>
     );
@@ -235,7 +251,9 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
       </Group>
 
       <Text size="sm" c="dimmed" mb="lg">
-        Configure where Slack notifications for this {isProject ? 'project' : 'team'} should be sent.
+        {isWorkspace
+          ? 'Link a Slack channel to this workspace so Zoe can provide workspace-wide context including OKRs and project progress.'
+          : `Configure where Slack notifications for this ${entityType} should be sent.`}
         {isProject && project?.teamId && (
           <Text size="xs" c="dimmed" mt="xs">
             If not configured, notifications will use the team&apos;s default channel.
@@ -315,10 +333,10 @@ export function SlackChannelSettings({ project, team }: SlackChannelSettingsProp
             onClick={handleSave}
             loading={configureChannelMutation.isPending}
             disabled={
-              !isActive || 
-              !selectedIntegration || 
-              !selectedChannel || 
-              hasChannelPermission === false
+              !isActive ||
+              !selectedIntegration ||
+              !selectedChannel ||
+              (!isWorkspace && hasChannelPermission === false)
             }
           >
             {config ? 'Update Configuration' : 'Save Configuration'}

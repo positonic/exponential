@@ -93,7 +93,11 @@ export class SlackChannelResolver {
     channelId: string,
     botToken: string,
     integrationId?: string
-  ): Promise<{ projects: Array<{ id: string; name: string; status: string | null; description: string | null }>; teams: Array<{ id: string; name: string }> }> {
+  ): Promise<{
+    projects: Array<{ id: string; name: string; status: string | null; description: string | null }>;
+    teams: Array<{ id: string; name: string }>;
+    workspaces: Array<{ id: string; name: string; slug: string; type: string }>;
+  }> {
     try {
       // Call Slack API to get channel info (name) from channel ID
       const channelInfoResponse = await fetch(
@@ -108,7 +112,7 @@ export class SlackChannelResolver {
 
       if (!channelInfo.ok || !channelInfo.channel?.name) {
         console.log(`[SlackChannelResolver] Could not resolve channel name for ${channelId}`);
-        return { projects: [], teams: [] };
+        return { projects: [], teams: [], workspaces: [] };
       }
 
       const channelName = `#${channelInfo.channel.name}`;
@@ -131,12 +135,15 @@ export class SlackChannelResolver {
           team: {
             select: { id: true, name: true },
           },
+          workspace: {
+            select: { id: true, name: true, slug: true, type: true },
+          },
         },
       });
 
       if (configs.length === 0) {
         console.log(`[SlackChannelResolver] No channel config found for ${channelName}`);
-        return { projects: [], teams: [] };
+        return { projects: [], teams: [], workspaces: [] };
       }
 
       const projects = configs
@@ -145,11 +152,14 @@ export class SlackChannelResolver {
       const teams = configs
         .map(c => c.team)
         .filter((t): t is NonNullable<typeof t> => t !== null);
+      const workspaces = configs
+        .map(c => c.workspace)
+        .filter((w): w is NonNullable<typeof w> => w !== null);
 
-      return { projects, teams };
+      return { projects, teams, workspaces };
     } catch (error) {
       console.error('[SlackChannelResolver] Error resolving project from channel:', error);
-      return { projects: [], teams: [] };
+      return { projects: [], teams: [], workspaces: [] };
     }
   }
 
@@ -170,7 +180,8 @@ export class SlackChannelResolver {
         slackChannelConfigs: {
           include: {
             project: true,
-            team: true
+            team: true,
+            workspace: true
           }
         }
       }
@@ -183,7 +194,8 @@ export class SlackChannelResolver {
   static async validateUserAccess(
     userId: string,
     projectId?: string,
-    teamId?: string
+    teamId?: string,
+    workspaceId?: string
   ): Promise<boolean> {
     if (projectId) {
       const project = await db.project.findFirst({
@@ -201,14 +213,21 @@ export class SlackChannelResolver {
       });
       return !!project;
     }
-    
+
     if (teamId) {
       const teamMember = await db.teamUser.findFirst({
         where: { userId, teamId }
       });
       return !!teamMember;
     }
-    
+
+    if (workspaceId) {
+      const workspaceMember = await db.workspaceUser.findFirst({
+        where: { userId, workspaceId }
+      });
+      return !!workspaceMember;
+    }
+
     return false;
   }
 
@@ -220,17 +239,24 @@ export class SlackChannelResolver {
     channel: string,
     configuredByUserId: string,
     projectId?: string,
-    teamId?: string
+    teamId?: string,
+    workspaceId?: string
   ) {
-    // Validate that only one of projectId or teamId is provided
-    if ((!projectId && !teamId) || (projectId && teamId)) {
-      throw new Error('Must provide either projectId or teamId, not both');
+    // Validate that exactly one of projectId, teamId, or workspaceId is provided
+    const provided = [projectId, teamId, workspaceId].filter(Boolean);
+    if (provided.length !== 1) {
+      throw new Error('Must provide exactly one of projectId, teamId, or workspaceId');
     }
 
     // Check if config already exists
-    const existingConfig = projectId
-      ? await db.slackChannelConfig.findUnique({ where: { projectId } })
-      : await db.slackChannelConfig.findUnique({ where: { teamId } });
+    let existingConfig;
+    if (projectId) {
+      existingConfig = await db.slackChannelConfig.findUnique({ where: { projectId } });
+    } else if (teamId) {
+      existingConfig = await db.slackChannelConfig.findUnique({ where: { teamId } });
+    } else if (workspaceId) {
+      existingConfig = await db.slackChannelConfig.findUnique({ where: { workspaceId } });
+    }
 
     if (existingConfig) {
       // Update existing config
@@ -253,6 +279,7 @@ export class SlackChannelResolver {
           configuredByUserId,
           projectId,
           teamId,
+          workspaceId,
           isActive: true
         }
       });

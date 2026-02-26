@@ -878,6 +878,82 @@ async function findTeamMemberFromSlackUser(
   }
 }
 
+/**
+ * Build concise OKR and project summary context for a workspace.
+ * Used to give the Slack bot awareness of workspace-level goals and active projects.
+ */
+async function buildWorkspaceOKRContext(workspaceId: string): Promise<string> {
+  const [goals, projects] = await Promise.all([
+    db.goal.findMany({
+      where: { workspaceId },
+      include: {
+        keyResults: {
+          select: {
+            title: true,
+            targetValue: true,
+            currentValue: true,
+            startValue: true,
+            unit: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { title: 'asc' },
+      take: 10,
+    }),
+    db.project.findMany({
+      where: {
+        workspaceId,
+        status: { in: ['ACTIVE', 'IN_PROGRESS', 'AT_RISK'] },
+      },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        progress: true,
+        description: true,
+      },
+      orderBy: { name: 'asc' },
+      take: 15,
+    }),
+  ]);
+
+  let context = '';
+
+  if (goals.length > 0) {
+    context += 'OKRs (Objectives & Key Results):\n';
+    for (const goal of goals) {
+      const krs = goal.keyResults;
+      const avgProgress = krs.length > 0
+        ? krs.reduce((acc, kr) => {
+            const range = kr.targetValue - kr.startValue;
+            const progress = range > 0 ? ((kr.currentValue - kr.startValue) / range) * 100 : 0;
+            return acc + Math.min(100, Math.max(0, progress));
+          }, 0) / krs.length
+        : 0;
+
+      context += `\n• Objective: "${goal.title}" (${Math.round(avgProgress)}% overall)`;
+      if (goal.period) context += ` [${goal.period}]`;
+      for (const kr of krs) {
+        const krRange = kr.targetValue - kr.startValue;
+        const krProgress = krRange > 0 ? ((kr.currentValue - kr.startValue) / krRange) * 100 : 0;
+        context += `\n  - KR: "${kr.title}" — ${kr.currentValue}/${kr.targetValue} ${kr.unit} (${Math.round(Math.min(100, Math.max(0, krProgress)))}%, ${kr.status})`;
+      }
+    }
+  }
+
+  if (projects.length > 0) {
+    context += '\n\nActive Projects:\n';
+    for (const p of projects) {
+      context += `• "${p.name}" — ${p.status ?? 'unknown'}, ${Math.round(p.progress * 100)}% complete`;
+      if (p.description) context += ` — ${p.description.slice(0, 80)}`;
+      context += '\n';
+    }
+  }
+
+  return context;
+}
+
 async function chatWithZoeUsingTRPC(
   message: string,
   user: any,
@@ -929,13 +1005,15 @@ async function chatWithZoeUsingTRPC(
     }
     console.log(`🔍 [Zoe] Using agent: ${targetAgentId}`);
 
-    // Resolve channel-to-project context if available
+    // Resolve channel-to-project and workspace context if available
     let projectContext = '';
+    let workspaceContext = '';
+    let resolvedWorkspaceId: string | undefined;
     if (channelContext?.channelId && !channelContext.channelId.startsWith('D')) {
       const botToken = channelContext.integrationData?.credentials?.BOT_TOKEN;
       const integrationId = channelContext.integrationData?.integration?.id;
       if (botToken) {
-        const { projects, teams } = await SlackChannelResolver.resolveProjectFromChannelId(
+        const { projects, teams, workspaces } = await SlackChannelResolver.resolveProjectFromChannelId(
           channelContext.channelId,
           botToken,
           integrationId
@@ -961,6 +1039,17 @@ Use the project IDs above when querying for project-specific data.`;
         for (const team of teams) {
           projectContext += `\nThis channel is associated with team "${team.name}" (ID: ${team.id}).`;
         }
+
+        // Resolve workspace context with OKRs and project summaries
+        if (workspaces.length >= 1) {
+          const workspace = workspaces[0]!;
+          resolvedWorkspaceId = workspace.id;
+          const okrContext = await buildWorkspaceOKRContext(workspace.id);
+          workspaceContext = `\n\nWORKSPACE CONTEXT:
+This channel is linked to workspace "${workspace.name}" (slug: ${workspace.slug}, type: ${workspace.type}).
+When the user mentions "the workspace", "our team", or asks about overall progress, they mean "${workspace.name}".
+${okrContext}`;
+        }
       }
     }
 
@@ -978,12 +1067,13 @@ You can help with:
 
 Be concise, direct, and genuinely helpful. Skip the corporate fluff. Use Slack formatting when helpful (like *bold* or _italic_).
 
-IMPORTANT: Keep responses under 3000 characters due to Slack message limits.${projectContext}`;
+IMPORTANT: Keep responses under 3000 characters due to Slack message limits.${projectContext}${workspaceContext}`;
 
     // Call agent through authenticated tRPC
     console.log(`🔍 [Zoe] Calling agent ${targetAgentId} with message: "${message.slice(0, 80)}..."`);
     const result = await caller.mastra.callAgent({
       agentId: targetAgentId,
+      workspaceId: resolvedWorkspaceId,
       messages: [
         { role: 'system', content: systemContext },
         { role: 'user', content: message }

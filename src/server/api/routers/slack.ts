@@ -11,13 +11,14 @@ export const slackRouter = createTRPCRouter({
       z.object({
         projectId: z.string().optional(),
         teamId: z.string().optional(),
+        workspaceId: z.string().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
-      if (!input.projectId && !input.teamId) {
+      if (!input.projectId && !input.teamId && !input.workspaceId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Either projectId or teamId must be provided",
+          message: "One of projectId, teamId, or workspaceId must be provided",
         });
       }
 
@@ -25,7 +26,8 @@ export const slackRouter = createTRPCRouter({
       const hasAccess = await SlackChannelResolver.validateUserAccess(
         ctx.session.user.id,
         input.projectId,
-        input.teamId
+        input.teamId,
+        input.workspaceId
       );
 
       if (!hasAccess) {
@@ -35,10 +37,14 @@ export const slackRouter = createTRPCRouter({
         });
       }
 
+      const whereClause = input.projectId
+        ? { projectId: input.projectId }
+        : input.teamId
+          ? { teamId: input.teamId }
+          : { workspaceId: input.workspaceId };
+
       const config = await ctx.db.slackChannelConfig.findUnique({
-        where: input.projectId 
-          ? { projectId: input.projectId }
-          : { teamId: input.teamId },
+        where: whereClause,
         include: {
           integration: {
             select: {
@@ -61,32 +67,60 @@ export const slackRouter = createTRPCRouter({
         isActive: z.boolean().default(true),
         projectId: z.string().optional(),
         teamId: z.string().optional(),
+        workspaceId: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!input.projectId && !input.teamId) {
+      if (!input.projectId && !input.teamId && !input.workspaceId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Either projectId or teamId must be provided",
+          message: "One of projectId, teamId, or workspaceId must be provided",
         });
       }
 
-      // Check if user has permission to configure channels for this integration
-      const hasPermission = await IntegrationPermissionService.hasPermission(
-        ctx.session.user.id,
-        input.integrationId,
-        'CONFIGURE_CHANNELS',
-        {
-          projectId: input.projectId,
-          teamId: input.teamId
-        }
-      );
-
-      if (!hasPermission) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You don't have permission to configure channels for this integration",
+      // For workspace-level config, verify user is workspace owner or admin
+      if (input.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findFirst({
+          where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
         });
+        if (!membership || !['owner', 'admin'].includes(membership.role)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Must be workspace owner or admin to configure Slack channels",
+          });
+        }
+      } else {
+        // Check if user has permission to configure channels for this integration
+        const hasPermission = await IntegrationPermissionService.hasPermission(
+          ctx.session.user.id,
+          input.integrationId,
+          'CONFIGURE_CHANNELS',
+          {
+            projectId: input.projectId,
+            teamId: input.teamId
+          }
+        );
+
+        if (!hasPermission) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have permission to configure channels for this integration",
+          });
+        }
+
+        // Verify user has access to the project/team
+        const hasAccess = await SlackChannelResolver.validateUserAccess(
+          ctx.session.user.id,
+          input.projectId,
+          input.teamId
+        );
+
+        if (!hasAccess) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Access denied to project/team",
+          });
+        }
       }
 
       // Get the integration to ensure it exists and is active
@@ -105,27 +139,14 @@ export const slackRouter = createTRPCRouter({
         });
       }
 
-      // Verify user has access to the project/team
-      const hasAccess = await SlackChannelResolver.validateUserAccess(
-        ctx.session.user.id,
-        input.projectId,
-        input.teamId
-      );
-
-      if (!hasAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Access denied to project/team",
-        });
-      }
-
       // Configure the channel
       const config = await SlackChannelResolver.configureChannel(
         input.integrationId,
         input.channel,
         ctx.session.user.id,
         input.projectId,
-        input.teamId
+        input.teamId,
+        input.workspaceId
       );
 
       // Update the isActive status if different
@@ -149,6 +170,7 @@ export const slackRouter = createTRPCRouter({
           integration: true,
           project: true,
           team: true,
+          workspace: true,
         },
       });
 
@@ -162,8 +184,9 @@ export const slackRouter = createTRPCRouter({
       // Verify user has access
       const hasAccess = await SlackChannelResolver.validateUserAccess(
         ctx.session.user.id,
-        config.projectId || undefined,
-        config.teamId || undefined
+        config.projectId ?? undefined,
+        config.teamId ?? undefined,
+        config.workspaceId ?? undefined
       );
 
       if (!hasAccess || config.integration.userId !== ctx.session.user.id) {

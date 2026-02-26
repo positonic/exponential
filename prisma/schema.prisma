@@ -276,6 +276,8 @@ model Workspace {
   integrations             Integration[]
   // Notification override relations
   notificationOverrides    WorkspaceNotificationOverride[]
+  // Slack channel config relation
+  slackConfig              SlackChannelConfig?
 
   @@index([slug])
   @@index([ownerId])
@@ -1041,6 +1043,7 @@ model SlackChannelConfig {
   isActive           Boolean     @default(true)
   projectId          String?     @unique
   teamId             String?     @unique
+  workspaceId        String?     @unique
   integrationId      String
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
@@ -1049,9 +1052,11 @@ model SlackChannelConfig {
   integration        Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
   project            Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   team               Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  workspace          Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([teamId])
+  @@index([workspaceId])
   @@index([integrationId])
   @@index([configuredByUserId])
 }
