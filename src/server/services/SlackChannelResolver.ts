@@ -130,10 +130,16 @@ export class SlackChannelResolver {
         where: whereClause,
         include: {
           project: {
-            select: { id: true, name: true, status: true, description: true },
+            select: {
+              id: true, name: true, status: true, description: true,
+              workspace: { select: { id: true, name: true, slug: true, type: true } },
+            },
           },
           team: {
-            select: { id: true, name: true },
+            select: {
+              id: true, name: true,
+              workspace: { select: { id: true, name: true, slug: true, type: true } },
+            },
           },
           workspace: {
             select: { id: true, name: true, slug: true, type: true },
@@ -152,9 +158,18 @@ export class SlackChannelResolver {
       const teams = configs
         .map(c => c.team)
         .filter((t): t is NonNullable<typeof t> => t !== null);
-      const workspaces = configs
-        .map(c => c.workspace)
-        .filter((w): w is NonNullable<typeof w> => w !== null);
+
+      // Extract workspaces from direct configs, project relationships, and team relationships
+      type WorkspaceInfo = { id: string; name: string; slug: string; type: string };
+      const allWorkspaces: WorkspaceInfo[] = [
+        ...configs.map(c => c.workspace).filter((w): w is NonNullable<typeof w> => w !== null),
+        ...configs.map(c => c.project?.workspace).filter((w): w is NonNullable<typeof w> => w !== null),
+        ...configs.map(c => c.team?.workspace).filter((w): w is NonNullable<typeof w> => w !== null),
+      ];
+      // Deduplicate by id
+      const workspaces = Array.from(
+        new Map(allWorkspaces.map(w => [w.id, w])).values()
+      );
 
       return { projects, teams, workspaces };
     } catch (error) {

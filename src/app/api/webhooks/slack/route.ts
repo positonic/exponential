@@ -1051,10 +1051,15 @@ Use the project IDs above when querying for project-specific data.`;
         if (workspaces.length >= 1) {
           const workspace = workspaces[0]!;
           resolvedWorkspaceId = workspace.id;
+          const todoAppBaseUrl = process.env.TODO_APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? 'https://www.exponential.im';
+          const okrPageUrl = `${todoAppBaseUrl}/w/${workspace.slug}/okrs`;
           const okrContext = await buildWorkspaceOKRContext(workspace.id);
           workspaceContext = `\n\nWORKSPACE CONTEXT:
 This channel is linked to workspace "${workspace.name}" (slug: ${workspace.slug}, type: ${workspace.type}).
 When the user mentions "the workspace", "our team", or asks about overall progress, they mean "${workspace.name}".
+OKR page: ${okrPageUrl}
+When discussing OKRs, ALWAYS include a link to the OKR page using Slack format: <${okrPageUrl}|View OKRs in Exponential>
+Only show OKRs belonging to this workspace ("${workspace.name}"). Do NOT include OKRs from other workspaces.
 ${okrContext}`;
         }
       }
