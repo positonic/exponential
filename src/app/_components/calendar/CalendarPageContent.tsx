@@ -12,6 +12,7 @@ import { CalendarDayTimeGrid } from "./CalendarDayTimeGrid";
 import { CalendarWeekTimeGrid } from "./CalendarWeekTimeGrid";
 import { GoogleCalendarConnect } from "~/app/_components/GoogleCalendarConnect";
 import { MicrosoftCalendarConnect } from "~/app/_components/MicrosoftCalendarConnect";
+import { EditActionModal } from "~/app/_components/EditActionModal";
 import type { ScheduledAction } from "./types";
 
 export function CalendarPageContent() {
@@ -67,7 +68,11 @@ export function CalendarPageContent() {
 
   const utils = api.useUtils();
 
-  // Handle action status change
+  // Edit Action Modal state
+  const [selectedAction, setSelectedAction] = useState<ScheduledAction | null>(null);
+  const [editModalOpened, setEditModalOpened] = useState(false);
+
+  // Mutations for rescheduling actions via drag-and-drop
   const updateAction = api.action.update.useMutation({
     onSuccess: async () => {
       await utils.action.getScheduledByDateRange.invalidate();
@@ -81,6 +86,29 @@ export function CalendarPageContent() {
       await utils.dailyPlan.getOrCreateToday.invalidate();
     },
   });
+
+  const handleActionClick = (action: ScheduledAction) => {
+    if (action.source === "action" && action.actionId) {
+      setSelectedAction(action);
+      setEditModalOpened(true);
+    }
+  };
+
+  const handleRescheduleAction = (action: ScheduledAction, newStart: Date, newEnd: Date) => {
+    if (action.source === "daily-plan" && action.dailyPlanActionId) {
+      updateDailyPlanTask.mutate({
+        id: action.dailyPlanActionId,
+        scheduledStart: newStart,
+        scheduledEnd: newEnd,
+      });
+    } else if (action.source === "action" && action.actionId) {
+      updateAction.mutate({
+        id: action.actionId,
+        scheduledStart: newStart,
+        scheduledEnd: newEnd,
+      });
+    }
+  };
 
   // Handle refresh - clear server cache then refetch
   const clearCache = api.calendar.clearCache.useMutation();
@@ -125,21 +153,6 @@ export function CalendarPageContent() {
       });
     },
   });
-
-  const handleActionStatusChange = (action: ScheduledAction, completed: boolean) => {
-    if (action.source === "daily-plan" && action.dailyPlanActionId) {
-      updateDailyPlanTask.mutate({
-        id: action.dailyPlanActionId,
-        completed,
-      });
-      return;
-    }
-
-    updateAction.mutate({
-      id: action.actionId ?? action.id,
-      status: completed ? "COMPLETED" : "ACTIVE",
-    });
-  };
 
   // Transform scheduled actions to the expected format
   const scheduledActions: ScheduledAction[] = scheduledActionsData ?? [];
@@ -203,7 +216,8 @@ export function CalendarPageContent() {
           events={events ?? []}
           scheduledActions={scheduledActions}
           selectedDate={selectedDate}
-          onActionStatusChange={handleActionStatusChange}
+          onActionClick={handleActionClick}
+          onRescheduleAction={handleRescheduleAction}
         />
       );
     }
@@ -213,7 +227,7 @@ export function CalendarPageContent() {
         events={events ?? []}
         scheduledActions={scheduledActions}
         dateRange={dateRange}
-        onActionStatusChange={handleActionStatusChange}
+        onActionClick={handleActionClick}
       />
     );
   };
@@ -245,6 +259,32 @@ export function CalendarPageContent() {
           connectedAccounts={connectedAccounts?.connectedAccounts ?? []}
         />
       </div>
+
+      <EditActionModal
+        action={
+          selectedAction?.actionId
+            ? {
+                id: selectedAction.actionId,
+                name: selectedAction.name,
+                description: null,
+                status: selectedAction.status,
+                priority: "Quick",
+                dueDate: null,
+                projectId: selectedAction.project?.id ?? null,
+                scheduledStart: selectedAction.scheduledStart,
+                duration: selectedAction.duration,
+              }
+            : null
+        }
+        opened={editModalOpened}
+        onClose={() => {
+          setEditModalOpened(false);
+          setSelectedAction(null);
+        }}
+        onSuccess={() => {
+          void utils.action.getScheduledByDateRange.invalidate();
+        }}
+      />
     </div>
   );
 }

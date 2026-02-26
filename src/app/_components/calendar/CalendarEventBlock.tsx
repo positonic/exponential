@@ -1,6 +1,6 @@
 "use client";
 
-import { Text, Stack, Tooltip, Checkbox } from "@mantine/core";
+import { Text, Stack, Tooltip } from "@mantine/core";
 import { format, parseISO } from "date-fns";
 import type { CalendarEvent } from "~/server/services/GoogleCalendarService";
 import type { ScheduledAction } from "./types";
@@ -14,7 +14,6 @@ interface EventBlockProps {
 interface ActionBlockProps {
   action: ScheduledAction;
   style: React.CSSProperties;
-  onStatusChange?: (action: ScheduledAction, completed: boolean) => void;
   onClick?: (action: ScheduledAction) => void;
 }
 
@@ -116,7 +115,6 @@ export function CalendarEventBlock({ event, style }: EventBlockProps) {
 export function CalendarActionBlock({
   action,
   style,
-  onStatusChange,
   onClick,
 }: ActionBlockProps) {
   const height = typeof style.height === "number" ? style.height : 60;
@@ -149,47 +147,27 @@ export function CalendarActionBlock({
         style={style}
         onClick={() => onClick?.(action)}
       >
-        <div className="flex items-start gap-1.5">
-          <Checkbox
-            size="xs"
-            radius="xl"
-            checked={isCompleted}
-            onChange={(e) => {
-              e.stopPropagation();
-              onStatusChange?.(action, e.currentTarget.checked);
-            }}
-            onClick={(e) => e.stopPropagation()}
-            styles={{
-              input: {
-                backgroundColor: "transparent",
-                borderColor: "var(--color-brand-primary)",
-              },
-            }}
-          />
-          <Stack gap={0} className="min-w-0 flex-1">
-            <Text
-              size="xs"
-              fw={600}
-              className="leading-tight"
-              style={{
-                fontSize: "11px",
-                lineHeight: "1.2",
-                display: "-webkit-box",
-                WebkitLineClamp: height < 40 ? 1 : 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-              }}
-            >
-              {action.name}
-            </Text>
+        <Text
+          size="xs"
+          fw={600}
+          className="leading-tight"
+          style={{
+            fontSize: "11px",
+            lineHeight: "1.2",
+            display: "-webkit-box",
+            WebkitLineClamp: height < 40 ? 1 : 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {action.name}
+        </Text>
 
-            {height >= 35 && (
-              <Text size="xs" c="dimmed" style={{ fontSize: "10px" }}>
-                {format(new Date(action.scheduledStart), "h:mm a")}
-              </Text>
-            )}
-          </Stack>
-        </div>
+        {height >= 35 && (
+          <Text size="xs" c="dimmed" style={{ fontSize: "10px" }}>
+            {format(new Date(action.scheduledStart), "h:mm a")}
+          </Text>
+        )}
       </div>
     </Tooltip>
   );

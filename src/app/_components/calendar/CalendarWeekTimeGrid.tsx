@@ -23,7 +23,6 @@ interface CalendarWeekTimeGridProps {
   events: CalendarEvent[];
   scheduledActions: ScheduledAction[];
   dateRange: { start: Date; end: Date };
-  onActionStatusChange?: (action: ScheduledAction, completed: boolean) => void;
   onActionClick?: (action: ScheduledAction) => void;
 }
 
@@ -31,7 +30,6 @@ export function CalendarWeekTimeGrid({
   events,
   scheduledActions,
   dateRange,
-  onActionStatusChange,
   onActionClick,
 }: CalendarWeekTimeGridProps) {
   const hours = Array.from(
@@ -195,7 +193,6 @@ export function CalendarWeekTimeGrid({
                           height: item.height,
                           zIndex: item.column + 1,
                         }}
-                        onStatusChange={onActionStatusChange}
                         onClick={onActionClick}
                       />
                     );
