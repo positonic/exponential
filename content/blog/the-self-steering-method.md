@@ -118,5 +118,3 @@ At Exponential, the Self-Steering Method isn't a blog post framework — it's th
 We're building the engine. You bring the steering wheel.
 
 ---
-
-*If this resonates, we're opening up early access at [exponential.im](https://exponential.im). And if you want the manual version of the Self-Steering Method to try today — set your 2-3 coordinates, ask the triage question every morning, protect 90 minutes of deep work, and reflect weekly. You don't need an app for that. But once you feel the pattern working, you'll want one that runs it with you.*
