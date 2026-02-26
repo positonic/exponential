@@ -72,16 +72,66 @@ export function CalendarPageContent() {
   const [selectedAction, setSelectedAction] = useState<ScheduledAction | null>(null);
   const [editModalOpened, setEditModalOpened] = useState(false);
 
-  // Mutations for rescheduling actions via drag-and-drop
+  // Mutations for rescheduling actions via drag-and-drop (with optimistic updates)
+  const scheduledQueryInput = { startDate: dateRange.start, endDate: dateRange.end };
+
   const updateAction = api.action.update.useMutation({
-    onSuccess: async () => {
+    onMutate: async (variables) => {
+      await utils.action.getScheduledByDateRange.cancel();
+      const previousData = utils.action.getScheduledByDateRange.getData(scheduledQueryInput);
+      if (variables.scheduledStart) {
+        utils.action.getScheduledByDateRange.setData(scheduledQueryInput, (old) => {
+          if (!old) return old;
+          return old.map((action) =>
+            action.actionId === variables.id
+              ? {
+                  ...action,
+                  scheduledStart: variables.scheduledStart!,
+                  scheduledEnd: variables.scheduledEnd ?? action.scheduledEnd,
+                }
+              : action
+          );
+        });
+      }
+      return { previousData };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousData) {
+        utils.action.getScheduledByDateRange.setData(scheduledQueryInput, context.previousData);
+      }
+    },
+    onSettled: async () => {
       await utils.action.getScheduledByDateRange.invalidate();
       await utils.action.getToday.invalidate();
     },
   });
 
   const updateDailyPlanTask = api.dailyPlan.updateTask.useMutation({
-    onSuccess: async () => {
+    onMutate: async (variables) => {
+      await utils.action.getScheduledByDateRange.cancel();
+      const previousData = utils.action.getScheduledByDateRange.getData(scheduledQueryInput);
+      if (variables.scheduledStart) {
+        utils.action.getScheduledByDateRange.setData(scheduledQueryInput, (old) => {
+          if (!old) return old;
+          return old.map((action) =>
+            action.dailyPlanActionId === variables.id
+              ? {
+                  ...action,
+                  scheduledStart: variables.scheduledStart!,
+                  scheduledEnd: variables.scheduledEnd ?? action.scheduledEnd,
+                }
+              : action
+          );
+        });
+      }
+      return { previousData };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousData) {
+        utils.action.getScheduledByDateRange.setData(scheduledQueryInput, context.previousData);
+      }
+    },
+    onSettled: async () => {
       await utils.action.getScheduledByDateRange.invalidate();
       await utils.dailyPlan.getOrCreateToday.invalidate();
     },

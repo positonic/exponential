@@ -26,9 +26,9 @@ const footerLinks = {
 };
 
 const socialLinks = [
-  { icon: IconBrandTwitter, href: "https://twitter.com/exponentialim", label: "Twitter" },
-  { icon: IconBrandGithub, href: "https://github.com/exponential", label: "GitHub" },
-  { icon: IconBrandLinkedin, href: "https://linkedin.com/company/exponential", label: "LinkedIn" },
+  { icon: IconBrandTwitter, href: "https://x.com/be_exponential", label: "Twitter" },
+  { icon: IconBrandGithub, href: "https://github.com/positonic/exponential", label: "GitHub" },
+  { icon: IconBrandLinkedin, href: "https://www.linkedin.com/company/108621153/admin/dashboard/", label: "LinkedIn" },
 ];
 
 export function FooterSection({ id }: FooterSectionProps) {
