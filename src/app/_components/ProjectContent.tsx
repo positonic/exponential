@@ -438,7 +438,7 @@ export function ProjectContent({
                 <Actions
                   viewName={viewName}
                   defaultView="list"
-                  projectId={projectId}
+                  projectId={project.id}
                   displayAlignment={false}
                   projectSyncInfo={{
                     taskManagementTool: project.taskManagementTool,
