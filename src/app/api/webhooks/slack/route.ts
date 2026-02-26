@@ -910,8 +910,10 @@ async function buildWorkspaceOKRContext(workspaceId: string): Promise<string> {
         id: true,
         name: true,
         status: true,
-        progress: true,
         description: true,
+        actions: {
+          select: { status: true, kanbanStatus: true },
+        },
       },
       orderBy: { name: 'asc' },
       take: 15,
@@ -945,7 +947,12 @@ async function buildWorkspaceOKRContext(workspaceId: string): Promise<string> {
   if (projects.length > 0) {
     context += '\n\nActive Projects:\n';
     for (const p of projects) {
-      context += `• "${p.name}" — ${p.status ?? 'unknown'}, ${Math.round(p.progress * 100)}% complete`;
+      const totalActions = p.actions.length;
+      const completedActions = p.actions.filter(a =>
+        a.status === 'COMPLETED' || a.kanbanStatus === 'DONE'
+      ).length;
+      const actionProgress = totalActions > 0 ? Math.round((completedActions / totalActions) * 100) : 0;
+      context += `• "${p.name}" — ${p.status ?? 'unknown'}, ${completedActions}/${totalActions} actions done (${actionProgress}%)`;
       if (p.description) context += ` — ${p.description.slice(0, 80)}`;
       context += '\n';
     }
@@ -1065,7 +1072,16 @@ You can help with:
 - Thinking through decisions
 - Accessing meeting transcriptions and project data
 
-Be concise, direct, and genuinely helpful. Skip the corporate fluff. Use Slack formatting when helpful (like *bold* or _italic_).
+Be concise, direct, and genuinely helpful. Skip the corporate fluff.
+
+FORMATTING: You are responding in Slack, NOT a markdown renderer. Use Slack mrkdwn format:
+- Bold: *text* (single asterisks, NOT **double**)
+- Italic: _text_
+- Code: \`code\` or \`\`\`code block\`\`\`
+- Lists: use • or numbered lists
+- DO NOT use markdown headers (# or ## or ###) — they render as literal text in Slack
+- DO NOT use markdown links [text](url) — use <url|text> instead
+- Use line breaks and emoji to structure sections visually
 
 IMPORTANT: Keep responses under 3000 characters due to Slack message limits.${projectContext}${workspaceContext}`;
 
@@ -1113,52 +1129,27 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.${pr
 }
 
 /**
- * Format AI responses for better Slack presentation
+ * Format AI responses for Slack's mrkdwn format.
+ * Slack uses its own markup: *bold*, _italic_, ~strike~, `code`, ```code block```
+ * Slack does NOT support: ## headers, **bold**, [links](url) with text, or nested formatting.
  */
 function formatResponseForSlack(response: string): string {
-  // Convert markdown-style formatting to Slack formatting
-  let formatted = response
+  const formatted = response
+    // Convert markdown headers (###, ##, #) to bold text with newline
+    .replace(/^#{1,3}\s+(.+)$/gm, '\n*$1*')
     // Convert **bold** to *bold* for Slack
     .replace(/\*\*(.*?)\*\*/g, '*$1*')
-    // Convert _italic_ to _italic_ (already correct for Slack)
-    .replace(/_(.*?)_/g, '_$1_')
-    // Convert `code` to `code` (already correct for Slack)
-    .replace(/`([^`]+)`/g, '`$1`')
-    // Convert numbered lists to better formatting
-    .replace(/^(\d+)\.\s*\*\*(.*?)\*\*/gm, '$1. *$2*')
-    // Ensure proper spacing around sections
-    .replace(/\n\s*-\s*\*\*(.*?)\*\*/g, '\n   • *$1*')
-    // Clean up extra asterisks that might remain
+    // Convert markdown links [text](url) to Slack format <url|text>
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>')
+    // Convert markdown bullet dashes to bullet points
+    .replace(/^(\s*)-\s+/gm, '$1• ')
+    // Clean up triple asterisks from bold+italic collisions
     .replace(/\*\*\*/g, '*')
-    // Add emoji for better visual appeal
-    .replace(/^Here are your current goals:/m, '🎯 *Your Current Goals:*')
-    .replace(/Life Domain:/g, '📂 Life Domain:')
-    .replace(/Due Date:/g, '📅 Due Date:')
-    .replace(/Project:/g, '📋 Project:')
-    .replace(/Priority:/g, '⚡ Priority:')
-    .replace(/Status:/g, '🔄 Status:')
-    // Format goal entries better
-    .replace(/^(\d+)\.\s*\*(.*?)\*/gm, '$1. 🎯 *$2*')
     // Clean up multiple line breaks
     .replace(/\n{3,}/g, '\n\n')
-    // Add spacing around list items for readability
-    .replace(/^(\d+\.\s*🎯.*?)$/gm, '\n$1')
+    // Remove horizontal rules (--- or ***)
+    .replace(/^[-*]{3,}$/gm, '───')
     .trim();
-
-  // Add helpful footer for goals
-  if (formatted.includes('Your Current Goals')) {
-    formatted += '\n\n💬 _Want to discuss a specific goal or set new ones? Just ask!_';
-  }
-  
-  // Add helpful footer for projects
-  if (formatted.includes('project') || formatted.includes('Project')) {
-    formatted += '\n\n💬 _Need help with a specific project? Just let me know!_';
-  }
-
-  // Add helpful footer for actions/tasks
-  if (formatted.includes('action') || formatted.includes('task') || formatted.includes('todo')) {
-    formatted += '\n\n💬 _Want to add, update, or discuss any tasks? I\'m here to help!_';
-  }
 
   return formatted;
 }
