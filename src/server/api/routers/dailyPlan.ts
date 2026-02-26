@@ -184,17 +184,20 @@ export const dailyPlanRouter = createTRPCRouter({
         },
       });
 
-      if (!plan) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "No daily plan found for this date",
-        });
-      }
-
-      const updatedPlan = await ctx.db.dailyPlan.update({
-        where: { id: plan.id },
-        data: { processedOverdue: true },
-      });
+      const updatedPlan = plan
+        ? await ctx.db.dailyPlan.update({
+            where: { id: plan.id },
+            data: { processedOverdue: true },
+          })
+        : await ctx.db.dailyPlan.create({
+            data: {
+              userId,
+              date: planDate,
+              workspaceId: input.workspaceId,
+              status: "DRAFT",
+              processedOverdue: true,
+            },
+          });
 
       await ScoringService.calculateDailyScore(
         ctx,

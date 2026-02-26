@@ -87,6 +87,16 @@ export class ScoringService {
     let completedHabits = 0;
     let estimationAccuracy: number | null = null;
 
+    // Count overdue actions for the user (scheduled before today, still active)
+    const overdueCount = await ctx.db.action.count({
+      where: {
+        createdById: userId,
+        status: "ACTIVE",
+        scheduledStart: { lt: normalizedDate },
+        ...(workspaceId ? { workspaceId } : {}),
+      },
+    });
+
     // 1. Planning Consistency (40 points)
     if (dailyPlan) {
       planCreated = 20; // Plan was created
@@ -113,11 +123,6 @@ export class ScoringService {
         schedulingBonus = 5;
       }
 
-      // 4. Inbox Processing Bonus (5 points)
-      if (dailyPlan.processedOverdue) {
-        inboxBonus = 5;
-      }
-
       // 5. Estimation Accuracy Bonus (5 points)
       if (dailyPlan.estimationAccuracy !== null) {
         estimationAccuracy = dailyPlan.estimationAccuracy;
@@ -125,6 +130,14 @@ export class ScoringService {
           estimationBonus = 5;
         }
       }
+    }
+
+    // 4. Overdue Task Impact (-15 to +5 points)
+    // Penalty for having overdue tasks, bonus for clearing them
+    if (overdueCount > 0) {
+      inboxBonus = -Math.min(overdueCount * 3, 15);
+    } else if (dailyPlan?.processedOverdue) {
+      inboxBonus = 5;
     }
 
     // 6. Habit Completion (20 points)
@@ -141,17 +154,20 @@ export class ScoringService {
       habitCompletion = Math.round(habitRate * 20);
     }
 
-    // Calculate total score (max 100)
-    const totalScore = Math.min(
-      planCreated +
-        planCompleted +
-        taskCompletion +
-        habitCompletion +
-        schedulingBonus +
-        inboxBonus +
-        estimationBonus +
-        weeklyReviewBonus,
-      100
+    // Calculate total score (0-100, clamped)
+    const totalScore = Math.max(
+      0,
+      Math.min(
+        planCreated +
+          planCompleted +
+          taskCompletion +
+          habitCompletion +
+          schedulingBonus +
+          inboxBonus +
+          estimationBonus +
+          weeklyReviewBonus,
+        100
+      )
     );
 
     // Find existing score or create new one

@@ -249,6 +249,8 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       await utils.action.getToday.invalidate();
       await utils.action.getScheduledByDate.invalidate();
       await utils.action.getScheduledByDateRange.invalidate();
+      await utils.scoring.getTodayScore.invalidate();
+      await utils.scoring.getProductivityStats.invalidate();
 
       onSuccess?.();
       // onClose() already called in handleSubmit

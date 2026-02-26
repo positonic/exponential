@@ -102,8 +102,12 @@ export function ScoreBreakdown({ score }: ScoreBreakdownProps) {
         ...(breakdown.schedulingBonus > 0
           ? [{ label: "AI Scheduling", points: breakdown.schedulingBonus, maxPoints: 5 }]
           : []),
-        ...(breakdown.inboxBonus > 0
-          ? [{ label: "Overdue Tasks", points: breakdown.inboxBonus, maxPoints: 5 }]
+        ...(breakdown.inboxBonus !== 0
+          ? [{
+              label: breakdown.inboxBonus > 0 ? "Overdue Cleared" : "Overdue Penalty",
+              points: breakdown.inboxBonus,
+              maxPoints: breakdown.inboxBonus > 0 ? 5 : 15,
+            }]
           : []),
         ...(breakdown.estimationBonus > 0
           ? [{ label: `Estimates (${metadata.estimationAccuracy?.toFixed(0)}%)`, points: breakdown.estimationBonus, maxPoints: 5 }]
@@ -112,11 +116,13 @@ export function ScoreBreakdown({ score }: ScoreBreakdownProps) {
           ? [{ label: "Weekly Review", points: breakdown.weeklyReviewBonus, maxPoints: 10 }]
           : []),
       ],
-      total:
+      total: Math.max(
+        0,
         breakdown.schedulingBonus +
         breakdown.inboxBonus +
         breakdown.estimationBonus +
-        breakdown.weeklyReviewBonus,
+        breakdown.weeklyReviewBonus
+      ),
       maxTotal: 15,
     },
   ];
@@ -127,6 +133,7 @@ export function ScoreBreakdown({ score }: ScoreBreakdownProps) {
   if (breakdown.planCompleted === 0 && breakdown.planCreated > 0) tips.push("Complete your plan to earn another 20 points");
   if (metadata.totalPlannedTasks > 0 && metadata.completedTasks / metadata.totalPlannedTasks < 0.5) tips.push("Complete more of your planned tasks");
   if (metadata.scheduledHabits > 0 && metadata.completedHabits === 0) tips.push("Complete your scheduled habits");
+  if (breakdown.inboxBonus < 0) tips.push("Reschedule or complete overdue tasks to remove the penalty");
 
   return (
     <Stack gap="lg">
@@ -179,15 +186,15 @@ export function ScoreBreakdown({ score }: ScoreBreakdownProps) {
                       <Text size="xs" className="text-text-muted">
                         {item.label}
                       </Text>
-                      <Text size="xs" className="text-text-muted">
-                        {item.points}/{item.maxPoints}
+                      <Text size="xs" className={item.points < 0 ? "text-red-500" : "text-text-muted"}>
+                        {item.points < 0 ? `${item.points}` : `${item.points}/${item.maxPoints}`}
                       </Text>
                     </Group>
                     <Progress
-                      value={(item.points / item.maxPoints) * 100}
+                      value={item.points < 0 ? (Math.abs(item.points) / item.maxPoints) * 100 : (item.points / item.maxPoints) * 100}
                       size={6}
                       radius="xl"
-                      color={cat.color}
+                      color={item.points < 0 ? "red" : cat.color}
                     />
                   </div>
                 ))

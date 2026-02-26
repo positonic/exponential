@@ -523,7 +523,7 @@ export const actionRouter = createTRPCRouter({
       // Get current action to check previous state
       const currentAction = await ctx.db.action.findUnique({
         where: { id },
-        select: { status: true, kanbanStatus: true, completedAt: true }
+        select: { status: true, kanbanStatus: true, completedAt: true, scheduledStart: true }
       });
 
       const wasCompleted = currentAction?.status === "COMPLETED" || currentAction?.kanbanStatus === "DONE";
@@ -565,6 +565,46 @@ export const actionRouter = createTRPCRouter({
               })
             )
           );
+        }
+      }
+
+      // Recalculate score if an overdue task's date was changed (overdue count affects score)
+      const dateChanged = updateData.scheduledStart !== undefined || updateData.dueDate !== undefined;
+      if (dateChanged && currentAction?.scheduledStart) {
+        const today = startOfDay(new Date());
+        const wasOverdue = startOfDay(currentAction.scheduledStart) < today;
+
+        if (wasOverdue) {
+          // Check if all overdue tasks are now cleared
+          const remainingOverdue = await ctx.db.action.count({
+            where: {
+              createdById: ctx.session.user.id,
+              status: "ACTIVE",
+              id: { not: id },
+              scheduledStart: { lt: today },
+            },
+          });
+
+          if (remainingOverdue === 0) {
+            // All overdue tasks cleared - mark processedOverdue on today's daily plan
+            await ctx.db.dailyPlan.updateMany({
+              where: {
+                userId: ctx.session.user.id,
+                date: today,
+                processedOverdue: false,
+              },
+              data: { processedOverdue: true },
+            });
+          }
+
+          // Fire and forget - recalculate today's score since overdue count changed
+          void ScoringService.calculateDailyScore(
+            ctx,
+            today,
+            updatedAction.workspaceId ?? undefined
+          ).catch((err) => {
+            console.error("[action.update] Failed to recalculate score after overdue change:", err);
+          });
         }
       }
 
