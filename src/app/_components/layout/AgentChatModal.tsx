@@ -328,18 +328,19 @@ export function AgentChatModal() {
     setDefaultAgent(null);
   }, []);
 
-  const chatContent = (
-    <div className="flex h-full flex-col overflow-hidden">
-      {isOpen && (
-        <AgentChatModalHeader
-          activeAgentName={activeAgentName}
-          onSelectAgent={handleSelectAgent}
-          onSelectDefault={handleSelectDefault}
-          onSelectConversation={handleSelectConversation}
-          displayMode={displayMode}
-          onToggleDisplayMode={toggleDisplayMode}
-        />
-      )}
+  const chatHeader = isOpen ? (
+    <AgentChatModalHeader
+      activeAgentName={activeAgentName}
+      onSelectAgent={handleSelectAgent}
+      onSelectDefault={handleSelectDefault}
+      onSelectConversation={handleSelectConversation}
+      displayMode={displayMode}
+      onToggleDisplayMode={toggleDisplayMode}
+    />
+  ) : null;
+
+  const chatBody = (
+    <>
       {loadingConversationId && (
         <div className="flex items-center justify-center py-2 text-xs text-text-muted">
           Loading conversation...
@@ -352,44 +353,16 @@ export function AgentChatModal() {
           defaultAgentId={defaultAgent?.id}
         />
       </div>
-    </div>
+    </>
   );
 
-  return (
-    <>
-      {/* Side Panel (Drawer) */}
-      <Drawer
-        opened={isOpen && displayMode === 'panel'}
-        onClose={closeModal}
-        position="right"
-        size={420}
-        trapFocus={false}
-        lockScroll={false}
-        withOverlay={false}
-        withCloseButton={false}
-        padding={0}
-        styles={{
-          content: {
-            backgroundColor: 'var(--color-bg-modal)',
-            borderLeft: '1px solid var(--color-border-primary)',
-            display: 'flex',
-            flexDirection: 'column',
-          },
-          body: {
-            padding: 0,
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-          },
-        }}
-      >
-        {chatContent}
-      </Drawer>
-
-      {/* Full Modal */}
+  // Render only the active container to avoid duplicate ManyChat instances
+  if (displayMode === 'modal') {
+    return (
       <Modal
-        opened={isOpen && displayMode === 'modal'}
+        opened={isOpen}
         onClose={closeModal}
+        keepMounted
         centered
         size="700px"
         radius="lg"
@@ -417,8 +390,45 @@ export function AgentChatModal() {
           },
         }}
       >
-        {chatContent}
+        <div className="flex h-full flex-col overflow-hidden">
+          {chatHeader}
+          {chatBody}
+        </div>
       </Modal>
-    </>
+    );
+  }
+
+  return (
+    <Drawer
+      opened={isOpen}
+      onClose={closeModal}
+      keepMounted
+      position="right"
+      size={420}
+      trapFocus={false}
+      lockScroll={false}
+      withOverlay={false}
+      withCloseButton={false}
+      padding={0}
+      styles={{
+        content: {
+          backgroundColor: 'var(--color-bg-modal)',
+          borderLeft: '1px solid var(--color-border-primary)',
+          display: 'flex',
+          flexDirection: 'column',
+        },
+        body: {
+          padding: 0,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+        },
+      }}
+    >
+      <div className="flex h-full flex-col overflow-hidden">
+        {chatHeader}
+        {chatBody}
+      </div>
+    </Drawer>
   );
 }

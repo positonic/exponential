@@ -89,7 +89,7 @@ export function WorkspaceProvider({
 
   // Auto-create personal workspace if user has none
   const utils = api.useUtils();
-  const { mutate: ensurePersonalWorkspace, isPending: isCreatingWorkspace } =
+  const { mutate: ensurePersonalWorkspace, isPending: isCreatingWorkspace, isError: createWorkspaceError } =
     api.workspace.ensurePersonalWorkspace.useMutation({
       onSuccess: (workspace) => {
         setContextWorkspaceSlug(workspace.slug);
@@ -99,10 +99,10 @@ export function WorkspaceProvider({
     });
 
   useEffect(() => {
-    if (!urlSlug && defaultFetched && !defaultWorkspace && !hasInitialized && !isCreatingWorkspace) {
+    if (!urlSlug && defaultFetched && !defaultWorkspace && !hasInitialized && !isCreatingWorkspace && !createWorkspaceError) {
       ensurePersonalWorkspace();
     }
-  }, [urlSlug, defaultFetched, defaultWorkspace, hasInitialized, isCreatingWorkspace, ensurePersonalWorkspace]);
+  }, [urlSlug, defaultFetched, defaultWorkspace, hasInitialized, isCreatingWorkspace, createWorkspaceError, ensurePersonalWorkspace]);
 
   // Use URL slug if present, otherwise use context workspace slug
   const effectiveSlug = urlSlug ?? contextWorkspaceSlug;
