@@ -16,6 +16,7 @@ import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } f
 import { userEmailService } from "~/server/services/UserEmailService";
 import { slugify } from "~/utils/slugify";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
+import { getProjectAccess, hasProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -725,12 +726,17 @@ export const mastraRouter = createTRPCRouter({
       // Use authenticated user's ID from session
       const userId = ctx.session.user.id;
       
-      // Verify user has access to this project
+      // Verify user has access to this project via all access paths
+      const access = await getProjectAccess(ctx.db, userId, input.projectId);
+      if (!hasProjectAccess(access)) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Project not found or access denied'
+        });
+      }
+
       const project = await ctx.db.project.findUnique({
-        where: { 
-          id: input.projectId,
-          createdById: userId 
-        },
+        where: { id: input.projectId },
         include: {
           actions: {
             where: { status: 'ACTIVE' },
@@ -745,14 +751,14 @@ export const mastraRouter = createTRPCRouter({
             }
           },
           outcomes: true,
-          projectMembers: true, // Project members relation
+          projectMembers: true,
         }
       });
 
       if (!project) {
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: 'Project not found or access denied'
+          message: 'Project not found'
         });
       }
 
@@ -813,19 +819,13 @@ export const mastraRouter = createTRPCRouter({
         email: ctx.session.user.email,
         sessionExpires: ctx.session.expires,
       });
-      
+
       // Use authenticated user's ID from session
       const userId = ctx.session.user.id;
-      
-      // Verify user has access to this project
-      const project = await ctx.db.project.findUnique({
-        where: { 
-          id: input.projectId,
-          createdById: userId 
-        },
-      });
 
-      if (!project) {
+      // Verify user has access to this project via all access paths
+      const access = await getProjectAccess(ctx.db, userId, input.projectId);
+      if (!hasProjectAccess(access)) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Project not found or access denied'
@@ -835,7 +835,6 @@ export const mastraRouter = createTRPCRouter({
       const actions = await ctx.db.action.findMany({
         where: {
           projectId: input.projectId,
-          createdById: userId,
           ...(input.status && { status: input.status }),
         },
         include: {
@@ -880,15 +879,9 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate || "none"}, userId=${userId}`);
 
-      // Verify user has access to this project
-      const project = await ctx.db.project.findUnique({
-        where: { 
-          id: input.projectId,
-          createdById: userId 
-        },
-      });
-
-      if (!project) {
+      // Verify user has access to this project via all access paths
+      const access = await getProjectAccess(ctx.db, userId, input.projectId);
+      if (!hasProjectAccess(access)) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Project not found or access denied'
@@ -1000,29 +993,20 @@ export const mastraRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // Use authenticated user's ID from session
       const userId = ctx.session.user.id;
-      
-      // Verify user has access to this project
-      const project = await ctx.db.project.findUnique({
-        where: { 
-          id: input.projectId,
-          createdById: userId 
-        },
-      });
 
-      if (!project) {
+      // Verify user has edit access to this project via all access paths
+      const access = await getProjectAccess(ctx.db, userId, input.projectId);
+      if (!canEditProject(access)) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Project not found or access denied'
+          code: 'FORBIDDEN',
+          message: 'You do not have edit access to this project'
         });
       }
 
       const { projectId, ...updateData } = input;
-      
+
       const updatedProject = await ctx.db.project.update({
-        where: { 
-          id: projectId,
-          createdById: userId 
-        },
+        where: { id: projectId },
         data: {
           ...(updateData.status && { status: updateData.status }),
           ...(updateData.priority && { priority: updateData.priority }),
@@ -1064,11 +1048,9 @@ export const mastraRouter = createTRPCRouter({
 
       if (input.projectId) {
         whereClause.projectId = input.projectId;
-        // Verify user has access to this project
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId, createdById: userId }
-        });
-        if (!project) {
+        // Verify user has access to this project via all access paths
+        const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
+        if (!hasProjectAccess(projectAccess)) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Project not found or access denied'
@@ -1147,12 +1129,10 @@ export const mastraRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Verify project access if specified
+      // Verify project access if specified via all access paths
       if (input.projectId) {
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId, createdById: userId }
-        });
-        if (!project) {
+        const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
+        if (!hasProjectAccess(projectAccess)) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Project not found or access denied'
