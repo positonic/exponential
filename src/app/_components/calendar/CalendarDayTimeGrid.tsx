@@ -2,12 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { Text } from "@mantine/core";
-import { format, isToday } from "date-fns";
+import { isToday } from "date-fns";
 import {
   DndContext,
   DragOverlay,
-  useDroppable,
-  useDraggable,
   PointerSensor,
   useSensor,
   useSensors,
@@ -23,8 +21,13 @@ import {
   VISIBLE_END_HOUR,
   TIME_LABEL_WIDTH,
 } from "./types";
-import { CalendarEventBlock, CalendarActionBlock } from "./CalendarEventBlock";
-import { HTMLContent } from "~/app/_components/HTMLContent";
+import { CalendarEventBlock } from "./CalendarEventBlock";
+import {
+  DropSlot,
+  DraggableActionBlock,
+  ActionDragOverlay,
+  useDropSlots,
+} from "./CalendarDndComponents";
 import {
   calculateOverlappingPositions,
   convertEventToCalendarItem,
@@ -37,77 +40,6 @@ interface CalendarDayTimeGridProps {
   selectedDate: Date;
   onActionClick?: (action: ScheduledAction) => void;
   onRescheduleAction?: (action: ScheduledAction, newStart: Date, newEnd: Date) => void;
-}
-
-const SLOT_MINUTES = 15;
-const SLOT_HEIGHT = (HOUR_HEIGHT / 60) * SLOT_MINUTES;
-const TOTAL_SLOTS = ((VISIBLE_END_HOUR - VISIBLE_START_HOUR) * 60) / SLOT_MINUTES;
-
-function DropSlot({ hour, minute }: { hour: number; minute: number }) {
-  const slotId = `calendar-slot-${hour}:${minute.toString().padStart(2, "0")}`;
-  const { setNodeRef, isOver } = useDroppable({ id: slotId });
-  const top = (((hour - VISIBLE_START_HOUR) * 60 + minute) / 60) * HOUR_HEIGHT;
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={`absolute left-0 right-0 transition-colors ${isOver ? "bg-brand-primary/15 z-50" : ""}`}
-      style={{ top, height: SLOT_HEIGHT }}
-    />
-  );
-}
-
-function DraggableActionBlock({
-  action,
-  style,
-  onClick,
-}: {
-  action: ScheduledAction;
-  style: React.CSSProperties;
-  onClick?: (action: ScheduledAction) => void;
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `drag-${action.id}`,
-    data: { action },
-  });
-
-  return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className="absolute"
-      style={{
-        ...style,
-        opacity: isDragging ? 0.4 : 1,
-        cursor: "grab",
-        touchAction: "none",
-      }}
-    >
-      <CalendarActionBlock
-        action={action}
-        style={{ position: "relative", width: "100%", height: "100%" }}
-        onClick={onClick}
-      />
-    </div>
-  );
-}
-
-function ActionDragOverlay({ action }: { action: ScheduledAction }) {
-  return (
-    <div
-      className="overflow-hidden rounded-sm border-l-4 border-l-brand-primary bg-brand-primary/30 p-1.5 shadow-lg"
-      style={{ width: 200, pointerEvents: "none" }}
-    >
-      <Text size="xs" fw={600} lineClamp={1} component="div" style={{ fontSize: "11px" }}>
-        <HTMLContent html={action.name} compactUrls />
-      </Text>
-      <Text size="xs" c="dimmed" style={{ fontSize: "10px" }}>
-        {format(new Date(action.scheduledStart), "h:mm a")}
-        {action.duration ? ` · ${action.duration} min` : ""}
-      </Text>
-    </div>
-  );
 }
 
 export function CalendarDayTimeGrid({
@@ -144,16 +76,7 @@ export function CalendarDayTimeGrid({
     return calculateOverlappingPositions(allItems, 100, 0);
   }, [events, scheduledActions, selectedDate]);
 
-  // Generate droppable time slots (every 15 minutes)
-  const dropSlots = useMemo(() => {
-    return Array.from({ length: TOTAL_SLOTS }, (_, i) => {
-      const totalMinutes = VISIBLE_START_HOUR * 60 + i * SLOT_MINUTES;
-      return {
-        hour: Math.floor(totalMinutes / 60),
-        minute: totalMinutes % 60,
-      };
-    });
-  }, []);
+  const dropSlots = useDropSlots();
 
   const gridHeight = (VISIBLE_END_HOUR - VISIBLE_START_HOUR) * HOUR_HEIGHT;
 
@@ -163,14 +86,19 @@ export function CalendarDayTimeGrid({
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    setActiveAction(null);
     const { active, over } = event;
-    if (!over) return;
+    if (!over) {
+      setActiveAction(null);
+      return;
+    }
 
     const action = active.data.current?.action as ScheduledAction | undefined;
     const slotId = over.id as string;
     const timeMatch = /calendar-slot-(\d+):(\d+)/.exec(slotId);
-    if (!timeMatch || !action) return;
+    if (!timeMatch || !action) {
+      setActiveAction(null);
+      return;
+    }
 
     const hour = parseInt(timeMatch[1]!);
     const minute = parseInt(timeMatch[2]!);
@@ -181,7 +109,9 @@ export function CalendarDayTimeGrid({
     const newEnd = new Date(newStart);
     newEnd.setMinutes(newEnd.getMinutes() + duration);
 
+    // Fire reschedule first (synchronous optimistic update) then clear overlay
     onRescheduleAction?.(action, newStart, newEnd);
+    setActiveAction(null);
   };
 
   return (
@@ -235,7 +165,7 @@ export function CalendarDayTimeGrid({
 
             {/* Drop slots (invisible 15-min intervals) */}
             {dropSlots.map(({ hour, minute }) => (
-              <DropSlot key={`slot-${hour}-${minute}`} hour={hour} minute={minute} />
+              <DropSlot key={`slot-${hour}-${minute}`} hour={hour} minute={minute} slotIdPrefix="calendar-slot" />
             ))}
 
             {/* Current time indicator */}

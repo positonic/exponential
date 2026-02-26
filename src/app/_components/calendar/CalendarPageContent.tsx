@@ -145,6 +145,22 @@ export function CalendarPageContent() {
   };
 
   const handleRescheduleAction = (action: ScheduledAction, newStart: Date, newEnd: Date) => {
+    // Synchronous optimistic update FIRST — ensures the React Query cache is updated
+    // in the same render cycle as the DragOverlay disappearing, preventing visual bounce.
+    utils.action.getScheduledByDateRange.setData(scheduledQueryInput, (old) => {
+      if (!old) return old;
+      return old.map((a) => {
+        if (action.source === "daily-plan" && a.dailyPlanActionId === action.dailyPlanActionId) {
+          return { ...a, scheduledStart: newStart, scheduledEnd: newEnd };
+        }
+        if (action.source === "action" && a.actionId === action.actionId) {
+          return { ...a, scheduledStart: newStart, scheduledEnd: newEnd };
+        }
+        return a;
+      });
+    });
+
+    // Then fire the mutation (its onMutate will also update, which is idempotent)
     if (action.source === "daily-plan" && action.dailyPlanActionId) {
       updateDailyPlanTask.mutate({
         id: action.dailyPlanActionId,
@@ -278,6 +294,7 @@ export function CalendarPageContent() {
         scheduledActions={scheduledActions}
         dateRange={dateRange}
         onActionClick={handleActionClick}
+        onRescheduleAction={handleRescheduleAction}
       />
     );
   };
