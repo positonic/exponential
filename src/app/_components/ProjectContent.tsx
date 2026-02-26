@@ -179,10 +179,25 @@ export function ProjectContent({
     },
   });
 
-  const { data: projectActions } = api.action.getProjectActions.useQuery({ projectId });
-  const goalsQuery = api.goal.getProjectGoals.useQuery({ projectId });
-  const outcomesQuery = api.outcome.getProjectOutcomes.useQuery({ projectId });
-  const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery({ projectId });
+  // Use the resolved project ID (from getById which handles slug resolution)
+  // instead of the raw projectId prop which may be a slug like "home-renovation-cmm3mjlev..."
+  const resolvedProjectId = project?.id ?? projectId;
+  const { data: projectActions } = api.action.getProjectActions.useQuery(
+    { projectId: resolvedProjectId },
+    { enabled: !!project },
+  );
+  const goalsQuery = api.goal.getProjectGoals.useQuery(
+    { projectId: resolvedProjectId },
+    { enabled: !!project },
+  );
+  const outcomesQuery = api.outcome.getProjectOutcomes.useQuery(
+    { projectId: resolvedProjectId },
+    { enabled: !!project },
+  );
+  const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery(
+    { projectId: resolvedProjectId },
+    { enabled: !!project },
+  );
   const utils = api.useUtils();
 
   const toggleActionsMutation = api.transcription.toggleActionGeneration.useMutation({

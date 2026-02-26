@@ -4,7 +4,7 @@
  * Migrate User Workspaces
  *
  * This script ensures all users have a personal workspace and a default workspace set:
- * 1. Creates personal workspaces for users who don't have any workspace
+ * 1. Creates personal workspaces for users who don't have one (even if they have team workspaces)
  * 2. Sets a default workspace for users who have workspaces but no default
  *
  * Run with: bun scripts/migrate-user-workspaces.ts
@@ -19,15 +19,17 @@ import { db } from '../src/server/db';
 async function migrateUserWorkspaces() {
   console.log('Starting workspace migration...\n');
 
-  // Step 1: Find users without any workspace membership
+  // Step 1: Find users without a personal workspace (they may have team workspaces)
   const usersWithoutWorkspaces = await db.user.findMany({
     where: {
-      workspaceMemberships: { none: {} }
+      ownedWorkspaces: {
+        none: { type: "personal" }
+      }
     },
     select: { id: true, name: true, email: true }
   });
 
-  console.log(`Found ${usersWithoutWorkspaces.length} users without any workspace`);
+  console.log(`Found ${usersWithoutWorkspaces.length} users without a personal workspace`);
 
   let createdCount = 0;
   for (const user of usersWithoutWorkspaces) {

@@ -1,7 +1,7 @@
 import { Modal } from '@mantine/core';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
-import { type ActionPriority } from "~/types/action";
+import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import type { EffortUnit } from "~/types/effort";
 import { ActionModalForm } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
@@ -122,7 +122,12 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       setName(currentAction.name);
       setDescription(currentAction.description ?? "");
       setProjectId(currentAction.projectId ?? "");
-      setPriority(currentAction.priority as ActionPriority);
+      const validPriorities: string[] = PRIORITY_OPTIONS;
+      setPriority(
+        validPriorities.includes(currentAction.priority)
+          ? (currentAction.priority as ActionPriority)
+          : "Scheduled",
+      );
       setDueDate(currentAction.dueDate ? new Date(currentAction.dueDate) : null);
       // Load scheduling fields
       const actionData = currentAction as typeof currentAction & {
