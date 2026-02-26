@@ -121,7 +121,7 @@ export function BlogContent({ post, isLoggedIn, userId }: BlogContentProps) {
         </div>
 
         {/* Discussion */}
-        {isLoggedIn ? (
+        {isLoggedIn && (
           <div className="mt-16 border-t border-border-primary pt-8">
             <Text className="text-text-primary font-semibold" size="sm" mb="md">
               Discussion
@@ -144,20 +144,41 @@ export function BlogContent({ post, isLoggedIn, userId }: BlogContentProps) {
               placeholder="Leave a comment..."
             />
           </div>
-        ) : (
-          <div className="mt-16 rounded-xl border border-border-primary bg-surface-secondary p-8 text-center md:p-12">
-            <Title order={3} className="mb-3 text-2xl">
-              Ready to try the Self-Steering Method?
+        )}
+
+        {/* CTA for non-logged-in users */}
+        {!isLoggedIn && (
+          <div className="mt-16 overflow-hidden rounded-2xl bg-cta-gradient p-8 text-center md:p-12">
+            <Title order={3} className="mb-3 text-2xl text-white md:text-3xl">
+              Stop managing. Start steering.
             </Title>
-            <Text className="mx-auto mb-6 max-w-lg text-text-secondary">
-              Exponential pairs you with an AI agent that runs your
-              productivity loop — so you can focus on steering, not managing.
+            <Text className="mx-auto mb-8 max-w-lg text-white/80">
+              Exponential gives you an AI copilot that runs your
+              productivity system — so you stay focused on the work that
+              matters.
             </Text>
+
+            <div className="mx-auto mb-8 flex max-w-md flex-col gap-3 text-left text-sm text-white/90">
+              <div className="flex items-start gap-2.5">
+                <span className="mt-0.5 shrink-0">&#10003;</span>
+                <span>AI-powered daily planning that adapts to your priorities</span>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <span className="mt-0.5 shrink-0">&#10003;</span>
+                <span>Goals, outcomes, and projects linked in one system</span>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <span className="mt-0.5 shrink-0">&#10003;</span>
+                <span>Free to start — no credit card required</span>
+              </div>
+            </div>
+
             <Link
               href="/signin"
-              className="inline-flex items-center rounded-lg bg-brand-primary px-6 py-3 font-semibold text-white transition-opacity hover:opacity-90"
+              className="inline-flex items-center gap-2 rounded-lg bg-white px-6 py-3 font-semibold text-background-primary shadow-lg transition-all duration-200 hover:scale-105 hover:shadow-xl"
             >
               Get Started Free
+              <span aria-hidden="true">&rarr;</span>
             </Link>
           </div>
         )}
