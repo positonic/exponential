@@ -221,10 +221,10 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      if (currentUser.onboardingStep !== 3) {
+      if (currentUser.onboardingStep < 2) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Must complete work profile first",
+          message: "Must complete profile setup first",
         });
       }
 
@@ -232,7 +232,7 @@ export const onboardingRouter = createTRPCRouter({
         where: { id: userId },
         data: {
           selectedTools,
-          onboardingStep: 4,
+          onboardingStep: 5,
         },
         select: {
           selectedTools: true,
@@ -270,8 +270,8 @@ export const onboardingRouter = createTRPCRouter({
           workDaysJson: JSON.stringify(workDays),
           workHoursStart,
           workHoursEnd,
-          // Advance to step 5 (ready for project creation) in the new onboarding flow
-          onboardingStep: 5,
+          // Advance to step 6 (ready for project creation) in the new onboarding flow
+          onboardingStep: 6,
         },
         select: {
           workHoursEnabled: true,
@@ -327,7 +327,7 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      if (currentUser.onboardingStep < 4) {
+      if (currentUser.onboardingStep < 5) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Must complete previous onboarding steps first",

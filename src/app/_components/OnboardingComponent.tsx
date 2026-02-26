@@ -29,18 +29,29 @@ import {
   IconList,
   IconPlayerPlay,
   IconClock,
-  IconCalendarEvent
+  IconCalendarEvent,
+  IconBrandSlack,
+  IconBrandDiscord,
+  IconBrandGithub,
+  IconBrandGitlab,
+  IconTargetArrow,
+  IconTimeline,
+  IconCalendarWeek,
+  IconSeedling,
+  IconSparkles,
+  IconDots,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { OnboardingIllustration } from './OnboardingIllustration';
+import { OnboardingToolsIllustration } from './OnboardingToolsIllustration';
 import { GoogleCalendarConnect } from './GoogleCalendarConnect';
 import { MicrosoftCalendarConnect } from './MicrosoftCalendarConnect';
 import { CalendarMultiSelect } from './calendar/CalendarMultiSelect';
 
-// New flow: 1=Profile+Attribution, 2=Video, 3=Calendar, 4=WorkHours, 5=Project+Tasks
-type OnboardingStep = 1 | 2 | 3 | 4 | 5;
+// New flow: 1=Profile+Attribution, 2=Video, 3=Calendar, 4=Tools, 5=WorkHours, 6=Project+Tasks
+type OnboardingStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 interface TaskInput {
   id: string;
@@ -96,6 +107,20 @@ const durationOptions = [
   { value: '240', label: '4 hours' },
 ];
 
+// Tools available for selection during onboarding
+const TOOLS = [
+  { name: 'Slack', icon: IconBrandSlack },
+  { name: 'Discord', icon: IconBrandDiscord },
+  { name: 'Asana', icon: IconTargetArrow },
+  { name: 'Monday', icon: IconCalendarWeek },
+  { name: 'GitHub', icon: IconBrandGithub },
+  { name: 'Linear', icon: IconTimeline },
+  { name: 'GitLab', icon: IconBrandGitlab },
+  { name: 'Google Calendar', icon: IconCalendar },
+  { name: 'Granola', icon: IconSeedling },
+  { name: 'Fireflies', icon: IconSparkles },
+];
+
 interface OnboardingComponentProps {
   userName: string;
   userEmail: string;
@@ -108,6 +133,9 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   const [isLoading, setIsLoading] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+  const [selectedTools, setSelectedTools] = useState<string[]>([]);
+  const [showOtherInput, setShowOtherInput] = useState(false);
+  const [customToolInput, setCustomToolInput] = useState('');
   const [tasks, setTasks] = useState<TaskInput[]>([
     { id: '1', name: '', dueDate: null, durationMinutes: 30 },
     { id: '2', name: '', dueDate: null, durationMinutes: 30 },
@@ -168,6 +196,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   // tRPC mutations
   const updateProfile = api.onboarding.updateProfile.useMutation();
   const uploadProfileImage = api.onboarding.uploadProfileImage.useMutation();
+  const updateTools = api.onboarding.updateTools.useMutation();
   const updateWorkHours = api.onboarding.updateWorkHours.useMutation();
   const completeOnboarding = api.onboarding.completeOnboarding.useMutation();
 
@@ -197,6 +226,9 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
         workHoursStart: onboardingStatus.workHoursStart ?? '09:00',
         workHoursEnd: onboardingStatus.workHoursEnd ?? '17:00',
       }));
+      if (onboardingStatus.selectedTools) {
+        setSelectedTools(onboardingStatus.selectedTools);
+      }
       if (onboardingStatus.image) {
         setProfileImageUrl(onboardingStatus.image);
       }
@@ -315,7 +347,44 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     setCurrentStep(4);
   };
 
-  // Step 4: Work Hours -> Step 5
+  // Step 4: Tools -> Step 5
+  const toggleTool = (toolName: string) => {
+    setSelectedTools(prev =>
+      prev.includes(toolName)
+        ? prev.filter(t => t !== toolName)
+        : [...prev, toolName]
+    );
+  };
+
+  const addCustomTool = () => {
+    const trimmed = customToolInput.trim();
+    if (trimmed && !selectedTools.includes(trimmed)) {
+      setSelectedTools(prev => [...prev, trimmed]);
+      setCustomToolInput('');
+    }
+  };
+
+  const removeCustomTool = (tool: string) => {
+    setSelectedTools(prev => prev.filter(t => t !== tool));
+  };
+
+  const handleToolsSubmit = async () => {
+    setIsLoading(true);
+    try {
+      await updateTools.mutateAsync({ selectedTools });
+      setCurrentStep(5);
+    } catch {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to save your tools. Please try again.',
+        color: 'red'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Step 5: Work Hours -> Step 6
   const handleWorkHoursSubmit = async () => {
     setIsLoading(true);
     try {
@@ -325,7 +394,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
         workHoursStart: data.workHoursStart,
         workHoursEnd: data.workHoursEnd,
       });
-      setCurrentStep(5);
+      setCurrentStep(6);
     } catch {
       notifications.show({
         title: 'Error',
@@ -765,8 +834,11 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     );
   }
 
-  // Step 4: Work Hours Setup
+  // Step 4: Tools Selection
   if (currentStep === 4) {
+    const standardToolNames = TOOLS.map(t => t.name);
+    const customTools = selectedTools.filter(t => !standardToolNames.includes(t));
+
     return (
       <div className="min-h-screen flex">
         {/* Left column - Form */}
@@ -783,6 +855,155 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                 <ActionIcon
                   variant="subtle"
                   onClick={() => setCurrentStep(3)}
+                  className="text-text-secondary hover:text-text-primary"
+                >
+                  <IconArrowLeft size={20} />
+                </ActionIcon>
+                <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
+                  What tools do you use?
+                </Title>
+              </Group>
+              <Text className="text-text-secondary">
+                Select the tools you use daily. We&apos;ll help you connect them later.
+              </Text>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-6">
+              {TOOLS.map(tool => (
+                <Button
+                  key={tool.name}
+                  variant={selectedTools.includes(tool.name) ? 'filled' : 'outline'}
+                  leftSection={<tool.icon size={16} />}
+                  onClick={() => toggleTool(tool.name)}
+                  className={
+                    selectedTools.includes(tool.name)
+                      ? ''
+                      : 'border-border-primary text-text-primary'
+                  }
+                  color={selectedTools.includes(tool.name) ? 'brand' : 'gray'}
+                >
+                  {tool.name}
+                </Button>
+              ))}
+              <Button
+                variant={showOtherInput ? 'filled' : 'outline'}
+                leftSection={<IconDots size={16} />}
+                onClick={() => setShowOtherInput(prev => !prev)}
+                className={
+                  showOtherInput
+                    ? ''
+                    : 'border-border-primary text-text-primary'
+                }
+                color={showOtherInput ? 'brand' : 'gray'}
+              >
+                Other
+              </Button>
+            </div>
+
+            {showOtherInput && (
+              <div className="mb-6">
+                <TextInput
+                  placeholder="Enter tool name and press Enter"
+                  value={customToolInput}
+                  onChange={(e) => setCustomToolInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addCustomTool();
+                    }
+                  }}
+                  rightSection={
+                    <ActionIcon onClick={addCustomTool} variant="subtle">
+                      <IconArrowRight size={16} />
+                    </ActionIcon>
+                  }
+                  classNames={{
+                    input: 'bg-background-primary border-border-primary'
+                  }}
+                />
+              </div>
+            )}
+
+            {customTools.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-6">
+                {customTools.map(tool => (
+                  <Button
+                    key={tool}
+                    variant="filled"
+                    color="brand"
+                    rightSection={
+                      <ActionIcon
+                        size="xs"
+                        variant="transparent"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeCustomTool(tool);
+                        }}
+                      >
+                        <IconX size={12} />
+                      </ActionIcon>
+                    }
+                  >
+                    {tool}
+                  </Button>
+                ))}
+              </div>
+            )}
+
+            <Text size="sm" className="text-text-muted">
+              You can connect integrations anytime from your settings.
+            </Text>
+          </div>
+
+          <div className="mt-8">
+            <Button
+              fullWidth
+              size="lg"
+              onClick={handleToolsSubmit}
+              loading={isLoading}
+              rightSection={<IconArrowRight size={18} />}
+            >
+              Continue
+            </Button>
+            <Anchor
+              component="button"
+              onClick={() => setCurrentStep(5)}
+              className="block text-center mt-4 text-text-muted hover:text-text-secondary"
+            >
+              Skip for now
+            </Anchor>
+          </div>
+        </div>
+
+        {/* Right column - Illustration */}
+        <div
+          className="hidden lg:flex w-[55%] items-center justify-center p-12"
+          style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
+        >
+          <OnboardingToolsIllustration />
+        </div>
+      </div>
+    );
+  }
+
+  // Step 5: Work Hours Setup
+  if (currentStep === 5) {
+    return (
+      <div className="min-h-screen flex">
+        {/* Left column - Form */}
+        <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+          <div>
+            <div className="mb-12">
+              <Title order={3} className="text-brand-primary font-bold">
+                Exponential
+              </Title>
+            </div>
+
+            <div className="mb-8">
+              <Group gap="xs" className="mb-4">
+                <ActionIcon
+                  variant="subtle"
+                  onClick={() => setCurrentStep(4)}
                   className="text-text-secondary hover:text-text-primary"
                 >
                   <IconArrowLeft size={20} />
@@ -909,7 +1130,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     );
   }
 
-  // Step 5: Project + Tasks - Combined step with enhanced task input
+  // Step 6: Project + Tasks - Combined step with enhanced task input
   const previewTasks = tasks.filter(t => t.name.trim().length > 0);
 
   return (
@@ -927,7 +1148,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
             <Group gap="xs" className="mb-4">
               <ActionIcon
                 variant="subtle"
-                onClick={() => setCurrentStep(4)}
+                onClick={() => setCurrentStep(5)}
                 className="text-text-secondary hover:text-text-primary"
               >
                 <IconArrowLeft size={20} />
