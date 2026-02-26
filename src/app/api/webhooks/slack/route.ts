@@ -896,15 +896,17 @@ async function chatWithZoeUsingTRPC(message: string, user: any): Promise<string>
     });
 
     // Get available agents
+    console.log(`🔍 [Zoe] Fetching agents for user ${user.id}...`);
     const mastraAgents = await caller.mastra.getMastraAgents();
+    console.log(`🔍 [Zoe] Found ${mastraAgents.length} agents: ${mastraAgents.map(a => a.id).join(', ')}`);
 
     // Find Zoe agent or fallback
     let targetAgentId: string;
-    const zoeAgent = mastraAgents.find(agent => 
-      agent.name.toLowerCase() === 'zoe' || 
+    const zoeAgent = mastraAgents.find(agent =>
+      agent.name.toLowerCase() === 'zoe' ||
       agent.id.toLowerCase() === 'zoeagent'
     );
-    
+
     if (zoeAgent) {
       targetAgentId = zoeAgent.id;
     } else if (mastraAgents.length > 0) {
@@ -914,6 +916,7 @@ async function chatWithZoeUsingTRPC(message: string, user: any): Promise<string>
     } else {
       throw new Error('No agents available');
     }
+    console.log(`🔍 [Zoe] Using agent: ${targetAgentId}`);
 
     // Generate system context for Slack interaction
     const systemContext = `You are Zoe 🔮, an AI companion integrated with Slack.
@@ -932,6 +935,7 @@ Be concise, direct, and genuinely helpful. Skip the corporate fluff. Use Slack f
 IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
 
     // Call agent through authenticated tRPC
+    console.log(`🔍 [Zoe] Calling agent ${targetAgentId} with message: "${message.slice(0, 80)}..."`);
     const result = await caller.mastra.callAgent({
       agentId: targetAgentId,
       messages: [
@@ -939,17 +943,20 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
         { role: 'user', content: message }
       ]
     });
+    console.log(`✅ [Zoe] Agent responded in ${Date.now() - startTime}ms`);
 
-    const finalResponse = typeof result.response === 'string' 
-      ? result.response 
+    const finalResponse = typeof result.response === 'string'
+      ? result.response
       : 'Sorry, I had trouble understanding that. Can you try rephrasing?';
     
     return finalResponse;
 
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    console.error(`❌ [Zoe] Error after ${totalTime}ms:`, error);
-    
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error(`❌ [Zoe] Error after ${totalTime}ms: ${errorMsg}`, { error: errorMsg, stack: errorStack });
+
     if (error instanceof Error) {
       if (error.message.toLowerCase().includes('timeout')) {
         return 'The request timed out. Please try asking something simpler or try again in a moment.';
@@ -957,9 +964,15 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
       if (error.message.toLowerCase().includes('unauthorized')) {
         return 'I had trouble accessing some features. Please try a simpler question.';
       }
+      if (error.message.includes('No agents available')) {
+        return 'I\'m having trouble connecting to my AI backend. The team has been notified.';
+      }
+      if (error.message.includes('Mastra generate failed')) {
+        return `I ran into an issue processing your request. Please try again in a moment.`;
+      }
     }
-    
-    return 'Sorry, I encountered an error. Please try a simpler question or try again later.';
+
+    return `Sorry, I encountered an error. Please try again later. (Debug: ${errorMsg.slice(0, 100)})`;
   }
 }
 
