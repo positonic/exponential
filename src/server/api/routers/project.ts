@@ -659,16 +659,30 @@ export const projectRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       // Try finding by id first, then fall back to slug lookup
+      const selectFields = { id: true, createdById: true, teamId: true, workspaceId: true, isPublic: true } as const;
+
       let projectExists = await ctx.db.project.findUnique({
         where: { id: input.id },
-        select: { id: true, createdById: true, teamId: true, workspaceId: true, isPublic: true },
+        select: selectFields,
       });
 
       if (!projectExists) {
         projectExists = await ctx.db.project.findUnique({
           where: { slug: input.id },
-          select: { id: true, createdById: true, teamId: true, workspaceId: true, isPublic: true },
+          select: selectFields,
         });
+      }
+
+      // URLs use compound format: "slug-cuid" (e.g. "my_project-cmjoko5550000rz03x4eqvycy")
+      // Extract the CUID suffix and try looking up by that
+      if (!projectExists) {
+        const cuidMatch = input.id.match(/-(c[a-z0-9]{24,})$/);
+        if (cuidMatch) {
+          projectExists = await ctx.db.project.findUnique({
+            where: { id: cuidMatch[1] },
+            select: selectFields,
+          });
+        }
       }
 
       if (!projectExists) {
