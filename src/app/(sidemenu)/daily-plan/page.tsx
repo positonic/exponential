@@ -174,12 +174,13 @@ export default function DailyPlanPage() {
   };
 
   // Task handlers
-  const handleAddTask = async (name: string, duration = 30) => {
+  const handleAddTask = async (name: string, duration = 30, actionId?: string) => {
     if (!dailyPlan) return;
     await addTaskMutation.mutateAsync({
       dailyPlanId: dailyPlan.id,
       name,
       duration,
+      ...(actionId ? { actionId } : {}),
     });
   };
 

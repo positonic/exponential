@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Text, ScrollArea } from "@mantine/core";
+import { Text } from "@mantine/core";
 import { format, isToday } from "date-fns";
 import {
   DndContext,
@@ -11,6 +11,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  closestCenter,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -79,6 +80,7 @@ function DraggableActionBlock({
         ...style,
         opacity: isDragging ? 0.4 : 1,
         cursor: "grab",
+        touchAction: "none",
       }}
     >
       <CalendarActionBlock
@@ -93,8 +95,8 @@ function DraggableActionBlock({
 function ActionDragOverlay({ action }: { action: ScheduledAction }) {
   return (
     <div
-      className="rounded-sm border-l-4 border-l-brand-primary bg-brand-primary/30 p-1.5 shadow-lg"
-      style={{ width: 200 }}
+      className="overflow-hidden rounded-sm border-l-4 border-l-brand-primary bg-brand-primary/30 p-1.5 shadow-lg"
+      style={{ width: 200, pointerEvents: "none" }}
     >
       <Text size="xs" fw={600} lineClamp={1} style={{ fontSize: "11px" }}>
         {action.name}
@@ -184,10 +186,11 @@ export function CalendarDayTimeGrid({
   return (
     <DndContext
       sensors={sensors}
+      collisionDetection={closestCenter}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <ScrollArea h="calc(100vh - 180px)" scrollbarSize={8}>
+      <div className="overflow-y-auto" style={{ height: "calc(100vh - 180px)" }}>
         <div className="relative flex" style={{ height: gridHeight }}>
           {/* Time labels column */}
           <div
@@ -251,7 +254,7 @@ export function CalendarDayTimeGrid({
                       left: `${item.left}%`,
                       width: `${item.width}%`,
                       height: item.height,
-                      zIndex: item.column + 1,
+                      zIndex: 10 + item.column,
                     }}
                   />
                 );
@@ -265,7 +268,7 @@ export function CalendarDayTimeGrid({
                       left: `${item.left}%`,
                       width: `${item.width}%`,
                       height: item.height,
-                      zIndex: item.column + 1,
+                      zIndex: 10 + item.column,
                     }}
                     onClick={onActionClick}
                   />
@@ -275,7 +278,7 @@ export function CalendarDayTimeGrid({
             })}
           </div>
         </div>
-      </ScrollArea>
+      </div>
 
       <DragOverlay>
         {activeAction ? <ActionDragOverlay action={activeAction} /> : null}

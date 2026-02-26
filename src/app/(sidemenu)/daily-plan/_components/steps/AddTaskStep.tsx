@@ -23,7 +23,7 @@ type DailyPlanAction =
 
 interface AddTaskStepProps {
   tasks: DailyPlanAction[];
-  onAddTask: (name: string) => Promise<void>;
+  onAddTask: (name: string, duration?: number, actionId?: string) => Promise<void>;
   onNext: () => void;
   isLoading: boolean;
   overdueActions?: ExistingAction[];
@@ -44,7 +44,7 @@ export function AddTaskStep({
 
   const handleAddExistingAction = async (action: ExistingAction) => {
     if (addedActionIds.has(action.id)) return;
-    await onAddTask(action.name);
+    await onAddTask(action.name, undefined, action.id);
     setAddedActionIds((prev) => new Set([...prev, action.id]));
   };
 

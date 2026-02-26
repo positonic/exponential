@@ -82,7 +82,7 @@ export function CalendarEventBlock({ event, style }: EventBlockProps) {
       withArrow
     >
       <div
-        className={`absolute cursor-pointer rounded-sm p-1.5 transition-all hover:brightness-110 ${getEventColor(event)}`}
+        className={`absolute cursor-pointer overflow-hidden rounded-sm p-1.5 transition-all hover:brightness-110 ${getEventColor(event)}`}
         style={style}
         onClick={() => event.htmlLink && window.open(event.htmlLink, "_blank")}
       >
@@ -97,6 +97,7 @@ export function CalendarEventBlock({ event, style }: EventBlockProps) {
             WebkitLineClamp: height < 40 ? 1 : 2,
             WebkitBoxOrient: "vertical",
             overflow: "hidden",
+            wordBreak: "break-word",
           }}
         >
           {event.summary}
@@ -139,7 +140,7 @@ export function CalendarActionBlock({
       withArrow
     >
       <div
-        className={`absolute cursor-pointer rounded-sm p-1.5 transition-all hover:brightness-110 ${
+        className={`absolute cursor-pointer overflow-hidden rounded-sm p-1.5 transition-all hover:brightness-110 ${
           isCompleted
             ? "bg-green-500/20 border-l-4 border-l-green-500 border-y-0 border-r-0 text-green-100 line-through opacity-60"
             : "bg-brand-primary/20 border-l-4 border-l-brand-primary border-y-0 border-r-0 text-text-primary"
@@ -158,6 +159,7 @@ export function CalendarActionBlock({
             WebkitLineClamp: height < 40 ? 1 : 2,
             WebkitBoxOrient: "vertical",
             overflow: "hidden",
+            wordBreak: "break-word",
           }}
         >
           {action.name}

@@ -125,15 +125,17 @@ function layoutCluster(
 
   // Calculate widths and positions based on column count within this cluster
   const numColumns = columns.length;
+  const GAP_PERCENT = 0.5; // Consistent gap between columns
+  const totalGaps = numColumns > 1 ? (numColumns - 1) * GAP_PERCENT : 0;
   const columnWidth =
-    numColumns > 0 ? containerWidth / numColumns : containerWidth;
+    numColumns > 0 ? (containerWidth - totalGaps) / numColumns : containerWidth;
 
   columns.forEach((column, columnIndex) => {
     column.forEach((item) => {
       item.column = columnIndex;
       item.totalColumns = numColumns;
-      item.left = baseLeft + columnIndex * columnWidth;
-      item.width = columnWidth - 2; // 2px gap between columns for visual separation
+      item.left = baseLeft + columnIndex * (columnWidth + GAP_PERCENT);
+      item.width = columnWidth;
     });
   });
 }
@@ -159,7 +161,7 @@ export function calculateOverlappingPositions(
   const positioned: PositionedCalendarItem[] = items.map((item) => ({
     ...item,
     left: baseLeft,
-    width: containerWidth - 2,
+    width: containerWidth,
     column: 0,
     totalColumns: 1,
   }));
