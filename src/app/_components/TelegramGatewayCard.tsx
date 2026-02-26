@@ -25,9 +25,11 @@ const AGENT_OPTIONS = [
 
 interface TelegramGatewayCardProps {
   assistantSaved?: boolean;
+  /** When true, renders without the outer Card wrapper (for use inside a Modal) */
+  embedded?: boolean;
 }
 
-export function TelegramGatewayCard({ assistantSaved = false }: TelegramGatewayCardProps) {
+export function TelegramGatewayCard({ assistantSaved = false, embedded = false }: TelegramGatewayCardProps) {
   const [agentId, setAgentId] = useState("assistant");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -66,19 +68,21 @@ export function TelegramGatewayCard({ assistantSaved = false }: TelegramGatewayC
   const isPaired = status.data?.paired;
   const isPairing = initiatePairing.isSuccess && !isPaired;
 
-  return (
-    <Card className="bg-surface-secondary border-border-primary" withBorder radius="md" p="lg">
-      <Group justify="space-between" mb="md">
-        <Group gap="sm">
-          <IconBrandTelegram size={24} className="text-brand-primary" />
-          <Text fw={600} className="text-text-primary">
-            Telegram
-          </Text>
+  const content = (
+    <>
+      {!embedded && (
+        <Group justify="space-between" mb="md">
+          <Group gap="sm">
+            <IconBrandTelegram size={24} className="text-brand-primary" />
+            <Text fw={600} className="text-text-primary">
+              Telegram
+            </Text>
+          </Group>
+          <Badge color={isPaired ? "green" : "gray"} variant="light">
+            {isPaired ? "Connected" : "Not connected"}
+          </Badge>
         </Group>
-        <Badge color={isPaired ? "green" : "gray"} variant="light">
-          {isPaired ? "Connected" : "Not connected"}
-        </Badge>
-      </Group>
+      )}
 
       {isPaired ? (
         <Stack gap="sm">
@@ -161,6 +165,14 @@ export function TelegramGatewayCard({ assistantSaved = false }: TelegramGatewayC
           </Button>
         </Stack>
       )}
+    </>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <Card className="bg-surface-secondary border-border-primary" withBorder radius="md" p="lg">
+      {content}
     </Card>
   );
 }

@@ -17,6 +17,7 @@ import {
   IconCheck,
   IconAlertCircle,
   IconBrandWhatsapp,
+  IconBrandTelegram,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
@@ -26,10 +27,12 @@ import { FirefliesIntegrationsList } from '~/app/_components/integrations/Firefl
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import IntegrationsClient from '~/app/(sidemenu)/integrations/IntegrationsClient';
 import { WhatsAppGatewayModal } from '~/app/_components/WhatsAppGatewayModal';
+import { TelegramGatewayModal } from '~/app/_components/TelegramGatewayModal';
 
 export default function IntegrationsSettingsPage() {
   const [firefliesModalOpened, setFirefliesModalOpened] = useState(false);
   const [whatsappModalOpened, setWhatsappModalOpened] = useState(false);
+  const [telegramModalOpened, setTelegramModalOpened] = useState(false);
   const utils = api.useUtils();
 
   // Calendar connection status
@@ -99,6 +102,10 @@ export default function IntegrationsSettingsPage() {
   const connectedWhatsAppSession = whatsappSessions?.find(
     (s: { status: string }) => s.status === 'CONNECTED',
   );
+
+  // Telegram Gateway
+  const { data: telegramStatus } =
+    api.telegramGateway.getStatus.useQuery();
 
   return (
     <Container size="md" py="xl">
@@ -212,6 +219,33 @@ export default function IntegrationsSettingsPage() {
           </Group>
         </Paper>
 
+        {/* Telegram */}
+        <Paper p="lg" withBorder className="bg-surface-secondary">
+          <Group justify="space-between" align="center">
+            <Group gap="sm">
+              <IconBrandTelegram size={20} className="text-brand-primary" />
+              <div>
+                <Text fw={500} className="text-text-primary">
+                  Telegram
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {telegramStatus?.paired
+                    ? `Connected as @${telegramStatus.telegramUsername ?? 'unknown'}`
+                    : 'Chat with AI agents directly from Telegram'}
+                </Text>
+              </div>
+            </Group>
+            <Button
+              variant={telegramStatus?.paired ? 'light' : 'filled'}
+              size="sm"
+              leftSection={<IconBrandTelegram size={16} />}
+              onClick={() => setTelegramModalOpened(true)}
+            >
+              {telegramStatus?.paired ? 'Manage' : 'Connect Telegram'}
+            </Button>
+          </Group>
+        </Paper>
+
         <Divider />
 
         {/* Full Integrations Management */}
@@ -226,6 +260,11 @@ export default function IntegrationsSettingsPage() {
       <WhatsAppGatewayModal
         opened={whatsappModalOpened}
         onClose={() => setWhatsappModalOpened(false)}
+      />
+
+      <TelegramGatewayModal
+        opened={telegramModalOpened}
+        onClose={() => setTelegramModalOpened(false)}
       />
     </Container>
   );
