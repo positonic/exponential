@@ -45,6 +45,7 @@ import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { OnboardingIllustration } from './OnboardingIllustration';
+import { OnboardingIntegrationIllustration } from './OnboardingIntegrationIllustration';
 import { OnboardingToolsIllustration } from './OnboardingToolsIllustration';
 import { GoogleCalendarConnect } from './GoogleCalendarConnect';
 import { MicrosoftCalendarConnect } from './MicrosoftCalendarConnect';
@@ -344,10 +345,10 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
       console.error('Failed to save calendar preferences:', error);
       // Continue anyway - don't block onboarding
     }
-    setCurrentStep(4);
+    setCurrentStep(5);
   };
 
-  // Step 4: Tools -> Step 5
+  // Step 3: Tools -> Step 4
   const toggleTool = (toolName: string) => {
     setSelectedTools(prev =>
       prev.includes(toolName)
@@ -372,7 +373,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     setIsLoading(true);
     try {
       await updateTools.mutateAsync({ selectedTools });
-      setCurrentStep(5);
+      setCurrentStep(4);
     } catch {
       notifications.show({
         title: 'Error',
