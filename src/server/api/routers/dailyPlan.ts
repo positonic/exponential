@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { startOfDay } from "date-fns";
-import { setTimeInUserTimezone } from "~/lib/dateUtils";
+import { setTimeInUserTimezone, validateScheduledTimes } from "~/lib/dateUtils";
 import { ScoringService } from "~/server/services/ScoringService";
 
 export const dailyPlanRouter = createTRPCRouter({
@@ -321,6 +321,22 @@ export const dailyPlanRouter = createTRPCRouter({
         actionUpdates.isAutoScheduled = input.schedulingMethod === "auto-suggested";
       }
 
+      // Auto-compute duration when start and end are provided but duration is not
+      if (input.scheduledStart && input.scheduledEnd && input.duration === undefined) {
+        const computedDuration = Math.round(
+          (input.scheduledEnd.getTime() - input.scheduledStart.getTime()) / 60000
+        );
+        if (computedDuration > 0) {
+          actionUpdates.duration = computedDuration;
+          (data as Record<string, unknown>).duration = computedDuration;
+        }
+      }
+
+      // Validate scheduledEnd >= scheduledStart (resolve against existing values for partial updates)
+      const resolvedStart = input.scheduledStart !== undefined ? input.scheduledStart : task.scheduledStart;
+      const resolvedEnd = input.scheduledEnd !== undefined ? input.scheduledEnd : task.scheduledEnd;
+      validateScheduledTimes(resolvedStart, resolvedEnd);
+
       const dailyPlanUpdate = ctx.db.dailyPlanAction.update({
         where: { id },
         data,
@@ -537,6 +553,7 @@ export const dailyPlanRouter = createTRPCRouter({
             scheduledStart: task.scheduledStart,
             scheduledEnd: task.scheduledEnd,
             duration: task.duration,
+            isAutoScheduled: task.schedulingMethod === "auto-suggested",
             source: "daily-plan",
             workspaceId: plan.workspaceId,
           },

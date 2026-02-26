@@ -8,6 +8,7 @@ import { PRIORITY_VALUES } from "~/types/priority";
 import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
+import { validateScheduledTimes } from "~/lib/dateUtils";
 import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, buildActionAccessWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
@@ -523,10 +524,15 @@ export const actionRouter = createTRPCRouter({
       // Get current action to check previous state
       const currentAction = await ctx.db.action.findUnique({
         where: { id },
-        select: { status: true, kanbanStatus: true, completedAt: true, scheduledStart: true }
+        select: { status: true, kanbanStatus: true, completedAt: true, scheduledStart: true, scheduledEnd: true }
       });
 
       const wasCompleted = currentAction?.status === "COMPLETED" || currentAction?.kanbanStatus === "DONE";
+
+      // Validate scheduledEnd >= scheduledStart (resolve against existing values for partial updates)
+      const resolvedStart = updateData.scheduledStart !== undefined ? updateData.scheduledStart : currentAction?.scheduledStart;
+      const resolvedEnd = updateData.scheduledEnd !== undefined ? updateData.scheduledEnd : currentAction?.scheduledEnd;
+      validateScheduledTimes(resolvedStart, resolvedEnd);
 
       // Set completedAt timestamp when completing, clear when uncompleting
       // Clear kanbanOrder when priority is updated to restore automatic sorting

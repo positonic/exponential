@@ -10,6 +10,7 @@ import {
   isSameYear,
   addDays,
 } from "date-fns";
+import { TRPCError } from "@trpc/server";
 import type { FocusPeriod, DateRange } from "~/types/focus";
 
 /**
@@ -96,6 +97,22 @@ export function getFocusSectionTitle(focus: FocusPeriod, baseTitle: string): str
       return `This Week's ${baseTitle}`;
     case "month":
       return `This Month's ${baseTitle}`;
+  }
+}
+
+/**
+ * Validates that scheduledEnd is not before scheduledStart.
+ * Handles partial updates where only one value may be provided.
+ */
+export function validateScheduledTimes(
+  start: Date | null | undefined,
+  end: Date | null | undefined,
+): void {
+  if (start && end && end < start) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "scheduledEnd must not be before scheduledStart",
+    });
   }
 }
 

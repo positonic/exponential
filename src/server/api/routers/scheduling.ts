@@ -5,7 +5,7 @@ import { GoogleCalendarService, type CalendarEvent } from "~/server/services/Goo
 import { AutoSchedulingService } from "~/server/services/AutoSchedulingService";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { addMinutes, format } from "date-fns";
-import { setTimeInUserTimezone } from "~/lib/dateUtils";
+import { setTimeInUserTimezone, validateScheduledTimes } from "~/lib/dateUtils";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL;
 
@@ -903,11 +903,20 @@ export const schedulingRouter = createTRPCRouter({
             continue;
           }
 
+          // Validate that end is not before start
+          validateScheduledTimes(suggestion.scheduledStart, suggestion.scheduledEnd);
+
+          // Compute duration from the suggestion times
+          const duration = Math.round(
+            (suggestion.scheduledEnd.getTime() - suggestion.scheduledStart.getTime()) / 60000
+          );
+
           const dailyPlanUpdate = ctx.db.dailyPlanAction.update({
             where: { id: suggestion.taskId },
             data: {
               scheduledStart: suggestion.scheduledStart,
               scheduledEnd: suggestion.scheduledEnd,
+              duration: duration > 0 ? duration : task.duration,
               schedulingMethod: "auto-suggested",
             },
           });
@@ -919,7 +928,7 @@ export const schedulingRouter = createTRPCRouter({
                 data: {
                   scheduledStart: suggestion.scheduledStart,
                   scheduledEnd: suggestion.scheduledEnd,
-                  duration: task.duration,
+                  duration: duration > 0 ? duration : task.duration,
                   isAutoScheduled: true,
                 },
               }),
