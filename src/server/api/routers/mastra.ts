@@ -1283,11 +1283,9 @@ export const mastraRouter = createTRPCRouter({
       };
 
       if (input.projectId) {
-        // Verify user has access to this project
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId, createdById: userId }
-        });
-        if (!project) {
+        // Verify user has access to this project via all access paths
+        const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
+        if (!hasProjectAccess(projectAccess)) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Project not found or access denied'
@@ -1327,12 +1325,10 @@ export const mastraRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Verify project access if specified
+      // Verify project access if specified via all access paths
       if (input.projectId) {
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId, createdById: userId }
-        });
-        if (!project) {
+        const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
+        if (!hasProjectAccess(projectAccess)) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Project not found or access denied'
@@ -3283,15 +3279,29 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`✏️ [tRPC updateAction] RECEIVED: actionId=${input.actionId}, userId=${userId}, changes=${JSON.stringify(input)}`);
 
-      // Verify user owns this action
+      // Find the action first
       const existing = await ctx.db.action.findUnique({
-        where: { id: input.actionId, createdById: userId },
+        where: { id: input.actionId },
+        select: { id: true, createdById: true, projectId: true, status: true, priority: true, name: true, description: true, dueDate: true },
       });
 
       if (!existing) {
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: 'Action not found or access denied',
+          message: 'Action not found',
+        });
+      }
+
+      // Check access: user is creator, or has project-level access
+      let hasAccess = existing.createdById === userId;
+      if (!hasAccess && existing.projectId) {
+        const projectAccess = await getProjectAccess(ctx.db, userId, existing.projectId);
+        hasAccess = hasProjectAccess(projectAccess);
+      }
+      if (!hasAccess) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You do not have access to this action',
         });
       }
 
