@@ -532,7 +532,13 @@ export const actionRouter = createTRPCRouter({
       // Validate scheduledEnd >= scheduledStart (resolve against existing values for partial updates)
       const resolvedStart = updateData.scheduledStart !== undefined ? updateData.scheduledStart : currentAction?.scheduledStart;
       const resolvedEnd = updateData.scheduledEnd !== undefined ? updateData.scheduledEnd : currentAction?.scheduledEnd;
-      validateScheduledTimes(resolvedStart, resolvedEnd);
+
+      // If scheduledStart was moved past scheduledEnd, auto-clear scheduledEnd
+      if (resolvedStart && resolvedEnd && resolvedEnd < resolvedStart && updateData.scheduledEnd === undefined) {
+        updateData.scheduledEnd = null;
+      } else {
+        validateScheduledTimes(resolvedStart, resolvedEnd);
+      }
 
       // Set completedAt timestamp when completing, clear when uncompleting
       // Clear kanbanOrder when priority is updated to restore automatic sorting

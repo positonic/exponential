@@ -4,11 +4,13 @@ import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
 import { IconMenu2, IconX } from "@tabler/icons-react";
 import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { themes, type ValidDomain } from "~/config/themes";
 import { LogoDisplay } from "./LogoDisplay";
 import { UserMenu } from "./UserMenu";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
+  const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false); // Default to closed
   const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
 
@@ -20,7 +22,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
     }
   }, []);
 
-  if (!session?.user) {
+  if (!session?.user || pathname.startsWith('/onboarding')) {
     return null;
   }
 

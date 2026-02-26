@@ -335,7 +335,14 @@ export const dailyPlanRouter = createTRPCRouter({
       // Validate scheduledEnd >= scheduledStart (resolve against existing values for partial updates)
       const resolvedStart = input.scheduledStart !== undefined ? input.scheduledStart : task.scheduledStart;
       const resolvedEnd = input.scheduledEnd !== undefined ? input.scheduledEnd : task.scheduledEnd;
-      validateScheduledTimes(resolvedStart, resolvedEnd);
+
+      // If scheduledStart was moved past scheduledEnd, auto-clear scheduledEnd
+      if (resolvedStart && resolvedEnd && resolvedEnd < resolvedStart && input.scheduledEnd === undefined) {
+        actionUpdates.scheduledEnd = null;
+        (data as Record<string, unknown>).scheduledEnd = null;
+      } else {
+        validateScheduledTimes(resolvedStart, resolvedEnd);
+      }
 
       const dailyPlanUpdate = ctx.db.dailyPlanAction.update({
         where: { id },

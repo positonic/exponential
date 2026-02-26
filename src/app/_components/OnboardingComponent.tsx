@@ -753,7 +753,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                 </div>
               </div>
               <GoogleCalendarConnect isConnected={googleConnected} />
-              {googleConnected && (
+              {googleConnected && (googleCalendarPrefs?.allCalendars ?? []).length > 0 && (
                 <div className="mt-4 pt-4 border-t border-border-primary">
                   <Text size="sm" fw={500} className="text-text-primary mb-2">
                     Select calendars to display
@@ -782,7 +782,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                 </div>
               </div>
               <MicrosoftCalendarConnect isConnected={microsoftConnected} />
-              {microsoftConnected && (
+              {microsoftConnected && (msCalendarPrefs?.allCalendars ?? []).length > 0 && (
                 <div className="mt-4 pt-4 border-t border-border-primary">
                   <Text size="sm" fw={500} className="text-text-primary mb-2">
                     Select calendars to display
