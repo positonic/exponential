@@ -870,7 +870,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
       {/* Tag filter - available on all non-project pages */}
       {!projectId && tagOptions.length > 0 && (
-        <Group gap="xs" mb="md" align="flex-end">
+        <Group gap="xs" mb="md" align="flex-end" justify="flex-end">
           <MultiSelect
             data={tagOptions}
             value={selectedTagIds}
