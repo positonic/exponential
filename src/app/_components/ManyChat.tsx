@@ -527,7 +527,13 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     );
   
   // Initialize conversation ID when component mounts
+  // Use a ref to prevent duplicate calls during rapid re-renders
+  // (useMutation returns a new ref each render, which would retrigger the effect)
+  const isInitializingConversation = useRef(false);
   useEffect(() => {
+    if (conversationId || isInitializingConversation.current) return;
+    isInitializingConversation.current = true;
+
     const initConversation = async () => {
       try {
         const result = await startConversation.mutateAsync({
@@ -541,14 +547,14 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         const timestamp = Date.now();
         const random = Math.random().toString(36).substring(2, 15);
         setConversationId(`conv_fallback_${timestamp}_${random}`);
+      } finally {
+        isInitializingConversation.current = false;
       }
     };
-    
-    if (!conversationId) {
-      void initConversation();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- setConversationId is stable from context
-  }, [projectId, startConversation, conversationId]);
+
+    void initConversation();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- startConversation is a mutation hook (new ref each render); projectId intentionally excluded to avoid re-init on project switch
+  }, [conversationId]);
   
   // Update system message with project/page context when data loads, page changes, or custom assistant loads
   // This preserves conversation history while adding context
