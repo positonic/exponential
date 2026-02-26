@@ -285,7 +285,7 @@ export function ActionItem({
           )}
 
           <div className="truncate flex-grow">
-            <HTMLContent html={action.name} className="text-text-primary" />
+            <HTMLContent html={action.name} className="text-text-primary" compactUrls />
             <Group gap="xs" align="center" className="mt-1">
               {/* Due date */}
               {action.dueDate && (

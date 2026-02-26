@@ -100,7 +100,7 @@ function ActionDragOverlay({ action }: { action: ScheduledAction }) {
       style={{ width: 200, pointerEvents: "none" }}
     >
       <Text size="xs" fw={600} lineClamp={1} component="div" style={{ fontSize: "11px" }}>
-        <HTMLContent html={action.name} />
+        <HTMLContent html={action.name} compactUrls />
       </Text>
       <Text size="xs" c="dimmed" style={{ fontSize: "10px" }}>
         {format(new Date(action.scheduledStart), "h:mm a")}

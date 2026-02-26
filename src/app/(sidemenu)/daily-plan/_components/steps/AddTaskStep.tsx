@@ -181,7 +181,7 @@ export function AddTaskStep({
                             className="text-text-primary"
                             lineClamp={1}
                           >
-                            <HTMLContent html={action.name} />
+                            <HTMLContent html={action.name} compactUrls />
                           </Text>
                           <IconPlus size={16} className="text-text-muted flex-shrink-0" />
                         </Group>
@@ -213,7 +213,7 @@ export function AddTaskStep({
                             className="text-text-primary"
                             lineClamp={1}
                           >
-                            <HTMLContent html={action.name} />
+                            <HTMLContent html={action.name} compactUrls />
                           </Text>
                           <IconPlus size={16} className="text-text-muted flex-shrink-0" />
                         </Group>

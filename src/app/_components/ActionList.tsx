@@ -887,7 +887,7 @@ export function ActionList({
             />
           </div>
           <div className="truncate flex-grow">
-            <HTMLContent html={action.name} className="text-text-primary" />
+            <HTMLContent html={action.name} className="text-text-primary" compactUrls />
             <Group gap="xs" align="center" className="mt-1">
               {action.dueDate && (
                 <Group gap={4} align="center" className={`text-xs ${isOverdue ? 'text-red-500' : 'text-text-muted'}`}>

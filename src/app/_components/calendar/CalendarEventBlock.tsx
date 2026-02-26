@@ -164,7 +164,7 @@ export function CalendarActionBlock({
             wordBreak: "break-word",
           }}
         >
-          <HTMLContent html={action.name} />
+          <HTMLContent html={action.name} compactUrls />
         </Text>
 
         {height >= 35 && (

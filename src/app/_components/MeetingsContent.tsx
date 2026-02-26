@@ -1034,7 +1034,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                                   <Group key={action.id} gap="xs" align="flex-start">
                                     <Text size="xs" c="dimmed" mt={2}>•</Text>
                                     <Text size="sm" lineClamp={1} style={{ flex: 1 }}>
-                                      <HTMLContent html={action.name} />
+                                      <HTMLContent html={action.name} compactUrls />
                                     </Text>
                                     {action.priority && (
                                       <Badge variant="outline" size="xs" color="gray">

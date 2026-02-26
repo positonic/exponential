@@ -244,7 +244,7 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
                                   <div key={action.id} className="flex items-center justify-between p-2 rounded bg-surface-primary border border-border-primary">
                                     <div className="flex-1">
                                       <Text size="sm" fw={500} className="text-text-primary">
-                                        <HTMLContent html={action.name} className="text-text-primary" />
+                                        <HTMLContent html={action.name} className="text-text-primary" compactUrls />
                                       </Text>
                                       {action.dueDate && (
                                         <Text size="xs" c="dimmed">

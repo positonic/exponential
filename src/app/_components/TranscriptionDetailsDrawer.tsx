@@ -288,7 +288,7 @@ export function TranscriptionDetailsDrawer({
                             />
                             <Stack gap={4} style={{ flex: 1 }}>
                               <Text size="sm" fw={500}>
-                                <HTMLContent html={action.name} />
+                                <HTMLContent html={action.name} compactUrls />
                               </Text>
                               {action.description && (
                                 <Text size="xs" c="dimmed">
