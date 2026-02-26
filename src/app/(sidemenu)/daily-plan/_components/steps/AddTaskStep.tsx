@@ -76,7 +76,7 @@ export function AddTaskStep({
       {/* Left: Prompt + Input */}
       <Stack w={300} gap="lg">
         <div>
-          <Title order={3} className="text-text-primary">
+          <Title order={3} className="text-text-primary" fw={600}>
             What&apos;s one thing you want to work on today?
           </Title>
           <Text c="dimmed" size="sm" mt="xs">
@@ -119,34 +119,9 @@ export function AddTaskStep({
         </Button>
       </Stack>
 
-      {/* Middle: Planned for today list */}
-      <Stack w={400} gap="md">
-        <Title order={4} className="text-text-primary" fw={600}>
-          Planned for today:
-        </Title>
-
-        {tasks.length === 0 ? (
-          <Text c="dimmed" size="sm">
-            No tasks added yet
-          </Text>
-        ) : (
-          <Stack gap="xs">
-            {tasks.map((task) => (
-              <Paper
-                key={task.id}
-                p="sm"
-                className="bg-surface-secondary border border-border-primary"
-              >
-                <HTMLContent html={task.name} className="text-text-primary" />
-              </Paper>
-            ))}
-          </Stack>
-        )}
-      </Stack>
-
-      {/* Right: Existing Actions Panel */}
+      {/* Middle: Existing Actions Panel */}
       {hasExistingActions && (
-        <Stack w={350} gap="md">
+        <Stack w={350} gap="md" mt={25}>
           <Title order={4} className="text-text-primary" fw={600}>
             Existing Actions
           </Title>
@@ -226,6 +201,31 @@ export function AddTaskStep({
           </Tabs>
         </Stack>
       )}
+
+      {/* Right: Planned for today list */}
+      <Stack w={400} gap="md" mt={70}>
+        <Title order={4} className="text-text-primary" fw={600}>
+          Planned for today:
+        </Title>
+
+        {tasks.length === 0 ? (
+          <Text c="dimmed" size="sm">
+            No tasks added yet
+          </Text>
+        ) : (
+          <Stack gap="xs">
+            {tasks.map((task) => (
+              <Paper
+                key={task.id}
+                p="sm"
+                className="bg-surface-secondary border border-border-primary"
+              >
+                <HTMLContent html={task.name} className="text-text-primary" />
+              </Paper>
+            ))}
+          </Stack>
+        )}
+      </Stack>
     </Group>
   );
 }
