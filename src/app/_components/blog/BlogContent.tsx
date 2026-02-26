@@ -8,6 +8,7 @@ import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 interface BlogContentProps {
   post: BlogPost;
+  isLoggedIn?: boolean;
 }
 
 function formatDate(dateString: string): string {
@@ -18,7 +19,7 @@ function formatDate(dateString: string): string {
   });
 }
 
-export function BlogContent({ post }: BlogContentProps) {
+export function BlogContent({ post, isLoggedIn }: BlogContentProps) {
   return (
     <div>
       {/* Hero banner */}
@@ -82,6 +83,25 @@ export function BlogContent({ post }: BlogContentProps) {
         <div className="blog-content">
           <MarkdownRenderer content={post.content} />
         </div>
+
+        {/* Call to Action */}
+        {!isLoggedIn && (
+          <div className="mt-16 rounded-xl border border-border-primary bg-surface-secondary p-8 text-center md:p-12">
+            <Title order={3} className="mb-3 text-2xl">
+              Ready to try the Self-Steering Method?
+            </Title>
+            <Text className="mx-auto mb-6 max-w-lg text-text-secondary">
+              Exponential pairs you with an AI agent that runs your
+              productivity loop — so you can focus on steering, not managing.
+            </Text>
+            <Link
+              href="/signin"
+              className="inline-flex items-center rounded-lg bg-brand-primary px-6 py-3 font-semibold text-white transition-opacity hover:opacity-90"
+            >
+              Get Started Free
+            </Link>
+          </div>
+        )}
       </article>
     </div>
   );
