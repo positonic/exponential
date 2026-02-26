@@ -490,3 +490,18 @@
 .chat-html-content b {
   font-weight: 600;
 }
+
+/* Blog content typography — overrides Mantine inline styles */
+.blog-content p {
+  font-size: 1.125rem !important;
+  line-height: 1.8 !important;
+  margin-bottom: 1.5rem;
+}
+.blog-content h2 { margin-top: 3rem; margin-bottom: 1rem; }
+.blog-content h3 { margin-top: 2.5rem; margin-bottom: 0.75rem; }
+.blog-content ul, .blog-content ol { font-size: 1.125rem; line-height: 1.8; margin-bottom: 1.5rem; }
+.blog-content li { font-size: 1.125rem; line-height: 1.8; margin-bottom: 0.5rem; }
+.blog-content blockquote { margin: 1.5rem 0; }
+.blog-content blockquote p { margin-bottom: 0.25rem; }
+.blog-content strong { font-size: inherit; }
+.blog-content table { font-size: 1rem; line-height: 1.7; }

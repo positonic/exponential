@@ -34,36 +34,38 @@ export function SolutionIntroSection({ id }: SolutionIntroSectionProps) {
 
           {/* Flow Diagram */}
           <div className="bg-gradient-to-br from-gradient-hero-start/40 to-gradient-cta-end/20 backdrop-blur-sm border border-accent-indigo/30 rounded-2xl p-8 md:p-12 shadow-lg shadow-accent-indigo/10">
-            <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-6 mb-8">
-              {/* Goals */}
-              <div className="flex flex-col items-center">
-                <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-accent-indigo/20 border-2 border-accent-indigo/40 flex items-center justify-center mb-3 shadow-lg shadow-accent-indigo/20">
-                  <span className="text-3xl md:text-4xl">🎯</span>
+            <div className="flex flex-col md:flex-row items-center justify-center mb-8">
+              {/* Goals + Arrow */}
+              <div className="flex flex-col md:flex-row items-center">
+                <div className="flex flex-col items-center">
+                  <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-accent-indigo/20 border-2 border-accent-indigo/40 flex items-center justify-center mb-3 shadow-lg shadow-accent-indigo/20">
+                    <span className="text-3xl md:text-4xl">🎯</span>
+                  </div>
+                  <span className="font-semibold text-text-primary">Goals</span>
                 </div>
-                <span className="font-semibold text-text-primary">Goals</span>
+                <IconArrowRight
+                  className="text-accent-periwinkle hidden md:block shrink-0 mx-4 md:mx-6"
+                  size={28}
+                />
+                <span className="text-accent-periwinkle text-2xl md:hidden my-4">↓</span>
               </div>
 
-              <IconArrowRight
-                className="text-accent-periwinkle hidden md:block"
-                size={28}
-              />
-              <span className="text-accent-periwinkle text-2xl md:hidden">↓</span>
-
-              {/* Outcomes */}
-              <div className="flex flex-col items-center">
-                <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-gradient-cta-end/20 border-2 border-gradient-cta-end/40 flex items-center justify-center mb-3 shadow-lg shadow-gradient-cta-end/20">
-                  <span className="text-3xl md:text-4xl">📊</span>
+              {/* Outcomes + Arrow */}
+              <div className="flex flex-col md:flex-row items-center">
+                <div className="flex flex-col items-center">
+                  <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-gradient-cta-end/20 border-2 border-gradient-cta-end/40 flex items-center justify-center mb-3 shadow-lg shadow-gradient-cta-end/20">
+                    <span className="text-3xl md:text-4xl">📊</span>
+                  </div>
+                  <span className="font-semibold text-text-primary">Outcomes</span>
                 </div>
-                <span className="font-semibold text-text-primary">Outcomes</span>
+                <IconArrowRight
+                  className="text-accent-periwinkle hidden md:block shrink-0 mx-4 md:mx-6"
+                  size={28}
+                />
+                <span className="text-accent-periwinkle text-2xl md:hidden my-4">↓</span>
               </div>
 
-              <IconArrowRight
-                className="text-accent-periwinkle hidden md:block"
-                size={28}
-              />
-              <span className="text-accent-periwinkle text-2xl md:hidden">↓</span>
-
-              {/* Actions */}
+              {/* Actions (no arrow) */}
               <div className="flex flex-col items-center">
                 <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-accent-periwinkle/20 border-2 border-accent-periwinkle/40 flex items-center justify-center mb-3 shadow-lg shadow-accent-periwinkle/20">
                   <span className="text-3xl md:text-4xl">⚡</span>

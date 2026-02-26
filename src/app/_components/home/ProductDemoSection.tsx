@@ -156,7 +156,7 @@ const SLIDES: Slide[] = [
     title: "Weekly team alignment",
     description:
       "Run structured team reviews with metrics, accountability, and AI insight.",
-    image: "/product-shots/exponential-weekly-team-review.jpg",
+    image: "/product-shots/exponential-weekly team review.jpg",
   },
   {
     id: "exponential-knowledge-base",
@@ -300,12 +300,14 @@ export function ProductDemoSection({ id }: ProductDemoSectionProps) {
     return stopTimer;
   }, [isHovered, startTimer, stopTimer]);
 
-  // Auto-scroll active tab into view
+  // Auto-scroll active tab into view (horizontal only, no page scroll)
   useEffect(() => {
     const container = tabsRef.current;
     if (!container) return;
     const activeTab = container.children[activeIndex] as HTMLElement | undefined;
-    activeTab?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    if (!activeTab) return;
+    const scrollLeft = activeTab.offsetLeft - container.offsetWidth / 2 + activeTab.offsetWidth / 2;
+    container.scrollTo({ left: scrollLeft, behavior: "smooth" });
   }, [activeIndex]);
 
   const goTo = useCallback(
@@ -371,7 +373,6 @@ export function ProductDemoSection({ id }: ProductDemoSectionProps) {
                 <div className="w-3 h-3 rounded-full bg-brand-warning/60" />
                 <div className="w-3 h-3 rounded-full bg-brand-success/60" />
               </div>
-              <span className="text-xs text-text-muted/60 shrink-0">exponential.im</span>
             </div>
             {/* Tab Navigation */}
             <div
