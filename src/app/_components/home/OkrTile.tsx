@@ -7,6 +7,8 @@ import { HomeTile } from "./HomeTile";
 export function OkrTile() {
   const { workspaceSlug } = useWorkspace();
 
+  if (!workspaceSlug) return null;
+
   return (
     <HomeTile
       tileId="okrs"

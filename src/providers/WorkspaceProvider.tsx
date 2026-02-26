@@ -79,13 +79,30 @@ export function WorkspaceProvider({
   const [hasInitialized, setHasInitialized] = useState(!!urlSlug);
 
   // Fetch default workspace when no slug in URL
-  const { data: defaultWorkspace, isLoading: defaultLoading } = api.workspace.getDefault.useQuery(
+  const { data: defaultWorkspace, isLoading: defaultLoading, isFetched: defaultFetched } = api.workspace.getDefault.useQuery(
     undefined,
     {
       enabled: !urlSlug && !hasInitialized,
       staleTime: 5 * 60 * 1000,
     }
   );
+
+  // Auto-create personal workspace if user has none
+  const utils = api.useUtils();
+  const { mutate: ensurePersonalWorkspace, isPending: isCreatingWorkspace } =
+    api.workspace.ensurePersonalWorkspace.useMutation({
+      onSuccess: (workspace) => {
+        setContextWorkspaceSlug(workspace.slug);
+        setHasInitialized(true);
+        void utils.workspace.getDefault.invalidate();
+      },
+    });
+
+  useEffect(() => {
+    if (!urlSlug && defaultFetched && !defaultWorkspace && !hasInitialized && !isCreatingWorkspace) {
+      ensurePersonalWorkspace();
+    }
+  }, [urlSlug, defaultFetched, defaultWorkspace, hasInitialized, isCreatingWorkspace, ensurePersonalWorkspace]);
 
   // Use URL slug if present, otherwise use context workspace slug
   const effectiveSlug = urlSlug ?? contextWorkspaceSlug;
@@ -134,7 +151,7 @@ export function WorkspaceProvider({
 
   const isLoading = effectiveSlug
     ? workspaceLoading
-    : (!hasInitialized && defaultLoading);
+    : (!hasInitialized && (defaultLoading || isCreatingWorkspace));
 
   const value: WorkspaceContextValue = {
     workspace: workspace ?? null,

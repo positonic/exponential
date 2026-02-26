@@ -19,6 +19,8 @@ function WeeklyReviewCard() {
     { enabled: !!workspaceId },
   );
 
+  if (!workspaceSlug) return null;
+
   const isCompleted = data?.isCompleted ?? false;
 
   return (
@@ -66,6 +68,8 @@ function WeeklyReviewCard() {
 function TeamCheckinCard() {
   const { workspaceSlug } = useWorkspace();
 
+  if (!workspaceSlug) return null;
+
   return (
     <Card
       component={Link}
@@ -95,6 +99,8 @@ function TeamCheckinCard() {
 
 function OkrCheckinCard() {
   const { workspaceSlug } = useWorkspace();
+
+  if (!workspaceSlug) return null;
 
   return (
     <Card

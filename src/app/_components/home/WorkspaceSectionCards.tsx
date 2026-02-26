@@ -52,6 +52,8 @@ export function WorkspaceSectionCards() {
   const { workspaceSlug } = useWorkspace();
   const { enabledPlugins } = usePluginNavigation();
 
+  if (!workspaceSlug) return null;
+
   const isCrmEnabled = enabledPlugins.includes("crm");
   const isOkrEnabled = enabledPlugins.includes("okr");
 

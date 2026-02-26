@@ -21,7 +21,7 @@ function getTodayKey(): string {
 }
 
 export function DailyPlanBanner({ compact }: { compact?: boolean } = {}) {
-  const { workspace } = useWorkspace();
+  const { workspace, workspaceId } = useWorkspace();
 
   // Daily-scoped dismiss state (used by full-size banner only)
   const [dismissed, setDismissed] = useState(() => {
@@ -31,9 +31,13 @@ export function DailyPlanBanner({ compact }: { compact?: boolean } = {}) {
   });
 
   const { data: dailyPlan, isLoading } =
-    api.dailyPlan.getOrCreateToday.useQuery({
-      date: startOfDay(new Date()),
-    });
+    api.dailyPlan.getOrCreateToday.useQuery(
+      {
+        date: startOfDay(new Date()),
+        workspaceId: workspaceId ?? undefined,
+      },
+      { enabled: workspaceId !== null },
+    );
 
   const { data: workspaceData } = api.workspace.getBySlug.useQuery(
     { slug: workspace?.slug ?? "" },

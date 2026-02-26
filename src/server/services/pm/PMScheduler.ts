@@ -1,8 +1,10 @@
 import cron from 'node-cron';
+import { type Prisma } from '@prisma/client';
 import { db } from '~/server/db';
 import { addDays, startOfDay } from 'date-fns';
 import { WorkflowEngine } from '../workflows/WorkflowEngine';
 import { createStepRegistry } from '../workflows/StepRegistry';
+import { seedWorkflowTemplates } from '../workflows/seedTemplates';
 
 interface ScheduledTask {
   id: string;
@@ -151,13 +153,23 @@ export class PMScheduler {
   /**
    * Run a specific task immediately (for testing)
    */
-  async runTask(taskId: string): Promise<string | null> {
+  async runTask(taskId: string, userId?: string): Promise<string | null> {
     const config = this.taskConfigs.find(t => t.id === taskId);
     if (!config) {
       throw new Error(`Task not found: ${taskId}`);
     }
 
     console.log(`[PMScheduler] Manually running task: ${config.name}`);
+
+    // For workflow-based tasks triggered on-demand, run directly for the user
+    if (userId && (taskId === 'daily-standup-workflow' || taskId === 'project-health-workflow')) {
+      const templateSlug = taskId === 'daily-standup-workflow'
+        ? 'pm-standup-summary'
+        : 'pm-project-health-report';
+      const result = await this.executeWorkflowForUserWithAutoSetup(templateSlug, userId);
+      return result ?? null;
+    }
+
     const result = await config.handler();
     return result ?? null;
   }
@@ -218,6 +230,103 @@ export class PMScheduler {
         console.error(`[PMScheduler] Workflow failed: ${definition.name}`, error);
       }
     }
+    return undefined;
+  }
+
+  /**
+   * Execute a workflow for a specific user, auto-creating template + definition if needed.
+   * Used for on-demand button clicks where we want it to "just work".
+   */
+  private async executeWorkflowForUserWithAutoSetup(
+    templateSlug: string,
+    userId: string,
+  ): Promise<string | undefined> {
+    const registry = createStepRegistry(db);
+    const engine = new WorkflowEngine(db, registry);
+
+    // Ensure templates are seeded
+    let template = await db.workflowTemplate.findUnique({
+      where: { slug: templateSlug },
+    });
+    if (!template) {
+      console.log(`[PMScheduler] Template ${templateSlug} not found, seeding...`);
+      await seedWorkflowTemplates(db);
+      template = await db.workflowTemplate.findUnique({
+        where: { slug: templateSlug },
+      });
+      if (!template) {
+        console.error(`[PMScheduler] Template ${templateSlug} still not found after seeding`);
+        return undefined;
+      }
+    }
+
+    // Find or create a definition for this user
+    let definition = await db.workflowDefinition.findFirst({
+      where: {
+        createdById: userId,
+        isActive: true,
+        templateId: template.id,
+      },
+    });
+
+    if (!definition) {
+      console.log(`[PMScheduler] Auto-creating workflow definition for user ${userId}`);
+
+      // Find user's first workspace for the definition
+      const workspaceUser = await db.workspaceUser.findFirst({
+        where: { userId },
+        select: { workspaceId: true },
+      });
+
+      if (!workspaceUser) {
+        console.error(`[PMScheduler] No workspace found for user ${userId}`);
+        return undefined;
+      }
+
+      definition = await db.workflowDefinition.create({
+        data: {
+          workspaceId: workspaceUser.workspaceId,
+          createdById: userId,
+          templateId: template.id,
+          name: template.name,
+          config: { userId } as Prisma.InputJsonValue,
+          triggerType: 'manual',
+        },
+      });
+
+      // Create steps from template
+      interface StepDef { type: string; label: string; defaultConfig?: Record<string, unknown> }
+      const stepDefs = template.stepDefinitions as unknown as StepDef[];
+      for (let i = 0; i < stepDefs.length; i++) {
+        const stepDef = stepDefs[i]!;
+        await db.workflowStep.create({
+          data: {
+            definitionId: definition.id,
+            order: i,
+            type: stepDef.type,
+            label: stepDef.label,
+            config: (stepDef.defaultConfig ?? {}) as Prisma.InputJsonValue,
+          },
+        });
+      }
+
+      console.log(`[PMScheduler] Created definition ${definition.id} with ${stepDefs.length} steps`);
+    }
+
+    // Execute the workflow
+    try {
+      console.log(`[PMScheduler] Executing workflow for user ${userId}: ${definition.id}`);
+      const result = await engine.execute(definition.id, userId);
+      console.log(`[PMScheduler] Workflow completed: ${result.status}`);
+
+      const output = result.output as Record<string, unknown> | null;
+      if (output?.standupSummary) {
+        return output.standupSummary as string;
+      }
+    } catch (error) {
+      console.error(`[PMScheduler] Workflow failed for user ${userId}:`, error);
+    }
+
     return undefined;
   }
 
