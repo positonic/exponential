@@ -521,10 +521,7 @@ export const teamRouter = createTRPCRouter({
       });
 
       if (!team?.isOrganization) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Weekly reviews are only available for organization teams',
-        });
+        return [];
       }
 
       // Get shared weekly reviews from team members

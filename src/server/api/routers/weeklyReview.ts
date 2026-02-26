@@ -182,10 +182,7 @@ export const weeklyReviewRouter = createTRPCRouter({
       }
 
       if (!membership.team.isOrganization) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Weekly reviews are only available for organization teams',
-        });
+        return [];
       }
 
       // Get all users sharing with this team
