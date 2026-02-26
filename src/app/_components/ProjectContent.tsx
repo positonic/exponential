@@ -542,7 +542,7 @@ export function ProjectContent({
                 <Group justify="space-between" align="center">
                   <Group gap="md">
                     <Title order={4}>Project Transcriptions</Title>
-                    <CreateTranscriptionModal projectId={projectId} />
+                    <CreateTranscriptionModal projectId={resolvedProjectId} />
                   </Group>
                   <Group gap="md">
                     {hasFirefliesWorkflow && (
