@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Stack,
   Group,
@@ -39,6 +39,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { format, addDays, nextMonday, startOfDay } from "date-fns";
 import type { RouterOutputs } from "~/trpc/react";
 import { HTMLContent } from "~/app/_components/HTMLContent";
+import { PRIORITY_VALUES } from "~/types/priority";
 
 type DailyPlan = RouterOutputs["dailyPlan"]["getOrCreateToday"];
 type DailyPlanAction = DailyPlan["plannedActions"][number];
@@ -261,34 +262,76 @@ export function DeferColumnView({
   const tomorrow = addDays(today, 1);
   const nextWeek = nextMonday(today);
 
-  // Track local defer state (for optimistic UI during drag)
-  const [deferredTasks, setDeferredTasks] = useState<Record<string, ColumnId>>({});
+  // Priority rank map for default sorting (lower index = higher priority)
+  const priorityRank = useMemo(() => {
+    const map = new Map<string, number>();
+    PRIORITY_VALUES.forEach((val, idx) => map.set(val, idx));
+    return map;
+  }, []);
 
-  const getTaskColumn = (task: DailyPlanAction): ColumnId => {
-    // First check local state (for pending/optimistic drags)
-    const localColumn = deferredTasks[task.id];
-    if (localColumn) {
-      return localColumn;
-    }
+  const getTaskPriorityRank = (task: DailyPlanAction): number => {
+    const priority = task.action?.priority;
+    if (!priority) return PRIORITY_VALUES.length;
+    return priorityRank.get(priority) ?? PRIORITY_VALUES.length;
+  };
 
-    // Then check the task's actual scheduledStart from the database
+  const getTaskColumnFromData = (task: DailyPlanAction): ColumnId => {
     if (task.scheduledStart) {
       const taskDate = startOfDay(new Date(task.scheduledStart));
       if (taskDate.getTime() === today.getTime()) return "today";
       if (taskDate.getTime() === tomorrow.getTime()) return "tomorrow";
       if (taskDate >= nextWeek) return "next-week";
     }
-
-    return "today"; // Default to today for unscheduled tasks
+    return "today";
   };
 
-  const todayTasks = tasks.filter((t) => getTaskColumn(t) === "today");
-  const tomorrowTasks = tasks.filter((t) => getTaskColumn(t) === "tomorrow");
-  const nextWeekTasks = tasks.filter((t) => getTaskColumn(t) === "next-week");
+  // Derive priority-sorted columns from server data
+  const sortedColumns = useMemo(() => {
+    const todayArr = tasks
+      .filter((t) => getTaskColumnFromData(t) === "today")
+      .sort((a, b) => getTaskPriorityRank(a) - getTaskPriorityRank(b));
+    const tomorrowArr = tasks
+      .filter((t) => getTaskColumnFromData(t) === "tomorrow")
+      .sort((a, b) => getTaskPriorityRank(a) - getTaskPriorityRank(b));
+    const nextWeekArr = tasks
+      .filter((t) => getTaskColumnFromData(t) === "next-week")
+      .sort((a, b) => getTaskPriorityRank(a) - getTaskPriorityRank(b));
+    return { today: todayArr, tomorrow: tomorrowArr, "next-week": nextWeekArr };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, today.getTime(), tomorrow.getTime(), nextWeek.getTime()]);
+
+  // Optimistic local state for smooth drag-and-drop (null = use sortedColumns)
+  const [optimisticColumns, setOptimisticColumns] = useState<Record<ColumnId, DailyPlanAction[]> | null>(null);
+  const prevTasksRef = useRef(tasks);
+
+  // Reset optimistic state when server data changes (after refetch)
+  useEffect(() => {
+    if (prevTasksRef.current !== tasks) {
+      prevTasksRef.current = tasks;
+      setOptimisticColumns(null);
+    }
+  }, [tasks]);
+
+  // Active column data for rendering
+  const todayTasks = optimisticColumns?.today ?? sortedColumns.today;
+  const tomorrowTasks = optimisticColumns?.tomorrow ?? sortedColumns.tomorrow;
+  const nextWeekTasks = optimisticColumns?.["next-week"] ?? sortedColumns["next-week"];
 
   const todayMinutes = todayTasks.reduce((sum, t) => sum + t.duration, 0);
   const tomorrowMinutes = tomorrowTasks.reduce((sum, t) => sum + t.duration, 0);
   const nextWeekMinutes = nextWeekTasks.reduce((sum, t) => sum + t.duration, 0);
+
+  // Helper to get current column data (optimistic or sorted)
+  const getCurrentColumns = (): Record<ColumnId, DailyPlanAction[]> =>
+    optimisticColumns ?? sortedColumns;
+
+  const getColumnForTask = (taskId: string): ColumnId | null => {
+    const cols = getCurrentColumns();
+    if (cols.today.some((t) => t.id === taskId)) return "today";
+    if (cols.tomorrow.some((t) => t.id === taskId)) return "tomorrow";
+    if (cols["next-week"].some((t) => t.id === taskId)) return "next-week";
+    return null;
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -314,19 +357,24 @@ export function DeferColumnView({
 
     const activeId = active.id as string;
     const overId = over.id as string;
+    const currentColumns = getCurrentColumns();
 
-    // Check if dropped on a column
-    const columns: ColumnId[] = ["today", "tomorrow", "next-week"];
-    if (columns.includes(overId as ColumnId)) {
+    // Check if dropped on a column droppable
+    const columnIds: ColumnId[] = ["today", "tomorrow", "next-week"];
+    if (columnIds.includes(overId as ColumnId)) {
       const targetColumn = overId as ColumnId;
-      const currentColumn = getTaskColumn(tasks.find((t) => t.id === activeId)!);
+      const currentColumn = getColumnForTask(activeId);
 
-      if (targetColumn !== currentColumn) {
-        // Update local state
-        setDeferredTasks((prev) => ({
-          ...prev,
-          [activeId]: targetColumn,
-        }));
+      if (currentColumn && targetColumn !== currentColumn) {
+        const task = currentColumns[currentColumn].find((t) => t.id === activeId);
+        if (task) {
+          // Optimistically move task between columns
+          setOptimisticColumns({
+            ...currentColumns,
+            [currentColumn]: currentColumns[currentColumn].filter((t) => t.id !== activeId),
+            [targetColumn]: [...currentColumns[targetColumn], task],
+          });
+        }
 
         // Calculate the target date
         let targetDate: Date;
@@ -341,67 +389,50 @@ export function DeferColumnView({
             targetDate = today;
         }
 
-        // Call the defer handler
         await onDeferTask(activeId, targetDate);
       }
       return;
     }
 
-    // Handle reordering within the same column
-    const activeTask = tasks.find((t) => t.id === activeId);
-    const overTask = tasks.find((t) => t.id === overId);
+    // Handle reordering within the same column or cross-column via task drop target
+    const activeColumn = getColumnForTask(activeId);
+    const overColumn = getColumnForTask(overId);
 
-    if (activeTask && overTask) {
-      const activeColumn = getTaskColumn(activeTask);
-      const overColumn = getTaskColumn(overTask);
-
+    if (activeColumn && overColumn) {
       if (activeColumn === overColumn) {
         // Reorder within the same column
-        const columnTasks =
-          activeColumn === "today"
-            ? todayTasks
-            : activeColumn === "tomorrow"
-            ? tomorrowTasks
-            : nextWeekTasks;
-
+        const columnTasks = currentColumns[activeColumn];
         const oldIndex = columnTasks.findIndex((t) => t.id === activeId);
         const newIndex = columnTasks.findIndex((t) => t.id === overId);
 
         if (oldIndex !== newIndex) {
-          // Reorder within the column
           const reorderedColumn = arrayMove(columnTasks, oldIndex, newIndex);
 
-          // Build complete task order: today first, then tomorrow, then next-week
-          // This ensures sortOrder values don't conflict across columns
-          let allTaskIds: string[];
-          if (activeColumn === "today") {
-            allTaskIds = [
-              ...reorderedColumn.map((t) => t.id),
-              ...tomorrowTasks.map((t) => t.id),
-              ...nextWeekTasks.map((t) => t.id),
-            ];
-          } else if (activeColumn === "tomorrow") {
-            allTaskIds = [
-              ...todayTasks.map((t) => t.id),
-              ...reorderedColumn.map((t) => t.id),
-              ...nextWeekTasks.map((t) => t.id),
-            ];
-          } else {
-            allTaskIds = [
-              ...todayTasks.map((t) => t.id),
-              ...tomorrowTasks.map((t) => t.id),
-              ...reorderedColumn.map((t) => t.id),
-            ];
-          }
+          // Optimistically update the column
+          setOptimisticColumns({
+            ...currentColumns,
+            [activeColumn]: reorderedColumn,
+          });
+
+          // Build complete task order for API
+          const allTaskIds = [
+            ...(activeColumn === "today" ? reorderedColumn : currentColumns.today).map((t) => t.id),
+            ...(activeColumn === "tomorrow" ? reorderedColumn : currentColumns.tomorrow).map((t) => t.id),
+            ...(activeColumn === "next-week" ? reorderedColumn : currentColumns["next-week"]).map((t) => t.id),
+          ];
 
           await onReorderTasks(allTaskIds);
         }
       } else {
-        // Moving to a different column
-        setDeferredTasks((prev) => ({
-          ...prev,
-          [activeId]: overColumn,
-        }));
+        // Moving to a different column (dropped on a task in another column)
+        const task = currentColumns[activeColumn].find((t) => t.id === activeId);
+        if (task) {
+          setOptimisticColumns({
+            ...currentColumns,
+            [activeColumn]: currentColumns[activeColumn].filter((t) => t.id !== activeId),
+            [overColumn]: [...currentColumns[overColumn], task],
+          });
+        }
 
         let targetDate: Date;
         switch (overColumn) {
