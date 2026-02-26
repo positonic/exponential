@@ -16,6 +16,8 @@ export interface ChatMessage {
   interactionId?: string;
 }
 
+export type ChatDisplayMode = 'panel' | 'modal';
+
 // Notification from background workflows (e.g. standup report ready)
 export interface PendingNotification {
   message: string;
@@ -59,6 +61,8 @@ interface AgentModalContextValue {
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   conversationId: string;
   setConversationId: Dispatch<SetStateAction<string>>;
+  displayMode: ChatDisplayMode;
+  toggleDisplayMode: () => void;
   openModal: (projectId?: string) => void;
   closeModal: () => void;
   clearChat: () => void;
@@ -70,6 +74,8 @@ interface AgentModalContextValue {
 
 const AgentModalContext = createContext<AgentModalContextValue>({
   isOpen: false,
+  displayMode: 'panel',
+  toggleDisplayMode: () => undefined,
   workspaceId: null,
   setWorkspaceId: () => undefined,
   projectId: null,
@@ -95,6 +101,7 @@ export function useAgentModal() {
 
 export function AgentModalProvider({ children }: PropsWithChildren) {
   const [isOpen, setIsOpen] = useState(false);
+  const [displayMode, setDisplayMode] = useState<ChatDisplayMode>('panel');
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [pageContext, setPageContextState] = useState<PageContext | null>(null);
@@ -144,8 +151,13 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     }
   }, [conversationId]);
 
+  const toggleDisplayMode = useCallback(() => {
+    setDisplayMode(prev => prev === 'panel' ? 'modal' : 'panel');
+  }, []);
+
   const openModal = useCallback((projectId?: string) => {
     setProjectId(projectId ?? null);
+    setDisplayMode('panel');
     setIsOpen(true);
   }, []);
 
@@ -188,6 +200,8 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
 
   const value: AgentModalContextValue = useMemo(() => ({
     isOpen,
+    displayMode,
+    toggleDisplayMode,
     workspaceId,
     setWorkspaceId,
     projectId,
@@ -207,6 +221,8 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     openModalWithNotification,
   }), [
     isOpen,
+    displayMode,
+    toggleDisplayMode,
     workspaceId,
     setWorkspaceId,
     projectId,

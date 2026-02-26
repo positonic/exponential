@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { Modal, Menu, ActionIcon, Tooltip, Avatar } from '@mantine/core';
-import { IconPlus, IconFolder, IconChevronDown, IconBuilding, IconHistory } from '@tabler/icons-react';
-import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
+import { Modal, Drawer, Menu, ActionIcon, Tooltip, Avatar } from '@mantine/core';
+import { IconPlus, IconFolder, IconChevronDown, IconBuilding, IconHistory, IconArrowsMaximize, IconArrowsMinimize } from '@tabler/icons-react';
+import { useAgentModal, type ChatMessage, type ChatDisplayMode } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 
@@ -23,11 +23,15 @@ function AgentChatModalHeader({
   onSelectAgent,
   onSelectDefault,
   onSelectConversation,
+  displayMode,
+  onToggleDisplayMode,
 }: {
   activeAgentName: string;
   onSelectAgent: (name: string) => void;
   onSelectDefault: () => void;
   onSelectConversation: (convId: string) => void;
+  displayMode: ChatDisplayMode;
+  onToggleDisplayMode: () => void;
 }) {
   const { isOpen, workspaceId: overrideWorkspaceId, setWorkspaceId, projectId, setProjectId, conversationId, clearChat } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
@@ -141,7 +145,7 @@ function AgentChatModalHeader({
         </Menu>
       </div>
 
-      {/* Right: Agent selector + Conversation history + New Chat */}
+      {/* Right: Agent selector + Conversation history + New Chat + Expand/Collapse */}
       <div className="flex items-center gap-1">
         {/* Agent selector */}
         <Menu shadow="md" width={200}>
@@ -238,13 +242,25 @@ function AgentChatModalHeader({
             <IconPlus size={16} />
           </ActionIcon>
         </Tooltip>
+
+        {/* Expand/Collapse toggle */}
+        <Tooltip label={displayMode === 'panel' ? 'Expand to full view' : 'Collapse to side panel'} position="bottom">
+          <ActionIcon
+            variant="subtle"
+            size="sm"
+            onClick={onToggleDisplayMode}
+            className="text-text-secondary hover:text-text-primary"
+          >
+            {displayMode === 'panel' ? <IconArrowsMaximize size={16} /> : <IconArrowsMinimize size={16} />}
+          </ActionIcon>
+        </Tooltip>
       </div>
     </div>
   );
 }
 
 export function AgentChatModal() {
-  const { isOpen, workspaceId: overrideWorkspaceId, projectId, messages, conversationId, loadConversation, closeModal } = useAgentModal();
+  const { isOpen, displayMode, toggleDisplayMode, workspaceId: overrideWorkspaceId, projectId, messages, conversationId, loadConversation, closeModal } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
   const effectiveWorkspaceId = overrideWorkspaceId ?? urlWorkspaceId;
 
@@ -312,60 +328,97 @@ export function AgentChatModal() {
     setDefaultAgent(null);
   }, []);
 
-  return (
-    <Modal
-      opened={isOpen}
-      onClose={closeModal}
-      keepMounted
-      centered
-      size="700px"
-      radius="lg"
-      padding={0}
-      withCloseButton={false}
-      overlayProps={{
-        backgroundOpacity: 0.7,
-        blur: 4,
-      }}
-      styles={{
-        content: {
-          backgroundColor: 'var(--color-bg-modal)',
-          border: '1px solid var(--color-border-primary)',
-          height: '80vh',
-          maxHeight: '800px',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        },
-        body: {
-          padding: 0,
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-        },
-      }}
-    >
-      <div className="flex h-full flex-col overflow-hidden">
-        {isOpen && (
-          <AgentChatModalHeader
-            activeAgentName={activeAgentName}
-            onSelectAgent={handleSelectAgent}
-            onSelectDefault={handleSelectDefault}
-            onSelectConversation={handleSelectConversation}
-          />
-        )}
-        {loadingConversationId && (
-          <div className="flex items-center justify-center py-2 text-xs text-text-muted">
-            Loading conversation...
-          </div>
-        )}
-        <div className="min-h-0 flex-1">
-          <ManyChat
-            projectId={projectId ?? undefined}
-            workspaceId={effectiveWorkspaceId ?? undefined}
-            defaultAgentId={defaultAgent?.id}
-          />
+  const chatContent = (
+    <div className="flex h-full flex-col overflow-hidden">
+      {isOpen && (
+        <AgentChatModalHeader
+          activeAgentName={activeAgentName}
+          onSelectAgent={handleSelectAgent}
+          onSelectDefault={handleSelectDefault}
+          onSelectConversation={handleSelectConversation}
+          displayMode={displayMode}
+          onToggleDisplayMode={toggleDisplayMode}
+        />
+      )}
+      {loadingConversationId && (
+        <div className="flex items-center justify-center py-2 text-xs text-text-muted">
+          Loading conversation...
         </div>
+      )}
+      <div className="min-h-0 flex-1">
+        <ManyChat
+          projectId={projectId ?? undefined}
+          workspaceId={effectiveWorkspaceId ?? undefined}
+          defaultAgentId={defaultAgent?.id}
+        />
       </div>
-    </Modal>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Side Panel (Drawer) */}
+      <Drawer
+        opened={isOpen && displayMode === 'panel'}
+        onClose={closeModal}
+        position="right"
+        size={420}
+        trapFocus={false}
+        lockScroll={false}
+        withOverlay={false}
+        withCloseButton={false}
+        padding={0}
+        styles={{
+          content: {
+            backgroundColor: 'var(--color-bg-modal)',
+            borderLeft: '1px solid var(--color-border-primary)',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+          body: {
+            padding: 0,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
+      >
+        {chatContent}
+      </Drawer>
+
+      {/* Full Modal */}
+      <Modal
+        opened={isOpen && displayMode === 'modal'}
+        onClose={closeModal}
+        centered
+        size="700px"
+        radius="lg"
+        padding={0}
+        withCloseButton={false}
+        overlayProps={{
+          backgroundOpacity: 0.7,
+          blur: 4,
+        }}
+        styles={{
+          content: {
+            backgroundColor: 'var(--color-bg-modal)',
+            border: '1px solid var(--color-border-primary)',
+            height: '80vh',
+            maxHeight: '800px',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          },
+          body: {
+            padding: 0,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
+      >
+        {chatContent}
+      </Modal>
+    </>
   );
 }
