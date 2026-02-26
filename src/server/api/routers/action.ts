@@ -595,6 +595,16 @@ export const actionRouter = createTRPCRouter({
               },
               data: { processedOverdue: true },
             });
+
+            // Also mark on DailyScore directly (decoupled from daily plan)
+            await ctx.db.dailyScore.updateMany({
+              where: {
+                userId: ctx.session.user.id,
+                date: today,
+                processedOverdue: false,
+              },
+              data: { processedOverdue: true },
+            });
           }
 
           // Fire and forget - recalculate today's score since overdue count changed

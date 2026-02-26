@@ -97,6 +97,15 @@ export class ScoringService {
       },
     });
 
+    // Fetch existing score early (needed for processedOverdue fallback without daily plan)
+    const existingScore = await ctx.db.dailyScore.findFirst({
+      where: {
+        userId,
+        date: normalizedDate,
+        workspaceId: workspaceId ?? null,
+      },
+    });
+
     // 1. Planning Consistency (40 points)
     if (dailyPlan) {
       planCreated = 20; // Plan was created
@@ -134,9 +143,12 @@ export class ScoringService {
 
     // 4. Overdue Task Impact (-15 to +5 points)
     // Penalty for having overdue tasks, bonus for clearing them
+    // Decoupled from daily plan: check DailyScore record as fallback
+    const processedOverdue =
+      dailyPlan?.processedOverdue ?? existingScore?.processedOverdue ?? false;
     if (overdueCount > 0) {
       inboxBonus = -Math.min(overdueCount * 3, 15);
-    } else if (dailyPlan?.processedOverdue) {
+    } else if (processedOverdue) {
       inboxBonus = 5;
     }
 
@@ -188,16 +200,8 @@ export class ScoringService {
       scheduledHabits,
       completedHabits,
       estimationAccuracy,
-      processedOverdue: dailyPlan?.processedOverdue ?? false,
+      processedOverdue,
     };
-
-    const existingScore = await ctx.db.dailyScore.findFirst({
-      where: {
-        userId,
-        date: normalizedDate,
-        workspaceId: workspaceId ?? null,
-      },
-    });
 
     let dailyScore;
     if (existingScore) {
