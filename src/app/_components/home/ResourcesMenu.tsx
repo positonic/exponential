@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { IconChevronDown, IconBook, IconPencil } from "@tabler/icons-react";
+import { IconChevronDown, IconBook, IconPencil, IconSchool } from "@tabler/icons-react";
 
 export function ResourcesMenu() {
   const [isOpen, setIsOpen] = useState(false);
@@ -51,6 +51,27 @@ export function ResourcesMenu() {
                   <p className="text-sm text-text-muted leading-snug mt-1">
                     Step-by-step tutorials, FAQs, and documentation to help you
                     get the most out of Exponential
+                  </p>
+                </div>
+              </Link>
+              <Link
+                href="/learn"
+                className="group flex items-start gap-4 hover:bg-surface-hover rounded-lg p-3 transition-colors"
+              >
+                <div className="w-10 h-10 rounded-lg bg-accent-indigo/10 flex items-center justify-center flex-shrink-0">
+                  <IconSchool
+                    size={20}
+                    className="text-accent-indigo"
+                    stroke={1.5}
+                  />
+                </div>
+                <div>
+                  <p className="font-semibold text-text-primary group-hover:text-accent-indigo transition-colors">
+                    Learn
+                  </p>
+                  <p className="text-sm text-text-muted leading-snug mt-1">
+                    Guides and frameworks for founders building in the
+                    AI era
                   </p>
                 </div>
               </Link>

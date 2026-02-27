@@ -16,6 +16,7 @@ const footerLinks = {
     { label: "Pricing", href: "#pricing" },
   ],
   company: [
+    { label: "Learn", href: "/learn" },
     { label: "Blog", href: "/blog" },
     { label: "Docs", href: "/docs" },
   ],
