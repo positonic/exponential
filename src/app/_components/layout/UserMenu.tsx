@@ -7,12 +7,14 @@ import {
   IconMessageReport,
   IconSun,
   IconMoon,
+  IconPalette,
   IconLogout,
   IconChevronUp,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { useState } from "react";
 import { SidebarFeedback } from "./SidebarFeedback";
+import { getDarkTheme, setDarkTheme } from "~/lib/dark-theme";
 
 interface UserMenuProps {
   session: {
@@ -130,6 +132,19 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
             >
               {colorScheme === "dark" ? "Light mode" : "Dark mode"}
             </Menu.Item>
+
+            {colorScheme === "dark" && (
+              <Menu.Item
+                leftSection={<IconPalette size={16} />}
+                onClick={() => {
+                  const current = getDarkTheme();
+                  setDarkTheme(current === "navy" ? "slate" : "navy");
+                }}
+                className="text-text-primary hover:bg-surface-hover"
+              >
+                {getDarkTheme() === "navy" ? "Slate theme" : "Navy theme"}
+              </Menu.Item>
+            )}
 
             <Menu.Divider className="border-border-primary" />
 

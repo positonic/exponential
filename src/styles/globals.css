@@ -222,6 +222,27 @@
     --color-shader-blob-6: #060A16;
     --color-shader-bg: #040810;
   }
+
+  /* Slate dark theme variant (original gray/black) */
+  [data-mantine-color-scheme="dark"][data-dark-theme="slate"],
+  .dark[data-dark-theme="slate"] {
+    --color-bg-primary: #1a1b1e;
+    --color-bg-secondary: #25262b;
+    --color-bg-tertiary: #2c2e33;
+    --color-bg-elevated: #25262b;
+    --color-bg-modal: #212121;
+    --color-surface-primary: #25262b;
+    --color-surface-secondary: #2c2e33;
+    --color-surface-tertiary: #373a40;
+    --color-surface-hover: #373a40;
+    --color-surface-active: #495057;
+    --color-border-primary: #373a40;
+    --color-border-secondary: #2c2e33;
+    --color-border-tertiary: #25262b;
+    --color-onboarding-illustration-bg: #2c2e33;
+    --color-gradient-hero-end: #1a1b1e;
+    --color-bg-nav: rgba(26, 27, 30, 0.95);
+  }
 }
 
 /* Custom styles for UnifiedDatePicker today highlighting */
