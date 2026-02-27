@@ -42,9 +42,10 @@ interface KanbanColumnProps {
   color: string;
   tasks: Task[];
   dragOverTaskId?: string | null;
+  onActionOpen?: (id: string) => void;
 }
 
-export function KanbanColumn({ id, title, color, tasks, dragOverTaskId }: KanbanColumnProps) {
+export function KanbanColumn({ id, title, color, tasks, dragOverTaskId, onActionOpen }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id,
   });
@@ -86,7 +87,7 @@ export function KanbanColumn({ id, title, color, tasks, dragOverTaskId }: Kanban
               {dragOverTaskId === task.id && (
                 <div className="h-1 bg-blue-400 rounded-full mb-2 opacity-75" />
               )}
-              <TaskCard task={task} />
+              <TaskCard task={task} onActionOpen={onActionOpen} />
             </div>
           ))}
           {tasks.length === 0 && (

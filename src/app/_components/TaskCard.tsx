@@ -55,6 +55,7 @@ interface Task {
 interface TaskCardProps {
   task: Task;
   isDragging?: boolean;
+  onActionOpen?: (id: string) => void;
 }
 
 // // Helper component to render HTML content safely
@@ -74,7 +75,7 @@ const priorityColors: Record<string, string> = {
   "Quick": "gray",
 };
 
-export function TaskCard({ task, isDragging = false }: TaskCardProps) {
+export function TaskCard({ task, isDragging = false, onActionOpen }: TaskCardProps) {
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [expandedModalOpen, setExpandedModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -138,7 +139,11 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
     const target = e.target as HTMLElement;
     if (!target.closest('[data-no-modal]')) {
       e.stopPropagation();
-      setEditModalOpen(true);
+      if (onActionOpen) {
+        onActionOpen(task.id);
+      } else {
+        setEditModalOpen(true);
+      }
     }
   };
 

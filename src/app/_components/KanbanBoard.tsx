@@ -47,6 +47,7 @@ interface Action {
 interface KanbanBoardProps {
   projectId?: string;
   actions: Action[];
+  onActionOpen?: (id: string) => void;
 }
 
 const KANBAN_COLUMNS: { id: ActionStatus; title: string; color: string }[] = [
@@ -65,7 +66,7 @@ const priorityOrder: Record<string, number> = {
   'Remember': 9, 'Watch': 10
 };
 
-export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
+export function KanbanBoard({ projectId, actions, onActionOpen }: KanbanBoardProps) {
   const [activeTask, setActiveTask] = useState<Action | null>(null);
   const [optimisticUpdates, setOptimisticUpdates] = useState<Record<string, ActionStatus>>({});
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
@@ -366,6 +367,7 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
                 color={column.color}
                 tasks={actionsByStatus[column.id] || []}
                 dragOverTaskId={dragOverTaskId}
+                onActionOpen={onActionOpen}
               />
             ))}
           </Group>
