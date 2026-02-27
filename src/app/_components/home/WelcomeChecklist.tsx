@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import {
   Container,
   Stack,
@@ -45,9 +45,10 @@ interface ChecklistItem {
 
 export function WelcomeChecklist() {
   const { workspaceSlug } = useWorkspace();
-  const { openModal, setMessages } = useAgentModal();
+  const { openModal, setMessages, isOpen: isDrawerOpen } = useAgentModal();
   const router = useRouter();
   const utils = api.useUtils();
+  const hasAutoOpenedRef = useRef(false);
 
   const { data, isLoading } = api.user.getWelcomeProgress.useQuery();
   const completeWelcome = api.user.completeWelcome.useMutation({
@@ -186,6 +187,14 @@ export function WelcomeChecklist() {
     openModal();
   };
 
+  // Auto-open AI assistant drawer on first visit to help with onboarding
+  useEffect(() => {
+    if (data && !isLoading && !hasAutoOpenedRef.current && !data.welcomeCompletedAt) {
+      hasAutoOpenedRef.current = true;
+      handleOpenAIChat();
+    }
+  }, [data, isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSkip = () => {
     completeWelcome.mutate(undefined, {
       onSuccess: () => {
@@ -196,7 +205,12 @@ export function WelcomeChecklist() {
 
   if (isLoading) {
     return (
-      <Container size="sm" py="xl" className="min-h-screen">
+      <Container
+        size="sm"
+        py="xl"
+        className="min-h-screen transition-all duration-300"
+        style={isDrawerOpen ? { marginRight: 420, marginLeft: "auto" } : undefined}
+      >
         <Stack gap="lg">
           <div className="h-8 w-64 animate-pulse rounded bg-surface-hover" />
           <div className="h-4 w-96 animate-pulse rounded bg-surface-hover" />
@@ -210,7 +224,12 @@ export function WelcomeChecklist() {
   }
 
   return (
-    <Container size="sm" py="xl" className="min-h-screen">
+    <Container
+      size="sm"
+      py="xl"
+      className="min-h-screen transition-all duration-300"
+      style={isDrawerOpen ? { marginRight: 420, marginLeft: "auto" } : undefined}
+    >
       <Stack gap="lg">
         {/* Header */}
         <div>

@@ -46,7 +46,7 @@ import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { OnboardingIllustration } from './OnboardingIllustration';
 import { OnboardingIntegrationIllustration } from './OnboardingIntegrationIllustration';
-import { OnboardingToolsIllustration } from './OnboardingToolsIllustration';
+import { OnboardingWorkHoursIllustration } from './OnboardingWorkHoursIllustration';
 import { GoogleCalendarConnect } from './GoogleCalendarConnect';
 import { MicrosoftCalendarConnect } from './MicrosoftCalendarConnect';
 import { CalendarMultiSelect } from './calendar/CalendarMultiSelect';
@@ -859,7 +859,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           className="hidden lg:flex w-[55%] items-center justify-center p-12"
           style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
         >
-          <OnboardingToolsIllustration />
+          <OnboardingIntegrationIllustration />
         </div>
       </div>
     );
@@ -985,7 +985,13 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           className="hidden lg:flex w-[55%] items-center justify-center p-12"
           style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
         >
-          <OnboardingIntegrationIllustration />
+          <Image
+            src="/product-shots/exponential-calendar-multi.jpg"
+            alt="Connected calendar view"
+            width={1200}
+            height={800}
+            className="rounded-xl shadow-2xl w-full h-auto object-contain"
+          />
         </div>
       </div>
     );
@@ -1124,12 +1130,12 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           </div>
         </div>
 
-        {/* Right column - Illustration */}
+        {/* Right column - Schedule Illustration */}
         <div
           className="hidden lg:flex w-[55%] items-center justify-center p-12"
           style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
         >
-          <OnboardingIllustration />
+          <OnboardingWorkHoursIllustration />
         </div>
       </div>
     );
