@@ -41,6 +41,7 @@ import {
   IconSparkles,
   IconDots,
 } from '@tabler/icons-react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
@@ -51,7 +52,7 @@ import { GoogleCalendarConnect } from './GoogleCalendarConnect';
 import { MicrosoftCalendarConnect } from './MicrosoftCalendarConnect';
 import { CalendarMultiSelect } from './calendar/CalendarMultiSelect';
 
-// New flow: 1=Profile+Attribution, 2=Video, 3=Calendar, 4=Tools, 5=WorkHours, 6=Project+Tasks
+// New flow: 1=Profile+Attribution, 2=Video, 3=Tools, 4=Calendar, 5=WorkHours, 6=Project+Tasks
 type OnboardingStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 interface TaskInput {
@@ -323,7 +324,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     setCurrentStep(3);
   };
 
-  // Step 3: Calendar -> Step 4
+  // Step 4: Calendar -> Step 5
   const handleCalendarNext = async () => {
     // Save selected calendars for each connected provider
     try {
@@ -348,7 +349,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     setCurrentStep(5);
   };
 
-  // Step 3: Tools -> Step 4
+  // Step 3: Tools -> Step 4 (Calendar)
   const toggleTool = (toolName: string) => {
     setSelectedTools(prev =>
       prev.includes(toolName)
@@ -698,145 +699,25 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           </div>
         </div>
 
-        {/* Right column - Illustration */}
+        {/* Right column - Screenshot */}
         <div
           className="hidden lg:flex w-[55%] items-center justify-center p-12"
           style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
         >
-          <OnboardingIllustration />
+          <Image
+            src="/expo-torus-logos.png"
+            alt="Exponential Hub"
+            width={1200}
+            height={800}
+            className="rounded-xl shadow-2xl w-full h-auto object-contain"
+          />
         </div>
       </div>
     );
   }
 
-  // Step 3: Calendar Connection (optional)
+  // Step 3: Tools Selection
   if (currentStep === 3) {
-    return (
-      <div className="min-h-screen flex">
-        {/* Left column - Form */}
-        <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
-          <div>
-            <div className="mb-12">
-              <Title order={3} className="text-brand-primary font-bold">
-                Exponential
-              </Title>
-            </div>
-
-            <div className="mb-8">
-              <Group gap="xs" className="mb-4">
-                <ActionIcon
-                  variant="subtle"
-                  onClick={() => setCurrentStep(2)}
-                  className="text-text-secondary hover:text-text-primary"
-                >
-                  <IconArrowLeft size={20} />
-                </ActionIcon>
-                <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
-                  Connect your calendar
-                </Title>
-              </Group>
-              <Text className="text-text-secondary">
-                Connect your calendar to unlock smart scheduling features and see your day at a glance.
-              </Text>
-            </div>
-
-            {/* Google Calendar */}
-            <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 mb-4">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 rounded-lg bg-brand-primary/10 flex items-center justify-center">
-                  <IconCalendar size={24} className="text-brand-primary" />
-                </div>
-                <div>
-                  <Text fw={500} className="text-text-primary">Google Calendar</Text>
-                  <Text size="sm" className="text-text-secondary">
-                    {googleConnected ? 'Connected' : 'Not connected'}
-                  </Text>
-                </div>
-              </div>
-              <GoogleCalendarConnect isConnected={googleConnected} />
-              {googleConnected && (googleCalendarPrefs?.allCalendars ?? []).length > 0 && (
-                <div className="mt-4 pt-4 border-t border-border-primary">
-                  <Text size="sm" fw={500} className="text-text-primary mb-2">
-                    Select calendars to display
-                  </Text>
-                  <CalendarMultiSelect
-                    calendars={googleCalendarPrefs?.allCalendars ?? []}
-                    selectedCalendarIds={googleSelectedCalendarIds}
-                    onChange={setGoogleSelectedCalendarIds}
-                    isLoading={googlePrefsLoading}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Outlook Calendar */}
-            <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 mb-8">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 rounded-lg bg-brand-primary/10 flex items-center justify-center">
-                  <IconCalendar size={24} className="text-brand-primary" />
-                </div>
-                <div>
-                  <Text fw={500} className="text-text-primary">Outlook Calendar</Text>
-                  <Text size="sm" className="text-text-secondary">
-                    {microsoftConnected ? 'Connected' : 'Not connected'}
-                  </Text>
-                </div>
-              </div>
-              <MicrosoftCalendarConnect isConnected={microsoftConnected} />
-              {microsoftConnected && (msCalendarPrefs?.allCalendars ?? []).length > 0 && (
-                <div className="mt-4 pt-4 border-t border-border-primary">
-                  <Text size="sm" fw={500} className="text-text-primary mb-2">
-                    Select calendars to display
-                  </Text>
-                  <CalendarMultiSelect
-                    calendars={msCalendarPrefs?.allCalendars ?? []}
-                    selectedCalendarIds={msSelectedCalendarIds}
-                    onChange={setMsSelectedCalendarIds}
-                    isLoading={msPrefsLoading}
-                  />
-                </div>
-              )}
-            </div>
-
-            <Text size="sm" className="text-text-muted">
-              We&apos;ll never sell or share your calendar data. Your privacy is important to us.
-            </Text>
-          </div>
-
-          <div>
-            <Button
-              fullWidth
-              size="lg"
-              onClick={handleCalendarNext}
-              rightSection={<IconArrowRight size={18} />}
-            >
-              {anyCalendarConnected ? 'Continue' : 'Continue without calendar'}
-            </Button>
-            {!anyCalendarConnected && (
-              <Anchor
-                component="button"
-                onClick={handleCalendarNext}
-                className="block text-center mt-4 text-text-muted hover:text-text-secondary"
-              >
-                Skip for now
-              </Anchor>
-            )}
-          </div>
-        </div>
-
-        {/* Right column - Illustration */}
-        <div
-          className="hidden lg:flex w-[55%] items-center justify-center p-12"
-          style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
-        >
-          <OnboardingIllustration />
-        </div>
-      </div>
-    );
-  }
-
-  // Step 4: Tools Selection
-  if (currentStep === 4) {
     const standardToolNames = TOOLS.map(t => t.name);
     const customTools = selectedTools.filter(t => !standardToolNames.includes(t));
 
@@ -855,7 +736,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               <Group gap="xs" className="mb-4">
                 <ActionIcon
                   variant="subtle"
-                  onClick={() => setCurrentStep(3)}
+                  onClick={() => setCurrentStep(2)}
                   className="text-text-secondary hover:text-text-primary"
                 >
                   <IconArrowLeft size={20} />
@@ -968,7 +849,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
             </Button>
             <Anchor
               component="button"
-              onClick={() => setCurrentStep(5)}
+              onClick={() => setCurrentStep(4)}
               className="block text-center mt-4 text-text-muted hover:text-text-secondary"
             >
               Skip for now
@@ -982,6 +863,132 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
         >
           <OnboardingToolsIllustration />
+        </div>
+      </div>
+    );
+  }
+
+  // Step 4: Calendar Connection (optional)
+  if (currentStep === 4) {
+    return (
+      <div className="min-h-screen flex">
+        {/* Left column - Form */}
+        <div className="w-full lg:w-[45%] bg-background-secondary flex flex-col justify-between p-8 lg:p-12">
+          <div>
+            <div className="mb-12">
+              <Title order={3} className="text-brand-primary font-bold">
+                Exponential
+              </Title>
+            </div>
+
+            <div className="mb-8">
+              <Group gap="xs" className="mb-4">
+                <ActionIcon
+                  variant="subtle"
+                  onClick={() => setCurrentStep(3)}
+                  className="text-text-secondary hover:text-text-primary"
+                >
+                  <IconArrowLeft size={20} />
+                </ActionIcon>
+                <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
+                  Connect your calendar
+                </Title>
+              </Group>
+              <Text className="text-text-secondary">
+                Connect your calendar to unlock smart scheduling features and see your day at a glance.
+              </Text>
+            </div>
+
+            {/* Google Calendar */}
+            <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 mb-4">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 rounded-lg bg-brand-primary/10 flex items-center justify-center">
+                  <IconCalendar size={24} className="text-brand-primary" />
+                </div>
+                <div>
+                  <Text fw={500} className="text-text-primary">Google Calendar</Text>
+                  <Text size="sm" className="text-text-secondary">
+                    {googleConnected ? 'Connected' : 'Not connected'}
+                  </Text>
+                </div>
+              </div>
+              <GoogleCalendarConnect isConnected={googleConnected} />
+              {googleConnected && (googleCalendarPrefs?.allCalendars ?? []).length > 0 && (
+                <div className="mt-4 pt-4 border-t border-border-primary">
+                  <Text size="sm" fw={500} className="text-text-primary mb-2">
+                    Select calendars to display
+                  </Text>
+                  <CalendarMultiSelect
+                    calendars={googleCalendarPrefs?.allCalendars ?? []}
+                    selectedCalendarIds={googleSelectedCalendarIds}
+                    onChange={setGoogleSelectedCalendarIds}
+                    isLoading={googlePrefsLoading}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Outlook Calendar */}
+            <div className="bg-surface-secondary border border-border-primary rounded-xl p-6 mb-8">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 rounded-lg bg-brand-primary/10 flex items-center justify-center">
+                  <IconCalendar size={24} className="text-brand-primary" />
+                </div>
+                <div>
+                  <Text fw={500} className="text-text-primary">Outlook Calendar</Text>
+                  <Text size="sm" className="text-text-secondary">
+                    {microsoftConnected ? 'Connected' : 'Not connected'}
+                  </Text>
+                </div>
+              </div>
+              <MicrosoftCalendarConnect isConnected={microsoftConnected} />
+              {microsoftConnected && (msCalendarPrefs?.allCalendars ?? []).length > 0 && (
+                <div className="mt-4 pt-4 border-t border-border-primary">
+                  <Text size="sm" fw={500} className="text-text-primary mb-2">
+                    Select calendars to display
+                  </Text>
+                  <CalendarMultiSelect
+                    calendars={msCalendarPrefs?.allCalendars ?? []}
+                    selectedCalendarIds={msSelectedCalendarIds}
+                    onChange={setMsSelectedCalendarIds}
+                    isLoading={msPrefsLoading}
+                  />
+                </div>
+              )}
+            </div>
+
+            <Text size="sm" className="text-text-muted">
+              We&apos;ll never sell or share your calendar data. Your privacy is important to us.
+            </Text>
+          </div>
+
+          <div>
+            <Button
+              fullWidth
+              size="lg"
+              onClick={handleCalendarNext}
+              rightSection={<IconArrowRight size={18} />}
+            >
+              {anyCalendarConnected ? 'Continue' : 'Continue without calendar'}
+            </Button>
+            {!anyCalendarConnected && (
+              <Anchor
+                component="button"
+                onClick={handleCalendarNext}
+                className="block text-center mt-4 text-text-muted hover:text-text-secondary"
+              >
+                Skip for now
+              </Anchor>
+            )}
+          </div>
+        </div>
+
+        {/* Right column - Illustration */}
+        <div
+          className="hidden lg:flex w-[55%] items-center justify-center p-12"
+          style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
+        >
+          <OnboardingIllustration />
         </div>
       </div>
     );
