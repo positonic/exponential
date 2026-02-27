@@ -27,8 +27,8 @@ GET /api/bounties/{id}
 ### Browse bounties (HTML)
 https://www.exponential.im/explore
 
-### RSS Feed
-https://www.exponential.im/api/bounties/feed.xml
+### Blog RSS Feed
+https://www.exponential.im/blog/feed.xml
 
 ## Response Format
 
