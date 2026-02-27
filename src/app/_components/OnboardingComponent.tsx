@@ -988,7 +988,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           className="hidden lg:flex w-[55%] items-center justify-center p-12"
           style={{ backgroundColor: 'var(--color-onboarding-illustration-bg)' }}
         >
-          <OnboardingIllustration />
+          <OnboardingIntegrationIllustration />
         </div>
       </div>
     );
