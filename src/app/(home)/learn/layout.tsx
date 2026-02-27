@@ -26,7 +26,7 @@ export default async function LearnLayout({
       {/* Navigation */}
       <header
         className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md border-b border-border-primary"
-        style={{ backgroundColor: "rgba(12, 16, 34, 0.95)" }}
+        style={{ backgroundColor: "var(--color-bg-nav)" }}
       >
         <div className="container mx-auto px-4 md:px-8">
           <div className="flex justify-between items-center py-3">
