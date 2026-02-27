@@ -27,9 +27,28 @@ export async function generateMetadata({ params }: FeaturePageProps) {
     return { title: "Feature Not Found" };
   }
 
+  const url = `https://www.exponential.im/features/${slug}`;
+
   return {
     title: `${feature.title} | Exponential`,
     description: feature.description,
+    alternates: {
+      canonical: url,
+    },
+    openGraph: {
+      type: 'website',
+      title: `${feature.title} | Exponential`,
+      description: feature.description,
+      url,
+      siteName: 'Exponential',
+      images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${feature.title} | Exponential`,
+      description: feature.description,
+      images: ['/og-image.png'],
+    },
   };
 }
 
@@ -175,9 +194,8 @@ export default async function FeaturePage({ params }: FeaturePageProps) {
               </p>
               <CTAButton
                 href="/signin"
-                variant="secondary"
+                variant="primary"
                 size="large"
-                className="bg-white text-accent-indigo hover:bg-white/90 border-white"
               >
                 Try Now For Free
               </CTAButton>
