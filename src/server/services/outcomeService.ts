@@ -1,4 +1,5 @@
 import { type Context } from "~/server/auth/types";
+import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 export async function getMyOutcomes({ ctx }: { ctx: Context }) {
   return await ctx.db.outcome.findMany({
@@ -32,7 +33,7 @@ export const createOutcome = async ({ ctx, input }: { ctx: Context, input: Outco
     throw new Error("User not authenticated");
   }
 
-  return await ctx.db.outcome.create({
+  const outcome = await ctx.db.outcome.create({
     data: {
       description: input.description,
       dueDate: input.dueDate,
@@ -52,6 +53,13 @@ export const createOutcome = async ({ ctx, input }: { ctx: Context, input: Outco
       goals: true,
     },
   });
+
+  // Sync onboarding progress (fire-and-forget)
+  void completeOnboardingStep(ctx.db, ctx.session.user.id, "outcome").catch(
+    (err: unknown) => { console.error("[onboarding-sync] outcome:", err); },
+  );
+
+  return outcome;
 };
 
 interface UpdateOutcomeInput extends OutcomeInput {

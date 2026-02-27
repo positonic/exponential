@@ -5,6 +5,7 @@ import { slugify } from "~/utils/slugify";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { getProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
+import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 export const projectRouter = createTRPCRouter({
   // API endpoint for browser plugin - uses API key authentication
@@ -253,6 +254,11 @@ export const projectRouter = createTRPCRouter({
           },
         });
       }
+
+      // Sync onboarding progress (fire-and-forget)
+      void completeOnboardingStep(ctx.db, ctx.session.user.id, "project").catch(
+        (err: unknown) => { console.error("[onboarding-sync] project:", err); },
+      );
 
       return project;
     }),

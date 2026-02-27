@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { startOfDay } from "date-fns";
 import { setTimeInUserTimezone, validateScheduledTimes } from "~/lib/dateUtils";
 import { ScoringService } from "~/server/services/ScoringService";
+import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 export const dailyPlanRouter = createTRPCRouter({
   /**
@@ -66,6 +67,11 @@ export const dailyPlanRouter = createTRPCRouter({
             },
           },
         });
+
+        // Sync onboarding progress (fire-and-forget)
+        void completeOnboardingStep(ctx.db, userId, "dailyPlan").catch(
+          (err: unknown) => { console.error("[onboarding-sync] dailyPlan:", err); },
+        );
       }
 
       return plan;

@@ -6,6 +6,7 @@ import {
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 import {
   getMyPublicGoals,
@@ -64,7 +65,7 @@ export const goalRouter = createTRPCRouter({
       workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return await ctx.db.goal.create({
+      const goal = await ctx.db.goal.create({
         data: {
           title: input.title,
           description: input.description,
@@ -89,6 +90,13 @@ export const goalRouter = createTRPCRouter({
           outcomes: true,
         },
       });
+
+      // Sync onboarding progress (fire-and-forget)
+      void completeOnboardingStep(ctx.db, ctx.session.user.id, "goal").catch(
+        (err: unknown) => { console.error("[onboarding-sync] goal:", err); },
+      );
+
+      return goal;
     }),
 
   updateGoal: protectedProcedure

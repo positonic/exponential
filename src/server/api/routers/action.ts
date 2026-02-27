@@ -13,6 +13,7 @@ import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, bui
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { sendAssignmentNotifications } from "~/server/services/notifications/EmailNotificationService";
+import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 
 export const actionRouter = createTRPCRouter({
@@ -462,7 +463,7 @@ export const actionRouter = createTRPCRouter({
         actionData.kanbanOrder = nextOrder;
       }
 
-      return ctx.db.action.create({
+      const createdAction = await ctx.db.action.create({
         data: actionData,
         include: {
           assignees: {
@@ -473,6 +474,15 @@ export const actionRouter = createTRPCRouter({
           epic: { select: { id: true, name: true, status: true } },
         },
       });
+
+      // Sync onboarding progress if action is linked to a project (fire-and-forget)
+      if (input.projectId) {
+        void completeOnboardingStep(ctx.db, ctx.session.user.id, "actions").catch(
+          (err: unknown) => { console.error("[onboarding-sync] actions:", err); },
+        );
+      }
+
+      return createdAction;
     }),
 
   update: protectedProcedure
@@ -560,6 +570,13 @@ export const actionRouter = createTRPCRouter({
           },
         },
       });
+
+      // Sync onboarding progress on first action completion (fire-and-forget)
+      if (isCompleting && !wasCompleted) {
+        void completeOnboardingStep(ctx.db, ctx.session.user.id, "complete").catch(
+          (err: unknown) => { console.error("[onboarding-sync] complete:", err); },
+        );
+      }
 
       // Recalculate score if completion status changed and action is linked to daily plan
       // Run async without blocking the response for faster UI
@@ -689,6 +706,13 @@ export const actionRouter = createTRPCRouter({
           },
         },
       });
+
+      // Sync onboarding progress on first action completion via kanban (fire-and-forget)
+      if (isCompleting && !wasCompleted) {
+        void completeOnboardingStep(ctx.db, ctx.session.user.id, "complete").catch(
+          (err: unknown) => { console.error("[onboarding-sync] complete:", err); },
+        );
+      }
 
       // Track status change for PM agent analytics (cycle time, lead time)
       if (action.kanbanStatus !== input.kanbanStatus) {

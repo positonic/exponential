@@ -56,6 +56,7 @@ model User {
   onboardingStep              Int                        @default(1)
   welcomeCompletedAt          DateTime?
   projectSetupCompletedAt     DateTime?
+  onboardingProjectId         String?
   selectedTools               String[]
   usageType                   String?
   userRole                    String?

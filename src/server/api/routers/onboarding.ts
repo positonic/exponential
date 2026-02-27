@@ -3,6 +3,11 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { uploadToBlob } from "~/lib/blob";
 import { slugify } from "~/utils/slugify";
+import {
+  ONBOARDING_PROJECT_NAME,
+  ONBOARDING_PROJECT_DESCRIPTION,
+  ONBOARDING_ACTIONS,
+} from "~/server/services/onboarding/onboardingProjectTemplate";
 
 export const onboardingRouter = createTRPCRouter({
   /**
@@ -392,12 +397,83 @@ export const onboardingRouter = createTRPCRouter({
           );
         }
 
-        // Mark onboarding as completed and also mark project setup as completed
+        // Create the "Learn Exponential" onboarding project in the user's personal workspace
+        const userWithWorkspace = await tx.user.findUnique({
+          where: { id: userId },
+          select: { defaultWorkspaceId: true },
+        });
+
+        const onboardingSlug = `learn-exponential-${userId.slice(-8)}`;
+        const onboardingProject = await tx.project.create({
+          data: {
+            name: ONBOARDING_PROJECT_NAME,
+            description: ONBOARDING_PROJECT_DESCRIPTION,
+            priority: "MEDIUM",
+            status: "ACTIVE",
+            type: "onboarding",
+            createdById: userId,
+            workspaceId: userWithWorkspace?.defaultWorkspaceId ?? null,
+            slug: onboardingSlug,
+          },
+        });
+
+        // Create onboarding actions
+        const onboardingActions = await Promise.all(
+          ONBOARDING_ACTIONS.map((template) =>
+            tx.action.create({
+              data: {
+                name: template.name,
+                description: template.description,
+                projectId: onboardingProject.id,
+                createdById: userId,
+                priority: "MEDIUM",
+                status: "TODO",
+                source: "onboarding",
+                workspaceId: userWithWorkspace?.defaultWorkspaceId ?? null,
+              },
+            }),
+          ),
+        );
+
+        // Auto-complete "Create your first project" (user just did it in step 6)
+        const projectAction = onboardingActions.find(
+          (a) => a.name === "Create your first project",
+        );
+        if (projectAction) {
+          await tx.action.update({
+            where: { id: projectAction.id },
+            data: { status: "COMPLETED", completedAt: new Date() },
+          });
+        }
+
+        // Auto-complete "Add actions to a project" if user added tasks
+        if (tasks && tasks.length > 0) {
+          const actionsStep = onboardingActions.find(
+            (a) => a.name === "Add actions to a project",
+          );
+          if (actionsStep) {
+            await tx.action.update({
+              where: { id: actionsStep.id },
+              data: { status: "COMPLETED", completedAt: new Date() },
+            });
+          }
+        }
+
+        // Calculate initial progress
+        const autoCompletedCount = 1 + (tasks && tasks.length > 0 ? 1 : 0);
+        const initialProgress = (autoCompletedCount / ONBOARDING_ACTIONS.length) * 100;
+        await tx.project.update({
+          where: { id: onboardingProject.id },
+          data: { progress: initialProgress },
+        });
+
+        // Mark onboarding as completed and store onboarding project reference
         const updatedUser = await tx.user.update({
           where: { id: userId },
           data: {
             onboardingCompletedAt: new Date(),
             projectSetupCompletedAt: new Date(),
+            onboardingProjectId: onboardingProject.id,
           },
           select: {
             onboardingCompletedAt: true,

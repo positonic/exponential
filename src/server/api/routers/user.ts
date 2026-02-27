@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 export const userRouter = createTRPCRouter({
   getCurrentUser: protectedProcedure
@@ -97,6 +98,7 @@ export const userRouter = createTRPCRouter({
             welcomeCompletedAt: true,
             usageType: true,
             userRole: true,
+            onboardingProjectId: true,
           },
         }),
         ctx.db.project.count({ where: { createdById: userId } }),
@@ -122,11 +124,20 @@ export const userRouter = createTRPCRouter({
         }),
       ]);
 
+      // Sync onboarding progress for calendar connection (fire-and-forget)
+      // Calendar accounts are linked via NextAuth OAuth, so we detect it here
+      if (calendarAccounts.length > 0) {
+        void completeOnboardingStep(ctx.db, userId, "calendar").catch(
+          (err: unknown) => { console.error("[onboarding-sync] calendar:", err); },
+        );
+      }
+
       return {
         userName: user?.name ?? null,
         welcomeCompletedAt: user?.welcomeCompletedAt ?? null,
         usageType: user?.usageType ?? null,
         userRole: user?.userRole ?? null,
+        onboardingProjectId: user?.onboardingProjectId ?? null,
         steps: {
           hasProject: projectCount > 0,
           hasGoal: goalCount > 0,
@@ -137,6 +148,40 @@ export const userRouter = createTRPCRouter({
           hasCompletedAction: completedActionCount > 0,
         },
       };
+    }),
+
+  getOnboardingProject: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await ctx.db.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: { onboardingProjectId: true },
+      });
+
+      if (!user?.onboardingProjectId) return null;
+
+      const project = await ctx.db.project.findUnique({
+        where: { id: user.onboardingProjectId },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          progress: true,
+          actions: {
+            where: { source: "onboarding" },
+            orderBy: { id: "asc" },
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              status: true,
+              completedAt: true,
+            },
+          },
+        },
+      });
+
+      return project;
     }),
 
   completeWelcome: protectedProcedure

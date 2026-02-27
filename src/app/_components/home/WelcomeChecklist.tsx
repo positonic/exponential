@@ -51,6 +51,7 @@ export function WelcomeChecklist() {
   const hasAutoOpenedRef = useRef(false);
 
   const { data, isLoading } = api.user.getWelcomeProgress.useQuery();
+  const { data: onboardingProject } = api.user.getOnboardingProject.useQuery();
   const completeWelcome = api.user.completeWelcome.useMutation({
     onSuccess: () => {
       void utils.user.getWelcomeProgress.invalidate();
@@ -173,10 +174,31 @@ export function WelcomeChecklist() {
       ? ` as a ${data.userRole}`
       : "";
 
+    // Build onboarding progress context for the AI agent
+    let onboardingContext = "";
+    if (onboardingProject?.actions) {
+      const completed = onboardingProject.actions
+        .filter((a) => a.status === "COMPLETED")
+        .map((a) => a.name);
+      const remaining = onboardingProject.actions
+        .filter((a) => a.status !== "COMPLETED")
+        .map((a) => a.name);
+
+      onboardingContext = `\n\nThe user has a "Learn Exponential" onboarding project tracking their setup progress.${
+        completed.length > 0
+          ? `\nCompleted: ${completed.join(", ")}.`
+          : ""
+      }${
+        remaining.length > 0
+          ? `\nRemaining: ${remaining.join(", ")}.`
+          : ""
+      }\nGuide them through the next uncompleted step. You can use your tools to help them create goals, outcomes, and actions.`;
+    }
+
     setMessages([
       {
         type: "system",
-        content: `The user just signed up and is setting up their workspace${usageContext}${roleContext}. Help them understand how Goals, Outcomes, and Actions work together in Exponential. Guide them through their setup checklist. Be encouraging and concise.`,
+        content: `The user just signed up and is setting up their workspace${usageContext}${roleContext}. Help them understand how Goals, Outcomes, and Actions work together in Exponential. Guide them through their setup checklist. Be encouraging and concise.${onboardingContext}`,
       },
       {
         type: "ai",
@@ -184,7 +206,7 @@ export function WelcomeChecklist() {
         content: `Welcome${userName ? `, ${userName}` : ""}! I'm here to help you get set up. Exponential works on a simple framework:\n\n**Goals** define what you want to achieve\n**Outcomes** measure whether you're getting there\n**Actions** are the concrete tasks that move things forward\n**Projects** group related work together\n\nWould you like help setting up your first goal, or is there something specific you'd like to explore?`,
       },
     ]);
-    openModal();
+    openModal(onboardingProject?.id);
   };
 
   // Auto-open AI assistant drawer on first visit to help with onboarding
