@@ -1,3 +1,4 @@
+export { GradientShader } from "./GradientShader";
 export { HeroSection } from "./HeroSection";
 export { StatsSection } from "./StatsSection";
 export { FeaturesMenu } from "./FeaturesMenu";

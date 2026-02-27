@@ -64,6 +64,15 @@
     /* CTA overlay colors */
     --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
     --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
+
+    /* Shader gradient blob colors (light mode) */
+    --color-shader-blob-1: #B0D4E8;
+    --color-shader-blob-2: #8BBCD4;
+    --color-shader-blob-3: #C4E0F0;
+    --color-shader-blob-4: #9CCAE0;
+    --color-shader-blob-5: #D6ECF5;
+    --color-shader-blob-6: #7AADCC;
+    --color-shader-bg: #E8F4FA;
   }
 
   /* Dark theme colors */
@@ -127,6 +136,15 @@
     /* CTA overlay colors */
     --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
     --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
+
+    /* Shader gradient blob colors (dark mode) */
+    --color-shader-blob-1: #081020;
+    --color-shader-blob-2: #0A1228;
+    --color-shader-blob-3: #0E1A38;
+    --color-shader-blob-4: #070E1C;
+    --color-shader-blob-5: #101E3A;
+    --color-shader-blob-6: #060A16;
+    --color-shader-bg: #040810;
   }
 
   /* Also support Tailwind's dark mode class */
@@ -185,6 +203,15 @@
     /* CTA overlay colors */
     --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
     --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
+
+    /* Shader gradient blob colors (dark mode) */
+    --color-shader-blob-1: #081020;
+    --color-shader-blob-2: #0A1228;
+    --color-shader-blob-3: #0E1A38;
+    --color-shader-blob-4: #070E1C;
+    --color-shader-blob-5: #101E3A;
+    --color-shader-blob-6: #060A16;
+    --color-shader-bg: #040810;
   }
 }
 

@@ -1,5 +1,6 @@
 import { Container } from "@mantine/core";
 import { IconArrowRight } from "@tabler/icons-react";
+import { GradientShader } from "./GradientShader";
 
 interface SolutionIntroSectionProps {
   id?: string;
@@ -7,14 +8,12 @@ interface SolutionIntroSectionProps {
 
 export function SolutionIntroSection({ id }: SolutionIntroSectionProps) {
   return (
-    <section id={id} className="bg-gradient-to-b from-background-primary to-gradient-hero-start/20 py-20 md:py-28 relative overflow-hidden">
-      {/* Subtle blue radial gradient overlay */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            "radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--color-accent-indigo) 8%, transparent) 0%, transparent 50%)",
-        }}
+    <section id={id} className="py-20 md:py-28 relative overflow-hidden">
+      {/* WebGL animated gradient background */}
+      <GradientShader
+        className="absolute inset-0 w-full h-full"
+        interactive
+        speed={1}
       />
 
       <Container size="lg" className="relative z-10">
