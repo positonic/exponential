@@ -4,7 +4,8 @@ import { z } from 'zod';
 
 const authorizeSchema = z.object({
   projectId: z.string().optional(),
-  redirectUrl: z.string().url().optional(),
+  workspaceId: z.string().optional(),
+  redirectUrl: z.string().optional(),
 });
 
 // Notion OAuth App credentials
@@ -23,12 +24,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const params = Object.fromEntries(searchParams);
     
-    const { projectId, redirectUrl } = authorizeSchema.parse(params);
+    const { projectId, workspaceId, redirectUrl } = authorizeSchema.parse(params);
 
     // Create state parameter to maintain context
     const state = Buffer.from(JSON.stringify({
       userId: session.user.id,
       projectId,
+      workspaceId,
       redirectUrl,
       timestamp: Date.now(),
     })).toString('base64');

@@ -38,6 +38,7 @@ import { useForm } from "@mantine/form";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import Link from "next/link";
+import { NotionSetupWizard } from "./integrations/NotionSetupWizard";
 
 interface ProjectIntegrationsProps {
   project: {
@@ -91,6 +92,8 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const [expandedIntegrations, setExpandedIntegrations] = useState<Set<string>>(new Set());
   const [newIntegrationModalOpened, { open: openNewIntegrationModal, close: closeNewIntegrationModal }] = useDisclosure(false);
   const [configureProjectModalOpened, { open: openConfigureProjectModal, close: closeConfigureProjectModal }] = useDisclosure(false);
+  const [notionWizardOpened, { open: openNotionWizard, close: closeNotionWizard }] = useDisclosure(false);
+  const [notionWizardEditMode, setNotionWizardEditMode] = useState(false);
   const [selectedSlackIntegration, setSelectedSlackIntegration] = useState<string>('');
   const [selectedSlackChannel, setSelectedSlackChannel] = useState<string>('');
   const [slackConfigExpanded, setSlackConfigExpanded] = useState(false);
@@ -431,11 +434,13 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                         Sync
                       </Button>
                       <Button
-                        component={Link}
-                        href={integration.href}
                         size="sm"
                         variant="light"
                         leftSection={<IconSettings size={14} />}
+                        onClick={() => {
+                          setNotionWizardEditMode(true);
+                          openNotionWizard();
+                        }}
                       >
                         Configure Notion
                       </Button>
@@ -549,11 +554,17 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                           </Button>
                         ) : (
                           <Button
-                            component={Link}
-                            href={integration.href}
                             size="sm"
                             variant="light"
                             leftSection={<IconExternalLink size={14} />}
+                            onClick={() => {
+                              if (integration.id === 'notion') {
+                                setNotionWizardEditMode(false);
+                                openNotionWizard();
+                              } else {
+                                window.location.href = integration.href;
+                              }
+                            }}
                           >
                             Setup Integration
                           </Button>
@@ -915,6 +926,14 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
           </Stack>
         </form>
       </Modal>
+
+      {/* Notion Setup Wizard */}
+      <NotionSetupWizard
+        opened={notionWizardOpened}
+        onClose={closeNotionWizard}
+        project={project}
+        editMode={notionWizardEditMode}
+      />
 
       {/* Configure Project Modal */}
       <Modal

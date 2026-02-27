@@ -420,6 +420,122 @@ export const integrationRouter = createTRPCRouter({
       }));
     }),
 
+  // Get databases for a specific Notion integration
+  getNotionDatabases: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          id: input.integrationId,
+          provider: "notion",
+          userId: ctx.session.user.id,
+        },
+        include: {
+          credentials: {
+            select: { key: true, keyType: true },
+          },
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Notion integration not found",
+        });
+      }
+
+      const tokenCredential = integration.credentials.find(
+        (c) =>
+          c.keyType === "access_token" ||
+          c.keyType === "ACCESS_TOKEN" ||
+          c.keyType === "API_KEY",
+      );
+
+      if (!tokenCredential) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No access token found for this Notion integration",
+        });
+      }
+
+      const result = await fetchNotionDatabases(tokenCredential.key);
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Failed to fetch Notion databases",
+        });
+      }
+
+      return result.databases ?? [];
+    }),
+
+  // List Notion connections with workspace metadata (name, icon, etc.)
+  listNotionConnections: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const integrations = await ctx.db.integration.findMany({
+        where: {
+          provider: "notion",
+          userId: ctx.session.user.id,
+          ...(input?.workspaceId
+            ? { workspaceId: input.workspaceId }
+            : {}),
+        },
+        include: {
+          credentials: {
+            where: { keyType: "notion_metadata" },
+            select: { key: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      return integrations.map((integration) => {
+        let notionWorkspaceName: string | null = null;
+        let notionWorkspaceIcon: string | null = null;
+        let notionWorkspaceId: string | null = null;
+
+        const metadataCredential = integration.credentials[0];
+        if (metadataCredential) {
+          try {
+            const metadata = JSON.parse(metadataCredential.key) as Record<
+              string,
+              unknown
+            >;
+            notionWorkspaceName =
+              (metadata.workspaceName as string) ?? null;
+            notionWorkspaceIcon =
+              (metadata.workspaceIcon as string) ?? null;
+            notionWorkspaceId =
+              (metadata.workspaceId as string) ?? null;
+          } catch {
+            // Metadata parsing failed, leave as null
+          }
+        }
+
+        return {
+          id: integration.id,
+          name: integration.name,
+          status: integration.status,
+          workspaceId: integration.workspaceId,
+          notionWorkspaceName,
+          notionWorkspaceIcon,
+          notionWorkspaceId,
+        };
+      });
+    }),
+
   // Create a new integration
   createIntegration: protectedProcedure
     .input(

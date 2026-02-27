@@ -98,6 +98,7 @@ export async function GET(request: NextRequest) {
       owner: tokenData.owner,
       duplicatedTemplateId: tokenData.duplicated_template_id,
       projectId: stateData.projectId,
+      appWorkspaceId: stateData.workspaceId,
     });
 
     // Determine redirect URL (ensure it's absolute)

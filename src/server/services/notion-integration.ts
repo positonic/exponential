@@ -72,6 +72,7 @@ class NotionIntegrationService {
     owner: any;
     duplicatedTemplateId?: string;
     projectId?: string;
+    appWorkspaceId?: string;
   }) {
     const {
       accessToken,
@@ -82,7 +83,8 @@ class NotionIntegrationService {
       botId,
       owner,
       duplicatedTemplateId,
-      projectId
+      projectId,
+      appWorkspaceId,
     } = oauthData;
 
     // Create the main integration record
@@ -94,6 +96,7 @@ class NotionIntegrationService {
         status: 'ACTIVE',
         description: `Notion workspace integration for ${workspaceName}`,
         userId,
+        ...(appWorkspaceId ? { workspaceId: appWorkspaceId } : {}),
         lastSyncAt: new Date(),
       },
     });

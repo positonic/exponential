@@ -796,11 +796,14 @@ export const projectRouter = createTRPCRouter({
         taskManagementTool: z.enum(["internal", "monday", "notion"]),
         taskManagementConfig: z.object({
           // Core workflow configuration
+          integrationId: z.string().optional(), // which integration (Notion account) to use
           workflowId: z.string().optional(),
           databaseId: z.string().optional(), // for Notion
           boardId: z.string().optional(), // for Monday
-          
-          // New sync strategy options
+
+          // Sync configuration
+          syncDirection: z.enum(['pull', 'push', 'bidirectional']).optional().default('pull'),
+          syncFrequency: z.enum(['manual', 'hourly', 'daily']).optional().default('manual'),
           syncStrategy: z.enum(['manual', 'auto_pull_then_push', 'notion_canonical']).optional().default('manual'),
           conflictResolution: z.enum(['local_wins', 'remote_wins']).optional().default('local_wins'),
           deletionBehavior: z.enum(['mark_deleted', 'archive']).optional().default('mark_deleted'),
