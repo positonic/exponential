@@ -46,6 +46,7 @@ import {
   IconTrash,
   IconLayoutList,
   IconCoin,
+  IconPlug,
 } from "@tabler/icons-react";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
@@ -75,6 +76,7 @@ type TabValue =
   | "outcomes"
   | "timeline"
   | "transcriptions"
+  | "integrations"
   | "workflows"
   | "weekly-team-review"
   | "weekly-outcomes";
@@ -87,6 +89,7 @@ const VALID_TABS: TabValue[] = [
   "outcomes",
   "timeline",
   "transcriptions",
+  "integrations",
   "workflows",
   "weekly-team-review",
   "weekly-outcomes",
@@ -436,6 +439,12 @@ export function ProjectContent({
               >
                 Transcriptions
               </Tabs.Tab>
+              <Tabs.Tab
+                value="integrations"
+                leftSection={<IconPlug size={16} />}
+              >
+                Integrations
+              </Tabs.Tab>
             </Tabs.List>
 
             {/* Content Area */}
@@ -710,6 +719,10 @@ export function ProjectContent({
                 )}
               </Stack>
             </Tabs.Panel>
+
+            <Tabs.Panel value="integrations">
+              <ProjectIntegrations project={{ ...project, teamId: project.teamId }} />
+            </Tabs.Panel>
           </Stack>
         </Tabs>
       </div>
@@ -800,10 +813,7 @@ export function ProjectContent({
 
           {/* Project Details */}
           <ProjectDetails project={project} />
-          
-          {/* Project Integrations */}
-          <ProjectIntegrations project={{ ...project, teamId: project.teamId }} />
-          
+
           {/* Project Sync Configuration */}
           {project && (
             <ProjectSyncConfiguration
