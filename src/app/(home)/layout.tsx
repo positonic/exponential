@@ -34,6 +34,28 @@ export const metadata: Metadata = {
   alternates: {
     canonical: './',
   },
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    siteName: 'Exponential',
+    title: themes[domain].branding.title,
+    description: themes[domain].branding.description,
+    url: 'https://www.exponential.im',
+    images: [
+      {
+        url: '/og-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'Exponential - The OS for AI-Native Organizations',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: themes[domain].branding.title,
+    description: themes[domain].branding.description,
+    images: ['/og-image.png'],
+  },
 };
 
 export default async function HomeLayout({
@@ -47,6 +69,12 @@ export default async function HomeLayout({
   return (
     <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${inter.variable} h-full scroll-smooth`} suppressHydrationWarning>
       <head>
+        <link
+          rel="alternate"
+          type="application/rss+xml"
+          title="Exponential Blog"
+          href="/blog/feed.xml"
+        />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
