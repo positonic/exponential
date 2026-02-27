@@ -13,6 +13,7 @@ import { RitualCards } from "./RitualCards";
 import { WorkspaceSectionCards } from "./WorkspaceSectionCards";
 import { PMAgentWidget } from "./PMAgentWidget";
 import { OkrTile } from "./OkrTile";
+import { WelcomeBanner } from "./WelcomeChecklist";
 
 interface CommandCenterProps {
   variant?: "primary" | "workspace";
@@ -25,6 +26,9 @@ export function CommandCenter({ variant = "primary" }: CommandCenterProps) {
     <Container size="lg" py="lg" className="min-h-screen">
       {/* 1. Greeting (simplified) */}
       <GreetingHeader />
+
+      {/* Welcome setup banner for new users */}
+      <WelcomeBanner />
 
       {isPrimaryHome ? (
         <>

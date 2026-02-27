@@ -12,12 +12,22 @@ export default async function HomePage() {
       where: { id: session.user.id },
       select: {
         onboardingCompletedAt: true,
+        welcomeCompletedAt: true,
       },
     });
 
     // Redirect to onboarding if not completed
     if (userData && !userData.onboardingCompletedAt) {
       redirect('/onboarding');
+    }
+
+    // Redirect new users (completed onboarding within 24h, haven't finished welcome) to welcome
+    if (userData?.onboardingCompletedAt && !userData.welcomeCompletedAt) {
+      const completedAt = new Date(userData.onboardingCompletedAt);
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      if (completedAt > oneDayAgo) {
+        redirect('/welcome');
+      }
     }
   }
 

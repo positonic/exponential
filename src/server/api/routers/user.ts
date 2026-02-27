@@ -75,4 +75,76 @@ export const userRouter = createTRPCRouter({
       });
       return user?.selectedTools ?? [];
     }),
+
+  getWelcomeProgress: protectedProcedure
+    .query(async ({ ctx }) => {
+      const userId = ctx.session.user.id;
+
+      const [
+        user,
+        projectCount,
+        goalCount,
+        outcomeCount,
+        projectActionCount,
+        calendarAccounts,
+        dailyPlanCount,
+        completedActionCount,
+      ] = await Promise.all([
+        ctx.db.user.findUnique({
+          where: { id: userId },
+          select: {
+            name: true,
+            welcomeCompletedAt: true,
+            usageType: true,
+            userRole: true,
+          },
+        }),
+        ctx.db.project.count({ where: { createdById: userId } }),
+        ctx.db.goal.count({ where: { userId } }),
+        ctx.db.outcome.count({ where: { userId } }),
+        ctx.db.action.count({
+          where: {
+            createdById: userId,
+            projectId: { not: null },
+            status: { notIn: ['DELETED', 'DRAFT'] },
+          },
+        }),
+        ctx.db.account.findMany({
+          where: {
+            userId,
+            provider: { in: ['google', 'microsoft-entra-id'] },
+          },
+          select: { provider: true },
+        }),
+        ctx.db.dailyPlan.count({ where: { userId } }),
+        ctx.db.action.count({
+          where: { createdById: userId, status: 'COMPLETED' },
+        }),
+      ]);
+
+      return {
+        userName: user?.name ?? null,
+        welcomeCompletedAt: user?.welcomeCompletedAt ?? null,
+        usageType: user?.usageType ?? null,
+        userRole: user?.userRole ?? null,
+        steps: {
+          hasProject: projectCount > 0,
+          hasGoal: goalCount > 0,
+          hasOutcome: outcomeCount > 0,
+          hasProjectActions: projectActionCount > 0,
+          hasCalendar: calendarAccounts.length > 0,
+          hasDailyPlan: dailyPlanCount > 0,
+          hasCompletedAction: completedActionCount > 0,
+        },
+      };
+    }),
+
+  completeWelcome: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      await ctx.db.user.update({
+        where: { id: ctx.session.user.id },
+        data: { welcomeCompletedAt: new Date() },
+      });
+      return { success: true };
+    }),
 });

@@ -449,7 +449,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
       });
 
       setTimeout(() => {
-        router.push('/home');
+        router.push('/welcome');
       }, 1500);
 
     } catch {
@@ -472,7 +472,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
         projectPriority: 'MEDIUM',
         tasks: []
       });
-      router.push('/home');
+      router.push('/welcome');
     } catch {
       notifications.show({
         title: 'Error',

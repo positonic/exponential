@@ -54,6 +54,7 @@ model User {
   image                       String?
   onboardingCompletedAt       DateTime?
   onboardingStep              Int                        @default(1)
+  welcomeCompletedAt          DateTime?
   projectSetupCompletedAt     DateTime?
   selectedTools               String[]
   usageType                   String?
