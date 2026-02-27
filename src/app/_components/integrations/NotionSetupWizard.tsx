@@ -93,7 +93,7 @@ export function NotionSetupWizard({
   );
 
   // Mutations
-  const updateTaskManagement = api.project.updateTaskManagement.useMutation({
+  const createFromWizard = api.workflow.createFromWizard.useMutation({
     onSuccess: () => {
       notifications.show({
         title: "Notion Configured",
@@ -101,12 +101,13 @@ export function NotionSetupWizard({
         color: "green",
       });
       void utils.project.getById.invalidate({ id: project.id });
+      void utils.workflow.list.invalidate();
       handleClose();
     },
     onError: (error) => {
       notifications.show({
         title: "Error",
-        message: error.message || "Failed to configure Notion integration",
+        message: error.message ?? "Failed to configure Notion integration",
         color: "red",
       });
     },
@@ -144,16 +145,12 @@ export function NotionSetupWizard({
   const handleSave = () => {
     if (!selectedIntegrationId || !selectedDatabaseId) return;
 
-    updateTaskManagement.mutate({
-      id: project.id,
-      taskManagementTool: "notion",
-      taskManagementConfig: {
-        integrationId: selectedIntegrationId,
-        databaseId: selectedDatabaseId,
-        syncDirection,
-        syncFrequency,
-        syncStrategy: syncDirection === "pull" ? "notion_canonical" : "manual",
-      },
+    createFromWizard.mutate({
+      projectId: project.id,
+      integrationId: selectedIntegrationId,
+      databaseId: selectedDatabaseId,
+      syncDirection,
+      syncFrequency,
     });
   };
 
@@ -547,7 +544,7 @@ export function NotionSetupWizard({
         ) : (
           <Button
             onClick={handleSave}
-            loading={updateTaskManagement.isPending}
+            loading={createFromWizard.isPending}
             leftSection={<IconCheck size={16} />}
             color="green"
           >

@@ -38,6 +38,7 @@ import { useForm } from "@mantine/form";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { NotionSetupWizard } from "./integrations/NotionSetupWizard";
 
 interface ProjectIntegrationsProps {
@@ -99,6 +100,16 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const [slackConfigExpanded, setSlackConfigExpanded] = useState(false);
   const [selectedNotionProjectId, setSelectedNotionProjectId] = useState<string>(project.notionProjectId ?? '');
   const [selectedSyncStrategy, setSelectedSyncStrategy] = useState<string>(project.taskManagementConfig?.syncStrategy ?? 'manual');
+  const searchParams = useSearchParams();
+
+  // Auto-open Notion wizard after OAuth redirect
+  useEffect(() => {
+    const successParam = searchParams.get('success');
+    if (successParam?.toLowerCase().includes('notion')) {
+      setNotionWizardEditMode(false);
+      openNotionWizard();
+    }
+  }, [searchParams, openNotionWizard]);
 
   // Get available workflows for this project
   const { data: workflows = [] } = api.workflow.list.useQuery();
@@ -583,20 +594,26 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                     {/* Expandable Details */}
                     <Collapse in={isExpanded}>
                       <Stack gap="md" pt="sm">
-                        {!hasActiveIntegration || !hasWorkflows ? (
-                          <Alert 
+                        {!hasActiveIntegration ? (
+                          <Alert
                             icon={<IconAlertCircle size={16} />}
                             title="Setup Required"
                             color="orange"
                             variant="light"
                           >
-                            {!hasActiveIntegration 
-                              ? `Create a ${integration.title} integration first, then add it to this project.`
-                              : `No workflows found for ${integration.title}. Create a workflow first.`
-                            }
+                            {`Connect your ${integration.title.replace(' Sync', '').replace(' Integration', '')} account first, then configure sync for this project.`}
+                          </Alert>
+                        ) : !hasWorkflows ? (
+                          <Alert
+                            icon={<IconCheck size={16} />}
+                            title="Account Connected"
+                            color="blue"
+                            variant="light"
+                          >
+                            {`Your ${integration.title.replace(' Sync', '').replace(' Integration', '')} account is connected. Click "Setup Integration" to select a database and configure sync.`}
                           </Alert>
                         ) : (
-                          <Alert 
+                          <Alert
                             icon={<IconCheck size={16} />}
                             title="Ready to Add"
                             color="blue"

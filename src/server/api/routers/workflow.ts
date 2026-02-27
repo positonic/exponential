@@ -836,6 +836,90 @@ export const workflowRouter = createTRPCRouter({
       return workflow;
     }),
 
+  // Create or update a workflow from the Notion setup wizard
+  createFromWizard: protectedProcedure
+    .input(z.object({
+      projectId: z.string(),
+      integrationId: z.string(),
+      databaseId: z.string(),
+      syncDirection: z.enum(['pull', 'push', 'bidirectional']),
+      syncFrequency: z.enum(['manual', 'hourly', 'daily']),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify the integration belongs to the user
+      const integration = await ctx.db.integration.findUnique({
+        where: {
+          id: input.integrationId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Integration not found or access denied',
+        });
+      }
+
+      // Check for existing workflow for this project+provider (upsert pattern)
+      const existingWorkflow = await ctx.db.workflow.findFirst({
+        where: {
+          projectId: input.projectId,
+          provider: 'notion',
+          userId: ctx.session.user.id,
+        },
+      });
+
+      let workflow;
+      if (existingWorkflow) {
+        workflow = await ctx.db.workflow.update({
+          where: { id: existingWorkflow.id },
+          data: {
+            syncDirection: input.syncDirection,
+            syncFrequency: input.syncFrequency,
+            config: { databaseId: input.databaseId },
+            integrationId: input.integrationId,
+          },
+        });
+      } else {
+        workflow = await ctx.db.workflow.create({
+          data: {
+            name: `Notion Sync - ${integration.name}`,
+            type: 'notion_sync',
+            provider: 'notion',
+            syncDirection: input.syncDirection,
+            syncFrequency: input.syncFrequency,
+            config: { databaseId: input.databaseId },
+            integrationId: input.integrationId,
+            userId: ctx.session.user.id,
+            projectId: input.projectId,
+            status: 'ACTIVE',
+          },
+        });
+      }
+
+      // Update project with workflow reference
+      await ctx.db.project.update({
+        where: {
+          id: input.projectId,
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          taskManagementTool: 'notion',
+          taskManagementConfig: {
+            workflowId: workflow.id,
+            integrationId: input.integrationId,
+            databaseId: input.databaseId,
+            syncDirection: input.syncDirection,
+            syncFrequency: input.syncFrequency,
+            syncStrategy: input.syncDirection === 'pull' ? 'notion_canonical' : 'manual',
+          },
+        },
+      });
+
+      return workflow;
+    }),
+
   // List user's workflows
   list: protectedProcedure
     .query(async ({ ctx }) => {
