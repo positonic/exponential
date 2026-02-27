@@ -27,7 +27,6 @@ import {
   IconX,
   IconPlus,
   IconList,
-  IconPlayerPlay,
   IconClock,
   IconCalendarEvent,
   IconBrandSlack,
@@ -664,19 +663,17 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
               </Text>
             </div>
 
-            {/* Video placeholder */}
-            <div className="bg-surface-secondary border border-border-primary rounded-xl p-8 mb-8">
-              <div className="flex flex-col items-center justify-center py-12">
-                <div className="w-20 h-20 rounded-full bg-brand-primary/10 flex items-center justify-center mb-4">
-                  <IconPlayerPlay size={40} className="text-brand-primary" />
-                </div>
-                <Text className="text-text-secondary text-center">
-                  Video coming soon
-                </Text>
-                <Text size="sm" className="text-text-muted text-center mt-2">
-                  We&apos;re preparing a quick intro video for you
-                </Text>
-              </div>
+            {/* Onboarding video */}
+            <div className="rounded-xl overflow-hidden mb-8 aspect-video">
+              <iframe
+                width="100%"
+                height="100%"
+                src="https://www.youtube.com/embed/bMdIFEIDvis"
+                title="How Exponential works"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="border-0"
+              />
             </div>
           </div>
 
