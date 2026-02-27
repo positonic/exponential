@@ -16,11 +16,29 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return { title: "Project Not Found | Exponential" };
   }
 
+  const description = project.description ?? `Browse open bounties for ${project.name} on Exponential.`;
+  const url = `https://www.exponential.im/explore/${projectSlug}`;
+
   return {
     title: `${project.name} — Bounties | Exponential`,
-    description:
-      project.description ??
-      `Browse open bounties for ${project.name} on Exponential.`,
+    description,
+    alternates: {
+      canonical: url,
+    },
+    openGraph: {
+      type: 'website',
+      title: `${project.name} — Bounties | Exponential`,
+      description,
+      url,
+      siteName: 'Exponential',
+      images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${project.name} — Bounties | Exponential`,
+      description,
+      images: ['/og-image.png'],
+    },
   };
 }
 

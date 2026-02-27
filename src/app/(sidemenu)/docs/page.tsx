@@ -8,9 +8,28 @@ export async function generateMetadata(): Promise<Metadata> {
   const doc = await getDocContent([]);
   if (!doc) return { title: "Documentation | Exponential" };
 
+  const description = doc.meta.description ?? "Exponential documentation — learn how to use the platform.";
+
   return {
     title: `${doc.meta.title} — Exponential Docs`,
-    description: doc.meta.description ?? "Exponential documentation — learn how to use the platform.",
+    description,
+    alternates: {
+      canonical: "https://www.exponential.im/docs",
+    },
+    openGraph: {
+      type: 'website',
+      title: `${doc.meta.title} — Exponential Docs`,
+      description,
+      url: "https://www.exponential.im/docs",
+      siteName: 'Exponential',
+      images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${doc.meta.title} — Exponential Docs`,
+      description,
+      images: ['/og-image.png'],
+    },
   };
 }
 

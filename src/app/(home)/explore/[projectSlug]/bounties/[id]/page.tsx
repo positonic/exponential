@@ -9,17 +9,36 @@ interface Props {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { id } = await params;
+  const { projectSlug, id } = await params;
   const bounty = await api.bounty.getPublic({ id });
 
   if (!bounty) {
     return { title: "Bounty Not Found | Exponential" };
   }
 
+  const description = bounty.description ?? `View bounty details for ${bounty.name}`;
+  const url = `https://www.exponential.im/explore/${projectSlug}/bounties/${id}`;
+
   return {
     title: `${bounty.name} — Bounty | Exponential`,
-    description:
-      bounty.description ?? `View bounty details for ${bounty.name}`,
+    description,
+    alternates: {
+      canonical: url,
+    },
+    openGraph: {
+      type: 'website',
+      title: `${bounty.name} — Bounty | Exponential`,
+      description,
+      url,
+      siteName: 'Exponential',
+      images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${bounty.name} — Bounty | Exponential`,
+      description,
+      images: ['/og-image.png'],
+    },
   };
 }
 

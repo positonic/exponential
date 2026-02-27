@@ -4,9 +4,29 @@ import type { Metadata } from "next";
 import { getAllBlogPosts } from "~/lib/blog/getBlogPost";
 
 export const metadata: Metadata = {
-  title: "Blog | Exponential Blog",
+  title: "Blog | Exponential",
   description:
     "Insights on productivity, AI-powered project management, and building products as a solo founder.",
+  alternates: {
+    canonical: "https://www.exponential.im/blog",
+    types: {
+      'application/rss+xml': '/blog/feed.xml',
+    },
+  },
+  openGraph: {
+    type: 'website',
+    title: "Blog | Exponential",
+    description: "Insights on productivity, AI-powered project management, and building products as a solo founder.",
+    url: "https://www.exponential.im/blog",
+    siteName: "Exponential",
+    images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: "Blog | Exponential",
+    description: "Insights on productivity, AI-powered project management, and building products as a solo founder.",
+    images: ['/og-image.png'],
+  },
 };
 
 function formatDate(dateString: string): string {

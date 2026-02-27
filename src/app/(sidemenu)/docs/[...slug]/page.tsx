@@ -22,9 +22,29 @@ export async function generateMetadata({ params }: DocsPageProps): Promise<Metad
     return { title: "Page Not Found — Exponential Docs" };
   }
 
+  const description = doc.meta.description ?? `Learn about ${doc.meta.title} in the Exponential documentation.`;
+  const url = `https://www.exponential.im/docs/${slug.join('/')}`;
+
   return {
     title: `${doc.meta.title} — Exponential Docs`,
-    description: doc.meta.description ?? `Learn about ${doc.meta.title} in the Exponential documentation.`,
+    description,
+    alternates: {
+      canonical: url,
+    },
+    openGraph: {
+      type: 'website',
+      title: `${doc.meta.title} — Exponential Docs`,
+      description,
+      url,
+      siteName: 'Exponential',
+      images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${doc.meta.title} — Exponential Docs`,
+      description,
+      images: ['/og-image.png'],
+    },
   };
 }
 
