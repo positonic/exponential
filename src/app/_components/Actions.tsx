@@ -7,7 +7,7 @@ import { KanbanBoard } from './KanbanBoard';
 import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge, MultiSelect } from "@mantine/core";
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { notifications } from "@mantine/notifications";
@@ -34,8 +34,11 @@ interface ActionsProps {
 }
 
 export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false, projectSyncInfo }: ActionsProps) {
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const viewFromUrl = searchParams.get("view");
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
-  const [isKanbanMode, setIsKanbanMode] = useState(defaultView === 'kanban');
+  const [isKanbanMode, setIsKanbanMode] = useState(viewFromUrl === "kanban" || defaultView === 'kanban');
   const [isSyncing, setIsSyncing] = useState(false);
   const [showNotionUnassigned, setShowNotionUnassigned] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
@@ -44,6 +47,18 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const detailedEnabled = useDetailedActionsEnabled(projectId);
   const { workspace } = useWorkspace();
   const actionsRouter = useRouter();
+
+  const setViewMode = useCallback((kanban: boolean) => {
+    setIsKanbanMode(kanban);
+    const params = new URLSearchParams(searchParams.toString());
+    if (kanban) {
+      params.set("view", "kanban");
+    } else {
+      params.delete("view");
+    }
+    const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+    actionsRouter.replace(newUrl, { scroll: false });
+  }, [searchParams, pathname, actionsRouter]);
 
   const handleActionOpen = useCallback(
     (id: string) => {
@@ -770,7 +785,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
             <Button
               variant={!isKanbanMode ? "filled" : "subtle"}
               size="sm"
-              onClick={() => setIsKanbanMode(false)}
+              onClick={() => setViewMode(false)}
               styles={{ root: { color: 'var(--color-text-primary)' } }}
             >
               <Group gap="xs">
@@ -781,7 +796,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
             <Button
               variant={isKanbanMode ? "filled" : "subtle"}
               size="sm"
-              onClick={() => setIsKanbanMode(true)}
+              onClick={() => setViewMode(true)}
               styles={{ root: { color: 'var(--color-text-primary)' } }}
             >
               <Group gap="xs">
@@ -1014,9 +1029,10 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       
       {/* Conditional rendering of List or Kanban view */}
       {projectId && isKanbanMode ? (
-        <KanbanBoard 
+        <KanbanBoard
           projectId={projectId}
-          actions={actions ?? []} 
+          actions={actions ?? []}
+          onActionOpen={handleActionOpen}
         />
       ) : (
         <ActionList
