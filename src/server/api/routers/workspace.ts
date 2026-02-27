@@ -291,6 +291,79 @@ export const workspaceRouter = createTRPCRouter({
       return updatedWorkspace;
     }),
 
+  // Get workspace Notion configuration
+  getNotionConfig: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+      });
+
+      if (!member) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You must be a member to view workspace settings",
+        });
+      }
+
+      const workspace = await ctx.db.workspace.findUnique({
+        where: { id: input.workspaceId },
+        select: { notionDefaultConfig: true },
+      });
+
+      return (workspace?.notionDefaultConfig as {
+        defaultIntegrationId?: string;
+        defaultDatabaseId?: string;
+        fieldMappings?: Record<string, string>;
+        syncDirection?: "pull" | "push" | "bidirectional";
+        syncFrequency?: "manual" | "hourly" | "daily";
+      }) ?? null;
+    }),
+
+  // Update workspace Notion configuration
+  updateNotionConfig: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        notionDefaultConfig: z.object({
+          defaultIntegrationId: z.string().optional(),
+          defaultDatabaseId: z.string().optional(),
+          fieldMappings: z.record(z.string()).optional(),
+          syncDirection: z.enum(["pull", "push", "bidirectional"]).optional(),
+          syncFrequency: z.enum(["manual", "hourly", "daily"]).optional(),
+        }).nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+      });
+
+      if (!member || (member.role !== "owner" && member.role !== "admin")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners and admins can update Notion configuration",
+        });
+      }
+
+      return ctx.db.workspace.update({
+        where: { id: input.workspaceId },
+        data: {
+          notionDefaultConfig: input.notionDefaultConfig ?? undefined,
+        },
+      });
+    }),
+
   // Add a member to the workspace (or create invitation if user doesn't exist)
   addMember: protectedProcedure
     .input(

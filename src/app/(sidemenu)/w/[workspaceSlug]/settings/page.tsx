@@ -24,7 +24,7 @@ import {
   Alert,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin, IconSun, IconCalendarCheck, IconBrandSlack } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin, IconSun, IconCalendarCheck, IconBrandSlack, IconBrandNotion, IconRefresh, IconArrowsExchange } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -218,6 +218,29 @@ export default function WorkspaceSettingsPage() {
         title: 'Email Connection Failed',
         message: error.message,
         color: 'red',
+      });
+    },
+  });
+
+  // Notion configuration
+  const { data: notionConfig, refetch: refetchNotionConfig } = api.workspace.getNotionConfig.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: !!workspaceId }
+  );
+
+  const { data: notionConnections } = api.integration.listNotionConnections.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspaceId }
+  );
+
+  const updateNotionConfigMutation = api.workspace.updateNotionConfig.useMutation({
+    onSuccess: () => {
+      void refetchNotionConfig();
+      notifications.show({
+        title: 'Notion Settings Updated',
+        message: 'Workspace Notion configuration has been saved.',
+        color: 'green',
+        autoClose: 3000,
       });
     },
   });
@@ -796,6 +819,177 @@ export default function WorkspaceSettingsPage() {
             <SlackChannelSettings workspace={{ id: workspaceId, name: workspace.name }} />
           </Card>
         )}
+
+        {/* Notion Integration */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Group justify="space-between" align="flex-start" mb="md">
+            <Group gap="md">
+              <IconBrandNotion size={24} className="text-text-muted" />
+              <div>
+                <Title order={3} className="text-text-primary">
+                  Notion Integration
+                </Title>
+                <Text size="sm" className="text-text-muted" maw={500}>
+                  Configure default Notion settings for projects in this workspace.
+                  Individual projects can override these defaults.
+                </Text>
+              </div>
+            </Group>
+          </Group>
+
+          <Stack gap="md">
+            {/* Connected Accounts */}
+            {notionConnections && notionConnections.length > 0 ? (
+              <>
+                <div>
+                  <Text size="sm" fw={500} className="text-text-secondary mb-2">
+                    Connected Accounts
+                  </Text>
+                  <Stack gap="xs">
+                    {notionConnections.map((connection) => (
+                      <Group key={connection.id} gap="sm" className="rounded-md bg-surface-primary p-2 border border-border-primary">
+                        <IconBrandNotion size={18} className="text-text-muted" />
+                        <div className="flex-1">
+                          <Text size="sm" className="text-text-primary">
+                            {(connection as { notionWorkspaceName?: string }).notionWorkspaceName ?? connection.name}
+                          </Text>
+                        </div>
+                        <Badge
+                          size="xs"
+                          color={notionConfig?.defaultIntegrationId === connection.id ? 'green' : 'gray'}
+                          variant={notionConfig?.defaultIntegrationId === connection.id ? 'filled' : 'light'}
+                        >
+                          {notionConfig?.defaultIntegrationId === connection.id ? 'Default' : 'Connected'}
+                        </Badge>
+                      </Group>
+                    ))}
+                  </Stack>
+                </div>
+
+                {/* Default Settings */}
+                {canEdit && (
+                  <div>
+                    <Text size="sm" fw={500} className="text-text-secondary mb-2">
+                      Default Sync Preferences
+                    </Text>
+                    <Group gap="md" grow>
+                      <Select
+                        label="Default Account"
+                        placeholder="Select default account"
+                        data={notionConnections.map((c) => ({
+                          value: c.id,
+                          label: (c as { notionWorkspaceName?: string }).notionWorkspaceName ?? c.name,
+                        }))}
+                        value={notionConfig?.defaultIntegrationId ?? null}
+                        onChange={(value) => {
+                          if (!workspaceId) return;
+                          updateNotionConfigMutation.mutate({
+                            workspaceId,
+                            notionDefaultConfig: {
+                              ...notionConfig,
+                              defaultIntegrationId: value ?? undefined,
+                            },
+                          });
+                        }}
+                        classNames={{
+                          input: 'bg-surface-primary border-border-primary text-text-primary',
+                          label: 'text-text-muted',
+                        }}
+                      />
+                      <Select
+                        label="Sync Direction"
+                        data={[
+                          { value: 'pull', label: 'Pull from Notion' },
+                          { value: 'push', label: 'Push to Notion' },
+                          { value: 'bidirectional', label: 'Bidirectional' },
+                        ]}
+                        value={notionConfig?.syncDirection ?? 'pull'}
+                        onChange={(value) => {
+                          if (!workspaceId || !value) return;
+                          updateNotionConfigMutation.mutate({
+                            workspaceId,
+                            notionDefaultConfig: {
+                              ...notionConfig,
+                              syncDirection: value as 'pull' | 'push' | 'bidirectional',
+                            },
+                          });
+                        }}
+                        leftSection={<IconArrowsExchange size={16} />}
+                        classNames={{
+                          input: 'bg-surface-primary border-border-primary text-text-primary',
+                          label: 'text-text-muted',
+                        }}
+                      />
+                      <Select
+                        label="Sync Frequency"
+                        data={[
+                          { value: 'manual', label: 'Manual' },
+                          { value: 'hourly', label: 'Hourly' },
+                          { value: 'daily', label: 'Daily' },
+                        ]}
+                        value={notionConfig?.syncFrequency ?? 'manual'}
+                        onChange={(value) => {
+                          if (!workspaceId || !value) return;
+                          updateNotionConfigMutation.mutate({
+                            workspaceId,
+                            notionDefaultConfig: {
+                              ...notionConfig,
+                              syncFrequency: value as 'manual' | 'hourly' | 'daily',
+                            },
+                          });
+                        }}
+                        leftSection={<IconRefresh size={16} />}
+                        classNames={{
+                          input: 'bg-surface-primary border-border-primary text-text-primary',
+                          label: 'text-text-muted',
+                        }}
+                      />
+                    </Group>
+                  </div>
+                )}
+
+                {/* Connect another account */}
+                {canEdit && (
+                  <Button
+                    variant="light"
+                    size="sm"
+                    leftSection={<IconBrandNotion size={16} />}
+                    className="w-fit"
+                    onClick={() => {
+                      const params = new URLSearchParams();
+                      if (workspaceId) params.set('workspaceId', workspaceId);
+                      params.set('redirectUrl', window.location.href);
+                      window.location.href = `/api/auth/notion/authorize?${params.toString()}`;
+                    }}
+                  >
+                    Connect Another Notion Account
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Group justify="space-between" align="center">
+                <Text size="sm" className="text-text-muted">
+                  No Notion accounts connected to this workspace.
+                </Text>
+                {canEdit && (
+                  <Button
+                    variant="light"
+                    size="sm"
+                    leftSection={<IconBrandNotion size={16} />}
+                    onClick={() => {
+                      const params = new URLSearchParams();
+                      if (workspaceId) params.set('workspaceId', workspaceId);
+                      params.set('redirectUrl', window.location.href);
+                      window.location.href = `/api/auth/notion/authorize?${params.toString()}`;
+                    }}
+                  >
+                    Connect Notion
+                  </Button>
+                )}
+              </Group>
+            )}
+          </Stack>
+        </Card>
 
         {/* Integrations */}
         <Card className="bg-surface-secondary border-border-primary" withBorder>

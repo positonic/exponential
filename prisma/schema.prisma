@@ -229,6 +229,9 @@ model Workspace {
   enableWeeklyReviewBanner  Boolean     @default(true)
   enableEmailNotifications  Boolean     @default(true)
 
+  // Notion integration defaults: { defaultIntegrationId, defaultDatabaseId, fieldMappings, syncDirection, syncFrequency }
+  notionDefaultConfig       Json?
+
   owner             User                       @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members           WorkspaceUser[]
   projects          Project[]
