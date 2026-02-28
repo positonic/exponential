@@ -25,10 +25,12 @@ import {
   IconCircleCheck,
   IconPlus,
   IconExternalLink,
+  IconArrowDown,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import type { ConfigSource } from "~/server/services/notion-config-resolver";
 
 interface NotionSetupWizardProps {
   opened: boolean;
@@ -42,6 +44,31 @@ interface NotionSetupWizardProps {
   };
   /** If true, opens in edit mode with existing config pre-selected */
   editMode?: boolean;
+}
+
+const SOURCE_LABELS: Record<ConfigSource, string> = {
+  project: "Project override",
+  workspace: "Workspace default",
+  app: "App default",
+};
+
+const SOURCE_COLORS: Record<ConfigSource, string> = {
+  project: "blue",
+  workspace: "violet",
+  app: "gray",
+};
+
+function SourceBadge({ source }: { source: ConfigSource }) {
+  return (
+    <Badge
+      size="xs"
+      variant="light"
+      color={SOURCE_COLORS[source]}
+      leftSection={source === "workspace" ? <IconArrowDown size={10} /> : undefined}
+    >
+      {SOURCE_LABELS[source]}
+    </Badge>
+  );
 }
 
 interface NotionDatabase {
@@ -90,6 +117,12 @@ export function NotionSetupWizard({
   } = api.integration.getNotionDatabases.useQuery(
     { integrationId: selectedIntegrationId ?? "" },
     { enabled: !!selectedIntegrationId },
+  );
+
+  // Resolved config with inheritance info
+  const { data: resolvedConfig } = api.project.getResolvedNotionConfig.useQuery(
+    { projectId: project.id },
+    { enabled: opened && editMode },
   );
 
   // Mutations
@@ -404,46 +437,70 @@ export function NotionSetupWizard({
               Notion.
             </Text>
 
-            <Select
-              label="Sync Direction"
-              description="Which direction should tasks flow?"
-              data={[
-                {
-                  value: "pull",
-                  label: "Pull from Notion (Notion is source of truth)",
-                },
-                {
-                  value: "push",
-                  label: "Push to Notion (Exponential is source of truth)",
-                },
-                {
-                  value: "bidirectional",
-                  label: "Bidirectional (sync both ways)",
-                },
-              ]}
-              value={syncDirection}
-              onChange={(v) =>
-                setSyncDirection(
-                  (v as "pull" | "push" | "bidirectional") ?? "pull",
-                )
-              }
-            />
+            <Stack gap={4}>
+              <Group gap="xs">
+                <Text size="sm" fw={500}>Sync Direction</Text>
+                {resolvedConfig && (
+                  <SourceBadge source={resolvedConfig.syncDirection.source} />
+                )}
+              </Group>
+              <Select
+                description="Which direction should tasks flow?"
+                data={[
+                  {
+                    value: "pull",
+                    label: "Pull from Notion (Notion is source of truth)",
+                  },
+                  {
+                    value: "push",
+                    label: "Push to Notion (Exponential is source of truth)",
+                  },
+                  {
+                    value: "bidirectional",
+                    label: "Bidirectional (sync both ways)",
+                  },
+                ]}
+                value={syncDirection}
+                onChange={(v) =>
+                  setSyncDirection(
+                    (v as "pull" | "push" | "bidirectional") ?? "pull",
+                  )
+                }
+                placeholder={
+                  resolvedConfig
+                    ? `Using ${SOURCE_LABELS[resolvedConfig.syncDirection.source].toLowerCase()}: ${resolvedConfig.syncDirection.value}`
+                    : undefined
+                }
+              />
+            </Stack>
 
-            <Select
-              label="Sync Frequency"
-              description="How often should sync run?"
-              data={[
-                { value: "manual", label: "Manual (sync on demand)" },
-                { value: "hourly", label: "Hourly" },
-                { value: "daily", label: "Daily" },
-              ]}
-              value={syncFrequency}
-              onChange={(v) =>
-                setSyncFrequency(
-                  (v as "manual" | "hourly" | "daily") ?? "manual",
-                )
-              }
-            />
+            <Stack gap={4}>
+              <Group gap="xs">
+                <Text size="sm" fw={500}>Sync Frequency</Text>
+                {resolvedConfig && (
+                  <SourceBadge source={resolvedConfig.syncFrequency.source} />
+                )}
+              </Group>
+              <Select
+                description="How often should sync run?"
+                data={[
+                  { value: "manual", label: "Manual (sync on demand)" },
+                  { value: "hourly", label: "Hourly" },
+                  { value: "daily", label: "Daily" },
+                ]}
+                value={syncFrequency}
+                onChange={(v) =>
+                  setSyncFrequency(
+                    (v as "manual" | "hourly" | "daily") ?? "manual",
+                  )
+                }
+                placeholder={
+                  resolvedConfig
+                    ? `Using ${SOURCE_LABELS[resolvedConfig.syncFrequency.source].toLowerCase()}: ${resolvedConfig.syncFrequency.value}`
+                    : undefined
+                }
+              />
+            </Stack>
 
             {syncDirection === "bidirectional" && (
               <Alert
@@ -501,17 +558,27 @@ export function NotionSetupWizard({
                   <Text size="sm" c="dimmed">
                     Sync Direction
                   </Text>
-                  <Badge variant="light" color="blue">
-                    {syncDirection}
-                  </Badge>
+                  <Group gap="xs">
+                    <Badge variant="light" color="blue">
+                      {syncDirection}
+                    </Badge>
+                    {resolvedConfig && (
+                      <SourceBadge source={resolvedConfig.syncDirection.source} />
+                    )}
+                  </Group>
                 </Group>
                 <Group justify="space-between">
                   <Text size="sm" c="dimmed">
                     Sync Frequency
                   </Text>
-                  <Badge variant="light" color="gray">
-                    {syncFrequency}
-                  </Badge>
+                  <Group gap="xs">
+                    <Badge variant="light" color="gray">
+                      {syncFrequency}
+                    </Badge>
+                    {resolvedConfig && (
+                      <SourceBadge source={resolvedConfig.syncFrequency.source} />
+                    )}
+                  </Group>
                 </Group>
               </Stack>
             </Paper>

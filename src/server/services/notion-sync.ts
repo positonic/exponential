@@ -1,7 +1,6 @@
 import { db } from '~/server/db';
-// import { notionIntegrationService } from './notion-integration'; // Currently unused
 import type { Workflow, Action } from '@prisma/client';
-// import type { Integration } from '@prisma/client'; // Currently unused
+import { resolveNotionConfig } from './notion-config-resolver';
 
 interface NotionTodo {
   id: string;
@@ -78,7 +77,7 @@ export class NotionSyncService {
    * Sync Notion todos to Actions
    */
   async syncNotionTodosToActions(workflow: Workflow): Promise<SyncResult> {
-    const config = workflow.config as unknown as NotionTodosConfig;
+    const workflowConfig = workflow.config as unknown as NotionTodosConfig;
     const result: SyncResult = {
       itemsProcessed: 0,
       itemsCreated: 0,
@@ -88,6 +87,20 @@ export class NotionSyncService {
     };
 
     try {
+      // Resolve config through inheritance chain: project > workspace > app defaults
+      let config = workflowConfig;
+      if (workflow.projectId) {
+        const resolved = await resolveNotionConfig(workflow.projectId);
+        config = {
+          ...workflowConfig,
+          syncDirection: resolved.syncDirection.value ?? workflowConfig.syncDirection,
+          autoSync: resolved.syncFrequency.value !== 'manual',
+          syncFrequency: resolved.syncFrequency.value === 'manual'
+            ? workflowConfig.syncFrequency
+            : resolved.syncFrequency.value,
+        };
+      }
+
       // Get Notion todos
       const notionTodos = await this.getNotionTodos(workflow.integrationId, config);
       result.itemsProcessed = notionTodos.length;

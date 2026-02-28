@@ -779,6 +779,22 @@ export const projectRouter = createTRPCRouter({
       });
     }),
 
+  // Get resolved Notion config with inheritance chain (project > workspace > app defaults)
+  getResolvedNotionConfig: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!access) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Access denied",
+        });
+      }
+
+      const { resolveNotionConfig } = await import("~/server/services/notion-config-resolver");
+      return resolveNotionConfig(input.projectId);
+    }),
+
   getTeamMembers: protectedProcedure
     .input(z.object({ projectId: z.string() }))
     .query(async ({ ctx, input }) => {
