@@ -23,6 +23,7 @@ import Link from "next/link";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { CreateGoalModal } from "../CreateGoalModal";
 import { useTerminology } from "~/hooks/useTerminology";
+import { EmptyState } from "../EmptyState";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
 const domainColors: Record<string, string> = {
@@ -70,7 +71,7 @@ export function GoalsProgressDashboard() {
       { enabled: workspaceId !== null }
     );
 
-  const { data: _stats, isLoading: statsLoading } = api.okr.getStats.useQuery(
+  const { isLoading: statsLoading } = api.okr.getStats.useQuery(
     { workspaceId: workspaceId ?? undefined },
     { enabled: workspaceId !== null }
   );
@@ -132,9 +133,10 @@ export function GoalsProgressDashboard() {
               </Group>
             </Accordion.Control>
             <Accordion.Panel className="px-0">
-              <Text size="sm" className="text-text-muted">
-                {terminology.noGoalsYet}. Create {terminology.goals.toLowerCase()} to track your progress.
-              </Text>
+              <EmptyState
+                compact
+                message={`${terminology.noGoalsYet}. Create ${terminology.goals.toLowerCase()} to track your progress and stay aligned.`}
+              />
             </Accordion.Panel>
           </Accordion.Item>
         </Accordion>

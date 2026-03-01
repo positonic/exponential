@@ -1,9 +1,10 @@
 'use client';
 
 import { Text, Stack, Group, Checkbox, ActionIcon } from '@mantine/core';
-import { IconPlus } from '@tabler/icons-react';
+import { IconPlus, IconRepeat } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { CreateHabitModal } from '~/app/_components/CreateHabitModal';
+import { EmptyState } from '~/app/_components/EmptyState';
 
 export function HabitsDueToday() {
   const { data: habitStatus, isLoading } = api.habit.getTodayStatus.useQuery();
@@ -46,9 +47,20 @@ export function HabitsDueToday() {
             }
           />
         </Group>
-        <Text size="sm" className="text-text-muted">
-          No habits set up yet. Create habits linked to your goals for daily practice.
-        </Text>
+        <EmptyState
+          compact
+          message="No habits set up yet. Create habits linked to your goals for daily practice."
+          action={
+            <CreateHabitModal
+              trigger={
+                <Text size="sm" className="text-brand-primary cursor-pointer hover:underline">
+                  <IconRepeat size={12} className="mr-1 inline" />
+                  Create a habit
+                </Text>
+              }
+            />
+          }
+        />
       </Stack>
     );
   }

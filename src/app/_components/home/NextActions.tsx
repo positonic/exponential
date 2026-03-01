@@ -5,6 +5,7 @@ import { IconPlus, IconFolder } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { CreateActionModal } from '../CreateActionModal';
 import { HTMLContent } from '~/app/_components/HTMLContent';
+import { EmptyState } from '~/app/_components/EmptyState';
 
 interface NextActionsProps {
   workspaceId?: string;
@@ -57,9 +58,18 @@ export function NextActions({ workspaceId, limit = 5 }: NextActionsProps) {
             </ActionIcon>
           </CreateActionModal>
         </Group>
-        <Text size="sm" className="text-text-muted">
-          No actions for today. Add some tasks to get started.
-        </Text>
+        <EmptyState
+          compact
+          message="No actions for today. Add some tasks to get started."
+          action={
+            <CreateActionModal viewName="today">
+              <Text size="sm" className="text-brand-primary cursor-pointer hover:underline">
+                <IconPlus size={12} className="mr-1 inline" />
+                Add an action
+              </Text>
+            </CreateActionModal>
+          }
+        />
       </Stack>
     );
   }
@@ -77,7 +87,7 @@ export function NextActions({ workspaceId, limit = 5 }: NextActionsProps) {
             </ActionIcon>
           </CreateActionModal>
         </Group>
-        <Text size="sm" className="text-green-500" fw={500}>
+        <Text size="sm" className="text-brand-success" fw={500}>
           All actions completed! Great work.
         </Text>
       </Stack>

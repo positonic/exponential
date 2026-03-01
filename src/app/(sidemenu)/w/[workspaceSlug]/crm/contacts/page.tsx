@@ -28,6 +28,7 @@ import {
   IconEdit,
   IconTrash,
   IconUpload,
+  IconUsers,
 } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
@@ -36,6 +37,7 @@ import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { ImportDialog } from './_components/ImportDialog';
 import { ConnectionScoreBadge } from './_components/ConnectionScoreGauge';
+import { EmptyState } from '~/app/_components/EmptyState';
 
 // Helper function to get relative time
 function getRelativeTime(date: Date | null): string {
@@ -552,14 +554,16 @@ export default function ContactsPage() {
             </tbody>
           </table>
         ) : (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <Text className="text-text-muted mb-4">No contacts yet. Create your first contact!</Text>
+          <EmptyState
+            icon={IconUsers}
+            title="No contacts yet"
+            message="Keep track of your relationships. Add your first contact to get started with your CRM."
+            action={
               <Button leftSection={<IconPlus size={16} />} onClick={openCreateModal}>
                 New Person
               </Button>
-            </div>
-          </div>
+            }
+          />
         )}
       </div>
 

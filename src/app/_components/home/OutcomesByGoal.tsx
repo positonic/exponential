@@ -1,10 +1,11 @@
 'use client';
 
 import { Text, Stack, Group, Badge, ActionIcon } from '@mantine/core';
-import { IconTarget, IconPlus } from '@tabler/icons-react';
+import { IconTarget, IconPlus, IconTargetArrow } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { isSameDay } from 'date-fns';
 import { CreateOutcomeModal } from '../CreateOutcomeModal';
+import { EmptyState } from '../EmptyState';
 
 interface OutcomesByGoalProps {
   workspaceId?: string;
@@ -95,9 +96,18 @@ export function OutcomesByGoal({ workspaceId }: OutcomesByGoalProps) {
             </ActionIcon>
           </CreateOutcomeModal>
         </Group>
-        <Text size="sm" className="text-text-muted">
-          No outcomes due today. Set outcomes to track meaningful results.
-        </Text>
+        <EmptyState
+          compact
+          message="No outcomes due today. Set outcomes to track meaningful results."
+          action={
+            <CreateOutcomeModal>
+              <Text size="sm" className="text-brand-primary cursor-pointer hover:underline">
+                <IconTargetArrow size={12} className="mr-1 inline" />
+                Set an outcome
+              </Text>
+            </CreateOutcomeModal>
+          }
+        />
       </Stack>
     );
   }

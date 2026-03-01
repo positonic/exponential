@@ -11,11 +11,13 @@ import {
 import {
   IconFolder,
   IconInfoCircle,
+  IconPlus,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import Link from "next/link";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { calculateProjectHealth, HealthRing, HealthIndicatorIcons } from "./ProjectHealth";
+import { EmptyState } from "../EmptyState";
 
 export function ProjectStateOverview() {
   const { workspace, workspaceId } = useWorkspace();
@@ -53,9 +55,21 @@ export function ProjectStateOverview() {
               Active Projects
             </Text>
           </Group>
-          <Text size="sm" className="text-text-muted">
-            No active projects. Create a project to get started.
-          </Text>
+          <EmptyState
+            icon={IconFolder}
+            message="Projects help you organize your work. Create a project to start tracking progress and health."
+            compact
+            action={
+              workspace ? (
+                <Link href={`/w/${workspace.slug}/projects`}>
+                  <Text size="sm" className="text-brand-primary cursor-pointer hover:underline">
+                    <IconPlus size={12} className="mr-1 inline" />
+                    Create a project
+                  </Text>
+                </Link>
+              ) : undefined
+            }
+          />
         </Stack>
       </Card>
     );

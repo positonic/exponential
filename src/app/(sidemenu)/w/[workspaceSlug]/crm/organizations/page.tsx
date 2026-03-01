@@ -28,12 +28,14 @@ import {
   IconTrash,
   IconUsers,
   IconWorld,
+  IconBuilding,
 } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
+import { EmptyState } from '~/app/_components/EmptyState';
 
 function OrganizationForm({
   workspaceId,
@@ -379,12 +381,23 @@ export default function OrganizationsPage() {
             </Table.Tbody>
           </Table>
         </div>
+      ) : search ? (
+        <EmptyState
+          icon={IconBuilding}
+          message="No organizations found matching your search. Try a different search term."
+          iconColor="gray"
+        />
       ) : (
-        <div className="rounded-lg border border-border-primary bg-surface-secondary py-12 text-center">
-          <Text className="text-text-muted">
-            {search ? 'No organizations found matching your search' : 'No organizations yet. Create your first organization!'}
-          </Text>
-        </div>
+        <EmptyState
+          icon={IconBuilding}
+          title="No organizations yet"
+          message="Organizations help you group contacts by company. Create your first one to get started."
+          action={
+            <Button leftSection={<IconPlus size={16} />} onClick={openCreateModal}>
+              New Organization
+            </Button>
+          }
+        />
       )}
 
       {/* Create Organization Modal */}

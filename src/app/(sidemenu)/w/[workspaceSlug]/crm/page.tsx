@@ -10,6 +10,7 @@ import {
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import Link from 'next/link';
+import { EmptyState } from '~/app/_components/EmptyState';
 
 interface StatCardProps {
   title: string;
@@ -161,7 +162,11 @@ export default function CRMDashboardPage() {
             ))}
           </div>
         ) : (
-          <Text className="text-text-muted text-center py-4">No organizations yet</Text>
+          <EmptyState
+            icon={IconBuilding}
+            compact
+            message="No organizations yet. Add organizations to group your contacts."
+          />
         )}
       </Card>
     </div>

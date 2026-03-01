@@ -5,9 +5,11 @@ import { Table, Text, Paper, ActionIcon, Tabs, Checkbox, Button, Group } from "@
 import { api } from "~/trpc/react";
 import { format, isBefore, startOfDay } from "date-fns";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
-import { IconEdit, IconTrash } from '@tabler/icons-react';
+import { IconEdit, IconTrash, IconTargetArrow } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { useTerminology } from '~/hooks/useTerminology';
+import { EmptyState } from './EmptyState';
+import { CreateOutcomeModal as CreateOutcomeModalCta } from './CreateOutcomeModal';
 
 // Define OutcomeType to match the one in CreateOutcomeModal.tsx
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
@@ -64,7 +66,18 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
     },
   });
 
-  if (!outcomes) return <div>No outcomes found.</div>;
+  if (!outcomes) return (
+    <EmptyState
+      icon={IconTargetArrow}
+      title="No outcomes yet"
+      message="Outcomes help you define measurable results. Create your first outcome to start tracking progress."
+      action={
+        <CreateOutcomeModalCta>
+          <Button variant="light">Create Outcome</Button>
+        </CreateOutcomeModalCta>
+      }
+    />
+  );
 
   const today = startOfDay(new Date());
 
@@ -154,13 +167,24 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
       </div>
 
       {filteredOutcomes.length === 0 && (
-        <Paper p="md" withBorder>
-          <Text c="dimmed">
-            {activeTab === 'all' && !hidePastDue
-              ? "No outcomes yet. Create your first one!"
-              : "No outcomes match the current filters."}
-          </Text>
-        </Paper>
+        activeTab === 'all' && !hidePastDue ? (
+          <EmptyState
+            icon={IconTargetArrow}
+            title="No outcomes yet"
+            message="Outcomes help you define measurable results. Create your first outcome to start tracking progress."
+            action={
+              <CreateOutcomeModalCta>
+                <Button variant="light">Create Outcome</Button>
+              </CreateOutcomeModalCta>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={IconTargetArrow}
+            message="No outcomes match the current filters. Try adjusting your filters to see more results."
+            iconColor="gray"
+          />
+        )
       )}
 
       {filteredOutcomes.length > 0 && (

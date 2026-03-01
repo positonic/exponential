@@ -14,6 +14,7 @@ import { HTMLContent } from "./HTMLContent";
 import type { Priority } from "~/types/action";
 import { SchedulingSuggestion, type SchedulingSuggestionData } from "./SchedulingSuggestion";
 import { InboxZeroCelebration } from "./InboxZeroCelebration";
+import { EmptyState } from "./EmptyState";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
@@ -1476,7 +1477,12 @@ export function ActionList({
           ? <InboxZeroCelebration />
           : isLoading
             ? <Text c="dimmed" ta="center" mt="lg">Loading...</Text>
-            : <Text c="dimmed" ta="center" mt="lg">No {filter.toLowerCase()} actions in this view.</Text>
+            : <EmptyState
+                icon={IconList}
+                title={`No ${filter.toLowerCase()} actions`}
+                message={`There are no ${filter.toLowerCase()} actions in this view. Create a new action or adjust your filters.`}
+                iconColor="gray"
+              />
       }
 
       <EditActionModal
