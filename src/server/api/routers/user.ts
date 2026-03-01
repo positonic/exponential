@@ -101,7 +101,7 @@ export const userRouter = createTRPCRouter({
             onboardingProjectId: true,
           },
         }),
-        ctx.db.project.count({ where: { createdById: userId } }),
+        ctx.db.project.count({ where: { createdById: userId, type: { not: 'onboarding' } } }),
         ctx.db.goal.count({ where: { userId } }),
         ctx.db.outcome.count({ where: { userId } }),
         ctx.db.action.count({
@@ -109,6 +109,7 @@ export const userRouter = createTRPCRouter({
             createdById: userId,
             projectId: { not: null },
             status: { notIn: ['DELETED', 'DRAFT'] },
+            source: { not: 'onboarding' },
           },
         }),
         ctx.db.account.findMany({
@@ -120,7 +121,7 @@ export const userRouter = createTRPCRouter({
         }),
         ctx.db.dailyPlan.count({ where: { userId } }),
         ctx.db.action.count({
-          where: { createdById: userId, status: 'COMPLETED' },
+          where: { createdById: userId, status: 'COMPLETED', source: { not: 'onboarding' } },
         }),
       ]);
 
@@ -186,10 +187,35 @@ export const userRouter = createTRPCRouter({
 
   completeWelcome: protectedProcedure
     .mutation(async ({ ctx }) => {
+      const userId = ctx.session.user.id;
+
+      const user = await ctx.db.user.findUnique({
+        where: { id: userId },
+        select: { onboardingProjectId: true },
+      });
+
       await ctx.db.user.update({
-        where: { id: ctx.session.user.id },
+        where: { id: userId },
         data: { welcomeCompletedAt: new Date() },
       });
+
+      // Close out onboarding project so it doesn't linger with stale progress
+      if (user?.onboardingProjectId) {
+        await ctx.db.action.updateMany({
+          where: {
+            projectId: user.onboardingProjectId,
+            source: 'onboarding',
+            status: { not: 'COMPLETED' },
+          },
+          data: { status: 'COMPLETED', completedAt: new Date() },
+        });
+
+        await ctx.db.project.update({
+          where: { id: user.onboardingProjectId },
+          data: { status: 'COMPLETED', progress: 100 },
+        });
+      }
+
       return { success: true };
     }),
 });

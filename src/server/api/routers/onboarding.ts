@@ -384,7 +384,7 @@ export const onboardingRouter = createTRPCRouter({
                   priority: "MEDIUM",
                   dueDate: task.dueDate,
                   duration: task.durationMinutes,
-                  status: "TODO",
+                  status: "ACTIVE",
                 },
                 select: {
                   id: true,
@@ -427,7 +427,7 @@ export const onboardingRouter = createTRPCRouter({
                 projectId: onboardingProject.id,
                 createdById: userId,
                 priority: "MEDIUM",
-                status: "TODO",
+                status: "ACTIVE",
                 source: "onboarding",
                 workspaceId: userWithWorkspace?.defaultWorkspaceId ?? null,
               },
