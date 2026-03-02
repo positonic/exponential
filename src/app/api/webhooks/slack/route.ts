@@ -200,7 +200,8 @@ interface SlackEvent {
 
 // Slack Interactive Components payload
 interface SlackInteractivePayload {
-  type: 'block_actions' | 'view_submission' | 'shortcut';
+  type: 'block_actions' | 'view_submission' | 'shortcut' | 'message_action';
+  callback_id?: string;
   user: {
     id: string;
     name: string;
@@ -209,6 +210,16 @@ interface SlackInteractivePayload {
   team: {
     id: string;
     domain: string;
+  };
+  channel?: {
+    id: string;
+    name?: string;
+  };
+  message?: {
+    type: string;
+    text: string;
+    user: string;
+    ts: string;
   };
   actions?: Array<{
     action_id: string;
@@ -542,8 +553,8 @@ export async function POST(request: NextRequest) {
     } else if ('command' in payload) {
       // Slash command
       response = await handleSlashCommand(payload, integrationData);
-    } else if ('actions' in payload || 'view' in payload) {
-      // Interactive component
+    } else if ('actions' in payload || 'view' in payload || 'callback_id' in payload) {
+      // Interactive component (block_actions, view_submission, message shortcuts)
       response = await handleInteractiveComponent(payload, integrationData);
     } else {
       response = { success: true, message: 'Received but not processed' };
@@ -757,6 +768,10 @@ async function handleInteractiveComponent(payload: SlackInteractivePayload, inte
   const { type, actions } = payload;
   const { user } = integrationData;
 
+  // Message shortcut: "Create Action"
+  if (type === 'message_action' && payload.callback_id === 'create_action') {
+    return handleCreateAction(payload, integrationData);
+  }
 
   if (type === 'block_actions' && actions) {
     for (const action of actions) {
@@ -1613,6 +1628,116 @@ async function handleActionSnooze(actionId: string, user: any, responseUrl?: str
     }
   } catch (error) {
     console.error('Error snoozing action:', error);
+  }
+}
+
+async function handleCreateAction(payload: SlackInteractivePayload, integrationData: any) {
+  const { integration, user: installerUser } = integrationData;
+
+  try {
+    const slackUserId = payload.user.id;
+    const messageText = payload.message?.text || '';
+    const messageTs = payload.message?.ts || '';
+    const channelId = payload.channel?.id || '';
+    const teamDomain = payload.team.domain;
+
+    // Resolve Slack user to system user
+    let user = await findTeamMemberFromSlackUser(integration, slackUserId, payload.user.name);
+    if (!user) {
+      user = installerUser;
+    }
+
+    if (!user) {
+      console.error('❌ [CreateAction] No user found for Slack user', slackUserId);
+      if (payload.response_url) {
+        await fetch(payload.response_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            response_type: 'ephemeral',
+            text: 'Could not create action — your Slack account is not linked to Exponential.'
+          })
+        });
+      }
+      return { success: false, error: 'User not found' };
+    }
+
+    // Build Slack permalink from team domain, channel ID, and message timestamp
+    const tsWithoutDot = messageTs.replace('.', '');
+    const permalink = `https://${teamDomain}.slack.com/archives/${channelId}/p${tsWithoutDot}`;
+
+    // Truncate message for action name (first 150 chars)
+    const actionName = messageText.length > 150
+      ? messageText.substring(0, 147) + '...'
+      : messageText;
+
+    // Build description with full text and permalink
+    const description = messageText + `\n\n[View in Slack](${permalink})`;
+
+    // Resolve channel to project/workspace if possible
+    let projectId: string | undefined;
+    let workspaceId: string | undefined;
+    const botToken = integrationData.credentials.BOT_TOKEN;
+    if (channelId && botToken && !channelId.startsWith('D')) {
+      try {
+        const { projects, workspaces } = await SlackChannelResolver.resolveProjectFromChannelId(
+          channelId,
+          botToken,
+          integration.id
+        );
+        if (projects.length > 0) {
+          projectId = projects[0]!.id;
+        }
+        if (workspaces.length > 0) {
+          workspaceId = workspaces[0]!.id;
+        }
+      } catch (err) {
+        console.warn('⚠️ [CreateAction] Could not resolve channel to project:', err);
+      }
+    }
+
+    // Create the action
+    const action = await db.action.create({
+      data: {
+        name: actionName,
+        description,
+        source: 'slack',
+        status: 'ACTIVE',
+        priority: 'Quick',
+        createdById: user.id,
+        ...(projectId && { projectId }),
+        ...(workspaceId && { workspaceId }),
+      }
+    });
+
+    console.log(`✅ [CreateAction] Created action ${action.id} from Slack message for user ${user.name}`);
+
+    // Send ephemeral confirmation
+    if (payload.response_url) {
+      await fetch(payload.response_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          response_type: 'ephemeral',
+          text: `✅ Action created: "${actionName}"`
+        })
+      });
+    }
+
+    return { success: true, actionId: action.id };
+  } catch (error) {
+    console.error('❌ [CreateAction] Error creating action from Slack message:', error);
+    if (payload.response_url) {
+      await fetch(payload.response_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          response_type: 'ephemeral',
+          text: 'Sorry, there was an error creating the action.'
+        })
+      });
+    }
+    return { success: false, error: 'Failed to create action' };
   }
 }
 
