@@ -335,6 +335,18 @@ export const mastraRouter = createTRPCRouter({
         }
       }
 
+      // Look up project's configured Slack channel if resourceId (projectId) provided
+      let projectSlackChannel: string | undefined;
+      if (input.resourceId) {
+        const projectSlackConfig = await ctx.db.slackChannelConfig.findUnique({
+          where: { projectId: input.resourceId },
+          select: { slackChannel: true },
+        });
+        if (projectSlackConfig?.slackChannel) {
+          projectSlackChannel = projectSlackConfig.slackChannel;
+        }
+      }
+
       // Validate agentId against allowlist
       if (!ALLOWED_AGENT_IDS.has(agentId)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Invalid agent: ${agentId}` });
@@ -366,6 +378,7 @@ export const mastraRouter = createTRPCRouter({
               todoAppBaseUrl,
               ...workspaceContext,
               ...(slackMapping ? { slackUserId: slackMapping.externalUserId } : {}),
+              ...(projectSlackChannel ? { projectSlackChannel } : {}),
             }
           }),
         }

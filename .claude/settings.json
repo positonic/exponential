@@ -4,6 +4,9 @@
       "Bash(exponential *)",
       "mcp__serena__find_symbol",
       "mcp__serena__search_for_pattern"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   },
   "hooks": {

@@ -123,6 +123,15 @@ export async function POST(req: Request) {
     }
     if (projectId) {
       entries.push(["projectId", projectId]);
+
+      // Look up project's configured Slack channel so agent knows where to search
+      const projectSlackConfig = await db.slackChannelConfig.findUnique({
+        where: { projectId },
+        select: { slackChannel: true },
+      });
+      if (projectSlackConfig?.slackChannel) {
+        entries.push(["projectSlackChannel", projectSlackConfig.slackChannel]);
+      }
     }
 
     // Look up user's Slack identity from IntegrationUserMapping

@@ -311,6 +311,12 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // Use prop if provided, otherwise fall back to pageContext (auto-detected from current page)
   const projectId = projectIdProp ?? (pageContext?.data?.projectId as string | undefined);
 
+  // Fetch project's Slack channel config so agent knows which channel to search
+  const { data: projectSlackConfig } = api.slack.getChannelConfig.useQuery(
+    { projectId: projectId! },
+    { enabled: !!projectId }
+  );
+
   // Function to generate initial messages with project context
   const generateInitialMessages = useCallback((projectData?: any, projectActions?: any[], transcriptions?: any[]): Message[] => {
     // Format transcription context
@@ -351,6 +357,12 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       }).join('\n')}
     ` : '';
 
+    const slackChannelContext = projectSlackConfig?.slackChannel
+      ? `
+      - Slack Channel: ${projectSlackConfig.slackChannel}
+      - IMPORTANT: When searching Slack for this project, always use channel "${projectSlackConfig.slackChannel}" to target the project's dedicated channel`
+      : '';
+
     const projectContext = projectData && projectActions ? `
 
       📋 CURRENT PROJECT CONTEXT (Authorized User Data Only):
@@ -359,7 +371,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - Description: ${projectData.description || 'No description'}
       - Status: ${projectData.status}
       - Priority: ${projectData.priority}
-      - Progress: ${projectData.progress || 0}%
+      - Progress: ${projectData.progress || 0}%${slackChannelContext}
       - Active Tasks Shown: ${projectActions.length} (use retrieveActionsTool for complete history)
       ${projectActions.length > 0 ?
         projectActions.map(action => `  • ${action.name} (${action.status}, ${action.priority})`).join('\n      ') :
@@ -370,7 +382,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - When asked about tasks: refer to context above or use tools for complete data
       - Always specify project ID in tool calls for security
       - For historical data beyond current context, explicitly use retrieveActionsTool
-      - When asked about meetings or transcriptions: refer to the meeting context above
+      - When asked about meetings or transcriptions: refer to the meeting context above${projectSlackConfig?.slackChannel ? `\n      - When asked about Slack or project communications: search in channel "${projectSlackConfig.slackChannel}"` : ''}
     ` : '';
 
     // Extract workspace info from page context for the system prompt
@@ -481,7 +493,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               : `Hey! I'm Zoe 🔮\n\nI'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.\n\nWhat's up?`)
       }
     ];
-  }, [projectId, githubSettings, pageContext, customAssistant]);
+  }, [projectId, githubSettings, pageContext, customAssistant, projectSlackConfig]);
 
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
