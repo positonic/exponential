@@ -16,6 +16,36 @@ import { sanitizeAIOutput } from "~/lib/sanitize-output";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
+/**
+ * Resolve a Slack channel name (e.g., "#commons-lab-exec") to its channel ID (e.g., "C08XXXXXX")
+ * by looking up the integration's bot token and calling the Slack conversations.list API.
+ */
+async function resolveSlackChannelId(
+  integrationId: string,
+  channelName: string
+): Promise<string | null> {
+  try {
+    const credential = await db.integrationCredential.findFirst({
+      where: { integrationId, keyType: "BOT_TOKEN" },
+      select: { key: true },
+    });
+    if (!credential?.key) return null;
+
+    const nameWithoutHash = channelName.replace(/^#/, "");
+    const response = await fetch(
+      "https://slack.com/api/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=1000",
+      { headers: { Authorization: `Bearer ${credential.key}` } }
+    );
+    const data = await response.json() as { ok: boolean; channels?: Array<{ id: string; name: string }> };
+    if (!data.ok || !data.channels) return null;
+
+    const match = data.channels.find((ch) => ch.name === nameWithoutHash);
+    return match?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Allowlist of valid agent IDs that clients can route to.
 // This prevents clients from targeting arbitrary internal agents.
 // Update this list when adding new agents to the Mastra system.
@@ -127,10 +157,30 @@ export async function POST(req: Request) {
       // Look up project's configured Slack channel so agent knows where to search
       const projectSlackConfig = await db.slackChannelConfig.findUnique({
         where: { projectId },
-        select: { slackChannel: true },
+        select: { slackChannel: true, slackChannelId: true, integrationId: true },
       });
       if (projectSlackConfig?.slackChannel) {
         entries.push(["projectSlackChannel", projectSlackConfig.slackChannel]);
+
+        // Resolve channel ID (needed for Slack API tool calls)
+        let channelId = projectSlackConfig.slackChannelId;
+        if (!channelId) {
+          // Backfill: resolve channel name → ID via Slack API
+          channelId = await resolveSlackChannelId(
+            projectSlackConfig.integrationId,
+            projectSlackConfig.slackChannel
+          );
+          // Cache the resolved ID in the database for future requests
+          if (channelId) {
+            await db.slackChannelConfig.update({
+              where: { projectId },
+              data: { slackChannelId: channelId },
+            }).catch(() => { /* non-critical, ignore backfill failures */ });
+          }
+        }
+        if (channelId) {
+          entries.push(["projectSlackChannelId", channelId]);
+        }
       }
     }
 

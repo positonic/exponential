@@ -64,6 +64,7 @@ export const slackRouter = createTRPCRouter({
       z.object({
         integrationId: z.string(),
         channel: z.string(),
+        channelId: z.string().optional(),
         isActive: z.boolean().default(true),
         projectId: z.string().optional(),
         teamId: z.string().optional(),
@@ -146,7 +147,8 @@ export const slackRouter = createTRPCRouter({
         ctx.session.user.id,
         input.projectId,
         input.teamId,
-        input.workspaceId
+        input.workspaceId,
+        input.channelId
       );
 
       // Update the isActive status if different

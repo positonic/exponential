@@ -255,7 +255,8 @@ export class SlackChannelResolver {
     configuredByUserId: string,
     projectId?: string,
     teamId?: string,
-    workspaceId?: string
+    workspaceId?: string,
+    channelId?: string
   ) {
     // Validate that exactly one of projectId, teamId, or workspaceId is provided
     const provided = [projectId, teamId, workspaceId].filter(Boolean);
@@ -279,6 +280,7 @@ export class SlackChannelResolver {
         where: { id: existingConfig.id },
         data: {
           slackChannel: channel,
+          slackChannelId: channelId ?? null,
           integrationId,
           configuredByUserId,
           isActive: true,
@@ -290,6 +292,7 @@ export class SlackChannelResolver {
       return await db.slackChannelConfig.create({
         data: {
           slackChannel: channel,
+          slackChannelId: channelId,
           integrationId,
           configuredByUserId,
           projectId,

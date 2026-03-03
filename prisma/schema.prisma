@@ -1047,6 +1047,7 @@ model WorkflowRun {
 model SlackChannelConfig {
   id                 String      @id @default(cuid())
   slackChannel       String
+  slackChannelId     String?
   isActive           Boolean     @default(true)
   projectId          String?     @unique
   teamId             String?     @unique

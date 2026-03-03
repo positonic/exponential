@@ -359,8 +359,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
 
     const slackChannelContext = projectSlackConfig?.slackChannel
       ? `
-      - Slack Channel: ${projectSlackConfig.slackChannel}
-      - IMPORTANT: When searching Slack for this project, always use channel "${projectSlackConfig.slackChannel}" to target the project's dedicated channel`
+      - Slack Channel: ${projectSlackConfig.slackChannel}${projectSlackConfig.slackChannelId ? ` (ID: ${projectSlackConfig.slackChannelId})` : ''}
+      - IMPORTANT: When searching Slack for this project, use channel${projectSlackConfig.slackChannelId ? ` ID "${projectSlackConfig.slackChannelId}"` : ` "${projectSlackConfig.slackChannel}"`} to target the project's dedicated channel`
       : '';
 
     const projectContext = projectData && projectActions ? `
@@ -382,7 +382,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - When asked about tasks: refer to context above or use tools for complete data
       - Always specify project ID in tool calls for security
       - For historical data beyond current context, explicitly use retrieveActionsTool
-      - When asked about meetings or transcriptions: refer to the meeting context above${projectSlackConfig?.slackChannel ? `\n      - When asked about Slack or project communications: search in channel "${projectSlackConfig.slackChannel}"` : ''}
+      - When asked about meetings or transcriptions: refer to the meeting context above${projectSlackConfig?.slackChannel ? `\n      - When asked about Slack or project communications: search in channel${projectSlackConfig.slackChannelId ? ` ID "${projectSlackConfig.slackChannelId}"` : ` "${projectSlackConfig.slackChannel}"`}` : ''}
     ` : '';
 
     // Extract workspace info from page context for the system prompt

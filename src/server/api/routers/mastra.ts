@@ -337,13 +337,42 @@ export const mastraRouter = createTRPCRouter({
 
       // Look up project's configured Slack channel if resourceId (projectId) provided
       let projectSlackChannel: string | undefined;
+      let projectSlackChannelId: string | undefined;
       if (input.resourceId) {
         const projectSlackConfig = await ctx.db.slackChannelConfig.findUnique({
           where: { projectId: input.resourceId },
-          select: { slackChannel: true },
+          select: { slackChannel: true, slackChannelId: true, integrationId: true },
         });
         if (projectSlackConfig?.slackChannel) {
           projectSlackChannel = projectSlackConfig.slackChannel;
+          projectSlackChannelId = projectSlackConfig.slackChannelId ?? undefined;
+
+          // Backfill: resolve channel name → ID via Slack API if not stored
+          if (!projectSlackChannelId) {
+            const credential = await ctx.db.integrationCredential.findFirst({
+              where: { integrationId: projectSlackConfig.integrationId, keyType: "BOT_TOKEN" },
+              select: { key: true },
+            });
+            if (credential?.key) {
+              try {
+                const nameWithoutHash = projectSlackConfig.slackChannel.replace(/^#/, "");
+                const slackRes = await fetch(
+                  "https://slack.com/api/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=1000",
+                  { headers: { Authorization: `Bearer ${credential.key}` } }
+                );
+                const slackData = await slackRes.json() as { ok: boolean; channels?: Array<{ id: string; name: string }> };
+                const match = slackData.ok && slackData.channels?.find((ch) => ch.name === nameWithoutHash);
+                if (match) {
+                  projectSlackChannelId = match.id;
+                  // Cache for future requests
+                  await ctx.db.slackChannelConfig.update({
+                    where: { projectId: input.resourceId },
+                    data: { slackChannelId: match.id },
+                  }).catch(() => { /* non-critical */ });
+                }
+              } catch { /* non-critical, continue without channel ID */ }
+            }
+          }
         }
       }
 
@@ -379,6 +408,7 @@ export const mastraRouter = createTRPCRouter({
               ...workspaceContext,
               ...(slackMapping ? { slackUserId: slackMapping.externalUserId } : {}),
               ...(projectSlackChannel ? { projectSlackChannel } : {}),
+              ...(projectSlackChannelId ? { projectSlackChannelId } : {}),
             }
           }),
         }

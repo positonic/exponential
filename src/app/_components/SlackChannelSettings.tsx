@@ -53,7 +53,7 @@ export function SlackChannelSettings({ project, team, workspace }: SlackChannelS
   const [selectedIntegration, setSelectedIntegration] = useState<string>('');
   const [selectedChannel, setSelectedChannel] = useState<string>('');
   const [isActive, setIsActive] = useState<boolean>(true);
-  const [availableChannels, setAvailableChannels] = useState<Array<{ value: string; label: string }>>([]);
+  const [availableChannels, setAvailableChannels] = useState<Array<{ value: string; label: string; channelId: string }>>([]);
   const [config, setConfig] = useState<SlackChannelConfig | null>(null);
 
   const entityId = project?.id ?? team?.id ?? workspace?.id;
@@ -154,7 +154,8 @@ export function SlackChannelSettings({ project, team, workspace }: SlackChannelS
       setAvailableChannels(
         channels.map(channel => ({
           value: channel.name,
-          label: `${channel.name} (${channel.type})`
+          label: `${channel.name} (${channel.type})`,
+          channelId: channel.id,
         }))
       );
     }
@@ -191,9 +192,13 @@ export function SlackChannelSettings({ project, team, workspace }: SlackChannelS
         ? { workspaceId: entityId! }
         : { teamId: entityId! };
 
+    // Look up the Slack channel ID from the available channels list
+    const channelId = availableChannels.find(c => c.value === selectedChannel)?.channelId;
+
     configureChannelMutation.mutate({
       integrationId: selectedIntegration,
       channel,
+      channelId,
       isActive,
       ...entityInput
     });

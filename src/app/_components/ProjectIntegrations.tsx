@@ -265,9 +265,13 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
       ? selectedSlackChannel 
       : `#${selectedSlackChannel}`;
 
+    // Look up the Slack channel ID from the available channels list
+    const channelId = availableChannels.find(c => c.name === selectedSlackChannel)?.id;
+
     configureSlackChannelMutation.mutate({
       integrationId: selectedSlackIntegration,
       channel: channelName,
+      channelId,
       projectId: project.id,
     });
   };
