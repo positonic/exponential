@@ -8,6 +8,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { SyncEngine } from './SyncEngine';
 import { NotionIntegrationAdapter } from './NotionIntegrationAdapter';
+import { getDecryptedKey } from '~/server/utils/credentialHelper';
 import type {
   IIntegrationService,
   WorkflowWithCredentials,
@@ -140,9 +141,10 @@ export class WorkflowExecutorFactory {
    * Get the appropriate integration service for the workflow's provider
    */
   private static getService(workflow: WorkflowWithCredentials): IIntegrationService {
-    const accessToken = workflow.integration.credentials.find(
+    const tokenCredential = workflow.integration.credentials.find(
       c => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
-    )?.key;
+    );
+    const accessToken = tokenCredential ? getDecryptedKey(tokenCredential) : null;
 
     if (!accessToken) {
       throw new Error(`No access token found for ${workflow.provider} integration`);

@@ -9,6 +9,7 @@ import {
   type WorkflowConfig,
 } from "~/server/services/sync";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
+import { getDecryptedKey } from "~/server/utils/credentialHelper";
 
 // Helper function for Notion pull sync
 async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletionBehavior?: string, projectId?: string) {
@@ -17,9 +18,10 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
     propertyMappings?: Record<string, string>;
     projectColumn?: string; // Dynamic column name for project relation
   };
-  const accessToken = workflow.integration.credentials.find(
+  const credential = workflow.integration.credentials.find(
     (c: any) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
-  )?.key;
+  );
+  const accessToken = credential ? getDecryptedKey(credential) : null;
 
   if (!accessToken) {
     throw new Error('No access token found for Notion integration');
@@ -320,10 +322,11 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
     source?: 'fireflies' | 'internal' | 'all';
     projectColumn?: string; // Dynamic column name for project relation
   };
-  
-  const accessToken = workflow.integration.credentials.find(
+
+  const credential = workflow.integration.credentials.find(
     (c: any) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
-  )?.key;
+  );
+  const accessToken = credential ? getDecryptedKey(credential) : null;
 
   if (!accessToken) {
     throw new Error('No access token found for Notion integration');
@@ -1132,9 +1135,10 @@ export const workflowRouter = createTRPCRouter({
             source?: 'fireflies' | 'internal' | 'all';
           };
           
-          const apiKey = workflow.integration.credentials.find(
+          const apiKeyCredential = workflow.integration.credentials.find(
             c => c.keyType.toUpperCase() === 'API_KEY'
-          )?.key;
+          );
+          const apiKey = apiKeyCredential ? getDecryptedKey(apiKeyCredential) : null;
 
           if (!apiKey) {
             throw new Error('No API key found for Monday.com integration');
@@ -1833,9 +1837,10 @@ export const workflowRouter = createTRPCRouter({
       }
 
       // Get access token
-      const accessToken = workflow.integration.credentials.find(
+      const credential = workflow.integration.credentials.find(
         (c: any) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
-      )?.key;
+      );
+      const accessToken = credential ? getDecryptedKey(credential) : null;
 
       if (!accessToken) {
         throw new TRPCError({
@@ -1884,9 +1889,10 @@ export const workflowRouter = createTRPCRouter({
         });
       }
 
-      const accessToken = integration.credentials.find(
+      const integrationCredential = integration.credentials.find(
         (c) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
-      )?.key;
+      );
+      const accessToken = integrationCredential ? getDecryptedKey(integrationCredential) : null;
 
       if (!accessToken) {
         throw new TRPCError({
@@ -2063,9 +2069,10 @@ export const workflowRouter = createTRPCRouter({
       }
 
       // Get access token
-      const accessToken = workflow.integration.credentials.find(
+      const unlinkedCredential = workflow.integration.credentials.find(
         (c: { keyType: string }) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
-      )?.key;
+      );
+      const accessToken = unlinkedCredential ? getDecryptedKey(unlinkedCredential) : null;
 
       if (!accessToken) {
         throw new TRPCError({
