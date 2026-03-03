@@ -340,6 +340,15 @@ export const mastraRouter = createTRPCRouter({
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Invalid agent: ${agentId}` });
       }
 
+      // Look up user's Slack identity for mention/unread tools
+      const slackMapping = await ctx.db.integrationUserMapping.findFirst({
+        where: {
+          userId: ctx.session.user.id,
+          integration: { provider: "slack" },
+        },
+        select: { externalUserId: true },
+      });
+
       const res = await fetch(
         `${MASTRA_API_URL}/api/agents/${agentId}/generate`,
         {
@@ -356,6 +365,7 @@ export const mastraRouter = createTRPCRouter({
               userEmail: ctx.session.user.email,
               todoAppBaseUrl,
               ...workspaceContext,
+              ...(slackMapping ? { slackUserId: slackMapping.externalUserId } : {}),
             }
           }),
         }

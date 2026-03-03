@@ -124,6 +124,20 @@ export async function POST(req: Request) {
     if (projectId) {
       entries.push(["projectId", projectId]);
     }
+
+    // Look up user's Slack identity from IntegrationUserMapping
+    // so agents can check Slack mentions/unreads for this user
+    const slackMapping = await db.integrationUserMapping.findFirst({
+      where: {
+        userId: session.user.id,
+        integration: { provider: "slack" },
+      },
+      select: { externalUserId: true },
+    });
+    if (slackMapping) {
+      entries.push(["slackUserId", slackMapping.externalUserId]);
+    }
+
     // If an assistantId is provided, fetch the custom personality and inject it
     if (assistantId) {
       const assistant = await db.assistant.findUnique({
