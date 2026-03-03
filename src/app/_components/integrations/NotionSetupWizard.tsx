@@ -26,6 +26,7 @@ import {
   IconPlus,
   IconExternalLink,
   IconArrowDown,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
@@ -114,6 +115,8 @@ export function NotionSetupWizard({
   const {
     data: databases = [],
     isLoading: isLoadingDatabases,
+    refetch: refetchDatabases,
+    isFetching: isFetchingDatabases,
   } = api.integration.getNotionDatabases.useQuery(
     { integrationId: selectedIntegrationId ?? "" },
     { enabled: !!selectedIntegrationId },
@@ -381,15 +384,41 @@ export function NotionSetupWizard({
                 searchable
               />
             ) : (
-              <Alert
-                icon={<IconAlertCircle size={16} />}
-                title="No Databases Found"
-                color="orange"
-                variant="light"
-              >
-                No databases were found in this Notion workspace. Make sure the
-                integration has access to your databases.
-              </Alert>
+              <Stack gap="sm">
+                <Alert
+                  icon={<IconAlertCircle size={16} />}
+                  title="No Databases Found"
+                  color="orange"
+                  variant="light"
+                >
+                  <Stack gap="xs">
+                    <Text size="sm">
+                      The integration doesn&apos;t have access to any databases
+                      yet. To fix this:
+                    </Text>
+                    <Text size="sm" component="ol" style={{ paddingLeft: 16 }}>
+                      <li>Open a database in Notion</li>
+                      <li>
+                        Click <strong>&hellip;</strong> (top-right) &rarr;{" "}
+                        <strong>Connections</strong>
+                      </li>
+                      <li>Add the Exponential integration</li>
+                    </Text>
+                    <Text size="sm">
+                      Then click &ldquo;Refresh&rdquo; below to reload.
+                    </Text>
+                  </Stack>
+                </Alert>
+                <Button
+                  variant="light"
+                  size="xs"
+                  leftSection={<IconRefresh size={14} />}
+                  loading={isFetchingDatabases}
+                  onClick={() => void refetchDatabases()}
+                >
+                  Refresh databases
+                </Button>
+              </Stack>
             )}
 
             {selectedDatabase && (

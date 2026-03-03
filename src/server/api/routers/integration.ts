@@ -7,7 +7,7 @@ import {
 import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
-import { encryptCredential } from "~/server/utils/credentialHelper";
+import { encryptCredential, getDecryptedKey } from "~/server/utils/credentialHelper";
 import { UserEmailService, detectProviderSettings, userEmailService } from "~/server/services/UserEmailService";
 
 // Test Fireflies API connection
@@ -121,10 +121,12 @@ async function fetchNotionDatabases(
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error(`[Notion] Database search failed: HTTP ${response.status}`, errorText);
       return { success: false, error: `HTTP ${response.status}: ${errorText}` };
     }
 
     const data = await response.json();
+    console.log(`[Notion] Database search returned ${data.results?.length ?? 0} results`);
 
     // Fetch properties for each database
     const databasesWithProperties = await Promise.all(
@@ -436,7 +438,7 @@ export const integrationRouter = createTRPCRouter({
         },
         include: {
           credentials: {
-            select: { key: true, keyType: true },
+            select: { key: true, keyType: true, isEncrypted: true },
           },
         },
       });
@@ -462,7 +464,15 @@ export const integrationRouter = createTRPCRouter({
         });
       }
 
-      const result = await fetchNotionDatabases(tokenCredential.key);
+      const accessToken = getDecryptedKey(tokenCredential);
+      if (!accessToken) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to decrypt Notion access token",
+        });
+      }
+
+      const result = await fetchNotionDatabases(accessToken);
 
       if (!result.success) {
         throw new TRPCError({
@@ -1922,7 +1932,15 @@ export const integrationRouter = createTRPCRouter({
           });
         }
 
-        const result = await testFirefliesConnection(apiKeyCredential.key);
+        const apiKey = getDecryptedKey(apiKeyCredential);
+        if (!apiKey) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to decrypt API key",
+          });
+        }
+
+        const result = await testFirefliesConnection(apiKey);
         return {
           success: result.success,
           error: result.error,
@@ -1941,7 +1959,15 @@ export const integrationRouter = createTRPCRouter({
           });
         }
 
-        const result = await testSlackConnection(botTokenCredential.key);
+        const botToken = getDecryptedKey(botTokenCredential);
+        if (!botToken) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to decrypt Slack bot token",
+          });
+        }
+
+        const result = await testSlackConnection(botToken);
         return {
           success: result.success,
           error: result.error,
@@ -1961,7 +1987,15 @@ export const integrationRouter = createTRPCRouter({
           });
         }
 
-        const result = await testNotionConnection(accessTokenCredential.key);
+        const notionAccessToken = getDecryptedKey(accessTokenCredential);
+        if (!notionAccessToken) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to decrypt Notion access token",
+          });
+        }
+
+        const result = await testNotionConnection(notionAccessToken);
         if (!result.success) {
           return {
             success: result.success,
