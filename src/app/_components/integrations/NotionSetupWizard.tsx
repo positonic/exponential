@@ -185,6 +185,8 @@ export function NotionSetupWizard({
       projectId: project.id,
       integrationId: selectedIntegrationId,
       databaseId: selectedDatabaseId,
+      databaseName: selectedDatabase?.title,
+      notionWorkspaceName: selectedConnection?.notionWorkspaceName ?? undefined,
       syncDirection,
       syncFrequency,
     });

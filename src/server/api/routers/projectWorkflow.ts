@@ -5,6 +5,7 @@ import { notionSyncService } from "~/server/services/notion-sync";
 import { mondaySyncService } from "~/server/services/monday-sync";
 import { MondayService } from "~/server/services/MondayService";
 import { encryptCredential } from "~/server/utils/credentialHelper";
+import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 
 // Define the workflow template structure (hardcoded templates)
 const WORKFLOW_TEMPLATES = {
@@ -309,25 +310,18 @@ export const projectWorkflowRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      // Verify project access
-      const project = await ctx.db.project.findUnique({
-        where: {
-          id: input.projectId,
-          createdById: ctx.session.user.id,
-        },
-      });
-
-      if (!project) {
+      // Verify project access using centralized access control
+      const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!hasProjectAccess(projectAccess)) {
         throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found or access denied",
+          code: "FORBIDDEN",
+          message: "You do not have access to this project",
         });
       }
 
       const workflows = await ctx.db.workflow.findMany({
         where: {
           projectId: input.projectId,
-          userId: ctx.session.user.id,
         },
         include: {
           runs: {
@@ -480,18 +474,12 @@ export const projectWorkflowRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify project access
-      const project = await ctx.db.project.findUnique({
-        where: {
-          id: input.projectId,
-          createdById: ctx.session.user.id,
-        },
-      });
-
-      if (!project) {
+      // Verify project access using centralized access control
+      const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!hasProjectAccess(projectAccess)) {
         throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found or access denied",
+          code: "FORBIDDEN",
+          message: "You do not have access to this project",
         });
       }
 

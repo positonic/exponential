@@ -32,6 +32,9 @@ import {
   IconBrandSlack,
   IconRefresh,
   IconFolder,
+  IconDatabase,
+  IconArrowsLeftRight,
+  IconClock,
 } from "@tabler/icons-react";
 import { useDisclosure } from "@mantine/hooks";
 import { useForm } from "@mantine/form";
@@ -437,6 +440,48 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                       </ActionIcon>
                     </Group>
 
+                    {/* Configuration Summary */}
+                    {integration.config && (
+                      <Paper p="sm" radius="sm" className="bg-surface-secondary">
+                        <Group gap="lg" wrap="wrap">
+                          {(integration.config.databaseName ?? integration.config.databaseId) && (
+                            <Group gap="xs">
+                              <IconDatabase size={14} className="text-text-muted" />
+                              <Text size="sm">
+                                {integration.config.databaseName ?? integration.config.databaseId}
+                              </Text>
+                            </Group>
+                          )}
+                          {integration.config.syncDirection && (
+                            <Group gap="xs">
+                              <IconArrowsLeftRight size={14} className="text-text-muted" />
+                              <Text size="sm">
+                                {integration.config.syncDirection === 'pull' ? 'Pull from Notion' :
+                                 integration.config.syncDirection === 'push' ? 'Push to Notion' :
+                                 'Bidirectional'}
+                              </Text>
+                            </Group>
+                          )}
+                          {integration.config.syncFrequency && (
+                            <Group gap="xs">
+                              <IconClock size={14} className="text-text-muted" />
+                              <Text size="sm" tt="capitalize">
+                                {integration.config.syncFrequency}
+                              </Text>
+                            </Group>
+                          )}
+                          {integration.config.notionWorkspaceName && (
+                            <Group gap="xs">
+                              <IconBrandNotion size={14} className="text-text-muted" />
+                              <Text size="sm">
+                                {integration.config.notionWorkspaceName}
+                              </Text>
+                            </Group>
+                          )}
+                        </Group>
+                      </Paper>
+                    )}
+
                     {/* Action Buttons Row */}
                     <Group gap="xs">
                       <Button
@@ -472,7 +517,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                     {/* Expandable Details */}
                     <Collapse in={isExpanded}>
                       <Stack gap="md" pt="sm">
-                        <Alert 
+                        <Alert
                           icon={<IconCheck size={16} />}
                           title="Integration Active"
                           color="green"
@@ -481,14 +526,14 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                           This integration is configured and ready to sync data.
                         </Alert>
 
-                        {/* Configuration Details */}
+                        {/* Advanced Configuration Details */}
                         {integration.config && (
-                          <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800/50">
-                            <Text size="sm" fw={500} mb="xs">Current Configuration:</Text>
+                          <Paper p="sm" radius="sm" className="bg-surface-secondary">
+                            <Text size="sm" fw={500} mb="xs">Advanced Details:</Text>
                             <Stack gap="xs">
                               {integration.config.workflowId && (
                                 <Text size="xs" c="dimmed">
-                                  Workflow: {workflows.find(w => w.id === integration.config.workflowId)?.name || 'Unknown'}
+                                  Workflow: {workflows.find(w => w.id === integration.config.workflowId)?.name ?? 'Unknown'}
                                 </Text>
                               )}
                               {integration.config.databaseId && (

@@ -8,6 +8,7 @@ import {
   type WorkflowWithCredentials,
   type WorkflowConfig,
 } from "~/server/services/sync";
+import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 
 // Helper function for Notion pull sync
 async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletionBehavior?: string, projectId?: string) {
@@ -842,6 +843,8 @@ export const workflowRouter = createTRPCRouter({
       projectId: z.string(),
       integrationId: z.string(),
       databaseId: z.string(),
+      databaseName: z.string().optional(),
+      notionWorkspaceName: z.string().optional(),
       syncDirection: z.enum(['pull', 'push', 'bidirectional']),
       syncFrequency: z.enum(['manual', 'hourly', 'daily']),
     }))
@@ -910,6 +913,8 @@ export const workflowRouter = createTRPCRouter({
             workflowId: workflow.id,
             integrationId: input.integrationId,
             databaseId: input.databaseId,
+            databaseName: input.databaseName,
+            notionWorkspaceName: input.notionWorkspaceName,
             syncDirection: input.syncDirection,
             syncFrequency: input.syncFrequency,
             syncStrategy: input.syncDirection === 'pull' ? 'notion_canonical' : 'manual',
@@ -977,7 +982,6 @@ export const workflowRouter = createTRPCRouter({
       const workflow = await ctx.db.workflow.findUnique({
         where: {
           id: input.id,
-          userId: ctx.session.user.id,
         },
         include: {
           integration: {
@@ -998,8 +1002,19 @@ export const workflowRouter = createTRPCRouter({
       if (!workflow) {
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: 'Workflow not found or access denied',
+          message: 'Workflow not found',
         });
+      }
+
+      // Verify user has access to the workflow's project
+      if (workflow.projectId) {
+        const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, workflow.projectId);
+        if (!hasProjectAccess(projectAccess)) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You do not have access to this project',
+          });
+        }
       }
 
       return workflow;
@@ -1018,7 +1033,6 @@ export const workflowRouter = createTRPCRouter({
       const workflow = await ctx.db.workflow.findUnique({
         where: {
           id: input.id,
-          userId: ctx.session.user.id,
         },
         include: {
           integration: {
@@ -1032,8 +1046,19 @@ export const workflowRouter = createTRPCRouter({
       if (!workflow) {
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: 'Workflow not found or access denied',
+          message: 'Workflow not found',
         });
+      }
+
+      // Verify user has access to the workflow's project
+      if (workflow.projectId) {
+        const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, workflow.projectId);
+        if (!hasProjectAccess(projectAccess)) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You do not have access to this project',
+          });
+        }
       }
 
       if (workflow.status !== 'ACTIVE') {
@@ -1598,18 +1623,26 @@ export const workflowRouter = createTRPCRouter({
       actionIds: z.array(z.string()).optional(), // Optional specific action IDs to sync
     }))
     .mutation(async ({ ctx, input }) => {
+      // Verify project access using centralized access control
+      const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!hasProjectAccess(projectAccess)) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You do not have access to this project',
+        });
+      }
+
       // Get the project with its task management configuration
       const project = await ctx.db.project.findUnique({
         where: {
           id: input.projectId,
-          createdById: ctx.session.user.id,
         },
       });
 
       if (!project) {
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: 'Project not found or access denied',
+          message: 'Project not found',
         });
       }
 
@@ -1630,10 +1663,10 @@ export const workflowRouter = createTRPCRouter({
 
       const syncStrategy = config.syncStrategy || 'manual';
 
-      // Get available workflows with integration credentials
+      // Get available workflows with integration credentials for this project
       const workflows = await ctx.db.workflow.findMany({
         where: {
-          userId: ctx.session.user.id,
+          projectId: input.projectId,
           provider: project.taskManagementTool,
           status: 'ACTIVE',
         },
@@ -1758,7 +1791,6 @@ export const workflowRouter = createTRPCRouter({
       const workflow = await ctx.db.workflow.findFirst({
         where: {
           id: input.workflowId,
-          userId: ctx.session.user.id,
           provider: 'notion',
           status: 'ACTIVE',
         },
@@ -1776,6 +1808,17 @@ export const workflowRouter = createTRPCRouter({
           code: 'NOT_FOUND',
           message: 'Workflow not found',
         });
+      }
+
+      // Verify user has access to the workflow's project
+      if (workflow.projectId) {
+        const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, workflow.projectId);
+        if (!hasProjectAccess(projectAccess)) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You do not have access to this project',
+          });
+        }
       }
 
       const config = workflow.config as { 
@@ -1981,7 +2024,6 @@ export const workflowRouter = createTRPCRouter({
       const workflow = await ctx.db.workflow.findFirst({
         where: {
           id: input.workflowId,
-          userId: ctx.session.user.id,
           provider: 'notion',
           status: 'ACTIVE',
         },
@@ -1999,6 +2041,17 @@ export const workflowRouter = createTRPCRouter({
           code: 'NOT_FOUND',
           message: 'Workflow not found',
         });
+      }
+
+      // Verify user has access to the workflow's project
+      if (workflow.projectId) {
+        const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, workflow.projectId);
+        if (!hasProjectAccess(projectAccess)) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You do not have access to this project',
+          });
+        }
       }
 
       const config = workflow.config as {
