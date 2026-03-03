@@ -222,7 +222,9 @@ export class SlackChannelResolver {
             // User is a member of the project's team
             { team: { members: { some: { userId } } } },
             // User is a direct project member
-            { projectMembers: { some: { userId } } }
+            { projectMembers: { some: { userId } } },
+            // User is a member of the project's workspace
+            { workspace: { members: { some: { userId } } } }
           ]
         }
       });

@@ -124,6 +124,56 @@ export default function InviteAcceptPage() {
     );
   }
 
+  if (!invitation.isLoggedIn) {
+    return (
+      <Container size="sm" className="py-16">
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Stack gap="lg" className="py-4">
+            <Stack gap="md" align="center">
+              <Avatar size="xl" color="brand" radius="xl">
+                {invitation.workspace.name.charAt(0).toUpperCase()}
+              </Avatar>
+              <div className="text-center">
+                <Title order={2} className="text-text-primary">
+                  Join {invitation.workspace.name}
+                </Title>
+                <Text className="text-text-secondary mt-1">
+                  You&apos;ve been invited to join this workspace as a{" "}
+                  <Badge
+                    color={invitation.role === "admin" ? "blue" : "green"}
+                    component="span"
+                  >
+                    {invitation.role}
+                  </Badge>
+                </Text>
+              </div>
+            </Stack>
+
+            <Alert color="blue" icon={<IconMail size={16} />}>
+              <Text size="sm" className="text-text-primary">
+                Sign in or create an account with{" "}
+                <strong>{invitation.email}</strong> to accept this invitation.
+              </Text>
+            </Alert>
+
+            <Group justify="center">
+              <Button
+                onClick={() =>
+                  router.push(
+                    `/signin?callbackUrl=${encodeURIComponent(`/invite/${token}`)}`
+                  )
+                }
+                leftSection={<IconCheck size={16} />}
+              >
+                Sign In to Accept
+              </Button>
+            </Group>
+          </Stack>
+        </Card>
+      </Container>
+    );
+  }
+
   if (!invitation.isForCurrentUser) {
     return (
       <Container size="sm" className="py-16">

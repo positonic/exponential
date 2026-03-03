@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership, buildWorkspaceAccessWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
@@ -981,7 +981,7 @@ export const workspaceRouter = createTRPCRouter({
   }),
 
   // Get invitation details by token (public info for accept page)
-  getInvitationByToken: protectedProcedure
+  getInvitationByToken: publicProcedure
     .input(z.object({ token: z.string() }))
     .query(async ({ ctx, input }) => {
       const invitation = await ctx.db.workspaceInvitation.findUnique({
@@ -1006,7 +1006,8 @@ export const workspaceRouter = createTRPCRouter({
       return {
         ...invitation,
         isExpired: invitation.expiresAt < new Date(),
-        isForCurrentUser: invitation.email === ctx.session.user.email,
+        isLoggedIn: !!ctx.session?.user,
+        isForCurrentUser: invitation.email === ctx.session?.user?.email,
       };
     }),
 

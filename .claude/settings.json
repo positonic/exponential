@@ -3,10 +3,13 @@
     "allow": [
       "Bash(exponential *)",
       "mcp__serena__find_symbol",
-      "mcp__serena__search_for_pattern"
+      "mcp__serena__search_for_pattern",
+      "Read(//Users/james/code/exponential/**)",
+      "mcp__serena__get_symbols_overview"
     ],
     "additionalDirectories": [
-      "/tmp"
+      "/tmp",
+      "/Users/james/code/mastra/src/mastra/tools"
     ]
   },
   "hooks": {
