@@ -20,6 +20,7 @@ import {
   IconMail,
 } from "@tabler/icons-react";
 import { useParams, useRouter } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { api } from "~/trpc/react";
 
 export default function InviteAcceptPage() {
@@ -187,7 +188,14 @@ export default function InviteAcceptPage() {
               This invitation was sent to <strong>{invitation.email}</strong>.
               Please sign in with that email address to accept.
             </Text>
-            <Button variant="light" onClick={() => router.push("/signin")}>
+            <Button
+              variant="light"
+              onClick={() =>
+                signOut({
+                  callbackUrl: `/signin?callbackUrl=${encodeURIComponent(`/invite/${token}`)}`,
+                })
+              }
+            >
               Sign In with Different Account
             </Button>
           </Stack>
