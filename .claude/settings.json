@@ -5,7 +5,10 @@
       "mcp__serena__find_symbol",
       "mcp__serena__search_for_pattern",
       "Read(//Users/james/code/exponential/**)",
-      "mcp__serena__get_symbols_overview"
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__initial_instructions",
+      "mcp__serena__activate_project",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=8192\" npx next lint)"
     ],
     "additionalDirectories": [
       "/tmp",

@@ -7,6 +7,7 @@ import {
   generateSecureToken,
   generateInviteUrl,
 } from "~/server/utils/tokens";
+import { sendTeamInvitationEmail } from "~/server/services/EmailService";
 
 export const workspaceRouter = createTRPCRouter({
   // API endpoint for browser extension - uses API key authentication
@@ -484,10 +485,28 @@ export const workspaceRouter = createTRPCRouter({
           },
         });
 
+        const inviteUrl = generateInviteUrl(token);
+
+        // Fetch workspace name for email
+        const workspace = await ctx.db.workspace.findUnique({
+          where: { id: input.workspaceId },
+          select: { name: true },
+        });
+
+        // Fire-and-forget: send invitation email
+        sendTeamInvitationEmail({
+          to: input.email,
+          teamName: workspace?.name ?? "a workspace",
+          inviterName: ctx.session.user.name ?? ctx.session.user.email ?? "A workspace member",
+          inviteUrl,
+        }).catch((err: unknown) => {
+          console.error("[workspace.addMember] Failed to send invitation email:", err);
+        });
+
         return {
           type: "invitation_created" as const,
           invitation,
-          inviteUrl: generateInviteUrl(token),
+          inviteUrl,
         };
       }
     }),
@@ -876,9 +895,27 @@ export const workspaceRouter = createTRPCRouter({
         },
       });
 
+      const inviteUrl = generateInviteUrl(newToken);
+
+      // Fetch workspace name for email
+      const workspace = await ctx.db.workspace.findUnique({
+        where: { id: invitation.workspaceId },
+        select: { name: true },
+      });
+
+      // Fire-and-forget: send invitation email
+      sendTeamInvitationEmail({
+        to: invitation.email,
+        teamName: workspace?.name ?? "a workspace",
+        inviterName: ctx.session.user.name ?? ctx.session.user.email ?? "A workspace member",
+        inviteUrl,
+      }).catch((err: unknown) => {
+        console.error("[workspace.resendInvitation] Failed to send invitation email:", err);
+      });
+
       return {
         invitation: updated,
-        inviteUrl: generateInviteUrl(newToken),
+        inviteUrl,
       };
     }),
 
