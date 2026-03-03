@@ -141,7 +141,7 @@ export class WorkflowExecutorFactory {
    */
   private static getService(workflow: WorkflowWithCredentials): IIntegrationService {
     const accessToken = workflow.integration.credentials.find(
-      c => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+      c => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
     )?.key;
 
     if (!accessToken) {

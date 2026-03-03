@@ -18,7 +18,7 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
     projectColumn?: string; // Dynamic column name for project relation
   };
   const accessToken = workflow.integration.credentials.find(
-    (c: any) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+    (c: any) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
   )?.key;
 
   if (!accessToken) {
@@ -322,7 +322,7 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
   };
   
   const accessToken = workflow.integration.credentials.find(
-    (c: any) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+    (c: any) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
   )?.key;
 
   if (!accessToken) {
@@ -1133,7 +1133,7 @@ export const workflowRouter = createTRPCRouter({
           };
           
           const apiKey = workflow.integration.credentials.find(
-            c => c.keyType === 'API_KEY'
+            c => c.keyType.toUpperCase() === 'API_KEY'
           )?.key;
 
           if (!apiKey) {
@@ -1834,7 +1834,7 @@ export const workflowRouter = createTRPCRouter({
 
       // Get access token
       const accessToken = workflow.integration.credentials.find(
-        (c: any) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+        (c: any) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
       )?.key;
 
       if (!accessToken) {
@@ -1885,7 +1885,7 @@ export const workflowRouter = createTRPCRouter({
       }
 
       const accessToken = integration.credentials.find(
-        (c) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+        (c) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
       )?.key;
 
       if (!accessToken) {
@@ -2064,7 +2064,7 @@ export const workflowRouter = createTRPCRouter({
 
       // Get access token
       const accessToken = workflow.integration.credentials.find(
-        (c: { keyType: string }) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
+        (c: { keyType: string }) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
       )?.key;
 
       if (!accessToken) {
