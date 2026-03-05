@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Modal, Drawer, Menu, ActionIcon, Tooltip, Avatar } from '@mantine/core';
-import { IconPlus, IconFolder, IconChevronDown, IconBuilding, IconHistory, IconArrowsMaximize, IconArrowsMinimize } from '@tabler/icons-react';
+import { IconPlus, IconFolder, IconChevronDown, IconBuilding, IconHistory, IconArrowsMaximize, IconArrowsMinimize, IconX } from '@tabler/icons-react';
 import { useAgentModal, type ChatMessage, type ChatDisplayMode } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
@@ -25,6 +25,7 @@ function AgentChatModalHeader({
   onSelectConversation,
   displayMode,
   onToggleDisplayMode,
+  onClose,
 }: {
   activeAgentName: string;
   onSelectAgent: (name: string) => void;
@@ -32,6 +33,7 @@ function AgentChatModalHeader({
   onSelectConversation: (convId: string) => void;
   displayMode: ChatDisplayMode;
   onToggleDisplayMode: () => void;
+  onClose: () => void;
 }) {
   const { isOpen, workspaceId: overrideWorkspaceId, setWorkspaceId, projectId, setProjectId, conversationId, clearChat } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
@@ -254,6 +256,18 @@ function AgentChatModalHeader({
             {displayMode === 'panel' ? <IconArrowsMaximize size={16} /> : <IconArrowsMinimize size={16} />}
           </ActionIcon>
         </Tooltip>
+
+        {/* Close button */}
+        <Tooltip label="Close" position="bottom">
+          <ActionIcon
+            variant="subtle"
+            size="sm"
+            onClick={onClose}
+            className="text-text-secondary hover:text-text-primary"
+          >
+            <IconX size={16} />
+          </ActionIcon>
+        </Tooltip>
       </div>
     </div>
   );
@@ -336,6 +350,7 @@ export function AgentChatModal() {
       onSelectConversation={handleSelectConversation}
       displayMode={displayMode}
       onToggleDisplayMode={toggleDisplayMode}
+      onClose={closeModal}
     />
   ) : null;
 
