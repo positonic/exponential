@@ -63,6 +63,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
         status: "PENDING",
       },
       update: {
+        userId: ctx.session.user.id, // Always ensure correct ownership on reconnect
         status: "PENDING",
         connectedAt: null,
       },
