@@ -402,10 +402,7 @@ export function ActionList({
     }
   };
 
-  // --- Filtering Logic --- 
-  console.log("[ActionList] Initial Actions Prop:", actions);
-  console.log("[ActionList] ViewName Prop:", viewName);
-  console.log("[ActionList] Filter State:", filter);
+  // --- Filtering Logic ---
 
   const today = new Date();
   today.setHours(0, 0, 0, 0); // Normalize today to the start of the day
@@ -417,24 +414,6 @@ export function ActionList({
     normalizedScheduledDate.setHours(0, 0, 0, 0);
     return normalizedScheduledDate < today;
   }).sort(sortByPriority);
-  console.log("[ActionList] Calculated Overdue Actions:", overdueActions);
-  
-  // Debug log for overdue actions with selection context
-  console.log('🔧 [SELECTION DEBUG] Overdue actions analysis:', {
-    viewName,
-    totalActions: actions.length,
-    overdueCount: overdueActions.length,
-    bulkEditEnabled: enableBulkEditForOverdue,
-    hasRescheduleCallback: !!onOverdueBulkReschedule,
-    overdueActions: overdueActions.map(action => ({
-      id: action.id,
-      name: action.name,
-      dueDate: action.dueDate?.toISOString(),
-      priority: action.priority
-    })),
-    currentSelection: Array.from(selectedOverdueActionIds)
-  });
-
   // Create a Set of overdue action IDs for quick lookup
   const overdueActionIds = new Set(overdueActions.map(a => a.id));
 
@@ -480,8 +459,6 @@ export function ActionList({
           return true; // Show all non-overdue if viewName doesn't match known types
       }
     });
-    console.log("[ActionList] View Filtered (Pre-Status):", viewFilteredPreStatus);
-
     // Then filter by status (ACTIVE/COMPLETED) and sort accordingly
     const finalFiltered = viewFilteredPreStatus
       .filter((action) => action.status === filter)
@@ -503,7 +480,6 @@ export function ActionList({
         // For active actions, sort by priority
         return sortByPriority(a, b);
       });
-    console.log("[ActionList] Final Filtered Actions:", finalFiltered);
     return finalFiltered;
   })();
   // --- End Filtering Logic ---
@@ -511,21 +487,10 @@ export function ActionList({
   // Helper functions for overdue bulk operations
   const handleSelectAllOverdue = () => {
     const allOverdueIds = overdueActions.map(action => action.id);
-    console.log('🔧 [SELECTION DEBUG] Select All Overdue clicked:', {
-      overdueCount: overdueActions.length,
-      overdueIds: allOverdueIds,
-      previousSelectionSize: selectedOverdueActionIds.size
-    });
-    
     setSelectedOverdueActionIds(new Set(allOverdueIds));
   };
 
   const handleSelectNoneOverdue = () => {
-    console.log('🔧 [SELECTION DEBUG] Select None Overdue clicked:', {
-      previousSelectionSize: selectedOverdueActionIds.size,
-      clearedIds: Array.from(selectedOverdueActionIds)
-    });
-    
     setSelectedOverdueActionIds(new Set());
   };
 
@@ -539,39 +504,10 @@ export function ActionList({
   };
 
   const handleOverdueBulkReschedule = (date: Date | null) => {
-    console.log('🔧 [SELECTION DEBUG] handleOverdueBulkReschedule called:', {
-      date: date?.toISOString() || null,
-      selectedCount: selectedOverdueActionIds.size,
-      selectedIds: Array.from(selectedOverdueActionIds),
-      hasCallback: !!onOverdueBulkReschedule,
-      timestamp: new Date().toISOString()
-    });
+    if (selectedOverdueActionIds.size === 0) return;
+    if (!onOverdueBulkReschedule) return;
 
-    if (selectedOverdueActionIds.size === 0) {
-      console.log('🔧 [SELECTION DEBUG] No actions selected - returning early');
-      return;
-    }
-
-    if (!onOverdueBulkReschedule) {
-      console.log('🔧 [SELECTION DEBUG] No onOverdueBulkReschedule callback provided - returning early');
-      return;
-    }
-
-    // Log the actual actions being rescheduled
-    const selectedActions = overdueActions.filter(action => selectedOverdueActionIds.has(action.id));
-    console.log('🔧 [SELECTION DEBUG] Selected actions details:', {
-      selectedActions: selectedActions.map(action => ({
-        id: action.id,
-        name: action.name,
-        currentDueDate: action.dueDate?.toISOString() || null,
-        priority: action.priority
-      }))
-    });
-    
-    console.log('🔧 [SELECTION DEBUG] Calling onOverdueBulkReschedule...');
     onOverdueBulkReschedule(date, Array.from(selectedOverdueActionIds));
-    
-    console.log('🔧 [SELECTION DEBUG] Clearing selection state');
     setSelectedOverdueActionIds(new Set());
   };
 
