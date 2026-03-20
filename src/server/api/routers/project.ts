@@ -828,11 +828,16 @@ export const projectRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.id);
+      if (!canEditProject(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have edit access to this project",
+        });
+      }
+
       return ctx.db.project.update({
-        where: {
-          id: input.id,
-          createdById: ctx.session.user.id,
-        },
+        where: { id: input.id },
         data: {
           taskManagementTool: input.taskManagementTool,
           taskManagementConfig: input.taskManagementConfig,
