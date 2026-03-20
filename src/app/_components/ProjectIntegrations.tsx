@@ -103,6 +103,10 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const [slackConfigExpanded, setSlackConfigExpanded] = useState(false);
   const [selectedNotionProjectId, setSelectedNotionProjectId] = useState<string>(project.notionProjectId ?? '');
   const [selectedSyncStrategy, setSelectedSyncStrategy] = useState<string>(project.taskManagementConfig?.syncStrategy ?? 'manual');
+  const [mondayConfigOpened, { open: openMondayConfig, close: closeMondayConfig }] = useDisclosure(false);
+  const [mondayBoardId, setMondayBoardId] = useState<string>(project.taskManagementConfig?.boardId ?? '');
+  const [mondaySyncDirection, setMondaySyncDirection] = useState<string>(project.taskManagementConfig?.syncDirection ?? 'push');
+  const [mondaySyncFrequency, setMondaySyncFrequency] = useState<string>(project.taskManagementConfig?.syncFrequency ?? 'manual');
   const searchParams = useSearchParams();
 
   // Auto-open Notion wizard after OAuth redirect
@@ -322,6 +326,30 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
     closeConfigureProjectModal();
   };
 
+  // Save Monday.com configuration handler
+  const handleSaveMondayConfig = async () => {
+    if (!mondayBoardId.trim()) {
+      notifications.show({
+        title: 'Error',
+        message: 'Please enter a board ID',
+        color: 'red',
+      });
+      return;
+    }
+
+    await updateTaskManagement.mutateAsync({
+      id: project.id,
+      taskManagementTool: 'monday',
+      taskManagementConfig: {
+        ...project.taskManagementConfig,
+        boardId: mondayBoardId.trim(),
+        syncDirection: mondaySyncDirection,
+        syncFrequency: mondaySyncFrequency,
+      },
+    });
+    closeMondayConfig();
+  };
+
   // Get configured integrations for this project
   const getConfiguredIntegrations = () => {
     const configured = [];
@@ -495,6 +523,21 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                       >
                         Sync
                       </Button>
+                      {integration.id === 'monday' && (
+                        <Button
+                          size="sm"
+                          variant="light"
+                          leftSection={<IconSettings size={14} />}
+                          onClick={() => {
+                            setMondayBoardId(integration.config?.boardId ?? '');
+                            setMondaySyncDirection(integration.config?.syncDirection ?? 'push');
+                            setMondaySyncFrequency(integration.config?.syncFrequency ?? 'manual');
+                            openMondayConfig();
+                          }}
+                        >
+                          Configure
+                        </Button>
+                      )}
                       {integration.id === 'notion' && (
                         <>
                           <Button
@@ -1006,6 +1049,62 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
         project={project}
         editMode={notionWizardEditMode}
       />
+
+      {/* Monday.com Configuration Modal */}
+      <Modal
+        opened={mondayConfigOpened}
+        onClose={closeMondayConfig}
+        title="Configure Monday.com Integration"
+        size="md"
+      >
+        <Stack gap="md">
+          <TextInput
+            label="Board ID"
+            description="The Monday.com board ID to sync tasks with"
+            placeholder="e.g. 9693278102"
+            value={mondayBoardId}
+            onChange={(e) => setMondayBoardId(e.currentTarget.value)}
+            required
+          />
+
+          <Select
+            label="Sync Direction"
+            description="Which direction should tasks sync?"
+            data={[
+              { value: 'push', label: 'Push — Send tasks to Monday.com' },
+              { value: 'pull', label: 'Pull — Import tasks from Monday.com' },
+              { value: 'bidirectional', label: 'Bidirectional — Sync both ways' },
+            ]}
+            value={mondaySyncDirection}
+            onChange={(value) => setMondaySyncDirection(value ?? 'push')}
+          />
+
+          <Select
+            label="Sync Frequency"
+            description="How often should tasks sync automatically?"
+            data={[
+              { value: 'manual', label: 'Manual — Only when you click Sync' },
+              { value: 'hourly', label: 'Hourly' },
+              { value: 'daily', label: 'Daily' },
+            ]}
+            value={mondaySyncFrequency}
+            onChange={(value) => setMondaySyncFrequency(value ?? 'manual')}
+          />
+
+          <Group justify="flex-end">
+            <Button variant="light" onClick={closeMondayConfig}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveMondayConfig}
+              loading={updateTaskManagement.isPending}
+              leftSection={<IconCheck size={16} />}
+            >
+              Save Configuration
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       {/* Configure Project Modal */}
       <Modal

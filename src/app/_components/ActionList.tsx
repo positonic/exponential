@@ -689,29 +689,12 @@ export function ActionList({
                 checked={selectedOverdueActionIds.has(action.id)}
                 onChange={(event) => {
                   const isChecked = event.currentTarget.checked;
-                  console.log(`🔧 [SELECTION DEBUG] Checkbox changed for action ${action.id}:`, {
-                    actionId: action.id,
-                    actionName: action.name,
-                    isChecked,
-                    previouslySelected: selectedOverdueActionIds.has(action.id),
-                    currentSelectionSize: selectedOverdueActionIds.size
-                  });
-
                   const newSelected = new Set(selectedOverdueActionIds);
                   if (isChecked) {
                     newSelected.add(action.id);
-                    console.log(`🔧 [SELECTION DEBUG] Added ${action.id} to selection`);
                   } else {
                     newSelected.delete(action.id);
-                    console.log(`🔧 [SELECTION DEBUG] Removed ${action.id} from selection`);
                   }
-
-                  console.log(`🔧 [SELECTION DEBUG] Selection updated:`, {
-                    previousSize: selectedOverdueActionIds.size,
-                    newSize: newSelected.size,
-                    selectedIds: Array.from(newSelected)
-                  });
-
                   setSelectedOverdueActionIds(newSelected);
                 }}
                 onClick={(e) => e.stopPropagation()}

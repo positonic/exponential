@@ -262,96 +262,40 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   // Bulk update mutation for rescheduling
   const bulkUpdateMutation = api.action.update.useMutation({
     onMutate: async ({ id, dueDate }) => {
-      const mutationStartTime = Date.now();
-      console.log(`🔧 [MUTATION DEBUG] onMutate started for action ${id}:`, {
-        actionId: id,
-        newDueDate: dueDate?.toISOString() || null,
-        timestamp: new Date().toISOString()
-      });
-
       // Cancel any outgoing refetches
       await utils.action.getAll.cancel();
-      console.log(`🔧 [MUTATION DEBUG] Cancelled outgoing refetches for action ${id}`);
-      
+
       // Get current data
       const previousData = utils.action.getAll.getData();
-      const currentAction = previousData?.find(action => action.id === id);
-      
-      console.log(`🔧 [MUTATION DEBUG] Current cache state for action ${id}:`, {
-        actionFound: !!currentAction,
-        currentDueDate: currentAction?.dueDate?.toISOString() || null,
-        actionName: currentAction?.name,
-        totalCacheSize: previousData?.length
-      });
-      
+
       // Optimistically update the cache
       if (previousData) {
         utils.action.getAll.setData(undefined, (old) => {
-          if (!old) {
-            console.log(`🔧 [MUTATION DEBUG] No old cache data for action ${id}, returning empty array`);
-            return [];
-          }
-          
-          const updated = old.map((action) =>
+          if (!old) return [];
+          return old.map((action) =>
             action.id === id
               ? { ...action, dueDate: dueDate ?? null }
               : action
           );
-          
-          const updatedAction = updated.find(action => action.id === id);
-          console.log(`🔧 [MUTATION DEBUG] Optimistic update applied for action ${id}:`, {
-            found: !!updatedAction,
-            oldDueDate: currentAction?.dueDate?.toISOString() || null,
-            newDueDate: updatedAction?.dueDate?.toISOString() || null,
-            mutationDuration: Date.now() - mutationStartTime + 'ms'
-          });
-          
-          return updated;
         });
-      } else {
-        console.log(`🔧 [MUTATION DEBUG] No previous data found in cache for action ${id}`);
       }
-      
-      console.log(`🔧 [MUTATION DEBUG] onMutate completed for action ${id}, duration:`, Date.now() - mutationStartTime + 'ms');
-      return { previousData, actionId: id, mutationStartTime };
+
+      return { previousData, actionId: id };
     },
     onError: (err, variables, context) => {
-      const errorTime = Date.now();
-      const duration = context?.mutationStartTime ? errorTime - context.mutationStartTime : 0;
-      
-      console.error(`🔧 [MUTATION DEBUG] onError for action ${variables.id}:`, {
-        error: err.message || 'Unknown error',
-        actionId: variables.id,
-        duration: duration + 'ms',
-        hadPreviousData: !!context?.previousData
-      });
-
       // Rollback on error
       if (context?.previousData) {
         utils.action.getAll.setData(undefined, context.previousData);
-        console.log(`🔧 [MUTATION DEBUG] Rollback completed for action ${variables.id}`);
       }
-      
+
       notifications.show({
         title: 'Update Failed',
-        message: `Failed to update action ${variables.id}: ${err.message || 'Unknown error'}`,
+        message: `Failed to update action ${variables.id}: ${err.message ?? 'Unknown error'}`,
         color: 'red',
       });
     },
-    onSettled: (data, error, variables, context) => {
-      const settledTime = Date.now();
-      const duration = context?.mutationStartTime ? settledTime - context.mutationStartTime : 0;
-      
-      console.log(`🔧 [MUTATION DEBUG] onSettled for action ${variables.id}:`, {
-        success: !error,
-        error: error?.message || null,
-        actionId: variables.id,
-        totalDuration: duration + 'ms',
-        data: data ? { id: data.id, dueDate: data.dueDate?.toISOString() } : null
-      });
-
+    onSettled: (_data, _error, _variables) => {
       // Always refetch after error or success
-      console.log(`🔧 [MUTATION DEBUG] Starting invalidation for action ${variables.id}`);
       void utils.action.getAll.invalidate();
       void utils.action.getToday.invalidate();
       void utils.scoring.getTodayScore.invalidate();
@@ -765,14 +709,6 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         dueDate.getFullYear() === today.getFullYear())
     );
   });
-
-  // Add debugging for filtered outcomes
-  useEffect(() => {
-    console.log('📊 Today outcomes:', todayOutcomes);
-    console.log('📊 Weekly outcomes:', weeklyOutcomes);
-  }, [todayOutcomes, weeklyOutcomes]);
-
-
 
 
   return (
