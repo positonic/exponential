@@ -35,6 +35,7 @@ import {
   IconDatabase,
   IconArrowsLeftRight,
   IconClock,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useDisclosure } from "@mantine/hooks";
 import { useForm } from "@mantine/form";
@@ -332,6 +333,34 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
       console.error('Failed to update workflow:', error);
     },
   });
+
+  // Delete workflow mutation
+  const deleteWorkflow = api.workflow.delete.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Workflow Deleted',
+        message: 'Workflow has been removed.',
+        color: 'green',
+      });
+      void utils.workflow.list.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to delete workflow',
+        color: 'red',
+      });
+    },
+  });
+
+  // Remove integration from project
+  const handleRemoveIntegration = async () => {
+    await updateTaskManagement.mutateAsync({
+      id: project.id,
+      taskManagementTool: 'internal',
+      taskManagementConfig: {},
+    });
+  };
 
   // Save Monday.com configuration handler
   const handleSaveMondayConfig = async () => {
@@ -785,16 +814,75 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
               variant="light"
             >
               <Text size="sm">
-                This project already has a task sync integration configured. To avoid conflicts, 
-                only one task management sync (Notion OR Monday.com) is supported per project.
-              </Text>
-              <Text size="sm" mt="xs">
-                To switch to a different task sync integration, you&apos;ll need to remove the current one first 
-                by changing the task management tool to &quot;Internal&quot; in the integration settings.
+                This project already has a task sync integration configured. 
+                Remove it below to switch to a different one.
               </Text>
             </Alert>
           </Stack>
         ) : null}
+
+        {/* Linked Workflows List */}
+        {workflows.filter(w => w.project?.id === project.id).length > 0 && (
+          <Stack gap="sm">
+            <Text size="sm" fw={500} c="dimmed">Linked Workflows</Text>
+            {workflows.filter(w => w.project?.id === project.id).map((w) => (
+              <Card key={w.id} shadow="sm" padding="sm" radius="md" withBorder>
+                <Group justify="space-between" align="center">
+                  <Stack gap={2}>
+                    <Group gap="xs">
+                      <Text size="sm" fw={500}>{w.name}</Text>
+                      <Badge size="xs" variant="light" color={w.integration?.status === 'ACTIVE' ? 'green' : 'red'}>
+                        {w.integration?.status ?? 'Unknown'}
+                      </Badge>
+                    </Group>
+                    <Group gap="xs">
+                      <Text size="xs" c="dimmed">Provider: {w.integration?.provider ?? w.provider}</Text>
+                      <Text size="xs" c="dimmed">·</Text>
+                      <Text size="xs" c="dimmed">Direction: {(w as any).syncDirection ?? 'push'}</Text>
+                    </Group>
+                    {w.runs?.[0] && (
+                      <Text size="xs" c="dimmed">
+                        Last run: {w.runs[0].status} — {w.runs[0].itemsCreated ?? 0} created, {w.runs[0].itemsUpdated ?? 0} updated
+                        {w.runs[0].errorMessage && ` — Error: ${w.runs[0].errorMessage}`}
+                      </Text>
+                    )}
+                  </Stack>
+                  <ActionIcon
+                    variant="subtle"
+                    color="red"
+                    onClick={() => {
+                      if (confirm('Delete this workflow? This cannot be undone.')) {
+                        deleteWorkflow.mutate({ id: w.id });
+                      }
+                    }}
+                    loading={deleteWorkflow.isPending}
+                    aria-label="Delete workflow"
+                  >
+                    <IconTrash size={16} />
+                  </ActionIcon>
+                </Group>
+              </Card>
+            ))}
+          </Stack>
+        )}
+
+        {/* Remove Integration Button */}
+        {configuredIntegrations.length > 0 && (
+          <Button
+            variant="subtle"
+            color="red"
+            size="sm"
+            leftSection={<IconTrash size={14} />}
+            onClick={() => {
+              if (confirm('Remove the task sync integration from this project? Workflows will not be deleted.')) {
+                void handleRemoveIntegration();
+              }
+            }}
+            loading={updateTaskManagement.isPending}
+          >
+            Remove Task Sync Integration
+          </Button>
+        )}
 
         {/* Slack Notifications Section */}
         {slackIntegrations.length > 0 && (

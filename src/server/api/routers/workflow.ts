@@ -1100,10 +1100,32 @@ export const workflowRouter = createTRPCRouter({
           });
         }
 
+        // Resolve effective sync direction: project config takes precedence over workflow record
+        // This handles cases where the user updated the direction in the config modal
+        // but the workflow DB record wasn't updated (legacy data)
+        let effectiveSyncDirection = workflow.syncDirection;
+        if (input.projectId) {
+          const projectForDirection = await ctx.db.project.findUnique({
+            where: { id: input.projectId },
+            select: { taskManagementConfig: true },
+          });
+          const projConfig = projectForDirection?.taskManagementConfig as { syncDirection?: string } | null;
+          if (projConfig?.syncDirection) {
+            effectiveSyncDirection = projConfig.syncDirection;
+            // Also update the workflow record to stay in sync
+            if (effectiveSyncDirection !== workflow.syncDirection) {
+              await ctx.db.workflow.update({
+                where: { id: workflow.id },
+                data: { syncDirection: effectiveSyncDirection },
+              });
+            }
+          }
+        }
+
         // Legacy sync implementation (existing code)
         // Execute the workflow based on type
         // Only treat as pull if syncDirection is pull AND no overwriteMode is specified
-        if (workflow.provider === 'notion' && workflow.syncDirection === 'pull' && !input.overwriteMode) {
+        if (workflow.provider === 'notion' && effectiveSyncDirection === 'pull' && !input.overwriteMode) {
           // Use the helper function with project context
           const result = await runNotionPullSync(
             ctx, 
@@ -1127,7 +1149,7 @@ export const workflowRouter = createTRPCRouter({
             itemsUpdated: result.itemsUpdated,
             itemsSkipped: result.itemsSkipped,
           };
-        } else if (workflow.provider === 'monday' && workflow.syncDirection === 'pull') {
+        } else if (workflow.provider === 'monday' && effectiveSyncDirection === 'pull') {
           // Monday.com workflow - pull items from Monday.com board as source of truth
           const config = workflow.config as {
             boardId: string;
@@ -1315,7 +1337,7 @@ export const workflowRouter = createTRPCRouter({
             itemsUpdated,
             itemsSkipped,
           };
-        } else if (workflow.provider === 'monday' && workflow.syncDirection === 'push') {
+        } else if (workflow.provider === 'monday' && effectiveSyncDirection === 'push') {
           // Monday.com workflow - push actions to Monday.com board
           const config = workflow.config as { 
             boardId: string; 
@@ -1567,7 +1589,7 @@ export const workflowRouter = createTRPCRouter({
             itemsFailedToSync,
             skippedReasons,
           };
-        } else if (workflow.provider === 'notion' && workflow.syncDirection === 'push') {
+        } else if (workflow.provider === 'notion' && effectiveSyncDirection === 'push') {
           // Notion workflow - push actions to Notion database using robust implementation
           const result = await runNotionPushSync(
             ctx, 
@@ -1596,7 +1618,7 @@ export const workflowRouter = createTRPCRouter({
             skippedReasons: result.skippedReasons,
           };
         } else {
-          throw new Error(`Workflow type not implemented: ${workflow.provider}/${workflow.syncDirection}`);
+          throw new Error(`Workflow type not implemented: ${workflow.provider}/${effectiveSyncDirection}`);
         }
       } catch (error) {
         // Update the run with failure
