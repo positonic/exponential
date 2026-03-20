@@ -326,6 +326,13 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
     closeConfigureProjectModal();
   };
 
+  // Update workflow mutation (for syncing workflow record with config changes)
+  const updateWorkflow = api.workflow.update.useMutation({
+    onError: (error) => {
+      console.error('Failed to update workflow:', error);
+    },
+  });
+
   // Save Monday.com configuration handler
   const handleSaveMondayConfig = async () => {
     if (!mondayBoardId.trim()) {
@@ -337,6 +344,18 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
       return;
     }
 
+    const workflowId = project.taskManagementConfig?.workflowId;
+
+    if (!workflowId) {
+      notifications.show({
+        title: 'Error',
+        message: 'No workflow linked to this project. Please remove and re-add the Monday.com integration via "Add to Project".',
+        color: 'red',
+      });
+      return;
+    }
+
+    // Update the project's taskManagementConfig
     await updateTaskManagement.mutateAsync({
       id: project.id,
       taskManagementTool: 'monday',
@@ -347,6 +366,17 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
         syncFrequency: mondaySyncFrequency,
       },
     });
+
+    // Also update the actual workflow record so workflow.run reads the correct config
+    await updateWorkflow.mutateAsync({
+      id: workflowId,
+      syncDirection: mondaySyncDirection as 'push' | 'pull' | 'bidirectional',
+      syncFrequency: mondaySyncFrequency as 'manual' | 'hourly' | 'daily' | 'weekly',
+      config: {
+        boardId: mondayBoardId.trim(),
+      },
+    });
+
     closeMondayConfig();
   };
 
@@ -401,12 +431,15 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
         },
       });
     } else if (values.type === 'monday') {
+      const boardId = (workflow.config && typeof workflow.config === 'object' && 'boardId' in workflow.config && typeof workflow.config.boardId === 'string') ? workflow.config.boardId : '';
       await updateTaskManagement.mutateAsync({
         id: project.id,
         taskManagementTool: 'monday',
         taskManagementConfig: {
           workflowId: values.workflowId,
-          boardId: (workflow.config && typeof workflow.config === 'object' && 'boardId' in workflow.config && typeof workflow.config.boardId === 'string') ? workflow.config.boardId : '',
+          boardId,
+          syncDirection: 'push',
+          syncFrequency: 'manual',
         },
       });
     }
@@ -1072,8 +1105,8 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
             description="Which direction should tasks sync?"
             data={[
               { value: 'push', label: 'Push — Send tasks to Monday.com' },
-              { value: 'pull', label: 'Pull — Import tasks from Monday.com' },
-              { value: 'bidirectional', label: 'Bidirectional — Sync both ways' },
+              { value: 'pull', label: 'Pull — Import from Monday.com (coming soon)', disabled: true },
+              { value: 'bidirectional', label: 'Bidirectional — Sync both ways (coming soon)', disabled: true },
             ]}
             value={mondaySyncDirection}
             onChange={(value) => setMondaySyncDirection(value ?? 'push')}
