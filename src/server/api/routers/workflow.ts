@@ -1163,6 +1163,7 @@ export const workflowRouter = createTRPCRouter({
             itemsCreated: result.itemsCreated,
             itemsUpdated: result.itemsUpdated,
             itemsSkipped: result.itemsSkipped,
+            debug: { route: 'notion/pull' },
           };
         } else if (workflow.provider === 'monday' && effectiveSyncDirection === 'pull') {
           // Monday.com workflow - pull items from Monday.com board as source of truth
@@ -1358,6 +1359,12 @@ export const workflowRouter = createTRPCRouter({
             itemsCreated,
             itemsUpdated,
             itemsSkipped,
+            debug: {
+              route: 'monday/pull',
+              boardId: config.boardId,
+              boardItemCount: boardItems.length,
+              connectionUser: connectionTest.user?.name,
+            },
           };
         } else if (workflow.provider === 'monday' && effectiveSyncDirection === 'push') {
           // Monday.com workflow - push actions to Monday.com board
@@ -1610,6 +1617,7 @@ export const workflowRouter = createTRPCRouter({
             itemsAlreadySynced,
             itemsFailedToSync,
             skippedReasons,
+            debug: { route: 'monday/push' },
           };
         } else if (workflow.provider === 'notion' && effectiveSyncDirection === 'push') {
           // Notion workflow - push actions to Notion database using robust implementation
@@ -1638,6 +1646,7 @@ export const workflowRouter = createTRPCRouter({
             itemsAlreadySynced: result.itemsAlreadySynced,
             itemsFailedToSync: result.itemsFailedToSync,
             skippedReasons: result.skippedReasons,
+            debug: { route: 'notion/push' },
           };
         } else {
           throw new Error(`Workflow type not implemented: ${workflow.provider}/${effectiveSyncDirection}`);

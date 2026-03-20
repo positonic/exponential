@@ -200,18 +200,21 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
 
   // Sync workflow mutation
   const runWorkflow = api.workflow.run.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
+      const debugInfo = data.debug ? ` | Route: ${data.debug.route} | Board: ${data.debug.boardId ?? 'n/a'} | Items fetched: ${data.debug.boardItemCount ?? 'n/a'}` : '';
       notifications.show({
         title: 'Sync Complete',
-        message: `Successfully synced ${data.itemsCreated} new tasks and updated ${data.itemsUpdated} existing tasks.`,
-        color: 'green',
+        message: `Synced ${data.itemsCreated} new, updated ${data.itemsUpdated}, skipped ${data.itemsSkipped ?? 0}. Processed ${data.itemsProcessed ?? '?'} items.${debugInfo}`,
+        color: data.itemsCreated > 0 || data.itemsUpdated > 0 ? 'green' : 'yellow',
+        autoClose: 10000,
       });
     },
     onError: (error) => {
       notifications.show({
         title: 'Sync Failed',
-        message: error.message || 'Failed to sync with Notion',
+        message: error.message || 'Failed to sync',
         color: 'red',
+        autoClose: 10000,
       });
     },
   });
