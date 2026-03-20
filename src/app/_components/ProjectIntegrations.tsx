@@ -105,7 +105,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const [selectedSyncStrategy, setSelectedSyncStrategy] = useState<string>(project.taskManagementConfig?.syncStrategy ?? 'manual');
   const [mondayConfigOpened, { open: openMondayConfig, close: closeMondayConfig }] = useDisclosure(false);
   const [mondayBoardId, setMondayBoardId] = useState<string>(project.taskManagementConfig?.boardId ?? '');
-  const [mondaySyncDirection, setMondaySyncDirection] = useState<string>(project.taskManagementConfig?.syncDirection ?? 'push');
+  const [mondaySyncDirection, setMondaySyncDirection] = useState<string>(project.taskManagementConfig?.syncDirection ?? 'pull');
   const [mondaySyncFrequency, setMondaySyncFrequency] = useState<string>(project.taskManagementConfig?.syncFrequency ?? 'manual');
   const searchParams = useSearchParams();
 
@@ -438,7 +438,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
         taskManagementConfig: {
           workflowId: values.workflowId,
           boardId,
-          syncDirection: 'push',
+          syncDirection: 'pull',
           syncFrequency: 'manual',
         },
       });
@@ -1104,8 +1104,8 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
             label="Sync Direction"
             description="Which direction should tasks sync?"
             data={[
+              { value: 'pull', label: 'Pull — Monday.com is source of truth' },
               { value: 'push', label: 'Push — Send tasks to Monday.com' },
-              { value: 'pull', label: 'Pull — Import from Monday.com (coming soon)', disabled: true },
               { value: 'bidirectional', label: 'Bidirectional — Sync both ways (coming soon)', disabled: true },
             ]}
             value={mondaySyncDirection}

@@ -31,6 +31,7 @@ export interface MondayItem {
     id: string;
     text?: string;
     value?: string;
+    type?: string;
   }>;
 }
 
@@ -124,6 +125,128 @@ export class MondayService {
 
     const data = await this.makeRequest(query);
     return data.boards || [];
+  }
+
+  async getBoardItems(boardId: string): Promise<MondayItem[]> {
+    const items: MondayItem[] = [];
+    let cursor: string | null = null;
+
+    // Monday.com uses cursor-based pagination for items_page
+    do {
+      const query = cursor
+        ? `query ($boardId: ID!, $cursor: String!) {
+            boards(ids: [$boardId]) {
+              items_page(limit: 100, cursor: $cursor) {
+                cursor
+                items {
+                  id
+                  name
+                  group { id title }
+                  column_values {
+                    id
+                    text
+                    value
+                    type
+                  }
+                }
+              }
+            }
+          }`
+        : `query ($boardId: ID!) {
+            boards(ids: [$boardId]) {
+              items_page(limit: 100) {
+                cursor
+                items {
+                  id
+                  name
+                  group { id title }
+                  column_values {
+                    id
+                    text
+                    value
+                    type
+                  }
+                }
+              }
+            }
+          }`;
+
+      const variables: Record<string, any> = { boardId };
+      if (cursor) variables.cursor = cursor;
+
+      const data = await this.makeRequest(query, variables);
+      const page = data.boards?.[0]?.items_page;
+      if (!page) break;
+
+      items.push(...(page.items || []));
+      cursor = page.cursor;
+    } while (cursor);
+
+    return items;
+  }
+
+  /**
+   * Parse a Monday.com item into a local action-compatible format.
+   * Extracts status, priority, due date, and description from column values.
+   */
+  static parseItemToAction(item: MondayItem): {
+    name: string;
+    mondayId: string;
+    status: string;
+    priority: string;
+    dueDate: Date | null;
+    description: string;
+    group: string | null;
+  } {
+    const columnValues = item.column_values || [];
+    const getCol = (type: string) => columnValues.find(c => c.type === type);
+    const getColById = (id: string) => columnValues.find(c => c.id === id);
+
+    // Status mapping: Monday status → Exponential status
+    const statusCol = getCol('color') || getCol('status'); // Monday status columns have type 'color'
+    let statusText = statusCol?.text || '';
+    let status = 'ACTIVE';
+    const lower = statusText.toLowerCase();
+    if (lower.includes('done') || lower.includes('complete')) {
+      status = 'COMPLETED';
+    } else if (lower.includes('stuck') || lower.includes('blocked')) {
+      status = 'ACTIVE'; // keep active, could add BLOCKED later
+    }
+
+    // Priority mapping
+    const priorityCol = columnValues.find(c => c.id === 'priority' || (c.type === 'color' && c.id !== statusCol?.id));
+    let priority = 'Quick';
+    if (priorityCol?.text) {
+      const p = priorityCol.text.toLowerCase();
+      if (p.includes('critical') || p.includes('high')) priority = '1st Priority';
+      else if (p.includes('medium')) priority = '2nd Priority';
+      else if (p.includes('low')) priority = '3rd Priority';
+    }
+
+    // Due date
+    const dateCol = getCol('date');
+    let dueDate: Date | null = null;
+    if (dateCol?.text) {
+      const parsed = new Date(dateCol.text);
+      if (!isNaN(parsed.getTime())) dueDate = parsed;
+    }
+
+    // Description / long text
+    const longTextCol = getCol('long-text') || getCol('text');
+    const description = longTextCol?.text || '';
+
+    // Group (used as context, not mapped to a field directly)
+    const group = (item as any).group?.title || null;
+
+    return {
+      name: item.name,
+      mondayId: item.id,
+      status,
+      priority,
+      dueDate,
+      description,
+      group,
+    };
   }
 
   async getBoardColumns(boardId: string): Promise<MondayColumn[]> {

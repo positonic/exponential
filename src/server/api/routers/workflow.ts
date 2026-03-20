@@ -1127,6 +1127,194 @@ export const workflowRouter = createTRPCRouter({
             itemsUpdated: result.itemsUpdated,
             itemsSkipped: result.itemsSkipped,
           };
+        } else if (workflow.provider === 'monday' && workflow.syncDirection === 'pull') {
+          // Monday.com workflow - pull items from Monday.com board as source of truth
+          const config = workflow.config as {
+            boardId: string;
+            columnMappings?: Record<string, string>;
+          };
+
+          const apiKeyCredential = workflow.integration.credentials.find(
+            c => c.keyType.toUpperCase() === 'API_KEY'
+          );
+          const apiKey = apiKeyCredential ? getDecryptedKey(apiKeyCredential) : null;
+
+          if (!apiKey) throw new Error('No API key found for Monday.com integration');
+          if (!config.boardId) throw new Error('No board ID configured for workflow');
+
+          const mondayService = new MondayService(apiKey);
+
+          // Test connection
+          const connectionTest = await mondayService.testConnection();
+          if (!connectionTest.success) {
+            throw new Error(`Monday.com connection failed: ${connectionTest.error}`);
+          }
+
+          // Fetch all items from the board
+          const boardItems = await mondayService.getBoardItems(config.boardId);
+
+          let itemsCreated = 0;
+          let itemsUpdated = 0;
+          let itemsSkipped = 0;
+
+          for (const item of boardItems) {
+            try {
+              const task = MondayService.parseItemToAction(item);
+
+              // Check if we already have an ActionSync record for this Monday item
+              const existingSync = await ctx.db.actionSync.findFirst({
+                where: {
+                  provider: 'monday',
+                  externalId: task.mondayId,
+                },
+                include: { action: true },
+              });
+
+              if (existingSync?.action) {
+                // Update existing action if changed
+                const existing = existingSync.action;
+                const needsUpdate =
+                  existing.name !== task.name ||
+                  existing.status !== task.status ||
+                  existing.description !== task.description ||
+                  existing.priority !== task.priority ||
+                  existing.projectId !== input.projectId ||
+                  (existing.dueDate?.getTime() !== task.dueDate?.getTime());
+
+                if (needsUpdate) {
+                  await ctx.db.action.update({
+                    where: { id: existing.id },
+                    data: {
+                      name: task.name,
+                      description: task.description || undefined,
+                      status: task.status,
+                      priority: task.priority,
+                      dueDate: task.dueDate,
+                      projectId: input.projectId ?? existing.projectId,
+                    },
+                  });
+                  await ctx.db.actionSync.update({
+                    where: { id: existingSync.id },
+                    data: { status: 'synced', updatedAt: new Date() },
+                  });
+                  itemsUpdated++;
+                } else {
+                  itemsSkipped++;
+                }
+              } else if (existingSync && !existingSync.action) {
+                // Orphaned sync record — recreate
+                await ctx.db.actionSync.delete({ where: { id: existingSync.id } });
+                const newAction = await ctx.db.action.create({
+                  data: {
+                    name: task.name,
+                    description: task.description || undefined,
+                    status: task.status,
+                    priority: task.priority,
+                    dueDate: task.dueDate,
+                    createdById: ctx.session.user.id,
+                    projectId: input.projectId || undefined,
+                  },
+                });
+                await ctx.db.actionSync.create({
+                  data: {
+                    actionId: newAction.id,
+                    provider: 'monday',
+                    externalId: task.mondayId,
+                    status: 'synced',
+                  },
+                });
+                itemsCreated++;
+              } else {
+                // New item — create action
+                const newAction = await ctx.db.action.create({
+                  data: {
+                    name: task.name,
+                    description: task.description || undefined,
+                    status: task.status,
+                    priority: task.priority,
+                    dueDate: task.dueDate,
+                    createdById: ctx.session.user.id,
+                    projectId: input.projectId || undefined,
+                  },
+                });
+                await ctx.db.actionSync.create({
+                  data: {
+                    actionId: newAction.id,
+                    provider: 'monday',
+                    externalId: task.mondayId,
+                    status: 'synced',
+                  },
+                });
+                itemsCreated++;
+              }
+            } catch (taskError) {
+              console.error(`Error processing Monday item ${item.id}:`, taskError);
+              itemsSkipped++;
+            }
+          }
+
+          // Handle deletions — mark local actions as DELETED if removed from Monday board
+          if (input.projectId) {
+            const localSyncs = await ctx.db.actionSync.findMany({
+              where: {
+                provider: 'monday',
+                action: {
+                  createdById: ctx.session.user.id,
+                  projectId: input.projectId,
+                  status: { not: 'DELETED' },
+                },
+              },
+              include: { action: true },
+            });
+
+            const mondayItemIds = boardItems.map(i => i.id);
+
+            for (const syncRecord of localSyncs) {
+              if (!mondayItemIds.includes(syncRecord.externalId)) {
+                await ctx.db.action.update({
+                  where: { id: syncRecord.actionId },
+                  data: { status: 'DELETED' },
+                });
+                await ctx.db.actionSync.update({
+                  where: { id: syncRecord.id },
+                  data: { status: 'deleted_remotely' },
+                });
+                itemsUpdated++;
+              }
+            }
+          }
+
+          // Update run record
+          await ctx.db.workflowRun.update({
+            where: { id: run.id },
+            data: {
+              status: 'COMPLETED',
+              completedAt: new Date(),
+              itemsProcessed: boardItems.length,
+              itemsCreated,
+              itemsUpdated,
+              itemsSkipped,
+              metadata: {
+                boardId: config.boardId,
+                syncDirection: 'pull',
+                totalBoardItems: boardItems.length,
+              },
+            },
+          });
+
+          await ctx.db.workflow.update({
+            where: { id: workflow.id },
+            data: { lastRunAt: new Date() },
+          });
+
+          return {
+            success: true,
+            runId: run.id,
+            itemsProcessed: boardItems.length,
+            itemsCreated,
+            itemsUpdated,
+            itemsSkipped,
+          };
         } else if (workflow.provider === 'monday' && workflow.syncDirection === 'push') {
           // Monday.com workflow - push actions to Monday.com board
           const config = workflow.config as { 
