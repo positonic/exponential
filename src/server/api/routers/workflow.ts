@@ -1104,16 +1104,30 @@ export const workflowRouter = createTRPCRouter({
         // This handles cases where the user updated the direction in the config modal
         // but the workflow DB record wasn't updated (legacy data)
         let effectiveSyncDirection = workflow.syncDirection;
+        console.log('[WORKFLOW RUN] Starting:', {
+          workflowId: workflow.id,
+          provider: workflow.provider,
+          dbSyncDirection: workflow.syncDirection,
+          inputProjectId: input.projectId,
+          configKeys: Object.keys(workflow.config as any || {}),
+        });
         if (input.projectId) {
           const projectForDirection = await ctx.db.project.findUnique({
             where: { id: input.projectId },
-            select: { taskManagementConfig: true },
+            select: { taskManagementConfig: true, taskManagementTool: true },
           });
-          const projConfig = projectForDirection?.taskManagementConfig as { syncDirection?: string } | null;
+          const projConfig = projectForDirection?.taskManagementConfig as { syncDirection?: string; workflowId?: string; boardId?: string } | null;
+          console.log('[WORKFLOW RUN] Project config:', {
+            taskManagementTool: projectForDirection?.taskManagementTool,
+            projSyncDirection: projConfig?.syncDirection,
+            projWorkflowId: projConfig?.workflowId,
+            projBoardId: projConfig?.boardId,
+          });
           if (projConfig?.syncDirection) {
             effectiveSyncDirection = projConfig.syncDirection;
             // Also update the workflow record to stay in sync
             if (effectiveSyncDirection !== workflow.syncDirection) {
+              console.log('[WORKFLOW RUN] Updating workflow syncDirection:', workflow.syncDirection, '->', effectiveSyncDirection);
               await ctx.db.workflow.update({
                 where: { id: workflow.id },
                 data: { syncDirection: effectiveSyncDirection },
@@ -1121,6 +1135,7 @@ export const workflowRouter = createTRPCRouter({
             }
           }
         }
+        console.log('[WORKFLOW RUN] Effective direction:', effectiveSyncDirection, '| Route check:', `${workflow.provider}/${effectiveSyncDirection}`);
 
         // Legacy sync implementation (existing code)
         // Execute the workflow based on type
@@ -1161,6 +1176,7 @@ export const workflowRouter = createTRPCRouter({
           );
           const apiKey = apiKeyCredential ? getDecryptedKey(apiKeyCredential) : null;
 
+          console.log('[MONDAY PULL] Config:', { boardId: config.boardId, hasApiKey: !!apiKey, credentialCount: workflow.integration.credentials.length });
           if (!apiKey) throw new Error('No API key found for Monday.com integration');
           if (!config.boardId) throw new Error('No board ID configured for workflow');
 
@@ -1168,12 +1184,17 @@ export const workflowRouter = createTRPCRouter({
 
           // Test connection
           const connectionTest = await mondayService.testConnection();
+          console.log('[MONDAY PULL] Connection test:', connectionTest);
           if (!connectionTest.success) {
             throw new Error(`Monday.com connection failed: ${connectionTest.error}`);
           }
 
           // Fetch all items from the board
           const boardItems = await mondayService.getBoardItems(config.boardId);
+          console.log('[MONDAY PULL] Board items fetched:', boardItems.length);
+          if (boardItems.length > 0) {
+            console.log('[MONDAY PULL] Sample item:', JSON.stringify(boardItems[0], null, 2).slice(0, 500));
+          }
 
           let itemsCreated = 0;
           let itemsUpdated = 0;
@@ -1182,6 +1203,7 @@ export const workflowRouter = createTRPCRouter({
           for (const item of boardItems) {
             try {
               const task = MondayService.parseItemToAction(item);
+              console.log('[MONDAY PULL] Processing:', { name: task.name, status: task.status, mondayId: task.mondayId });
 
               // Check if we already have an ActionSync record for this Monday item
               const existingSync = await ctx.db.actionSync.findFirst({
@@ -1621,6 +1643,8 @@ export const workflowRouter = createTRPCRouter({
           throw new Error(`Workflow type not implemented: ${workflow.provider}/${effectiveSyncDirection}`);
         }
       } catch (error) {
+        console.error('[WORKFLOW RUN] Error:', error instanceof Error ? error.message : error);
+        console.error('[WORKFLOW RUN] Stack:', error instanceof Error ? error.stack : 'no stack');
         // Update the run with failure
         await ctx.db.workflowRun.update({
           where: { id: run.id },
