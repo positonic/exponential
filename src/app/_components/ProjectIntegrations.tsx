@@ -286,7 +286,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   };
 
   // Notion sync handler
-  const handleSyncNotion = () => {
+  const handleSync = () => {
     const workflowId = project.taskManagementConfig?.workflowId;
     if (!workflowId) {
       notifications.show({
@@ -456,9 +456,11 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                             <Group gap="xs">
                               <IconArrowsLeftRight size={14} className="text-text-muted" />
                               <Text size="sm">
-                                {integration.config.syncDirection === 'pull' ? 'Pull from Notion' :
-                                 integration.config.syncDirection === 'push' ? 'Push to Notion' :
-                                 'Bidirectional'}
+                                {integration.config.syncDirection === 'pull'
+                                  ? `Pull from ${integration.id === 'notion' ? 'Notion' : 'Monday.com'}`
+                                  : integration.config.syncDirection === 'push'
+                                    ? `Push to ${integration.id === 'notion' ? 'Notion' : 'Monday.com'}`
+                                    : 'Bidirectional'}
                               </Text>
                             </Group>
                           )}
@@ -470,7 +472,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                               </Text>
                             </Group>
                           )}
-                          {integration.config.notionWorkspaceName && (
+                          {integration.id === 'notion' && integration.config.notionWorkspaceName && (
                             <Group gap="xs">
                               <IconBrandNotion size={14} className="text-text-muted" />
                               <Text size="sm">
@@ -488,30 +490,34 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                         size="sm"
                         variant="filled"
                         leftSection={<IconRefresh size={14} />}
-                        onClick={handleSyncNotion}
+                        onClick={handleSync}
                         loading={runWorkflow.isPending}
                       >
                         Sync
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="light"
-                        leftSection={<IconSettings size={14} />}
-                        onClick={() => {
-                          setNotionWizardEditMode(true);
-                          openNotionWizard();
-                        }}
-                      >
-                        Configure Notion
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="light"
-                        leftSection={<IconFolder size={14} />}
-                        onClick={openConfigureProjectModal}
-                      >
-                        Configure Project
-                      </Button>
+                      {integration.id === 'notion' && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="light"
+                            leftSection={<IconSettings size={14} />}
+                            onClick={() => {
+                              setNotionWizardEditMode(true);
+                              openNotionWizard();
+                            }}
+                          >
+                            Configure Notion
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="light"
+                            leftSection={<IconFolder size={14} />}
+                            onClick={openConfigureProjectModal}
+                          >
+                            Configure Project
+                          </Button>
+                        </>
+                      )}
                     </Group>
 
                     {/* Expandable Details */}
