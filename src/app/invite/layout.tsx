@@ -29,7 +29,7 @@ export default async function InviteLayout({
   const mantineTheme = mantineThemes[domain];
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full scroll-smooth`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full scroll-smooth`} suppressHydrationWarning>
       <body className="h-full w-full overflow-x-hidden">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>

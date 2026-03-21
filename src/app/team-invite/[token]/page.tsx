@@ -38,7 +38,7 @@ export default function TeamInviteAcceptPage() {
 
   const acceptMutation = api.team.acceptInvitation.useMutation({
     onSuccess: (data) => {
-      router.push(`/teams/${data.team.slug}`);
+      window.location.href = `/teams/${data.team.slug}`;
     },
   });
 

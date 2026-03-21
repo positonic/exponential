@@ -39,7 +39,8 @@ export default function InviteAcceptPage() {
 
   const acceptMutation = api.workspace.acceptInvitation.useMutation({
     onSuccess: (data) => {
-      router.push(`/w/${data.workspace.slug}`);
+      // Full page navigation to avoid React DOM errors when crossing layout groups
+      window.location.href = `/w/${data.workspace.slug}`;
     },
   });
 
