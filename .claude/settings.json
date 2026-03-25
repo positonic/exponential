@@ -15,7 +15,13 @@
       "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/projects-tasks/)",
       "Read(//Users/james/clawd/skills/exponential/**)",
       "Bash(git add:*)",
-      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/)"
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/)",
+      "Bash(ls -la \"/Users/james/code/exponential/src/app/\\(sidemenu\\)/w/[workspaceSlug]/settings/\")",
+      "Bash(head -100 \"/Users/james/code/exponential/src/app/\\(sidemenu\\)/w/[workspaceSlug]/settings/page.tsx\")",
+      "Bash(find /Users/james/code/exponential -type f \\\\\\(-name *.json -o -name *.yml -o -name *.yaml -o -name *.env* -o -name *.config.* -o -name vercel.json \\\\\\))",
+      "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/timeline/)",
+      "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/timeline/)",
+      "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/daily-plan/_components/steps/)"
     ],
     "additionalDirectories": [
       "/tmp",

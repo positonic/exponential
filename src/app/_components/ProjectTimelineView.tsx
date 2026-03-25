@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ActionIcon, Badge, Button, Group, Paper, Skeleton, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { IconEdit } from "@tabler/icons-react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import {
+  addDays,
   addMonths,
   differenceInCalendarDays,
   eachMonthOfInterval,
@@ -22,28 +23,39 @@ import {
 const LABEL_WIDTH = 220;
 
 type TimelineZoom = "month" | "quarter" | "year";
+type DragMode = "move" | "resize-start" | "resize-end";
 
 interface TimelineProject {
   id: string;
   name: string;
   slug: string;
-  status: string;
-  priority: string;
+  status: "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED";
+  priority: "HIGH" | "MEDIUM" | "LOW" | "NONE";
   createdAt: Date;
-  reviewDate: Date | null;
-  nextActionDate: Date | null;
+  startDate: Date | null;
+  endDate: Date | null;
   workspaceSlug?: string;
   workspaceName?: string;
 }
 
 interface TimelineProjectRange extends TimelineProject {
-  startDate: Date;
-  endDate: Date;
+  rangeStart: Date;
+  rangeEnd: Date;
 }
 
 interface ProjectTimelineViewProps {
   workspaceId?: string;
   workspaceSlug?: string;
+}
+
+interface DragState {
+  projectId: string;
+  mode: DragMode;
+  initialPointerX: number;
+  initialStartDate: Date;
+  initialEndDate: Date;
+  currentStartDate: Date;
+  currentEndDate: Date;
 }
 
 function getZoomDayWidth(zoom: TimelineZoom): number {
@@ -93,12 +105,78 @@ function isWithinRange(date: Date, rangeStart: Date, rangeEnd: Date): boolean {
 }
 
 function buildProjectRange(project: TimelineProject): TimelineProjectRange {
-  const startDate = startOfDay(project.nextActionDate ?? project.createdAt);
-  const candidateEnd = project.reviewDate ?? startDate;
+  const rangeStart = startOfDay(project.startDate ?? project.createdAt);
+  const candidateEnd = project.endDate ?? rangeStart;
   const normalizedEnd = startOfDay(candidateEnd);
-  const endDate = isBefore(normalizedEnd, startDate) ? startDate : normalizedEnd;
+  const rangeEnd = isBefore(normalizedEnd, rangeStart) ? rangeStart : normalizedEnd;
 
-  return { ...project, startDate, endDate };
+  return { ...project, rangeStart, rangeEnd };
+}
+
+function TimelineBar({
+  project,
+  left,
+  width,
+  dayWidth,
+  timelineRangeStart,
+  onDragStart,
+  dragState,
+}: {
+  project: TimelineProjectRange;
+  left: number;
+  width: number;
+  dayWidth: number;
+  timelineRangeStart: Date;
+  onDragStart: (projectId: string, mode: DragMode, pointerX: number, startDate: Date, endDate: Date) => void;
+  dragState: DragState | null;
+}) {
+  const isDragging = dragState?.projectId === project.id;
+  const displayStart = isDragging ? dragState.currentStartDate : project.rangeStart;
+  const displayEnd = isDragging ? dragState.currentEndDate : project.rangeEnd;
+
+  const displayLeft = isDragging
+    ? differenceInCalendarDays(displayStart, timelineRangeStart) * dayWidth
+    : left;
+  const displayWidth = isDragging
+    ? (differenceInCalendarDays(displayEnd, displayStart) + 1) * dayWidth
+    : width;
+
+  const handlePointerDown = (e: React.PointerEvent, mode: DragMode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onDragStart(project.id, mode, e.clientX, project.rangeStart, project.rangeEnd);
+  };
+
+  return (
+    <div
+      className={`absolute top-2 flex h-6 items-center rounded-full border border-border-primary bg-brand-primary/15 text-xs font-medium text-text-primary ${
+        isDragging ? "opacity-80 ring-2 ring-brand-primary" : ""
+      }`}
+      style={{
+        left: displayLeft,
+        width: Math.max(displayWidth, dayWidth),
+        cursor: isDragging && dragState.mode === "move" ? "grabbing" : "grab",
+        userSelect: "none",
+      }}
+      title={`${format(displayStart, "PPP")} → ${format(displayEnd, "PPP")}`}
+      onPointerDown={(e) => handlePointerDown(e, "move")}
+    >
+      {/* Left resize handle */}
+      <div
+        className="absolute left-0 top-0 z-10 h-full w-2 cursor-col-resize rounded-l-full hover:bg-brand-primary/30"
+        onPointerDown={(e) => handlePointerDown(e, "resize-start")}
+      />
+      {/* Bar content */}
+      <div className="truncate px-3">
+        {project.name}
+      </div>
+      {/* Right resize handle */}
+      <div
+        className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize rounded-r-full hover:bg-brand-primary/30"
+        onPointerDown={(e) => handlePointerDown(e, "resize-end")}
+      />
+    </div>
+  );
 }
 
 export function ProjectTimelineView({
@@ -106,8 +184,16 @@ export function ProjectTimelineView({
   workspaceSlug,
 }: ProjectTimelineViewProps) {
   const [zoom, setZoom] = useState<TimelineZoom>("quarter");
+  const [dragState, setDragState] = useState<DragState | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const isGlobal = !workspaceId;
+
+  const utils = api.useUtils();
+  const updateDates = api.project.updateDates.useMutation({
+    onSuccess: () => {
+      void utils.project.getAll.invalidate();
+    },
+  });
 
   const { data: projects, isLoading } = api.project.getAll.useQuery(
     workspaceId ? { workspaceId } : {},
@@ -117,11 +203,11 @@ export function ProjectTimelineView({
           id: project.id,
           name: project.name,
           slug: project.slug,
-          status: project.status,
-          priority: project.priority,
+          status: project.status as TimelineProject["status"],
+          priority: project.priority as TimelineProject["priority"],
           createdAt: project.createdAt,
-          reviewDate: project.reviewDate ?? null,
-          nextActionDate: project.nextActionDate ?? null,
+          startDate: project.startDate ?? null,
+          endDate: project.endDate ?? null,
           workspaceSlug: project.workspace?.slug,
           workspaceName: project.workspace?.name,
         })) ?? [],
@@ -143,12 +229,12 @@ export function ProjectTimelineView({
     }
 
     const earliestStart = timelineProjects.reduce((minDate, project) =>
-      isBefore(project.startDate, minDate) ? project.startDate : minDate
-    , timelineProjects[0]!.startDate);
+      isBefore(project.rangeStart, minDate) ? project.rangeStart : minDate
+    , timelineProjects[0]!.rangeStart);
 
     const latestEnd = timelineProjects.reduce((maxDate, project) =>
-      isAfter(project.endDate, maxDate) ? project.endDate : maxDate
-    , timelineProjects[0]!.endDate);
+      isAfter(project.rangeEnd, maxDate) ? project.rangeEnd : maxDate
+    , timelineProjects[0]!.rangeEnd);
 
     const paddedStart = startOfMonth(addMonths(earliestStart, -1));
     const paddedEnd = endOfMonth(addMonths(latestEnd, 1));
@@ -185,6 +271,72 @@ export function ProjectTimelineView({
     const left = Math.max(todayOffset - 240, 0);
     scrollRef.current.scrollTo({ left, behavior: "smooth" });
   }
+
+  const handleDragStart = useCallback((
+    projectId: string,
+    mode: DragMode,
+    pointerX: number,
+    startDate: Date,
+    endDate: Date,
+  ) => {
+    setDragState({
+      projectId,
+      mode,
+      initialPointerX: pointerX,
+      initialStartDate: startDate,
+      initialEndDate: endDate,
+      currentStartDate: startDate,
+      currentEndDate: endDate,
+    });
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragState) return;
+
+    const deltaX = e.clientX - dragState.initialPointerX;
+    const deltaDays = Math.round(deltaX / dayWidth);
+
+    if (deltaDays === 0 && dragState.currentStartDate === dragState.initialStartDate) return;
+
+    let newStart = dragState.initialStartDate;
+    let newEnd = dragState.initialEndDate;
+
+    if (dragState.mode === "move") {
+      newStart = addDays(dragState.initialStartDate, deltaDays);
+      newEnd = addDays(dragState.initialEndDate, deltaDays);
+    } else if (dragState.mode === "resize-start") {
+      newStart = addDays(dragState.initialStartDate, deltaDays);
+      if (isAfter(newStart, dragState.initialEndDate)) {
+        newStart = dragState.initialEndDate;
+      }
+    } else if (dragState.mode === "resize-end") {
+      newEnd = addDays(dragState.initialEndDate, deltaDays);
+      if (isBefore(newEnd, dragState.initialStartDate)) {
+        newEnd = dragState.initialStartDate;
+      }
+    }
+
+    setDragState((prev) =>
+      prev ? { ...prev, currentStartDate: newStart, currentEndDate: newEnd } : null
+    );
+  }, [dragState, dayWidth]);
+
+  const handlePointerUp = useCallback(() => {
+    if (!dragState) return;
+
+    const startChanged = differenceInCalendarDays(dragState.currentStartDate, dragState.initialStartDate) !== 0;
+    const endChanged = differenceInCalendarDays(dragState.currentEndDate, dragState.initialEndDate) !== 0;
+
+    if (startChanged || endChanged) {
+      updateDates.mutate({
+        id: dragState.projectId,
+        startDate: dragState.currentStartDate,
+        endDate: dragState.currentEndDate,
+      });
+    }
+
+    setDragState(null);
+  }, [dragState, updateDates]);
 
   if (isLoading) {
     return (
@@ -233,7 +385,13 @@ export function ProjectTimelineView({
       </Group>
 
       <Paper className="border border-border-primary bg-surface-secondary">
-        <div ref={scrollRef} className="overflow-x-auto">
+        <div
+          ref={scrollRef}
+          className="overflow-x-auto"
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+        >
           <div style={{ minWidth: timelineWidth + LABEL_WIDTH }}>
             <div className="grid grid-cols-[220px_1fr] border-b border-border-primary">
               <div className="sticky left-0 z-20 bg-surface-secondary px-4 py-3">
@@ -322,19 +480,19 @@ export function ProjectTimelineView({
               ) : (
                 timelineProjects.map((project) => {
                   if (
-                    isBefore(project.endDate, rangeStart) ||
-                    isAfter(project.startDate, rangeEnd)
+                    isBefore(project.rangeEnd, rangeStart) ||
+                    isAfter(project.rangeStart, rangeEnd)
                   ) {
                     return null;
                   }
 
                   const clampedStart = clampToRange(
-                    project.startDate,
+                    project.rangeStart,
                     rangeStart,
                     rangeEnd
                   );
                   const clampedEnd = clampToRange(
-                    project.endDate,
+                    project.rangeEnd,
                     rangeStart,
                     rangeEnd
                   );
@@ -399,18 +557,15 @@ export function ProjectTimelineView({
                         </Group>
                       </div>
                       <div className="relative py-2">
-                        <div
-                          className="absolute top-2 h-6 rounded-full border border-border-primary bg-brand-primary/15 px-3 text-xs font-medium text-text-primary"
-                          style={{ left, width }}
-                          title={`${format(
-                            project.startDate,
-                            "PPP"
-                          )} → ${format(project.endDate, "PPP")}`}
-                        >
-                          <div className="flex h-full items-center truncate">
-                            {project.name}
-                          </div>
-                        </div>
+                        <TimelineBar
+                          project={project}
+                          left={left}
+                          width={width}
+                          dayWidth={dayWidth}
+                          timelineRangeStart={rangeStart}
+                          onDragStart={handleDragStart}
+                          dragState={dragState}
+                        />
                         <div className="h-10" />
                       </div>
                     </div>

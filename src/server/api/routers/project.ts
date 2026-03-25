@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
+import { getProjectAccess, canEditProject, hasProjectAccess } from "~/server/services/access/resolvers/projectResolver";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 export const projectRouter = createTRPCRouter({
@@ -366,6 +366,32 @@ export const projectRouter = createTRPCRouter({
           ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
           // Handle bounties override (null = inherit from workspace)
           ...(enableBounties !== undefined ? { enableBounties } : {}),
+        },
+      });
+    }),
+
+  updateDates: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        startDate: z.date().nullable(),
+        endDate: z.date().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.id);
+      if (!hasProjectAccess(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this project",
+        });
+      }
+
+      return ctx.db.project.update({
+        where: { id: input.id },
+        data: {
+          startDate: input.startDate,
+          endDate: input.endDate,
         },
       });
     }),
