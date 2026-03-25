@@ -200,11 +200,11 @@ export class MondayService {
   } {
     const columnValues = item.column_values || [];
     const getCol = (type: string) => columnValues.find(c => c.type === type);
-    const getColById = (id: string) => columnValues.find(c => c.id === id);
+    const _getColById = (id: string) => columnValues.find(c => c.id === id);
 
     // Status mapping: Monday status → Exponential status
     const statusCol = getCol('color') || getCol('status'); // Monday status columns have type 'color'
-    let statusText = statusCol?.text || '';
+    const statusText = statusCol?.text || '';
     let status = 'ACTIVE';
     const lower = statusText.toLowerCase();
     if (lower.includes('done') || lower.includes('complete')) {

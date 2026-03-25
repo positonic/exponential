@@ -13,7 +13,9 @@
       "Bash(grep -n \"uploadToBlob\\\\|FormData\\\\|image\\\\|avatar\" /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/crm/organizations/[id]/page.tsx)",
       "Bash(npm list:*)",
       "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/projects-tasks/)",
-      "Read(//Users/james/clawd/skills/exponential/**)"
+      "Read(//Users/james/clawd/skills/exponential/**)",
+      "Bash(git add:*)",
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/)"
     ],
     "additionalDirectories": [
       "/tmp",
