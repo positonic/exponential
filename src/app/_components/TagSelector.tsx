@@ -76,14 +76,6 @@ export function TagSelector({ selectedTagIds = [], onChange, workspaceId }: TagS
     });
   };
 
-  const handleTagToggle = (tagId: string) => {
-    if (selectedTagIds.includes(tagId)) {
-      onChange(selectedTagIds.filter(id => id !== tagId));
-    } else {
-      onChange([...selectedTagIds, tagId]);
-    }
-  };
-
   const allTags = tags?.allTags ?? [];
   const selectedTags = allTags.filter(tag => selectedTagIds.includes(tag.id));
 
@@ -137,7 +129,6 @@ export function TagSelector({ selectedTagIds = [], onChange, workspaceId }: TagS
                       size="sm"
                       color={getTagMantineColor(tag.color)}
                       variant="light"
-                      onClick={() => handleTagToggle(tag.id)}
                     >
                       {tag.name}
                     </Chip>

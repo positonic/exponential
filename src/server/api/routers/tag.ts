@@ -24,9 +24,10 @@ export const tagRouter = createTRPCRouter({
         orderBy: [{ isSystem: "desc" }, { name: "asc" }],
       });
 
-      // Get workspace-specific tags if workspaceId provided
+      // Get workspace-specific tags
       let workspaceTags: typeof globalTags = [];
       if (input?.workspaceId) {
+        // Fetch tags for the specific workspace
         workspaceTags = await ctx.db.tag.findMany({
           where: {
             workspaceId: input.workspaceId,
@@ -38,6 +39,27 @@ export const tagRouter = createTRPCRouter({
           },
           orderBy: { name: "asc" },
         });
+      } else {
+        // No workspace specified — fetch tags from all workspaces the user belongs to
+        // so custom tags are always visible even without explicit workspace context
+        const userWorkspaces = await ctx.db.workspaceUser.findMany({
+          where: { userId: ctx.session.user.id },
+          select: { workspaceId: true },
+        });
+
+        if (userWorkspaces.length > 0) {
+          workspaceTags = await ctx.db.tag.findMany({
+            where: {
+              workspaceId: { in: userWorkspaces.map((w) => w.workspaceId) },
+            },
+            include: {
+              createdBy: {
+                select: { id: true, name: true, email: true },
+              },
+            },
+            orderBy: { name: "asc" },
+          });
+        }
       }
 
       return {
