@@ -149,7 +149,7 @@ function TimelineBar({
 
   return (
     <div
-      className={`absolute top-2 flex h-6 items-center rounded-full border border-border-primary bg-brand-primary/15 text-xs font-medium text-text-primary ${
+      className={`absolute top-2 flex h-12 items-center rounded-md border border-border-primary bg-brand-primary/25 text-xs font-medium text-text-primary ${
         isDragging ? "opacity-80 ring-2 ring-brand-primary" : ""
       }`}
       style={{
@@ -163,7 +163,7 @@ function TimelineBar({
     >
       {/* Left resize handle */}
       <div
-        className="absolute left-0 top-0 z-10 h-full w-2 cursor-col-resize rounded-l-full hover:bg-brand-primary/30"
+        className="absolute left-0 top-0 z-10 h-full w-2 cursor-col-resize rounded-l-md hover:bg-brand-primary/30"
         onPointerDown={(e) => handlePointerDown(e, "resize-start")}
       />
       {/* Bar content */}
@@ -172,7 +172,7 @@ function TimelineBar({
       </div>
       {/* Right resize handle */}
       <div
-        className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize rounded-r-full hover:bg-brand-primary/30"
+        className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize rounded-r-md hover:bg-brand-primary/30"
         onPointerDown={(e) => handlePointerDown(e, "resize-end")}
       />
     </div>
@@ -189,8 +189,26 @@ export function ProjectTimelineView({
   const isGlobal = !workspaceId;
 
   const utils = api.useUtils();
+  const queryInput = workspaceId ? { workspaceId } : {};
   const updateDates = api.project.updateDates.useMutation({
-    onSuccess: () => {
+    onMutate: async (newData) => {
+      await utils.project.getAll.cancel();
+      const previousData = utils.project.getAll.getData(queryInput);
+      utils.project.getAll.setData(queryInput, (old) =>
+        old?.map((p) =>
+          p.id === newData.id
+            ? { ...p, startDate: newData.startDate, endDate: newData.endDate }
+            : p
+        )
+      );
+      return { previousData };
+    },
+    onError: (_err, _newData, context) => {
+      if (context?.previousData) {
+        utils.project.getAll.setData(queryInput, context.previousData);
+      }
+    },
+    onSettled: () => {
       void utils.project.getAll.invalidate();
     },
   });
@@ -566,7 +584,7 @@ export function ProjectTimelineView({
                           onDragStart={handleDragStart}
                           dragState={dragState}
                         />
-                        <div className="h-10" />
+                        <div className="h-14" />
                       </div>
                     </div>
                   );
