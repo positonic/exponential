@@ -121,6 +121,7 @@ function TimelineBar({
   timelineRangeStart,
   onDragStart,
   dragState,
+  dragMovedRef,
 }: {
   project: TimelineProjectRange;
   left: number;
@@ -129,6 +130,7 @@ function TimelineBar({
   timelineRangeStart: Date;
   onDragStart: (projectId: string, mode: DragMode, pointerX: number, startDate: Date, endDate: Date) => void;
   dragState: DragState | null;
+  dragMovedRef: React.RefObject<boolean>;
 }) {
   const isDragging = dragState?.projectId === project.id;
   const displayStart = isDragging ? dragState.currentStartDate : project.rangeStart;
@@ -147,6 +149,12 @@ function TimelineBar({
     onDragStart(project.id, mode, e.clientX, project.rangeStart, project.rangeEnd);
   };
 
+  const handleClick = (e: React.MouseEvent) => {
+    if (dragMovedRef.current) {
+      e.stopPropagation();
+    }
+  };
+
   return (
     <div
       className={`absolute top-2 flex h-12 items-center rounded-md border border-border-primary bg-brand-primary/25 text-xs font-medium text-text-primary ${
@@ -160,6 +168,7 @@ function TimelineBar({
       }}
       title={`${format(displayStart, "PPP")} → ${format(displayEnd, "PPP")}`}
       onPointerDown={(e) => handlePointerDown(e, "move")}
+      onClick={handleClick}
     >
       {/* Left resize handle */}
       <div
@@ -185,6 +194,7 @@ export function ProjectTimelineView({
 }: ProjectTimelineViewProps) {
   const [zoom, setZoom] = useState<TimelineZoom>("quarter");
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const dragMovedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const isGlobal = !workspaceId;
 
@@ -297,6 +307,7 @@ export function ProjectTimelineView({
     startDate: Date,
     endDate: Date,
   ) => {
+    dragMovedRef.current = false;
     setDragState({
       projectId,
       mode,
@@ -315,6 +326,8 @@ export function ProjectTimelineView({
     const deltaDays = Math.round(deltaX / dayWidth);
 
     if (deltaDays === 0 && dragState.currentStartDate === dragState.initialStartDate) return;
+
+    dragMovedRef.current = true;
 
     let newStart = dragState.initialStartDate;
     let newEnd = dragState.initialEndDate;
@@ -575,15 +588,18 @@ export function ProjectTimelineView({
                         </Group>
                       </div>
                       <div className="relative py-2">
-                        <TimelineBar
-                          project={project}
-                          left={left}
-                          width={width}
-                          dayWidth={dayWidth}
-                          timelineRangeStart={rangeStart}
-                          onDragStart={handleDragStart}
-                          dragState={dragState}
-                        />
+                        <CreateProjectModal project={project}>
+                          <TimelineBar
+                            project={project}
+                            left={left}
+                            width={width}
+                            dayWidth={dayWidth}
+                            timelineRangeStart={rangeStart}
+                            onDragStart={handleDragStart}
+                            dragState={dragState}
+                            dragMovedRef={dragMovedRef}
+                          />
+                        </CreateProjectModal>
                         <div className="h-14" />
                       </div>
                     </div>
