@@ -43,6 +43,7 @@ import { DEFAULT_VIEW_CONFIG } from "~/types/view";
 import type { ViewFilters, ViewType, ViewGroupBy } from "~/types/view";
 import type { ViewConfig } from "./ViewSwitcher";
 import { PRIORITY_OPTIONS } from "~/types/action";
+import { getTagMantineColor } from "~/utils/tagColors";
 
 const STATUS_OPTIONS = [
   { value: "BACKLOG", label: "Backlog" },
@@ -172,10 +173,9 @@ export function ViewBoard({ workspaceId, viewConfig, deepLinkActionId, onActionO
     { enabled: showFilters }
   );
 
-  // Fetch tags for filter dropdown
+  // Fetch tags always (needed for tag bar + filter dropdown)
   const { data: tags, isLoading: tagsLoading } = api.tag.list.useQuery(
     { workspaceId },
-    { enabled: showFilters }
   );
 
   // Fetch actions with filters
@@ -684,6 +684,50 @@ export function ViewBoard({ workspaceId, viewConfig, deepLinkActionId, onActionO
           </Stack>
         </Paper>
       </Collapse>
+
+      {/* Tag bar for quick filtering */}
+      {(tags?.allTags?.length ?? 0) > 0 && (
+        <Group gap="xs" wrap="wrap">
+          {tags?.allTags?.map((tag) => {
+            const isActive = localFilters.tagIds?.includes(tag.id) ?? false;
+            return (
+              <Badge
+                key={tag.id}
+                size="sm"
+                variant={isActive ? "filled" : "light"}
+                color={getTagMantineColor(tag.color)}
+                style={{ cursor: "pointer" }}
+                onClick={() => {
+                  setLocalFilters(prev => {
+                    const current = prev.tagIds ?? [];
+                    if (current.includes(tag.id)) {
+                      const next = current.filter(id => id !== tag.id);
+                      return { ...prev, tagIds: next.length > 0 ? next : undefined };
+                    }
+                    return { ...prev, tagIds: [...current, tag.id] };
+                  });
+                }}
+              >
+                {tag.name}
+              </Badge>
+            );
+          })}
+          {(localFilters.tagIds?.length ?? 0) > 0 && (
+            <Badge
+              size="sm"
+              variant="subtle"
+              color="gray"
+              style={{ cursor: "pointer" }}
+              onClick={() => setLocalFilters(prev => {
+                const { tagIds: _, ...rest } = prev;
+                return rest;
+              })}
+            >
+              Clear tags
+            </Badge>
+          )}
+        </Group>
+      )}
 
       {/* View content */}
       {viewType === "KANBAN" && (
