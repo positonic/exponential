@@ -1,7 +1,8 @@
 'use client';
 
-import { Checkbox, Badge, Text } from '@mantine/core';
+import { Checkbox, Badge } from '@mantine/core';
 import { IconRepeat } from '@tabler/icons-react';
+import { HTMLContent } from '~/app/_components/HTMLContent';
 import { DateCell } from './columns/DateCell';
 import { DurationCell } from './columns/DurationCell';
 import { PriorityBadge, getPriorityBorderColor } from './columns/PriorityBadge';
@@ -100,12 +101,11 @@ export function TaskRow({
         </div>
 
         {/* Task name */}
-        <Text
-          size="sm"
-          className={`truncate ${isCompleted ? 'text-text-muted line-through' : 'text-text-primary'}`}
-        >
-          {action.name}
-        </Text>
+        <HTMLContent
+          html={action.name}
+          className={`text-sm truncate ${isCompleted ? 'text-text-muted line-through' : 'text-text-primary'}`}
+          compactUrls
+        />
 
         {/* Recurring icon */}
         {action.isRecurring && (
