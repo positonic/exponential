@@ -178,6 +178,13 @@ export function ActionDetailContent({
     },
   });
 
+  const removeImageMutation = api.actionComment.removeImage.useMutation({
+    onSuccess: () => {
+      void utils.actionComment.getComments.invalidate({ actionId });
+      void utils.action.getById.invalidate({ id: actionId });
+    },
+  });
+
   const setTagsMutation = api.tag.setActionTags.useMutation({
     onSuccess: () => {
       void utils.action.getById.invalidate({ id: actionId });
@@ -242,6 +249,10 @@ export function ActionDetailContent({
 
   const handleEditComment = async (commentId: string, content: string) => {
     await updateCommentMutation.mutateAsync({ commentId, content });
+  };
+
+  const handleDeleteImage = (commentId: string, imageUrl: string) => {
+    removeImageMutation.mutate({ commentId, imageUrl });
   };
 
   // Build mention candidates from workspace members + linked team members + agents
@@ -528,6 +539,7 @@ export function ActionDetailContent({
             }))}
             onDeleteComment={handleDeleteComment}
             onEditComment={handleEditComment}
+            onDeleteImage={handleDeleteImage}
             currentUserId={session?.user?.id}
             mentionNames={mentionNames}
           />

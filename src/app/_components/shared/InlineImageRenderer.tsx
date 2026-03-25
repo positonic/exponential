@@ -1,7 +1,8 @@
 "use client";
 
 import { type ReactNode, useState } from "react";
-import { Badge, Image, Modal } from "@mantine/core";
+import { ActionIcon, Badge, Image, Modal } from "@mantine/core";
+import { IconX } from "@tabler/icons-react";
 
 /** Combined regex: images first, then mentions — processed in document order */
 const COMBINED_REGEX =
@@ -10,11 +11,13 @@ const COMBINED_REGEX =
 interface InlineImageRendererProps {
   content: string;
   mentionNames?: string[];
+  onDeleteImage?: (imageUrl: string) => void;
 }
 
 export function InlineImageRenderer({
   content,
   mentionNames = [],
+  onDeleteImage,
 }: InlineImageRendererProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const mentionSet = new Set(mentionNames.map((n) => n.toLowerCase()));
@@ -36,18 +39,38 @@ export function InlineImageRenderer({
       parts.push(
         <span
           key={`img-${match.index}`}
-          className="inline-block my-1 cursor-pointer"
-          onClick={() => setLightboxUrl(url)}
+          className="relative inline-block my-1 group/img"
         >
-          <Image
-            src={url}
-            alt={alt}
-            h={120}
-            w="auto"
-            fit="cover"
-            radius="sm"
-            className="border border-border-primary hover:border-brand-primary transition-colors"
-          />
+          <span
+            className="cursor-pointer"
+            onClick={() => setLightboxUrl(url)}
+          >
+            <Image
+              src={url}
+              alt={alt}
+              h={120}
+              w="auto"
+              fit="cover"
+              radius="sm"
+              className="border border-border-primary hover:border-brand-primary transition-colors"
+            />
+          </span>
+          {onDeleteImage && (
+            <ActionIcon
+              size="xs"
+              variant="filled"
+              color="red"
+              radius="xl"
+              className="absolute top-1 right-1 opacity-0 group-hover/img:opacity-100 transition-opacity"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteImage(url);
+              }}
+              aria-label="Delete image"
+            >
+              <IconX size={12} />
+            </ActionIcon>
+          )}
         </span>,
       );
     } else {

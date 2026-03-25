@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getActionAccess } from "~/server/services/access";
 import { sendMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
+import { deleteFromBlob } from "~/lib/blob";
 
 function hasViewAccess(access: {
   isCreator: boolean;
@@ -129,5 +130,62 @@ export const actionCommentRouter = createTRPCRouter({
           author: { select: { id: true, name: true, image: true } },
         },
       });
+    }),
+
+  removeImage: protectedProcedure
+    .input(
+      z.object({
+        commentId: z.string(),
+        imageUrl: z.string().url(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const comment = await ctx.db.actionComment.findFirst({
+        where: {
+          id: input.commentId,
+          authorId: ctx.session.user.id,
+        },
+      });
+
+      if (!comment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Comment not found or not yours",
+        });
+      }
+
+      // Strip the ![...](imageUrl) markdown from comment content
+      const escaped = input.imageUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`!\\[[^\\]]*\\]\\(${escaped}\\)\\s*`, "g");
+      const newContent = comment.content.replace(regex, "").trim();
+
+      if (newContent.length === 0) {
+        // Comment is now empty — delete it entirely
+        await ctx.db.actionComment.delete({
+          where: { id: input.commentId },
+        });
+      } else {
+        await ctx.db.actionComment.update({
+          where: { id: input.commentId },
+          data: { content: newContent },
+        });
+      }
+
+      // Clean up Screenshot DB record (cascades to ActionScreenshot)
+      const screenshot = await ctx.db.screenshot.findFirst({
+        where: { url: input.imageUrl },
+      });
+      if (screenshot) {
+        await ctx.db.screenshot.delete({
+          where: { id: screenshot.id },
+        });
+      }
+
+      // Fire-and-forget blob deletion
+      void deleteFromBlob(input.imageUrl).catch(() => {
+        // Blob deletion is best-effort
+      });
+
+      return { deleted: newContent.length === 0 };
     }),
 });

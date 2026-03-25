@@ -1,5 +1,5 @@
 import { type PutBlobResult } from '@vercel/blob';
-import { put } from '@vercel/blob';
+import { del, put } from '@vercel/blob';
 
 export async function uploadToBlob(
   base64Data: string, 
@@ -15,4 +15,8 @@ export async function uploadToBlob(
   });
 
   return blob;
+}
+
+export async function deleteFromBlob(url: string): Promise<void> {
+  await del(url);
 } 

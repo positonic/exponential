@@ -30,6 +30,7 @@ interface CommentThreadProps {
   comments: Comment[];
   onDeleteComment?: (commentId: string) => void;
   onEditComment?: (commentId: string, newContent: string) => Promise<void>;
+  onDeleteImage?: (commentId: string, imageUrl: string) => void;
   currentUserId?: string;
   mentionNames?: string[];
 }
@@ -42,6 +43,7 @@ export function CommentThread({
   comments,
   onDeleteComment,
   onEditComment,
+  onDeleteImage,
   currentUserId,
   mentionNames = [],
 }: CommentThreadProps) {
@@ -189,6 +191,11 @@ export function CommentThread({
                       <InlineImageRenderer
                         content={comment.content}
                         mentionNames={mentionNames}
+                        onDeleteImage={
+                          isOwnComment && onDeleteImage
+                            ? (url) => onDeleteImage(comment.id, url)
+                            : undefined
+                        }
                       />
                     </div>
                   )}
