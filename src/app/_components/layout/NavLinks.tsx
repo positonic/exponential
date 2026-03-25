@@ -10,6 +10,7 @@ import {
   IconUsers,
   IconPlayerPlay,
   IconChartBar,
+  IconTimeline,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
@@ -118,6 +119,9 @@ export function NavLinks() {
       )}
       <NavLink href="/calendar" icon={IconCalendar}>
         Calendar
+      </NavLink>
+      <NavLink href="/timeline" icon={IconTimeline}>
+        Timeline
       </NavLink>
 
       {/* Workspace Switcher - below Act, above accordion sections */}

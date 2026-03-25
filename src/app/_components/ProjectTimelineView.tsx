@@ -32,6 +32,8 @@ interface TimelineProject {
   createdAt: Date;
   reviewDate: Date | null;
   nextActionDate: Date | null;
+  workspaceSlug?: string;
+  workspaceName?: string;
 }
 
 interface TimelineProjectRange extends TimelineProject {
@@ -40,8 +42,8 @@ interface TimelineProjectRange extends TimelineProject {
 }
 
 interface ProjectTimelineViewProps {
-  workspaceId: string;
-  workspaceSlug: string;
+  workspaceId?: string;
+  workspaceSlug?: string;
 }
 
 function getZoomDayWidth(zoom: TimelineZoom): number {
@@ -105,9 +107,10 @@ export function ProjectTimelineView({
 }: ProjectTimelineViewProps) {
   const [zoom, setZoom] = useState<TimelineZoom>("quarter");
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const isGlobal = !workspaceId;
 
   const { data: projects, isLoading } = api.project.getAll.useQuery(
-    { workspaceId },
+    workspaceId ? { workspaceId } : {},
     {
       select: (data): TimelineProject[] =>
         data?.map((project) => ({
@@ -119,6 +122,8 @@ export function ProjectTimelineView({
           createdAt: project.createdAt,
           reviewDate: project.reviewDate ?? null,
           nextActionDate: project.nextActionDate ?? null,
+          workspaceSlug: project.workspace?.slug,
+          workspaceName: project.workspace?.name,
         })) ?? [],
     }
   );
@@ -349,7 +354,7 @@ export function ProjectTimelineView({
                       <div className="sticky left-0 z-10 flex flex-col gap-1 bg-surface-secondary px-4 py-3 group-hover:bg-surface-hover">
                         <Group justify="space-between" align="center" gap="xs" wrap="nowrap">
                           <Link
-                            href={`/w/${workspaceSlug}/projects/${project.slug}-${project.id}`}
+                            href={`/w/${workspaceSlug ?? project.workspaceSlug}/projects/${project.slug}-${project.id}`}
                             className="truncate text-sm font-medium text-text-primary hover:text-brand-primary"
                           >
                             {project.name}
@@ -368,6 +373,15 @@ export function ProjectTimelineView({
                           </CreateProjectModal>
                         </Group>
                         <Group gap={6} wrap="nowrap">
+                          {isGlobal && project.workspaceName && (
+                            <Badge
+                              size="xs"
+                              variant="outline"
+                              color="gray"
+                            >
+                              {project.workspaceName}
+                            </Badge>
+                          )}
                           <Badge
                             size="xs"
                             variant="light"
