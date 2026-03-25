@@ -41,11 +41,14 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
   );
 
   const utils = api.useUtils();
-  const { data: projects } = api.project.getAll.useQuery();
+  const { workspaceId: currentWorkspaceId } = useWorkspace();
+
+  const { data: projects } = api.project.getAll.useQuery(
+    { workspaceId: currentWorkspaceId ?? undefined },
+    { enabled: !!currentWorkspaceId },
+  );
   const { data: goals } = api.goal.getAllMyGoals.useQuery();
   const { data: workspaces } = api.workspace.list.useQuery();
-
-  const { workspaceId: currentWorkspaceId } = useWorkspace();
 
   const createOutcome = api.outcome.createOutcome.useMutation({
     onMutate: async (newOutcome) => {

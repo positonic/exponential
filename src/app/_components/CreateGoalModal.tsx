@@ -83,7 +83,11 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
   const [isCreatingKeyResults, setIsCreatingKeyResults] = useState(false);
 
   const utils = api.useUtils();
-  const { data: projects } = api.project.getAll.useQuery();
+  const { workspaceId: currentWorkspaceId, workspace } = useWorkspace();
+  const { data: projects } = api.project.getAll.useQuery(
+    { workspaceId: workspace?.id },
+    { enabled: !!workspace },
+  );
   const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
   const { data: workspaces } = api.workspace.list.useQuery();
   const { data: periods } = api.okr.getPeriods.useQuery();
@@ -92,8 +96,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
     { goalId: goal?.id },
     { enabled: !!goal?.id && opened }
   );
-
-  const { workspaceId: currentWorkspaceId, workspace } = useWorkspace();
   const terminology = useTerminology();
 
   // Mutations for key results

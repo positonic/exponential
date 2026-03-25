@@ -148,7 +148,10 @@ export function ActionModalForm({
   onScreenshotPaste,
   onScreenshotRemove,
 }: ActionModalFormProps) {
-  const projects = api.project.getAll.useQuery();
+  const projects = api.project.getAll.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspaceId },
+  );
   const taskSchedules = api.taskSchedule.list.useQuery(
     { workspaceId: workspaceId ?? '' },
     { enabled: !!workspaceId && !!setScheduleId }

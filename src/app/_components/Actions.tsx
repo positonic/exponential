@@ -341,7 +341,10 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   });
 
   // Fetch projects for bulk assignment dropdown
-  const projectsQuery = api.project.getAll.useQuery();
+  const projectsQuery = api.project.getAll.useQuery(
+    { workspaceId: workspace?.id },
+    { enabled: !!workspace },
+  );
 
   // Bulk assign project mutation
   const bulkAssignProjectMutation = api.action.bulkAssignProject.useMutation({

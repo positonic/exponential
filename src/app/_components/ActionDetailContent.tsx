@@ -95,7 +95,10 @@ export function ActionDetailContent({
   );
 
   // Fetch projects for the dropdown
-  const { data: projects } = api.project.getAll.useQuery();
+  const { data: projects } = api.project.getAll.useQuery(
+    { workspaceId: workspace?.id },
+    { enabled: !!workspace },
+  );
 
   // Fetch agents for @mention autocomplete
   const { data: mastraAgents } = api.mastra.getMastraAgents.useQuery(undefined, {
