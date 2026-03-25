@@ -438,6 +438,9 @@ model Action {
   // Reminder task (not scheduled on calendar)
   isReminderOnly         Boolean               @default(false)
 
+  // Timestamps
+  createdAt              DateTime              @default(now())
+
   // Epic & Effort
   epicId                 String?
   effortEstimate         Float?                // Story points, t-shirt mapped value, or hours

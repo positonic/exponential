@@ -156,6 +156,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         blockedByIds: newAction.blockedByIds ?? [],
         blockingIds: [],
         isReminderOnly: false,
+        createdAt: new Date(),
         epicId: newAction.epicId ?? null,
         effortEstimate: newAction.effortEstimate ?? null,
         // Bounty fields

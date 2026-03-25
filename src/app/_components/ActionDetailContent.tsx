@@ -712,6 +712,12 @@ export function ActionDetailContent({
             </Group>
           </PropertyRow>
 
+          <PropertyRow icon={<IconCalendar size={16} />} label="Created">
+            <Text size="xs" className="text-text-secondary">
+              {new Date(action.createdAt).toLocaleString()}
+            </Text>
+          </PropertyRow>
+
           {action.completedAt && (
             <PropertyRow icon={<IconCalendar size={16} />} label="Completed">
               <Text size="xs" className="text-text-secondary">

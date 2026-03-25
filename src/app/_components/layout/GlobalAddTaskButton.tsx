@@ -119,6 +119,7 @@ export function GlobalAddTaskButton() {
         blockedByIds: newAction.blockedByIds ?? ([] as string[]),
         blockingIds: [] as string[],
         isReminderOnly: false,
+        createdAt: new Date(),
         epicId: newAction.epicId ?? null,
         effortEstimate: newAction.effortEstimate ?? null,
         // Bounty fields (defaults for non-bounty actions)
