@@ -26,6 +26,7 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin, IconSun, IconCalendarCheck, IconBrandSlack, IconBrandNotion, IconRefresh, IconArrowsExchange } from '@tabler/icons-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
@@ -53,10 +54,13 @@ const roleColors = {
 };
 
 export default function WorkspaceSettingsPage() {
+  const router = useRouter();
   const { workspace, workspaceId, isLoading, userRole, refetchWorkspace } = useWorkspace();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deleteModalOpened, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
   const [inviteModalOpened, { open: openInviteModal, close: closeInviteModal }] = useDisclosure(false);
   const [firefliesModalOpened, { open: openFirefliesModal, close: closeFirefliesModal }] = useDisclosure(false);
   const [emailModalOpened, { open: openEmailModal, close: closeEmailModal }] = useDisclosure(false);
@@ -67,6 +71,31 @@ export default function WorkspaceSettingsPage() {
   const [emailSmtpHost, setEmailSmtpHost] = useState('');
 
   const utils = api.useUtils();
+
+  const deleteWorkspaceMutation = api.workspace.delete.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Workspace Deleted',
+        message: 'The workspace has been permanently deleted.',
+        color: 'red',
+        autoClose: 3000,
+      });
+      router.push('/');
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message,
+        color: 'red',
+        autoClose: 5000,
+      });
+    },
+  });
+
+  const handleDeleteWorkspace = () => {
+    if (!workspaceId || deleteConfirmName !== workspace?.name) return;
+    deleteWorkspaceMutation.mutate({ workspaceId });
+  };
 
   // Workspace data for effort unit
   const { data: workspaceData } = api.workspace.getBySlug.useQuery(
@@ -1104,6 +1133,65 @@ export default function WorkspaceSettingsPage() {
               disabled={!emailAddress || !emailAppPassword}
             >
               Connect Email
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* Danger Zone */}
+      {userRole === 'owner' && (
+        <Card withBorder mt="xl" className="border-red-500/30">
+          <Stack>
+            <Title order={4} className="text-red-500">Danger Zone</Title>
+            <Text size="sm" className="text-text-secondary">
+              Permanently delete this workspace and all of its data, including projects, actions, goals, outcomes, contacts, and deals. This action cannot be undone.
+            </Text>
+            <Group justify="flex-end">
+              <Button color="red" variant="outline" onClick={openDeleteModal}>
+                Delete Workspace
+              </Button>
+            </Group>
+          </Stack>
+        </Card>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        opened={deleteModalOpened}
+        onClose={() => {
+          closeDeleteModal();
+          setDeleteConfirmName('');
+        }}
+        title="Delete Workspace"
+        centered
+      >
+        <Stack>
+          <Alert color="red" variant="light">
+            This will permanently delete the workspace <strong>{workspace?.name}</strong> and all associated data. This action cannot be undone.
+          </Alert>
+          <TextInput
+            label={`Type "${workspace?.name}" to confirm`}
+            placeholder={workspace?.name ?? ''}
+            value={deleteConfirmName}
+            onChange={(e) => setDeleteConfirmName(e.currentTarget.value)}
+          />
+          <Group justify="flex-end" mt="md">
+            <Button
+              variant="subtle"
+              onClick={() => {
+                closeDeleteModal();
+                setDeleteConfirmName('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              onClick={handleDeleteWorkspace}
+              loading={deleteWorkspaceMutation.isPending}
+              disabled={deleteConfirmName !== workspace?.name}
+            >
+              Delete Workspace
             </Button>
           </Group>
         </Stack>

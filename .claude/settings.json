@@ -21,7 +21,11 @@
       "Bash(find /Users/james/code/exponential -type f \\\\\\(-name *.json -o -name *.yml -o -name *.yaml -o -name *.env* -o -name *.config.* -o -name vercel.json \\\\\\))",
       "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/timeline/)",
       "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/timeline/)",
-      "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/daily-plan/_components/steps/)"
+      "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/daily-plan/_components/steps/)",
+      "mcp__serena__list_dir",
+      "Bash(cat '/Users/james/code/exponential/src/app/\\(sidemenu\\)/w/[workspaceSlug]/actions/[actionId]/page.tsx')",
+      "Bash(wc -l /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/settings/page.tsx)",
+      "Bash(find /Users/james/code/exponential/src -type f \\\\\\(-name *comment* -o -name *attachment* -o -name *image* \\\\\\))"
     ],
     "additionalDirectories": [
       "/tmp",
