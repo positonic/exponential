@@ -1,11 +1,11 @@
 import { Modal } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useViewportSize } from '@mantine/hooks';
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import type { EffortUnit } from "~/types/effort";
-import { ActionModalForm } from './ActionModalForm';
+import { ActionModalForm, type PastedScreenshot } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
 import { IconPlus } from '@tabler/icons-react';
 import type { ActionStatus } from '@prisma/client';
@@ -53,6 +53,8 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const [bountyDeadline, setBountyDeadline] = useState<Date | null>(null);
   const [bountyMaxClaimants, setBountyMaxClaimants] = useState(1);
   const [bountyExternalUrl, setBountyExternalUrl] = useState<string | null>(null);
+  // Screenshot paste state
+  const [pastedScreenshots, setPastedScreenshots] = useState<PastedScreenshot[]>([]);
 
   // Workspace context
   const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
@@ -87,7 +89,14 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       console.error('Setting tags failed:', error);
     },
   });
-  
+
+  // Screenshot upload mutation
+  const uploadImageMutation = api.action.uploadImage.useMutation({
+    onError: (error) => {
+      console.error('Screenshot upload failed:', error);
+    },
+  });
+
   const createAction = api.action.create.useMutation({
     onMutate: async (newAction) => {
       // Cancel all related queries
@@ -279,6 +288,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       let hasAssignError = false;
       let hasTagError = false;
       let hasSprintError = false;
+      let hasScreenshotError = false;
 
       // If a sprint was selected, assign the action to the sprint list
       if (sprintListId) {
@@ -319,12 +329,29 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         }
       }
 
+      // Upload any pasted screenshots
+      if (pendingScreenshotsRef.current.length > 0) {
+        for (const screenshot of pendingScreenshotsRef.current) {
+          try {
+            await uploadImageMutation.mutateAsync({
+              actionId: data.id,
+              base64Data: screenshot.base64,
+            });
+          } catch (error) {
+            hasScreenshotError = true;
+            console.error('Failed to upload screenshot:', error);
+          }
+        }
+        pendingScreenshotsRef.current = [];
+      }
+
       // Show success notification with any warnings
-      const hasAnyError = hasAssignError || hasTagError || hasSprintError;
+      const hasAnyError = hasAssignError || hasTagError || hasSprintError || hasScreenshotError;
       let message = "Action created successfully";
       if (hasAssignError) message += " (assignment failed)";
       if (hasTagError) message += " (tags failed)";
       if (hasSprintError) message += " (sprint assignment failed)";
+      if (hasScreenshotError) message += " (screenshot upload failed)";
 
       notifications.show({
         title: hasAnyError ? "Partial Success" : "Success",
@@ -338,11 +365,17 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     },
   });
 
+  // Ref to hold screenshots for upload after action creation
+  const pendingScreenshotsRef = useRef<PastedScreenshot[]>([]);
+
   const handleSubmit = () => {
     if (!name) return;
 
     // Close modal immediately for better UX
     close();
+
+    // Capture screenshots before resetting
+    pendingScreenshotsRef.current = [...pastedScreenshots];
 
     // Prepare action data before resetting form
     const actionData = {
@@ -403,6 +436,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     setBountyDeadline(null);
     setBountyMaxClaimants(1);
     setBountyExternalUrl(null);
+    setPastedScreenshots([]);
 
     // Trigger mutation in background
     createAction.mutate(actionData);

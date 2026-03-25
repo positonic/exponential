@@ -1,6 +1,6 @@
-import { Textarea, Button, Group, Select, ActionIcon, Popover, Text, NumberInput, Stack, Switch, Tooltip, Divider, TagsInput, SegmentedControl, TextInput } from '@mantine/core';
+import { Textarea, Button, Group, Select, ActionIcon, Popover, Text, NumberInput, Stack, Switch, Tooltip, Divider, TagsInput, SegmentedControl, TextInput, Image } from '@mantine/core';
 import { TimeInput, DateInput } from '@mantine/dates';
-import { IconPlus, IconClock, IconX, IconRobot, IconAlertCircle, IconInfoCircle, IconCoin } from '@tabler/icons-react';
+import { IconPlus, IconClock, IconX, IconRobot, IconAlertCircle, IconInfoCircle, IconCoin, IconPhoto } from '@tabler/icons-react';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import type { EffortUnit } from "~/types/effort";
 import { api } from "~/trpc/react";
@@ -14,8 +14,14 @@ import { SprintSelector } from './SprintSelector';
 import { EpicSelector } from './EpicSelector';
 import { EffortEstimateInput } from './EffortEstimateInput';
 import { DependencyPicker } from './DependencyPicker';
-import { useRef, useState } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { useBountiesEnabled } from '~/hooks/useBountiesEnabled';
+
+export interface PastedScreenshot {
+  id: string;
+  base64: string;
+  previewUrl: string;
+}
 
 interface ActionModalFormProps {
   name: string;
@@ -76,6 +82,10 @@ interface ActionModalFormProps {
   setBountyMaxClaimants?: (value: number) => void;
   bountyExternalUrl?: string | null;
   setBountyExternalUrl?: (value: string | null) => void;
+  // Screenshot paste support
+  pastedScreenshots?: PastedScreenshot[];
+  onScreenshotPaste?: (screenshot: PastedScreenshot) => void;
+  onScreenshotRemove?: (id: string) => void;
 }
 
 export function ActionModalForm({
@@ -134,6 +144,9 @@ export function ActionModalForm({
   setBountyMaxClaimants,
   bountyExternalUrl,
   setBountyExternalUrl,
+  pastedScreenshots,
+  onScreenshotPaste,
+  onScreenshotRemove,
 }: ActionModalFormProps) {
   const projects = api.project.getAll.useQuery();
   const taskSchedules = api.taskSchedule.list.useQuery(
@@ -143,6 +156,31 @@ export function ActionModalForm({
   const [schedulePopoverOpened, setSchedulePopoverOpened] = useState(false);
   const timeInputRef = useRef<HTMLInputElement>(null);
   const bountiesEnabled = useBountiesEnabled(projectId);
+
+  // Handle paste events for screenshots
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (!onScreenshotPaste) return;
+    const items = e.clipboardData.items;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = reader.result as string;
+          const base64 = dataUrl.split(',')[1] ?? '';
+          onScreenshotPaste({
+            id: `screenshot-${Date.now()}`,
+            base64,
+            previewUrl: dataUrl,
+          });
+        };
+        reader.readAsDataURL(file);
+        break; // Only handle the first image
+      }
+    }
+  }, [onScreenshotPaste]);
 
   // Format scheduled time for display
   const formatScheduledTime = (date: Date | null): string => {
@@ -183,6 +221,7 @@ export function ActionModalForm({
         e.preventDefault();
         onSubmit();
       }}
+      onPaste={handlePaste}
       className="p-4"
     >
       <RichTextInput
@@ -217,6 +256,40 @@ export function ActionModalForm({
           }
         }}
       />
+
+      {/* Screenshot previews */}
+      {pastedScreenshots && pastedScreenshots.length > 0 && (
+        <Group gap="xs" mt="xs">
+          {pastedScreenshots.map((screenshot) => (
+            <div key={screenshot.id} className="relative group">
+              <Image
+                src={screenshot.previewUrl}
+                alt="Pasted screenshot"
+                h={80}
+                w="auto"
+                radius="sm"
+                className="border border-border-primary"
+              />
+              {onScreenshotRemove && (
+                <ActionIcon
+                  size="xs"
+                  variant="filled"
+                  color="red"
+                  radius="xl"
+                  className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => onScreenshotRemove(screenshot.id)}
+                >
+                  <IconX size={10} />
+                </ActionIcon>
+              )}
+            </div>
+          ))}
+          <Text size="xs" className="text-text-muted self-end">
+            <IconPhoto size={12} className="inline mr-1" />
+            Paste to add more
+          </Text>
+        </Group>
+      )}
 
       {/* Row 1: Priority and Date/Time controls */}
       <Group gap="md" mt="md" className="flex-wrap">
