@@ -538,6 +538,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           setBountyMaxClaimants={setBountyMaxClaimants}
           bountyExternalUrl={bountyExternalUrl}
           setBountyExternalUrl={setBountyExternalUrl}
+          pastedScreenshots={pastedScreenshots}
+          onScreenshotPaste={(screenshot) => setPastedScreenshots(prev => [...prev, screenshot])}
+          onScreenshotRemove={(id) => setPastedScreenshots(prev => prev.filter(s => s.id !== id))}
         />
       </Modal>
       
