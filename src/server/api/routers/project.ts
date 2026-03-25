@@ -132,6 +132,12 @@ export const projectRouter = createTRPCRouter({
               image: true,
             },
           },
+          workspace: {
+            select: {
+              slug: true,
+              name: true,
+            },
+          },
         }
       });
 

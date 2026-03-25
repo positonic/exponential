@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Card,
   Text,
@@ -104,6 +104,7 @@ export function ProjectReviewCard({
   const [actionAdded, setActionAdded] = useState(false);
   const [outcomesChanged, setOutcomesChanged] = useState(false);
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
+  const [descriptionDismissed, setDescriptionDismissed] = useState(false);
   // Track local state to handle updates during review (since we use a snapshot)
   const [localOutcomes, setLocalOutcomes] = useState(project.outcomes);
   const [localActions, setLocalActions] = useState(project.actions);
@@ -122,8 +123,33 @@ export function ProjectReviewCard({
     },
   });
 
+  // Auto-save status/priority changes immediately
+  const autoSaveProject = useCallback((newStatus: string, newPriority: string) => {
+    const statusChanged = newStatus !== project.status;
+    const priorityChanged = newPriority !== (project.priority ?? "NONE");
+    if (statusChanged || priorityChanged) {
+      updateProject.mutate({
+        id: project.id,
+        name: project.name,
+        status: newStatus as ProjectStatus,
+        priority: newPriority as ProjectPriority,
+      });
+    }
+  }, [project.id, project.name, project.status, project.priority, updateProject]);
+
+  const handleStatusChange = (val: string) => {
+    setStatus(val);
+    autoSaveProject(val, priority);
+  };
+
+  const handlePriorityChange = (val: string) => {
+    setPriority(val);
+    autoSaveProject(status, val);
+  };
+
   const indicators = calculateHealthIndicators({
     ...project,
+    status,
     actions: localActions,
     outcomes: localOutcomes,
   });
@@ -134,20 +160,11 @@ export function ProjectReviewCard({
   );
   const hasNextAction = hasExistingActiveAction || actionAdded;
 
-  const handleMarkReviewed = async () => {
+  const handleMarkReviewed = () => {
     const statusChanged = status !== project.status;
     const priorityChanged = priority !== (project.priority ?? "NONE");
 
-    // Save changes if any
-    if (statusChanged || priorityChanged) {
-      await updateProject.mutateAsync({
-        id: project.id,
-        name: project.name,
-        status: status as ProjectStatus,
-        priority: priority as ProjectPriority,
-      });
-    }
-
+    // Changes are auto-saved on field change, just report what changed
     onMarkReviewed({
       statusChanged,
       priorityChanged,
@@ -245,7 +262,7 @@ export function ProjectReviewCard({
           </Text>
 
           {/* Warning: No Description */}
-          {(!project.description || project.description.trim() === "") && (
+          {(!project.description || project.description.trim() === "") && !descriptionDismissed && (
             <Alert
               variant="light"
               color="yellow"
@@ -255,6 +272,8 @@ export function ProjectReviewCard({
               classNames={{
                 root: "border-yellow-500/20",
               }}
+              withCloseButton
+              onClose={() => setDescriptionDismissed(true)}
             >
               <Group justify="space-between" align="center">
                 <Text size="sm" className="text-text-secondary">
@@ -375,13 +394,13 @@ export function ProjectReviewCard({
           label="Status"
           data={[...PROJECT_STATUS_OPTIONS]}
           value={status}
-          onChange={(val) => val && setStatus(val)}
+          onChange={(val) => val && handleStatusChange(val)}
         />
         <Select
           label="Priority"
           data={[...PROJECT_PRIORITY_OPTIONS]}
           value={priority}
-          onChange={(val) => val && setPriority(val)}
+          onChange={(val) => val && handlePriorityChange(val)}
         />
       </Group>
 
