@@ -28,7 +28,11 @@
       "Bash(find /Users/james/code/exponential/src -type f \\\\\\(-name *comment* -o -name *attachment* -o -name *image* \\\\\\))",
       "mcp__serena__find_file",
       "Bash(cr --help)",
-      "Bash(cr review:*)"
+      "Bash(cr review:*)",
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/)",
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/projects/)",
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/goals/)",
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/outcomes/)"
     ],
     "additionalDirectories": [
       "/tmp",

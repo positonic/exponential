@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
@@ -10,11 +10,51 @@ import { modals } from "@mantine/modals";
 import { useDisclosure } from "@mantine/hooks";
 import { slugify } from "~/utils/slugify";
 import { getAvatarColor, getInitial } from "~/utils/avatarColors";
-import { IconEdit, IconTrash, IconBrandNotion, IconPlus, IconLayoutList } from "@tabler/icons-react";
+import { IconEdit, IconTrash, IconBrandNotion, IconPlus, IconLayoutList, IconCircleDot, IconFlag, IconUser } from "@tabler/icons-react";
 import Link from "next/link";
 import { calculateProjectHealth, HealthRing, HealthIndicatorIcons } from "~/app/_components/home/ProjectHealth";
+import { FilterBar } from "~/app/_components/filters";
+import type { FilterBarConfig, FilterState, FilterMember } from "~/types/filter";
 
 type Project = RouterOutputs["project"]["getAll"][0];
+
+const PROJECT_FILTER_CONFIG: FilterBarConfig = {
+  fields: [
+    {
+      key: "status",
+      label: "Status",
+      type: "multi-select",
+      icon: IconCircleDot,
+      badgeColor: "cyan",
+      options: [
+        { value: "ACTIVE", label: "Active" },
+        { value: "ON_HOLD", label: "On Hold" },
+        { value: "COMPLETED", label: "Completed" },
+        { value: "CANCELLED", label: "Cancelled" },
+      ],
+    },
+    {
+      key: "priority",
+      label: "Priority",
+      type: "multi-select",
+      icon: IconFlag,
+      badgeColor: "grape",
+      options: [
+        { value: "HIGH", label: "High" },
+        { value: "MEDIUM", label: "Medium" },
+        { value: "LOW", label: "Low" },
+        { value: "NONE", label: "None" },
+      ],
+    },
+    {
+      key: "driId",
+      label: "DRI",
+      type: "user",
+      icon: IconUser,
+      badgeColor: "blue",
+    },
+  ],
+};
 
 function ProjectList({ projects, workspaceSlug }: { projects: Project[]; workspaceSlug?: string }) {
   const utils = api.useUtils();
@@ -336,6 +376,40 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
     { enabled: !!firstNotionWorkflowId && (showAllWorkspaces || !!workspaceId) }
   );
 
+  const [filters, setFilters] = useState<FilterState>({});
+
+  const workspaceMembers: FilterMember[] = useMemo(() => {
+    if (!workspace?.members) return [];
+    return workspace.members.map((m) => ({
+      id: m.user.id,
+      name: m.user.name ?? null,
+      email: m.user.email ?? null,
+      image: m.user.image ?? null,
+    }));
+  }, [workspace?.members]);
+
+  const filteredProjects = useMemo(() => {
+    const allProjects = projects.data ?? [];
+    return allProjects.filter((project) => {
+      const statusFilter = filters.status as string[] | undefined;
+      if (statusFilter && statusFilter.length > 0) {
+        if (!statusFilter.includes(project.status)) return false;
+      }
+
+      const priorityFilter = filters.priority as string[] | undefined;
+      if (priorityFilter && priorityFilter.length > 0) {
+        if (!priorityFilter.includes(project.priority)) return false;
+      }
+
+      const driFilter = filters.driId as string[] | undefined;
+      if (driFilter && driFilter.length > 0) {
+        if (!project.driId || !driFilter.includes(project.driId)) return false;
+      }
+
+      return true;
+    });
+  }, [projects.data, filters]);
+
   api.project.create.useMutation({
     onSuccess: () => {
       setProjectName("");
@@ -381,7 +455,16 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
         </Group>
       </Group>
 
-      <ProjectList projects={projects.data ?? []} workspaceSlug={showAllWorkspaces ? undefined : workspace?.slug} />
+      <div className="mb-3">
+        <FilterBar
+          config={PROJECT_FILTER_CONFIG}
+          filters={filters}
+          onFiltersChange={setFilters}
+          members={workspaceMembers}
+        />
+      </div>
+
+      <ProjectList projects={filteredProjects} workspaceSlug={showAllWorkspaces ? undefined : workspace?.slug} />
       <div className="mt-4">
         <CreateProjectModal>
           <Button variant="light">Create Project</Button>
