@@ -26,12 +26,10 @@ function WorkspaceTimelineContent() {
   }
 
   return (
-    <Container size="xl" className="py-8">
-      <ProjectTimelineView
-        workspaceId={workspaceId}
-        workspaceSlug={workspace.slug}
-      />
-    </Container>
+    <ProjectTimelineView
+      workspaceId={workspaceId}
+      workspaceSlug={workspace.slug}
+    />
   );
 }
 

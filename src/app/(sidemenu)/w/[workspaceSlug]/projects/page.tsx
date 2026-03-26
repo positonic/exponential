@@ -30,8 +30,8 @@ function WorkspaceProjectsContent() {
 
 export default function WorkspaceProjectsPage() {
   return (
-    <main className="flex h-full flex-col items-center justify-center text-text-primary">
-      <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16">
+    <main className="flex h-full flex-col text-text-primary">
+      <div className="flex-1 overflow-auto">
         <Suspense fallback={<div>Loading...</div>}>
           <WorkspaceProjectsContent />
         </Suspense>

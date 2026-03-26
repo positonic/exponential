@@ -10,7 +10,7 @@ import { TaskRow } from './TaskRow';
 import { NoProjectSection } from './NoProjectSection';
 import { EditActionModal } from '../EditActionModal';
 import { CreateActionModal } from '../CreateActionModal';
-import { ProjectViewTabs } from '~/app/_components/ProjectViewTabs';
+import { ProjectViewLayout } from '~/app/_components/ProjectViewLayout';
 
 interface User {
   id: string;
@@ -154,8 +154,7 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
   }
 
   return (
-    <Container size="xl" className="py-6">
-      <ProjectViewTabs activeView="projects-tasks" />
+    <ProjectViewLayout activeView="projects-tasks">
       {/* Header */}
       <Group justify="space-between" mb="lg">
         <div>
@@ -293,6 +292,6 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
           void utils.project.getProjectsWithActions.invalidate();
         }}
       />
-    </Container>
+    </ProjectViewLayout>
   );
 }

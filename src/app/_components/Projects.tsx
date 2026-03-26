@@ -17,7 +17,7 @@ import { FilterBar } from "~/app/_components/filters";
 import { ViewToolbar } from "~/app/_components/toolbar";
 import { hasActiveFilters } from "~/types/filter";
 import type { FilterBarConfig, FilterState, FilterMember } from "~/types/filter";
-import { ProjectViewTabs } from "~/app/_components/ProjectViewTabs";
+import { ProjectViewLayout } from "~/app/_components/ProjectViewLayout";
 
 type Project = RouterOutputs["project"]["getAll"][0];
 
@@ -439,13 +439,8 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
   const unlinkedCount = unlinkedProjectsData?.unlinkedProjects.length ?? 0;
 
   return (
-    <div className="w-full max-w-4xl">
-      <Group justify="space-between" align="center" mb="md">
-        <h2 className="text-2xl font-bold">Projects</h2>
-      </Group>
-
+    <ProjectViewLayout activeView="table">
       <ViewToolbar
-        leftSection={<ProjectViewTabs activeView="table" />}
         filterContent={
           <FilterBar
             config={PROJECT_FILTER_CONFIG}
@@ -491,6 +486,6 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
           onProjectImported={handleProjectImported}
         />
       </Modal>
-    </div>
+    </ProjectViewLayout>
   );
 } 
