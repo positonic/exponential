@@ -6,6 +6,7 @@ import { ActionIcon, Badge, Button, Group, Paper, Skeleton, Stack, Text, Title, 
 import { api } from "~/trpc/react";
 import { IconEdit } from "@tabler/icons-react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
+import { ProjectViewTabs } from "~/app/_components/ProjectViewTabs";
 import {
   addDays,
   addMonths,
@@ -382,6 +383,7 @@ export function ProjectTimelineView({
 
   return (
     <Stack gap="md">
+      <ProjectViewTabs activeView="timeline" />
       <Group justify="space-between" align="center">
         <div>
           <Title order={3} className="text-text-primary">
