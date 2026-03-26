@@ -7,6 +7,7 @@ import { api } from "~/trpc/react";
 import { IconEdit } from "@tabler/icons-react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { ProjectViewLayout } from "~/app/_components/ProjectViewLayout";
+import { ToolbarActions } from "~/app/_components/toolbar";
 import {
   addDays,
   addMonths,
@@ -194,6 +195,7 @@ export function ProjectTimelineView({
   workspaceSlug,
 }: ProjectTimelineViewProps) {
   const [zoom, setZoom] = useState<TimelineZoom>("quarter");
+  const [searchQuery, setSearchQuery] = useState("");
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragMovedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -247,6 +249,12 @@ export function ProjectTimelineView({
     () => (projects ?? []).map(buildProjectRange),
     [projects]
   );
+
+  const filteredTimelineProjects = useMemo(() => {
+    if (!searchQuery.trim()) return timelineProjects;
+    const q = searchQuery.toLowerCase();
+    return timelineProjects.filter((p) => p.name.toLowerCase().includes(q));
+  }, [timelineProjects, searchQuery]);
 
   const today = startOfDay(new Date());
 
@@ -386,6 +394,13 @@ export function ProjectTimelineView({
       activeView="timeline"
       title="Timeline"
       description="Project timeline based on start and end dates"
+      tabsRightSection={
+        <ToolbarActions
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search projects..."
+        />
+      }
     >
     <Stack gap="md">
       <Group justify="flex-end" align="center">
@@ -497,17 +512,17 @@ export function ProjectTimelineView({
                 )}
               </div>
 
-              {timelineProjects.length === 0 ? (
+              {filteredTimelineProjects.length === 0 ? (
                 <div className="grid grid-cols-[220px_1fr]">
                   <div className="sticky left-0 z-10 bg-surface-secondary px-4 py-4">
                     <Text size="sm" className="text-text-muted">
-                      No projects yet
+                      {timelineProjects.length === 0 ? "No projects yet" : "No matching projects"}
                     </Text>
                   </div>
                   <div className="h-12" />
                 </div>
               ) : (
-                timelineProjects.map((project) => {
+                filteredTimelineProjects.map((project) => {
                   if (
                     isBefore(project.rangeEnd, rangeStart) ||
                     isAfter(project.rangeStart, rangeEnd)

@@ -11,6 +11,7 @@ import { NoProjectSection } from './NoProjectSection';
 import { EditActionModal } from '../EditActionModal';
 import { CreateActionModal } from '../CreateActionModal';
 import { ProjectViewLayout } from '~/app/_components/ProjectViewLayout';
+import { ToolbarActions } from '~/app/_components/toolbar';
 
 interface User {
   id: string;
@@ -81,6 +82,7 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
   const [editingAction, setEditingAction] = useState<ActionData | null>(null);
   // Track if showing completed tasks
   const [includeCompleted, setIncludeCompleted] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const utils = api.useUtils();
 
@@ -145,6 +147,24 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
     return projectTasks + noProjectTasks;
   }, [data]);
 
+  const filteredProjects = useMemo(() => {
+    if (!searchQuery.trim()) return data?.projects ?? [];
+    const q = searchQuery.toLowerCase();
+    return (data?.projects ?? []).filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.actions.some((a) => a.name.toLowerCase().includes(q))
+    );
+  }, [data?.projects, searchQuery]);
+
+  const filteredNoProjectActions = useMemo(() => {
+    if (!searchQuery.trim()) return data?.noProjectActions ?? [];
+    const q = searchQuery.toLowerCase();
+    return (data?.noProjectActions ?? []).filter((a) =>
+      a.name.toLowerCase().includes(q)
+    );
+  }, [data?.noProjectActions, searchQuery]);
+
   if (error) {
     return (
       <Container size="xl" className="py-8">
@@ -158,6 +178,13 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
       activeView="projects-tasks"
       title="Projects & Tasks"
       description={`${totalProjects} projects, ${totalTasks} tasks`}
+      tabsRightSection={
+        <ToolbarActions
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search projects & tasks..."
+        />
+      }
     >
       {/* Header controls */}
       <Group justify="flex-end" mb="lg">
@@ -213,7 +240,7 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
         ) : (
           <div className="overflow-auto max-h-[calc(100vh-250px)]">
             {/* Projects */}
-            {data?.projects.map((project: ProjectData) => (
+            {filteredProjects.map((project: ProjectData) => (
               <div key={project.id}>
                 {/* Project row */}
                 <ProjectRow
@@ -241,10 +268,10 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
             ))}
 
             {/* No project section */}
-            {data?.noProjectActions && data.noProjectActions.length > 0 && (
+            {filteredNoProjectActions.length > 0 && (
               <div>
                 <NoProjectSection
-                  taskCount={data.noProjectActions.length}
+                  taskCount={filteredNoProjectActions.length}
                   isExpanded={noProjectExpanded}
                   onToggle={() => setNoProjectExpanded(!noProjectExpanded)}
                   onAddTask={() => {
@@ -254,11 +281,11 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
 
                 {/* Tasks without project (when expanded) */}
                 {noProjectExpanded &&
-                  data.noProjectActions.map((action: ActionData, index: number) => (
+                  filteredNoProjectActions.map((action: ActionData, index: number) => (
                     <TaskRow
                       key={action.id}
                       action={{ ...action, project: null }}
-                      isLastChild={index === data.noProjectActions.length - 1}
+                      isLastChild={index === filteredNoProjectActions.length - 1}
                       onRowClick={() => handleRowClick({ ...action, project: null })}
                       onCheckboxChange={(checked) => handleCheckboxChange(action.id, checked)}
                     />
