@@ -5,6 +5,7 @@ import { useMantineColorScheme } from "@mantine/core";
 import {
   IconSettings,
   IconMessageReport,
+  IconBug,
   IconSun,
   IconMoon,
   IconPalette,
@@ -14,6 +15,7 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 import { SidebarFeedback } from "./SidebarFeedback";
+import { useBugReport } from "~/providers/BugReportProvider";
 import { getDarkTheme, setDarkTheme } from "~/lib/dark-theme";
 
 interface UserMenuProps {
@@ -30,6 +32,7 @@ interface UserMenuProps {
 export function UserMenu({ session, onClose }: UserMenuProps) {
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const { openBugReport } = useBugReport();
 
   const user = session.user;
   const initials = user.name
@@ -106,6 +109,14 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
               className="text-text-primary hover:bg-surface-hover"
             >
               Share Feedback
+            </Menu.Item>
+
+            <Menu.Item
+              leftSection={<IconBug size={16} />}
+              onClick={() => openBugReport()}
+              className="text-text-primary hover:bg-surface-hover"
+            >
+              Report a Bug
             </Menu.Item>
 
             <Menu.Item

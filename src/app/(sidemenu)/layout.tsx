@@ -16,6 +16,7 @@ import '@mantine/notifications/styles.css';
 import '@mantine/dates/styles.css';
 import { ThemeProvider } from '~/providers/ThemeProvider';
 import { AgentModalProvider } from '~/providers/AgentModalProvider';
+import { BugReportProvider } from '~/providers/BugReportProvider';
 import { themes } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { Analytics } from '@vercel/analytics/next';
@@ -58,18 +59,20 @@ export default async function RootLayout({
             <SessionProvider>
               <MantineRootProvider>
                 <AgentModalProvider>
-                  <ColorSchemeProvider>
-                    <WorkspaceProvider>
-                      <Layout domain={domain}>
-                        {children}
-                        <Analytics />
-                        {process.env.NEXT_PUBLIC_GA_ID && (
-                          <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
-                        )}
-                      </Layout>
-                      <FloatingChatButton />
-                    </WorkspaceProvider>
-                  </ColorSchemeProvider>
+                  <BugReportProvider>
+                    <ColorSchemeProvider>
+                      <WorkspaceProvider>
+                        <Layout domain={domain}>
+                          {children}
+                          <Analytics />
+                          {process.env.NEXT_PUBLIC_GA_ID && (
+                            <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+                          )}
+                        </Layout>
+                        <FloatingChatButton />
+                      </WorkspaceProvider>
+                    </ColorSchemeProvider>
+                  </BugReportProvider>
                 </AgentModalProvider>
               </MantineRootProvider>
             </SessionProvider>

@@ -57,6 +57,7 @@ import { sprintAnalyticsRouter } from "./routers/sprintAnalytics";
 import { briefingRouter } from "./routers/briefing";
 import { pmSchedulerRouter } from "./routers/pmScheduler";
 import { bountyRouter } from "./routers/bounty";
+import { bugReportRouter } from "./routers/bugReport";
 import { actionCommentRouter } from "./routers/actionComment";
 import { blogCommentRouter } from "./routers/blogComment";
 import { crmApiRouter } from "./routers/crmApi";
@@ -127,6 +128,7 @@ export const appRouter = createTRPCRouter({
   briefing: briefingRouter,
   pmScheduler: pmSchedulerRouter,
   bounty: bountyRouter,
+  bugReport: bugReportRouter,
   actionComment: actionCommentRouter,
   blogComment: blogCommentRouter,
   crmApi: crmApiRouter,
