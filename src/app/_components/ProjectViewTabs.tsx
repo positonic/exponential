@@ -12,7 +12,7 @@ interface ProjectViewTabsProps {
 }
 
 const VIEW_TABS = [
-  { value: "table", label: "Table", icon: IconTable, path: "/projects" },
+  { value: "table", label: "Projects", icon: IconTable, path: "/projects" },
   {
     value: "projects-tasks",
     label: "Projects & Tasks",
