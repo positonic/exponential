@@ -48,6 +48,19 @@ export interface FilterBarConfig {
   fields: FilterField[];
 }
 
+/** Check whether any filters are currently active */
+export function hasActiveFilters(
+  config: FilterBarConfig,
+  filters: FilterState,
+): boolean {
+  return config.fields.some((f) => {
+    const val = filters[f.key];
+    if (val === undefined) return false;
+    if (Array.isArray(val)) return val.length > 0;
+    return val === true;
+  });
+}
+
 /** Member shape expected by user-type filter fields */
 export interface FilterMember {
   id: string;

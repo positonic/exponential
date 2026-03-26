@@ -10,11 +10,14 @@ import { modals } from "@mantine/modals";
 import { useDisclosure } from "@mantine/hooks";
 import { slugify } from "~/utils/slugify";
 import { getAvatarColor, getInitial } from "~/utils/avatarColors";
-import { IconEdit, IconTrash, IconBrandNotion, IconPlus, IconLayoutList, IconCircleDot, IconFlag, IconUser } from "@tabler/icons-react";
+import { IconEdit, IconTrash, IconBrandNotion, IconPlus, IconCircleDot, IconFlag, IconUser } from "@tabler/icons-react";
 import Link from "next/link";
 import { calculateProjectHealth, HealthRing, HealthIndicatorIcons } from "~/app/_components/home/ProjectHealth";
 import { FilterBar } from "~/app/_components/filters";
+import { ViewToolbar } from "~/app/_components/toolbar";
+import { hasActiveFilters } from "~/types/filter";
 import type { FilterBarConfig, FilterState, FilterMember } from "~/types/filter";
+import { ProjectViewTabs } from "~/app/_components/ProjectViewTabs";
 
 type Project = RouterOutputs["project"]["getAll"][0];
 
@@ -377,6 +380,7 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
   );
 
   const [filters, setFilters] = useState<FilterState>({});
+  const [searchQuery, setSearchQuery] = useState("");
 
   const workspaceMembers: FilterMember[] = useMemo(() => {
     if (!workspace?.members) return [];
@@ -406,9 +410,14 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
         if (!project.driId || !driFilter.includes(project.driId)) return false;
       }
 
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        if (!project.name.toLowerCase().includes(q)) return false;
+      }
+
       return true;
     });
-  }, [projects.data, filters]);
+  }, [projects.data, filters, searchQuery]);
 
   api.project.create.useMutation({
     onSuccess: () => {
@@ -433,33 +442,35 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
     <div className="w-full max-w-4xl">
       <Group justify="space-between" align="center" mb="md">
         <h2 className="text-2xl font-bold">Projects</h2>
-        <Group gap="sm">
-          <Button
-            component={Link}
-            href={workspace?.slug ? `/w/${workspace.slug}/projects-tasks` : '/projects-tasks'}
-            variant="light"
-            leftSection={<IconLayoutList size={16} />}
-          >
-            Projects &amp; Tasks
-          </Button>
-          {unlinkedCount > 0 && (
+      </Group>
+
+      <ViewToolbar
+        leftSection={<ProjectViewTabs activeView="table" />}
+        filterContent={
+          <FilterBar
+            config={PROJECT_FILTER_CONFIG}
+            filters={filters}
+            onFiltersChange={setFilters}
+            members={workspaceMembers}
+          />
+        }
+        hasActiveFilters={hasActiveFilters(PROJECT_FILTER_CONFIG, filters)}
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search projects..."
+        rightSection={
+          unlinkedCount > 0 ? (
             <Button
               variant="light"
+              size="xs"
               leftSection={<IconBrandNotion size={16} />}
               rightSection={<Badge size="xs">{unlinkedCount}</Badge>}
               onClick={openNotionModal}
             >
               Notion Suggestions
             </Button>
-          )}
-        </Group>
-      </Group>
-
-      <FilterBar
-        config={PROJECT_FILTER_CONFIG}
-        filters={filters}
-        onFiltersChange={setFilters}
-        members={workspaceMembers}
+          ) : undefined
+        }
       />
 
       <ProjectList projects={filteredProjects} workspaceSlug={showAllWorkspaces ? undefined : workspace?.slug} />

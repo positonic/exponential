@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { Group, Button, Popover, Text, ActionIcon } from "@mantine/core";
 import { IconPlus, IconArrowLeft, IconX } from "@tabler/icons-react";
+import { hasActiveFilters as checkActiveFilters } from "~/types/filter";
 import type { FilterBarConfig, FilterField, FilterState, FilterMember } from "~/types/filter";
 import { FilterFieldPicker } from "./FilterFieldPicker";
 import { FilterValuePicker } from "./FilterValuePicker";
@@ -37,12 +38,7 @@ export function FilterBar({
     setActiveField(null);
   }, []);
 
-  const hasActiveFilters = config.fields.some((f) => {
-    const val = filters[f.key];
-    if (val === undefined) return false;
-    if (Array.isArray(val)) return val.length > 0;
-    return val === true;
-  });
+  const filtersActive = checkActiveFilters(config, filters);
 
   const clearAll = useCallback(() => {
     onFiltersChange({});
@@ -116,7 +112,7 @@ export function FilterBar({
         </Popover.Dropdown>
       </Popover>
 
-      {hasActiveFilters && (
+      {filtersActive && (
         <ActionIcon
           variant="subtle"
           color="gray"
