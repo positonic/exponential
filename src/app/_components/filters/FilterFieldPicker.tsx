@@ -31,17 +31,18 @@ export function FilterFieldPicker({
 
   return (
     <Stack gap={0}>
-      <TextInput
-        placeholder="Filter by..."
-        leftSection={<IconSearch size={14} />}
-        value={search}
-        onChange={(e) => setSearch(e.currentTarget.value)}
-        size="sm"
-        variant="unstyled"
-        className="border-b border-border-primary px-2"
-      />
+      <div className="px-2 pt-2 pb-1">
+        <TextInput
+          placeholder="Filter by..."
+          leftSection={<IconSearch size={14} />}
+          value={search}
+          onChange={(e) => setSearch(e.currentTarget.value)}
+          size="xs"
+          variant="filled"
+        />
+      </div>
       <ScrollArea.Autosize mah={280}>
-        <Stack gap={0} py={4}>
+        <Stack gap={2} px={6} py={6}>
           {filtered.map((field) => {
             const Icon = field.icon;
             const active = hasValue(field);
@@ -49,7 +50,7 @@ export function FilterFieldPicker({
               <UnstyledButton
                 key={field.key}
                 onClick={() => onFieldSelect(field)}
-                className="flex items-center gap-2 rounded px-3 py-2 hover:bg-surface-hover"
+                className="flex items-center rounded-md px-2 py-1.5 hover:bg-surface-hover"
               >
                 <Group gap="sm" wrap="nowrap" style={{ flex: 1 }}>
                   {Icon && (

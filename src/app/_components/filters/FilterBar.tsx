@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { Group, Button, Popover, Text, ActionIcon } from "@mantine/core";
-import { IconFilter, IconArrowLeft, IconX } from "@tabler/icons-react";
+import { IconPlus, IconArrowLeft, IconX } from "@tabler/icons-react";
 import type { FilterBarConfig, FilterField, FilterState, FilterMember } from "~/types/filter";
 import { FilterFieldPicker } from "./FilterFieldPicker";
 import { FilterValuePicker } from "./FilterValuePicker";
@@ -61,32 +61,35 @@ export function FilterBar({
         opened={opened}
         onChange={setOpened}
         position="bottom-start"
-        width={240}
+        width={260}
         shadow="md"
+        radius="md"
         onClose={handleClose}
       >
         <Popover.Target>
           <Button
-            variant="subtle"
-            color="gray"
+            variant="default"
             size="xs"
-            leftSection={<IconFilter size={14} />}
+            radius="xl"
+            leftSection={<IconPlus size={14} />}
             onClick={() => setOpened((o) => !o)}
+            className="border-border-secondary"
           >
             Filter
           </Button>
         </Popover.Target>
 
-        <Popover.Dropdown p={0} className="border-border-primary">
+        <Popover.Dropdown p={0}>
           {activeField ? (
             <>
               <Group
                 gap="xs"
-                className="border-b border-border-primary px-2 py-2"
+                className="border-b border-border-secondary px-3 py-2"
               >
                 <ActionIcon
                   variant="subtle"
-                  size="xs"
+                  color="gray"
+                  size="sm"
                   onClick={handleBack}
                   aria-label="Back to field picker"
                 >

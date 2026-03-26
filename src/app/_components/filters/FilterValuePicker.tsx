@@ -93,12 +93,12 @@ function MultiSelectPicker({
 
   return (
     <ScrollArea.Autosize mah={280}>
-      <Stack gap={0} py={4}>
+      <Stack gap={2} px={6} py={6}>
         {field.options.map((opt) => (
           <UnstyledButton
             key={opt.value}
             onClick={() => toggle(opt.value)}
-            className="flex items-center gap-2 rounded px-3 py-2 hover:bg-surface-hover"
+            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover"
           >
             <Checkbox
               checked={selected.includes(opt.value)}
@@ -144,12 +144,12 @@ function UserPicker({
 
   return (
     <ScrollArea.Autosize mah={280}>
-      <Stack gap={0} py={4}>
+      <Stack gap={2} px={6} py={6}>
         {members.map((member) => (
           <UnstyledButton
             key={member.id}
             onClick={() => toggle(member.id)}
-            className="flex items-center gap-2 rounded px-3 py-2 hover:bg-surface-hover"
+            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover"
           >
             <Checkbox
               checked={selected.includes(member.id)}

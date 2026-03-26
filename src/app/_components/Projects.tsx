@@ -455,14 +455,12 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
         </Group>
       </Group>
 
-      <div className="mb-3">
-        <FilterBar
-          config={PROJECT_FILTER_CONFIG}
-          filters={filters}
-          onFiltersChange={setFilters}
-          members={workspaceMembers}
-        />
-      </div>
+      <FilterBar
+        config={PROJECT_FILTER_CONFIG}
+        filters={filters}
+        onFiltersChange={setFilters}
+        members={workspaceMembers}
+      />
 
       <ProjectList projects={filteredProjects} workspaceSlug={showAllWorkspaces ? undefined : workspace?.slug} />
       <div className="mt-4">
