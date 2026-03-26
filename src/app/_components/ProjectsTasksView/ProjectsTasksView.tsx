@@ -154,17 +154,13 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
   }
 
   return (
-    <ProjectViewLayout activeView="projects-tasks">
-      {/* Header */}
-      <Group justify="space-between" mb="lg">
-        <div>
-          <Text size="xl" fw={600} className="text-text-primary">
-            Projects & Tasks
-          </Text>
-          <Text size="sm" className="text-text-secondary">
-            {totalProjects} projects, {totalTasks} tasks
-          </Text>
-        </div>
+    <ProjectViewLayout
+      activeView="projects-tasks"
+      title="Projects & Tasks"
+      description={`${totalProjects} projects, ${totalTasks} tasks`}
+    >
+      {/* Header controls */}
+      <Group justify="flex-end" mb="lg">
         <Group gap="sm">
           <Switch
             label="Show completed"

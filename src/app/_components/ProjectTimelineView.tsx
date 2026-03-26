@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ActionIcon, Badge, Button, Group, Paper, Skeleton, Stack, Text, Title, Tooltip } from "@mantine/core";
+import { ActionIcon, Badge, Button, Group, Paper, Skeleton, Stack, Text, Tooltip } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { IconEdit } from "@tabler/icons-react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
@@ -382,17 +382,13 @@ export function ProjectTimelineView({
   }
 
   return (
-    <ProjectViewLayout activeView="timeline">
+    <ProjectViewLayout
+      activeView="timeline"
+      title="Timeline"
+      description="Project timeline based on start and end dates"
+    >
     <Stack gap="md">
-      <Group justify="space-between" align="center">
-        <div>
-          <Title order={3} className="text-text-primary">
-            Timeline
-          </Title>
-          <Text size="sm" className="text-text-secondary">
-            Project timeline based on start and end dates
-          </Text>
-        </div>
+      <Group justify="flex-end" align="center">
         <Group gap="sm">
           <Group gap={4}>
             {(["month", "quarter", "year"] as TimelineZoom[]).map((value) => (

@@ -1,6 +1,7 @@
 "use client";
 
-import { Tabs } from "@mantine/core";
+import type { ReactNode } from "react";
+import { Group, Tabs } from "@mantine/core";
 import { IconTable, IconLayoutList, IconTimeline } from "@tabler/icons-react";
 import Link from "next/link";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -9,6 +10,7 @@ export type ProjectView = "table" | "projects-tasks" | "timeline";
 
 interface ProjectViewTabsProps {
   activeView: ProjectView;
+  rightSection?: ReactNode;
 }
 
 const VIEW_TABS = [
@@ -27,26 +29,31 @@ const VIEW_TABS = [
   },
 ] as const;
 
-export function ProjectViewTabs({ activeView }: ProjectViewTabsProps) {
+export function ProjectViewTabs({ activeView, rightSection }: ProjectViewTabsProps) {
   const { workspace } = useWorkspace();
   const prefix = workspace?.slug ? `/w/${workspace.slug}` : "";
 
   return (
     <Tabs value={activeView} variant="default" mb="sm">
-      <Tabs.List>
-        {VIEW_TABS.map((tab) => (
-          <Tabs.Tab
-            key={tab.value}
-            value={tab.value}
-            leftSection={<tab.icon size={16} />}
-            renderRoot={(props: Record<string, unknown>) => (
-              <Link href={`${prefix}${tab.path}`} {...props} />
-            )}
-          >
-            {tab.label}
-          </Tabs.Tab>
-        ))}
-      </Tabs.List>
+      <Group justify="space-between" align="center" wrap="nowrap">
+        <Tabs.List>
+          {VIEW_TABS.map((tab) => (
+            <Tabs.Tab
+              key={tab.value}
+              value={tab.value}
+              leftSection={<tab.icon size={16} />}
+              renderRoot={(props: Record<string, unknown>) => (
+                <Link href={`${prefix}${tab.path}`} {...props} />
+              )}
+            >
+              {tab.label}
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+        {rightSection && (
+          <Group gap="xs">{rightSection}</Group>
+        )}
+      </Group>
     </Tabs>
   );
 }

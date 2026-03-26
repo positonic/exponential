@@ -1,2 +1,2 @@
-export { ViewToolbar } from "./ViewToolbar";
+export { ViewToolbar, ToolbarActions } from "./ViewToolbar";
 export { SearchBox } from "./SearchBox";

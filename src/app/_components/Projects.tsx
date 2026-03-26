@@ -5,7 +5,7 @@ import { api } from "~/trpc/react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Modal, Avatar, Tooltip } from "@mantine/core";
+import { Select, Card, Text, Group, Badge, Button, Stack, Alert, Modal, Avatar, Tooltip, Collapse } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { useDisclosure } from "@mantine/hooks";
 import { slugify } from "~/utils/slugify";
@@ -14,7 +14,7 @@ import { IconEdit, IconTrash, IconBrandNotion, IconPlus, IconCircleDot, IconFlag
 import Link from "next/link";
 import { calculateProjectHealth, HealthRing, HealthIndicatorIcons } from "~/app/_components/home/ProjectHealth";
 import { FilterBar } from "~/app/_components/filters";
-import { ViewToolbar } from "~/app/_components/toolbar";
+import { ToolbarActions } from "~/app/_components/toolbar";
 import { hasActiveFilters } from "~/types/filter";
 import type { FilterBarConfig, FilterState, FilterMember } from "~/types/filter";
 import { ProjectViewLayout } from "~/app/_components/ProjectViewLayout";
@@ -381,6 +381,7 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
 
   const [filters, setFilters] = useState<FilterState>({});
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
 
   const workspaceMembers: FilterMember[] = useMemo(() => {
     if (!workspace?.members) return [];
@@ -439,34 +440,43 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
   const unlinkedCount = unlinkedProjectsData?.unlinkedProjects.length ?? 0;
 
   return (
-    <ProjectViewLayout activeView="table">
-      <ViewToolbar
-        filterContent={
+    <ProjectViewLayout
+      activeView="table"
+      title="Projects"
+      tabsRightSection={
+        <ToolbarActions
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search projects..."
+          hasFilter
+          hasActiveFilters={hasActiveFilters(PROJECT_FILTER_CONFIG, filters)}
+          onToggleFilter={toggleFilterRow}
+          extra={
+            unlinkedCount > 0 ? (
+              <Button
+                variant="light"
+                size="xs"
+                leftSection={<IconBrandNotion size={16} />}
+                rightSection={<Badge size="xs">{unlinkedCount}</Badge>}
+                onClick={openNotionModal}
+              >
+                Notion Suggestions
+              </Button>
+            ) : undefined
+          }
+        />
+      }
+    >
+      <Collapse in={filterRowOpen || hasActiveFilters(PROJECT_FILTER_CONFIG, filters)}>
+        <div className="mb-3">
           <FilterBar
             config={PROJECT_FILTER_CONFIG}
             filters={filters}
             onFiltersChange={setFilters}
             members={workspaceMembers}
           />
-        }
-        hasActiveFilters={hasActiveFilters(PROJECT_FILTER_CONFIG, filters)}
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchPlaceholder="Search projects..."
-        rightSection={
-          unlinkedCount > 0 ? (
-            <Button
-              variant="light"
-              size="xs"
-              leftSection={<IconBrandNotion size={16} />}
-              rightSection={<Badge size="xs">{unlinkedCount}</Badge>}
-              onClick={openNotionModal}
-            >
-              Notion Suggestions
-            </Button>
-          ) : undefined
-        }
-      />
+        </div>
+      </Collapse>
 
       <ProjectList projects={filteredProjects} workspaceSlug={showAllWorkspaces ? undefined : workspace?.slug} />
       <div className="mt-4">
