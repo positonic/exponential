@@ -48,6 +48,7 @@ import { UnifiedDatePicker } from "./UnifiedDatePicker";
 import { TagSelector } from "./TagSelector";
 import { useImagePaste } from "~/hooks/useImagePaste";
 import { InlineImageRenderer } from "./shared/InlineImageRenderer";
+import { HTMLContent } from "./HTMLContent";
 
 const KANBAN_STATUS_OPTIONS = [
   { value: "BACKLOG", label: "Backlog" },
@@ -393,9 +394,11 @@ export function ActionDetailContent({
                 {action.project.name}
               </Anchor>
             )}
-            <Text size="sm" className="text-text-secondary" truncate>
-              {action.name}
-            </Text>
+            <HTMLContent
+              html={action.name}
+              className="text-text-secondary text-sm truncate"
+              compactUrls
+            />
           </Breadcrumbs>
         </Group>
 
@@ -435,13 +438,12 @@ export function ActionDetailContent({
             mb="md"
           />
         ) : (
-          <Text
-            className="text-2xl font-bold text-text-primary cursor-text hover:bg-surface-hover rounded px-1 -mx-1 transition-colors"
+          <div
+            className="text-2xl font-bold cursor-text hover:bg-surface-hover rounded px-1 -mx-1 transition-colors mb-4"
             onClick={() => setEditingTitle(true)}
-            mb="md"
           >
-            {action.name}
-          </Text>
+            <HTMLContent html={action.name} className="text-text-primary" compactUrls />
+          </div>
         )}
 
         {/* Description - Editable */}
