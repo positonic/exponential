@@ -96,10 +96,11 @@ export function hasProjectAccess(access: ProjectAccess): boolean {
   );
 }
 
-/** Check if user can edit a project (creator, workspace admin+, team admin+) */
+/** Check if user can edit a project (creator, workspace member+, team member+, project member) */
 export function canEditProject(access: ProjectAccess): boolean {
   if (access.isCreator) return true;
-  if (access.workspaceRole === "owner" || access.workspaceRole === "admin") return true;
-  if (access.teamRole === "owner" || access.teamRole === "admin") return true;
+  if (access.isWorkspaceMember) return true;
+  if (access.isTeamMember) return true;
+  if (access.isMember) return true;
   return false;
 }

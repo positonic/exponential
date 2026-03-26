@@ -296,8 +296,8 @@ describe("canEditProject", () => {
     expect(canEditProject(makeProjectAccess({ isWorkspaceMember: true, workspaceRole: "admin" }))).toBe(true);
   });
 
-  it("workspace member (not admin) cannot edit", () => {
-    expect(canEditProject(makeProjectAccess({ isWorkspaceMember: true, workspaceRole: "member" }))).toBe(false);
+  it("workspace member can edit", () => {
+    expect(canEditProject(makeProjectAccess({ isWorkspaceMember: true, workspaceRole: "member" }))).toBe(true);
   });
 
   it("team owner can edit", () => {
@@ -308,12 +308,12 @@ describe("canEditProject", () => {
     expect(canEditProject(makeProjectAccess({ isTeamMember: true, teamRole: "admin" }))).toBe(true);
   });
 
-  it("team member (not admin) cannot edit", () => {
-    expect(canEditProject(makeProjectAccess({ isTeamMember: true, teamRole: "member" }))).toBe(false);
+  it("team member can edit", () => {
+    expect(canEditProject(makeProjectAccess({ isTeamMember: true, teamRole: "member" }))).toBe(true);
   });
 
-  it("direct project member (no special role) cannot edit", () => {
-    expect(canEditProject(makeProjectAccess({ isMember: true }))).toBe(false);
+  it("direct project member can edit", () => {
+    expect(canEditProject(makeProjectAccess({ isMember: true }))).toBe(true);
   });
 
   it("public project visitor cannot edit", () => {
