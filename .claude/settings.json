@@ -26,7 +26,9 @@
       "Bash(cat '/Users/james/code/exponential/src/app/\\(sidemenu\\)/w/[workspaceSlug]/actions/[actionId]/page.tsx')",
       "Bash(wc -l /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/settings/page.tsx)",
       "Bash(find /Users/james/code/exponential/src -type f \\\\\\(-name *comment* -o -name *attachment* -o -name *image* \\\\\\))",
-      "mcp__serena__find_file"
+      "mcp__serena__find_file",
+      "Bash(cr --help)",
+      "Bash(cr review:*)"
     ],
     "additionalDirectories": [
       "/tmp",

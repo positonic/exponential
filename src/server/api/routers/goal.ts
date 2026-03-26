@@ -4,7 +4,6 @@ import {
   protectedProcedure,
   publicProcedure,
 } from "~/server/api/trpc";
-import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
@@ -29,10 +28,9 @@ export const goalRouter = createTRPCRouter({
       if (workspaceId) {
         const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, workspaceId);
         if (!membership) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You don't have access to this workspace",
-          });
+          // Return empty array instead of throwing — this query is used by sidebar/navigation
+          // components that should gracefully degrade when workspace access is lost
+          return [];
         }
       }
 
