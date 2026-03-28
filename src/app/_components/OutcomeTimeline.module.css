@@ -28,4 +28,30 @@
 .todayTitle {
   color: var(--mantine-color-green-6);
   font-weight: bold; /* Optional: make title bold */
+}
+
+.completedToggle {
+  cursor: pointer;
+}
+
+.completedToggleText {
+  color: var(--mantine-color-dimmed);
+  transition: color 0.15s ease;
+
+  &:hover {
+    color: var(--mantine-color-green-6);
+  }
+}
+
+.completedAction {
+  cursor: pointer;
+  padding: 2px 0;
+
+  &:hover {
+    text-decoration-color: var(--mantine-color-blue-4);
+  }
+
+  &:hover * {
+    color: var(--mantine-color-blue-4) !important;
+  }
 } 

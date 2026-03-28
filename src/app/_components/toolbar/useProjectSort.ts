@@ -58,13 +58,13 @@ export function useProjectSort() {
   }, []);
 
   const sortProjects = useCallback(
-    <T extends Record<string, unknown>>(items: T[]): T[] => {
+    <T extends object>(items: T[]): T[] => {
       if (!sortState) return items;
       const { field, direction } = sortState;
 
       return [...items].sort((a, b) => {
-        const aVal = a[field];
-        const bVal = b[field];
+        const aVal = (a as Record<string, unknown>)[field];
+        const bVal = (b as Record<string, unknown>)[field];
 
         // Nulls always go to end
         if (aVal == null && bVal == null) return 0;

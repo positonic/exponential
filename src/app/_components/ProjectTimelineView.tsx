@@ -565,7 +565,7 @@ export function ProjectTimelineView({
                       <div className="sticky left-0 z-10 flex flex-col gap-1 bg-surface-secondary px-4 py-3 group-hover:bg-surface-hover">
                         <Group justify="space-between" align="center" gap="xs" wrap="nowrap">
                           <Link
-                            href={`/w/${workspaceSlug ?? project.workspaceSlug}/projects/${project.slug}-${project.id}`}
+                            href={`/w/${workspaceSlug ?? project.workspaceSlug ?? ""}/projects/${project.slug}-${project.id}`}
                             className="truncate text-sm font-medium text-text-primary hover:text-brand-primary"
                           >
                             {project.name}
