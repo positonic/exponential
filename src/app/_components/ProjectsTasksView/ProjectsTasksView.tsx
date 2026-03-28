@@ -11,7 +11,7 @@ import { NoProjectSection } from './NoProjectSection';
 import { EditActionModal } from '../EditActionModal';
 import { CreateActionModal } from '../CreateActionModal';
 import { ProjectViewLayout } from '~/app/_components/ProjectViewLayout';
-import { ToolbarActions } from '~/app/_components/toolbar';
+import { ToolbarActions, ProjectSortMenu, useProjectSort } from '~/app/_components/toolbar';
 
 interface User {
   id: string;
@@ -83,6 +83,7 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
   // Track if showing completed tasks
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const { sortState, setSortField, clearSort, sortProjects } = useProjectSort();
 
   const utils = api.useUtils();
 
@@ -148,14 +149,15 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
   }, [data]);
 
   const filteredProjects = useMemo(() => {
-    if (!searchQuery.trim()) return data?.projects ?? [];
-    const q = searchQuery.toLowerCase();
-    return (data?.projects ?? []).filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.actions.some((a) => a.name.toLowerCase().includes(q))
-    );
-  }, [data?.projects, searchQuery]);
+    const projects = searchQuery.trim()
+      ? (data?.projects ?? []).filter(
+          (p) =>
+            p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            p.actions.some((a) => a.name.toLowerCase().includes(searchQuery.toLowerCase()))
+        )
+      : data?.projects ?? [];
+    return sortProjects(projects);
+  }, [data?.projects, searchQuery, sortProjects]);
 
   const filteredNoProjectActions = useMemo(() => {
     if (!searchQuery.trim()) return data?.noProjectActions ?? [];
@@ -183,6 +185,13 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
           searchPlaceholder="Search projects & tasks..."
+          extra={
+            <ProjectSortMenu
+              sortState={sortState}
+              onSortChange={setSortField}
+              onClearSort={clearSort}
+            />
+          }
         />
       }
     >

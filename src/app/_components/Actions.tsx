@@ -18,11 +18,17 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
+import type { FilterState } from "~/types/filter";
+
 interface ActionsProps {
   viewName: string;
   defaultView?: 'list' | 'alignment' | 'kanban';
   projectId?: string;
   displayAlignment?: boolean;
+  /** Search query for filtering actions by name */
+  searchQuery?: string;
+  /** Filter state for filtering actions by status/priority */
+  filters?: FilterState;
   /** Project sync info for showing Notion sync button */
   projectSyncInfo?: {
     taskManagementTool?: string | null;
@@ -33,7 +39,7 @@ interface ActionsProps {
   };
 }
 
-export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false, projectSyncInfo }: ActionsProps) {
+export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false, searchQuery, filters, projectSyncInfo }: ActionsProps) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const viewFromUrl = searchParams.get("view");
@@ -172,6 +178,28 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       action.tags?.some(actionTag => selectedTagIds.includes(actionTag.tagId.toString()))
     );
   }, [actionsBeforeTagFilter, selectedTagIds]);
+
+  // Apply search and filter from toolbar
+  const filteredActions = useMemo(() => {
+    let result = actions ?? [];
+
+    const statusFilter = filters?.status as string[] | undefined;
+    if (statusFilter?.length) {
+      result = result.filter((a) => statusFilter.includes(a.status));
+    }
+
+    const priorityFilter = filters?.priority as string[] | undefined;
+    if (priorityFilter?.length) {
+      result = result.filter((a) => priorityFilter.includes(a.priority));
+    }
+
+    if (searchQuery?.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((a) => a.name.toLowerCase().includes(q));
+    }
+
+    return result;
+  }, [actions, filters, searchQuery]);
 
   // Count of unassigned Notion imports for today (for badge)
   const notionUnassignedCount = notionUnassignedTodayData.length;
@@ -970,13 +998,13 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       {projectId && isKanbanMode ? (
         <KanbanBoard
           projectId={projectId}
-          actions={actions ?? []}
+          actions={filteredActions ?? []}
           onActionOpen={handleActionOpen}
         />
       ) : (
         <ActionList
           viewName={showNotionUnassigned ? "notion-unassigned" : viewName}
-          actions={actions ?? []}
+          actions={filteredActions ?? []}
           showProject={!projectId}
           enableBulkEditForOverdue={true}
           onOverdueBulkAction={handleOverdueBulkAction}

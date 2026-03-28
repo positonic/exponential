@@ -7,7 +7,7 @@ import { api } from "~/trpc/react";
 import { IconEdit } from "@tabler/icons-react";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { ProjectViewLayout } from "~/app/_components/ProjectViewLayout";
-import { ToolbarActions } from "~/app/_components/toolbar";
+import { ToolbarActions, ProjectSortMenu, useProjectSort } from "~/app/_components/toolbar";
 import {
   addDays,
   addMonths,
@@ -196,6 +196,7 @@ export function ProjectTimelineView({
 }: ProjectTimelineViewProps) {
   const [zoom, setZoom] = useState<TimelineZoom>("quarter");
   const [searchQuery, setSearchQuery] = useState("");
+  const { sortState, setSortField, clearSort, sortProjects } = useProjectSort();
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragMovedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -251,10 +252,11 @@ export function ProjectTimelineView({
   );
 
   const filteredTimelineProjects = useMemo(() => {
-    if (!searchQuery.trim()) return timelineProjects;
-    const q = searchQuery.toLowerCase();
-    return timelineProjects.filter((p) => p.name.toLowerCase().includes(q));
-  }, [timelineProjects, searchQuery]);
+    const filtered = searchQuery.trim()
+      ? timelineProjects.filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      : timelineProjects;
+    return sortProjects(filtered);
+  }, [timelineProjects, searchQuery, sortProjects]);
 
   const today = startOfDay(new Date());
 
@@ -399,6 +401,13 @@ export function ProjectTimelineView({
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
           searchPlaceholder="Search projects..."
+          extra={
+            <ProjectSortMenu
+              sortState={sortState}
+              onSortChange={setSortField}
+              onClearSort={clearSort}
+            />
+          }
         />
       }
     >

@@ -14,7 +14,7 @@ import { IconEdit, IconTrash, IconBrandNotion, IconPlus, IconCircleDot, IconFlag
 import Link from "next/link";
 import { calculateProjectHealth, HealthRing, HealthIndicatorIcons } from "~/app/_components/home/ProjectHealth";
 import { FilterBar } from "~/app/_components/filters";
-import { ToolbarActions } from "~/app/_components/toolbar";
+import { ToolbarActions, ProjectSortMenu, useProjectSort } from "~/app/_components/toolbar";
 import { hasActiveFilters } from "~/types/filter";
 import type { FilterBarConfig, FilterState, FilterMember } from "~/types/filter";
 import { ProjectViewLayout } from "~/app/_components/ProjectViewLayout";
@@ -382,6 +382,7 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
   const [filters, setFilters] = useState<FilterState>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
+  const { sortState, setSortField, clearSort, sortProjects } = useProjectSort();
 
   const workspaceMembers: FilterMember[] = useMemo(() => {
     if (!workspace?.members) return [];
@@ -420,6 +421,8 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
     });
   }, [projects.data, filters, searchQuery]);
 
+  const sortedProjects = useMemo(() => sortProjects(filteredProjects), [sortProjects, filteredProjects]);
+
   api.project.create.useMutation({
     onSuccess: () => {
       setProjectName("");
@@ -452,17 +455,24 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
           hasActiveFilters={hasActiveFilters(PROJECT_FILTER_CONFIG, filters)}
           onToggleFilter={toggleFilterRow}
           extra={
-            unlinkedCount > 0 ? (
-              <Button
-                variant="light"
-                size="xs"
-                leftSection={<IconBrandNotion size={16} />}
-                rightSection={<Badge size="xs">{unlinkedCount}</Badge>}
-                onClick={openNotionModal}
-              >
-                Notion Suggestions
-              </Button>
-            ) : undefined
+            <>
+              <ProjectSortMenu
+                sortState={sortState}
+                onSortChange={setSortField}
+                onClearSort={clearSort}
+              />
+              {unlinkedCount > 0 && (
+                <Button
+                  variant="light"
+                  size="xs"
+                  leftSection={<IconBrandNotion size={16} />}
+                  rightSection={<Badge size="xs">{unlinkedCount}</Badge>}
+                  onClick={openNotionModal}
+                >
+                  Notion Suggestions
+                </Button>
+              )}
+            </>
           }
         />
       }
@@ -478,7 +488,7 @@ export function Projects({ showAllWorkspaces = false }: ProjectsProps) {
         </div>
       </Collapse>
 
-      <ProjectList projects={filteredProjects} workspaceSlug={showAllWorkspaces ? undefined : workspace?.slug} />
+      <ProjectList projects={sortedProjects} workspaceSlug={showAllWorkspaces ? undefined : workspace?.slug} />
       <div className="mt-4">
         <CreateProjectModal>
           <Button variant="light">Create Project</Button>

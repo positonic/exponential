@@ -1,14 +1,44 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Group, Title, SegmentedControl, ActionIcon, Modal, Text } from "@mantine/core";
+import { Group, Title, SegmentedControl, Modal, Text, Collapse } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconFilter } from "@tabler/icons-react";
+import { IconCircleDot, IconFlag } from "@tabler/icons-react";
+import { PRIORITY_VALUES } from "~/types/priority";
 import { Actions } from "./Actions";
 import { ScoreBreakdown } from "./scoring/ScoreBreakdown";
 import { StreakBadge } from "./scoring/StreakBadge";
+import { ToolbarActions } from "./toolbar";
+import { FilterBar } from "./filters";
+import { hasActiveFilters } from "~/types/filter";
+import type { FilterBarConfig, FilterState } from "~/types/filter";
 import { api } from "~/trpc/react";
+
+const ACTION_FILTER_CONFIG: FilterBarConfig = {
+  fields: [
+    {
+      key: "status",
+      label: "Status",
+      type: "multi-select",
+      icon: IconCircleDot,
+      badgeColor: "cyan",
+      options: [
+        { value: "ACTIVE", label: "Active" },
+        { value: "COMPLETED", label: "Completed" },
+        { value: "CANCELLED", label: "Cancelled" },
+      ],
+    },
+    {
+      key: "priority",
+      label: "Priority",
+      type: "multi-select",
+      icon: IconFlag,
+      badgeColor: "grape",
+      options: PRIORITY_VALUES.map((v) => ({ value: v, label: v })),
+    },
+  ],
+};
 
 export type DoFilter = "today" | "tomorrow" | "upcoming";
 
@@ -21,6 +51,9 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
   const searchParams = useSearchParams();
   const { data: preferences } = api.navigationPreference.getPreferences.useQuery();
   const [breakdownOpened, { open: openBreakdown, close: closeBreakdown }] = useDisclosure(false);
+  const [filters, setFilters] = useState<FilterState>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
 
   // Fetch score data for inline display (only on "today" filter)
   const gamificationEnabled = preferences?.showGamification !== false;
@@ -137,14 +170,14 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
               ]}
               size="sm"
             />
-            <ActionIcon
-              variant="subtle"
-              size="lg"
-              aria-label="Filter"
-              className="text-text-secondary hover:text-text-primary"
-            >
-              <IconFilter size={18} />
-            </ActionIcon>
+            <ToolbarActions
+              searchValue={searchQuery}
+              onSearchChange={setSearchQuery}
+              searchPlaceholder="Search actions..."
+              hasFilter
+              hasActiveFilters={hasActiveFilters(ACTION_FILTER_CONFIG, filters)}
+              onToggleFilter={toggleFilterRow}
+            />
           </Group>
         </div>
       </div>
@@ -162,8 +195,19 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
         </Modal>
       )}
 
+      {/* Filter Row */}
+      <Collapse in={filterRowOpen || hasActiveFilters(ACTION_FILTER_CONFIG, filters)}>
+        <div className="mb-3">
+          <FilterBar
+            config={ACTION_FILTER_CONFIG}
+            filters={filters}
+            onFiltersChange={setFilters}
+          />
+        </div>
+      </Collapse>
+
       {/* Actions List */}
-      <Actions viewName={getViewName(filter)} />
+      <Actions viewName={getViewName(filter)} searchQuery={searchQuery} filters={filters} />
     </>
   );
 }
