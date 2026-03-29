@@ -431,11 +431,8 @@ export const schedulingRouter = createTRPCRouter({
       );
 
       if (!MASTRA_API_URL) {
-        console.error("[scheduling] MASTRA_API_URL not configured");
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "AI scheduling service not configured",
-        });
+        console.warn("[scheduling] MASTRA_API_URL not configured, returning empty suggestions");
+        return { suggestions: [], calendarConnected, overdueCount: overdueActions.length };
       }
 
       try {
@@ -466,11 +463,8 @@ export const schedulingRouter = createTRPCRouter({
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error(`[scheduling] Mastra API error (${response.status}):`, errorText);
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to get AI scheduling suggestions",
-          });
+          console.warn(`[scheduling] Mastra API error (${response.status}):`, errorText);
+          return { suggestions: [], calendarConnected, overdueCount: overdueActions.length };
         }
 
         const responseData = await response.json() as { text?: string; content?: string };
@@ -491,10 +485,8 @@ export const schedulingRouter = createTRPCRouter({
         if (error instanceof TRPCError) throw error;
 
         console.error("[scheduling] Error calling Mastra agent:", error);
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to generate scheduling suggestions",
-        });
+        // Return empty suggestions instead of failing - the UI can still function without AI suggestions
+        return { suggestions: [], calendarConnected, overdueCount: overdueActions.length };
       }
     }),
 
