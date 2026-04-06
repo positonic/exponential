@@ -1,9 +1,9 @@
 import { Modal } from '@mantine/core';
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import type { EffortUnit } from "~/types/effort";
-import { ActionModalForm } from './ActionModalForm';
+import { ActionModalForm, type PastedScreenshot } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
 import { notifications } from '@mantine/notifications';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -73,6 +73,9 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
   const [bountyMaxClaimants, setBountyMaxClaimants] = useState(1);
   const [bountyExternalUrl, setBountyExternalUrl] = useState<string | null>(null);
 
+  // Screenshot state - for newly pasted screenshots during edit
+  const [pastedScreenshots, setPastedScreenshots] = useState<PastedScreenshot[]>([]);
+
   const { workspaceSlug, workspaceId: contextWorkspaceId } = useWorkspace();
   const utils = api.useUtils();
 
@@ -83,6 +86,42 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
   );
   const effortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
   const advancedActionsEnabled = workspaceData?.enableAdvancedActions ?? false;
+
+  // Screenshot upload mutation
+  const uploadImageMutation = api.action.uploadImage.useMutation({
+    onError: (error) => {
+      console.error('Screenshot upload failed:', error);
+    },
+  });
+
+  // Ref to hold new screenshots for upload on save
+  const pendingScreenshotsRef = useRef<PastedScreenshot[]>([]);
+
+  // Query to get fresh action data including assignees
+  const { data: freshAction } = api.action.getAll.useQuery(undefined, {
+    select: (actions) => actions?.find(a => a.id === action?.id),
+    enabled: !!action?.id && opened, // Only query when modal is open and we have an action
+  });
+
+  // Use fresh action data if available, fallback to prop
+  const currentAction = freshAction ?? action;
+
+  // Build combined screenshot list: existing (from DB) + newly pasted
+  const existingScreenshots: PastedScreenshot[] = useMemo(() => {
+    const screenshots = (currentAction as Record<string, unknown>)?.actionScreenshots as
+      Array<{ screenshot: { id: string; url: string } }> | undefined;
+    if (!screenshots) return [];
+    return screenshots.map((as) => ({
+      id: as.screenshot.id,
+      base64: '', // Already uploaded, no base64 needed
+      previewUrl: as.screenshot.url,
+    }));
+  }, [currentAction]);
+
+  const allScreenshots = useMemo(
+    () => [...existingScreenshots, ...pastedScreenshots],
+    [existingScreenshots, pastedScreenshots],
+  );
 
   // Tag mutation for saving tags
   const setTagsMutation = api.tag.setActionTags.useMutation({
@@ -103,15 +142,6 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       console.error('Sprint removal failed:', error);
     },
   });
-
-  // Query to get fresh action data including assignees
-  const { data: freshAction } = api.action.getAll.useQuery(undefined, {
-    select: (actions) => actions?.find(a => a.id === action?.id),
-    enabled: !!action?.id && opened, // Only query when modal is open and we have an action
-  });
-
-  // Use fresh action data if available, fallback to prop
-  const currentAction = freshAction ?? action;
 
   // Only re-initialize form when a different action is loaded or modal reopens.
   // Using currentAction?.id + opened as deps prevents the form from resetting
@@ -156,6 +186,8 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       } else {
         setSelectedTagIds([]);
       }
+      // Reset newly pasted screenshots when switching actions
+      setPastedScreenshots([]);
       // Load bounty fields
       setIsBounty(currentAction.isBounty ?? false);
       const rawAmount = currentAction.bountyAmount;
@@ -200,6 +232,23 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
     onSuccess: async () => {
       let hasTagError = false;
       let hasSprintError = false;
+      let hasScreenshotError = false;
+
+      // Upload any newly pasted screenshots
+      if (currentAction && pendingScreenshotsRef.current.length > 0) {
+        for (const screenshot of pendingScreenshotsRef.current) {
+          try {
+            await uploadImageMutation.mutateAsync({
+              actionId: currentAction.id,
+              base64Data: screenshot.base64,
+            });
+          } catch (error) {
+            hasScreenshotError = true;
+            console.error('Failed to upload screenshot:', error);
+          }
+        }
+        pendingScreenshotsRef.current = [];
+      }
 
       // Update tags
       if (currentAction && selectedTagIds) {
@@ -237,7 +286,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
         }
       }
 
-      const hasAnyError = hasTagError || hasSprintError;
+      const hasAnyError = hasTagError || hasSprintError || hasScreenshotError;
       notifications.show({
         title: hasAnyError ? "Partial Update" : "Action Updated",
         message: hasAnyError
@@ -286,6 +335,9 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
 
   const handleSubmit = () => {
     if (!name || !currentAction) return;
+
+    // Capture new screenshots before resetting
+    pendingScreenshotsRef.current = [...pastedScreenshots];
 
     // Close modal immediately for better UX
     onClose();
@@ -394,6 +446,12 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
         setBountyMaxClaimants={setBountyMaxClaimants}
         bountyExternalUrl={bountyExternalUrl}
         setBountyExternalUrl={setBountyExternalUrl}
+        pastedScreenshots={allScreenshots}
+        onScreenshotPaste={(screenshot) => setPastedScreenshots(prev => [...prev, screenshot])}
+        onScreenshotRemove={(id) => {
+          // Only allow removing newly pasted screenshots (existing ones need a delete API)
+          setPastedScreenshots(prev => prev.filter(s => s.id !== id));
+        }}
       />
     </Modal>
 

@@ -2,10 +2,10 @@
 
 import { Modal, ActionIcon, Tooltip } from "@mantine/core";
 import { useDisclosure, useViewportSize } from "@mantine/hooks";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { api } from "~/trpc/react";
 import type { ActionPriority } from "~/types/action";
-import { ActionModalForm } from "../ActionModalForm";
+import { ActionModalForm, type PastedScreenshot } from "../ActionModalForm";
 import { AssignActionModal } from "../AssignActionModal";
 import { IconPlus } from "@tabler/icons-react";
 import type { ActionStatus } from "@prisma/client";
@@ -33,6 +33,8 @@ export function GlobalAddTaskButton() {
   const [epicId, setEpicId] = useState<string | null>(null);
   const [effortEstimate, setEffortEstimate] = useState<number | null>(null);
   const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
+  // Screenshot paste state
+  const [pastedScreenshots, setPastedScreenshots] = useState<PastedScreenshot[]>([]);
 
   // Workspace context for advanced features
   const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
@@ -49,6 +51,13 @@ export function GlobalAddTaskButton() {
   const assignMutation = api.action.assign.useMutation({
     onError: (error) => {
       console.error("Assignment failed:", error);
+    },
+  });
+
+  // Screenshot upload mutation
+  const uploadImageMutation = api.action.uploadImage.useMutation({
+    onError: (error) => {
+      console.error("Screenshot upload failed:", error);
     },
   });
 
@@ -246,6 +255,23 @@ export function GlobalAddTaskButton() {
         }
       }
 
+      // Upload any pasted screenshots
+      if (pendingScreenshotsRef.current.length > 0) {
+        for (const screenshot of pendingScreenshotsRef.current) {
+          try {
+            await uploadImageMutation.mutateAsync({
+              actionId: data.id,
+              base64Data: screenshot.base64,
+            });
+          } catch (error) {
+            console.error("Failed to upload screenshot:", error);
+          }
+        }
+        pendingScreenshotsRef.current = [];
+        // Re-invalidate so EditActionModal sees the uploaded screenshots
+        await utils.action.getAll.invalidate();
+      }
+
       // Reset form state
       setName("");
       setDescription("");
@@ -260,12 +286,19 @@ export function GlobalAddTaskButton() {
       setEpicId(null);
       setEffortEstimate(null);
       setBlockedByIds([]);
+      setPastedScreenshots([]);
       close();
     },
   });
 
+  // Ref to hold screenshots for upload after action creation
+  const pendingScreenshotsRef = useRef<PastedScreenshot[]>([]);
+
   const handleSubmit = () => {
     if (!name) return;
+
+    // Capture screenshots before resetting
+    pendingScreenshotsRef.current = [...pastedScreenshots];
 
     const actionData = {
       name,
@@ -360,6 +393,9 @@ export function GlobalAddTaskButton() {
             blockedByIds,
             setBlockedByIds,
           } : {})}
+          pastedScreenshots={pastedScreenshots}
+          onScreenshotPaste={(screenshot) => setPastedScreenshots(prev => [...prev, screenshot])}
+          onScreenshotRemove={(id) => setPastedScreenshots(prev => prev.filter(s => s.id !== id))}
         />
       </Modal>
 

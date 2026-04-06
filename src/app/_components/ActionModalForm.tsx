@@ -1,4 +1,4 @@
-import { Textarea, Button, Group, Select, ActionIcon, Popover, Text, NumberInput, Stack, Switch, Tooltip, Divider, TagsInput, SegmentedControl, TextInput, Image } from '@mantine/core';
+import { Textarea, Button, Group, Select, ActionIcon, Popover, Text, NumberInput, Stack, Switch, Tooltip, Divider, TagsInput, SegmentedControl, TextInput, Image, Modal } from '@mantine/core';
 import { TimeInput, DateInput } from '@mantine/dates';
 import { IconPlus, IconClock, IconX, IconRobot, IconAlertCircle, IconInfoCircle, IconCoin, IconPhoto } from '@tabler/icons-react';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
@@ -157,6 +157,7 @@ export function ActionModalForm({
     { enabled: !!workspaceId && !!setScheduleId }
   );
   const [schedulePopoverOpened, setSchedulePopoverOpened] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
   const bountiesEnabled = useBountiesEnabled(projectId);
 
@@ -265,14 +266,19 @@ export function ActionModalForm({
         <Group gap="xs" mt="xs">
           {pastedScreenshots.map((screenshot) => (
             <div key={screenshot.id} className="relative group">
-              <Image
-                src={screenshot.previewUrl}
-                alt="Pasted screenshot"
-                h={80}
-                w="auto"
-                radius="sm"
-                className="border border-border-primary"
-              />
+              <span
+                className="cursor-pointer"
+                onClick={() => setLightboxUrl(screenshot.previewUrl)}
+              >
+                <Image
+                  src={screenshot.previewUrl}
+                  alt="Pasted screenshot"
+                  h={80}
+                  w="auto"
+                  radius="sm"
+                  className="border border-border-primary hover:border-brand-primary transition-colors"
+                />
+              </span>
               {onScreenshotRemove && (
                 <ActionIcon
                   size="xs"
@@ -761,6 +767,27 @@ export function ActionModalForm({
           </Group>
         </Group>
       </div>
+      <Modal
+        opened={lightboxUrl !== null}
+        onClose={() => setLightboxUrl(null)}
+        size="xl"
+        centered
+        withCloseButton={false}
+        classNames={{
+          body: "p-0",
+          content: "bg-transparent shadow-none",
+        }}
+        overlayProps={{ backgroundOpacity: 0.8 }}
+      >
+        {lightboxUrl && (
+          <Image
+            src={lightboxUrl}
+            alt="Full size"
+            fit="contain"
+            radius="md"
+          />
+        )}
+      </Modal>
     </form>
   );
 } 
