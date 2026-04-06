@@ -1,6 +1,8 @@
 {
   "name": "Exponential",
   "short_name": "Exponential",
+  "start_url": "/",
+  "display": "standalone",
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",
@@ -16,6 +18,5 @@
     }
   ],
   "theme_color": "#0c1022",
-  "background_color": "#0c1022",
-  "display": "standalone"
+  "background_color": "#0c1022"
 }
