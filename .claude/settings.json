@@ -32,7 +32,8 @@
       "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/)",
       "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/projects/)",
       "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/goals/)",
-      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/outcomes/)"
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/outcomes/)",
+      "Bash(npx vercel:*)"
     ],
     "additionalDirectories": [
       "/tmp",
