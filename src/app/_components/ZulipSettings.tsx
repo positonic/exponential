@@ -21,17 +21,12 @@ import { IconCheck, IconX, IconTrash, IconLink } from "@tabler/icons-react";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 
-interface WorkspaceMember {
-  userId: string;
-  user: { id: string; name: string | null; email: string | null; image: string | null };
-}
-
 interface ZulipSettingsProps {
   workspace: { id: string; name: string };
-  members?: WorkspaceMember[];
+  workspaceSlug: string;
 }
 
-export function ZulipSettings({ workspace, members }: ZulipSettingsProps) {
+export function ZulipSettings({ workspace, workspaceSlug }: ZulipSettingsProps) {
   const [setupOpened, { open: openSetup, close: closeSetup }] =
     useDisclosure(false);
 
@@ -68,6 +63,11 @@ export function ZulipSettings({ workspace, members }: ZulipSettingsProps) {
   const mappingsQuery = api.integration.getZulipUserMappings.useQuery(
     { integrationId: statusQuery.data?.integrationId ?? "" },
     { enabled: statusQuery.data?.configured === true && !!statusQuery.data?.integrationId },
+  );
+
+  const workspaceQuery = api.workspace.getBySlug.useQuery(
+    { slug: workspaceSlug },
+    { enabled: statusQuery.data?.configured === true },
   );
 
   // Mutations
@@ -253,57 +253,72 @@ export function ZulipSettings({ workspace, members }: ZulipSettingsProps) {
         )}
 
         {/* Add Mapping */}
-        <Group gap="sm" align="end">
-          <Select
-            label="Workspace Member"
-            placeholder="Select a member"
-            size="sm"
-            value={mappingUserId}
-            onChange={setMappingUserId}
-            data={
-              members
-                ?.filter((m) => !mappedUserIds.has(m.userId))
-                .map((m) => ({
+        {(() => {
+          const unmappedMembers =
+            workspaceQuery.data?.members?.filter(
+              (m) => !mappedUserIds.has(m.userId),
+            ) ?? [];
+
+          if (unmappedMembers.length === 0 && mappingsQuery.data && mappingsQuery.data.length > 0) {
+            return (
+              <Text size="sm" className="text-text-muted">
+                All workspace members have been mapped.
+              </Text>
+            );
+          }
+
+          return (
+            <Group gap="sm" align="end">
+              <Select
+                label="Workspace Member"
+                placeholder="Select a member"
+                size="sm"
+                value={mappingUserId}
+                onChange={setMappingUserId}
+                nothingFoundMessage="No unmapped members"
+                data={unmappedMembers.map((m) => ({
                   value: m.userId,
                   label: m.user.name ?? m.user.email ?? m.userId,
-                })) ?? []
-            }
-            style={{ flex: 1 }}
-          />
-          <Select
-            label="Zulip Account"
-            placeholder="Select Zulip user"
-            size="sm"
-            value={mappingZulipEmail}
-            onChange={setMappingZulipEmail}
-            data={
-              zulipUsersQuery.data?.map((u) => ({
-                value: u.email,
-                label: `${u.full_name} (${u.email})`,
-              })) ?? []
-            }
-            searchable
-            style={{ flex: 1 }}
-          />
-          <Button
-            size="sm"
-            variant="light"
-            leftSection={<IconLink size={14} />}
-            disabled={!mappingUserId || !mappingZulipEmail}
-            loading={mapUserMutation.isPending}
-            onClick={() => {
-              if (mappingUserId && mappingZulipEmail) {
-                mapUserMutation.mutate({
-                  integrationId: status.integrationId,
-                  userId: mappingUserId,
-                  zulipEmail: mappingZulipEmail,
-                });
-              }
-            }}
-          >
-            Link
-          </Button>
-        </Group>
+                }))}
+                style={{ flex: 1 }}
+              />
+              <Select
+                label="Zulip Account"
+                placeholder="Select Zulip user"
+                size="sm"
+                value={mappingZulipEmail}
+                onChange={setMappingZulipEmail}
+                nothingFoundMessage="No Zulip users found"
+                data={
+                  zulipUsersQuery.data?.map((u) => ({
+                    value: u.email,
+                    label: `${u.full_name} (${u.email})`,
+                  })) ?? []
+                }
+                searchable
+                style={{ flex: 1 }}
+              />
+              <Button
+                size="sm"
+                variant="light"
+                leftSection={<IconLink size={14} />}
+                disabled={!mappingUserId || !mappingZulipEmail}
+                loading={mapUserMutation.isPending}
+                onClick={() => {
+                  if (mappingUserId && mappingZulipEmail) {
+                    mapUserMutation.mutate({
+                      integrationId: status.integrationId,
+                      userId: mappingUserId,
+                      zulipEmail: mappingZulipEmail,
+                    });
+                  }
+                }}
+              >
+                Link
+              </Button>
+            </Group>
+          );
+        })()}
       </Stack>
     );
   }

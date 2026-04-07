@@ -864,7 +864,7 @@ export default function WorkspaceSettingsPage() {
                 </Text>
               </div>
             </Group>
-            <ZulipSettings workspace={{ id: workspaceId, name: workspace.name }} members={workspaceData?.members} />
+            <ZulipSettings workspace={{ id: workspaceId, name: workspace.name }} workspaceSlug={workspace.slug} />
           </Card>
         )}
 

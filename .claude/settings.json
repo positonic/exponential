@@ -38,7 +38,8 @@
       "Bash(openssl rand:*)",
       "Bash(printf 'a1995ede27b74cfe17e2bf6b12aa8e469d4370eecbd17f828202c5aba4a2fea8')",
       "WebFetch(domain:zulip.readthedocs.io)",
-      "WebFetch(domain:zulip.com)"
+      "WebFetch(domain:zulip.com)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=8192\" npx tsc --noEmit)"
     ],
     "additionalDirectories": [
       "/tmp",
