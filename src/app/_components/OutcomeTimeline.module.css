@@ -37,6 +37,7 @@
 .completedToggleText {
   color: var(--mantine-color-dimmed);
   transition: color 0.15s ease;
+  align-items: center;
 
   &:hover {
     color: var(--mantine-color-green-6);

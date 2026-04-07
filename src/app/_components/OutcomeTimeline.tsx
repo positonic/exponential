@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from 'react';
-import { Timeline, Text, Box, Collapse, Stack, UnstyledButton } from '@mantine/core';
+import React, { useState, useMemo } from 'react';
+import { Timeline, Text, Box, Collapse, Stack, UnstyledButton, Group } from '@mantine/core';
 import { api } from '~/trpc/react';
 import { format, startOfDay, isBefore } from 'date-fns';
 import { IconCalendarEvent, IconClock, IconTarget, IconCircleCheck, IconChevronRight, IconChevronDown } from '@tabler/icons-react';
@@ -42,6 +42,10 @@ type TimelineDisplayItem =
   | (GoalData & { itemType: 'goal'; isTodayMarker: false })
   | { id: string; description: string; dueDate: Date; itemType: 'today'; isTodayMarker: true }
   | { id: string; dueDate: Date; itemType: 'completedActions'; isTodayMarker: false; actions: CompletedActionData[] };
+
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, '');
+}
 
 function groupActionsByDate(actions: CompletedActionData[]): { date: Date; actions: CompletedActionData[] }[] {
   const groups = new Map<string, { date: Date; actions: CompletedActionData[] }>();
@@ -154,7 +158,7 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
     if (a.dueDate === null && b.dueDate === null) return 0;
     if (a.dueDate === null) return 1;
     if (b.dueDate === null) return -1;
-    return a.dueDate.getTime() - b.dueDate.getTime();
+    return b.dueDate.getTime() - a.dueDate.getTime();
   });
 
   const todayIndex = timelineItemsData.findIndex(item => item.isTodayMarker);
@@ -229,13 +233,15 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
                   onClick={() => toggleGroup(item.id)}
                   className={classes.completedToggle}
                 >
-                  <Text size="sm" className={classes.completedToggleText}>
+                  <Group gap={4} wrap="nowrap" className={classes.completedToggleText}>
                     {isExpanded
-                      ? <IconChevronDown size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                      : <IconChevronRight size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                      ? <IconChevronDown size={14} />
+                      : <IconChevronRight size={14} />
                     }
-                    {count} completed {count === 1 ? 'item' : 'items'}
-                  </Text>
+                    <Text size="sm" inherit>
+                      {count} completed {count === 1 ? 'item' : 'items'}
+                    </Text>
+                  </Group>
                 </UnstyledButton>
                 <Text size="xs" c="dimmed">{format(item.dueDate, 'PPP')}</Text>
                 <Collapse in={isExpanded}>
@@ -247,7 +253,7 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
                         className={classes.completedAction}
                       >
                         <Text size="sm" c="dimmed" td="line-through">
-                          {action.name}
+                          {stripHtml(action.name)}
                         </Text>
                       </UnstyledButton>
                     ))}
