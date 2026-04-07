@@ -12,3 +12,16 @@
     background-color: var(--mantine-color-default-hover);
   }
 }
+
+.toggleButton {
+  cursor: pointer;
+}
+
+.toggleText {
+  color: var(--mantine-color-dimmed);
+  transition: color 0.15s ease;
+
+  &:hover {
+    color: var(--mantine-color-blue-4);
+  }
+}
