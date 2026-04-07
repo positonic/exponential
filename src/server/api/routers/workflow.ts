@@ -1653,6 +1653,21 @@ export const workflowRouter = createTRPCRouter({
             debug: { route: 'monday/push' },
           };
         } else if (workflow.provider === 'notion' && effectiveSyncDirection === 'push') {
+          // Check project syncStrategy before allowing push
+          if (input.projectId) {
+            const projectForStrategy = await ctx.db.project.findUnique({
+              where: { id: input.projectId },
+              select: { taskManagementConfig: true },
+            });
+            const projStrategy = (projectForStrategy?.taskManagementConfig as { syncStrategy?: string } | null)?.syncStrategy;
+            if (projStrategy === 'notion_canonical') {
+              throw new TRPCError({
+                code: 'FORBIDDEN',
+                message: 'Push sync is not allowed when sync strategy is set to "Notion Canonical" (pull-only). Change the sync strategy in project settings to enable pushing.',
+              });
+            }
+          }
+
           // Notion workflow - push actions to Notion database using robust implementation
           const result = await runNotionPushSync(
             ctx, 
