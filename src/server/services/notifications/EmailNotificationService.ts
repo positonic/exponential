@@ -167,7 +167,7 @@ export async function sendAssignmentNotifications(
 
     const recipients = await db.user.findMany({
       where: {
-        id: { in: assignedUserIds.filter((id) => id !== assignerId) },
+        id: { in: assignedUserIds },
       },
       select: { id: true, name: true, email: true },
     });

@@ -487,7 +487,7 @@ export function ProjectContent({
               >
                 <GoalsTable goals={goalsQuery.data ?? []} />
                 <div className="mt-4">
-                  <CreateGoalModal projectId={projectId}>
+                  <CreateGoalModal projectId={resolvedProjectId}>
                     <Button variant="filled" color="dark" leftSection="+">
                       Add Goal
                     </Button>
@@ -504,7 +504,7 @@ export function ProjectContent({
               >
                 <OutcomesTable outcomes={outcomesQuery.data ?? []} />
                 <div className="mt-4">
-                  <CreateOutcomeModal projectId={projectId}>
+                  <CreateOutcomeModal projectId={resolvedProjectId}>
                     <Button variant="filled" color="dark" leftSection="+">
                       Add Outcome
                     </Button>
@@ -519,7 +519,7 @@ export function ProjectContent({
                 radius="sm"
                 className="mx-auto w-full bg-surface-secondary"
               >
-                <OutcomeTimeline projectId={projectId} />
+                <OutcomeTimeline projectId={resolvedProjectId} />
               </Paper>
             </Tabs.Panel>
 
@@ -529,7 +529,7 @@ export function ProjectContent({
                 radius="sm"
                 className="mx-auto w-full bg-surface-secondary"
               >
-                <ProjectWorkflowsTab projectId={projectId} />
+                <ProjectWorkflowsTab projectId={resolvedProjectId} />
               </Paper>
             </Tabs.Panel>
 
@@ -537,11 +537,11 @@ export function ProjectContent({
             {project.teamId && (
               <>
                 <Tabs.Panel value="weekly-team-review">
-                  <TeamWeeklyReview projectId={projectId} />
+                  <TeamWeeklyReview projectId={resolvedProjectId} />
                 </Tabs.Panel>
 
                 <Tabs.Panel value="weekly-outcomes">
-                  <WeeklyOutcomes projectId={projectId} />
+                  <WeeklyOutcomes projectId={resolvedProjectId} />
                 </Tabs.Panel>
               </>
             )}
@@ -555,8 +555,8 @@ export function ProjectContent({
                   </Group>
                   <Group gap="md">
                     {hasFirefliesWorkflow && (
-                      <ProjectFirefliesSyncPanel 
-                        projectId={projectId}
+                      <ProjectFirefliesSyncPanel
+                        projectId={resolvedProjectId}
                         onSyncComplete={() => {
                           // Refresh project data to show newly synced transcriptions
                           void utils.project.getById.invalidate({ id: projectId });
@@ -923,7 +923,7 @@ export function ProjectContent({
           </Stack>
 
           {/* Team Members */}
-          <Team projectId={projectId} />
+          <Team projectId={resolvedProjectId} />
         </Stack>
       </Drawer>
     </>
