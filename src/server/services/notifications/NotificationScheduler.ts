@@ -1,6 +1,7 @@
 import { db } from '~/server/db';
 import { type Prisma } from '@prisma/client';
 import { WhatsAppNotificationService } from './WhatsAppNotificationService';
+import { ZulipNotificationService } from './ZulipNotificationService';
 import { NotificationTemplates } from './NotificationTemplates';
 import { sendPushToUser } from './WebPushService';
 import { addDays, setHours, setMinutes, startOfDay, startOfWeek } from 'date-fns';
@@ -180,6 +181,29 @@ export class NotificationScheduler {
         });
         delivered = true;
         console.log(`💬 WhatsApp sent for notification ${notification.id} to ${phoneNumber}`);
+      }
+
+      // Also send via Zulip if configured
+      if (notification.integration?.provider === 'zulip') {
+        try {
+          const zulipService = new ZulipNotificationService({
+            userId: notification.userId,
+            integrationId: notification.integrationId!,
+          });
+          const zulipResult = await zulipService.sendNotificationToUser(
+            notification.userId,
+            {
+              title: notification.title,
+              message: notification.message,
+            },
+          );
+          if (zulipResult.success) {
+            delivered = true;
+            console.log(`💬 Zulip sent for notification ${notification.id}`);
+          }
+        } catch (zulipError) {
+          console.error(`[Zulip] Failed for notification ${notification.id}:`, zulipError);
+        }
       }
 
       if (!delivered) {

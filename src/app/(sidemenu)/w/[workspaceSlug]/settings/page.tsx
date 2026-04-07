@@ -24,7 +24,7 @@ import {
   Alert,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin, IconSun, IconCalendarCheck, IconBrandSlack, IconBrandNotion, IconRefresh, IconArrowsExchange } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin, IconSun, IconCalendarCheck, IconBrandSlack, IconBrandNotion, IconRefresh, IconArrowsExchange, IconMessageCircle } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -34,6 +34,7 @@ import { InviteMemberModal } from '~/app/_components/InviteMemberModal';
 import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTable';
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
 import { SlackChannelSettings } from '~/app/_components/SlackChannelSettings';
+import { ZulipSettings } from '~/app/_components/ZulipSettings';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { EFFORT_UNIT_OPTIONS, type EffortUnit } from '~/types/effort';
@@ -846,6 +847,24 @@ export default function WorkspaceSettingsPage() {
               </div>
             </Group>
             <SlackChannelSettings workspace={{ id: workspaceId, name: workspace.name }} />
+          </Card>
+        )}
+
+        {/* Zulip Notifications */}
+        {workspace && workspaceId && (
+          <Card className="bg-surface-secondary border-border-primary" withBorder>
+            <Group gap="md" mb="md">
+              <IconMessageCircle size={24} className="text-text-muted" />
+              <div>
+                <Title order={3} className="text-text-primary">
+                  Zulip Notifications
+                </Title>
+                <Text size="sm" className="text-text-muted" maw={500}>
+                  Send workspace notifications to a Zulip stream and direct message users for task assignments and mentions.
+                </Text>
+              </div>
+            </Group>
+            <ZulipSettings workspace={{ id: workspaceId, name: workspace.name }} members={workspaceData?.members} />
           </Card>
         )}
 

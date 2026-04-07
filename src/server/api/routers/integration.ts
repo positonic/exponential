@@ -8,6 +8,11 @@ import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
 import { encryptCredential, getDecryptedKey } from "~/server/utils/credentialHelper";
+import {
+  testZulipConnection,
+  fetchZulipUsers,
+  fetchZulipStreams,
+} from "~/server/services/notifications/ZulipNotificationService";
 import { UserEmailService, detectProviderSettings, userEmailService } from "~/server/services/UserEmailService";
 
 // Test Fireflies API connection
@@ -3284,6 +3289,300 @@ export const integrationRouter = createTRPCRouter({
           userId: ctx.session.user.id,
           provider: "email",
           workspaceId: input.workspaceId,
+        },
+      });
+      return { success: true };
+    }),
+
+  // ==================== ZULIP INTEGRATION ====================
+
+  createZulipIntegration: protectedProcedure
+    .input(
+      z.object({
+        serverUrl: z.string().url(),
+        botEmail: z.string().email(),
+        apiToken: z.string().min(1),
+        defaultStream: z.string().optional(),
+        defaultTopic: z.string().optional(),
+        workspaceId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify workspace membership
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace.",
+        });
+      }
+
+      // Test connection before saving
+      const testResult = await testZulipConnection(
+        input.serverUrl,
+        input.botEmail,
+        input.apiToken,
+      );
+      if (!testResult.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Zulip connection failed: ${testResult.error}`,
+        });
+      }
+
+      // Delete any existing Zulip integration for this workspace
+      await ctx.db.integration.deleteMany({
+        where: {
+          provider: "zulip",
+          workspaceId: input.workspaceId,
+        },
+      });
+
+      // Create integration
+      const integration = await ctx.db.integration.create({
+        data: {
+          name: `Zulip (${testResult.botInfo?.full_name ?? input.botEmail})`,
+          type: "API_KEY",
+          provider: "zulip",
+          description: `Zulip integration for ${input.serverUrl}`,
+          userId: ctx.session.user.id,
+          workspaceId: input.workspaceId,
+          status: "ACTIVE",
+        },
+      });
+
+      // Store credentials
+      const encryptedToken = encryptCredential(input.apiToken);
+      const credentialData = [
+        {
+          key: input.serverUrl.replace(/\/+$/, ""),
+          keyType: "SERVER_URL",
+          isEncrypted: false,
+          integrationId: integration.id,
+        },
+        {
+          key: input.botEmail,
+          keyType: "BOT_EMAIL",
+          isEncrypted: false,
+          integrationId: integration.id,
+        },
+        {
+          key: encryptedToken.key,
+          keyType: "API_TOKEN",
+          isEncrypted: encryptedToken.isEncrypted,
+          integrationId: integration.id,
+        },
+      ];
+
+      if (input.defaultStream) {
+        credentialData.push({
+          key: input.defaultStream,
+          keyType: "DEFAULT_STREAM",
+          isEncrypted: false,
+          integrationId: integration.id,
+        });
+      }
+
+      if (input.defaultTopic) {
+        credentialData.push({
+          key: input.defaultTopic,
+          keyType: "DEFAULT_TOPIC",
+          isEncrypted: false,
+          integrationId: integration.id,
+        });
+      }
+
+      await ctx.db.integrationCredential.createMany({ data: credentialData });
+
+      return {
+        id: integration.id,
+        name: integration.name,
+        serverUrl: input.serverUrl,
+        botEmail: input.botEmail,
+        botName: testResult.botInfo?.full_name,
+        defaultStream: input.defaultStream,
+        defaultTopic: input.defaultTopic,
+      };
+    }),
+
+  getWorkspaceZulipStatus: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          provider: "zulip",
+          status: "ACTIVE",
+        },
+        include: {
+          credentials: {
+            where: { keyType: { in: ["SERVER_URL", "BOT_EMAIL", "DEFAULT_STREAM", "DEFAULT_TOPIC"] } },
+          },
+        },
+      });
+
+      if (!integration) {
+        return { configured: false as const };
+      }
+
+      const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
+      const botEmail = integration.credentials.find((c) => c.keyType === "BOT_EMAIL")?.key;
+      const defaultStream = integration.credentials.find((c) => c.keyType === "DEFAULT_STREAM")?.key;
+      const defaultTopic = integration.credentials.find((c) => c.keyType === "DEFAULT_TOPIC")?.key;
+
+      return {
+        configured: true as const,
+        integrationId: integration.id,
+        serverUrl,
+        botEmail,
+        defaultStream,
+        defaultTopic,
+      };
+    }),
+
+  removeWorkspaceZulip: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace.",
+        });
+      }
+
+      await ctx.db.integration.deleteMany({
+        where: {
+          provider: "zulip",
+          workspaceId: input.workspaceId,
+        },
+      });
+      return { success: true };
+    }),
+
+  getZulipStreams: protectedProcedure
+    .input(z.object({ integrationId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findUnique({
+        where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
+        include: { credentials: true },
+      });
+      if (!integration) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
+      const botEmail = integration.credentials.find((c) => c.keyType === "BOT_EMAIL")?.key;
+      const apiTokenCred = integration.credentials.find((c) => c.keyType === "API_TOKEN");
+
+      if (!serverUrl || !botEmail || !apiTokenCred) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Missing Zulip credentials" });
+      }
+
+      const apiToken = getDecryptedKey(apiTokenCred);
+      if (!apiToken) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Failed to decrypt API token" });
+      }
+
+      return fetchZulipStreams(serverUrl, botEmail, apiToken);
+    }),
+
+  getZulipUsers: protectedProcedure
+    .input(z.object({ integrationId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findUnique({
+        where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
+        include: { credentials: true },
+      });
+      if (!integration) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
+      const botEmail = integration.credentials.find((c) => c.keyType === "BOT_EMAIL")?.key;
+      const apiTokenCred = integration.credentials.find((c) => c.keyType === "API_TOKEN");
+
+      if (!serverUrl || !botEmail || !apiTokenCred) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Missing Zulip credentials" });
+      }
+
+      const apiToken = getDecryptedKey(apiTokenCred);
+      if (!apiToken) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Failed to decrypt API token" });
+      }
+
+      return fetchZulipUsers(serverUrl, botEmail, apiToken);
+    }),
+
+  getZulipUserMappings: protectedProcedure
+    .input(z.object({ integrationId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.integrationUserMapping.findMany({
+        where: { integrationId: input.integrationId },
+        include: {
+          user: { select: { id: true, name: true, email: true, image: true } },
+        },
+      });
+    }),
+
+  mapZulipUser: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+        userId: z.string(),
+        zulipEmail: z.string().email(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify the integration exists and user has access
+      const integration = await ctx.db.integration.findUnique({
+        where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
+        select: { workspaceId: true },
+      });
+      if (!integration?.workspaceId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
+      }
+
+      // Upsert user mapping
+      return ctx.db.integrationUserMapping.upsert({
+        where: {
+          integrationId_externalUserId: {
+            integrationId: input.integrationId,
+            externalUserId: input.zulipEmail,
+          },
+        },
+        update: { userId: input.userId },
+        create: {
+          integrationId: input.integrationId,
+          userId: input.userId,
+          externalUserId: input.zulipEmail,
+        },
+      });
+    }),
+
+  unmapZulipUser: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+        userId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.integrationUserMapping.deleteMany({
+        where: {
+          integrationId: input.integrationId,
+          userId: input.userId,
         },
       });
       return { success: true };

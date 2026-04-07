@@ -4,8 +4,40 @@ import {
   sendMentionNotificationEmail,
 } from "~/server/services/EmailService";
 import { sendPushToUser } from "~/server/services/notifications/WebPushService";
+import { ZulipNotificationService } from "~/server/services/notifications/ZulipNotificationService";
 
 const BASE_URL = process.env.NEXTAUTH_URL ?? "https://exponential.im";
+
+/**
+ * Send a Zulip DM to a user if the workspace has a Zulip integration
+ * and the user has a mapping. Fire-and-forget.
+ */
+async function sendZulipDmToUser(
+  db: PrismaClient,
+  recipientUserId: string,
+  workspaceId: string,
+  payload: { title: string; message: string; priority?: "low" | "normal" | "high" },
+): Promise<void> {
+  const zulipIntegration = await db.integration.findFirst({
+    where: {
+      workspaceId,
+      provider: "zulip",
+      status: "ACTIVE",
+    },
+    select: { id: true },
+  });
+  if (!zulipIntegration) return;
+
+  const service = new ZulipNotificationService({
+    userId: recipientUserId,
+    integrationId: zulipIntegration.id,
+  });
+
+  const result = await service.sendNotificationToUser(recipientUserId, payload);
+  if (result.success && result.messageId) {
+    console.log(`💬 Zulip DM sent to user ${recipientUserId}`);
+  }
+}
 
 /**
  * Determine whether an email notification should be sent to a user for a given workspace.
@@ -146,6 +178,13 @@ export async function sendAssignmentNotifications(
           db,
         );
 
+        // Send Zulip DM
+        void sendZulipDmToUser(db, recipient.id, ws.workspaceId, {
+          title: `${assignerName} assigned you a task`,
+          message: `**${action.name}**\n\n[View task](${urls.actionUrl})`,
+          priority: "normal",
+        });
+
         if (!recipient.email) return;
 
         await sendAssignmentNotificationEmail({
@@ -285,6 +324,13 @@ export async function sendMentionNotifications(
           },
           db,
         );
+
+        // Send Zulip DM
+        void sendZulipDmToUser(db, recipient.id, ws.workspaceId, {
+          title: `${authorName} mentioned you in ${action.name}`,
+          message: `${commentPreview}\n\n[View task](${urls.actionUrl})`,
+          priority: "normal",
+        });
 
         if (!recipient.email) return;
 
