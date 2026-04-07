@@ -32,7 +32,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
       <button
         onClick={() => setIsMenuOpen(!isMenuOpen)}
         className={`
-          fixed top-4 left-4 z-[100] p-2 rounded-lg bg-surface-secondary
+          fixed top-[calc(1rem+env(safe-area-inset-top))] left-4 z-[100] p-2 rounded-lg bg-surface-secondary
           transition-all duration-200
           ${isMenuOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}
         `}

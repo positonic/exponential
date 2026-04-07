@@ -24,7 +24,7 @@ export function FloatingChatButton() {
   };
 
   return (
-    <div className="fixed bottom-20 right-6 z-50 sm:bottom-6">
+    <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-6 z-50 sm:bottom-6">
       {/* Speech bubble notification */}
       {pendingNotification && !isOpen && (
         <div className="absolute bottom-full right-0 mb-3 w-48 animate-fade-in">

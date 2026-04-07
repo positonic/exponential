@@ -88,7 +88,7 @@ function AgentChatModalHeader({
   };
 
   return (
-    <div className="flex flex-shrink-0 items-center justify-between gap-1 border-b border-border-primary px-2 py-1.5">
+    <div className="flex flex-shrink-0 items-center justify-between gap-1 border-b border-border-primary px-2 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))]">
       {/* Left: Workspace / Project selectors */}
       <div className="flex min-w-0 items-center gap-0.5">
         {/* Workspace selector */}
