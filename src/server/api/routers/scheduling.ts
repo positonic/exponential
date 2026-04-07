@@ -439,7 +439,7 @@ export const schedulingRouter = createTRPCRouter({
         const agentJWT = generateAgentJWT(ctx.session.user, 30);
 
         const response = await fetch(
-          `${MASTRA_API_URL}/api/agents/ashagent/generate`,
+          `${MASTRA_API_URL}/api/agents/ashAgent/generate`,
           {
             method: "POST",
             headers: {
@@ -677,7 +677,7 @@ export const schedulingRouter = createTRPCRouter({
           const agentJWT = generateAgentJWT(ctx.session.user, 30);
 
           const response = await fetch(
-            `${MASTRA_API_URL}/api/agents/ashagent/generate`,
+            `${MASTRA_API_URL}/api/agents/ashAgent/generate`,
             {
               method: "POST",
               headers: {

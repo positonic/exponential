@@ -17,6 +17,18 @@ export type SubscribeResult =
         | "server-error";
     };
 
+/** Convert a base64url-encoded VAPID key to a Uint8Array for pushManager.subscribe */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 export function usePushNotifications() {
   const [permission, setPermission] = useState<PushPermissionState>("prompt");
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -74,9 +86,10 @@ export function usePushNotifications() {
 
       let subscription: PushSubscription;
       try {
+        const applicationServerKey = urlBase64ToUint8Array(vapidData.publicKey);
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: vapidData.publicKey,
+          applicationServerKey: applicationServerKey.buffer as ArrayBuffer,
         });
       } catch (err) {
         console.error("[Push] pushManager.subscribe failed:", err);

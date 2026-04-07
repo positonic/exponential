@@ -1877,7 +1877,7 @@ export const mastraRouter = createTRPCRouter({
 
         // Call the ash agent for a gentle suggestion
         const res = await fetch(
-          `${MASTRA_API_URL}/api/agents/ashagent/generate`,
+          `${MASTRA_API_URL}/api/agents/ashAgent/generate`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json", ...mastraAuthHeaders(agentJWT) },
