@@ -349,6 +349,16 @@ export class SyncEngine {
   ): Promise<void> {
     const parsed = this.service.parseToAction(item, config.propertyMappings);
 
+    // Inherit workspaceId from the target project
+    let syncWorkspaceId: string | null = null;
+    if (config.projectId) {
+      const proj = await this.ctx.db.project.findUnique({
+        where: { id: config.projectId },
+        select: { workspaceId: true },
+      });
+      syncWorkspaceId = proj?.workspaceId ?? null;
+    }
+
     const newAction = await this.ctx.db.action.create({
       data: {
         name: parsed.name,
@@ -358,6 +368,7 @@ export class SyncEngine {
         dueDate: parsed.dueDate,
         createdById: this.ctx.userId,
         projectId: config.projectId,
+        workspaceId: syncWorkspaceId,
       },
     });
 

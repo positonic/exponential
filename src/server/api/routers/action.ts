@@ -371,6 +371,7 @@ export const actionRouter = createTRPCRouter({
       }
 
       // Verify user has access to the target project
+      let projectWorkspaceId: string | null = null;
       if (input.projectId) {
         const project = await ctx.db.project.findUnique({
           where: { id: input.projectId },
@@ -411,15 +412,23 @@ export const actionRouter = createTRPCRouter({
             message: "You don't have permission to create actions on this project",
           });
         }
+
+        projectWorkspaceId = project.workspaceId;
       }
 
       // Set default kanban status for project tasks
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const actionData: any = {
         ...input,
         createdById: ctx.session.user.id,
         // Auto-set bountyStatus when creating a bounty
         ...(input.isBounty ? { bountyStatus: "OPEN" } : {}),
       };
+
+      // Inherit workspaceId from project if not explicitly provided
+      if (input.projectId && !input.workspaceId && projectWorkspaceId) {
+        actionData.workspaceId = projectWorkspaceId;
+      }
 
       // If this action is being created for a project, set default kanban status to TODO
       if (input.projectId) {
@@ -548,6 +557,17 @@ export const actionRouter = createTRPCRouter({
         updateData.scheduledEnd = null;
       } else {
         validateScheduledTimes(resolvedStart, resolvedEnd);
+      }
+
+      // Sync workspaceId when projectId changes
+      if (updateData.projectId) {
+        const newProject = await ctx.db.project.findUnique({
+          where: { id: updateData.projectId },
+          select: { workspaceId: true },
+        });
+        if (newProject?.workspaceId) {
+          updateData.workspaceId = newProject.workspaceId;
+        }
       }
 
       // Set completedAt timestamp when completing, clear when uncompleting
@@ -983,7 +1003,7 @@ export const actionRouter = createTRPCRouter({
 
         console.log('📋 Found existing actions for this transcription:', {
           count: existingActions.length,
-          actions: existingActions.map((a: any) => ({
+          actions: existingActions.map((a) => ({
             id: a.id,
             name: a.name,
             currentProjectId: a.projectId,
@@ -998,6 +1018,14 @@ export const actionRouter = createTRPCRouter({
       // Update all actions associated with this transcription session
       let result;
       try {
+        // Fetch project's workspaceId to keep in sync
+        const targetProject = input.projectId
+          ? await ctx.db.project.findUnique({
+              where: { id: input.projectId },
+              select: { workspaceId: true },
+            })
+          : null;
+
         result = await ctx.db.action.updateMany({
           where: {
             transcriptionSessionId: input.transcriptionSessionId,
@@ -1005,6 +1033,7 @@ export const actionRouter = createTRPCRouter({
           },
           data: {
             projectId: input.projectId,
+            workspaceId: targetProject?.workspaceId ?? undefined,
           },
         });
 
@@ -1164,6 +1193,16 @@ export const actionRouter = createTRPCRouter({
       projectId: z.string().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Fetch project's workspaceId to keep actions in sync
+      let bulkWorkspaceId: string | null | undefined;
+      if (input.projectId) {
+        const proj = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { workspaceId: true },
+        });
+        bulkWorkspaceId = proj?.workspaceId ?? undefined;
+      }
+
       const result = await ctx.db.action.updateMany({
         where: {
           id: { in: input.actionIds },
@@ -1172,6 +1211,7 @@ export const actionRouter = createTRPCRouter({
         data: {
           projectId: input.projectId,
           kanbanStatus: input.projectId ? "TODO" : null,
+          ...(bulkWorkspaceId !== undefined ? { workspaceId: bulkWorkspaceId } : {}),
         },
       });
 
@@ -2040,6 +2080,16 @@ export const actionRouter = createTRPCRouter({
         kanbanOrder = (maxOrderAction?.kanbanOrder ?? 0) + 1;
       }
 
+      // Inherit workspaceId from project
+      let quickCreateWorkspaceId: string | null = null;
+      if (parsed.projectId) {
+        const proj = await ctx.db.project.findUnique({
+          where: { id: parsed.projectId },
+          select: { workspaceId: true },
+        });
+        quickCreateWorkspaceId = proj?.workspaceId ?? null;
+      }
+
       // Create the action
       const action = await ctx.db.action.create({
         data: {
@@ -2053,6 +2103,7 @@ export const actionRouter = createTRPCRouter({
           source: input.source,
           kanbanStatus: parsed.projectId ? "TODO" : null,
           kanbanOrder,
+          workspaceId: quickCreateWorkspaceId,
         },
         select: {
           id: true,

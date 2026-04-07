@@ -197,6 +197,12 @@ export class NotionSyncService {
         .filter(Boolean)
         .join('\n');
 
+      // Inherit workspaceId from the target project
+      const notionProject = await db.project.findUnique({
+        where: { id: projectId },
+        select: { workspaceId: true },
+      });
+
       const action = await db.action.create({
         data: {
           name: `[${todo.databaseName}] ${todo.title || 'Untitled'}`,
@@ -206,6 +212,7 @@ export class NotionSyncService {
           dueDate,
           projectId,
           createdById: userId,
+          workspaceId: notionProject?.workspaceId ?? null,
         },
       });
 

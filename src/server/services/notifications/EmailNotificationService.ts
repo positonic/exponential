@@ -15,27 +15,42 @@ const BASE_URL = process.env.NEXTAUTH_URL ?? "https://exponential.im";
 async function sendZulipDmToUser(
   db: PrismaClient,
   recipientUserId: string,
-  workspaceId: string,
+  _workspaceId: string,
   payload: { title: string; message: string; priority?: "low" | "normal" | "high" },
 ): Promise<void> {
-  const zulipIntegration = await db.integration.findFirst({
-    where: {
-      workspaceId,
-      provider: "zulip",
-      status: "ACTIVE",
-    },
-    select: { id: true },
-  });
-  if (!zulipIntegration) return;
+  try {
+    // Find any Zulip integration where this user has a mapping,
+    // regardless of workspace — handles cases where action.workspaceId
+    // doesn't match the integration's workspace.
+    const mapping = await db.integrationUserMapping.findFirst({
+      where: {
+        userId: recipientUserId,
+        integration: { provider: "zulip", status: "ACTIVE" },
+      },
+      include: { integration: { select: { id: true } } },
+    });
 
-  const service = new ZulipNotificationService({
-    userId: recipientUserId,
-    integrationId: zulipIntegration.id,
-  });
+    if (!mapping) {
+      console.log(`[Zulip] No Zulip mapping found for user ${recipientUserId} — skipped`);
+      return;
+    }
 
-  const result = await service.sendNotificationToUser(recipientUserId, payload);
-  if (result.success && result.messageId) {
-    console.log(`💬 Zulip DM sent to user ${recipientUserId}`);
+    console.log(`[Zulip] Found mapping for user ${recipientUserId} → ${mapping.externalUserId}`);
+
+    const service = new ZulipNotificationService({
+      userId: recipientUserId,
+      integrationId: mapping.integration.id,
+    });
+
+    const result = await service.sendDirectMessage(mapping.externalUserId, payload);
+
+    if (result.success) {
+      console.log(`[Zulip] ✅ DM sent to ${mapping.externalUserId} (messageId: ${result.messageId})`);
+    } else {
+      console.error(`[Zulip] ❌ Failed to send DM to ${mapping.externalUserId}: ${result.error}`);
+    }
+  } catch (error) {
+    console.error(`[Zulip] ❌ Error sending DM to user ${recipientUserId}:`, error);
   }
 }
 

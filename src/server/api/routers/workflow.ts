@@ -197,6 +197,16 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
       }
 
       if (shouldCreateNew) {
+        // Inherit workspaceId from the target project
+        let notionPullWsId: string | null = null;
+        if (projectId) {
+          const proj = await ctx.db.project.findUnique({
+            where: { id: projectId },
+            select: { workspaceId: true },
+          });
+          notionPullWsId = proj?.workspaceId ?? null;
+        }
+
         // Create new action and ActionSync record
         // Use mapped creator (or fall back to importing user)
         const newAction = await ctx.db.action.create({
@@ -207,7 +217,8 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             priority: task.priority || 'Quick',
             dueDate: task.dueDate,
             createdById: creatorUserId,
-            projectId: projectId || undefined, // Use the provided projectId
+            projectId: projectId || undefined,
+            workspaceId: notionPullWsId,
           },
         });
 
@@ -1197,6 +1208,16 @@ export const workflowRouter = createTRPCRouter({
             console.log('[MONDAY PULL] Sample item:', JSON.stringify(boardItems[0], null, 2).slice(0, 500));
           }
 
+          // Inherit workspaceId from target project
+          let mondayPullWsId: string | null = null;
+          if (input.projectId) {
+            const proj = await ctx.db.project.findUnique({
+              where: { id: input.projectId },
+              select: { workspaceId: true },
+            });
+            mondayPullWsId = proj?.workspaceId ?? null;
+          }
+
           let itemsCreated = 0;
           let itemsUpdated = 0;
           let itemsSkipped = 0;
@@ -1258,6 +1279,7 @@ export const workflowRouter = createTRPCRouter({
                     dueDate: task.dueDate,
                     createdById: ctx.session.user.id,
                     projectId: input.projectId || undefined,
+                    workspaceId: mondayPullWsId,
                   },
                 });
                 await ctx.db.actionSync.create({
@@ -1280,6 +1302,7 @@ export const workflowRouter = createTRPCRouter({
                     dueDate: task.dueDate,
                     createdById: ctx.session.user.id,
                     projectId: input.projectId || undefined,
+                    workspaceId: mondayPullWsId,
                   },
                 });
                 await ctx.db.actionSync.create({

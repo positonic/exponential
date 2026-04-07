@@ -422,6 +422,16 @@ class GitHubIntegrationService {
       .filter(Boolean)
       .join("\n");
 
+    // Inherit workspaceId from the target project
+    let ghWorkspaceId: string | null = null;
+    if (projectId) {
+      const proj = await db.project.findUnique({
+        where: { id: projectId },
+        select: { workspaceId: true },
+      });
+      ghWorkspaceId = proj?.workspaceId ?? null;
+    }
+
     return db.action.create({
       data: {
         name: `[${repositoryFullName}#${issue.number}] ${issue.title}`,
@@ -430,6 +440,7 @@ class GitHubIntegrationService {
         priority,
         projectId,
         createdById: userId,
+        workspaceId: ghWorkspaceId,
       },
     });
   }

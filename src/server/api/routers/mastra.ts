@@ -941,6 +941,12 @@ export const mastraRouter = createTRPCRouter({
         });
       }
 
+      // Inherit workspaceId from the target project
+      const mastraProject = await ctx.db.project.findUnique({
+        where: { id: input.projectId },
+        select: { workspaceId: true },
+      });
+
       const action = await ctx.db.action.create({
         data: {
           name: input.name,
@@ -949,6 +955,7 @@ export const mastraRouter = createTRPCRouter({
           dueDate: input.dueDate ? new Date(input.dueDate) : null,
           projectId: input.projectId,
           createdById: userId,
+          workspaceId: mastraProject?.workspaceId ?? null,
         },
       });
 
@@ -1001,6 +1008,16 @@ export const mastraRouter = createTRPCRouter({
         kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
       }
 
+      // Inherit workspaceId from the target project
+      let quickMastraWsId: string | null = null;
+      if (parsed.projectId) {
+        const proj = await ctx.db.project.findUnique({
+          where: { id: parsed.projectId },
+          select: { workspaceId: true },
+        });
+        quickMastraWsId = proj?.workspaceId ?? null;
+      }
+
       const action = await ctx.db.action.create({
         data: {
           name: parsed.name,
@@ -1013,6 +1030,7 @@ export const mastraRouter = createTRPCRouter({
           source: "whatsapp",
           kanbanStatus: parsed.projectId ? "TODO" : null,
           kanbanOrder,
+          workspaceId: quickMastraWsId,
         },
         include: {
           project: { select: { id: true, name: true } },

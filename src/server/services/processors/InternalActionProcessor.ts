@@ -62,6 +62,16 @@ export class InternalActionProcessor extends ActionProcessor {
     }
 
     const actionStatus = this.config.actionStatus ?? "ACTIVE";
+    // Inherit workspaceId from the target project
+    let processorWsId: string | null = null;
+    if (this.config.projectId) {
+      const proj = await db.project.findUnique({
+        where: { id: this.config.projectId },
+        select: { workspaceId: true },
+      });
+      processorWsId = proj?.workspaceId ?? null;
+    }
+
     const actionData = {
       name,
       description: actionItem.context || 'Action item from meeting',
@@ -71,6 +81,7 @@ export class InternalActionProcessor extends ActionProcessor {
       projectId: this.config.projectId || null,
       transcriptionSessionId: this.config.transcriptionId || null,
       dueDate: actionItem.dueDate || null,
+      workspaceId: processorWsId,
     };
 
     console.log('🔨 Creating action in database:', {
