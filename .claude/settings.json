@@ -35,7 +35,8 @@
       "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/outcomes/)",
       "Bash(npx vercel:*)",
       "Bash(npx web-push:*)",
-      "Bash(openssl rand:*)"
+      "Bash(openssl rand:*)",
+      "Bash(printf 'a1995ede27b74cfe17e2bf6b12aa8e469d4370eecbd17f828202c5aba4a2fea8')"
     ],
     "additionalDirectories": [
       "/tmp",
