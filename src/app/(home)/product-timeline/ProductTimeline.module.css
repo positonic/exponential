@@ -1,0 +1,14 @@
+.commitMessage {
+  word-break: break-word;
+  min-width: 0;
+}
+
+.commitRow {
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background-color: var(--mantine-color-default-hover);
+  }
+}

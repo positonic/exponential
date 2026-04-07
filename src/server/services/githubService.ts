@@ -160,6 +160,56 @@ export async function createIssue(
 /**
  * Creates a milestone in the specified repository
  */
+// Commit types
+export interface GitHubCommit {
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
+  url: string;
+  avatarUrl: string | null;
+}
+
+export interface CommitListResult {
+  commits: GitHubCommit[];
+  hasNextPage: boolean;
+  page: number;
+}
+
+export async function listCommits(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  options?: { branch?: string; page?: number; perPage?: number },
+): Promise<CommitListResult> {
+  const { repoOwner, repoName } = parseRepoInfo(owner, repo);
+  const page = options?.page ?? 1;
+  const perPage = options?.perPage ?? 100;
+
+  const response = await octokit.repos.listCommits({
+    owner: repoOwner,
+    repo: repoName,
+    sha: options?.branch ?? "main",
+    per_page: perPage,
+    page,
+  });
+
+  const commits: GitHubCommit[] = response.data.map((c) => ({
+    sha: c.sha.slice(0, 7),
+    message: c.commit.message.split("\n")[0] ?? c.commit.message,
+    author: c.commit.author?.name ?? c.author?.login ?? "unknown",
+    date: c.commit.author?.date ?? "",
+    url: c.html_url,
+    avatarUrl: c.author?.avatar_url ?? null,
+  }));
+
+  return {
+    commits,
+    hasNextPage: response.data.length === perPage,
+    page,
+  };
+}
+
 export async function createMilestone(
   octokit: Octokit,
   input: MilestoneInput,
