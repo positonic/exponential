@@ -2,7 +2,7 @@ import { type Metadata } from "next";
 import { api, HydrateClient } from "~/trpc/server";
 import { ProductTimelineClient } from "./ProductTimelineClient";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Product Timeline | Exponential",
