@@ -174,6 +174,21 @@ export async function sendAssignmentNotifications(
 
     await Promise.allSettled(
       recipients.map(async (recipient) => {
+        const isSelfAssign = recipient.id === assignerId;
+        const notifTitle = isSelfAssign
+          ? "You assigned yourself a task"
+          : `${assignerName} assigned you a task`;
+
+        // Send Zulip DM (always, including self-assign)
+        void sendZulipDmToUser(db, recipient.id, ws.workspaceId, {
+          title: notifTitle,
+          message: `**${action.name}**\n\n[View task](${urls.actionUrl})`,
+          priority: "normal",
+        });
+
+        // Skip push/email for self-assignment
+        if (isSelfAssign) return;
+
         const shouldSend = await shouldSendEmailNotification(
           db,
           recipient.id,
@@ -185,20 +200,13 @@ export async function sendAssignmentNotifications(
         void sendPushToUser(
           recipient.id,
           {
-            title: `${assignerName} assigned you a task`,
+            title: notifTitle,
             body: action.name,
             tag: "assignment",
             url: `/w/${ws.workspaceSlug}/actions/${actionId}`,
           },
           db,
         );
-
-        // Send Zulip DM
-        void sendZulipDmToUser(db, recipient.id, ws.workspaceId, {
-          title: `${assignerName} assigned you a task`,
-          message: `**${action.name}**\n\n[View task](${urls.actionUrl})`,
-          priority: "normal",
-        });
 
         if (!recipient.email) return;
 

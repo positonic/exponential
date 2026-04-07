@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { Timeline, Text, Box, Collapse, Stack, UnstyledButton, Group } from '@mantine/core';
 import { api } from '~/trpc/react';
 import { format, startOfDay, isBefore } from 'date-fns';

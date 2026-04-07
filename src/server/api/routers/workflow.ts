@@ -616,11 +616,21 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
       
       // Create ActionSync record with failed status
       try {
-        await ctx.db.actionSync.create({
-          data: {
+        await ctx.db.actionSync.upsert({
+          where: {
+            actionId_provider: {
+              actionId: action.id,
+              provider: 'notion',
+            },
+          },
+          update: {
+            status: 'failed',
+            externalId: `failed-${Date.now()}`,
+          },
+          create: {
             actionId: action.id,
             provider: 'notion',
-            externalId: `failed-${Date.now()}`, // Temporary ID for failed syncs
+            externalId: `failed-${Date.now()}`,
             status: 'failed',
           },
         });
@@ -1994,11 +2004,12 @@ export const workflowRouter = createTRPCRouter({
         }
       }
 
-      // Step 2: Push sync
-      const pushWorkflow = workflows.find(w => 
+      // Step 2: Push sync (only for strategies that allow pushing)
+      const shouldPush = syncStrategy === 'auto_pull_then_push';
+      const pushWorkflow = shouldPush ? workflows.find(w =>
         (config.workflowId && w.id === config.workflowId) ||
         (w.syncDirection === 'push' || w.syncDirection === 'bidirectional')
-      );
+      ) : null;
 
       if (pushWorkflow) {
         // Verify the workflow has an integration with credentials
