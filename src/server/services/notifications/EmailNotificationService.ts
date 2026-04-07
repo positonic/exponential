@@ -3,6 +3,7 @@ import {
   sendAssignmentNotificationEmail,
   sendMentionNotificationEmail,
 } from "~/server/services/EmailService";
+import { sendPushToUser } from "~/server/services/notifications/WebPushService";
 
 const BASE_URL = process.env.NEXTAUTH_URL ?? "https://exponential.im";
 
@@ -126,6 +127,18 @@ export async function sendAssignmentNotifications(
 
     await Promise.allSettled(
       recipients.map(async (recipient) => {
+        // Send push notification (independent of email preferences)
+        void sendPushToUser(
+          recipient.id,
+          {
+            title: `${assignerName} assigned you a task`,
+            body: action.name,
+            tag: "assignment",
+            url: `/w/${ws.workspaceSlug}/actions/${actionId}`,
+          },
+          db,
+        );
+
         if (!recipient.email) return;
 
         const shouldSend = await shouldSendEmailNotification(
@@ -254,6 +267,18 @@ export async function sendMentionNotifications(
 
     await Promise.allSettled(
       recipients.map(async (recipient) => {
+        // Send push notification (independent of email preferences)
+        void sendPushToUser(
+          recipient.id,
+          {
+            title: `${authorName} mentioned you in ${action.name}`,
+            body: commentPreview,
+            tag: "mention",
+            url: `/w/${ws.workspaceSlug}/actions/${actionId}`,
+          },
+          db,
+        );
+
         if (!recipient.email) return;
 
         const shouldSend = await shouldSendEmailNotification(
