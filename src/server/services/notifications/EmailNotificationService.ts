@@ -127,7 +127,14 @@ export async function sendAssignmentNotifications(
 
     await Promise.allSettled(
       recipients.map(async (recipient) => {
-        // Send push notification (independent of email preferences)
+        const shouldSend = await shouldSendEmailNotification(
+          db,
+          recipient.id,
+          ws.workspaceId,
+        );
+        if (!shouldSend) return;
+
+        // Send push notification
         void sendPushToUser(
           recipient.id,
           {
@@ -140,13 +147,6 @@ export async function sendAssignmentNotifications(
         );
 
         if (!recipient.email) return;
-
-        const shouldSend = await shouldSendEmailNotification(
-          db,
-          recipient.id,
-          ws.workspaceId,
-        );
-        if (!shouldSend) return;
 
         await sendAssignmentNotificationEmail({
           to: recipient.email,
@@ -267,7 +267,14 @@ export async function sendMentionNotifications(
 
     await Promise.allSettled(
       recipients.map(async (recipient) => {
-        // Send push notification (independent of email preferences)
+        const shouldSend = await shouldSendEmailNotification(
+          db,
+          recipient.id,
+          ws.workspaceId,
+        );
+        if (!shouldSend) return;
+
+        // Send push notification
         void sendPushToUser(
           recipient.id,
           {
@@ -280,13 +287,6 @@ export async function sendMentionNotifications(
         );
 
         if (!recipient.email) return;
-
-        const shouldSend = await shouldSendEmailNotification(
-          db,
-          recipient.id,
-          ws.workspaceId,
-        );
-        if (!shouldSend) return;
 
         await sendMentionNotificationEmail({
           to: recipient.email,

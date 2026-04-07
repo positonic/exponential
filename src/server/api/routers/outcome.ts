@@ -6,6 +6,7 @@ import {
 import { TRPCError } from "@trpc/server";
 
 import { createOutcome, updateOutcome, deleteOutcome, deleteOutcomes } from "~/server/services/outcomeService";
+import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 
 const outcomeTypeEnum = z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'annual', 'life', 'problem']);
 
@@ -159,6 +160,14 @@ export const outcomeRouter = createTRPCRouter({
       projectId: z.string(),
     }))
     .query(async ({ ctx, input }) => {
+      const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!hasProjectAccess(projectAccess)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this project",
+        });
+      }
+
       return await ctx.db.outcome.findMany({
         where: {
           projects: {

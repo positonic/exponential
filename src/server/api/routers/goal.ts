@@ -5,6 +5,8 @@ import {
   publicProcedure,
 } from "~/server/api/trpc";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
+import { TRPCError } from "@trpc/server";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 import {
@@ -117,6 +119,13 @@ export const goalRouter = createTRPCRouter({
   getProjectGoals: protectedProcedure
     .input(z.object({ projectId: z.string() }))
     .query(async ({ ctx, input }) => {
+      const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!hasProjectAccess(projectAccess)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this project",
+        });
+      }
       return getProjectGoals({ ctx, projectId: input.projectId });
     }),
 
