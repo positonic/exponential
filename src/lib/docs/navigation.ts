@@ -28,6 +28,7 @@ import {
   IconLayoutNavbar,
   IconMicrophone,
   IconChartBar,
+  IconBell,
 } from "@tabler/icons-react";
 import type { DocNavSection, DocBreadcrumb } from "./types";
 
@@ -179,6 +180,11 @@ export const docsNavigation: DocNavSection[] = [
         title: "Settings",
         href: "/docs/features/settings",
         icon: IconLayoutNavbar,
+      },
+      {
+        title: "Notifications",
+        href: "/docs/features/notifications",
+        icon: IconBell,
       },
     ],
   },

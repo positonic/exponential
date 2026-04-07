@@ -183,6 +183,7 @@ This is a productivity management application built with the T3 Stack (Next.js 1
 - **AI Assistant**: Chat interface with semantic video search
 - **Video Processing**: YouTube analysis and transcription support
 - **CRM**: Contact/organization management, deal pipeline (Kanban), Gmail/Calendar import. See `/docs/CRM_ARCHITECTURE.md`
+- **Notifications**: Multi-channel notification system (email, push, WhatsApp). See `/docs/NOTIFICATION_ARCHITECTURE.md`
 
 ## Directory Structure
 
