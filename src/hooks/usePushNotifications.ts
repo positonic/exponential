@@ -5,6 +5,18 @@ import { api } from "~/trpc/react";
 
 type PushPermissionState = "prompt" | "granted" | "denied" | "unsupported";
 
+export type SubscribeResult =
+  | { success: true }
+  | {
+      success: false;
+      reason:
+        | "vapid-not-ready"
+        | "permission-denied"
+        | "sw-failed"
+        | "subscription-failed"
+        | "server-error";
+    };
+
 export function usePushNotifications() {
   const [permission, setPermission] = useState<PushPermissionState>("prompt");
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -12,10 +24,14 @@ export function usePushNotifications() {
   const subscribeMutation = api.pushSubscription.subscribe.useMutation();
   const unsubscribeMutation = api.pushSubscription.unsubscribe.useMutation();
   const sendTestMutation = api.pushSubscription.sendTest.useMutation();
-  const { data: vapidData } = api.pushSubscription.getVapidPublicKey.useQuery(
-    undefined,
-    { retry: false },
-  );
+  const {
+    data: vapidData,
+    isLoading: isVapidLoading,
+    isError: isVapidError,
+  } = api.pushSubscription.getVapidPublicKey.useQuery(undefined, {
+    retry: 2,
+    retryDelay: 1000,
+  });
 
   // Check current permission + subscription state on mount
   useEffect(() => {
@@ -34,23 +50,43 @@ export function usePushNotifications() {
     });
   }, []);
 
-  const subscribe = useCallback(async () => {
-    if (!vapidData?.publicKey) return false;
+  const subscribe = useCallback(async (): Promise<SubscribeResult> => {
+    if (!vapidData?.publicKey) {
+      console.error("[Push] VAPID public key not available");
+      return { success: false, reason: "vapid-not-ready" };
+    }
 
     try {
       const result = await Notification.requestPermission();
       setPermission(result as PushPermissionState);
-      if (result !== "granted") return false;
+      if (result !== "granted") {
+        console.error("[Push] Permission denied:", result);
+        return { success: false, reason: "permission-denied" };
+      }
 
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: vapidData.publicKey,
-      });
+      let registration: ServiceWorkerRegistration;
+      try {
+        registration = await navigator.serviceWorker.ready;
+      } catch (err) {
+        console.error("[Push] Service worker not ready:", err);
+        return { success: false, reason: "sw-failed" };
+      }
+
+      let subscription: PushSubscription;
+      try {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: vapidData.publicKey,
+        });
+      } catch (err) {
+        console.error("[Push] pushManager.subscribe failed:", err);
+        return { success: false, reason: "subscription-failed" };
+      }
 
       const json = subscription.toJSON();
       if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
-        throw new Error("Invalid subscription data");
+        console.error("[Push] Invalid subscription data:", json);
+        return { success: false, reason: "subscription-failed" };
       }
 
       await subscribeMutation.mutateAsync({
@@ -63,10 +99,10 @@ export function usePushNotifications() {
       });
 
       setIsSubscribed(true);
-      return true;
+      return { success: true };
     } catch (err) {
-      console.error("[Push] Subscribe failed:", err);
-      return false;
+      console.error("[Push] Server error saving subscription:", err);
+      return { success: false, reason: "server-error" };
     }
   }, [vapidData?.publicKey, subscribeMutation]);
 
@@ -96,6 +132,8 @@ export function usePushNotifications() {
     permission,
     isSubscribed,
     isSupported: permission !== "unsupported",
+    isVapidLoading,
+    isVapidError,
     subscribe,
     unsubscribe,
     sendTest,

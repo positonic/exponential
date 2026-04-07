@@ -9,6 +9,8 @@ export function PushNotificationToggle() {
     permission,
     isSubscribed,
     isSupported,
+    isVapidLoading,
+    isVapidError,
     subscribe,
     unsubscribe,
     sendTest,
@@ -31,9 +33,40 @@ export function PushNotificationToggle() {
     );
   }
 
+  if (isVapidError) {
+    return (
+      <Text size="sm" className="text-text-muted">
+        Notification setup unavailable. Please try again later.
+      </Text>
+    );
+  }
+
+  const errorMessages: Record<string, { title: string; message: string }> = {
+    "vapid-not-ready": {
+      title: "Not ready yet",
+      message: "Notification setup is still loading. Please try again in a moment.",
+    },
+    "permission-denied": {
+      title: "Permission denied",
+      message: "You need to allow notifications in your browser when prompted.",
+    },
+    "sw-failed": {
+      title: "Service worker error",
+      message: "Could not register the notification service. Try refreshing the page.",
+    },
+    "subscription-failed": {
+      title: "Subscription failed",
+      message: "Your browser could not create a push subscription. Try refreshing the page.",
+    },
+    "server-error": {
+      title: "Server error",
+      message: "Could not save your subscription. Please try again later.",
+    },
+  };
+
   const handleSubscribe = async () => {
-    const success = await subscribe();
-    if (success) {
+    const result = await subscribe();
+    if (result.success) {
       notifications.show({
         title: "Notifications Enabled",
         message: "You will now receive push notifications on this device.",
@@ -41,9 +74,13 @@ export function PushNotificationToggle() {
         autoClose: 3000,
       });
     } else {
-      notifications.show({
+      const error = errorMessages[result.reason] ?? {
         title: "Could not enable notifications",
-        message: "Please allow notifications when prompted and try again.",
+        message: "An unexpected error occurred. Please try again.",
+      };
+      notifications.show({
+        title: error.title,
+        message: error.message,
         color: "red",
         autoClose: 5000,
       });
@@ -112,6 +149,8 @@ export function PushNotificationToggle() {
       variant="filled"
       size="sm"
       onClick={() => void handleSubscribe()}
+      loading={isVapidLoading}
+      disabled={isVapidLoading}
     >
       Enable Notifications
     </Button>
