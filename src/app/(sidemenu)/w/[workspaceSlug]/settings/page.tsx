@@ -24,7 +24,7 @@ import {
   Alert,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin, IconSun, IconCalendarCheck, IconBrandSlack, IconBrandNotion, IconRefresh, IconArrowsExchange, IconBell } from '@tabler/icons-react';
+import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin, IconSun, IconCalendarCheck, IconBrandSlack, IconBrandNotion, IconRefresh, IconArrowsExchange } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -38,7 +38,6 @@ import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWi
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { EFFORT_UNIT_OPTIONS, type EffortUnit } from '~/types/effort';
 import { notifications } from '@mantine/notifications';
-import { PushNotificationToggle } from '~/app/_components/PushNotificationToggle';
 
 const roleIcons = {
   owner: IconCrown,
@@ -737,24 +736,6 @@ export default function WorkspaceSettingsPage() {
               disabled={!canEdit || updateEmailNotificationsMutation.isPending}
               size="lg"
             />
-          </Group>
-        </Card>
-
-        {/* Push Notifications */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" align="flex-start">
-            <Group gap="md">
-              <IconBell size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Push Notifications
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Receive push notifications on this device for daily plan reminders, task updates, and more.
-                </Text>
-              </div>
-            </Group>
-            <PushNotificationToggle />
           </Group>
         </Card>
 

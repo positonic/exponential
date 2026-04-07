@@ -10,9 +10,12 @@ import {
   SegmentedControl,
   Skeleton,
   Badge,
+  Divider,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { IconBell, IconMail } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
+import { PushNotificationToggle } from '~/app/_components/PushNotificationToggle';
 
 type OverrideValue = 'default' | 'on' | 'off';
 
@@ -60,14 +63,46 @@ export default function NotificationSettingsPage() {
       <Stack gap="lg">
         <div>
           <Title order={2} className="text-text-primary">
-            Email Notifications
+            Notifications
           </Title>
           <Text size="sm" className="text-text-muted" mt={4}>
-            Control whether you receive email notifications for action
-            assignments and @mentions in each workspace. Each workspace has a
-            default setting that you can override here.
+            Manage how and where you receive notifications.
           </Text>
         </div>
+
+        {/* Push Notifications */}
+        <Card className="bg-surface-secondary border-border-primary" withBorder>
+          <Group justify="space-between" align="flex-start">
+            <Group gap="md">
+              <IconBell size={24} className="text-text-muted" />
+              <div>
+                <Title order={4} className="text-text-primary">
+                  Push Notifications
+                </Title>
+                <Text size="sm" className="text-text-muted" maw={500}>
+                  Receive push notifications on this device for daily plan reminders, task updates, and more.
+                </Text>
+              </div>
+            </Group>
+            <PushNotificationToggle />
+          </Group>
+        </Card>
+
+        <Divider />
+
+        {/* Email Notifications */}
+        <Group gap="md">
+          <IconMail size={24} className="text-text-muted" />
+          <div>
+            <Title order={4} className="text-text-primary">
+              Email Notifications
+            </Title>
+            <Text size="sm" className="text-text-muted">
+              Control email notifications per workspace. Each workspace has a
+              default setting that you can override here.
+            </Text>
+          </div>
+        </Group>
 
         {isLoading ? (
           <Stack gap="sm">
