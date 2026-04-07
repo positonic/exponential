@@ -27,6 +27,7 @@ import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvide
 import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvider';
 import { SessionProvider } from "next-auth/react";
 import { WorkspaceProvider } from '~/providers/WorkspaceProvider';
+import { ServiceWorkerRegistration } from '~/app/_components/ServiceWorkerRegistration';
 
 const domain = getThemeDomain();
 
@@ -73,6 +74,7 @@ export default async function RootLayout({
                             <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
                           )}
                         </Layout>
+                        <ServiceWorkerRegistration />
                         <FloatingChatButton />
                       </WorkspaceProvider>
                     </ColorSchemeProvider>

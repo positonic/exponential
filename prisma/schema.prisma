@@ -143,6 +143,8 @@ model User {
   blogComments                BlogComment[]              @relation("BlogCommentAuthor")
   // Daily Planning relations
   dailyPlans                  DailyPlan[]
+  // Push notification subscriptions
+  pushSubscriptions           PushSubscription[]
   // Webhook activity logs
   webhookLogs                 WebhookLog[]
   // Auto-scheduling relations
@@ -1417,6 +1419,20 @@ model ScheduledNotification {
   @@index([status])
   @@index([type])
   @@index([userId, scheduledFor])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model WhatsAppTemplateUsage {

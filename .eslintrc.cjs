@@ -64,7 +64,8 @@ const config = {
     "src/test/**/*",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
-    "**/__tests__/**"
+    "**/__tests__/**",
+    "public/sw.js"
   ]
 }
 module.exports = config;

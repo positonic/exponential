@@ -33,7 +33,9 @@
       "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/projects/)",
       "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/goals/)",
       "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/outcomes/)",
-      "Bash(npx vercel:*)"
+      "Bash(npx vercel:*)",
+      "Bash(npx web-push:*)",
+      "Bash(openssl rand:*)"
     ],
     "additionalDirectories": [
       "/tmp",
