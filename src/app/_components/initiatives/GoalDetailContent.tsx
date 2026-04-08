@@ -36,6 +36,8 @@ import DOMPurify from "dompurify";
 import { GoalDescriptionEditor } from "./GoalDescriptionEditor";
 import { GoalActivityTab } from "./GoalActivityTab";
 import { type HealthStatus, healthConfig } from "./healthConfig";
+import { GoalIcon } from "../GoalIcon";
+import { IconPicker } from "../IconPicker";
 
 function getTimeAgo(date: Date): string {
   const now = new Date();
@@ -85,7 +87,31 @@ interface GoalDetailContentProps {
 export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentProps) {
   const [activeTab, setActiveTab] = useState<string>("overview");
 
+  const utils = api.useUtils();
   const { data: goal, isLoading } = api.goal.getById.useQuery({ id: goalId });
+
+  const updateIconMutation = api.goal.updateGoalIcon.useMutation({
+    onMutate: async (newData) => {
+      await utils.goal.getById.cancel({ id: goalId });
+      const previous = utils.goal.getById.getData({ id: goalId });
+      if (previous) {
+        utils.goal.getById.setData({ id: goalId }, {
+          ...previous,
+          icon: newData.icon,
+          iconColor: newData.iconColor,
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _newData, context) => {
+      if (context?.previous) {
+        utils.goal.getById.setData({ id: goalId }, context.previous);
+      }
+    },
+    onSettled: () => {
+      void utils.goal.getById.invalidate({ id: goalId });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -132,9 +158,17 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
         <div>
           <Group justify="space-between" align="flex-start">
             <Group gap="sm" align="flex-start">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-secondary text-xl">
-                <IconTarget size={24} className="text-text-muted" />
-              </div>
+              <IconPicker
+                value={goal.icon}
+                color={goal.iconColor}
+                onChange={(icon, iconColor) => {
+                  updateIconMutation.mutate({ id: goal.id, icon, iconColor });
+                }}
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-secondary text-xl hover:bg-surface-hover transition-colors cursor-pointer">
+                  <GoalIcon icon={goal.icon} iconColor={goal.iconColor} size={24} />
+                </div>
+              </IconPicker>
               <div>
                 <Group gap="xs" align="center">
                   <Title order={3} className="text-text-primary">

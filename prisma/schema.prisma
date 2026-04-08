@@ -691,6 +691,10 @@ model Goal {
   driUserId    String?
   workspaceId  String?
 
+  // Display icon: "emoji:🎯" or "tabler:IconTarget"
+  icon         String?
+  iconColor    String?   // Color key: "purple", "blue", "teal", etc.
+
   // Parent-child nesting (sub-goals / sub-initiatives, up to 5 levels)
   parentGoalId Int?
   parentGoal   Goal?      @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: SetNull)

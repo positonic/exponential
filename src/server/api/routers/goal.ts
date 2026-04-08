@@ -17,6 +17,7 @@ import {
   deleteGoal,
   getGoalTree,
   computeGoalHealth,
+  updateGoalIcon,
 } from "~/server/services/goalService";
 
 export const goalRouter = createTRPCRouter({
@@ -89,6 +90,8 @@ export const goalRouter = createTRPCRouter({
       driUserId: z.string().optional(),
       workspaceId: z.string().optional(),
       parentGoalId: z.number().optional(),
+      icon: z.string().nullable().optional(),
+      iconColor: z.string().nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       // Enforce max nesting depth of 5 levels for sub-goals
@@ -162,6 +165,8 @@ export const goalRouter = createTRPCRouter({
       workspaceId: z.string().optional(),
       parentGoalId: z.number().nullable().optional(),
       displayOrder: z.number().optional(),
+      icon: z.string().nullable().optional(),
+      iconColor: z.string().nullable().optional(),
     }))
     .mutation(updateGoal),
 
@@ -216,6 +221,16 @@ export const goalRouter = createTRPCRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       return computeGoalHealth({ ctx, goalId: input.id });
+    }),
+
+  updateGoalIcon: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      icon: z.string().nullable(),
+      iconColor: z.string().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return updateGoalIcon({ ctx, input });
     }),
 
   deleteGoal: protectedProcedure

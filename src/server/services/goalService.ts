@@ -70,6 +70,8 @@ interface GoalInput {
   driUserId?: string;
   workspaceId?: string;
   parentGoalId?: number | null;
+  icon?: string | null;
+  iconColor?: string | null;
 }
 
 export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInput }) {
@@ -109,6 +111,8 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
       driUserId: input.driUserId ?? ctx.session.user.id,
       workspaceId: input.workspaceId ?? null,
       parentGoalId: input.parentGoalId ?? null,
+      icon: input.icon ?? null,
+      iconColor: input.iconColor ?? null,
       projects: input.projectId ? {
         connect: [{ id: input.projectId }]
       } : undefined,
@@ -192,6 +196,8 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
       workspaceId: input.workspaceId ?? null,
       parentGoalId: input.parentGoalId !== undefined ? (input.parentGoalId ?? null) : existingGoal.parentGoalId,
       displayOrder: input.displayOrder ?? existingGoal.displayOrder,
+      icon: input.icon !== undefined ? (input.icon ?? null) : existingGoal.icon,
+      iconColor: input.iconColor !== undefined ? (input.iconColor ?? null) : existingGoal.iconColor,
       projects: input.projectId ? {
         set: [], // Clear existing connections
         connect: [{ id: input.projectId }]
@@ -458,5 +464,23 @@ export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: nu
 
   return await ctx.db.goal.delete({
     where: { id: input.id },
+  });
+}
+
+export async function updateGoalIcon({ ctx, input }: { ctx: Context; input: { id: number; icon: string | null; iconColor: string | null } }) {
+  if (!ctx.session?.user?.id) {
+    throw new Error("User not authenticated");
+  }
+
+  const goal = await ctx.db.goal.findFirst({
+    where: { id: input.id, userId: ctx.session.user.id },
+  });
+  if (!goal) {
+    throw new Error("Goal not found or unauthorized");
+  }
+
+  return ctx.db.goal.update({
+    where: { id: input.id },
+    data: { icon: input.icon, iconColor: input.iconColor },
   });
 }

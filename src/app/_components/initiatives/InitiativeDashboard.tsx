@@ -23,6 +23,7 @@ import {
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { GoalIcon } from "../GoalIcon";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { useTerminology } from "~/hooks/useTerminology";
 import Link from "next/link";
@@ -85,6 +86,8 @@ interface GoalRow {
   dueDate: Date | null;
   parentGoalId: number | null;
   driUserId: string | null;
+  icon: string | null;
+  iconColor: string | null;
   projects: { id: string; name: string; progress: number; status: string }[];
   childGoals: { id: number; title: string; status: string; health: string | null }[];
 }
@@ -105,7 +108,7 @@ function InitiativeRow({ goal, workspaceSlug }: { goal: GoalRow; workspaceSlug: 
         >
           <Group gap="sm" wrap="nowrap">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-surface-secondary">
-              <IconTarget size={16} className="text-text-muted" />
+              <GoalIcon icon={goal.icon} iconColor={goal.iconColor} size={16} />
             </div>
             <div className="min-w-0">
               <Text size="sm" fw={500} className="text-text-primary" truncate="end">
