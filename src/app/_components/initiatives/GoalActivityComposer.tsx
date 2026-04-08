@@ -7,8 +7,10 @@ import {
   Textarea,
   Button,
   Group,
-  Stack,
+  Menu,
+  ActionIcon,
 } from "@mantine/core";
+import { IconPaperclip } from "@tabler/icons-react";
 import { healthConfig } from "./healthConfig";
 import { CommentInput } from "~/plugins/okr/client/components/CommentInput";
 import { api } from "~/trpc/react";
@@ -53,92 +55,112 @@ export function GoalActivityComposer({ goalId, onSuccess }: GoalActivityComposer
     });
   };
 
-  return (
-    <div className="rounded-lg border border-border-primary p-4">
-      <Group gap="xs" mb="md">
-        <SegmentedControl
-          size="xs"
-          value={mode}
-          onChange={(val) => setMode(val as "comment" | "update")}
-          data={[
-            { label: "Comment", value: "comment" },
-            { label: "Update", value: "update" },
-          ]}
-        />
-        {mode === "update" && (
-          <Group gap={6}>
-            {healthOptions.map((h) => {
-              const config = healthConfig[h];
-              const HealthIcon = config.icon;
-              const isSelected = selectedHealth === h;
-              return (
-                <Badge
-                  key={h}
-                  variant={isSelected ? "filled" : "outline"}
-                  color={config.mantineColor}
-                  leftSection={<HealthIcon size={12} />}
-                  className="cursor-pointer"
-                  onClick={() => setSelectedHealth(h)}
-                  styles={{
-                    root: {
-                      opacity: isSelected ? 1 : 0.5,
-                    },
-                  }}
-                >
-                  {config.label}
-                </Badge>
-              );
-            })}
-          </Group>
-        )}
-      </Group>
+  const currentHealth = healthConfig[selectedHealth];
+  const CurrentHealthIcon = currentHealth.icon;
 
-      {mode === "comment" ? (
-        <CommentInput
-          onSubmit={handleAddComment}
-          isSubmitting={addCommentMutation.isPending}
-          placeholder="Leave a comment..."
-        />
-      ) : (
-        <Stack gap="sm">
-          <Textarea
-            value={updateContent}
-            onChange={(e) => setUpdateContent(e.currentTarget.value)}
-            placeholder="Write an initiative update..."
-            minRows={3}
-            maxRows={6}
-            autosize
-            disabled={addUpdateMutation.isPending}
-            styles={{
-              input: {
-                backgroundColor: "var(--surface-secondary)",
-                borderColor: "var(--border-primary)",
-                color: "var(--text-primary)",
-              },
-            }}
+  return (
+    <div className="rounded-lg border border-border-primary">
+      {/* Top bar: Comment/Update toggle + health dropdown */}
+      <div className="border-b border-border-primary px-4 py-3">
+        <Group gap="sm">
+          <SegmentedControl
+            size="xs"
+            value={mode}
+            onChange={(val) => setMode(val as "comment" | "update")}
+            data={[
+              { label: "Comment", value: "comment" },
+              { label: "Update", value: "update" },
+            ]}
           />
-          <Group justify="flex-end" gap="xs">
-            <Button
-              variant="subtle"
-              size="xs"
-              onClick={() => setUpdateContent("")}
+          {mode === "update" && (
+            <Menu shadow="md" width={180}>
+              <Menu.Target>
+                <Badge
+                  variant="outline"
+                  color={currentHealth.mantineColor}
+                  leftSection={<CurrentHealthIcon size={14} />}
+                  className="cursor-pointer"
+                  size="lg"
+                >
+                  {currentHealth.label}
+                </Badge>
+              </Menu.Target>
+              <Menu.Dropdown>
+                {healthOptions.map((h) => {
+                  const config = healthConfig[h];
+                  const HealthIcon = config.icon;
+                  return (
+                    <Menu.Item
+                      key={h}
+                      leftSection={<HealthIcon size={16} style={{ color: config.color }} />}
+                      onClick={() => setSelectedHealth(h)}
+                    >
+                      {config.label}
+                    </Menu.Item>
+                  );
+                })}
+              </Menu.Dropdown>
+            </Menu>
+          )}
+        </Group>
+      </div>
+
+      {/* Content area */}
+      <div className="px-4 pt-3 pb-2">
+        {mode === "comment" ? (
+          <CommentInput
+            onSubmit={handleAddComment}
+            isSubmitting={addCommentMutation.isPending}
+            placeholder="Leave a comment..."
+          />
+        ) : (
+          <>
+            <Textarea
+              value={updateContent}
+              onChange={(e) => setUpdateContent(e.currentTarget.value)}
+              placeholder="Write an initiative update..."
+              minRows={4}
+              maxRows={8}
+              autosize
+              variant="unstyled"
               disabled={addUpdateMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="filled"
-              size="xs"
-              color="brand"
-              onClick={handlePostUpdate}
-              loading={addUpdateMutation.isPending}
-              disabled={!updateContent.trim()}
-            >
-              Post update
-            </Button>
-          </Group>
-        </Stack>
-      )}
+              styles={{
+                input: {
+                  color: "var(--text-primary)",
+                  padding: 0,
+                },
+              }}
+            />
+
+            {/* Bottom bar: attachment + actions */}
+            <div className="border-t border-border-primary pt-3 mt-2">
+              <Group justify="flex-end" gap="sm">
+                <ActionIcon variant="subtle" color="gray" size="md" className="mr-auto">
+                  <IconPaperclip size={18} />
+                </ActionIcon>
+                <Button
+                  variant="subtle"
+                  size="xs"
+                  onClick={() => setUpdateContent("")}
+                  disabled={addUpdateMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="filled"
+                  size="xs"
+                  color="brand"
+                  onClick={handlePostUpdate}
+                  loading={addUpdateMutation.isPending}
+                  disabled={!updateContent.trim()}
+                >
+                  Post update
+                </Button>
+              </Group>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
