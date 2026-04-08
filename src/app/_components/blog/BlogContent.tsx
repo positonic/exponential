@@ -5,8 +5,8 @@ import { Title, Text, Badge } from "@mantine/core";
 import { IconArrowLeft } from "@tabler/icons-react";
 import type { BlogPost } from "~/lib/blog/types";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
-import { CommentThread } from "~/plugins/okr/client/components/CommentThread";
-import { CommentInput } from "~/plugins/okr/client/components/CommentInput";
+import { CommentThread } from "~/app/_components/shared/CommentThread";
+import { CommentInput } from "~/app/_components/shared/CommentInput";
 import { api } from "~/trpc/react";
 
 interface BlogContentProps {

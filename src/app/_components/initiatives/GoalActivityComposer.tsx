@@ -12,7 +12,7 @@ import {
 } from "@mantine/core";
 import { IconPaperclip } from "@tabler/icons-react";
 import { healthConfig } from "./healthConfig";
-import { CommentInput } from "~/plugins/okr/client/components/CommentInput";
+import { CommentInput } from "~/app/_components/shared/CommentInput";
 import { api } from "~/trpc/react";
 
 type UpdateHealth = "on-track" | "at-risk" | "off-track";

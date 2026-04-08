@@ -23,6 +23,7 @@ export const goalCommentRouter = createTRPCRouter({
       z.object({
         goalId: z.number(),
         content: z.string().min(1).max(10000),
+        parentUpdateId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -33,6 +34,7 @@ export const goalCommentRouter = createTRPCRouter({
           goalId: input.goalId,
           authorId: ctx.session.user.id,
           content: input.content,
+          parentUpdateId: input.parentUpdateId ?? null,
         },
         include: {
           author: { select: { id: true, name: true, image: true } },

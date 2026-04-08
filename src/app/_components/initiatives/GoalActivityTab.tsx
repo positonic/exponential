@@ -49,6 +49,7 @@ export function GoalActivityTab({ goalId }: GoalActivityTabProps) {
         </Text>
       ) : (
         <GoalActivityFeed
+          goalId={goalId}
           currentUserId={session?.user?.id}
           items={feed ?? []}
           onMutationSuccess={invalidateAll}

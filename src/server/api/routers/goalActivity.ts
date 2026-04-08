@@ -8,6 +8,14 @@ interface ActivityAuthor {
   image: string | null;
 }
 
+export interface GoalActivityReply {
+  id: string;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+  author: ActivityAuthor;
+}
+
 export interface GoalActivityComment {
   type: "comment";
   id: string;
@@ -25,6 +33,7 @@ export interface GoalActivityUpdate {
   createdAt: Date;
   updatedAt: Date;
   author: ActivityAuthor;
+  replies: GoalActivityReply[];
 }
 
 export type GoalActivityItem = GoalActivityComment | GoalActivityUpdate;
@@ -36,16 +45,24 @@ export const goalActivityRouter = createTRPCRouter({
       await verifyGoalAccess({ ctx, goalId: input.goalId });
 
       const [comments, updates] = await Promise.all([
+        // Only fetch top-level comments (no parentUpdateId)
         ctx.db.goalComment.findMany({
-          where: { goalId: input.goalId },
+          where: { goalId: input.goalId, parentUpdateId: null },
           include: {
             author: { select: { id: true, name: true, image: true } },
           },
         }),
+        // Fetch updates WITH their replies
         ctx.db.goalUpdate.findMany({
           where: { goalId: input.goalId },
           include: {
             author: { select: { id: true, name: true, image: true } },
+            replies: {
+              include: {
+                author: { select: { id: true, name: true, image: true } },
+              },
+              orderBy: { createdAt: "asc" },
+            },
           },
         }),
       ]);
@@ -70,6 +87,13 @@ export const goalActivityRouter = createTRPCRouter({
             createdAt: u.createdAt,
             updatedAt: u.updatedAt,
             author: u.author,
+            replies: u.replies.map((r) => ({
+              id: r.id,
+              content: r.content,
+              createdAt: r.createdAt,
+              updatedAt: r.updatedAt,
+              author: r.author,
+            })),
           }),
         ),
       ];
@@ -86,7 +110,9 @@ export const goalActivityRouter = createTRPCRouter({
       await verifyGoalAccess({ ctx, goalId: input.goalId });
 
       const [commentCount, updateCount] = await Promise.all([
-        ctx.db.goalComment.count({ where: { goalId: input.goalId } }),
+        ctx.db.goalComment.count({
+          where: { goalId: input.goalId, parentUpdateId: null },
+        }),
         ctx.db.goalUpdate.count({ where: { goalId: input.goalId } }),
       ]);
 

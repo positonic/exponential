@@ -2360,18 +2360,21 @@ model OkrCheckinComment {
 
 // OKR Discussion Comments - for Objectives (Goals)
 model GoalComment {
-  id        String   @id @default(cuid())
-  goalId    Int
-  authorId  String
-  content   String   @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(cuid())
+  goalId         Int
+  authorId       String
+  content        String   @db.Text
+  parentUpdateId String?  // If set, this comment is a reply to a GoalUpdate
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  goal   Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
-  author User @relation("GoalCommentAuthor", fields: [authorId], references: [id])
+  goal         Goal        @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  author       User        @relation("GoalCommentAuthor", fields: [authorId], references: [id])
+  parentUpdate GoalUpdate? @relation("GoalUpdateReplies", fields: [parentUpdateId], references: [id], onDelete: Cascade)
 
   @@index([goalId])
   @@index([authorId])
+  @@index([parentUpdateId])
   @@index([createdAt])
 }
 
@@ -2385,8 +2388,9 @@ model GoalUpdate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  goal   Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
-  author User @relation("GoalUpdateAuthor", fields: [authorId], references: [id])
+  goal    Goal          @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  author  User          @relation("GoalUpdateAuthor", fields: [authorId], references: [id])
+  replies GoalComment[] @relation("GoalUpdateReplies")
 
   @@index([goalId])
   @@index([authorId])
