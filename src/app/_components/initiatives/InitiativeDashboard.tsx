@@ -170,20 +170,30 @@ function InitiativeRow({ goal, workspaceSlug }: { goal: GoalRow; workspaceSlug: 
   );
 }
 
-export function InitiativeDashboard() {
+export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) {
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const { workspaceId, workspaceSlug } = useWorkspace();
   const terminology = useTerminology();
 
-  const { data: allGoals, isLoading } = api.goal.getAllMyGoals.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    { enabled: !!workspaceId },
+  const { data: projectGoals, isLoading: projectGoalsLoading } = api.goal.getProjectGoals.useQuery(
+    { projectId: projectId ?? "" },
+    { enabled: !!projectId },
   );
 
-  // Filter goals by status (only root-level goals for the table)
-  const filteredGoals = (allGoals ?? []).filter(
-    g => g.status === statusFilter && g.parentGoalId === null
+  const { data: allGoals, isLoading: workspaceGoalsLoading } = api.goal.getAllMyGoals.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !projectId && !!workspaceId },
   );
+
+  const isLoading = projectId ? projectGoalsLoading : workspaceGoalsLoading;
+  const goalsSource = projectId ? (projectGoals ?? []) : (allGoals ?? []);
+
+  // Filter goals by status; in workspace mode, show only root-level goals
+  const filteredGoals = goalsSource.filter(g => {
+    if (g.status !== statusFilter) return false;
+    if (!projectId && g.parentGoalId !== null) return false;
+    return true;
+  });
 
 
   return (
@@ -194,7 +204,7 @@ export function InitiativeDashboard() {
           <Title order={3} className="text-text-primary">
             Goals
           </Title>
-          <CreateGoalModal>
+          <CreateGoalModal projectId={projectId}>
             <ActionIcon variant="subtle" size="lg">
               <IconPlus size={18} />
             </ActionIcon>

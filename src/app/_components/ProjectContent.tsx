@@ -7,10 +7,9 @@ import ProjectDetails from "./ProjectDetails";
 //import Chat from "./Chat";
 import { Team } from "./Team";
 // import { Plan } from "./Plan";
-import { GoalsTable } from "./GoalsTable";
 import { OutcomesTable } from "./OutcomesTable";
 import { OutcomeTimeline } from "./OutcomeTimeline";
-import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
 import { Button } from "@mantine/core";
 import { HTMLContent } from "./HTMLContent";
 import {
@@ -480,20 +479,7 @@ export function ProjectContent({
             </Tabs.Panel> */}
 
             <Tabs.Panel value="goals">
-              <Paper
-                p="md"
-                radius="sm"
-                className="mx-auto w-full bg-surface-secondary"
-              >
-                <GoalsTable goals={goalsQuery.data ?? []} />
-                <div className="mt-4">
-                  <CreateGoalModal projectId={resolvedProjectId}>
-                    <Button variant="filled" color="dark" leftSection="+">
-                      Add Goal
-                    </Button>
-                  </CreateGoalModal>
-                </div>
-              </Paper>
+              <InitiativeDashboard projectId={resolvedProjectId} />
             </Tabs.Panel>
 
             <Tabs.Panel value="outcomes">
