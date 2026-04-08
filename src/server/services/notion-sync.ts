@@ -1,5 +1,5 @@
 import { db } from '~/server/db';
-import type { Workflow, Action } from '@prisma/client';
+import type { Workflow, Action, ActionStatus } from '@prisma/client';
 import { resolveNotionConfig } from './notion-config-resolver';
 
 interface NotionTodo {
@@ -197,6 +197,10 @@ export class NotionSyncService {
         .filter(Boolean)
         .join('\n');
 
+      // Resolve kanban status
+      const kanbanStatus = this.mapNotionStatusToKanbanStatus(todo.status, config.statusFieldMapping);
+      const kanbanOrder = await this.nextKanbanOrder(projectId, kanbanStatus);
+
       // Inherit workspaceId from the target project
       const notionProject = await db.project.findUnique({
         where: { id: projectId },
@@ -213,6 +217,9 @@ export class NotionSyncService {
           projectId,
           createdById: userId,
           workspaceId: notionProject?.workspaceId ?? null,
+          kanbanStatus,
+          kanbanOrder,
+          ...(kanbanStatus === 'DONE' ? { completedAt: new Date() } : {}),
         },
       });
 
@@ -236,11 +243,15 @@ export class NotionSyncService {
       const actionPriority = this.mapNotionPriorityToActionPriority(todo.priority, config.priorityFieldMapping);
       const dueDate = todo.dueDate ? new Date(todo.dueDate) : null;
 
+      // Resolve kanban status for comparison
+      const targetKanbanStatus = this.mapNotionStatusToKanbanStatus(todo.status, config.statusFieldMapping);
+
       // Only update if there are changes
       const needsUpdate = (
         action.name !== todo.title ||
         action.status !== actionStatus ||
         action.priority !== actionPriority ||
+        action.kanbanStatus !== targetKanbanStatus ||
         (action.dueDate?.getTime() !== dueDate?.getTime())
       );
 
@@ -261,6 +272,12 @@ export class NotionSyncService {
         .filter(Boolean)
         .join('\n');
 
+      // Resolve kanban status
+      const kanbanStatus = this.mapNotionStatusToKanbanStatus(todo.status, config.statusFieldMapping);
+      const completedAt = kanbanStatus === 'DONE'
+        ? (action.kanbanStatus === 'DONE' ? undefined : new Date())
+        : (action.kanbanStatus === 'DONE' ? null : undefined);
+
       const updatedAction = await db.action.update({
         where: { id: action.id },
         data: {
@@ -269,6 +286,8 @@ export class NotionSyncService {
           priority: actionPriority,
           dueDate,
           description,
+          kanbanStatus,
+          ...(completedAt !== undefined ? { completedAt } : {}),
         },
       });
 
@@ -467,8 +486,45 @@ export class NotionSyncService {
     if (['blocked', 'waiting', 'on hold'].includes(lowerStatus)) {
       return 'BLOCKED';
     }
-    
+
     return 'ACTIVE'; // Default to active
+  }
+
+  /** Default fuzzy mapping from common Notion status names to kanban columns */
+  private static readonly DEFAULT_KANBAN_MAP: Record<string, ActionStatus> = {
+    'done': 'DONE', 'completed': 'DONE', 'complete': 'DONE', 'finished': 'DONE',
+    'in progress': 'IN_PROGRESS', 'in-progress': 'IN_PROGRESS', 'doing': 'IN_PROGRESS', 'active': 'IN_PROGRESS',
+    'in review': 'IN_REVIEW', 'in-review': 'IN_REVIEW', 'review': 'IN_REVIEW',
+    'todo': 'TODO', 'to do': 'TODO', 'to-do': 'TODO', 'open': 'TODO', 'new': 'TODO',
+    'not started': 'BACKLOG', 'backlog': 'BACKLOG', 'icebox': 'BACKLOG',
+    'cancelled': 'CANCELLED', 'canceled': 'CANCELLED', 'archived': 'CANCELLED',
+  };
+
+  /**
+   * Map a Notion status to a kanban column using configured mappings with fuzzy fallback.
+   */
+  private mapNotionStatusToKanbanStatus(notionStatus: string, mapping: Record<string, string>): ActionStatus {
+    // Check configured mapping first (kanbanStatus values like "TODO", "IN_PROGRESS", etc.)
+    const mapped = mapping[notionStatus];
+    if (mapped && ['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE', 'CANCELLED'].includes(mapped)) {
+      return mapped as ActionStatus;
+    }
+
+    // Fuzzy fallback
+    const lower = notionStatus.toLowerCase().trim();
+    return NotionSyncService.DEFAULT_KANBAN_MAP[lower] ?? 'TODO';
+  }
+
+  /**
+   * Compute the next kanbanOrder for a given column in a project.
+   */
+  private async nextKanbanOrder(projectId: string, kanbanStatus: ActionStatus): Promise<number> {
+    const lastAction = await db.action.findFirst({
+      where: { projectId, kanbanStatus },
+      orderBy: { kanbanOrder: 'desc' },
+      select: { kanbanOrder: true },
+    });
+    return (lastAction?.kanbanOrder ?? 0) + 1;
   }
 
   private mapNotionPriorityToActionPriority(notionPriority: string | undefined, mapping: Record<string, string>): string {

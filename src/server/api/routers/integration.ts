@@ -489,6 +489,64 @@ export const integrationRouter = createTRPCRouter({
       return result.databases ?? [];
     }),
 
+  // Get a single Notion database schema with property options (for status mapping UI)
+  getNotionDatabaseSchema: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+        databaseId: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          id: input.integrationId,
+          provider: "notion",
+          userId: ctx.session.user.id,
+        },
+        include: {
+          credentials: {
+            select: { key: true, keyType: true, isEncrypted: true },
+          },
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Notion integration not found",
+        });
+      }
+
+      const tokenCredential = integration.credentials.find(
+        (c) =>
+          c.keyType === "access_token" ||
+          c.keyType === "ACCESS_TOKEN" ||
+          c.keyType === "API_KEY",
+      );
+
+      if (!tokenCredential) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No access token found for this Notion integration",
+        });
+      }
+
+      const accessToken = getDecryptedKey(tokenCredential);
+      if (!accessToken) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to decrypt Notion access token",
+        });
+      }
+
+      const { NotionIntegrationAdapter } = await import(
+        "~/server/services/sync/NotionIntegrationAdapter"
+      );
+      const adapter = new NotionIntegrationAdapter(accessToken);
+      return adapter.getDatabaseSchema(input.databaseId);
+    }),
+
   // List Notion connections with workspace metadata (name, icon, etc.)
   listNotionConnections: protectedProcedure
     .input(

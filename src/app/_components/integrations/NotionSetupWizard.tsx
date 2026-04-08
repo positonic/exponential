@@ -27,6 +27,8 @@ import {
   IconExternalLink,
   IconArrowDown,
   IconRefresh,
+  IconColumns,
+  IconWand,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
@@ -79,6 +81,48 @@ interface NotionDatabase {
   properties?: Record<string, { id: string; name: string; type: string }>;
 }
 
+const KANBAN_COLUMNS = [
+  { value: "BACKLOG", label: "Backlog" },
+  { value: "TODO", label: "To Do" },
+  { value: "IN_PROGRESS", label: "In Progress" },
+  { value: "IN_REVIEW", label: "In Review" },
+  { value: "DONE", label: "Done" },
+  { value: "CANCELLED", label: "Cancelled" },
+] as const;
+
+/** Fuzzy match Notion status option names to kanban columns */
+function autoDetectStatusMappings(
+  options: Array<{ name: string }>,
+): Record<string, string> {
+  const mapping: Record<string, string> = {};
+  const normalizedMap: Record<string, string> = {
+    done: "DONE", completed: "DONE", complete: "DONE", finished: "DONE",
+    "in progress": "IN_PROGRESS", "in-progress": "IN_PROGRESS", doing: "IN_PROGRESS", active: "IN_PROGRESS",
+    "in review": "IN_REVIEW", "in-review": "IN_REVIEW", review: "IN_REVIEW",
+    todo: "TODO", "to do": "TODO", "to-do": "TODO", open: "TODO", new: "TODO",
+    "not started": "BACKLOG", backlog: "BACKLOG", icebox: "BACKLOG", later: "BACKLOG",
+    cancelled: "CANCELLED", canceled: "CANCELLED", archived: "CANCELLED", "won't do": "CANCELLED",
+  };
+
+  for (const option of options) {
+    const normalized = option.name.toLowerCase().trim();
+    mapping[option.name] = normalizedMap[normalized] ?? "TODO";
+  }
+  return mapping;
+}
+
+/** Build reverse mapping from toLocal */
+function buildToExternal(toLocal: Record<string, string>): Record<string, string> {
+  const toExternal: Record<string, string> = {};
+  for (const [notionVal, kanbanVal] of Object.entries(toLocal)) {
+    // First match wins for each kanban status
+    if (!toExternal[kanbanVal]) {
+      toExternal[kanbanVal] = notionVal;
+    }
+  }
+  return toExternal;
+}
+
 export function NotionSetupWizard({
   opened,
   onClose,
@@ -102,6 +146,8 @@ export function NotionSetupWizard({
   const [syncFrequency, setSyncFrequency] = useState<
     "manual" | "hourly" | "daily"
   >("manual");
+  const [statusProperty, setStatusProperty] = useState<string | null>(null);
+  const [statusMappings, setStatusMappings] = useState<Record<string, string>>({});
 
   // Queries
   const {
@@ -121,6 +167,31 @@ export function NotionSetupWizard({
     { integrationId: selectedIntegrationId ?? "" },
     { enabled: !!selectedIntegrationId },
   );
+
+  // Fetch database schema with property options for status mapping
+  const { data: dbSchema } = api.integration.getNotionDatabaseSchema.useQuery(
+    { integrationId: selectedIntegrationId ?? "", databaseId: selectedDatabaseId ?? "" },
+    { enabled: !!selectedIntegrationId && !!selectedDatabaseId },
+  );
+
+  // Get status/select properties from the database schema
+  const statusPropertyOptions = useMemo(() => {
+    if (!dbSchema?.properties) return [];
+    return Object.entries(dbSchema.properties)
+      .filter(([, prop]) => prop.type === "status" || prop.type === "select")
+      .map(([key, prop]) => ({
+        value: key,
+        label: `${key} (${prop.type})`,
+        options: prop.options ?? [],
+      }));
+  }, [dbSchema]);
+
+  // Get the options for the currently selected status property
+  const selectedStatusOptions = useMemo(() => {
+    if (!statusProperty) return [];
+    const found = statusPropertyOptions.find((p) => p.value === statusProperty);
+    return found?.options ?? [];
+  }, [statusProperty, statusPropertyOptions]);
 
   // Resolved config with inheritance info
   const { data: resolvedConfig } = api.project.getResolvedNotionConfig.useQuery(
@@ -167,6 +238,8 @@ export function NotionSetupWizard({
     setSelectedDatabaseId(null);
     setSyncDirection("pull");
     setSyncFrequency("manual");
+    setStatusProperty(null);
+    setStatusMappings({});
     onClose();
   };
 
@@ -189,6 +262,15 @@ export function NotionSetupWizard({
       notionWorkspaceName: selectedConnection?.notionWorkspaceName ?? undefined,
       syncDirection,
       syncFrequency,
+      ...(statusProperty ? { statusProperty } : {}),
+      ...(Object.keys(statusMappings).length > 0
+        ? {
+            statusMappings: {
+              toLocal: statusMappings,
+              toExternal: buildToExternal(statusMappings),
+            },
+          }
+        : {}),
     });
   };
 
@@ -199,6 +281,8 @@ export function NotionSetupWizard({
       case 1:
         return !!selectedDatabaseId;
       case 2:
+        return true; // Status mapping is optional
+      case 3:
         return true;
       default:
         return false;
@@ -456,7 +540,118 @@ export function NotionSetupWizard({
           </Stack>
         </Stepper.Step>
 
-        {/* Step 3: Configure Sync */}
+        {/* Step 3: Status Mapping */}
+        <Stepper.Step
+          label="Status"
+          description="Map kanban columns"
+          icon={<IconColumns size={18} />}
+        >
+          <Stack gap="md" mt="md">
+            <Text size="sm" c="dimmed">
+              Map your Notion status values to Exponential kanban columns so tasks
+              appear in the correct column.
+            </Text>
+
+            {statusPropertyOptions.length > 0 ? (
+              <>
+                <Select
+                  label="Status Property"
+                  description="Which Notion property holds the task status?"
+                  placeholder="Select a property"
+                  data={statusPropertyOptions.map((p) => ({
+                    value: p.value,
+                    label: p.label,
+                  }))}
+                  value={statusProperty}
+                  onChange={(v) => {
+                    setStatusProperty(v);
+                    setStatusMappings({});
+                  }}
+                />
+
+                {statusProperty && selectedStatusOptions.length > 0 && (
+                  <Stack gap="sm">
+                    <Group justify="space-between">
+                      <Text size="sm" fw={500}>
+                        Column Mapping
+                      </Text>
+                      <Button
+                        variant="light"
+                        size="xs"
+                        leftSection={<IconWand size={14} />}
+                        onClick={() => {
+                          setStatusMappings(
+                            autoDetectStatusMappings(selectedStatusOptions),
+                          );
+                        }}
+                      >
+                        Auto-detect
+                      </Button>
+                    </Group>
+
+                    {selectedStatusOptions.map((option) => (
+                      <Group key={option.name} gap="sm" wrap="nowrap">
+                        <Paper
+                          p="xs"
+                          radius="sm"
+                          className="bg-surface-secondary"
+                          style={{ flex: 1, minWidth: 0 }}
+                        >
+                          <Text size="sm" truncate>
+                            {option.name}
+                          </Text>
+                        </Paper>
+                        <Text size="sm" c="dimmed">
+                          &rarr;
+                        </Text>
+                        <Select
+                          size="sm"
+                          placeholder="Select column"
+                          data={KANBAN_COLUMNS.map((c) => ({
+                            value: c.value,
+                            label: c.label,
+                          }))}
+                          value={statusMappings[option.name] ?? null}
+                          onChange={(v) => {
+                            if (v) {
+                              setStatusMappings((prev) => ({
+                                ...prev,
+                                [option.name]: v,
+                              }));
+                            }
+                          }}
+                          style={{ flex: 1, minWidth: 140 }}
+                        />
+                      </Group>
+                    ))}
+                  </Stack>
+                )}
+
+                {statusProperty && selectedStatusOptions.length === 0 && (
+                  <Alert
+                    icon={<IconAlertCircle size={16} />}
+                    color="orange"
+                    variant="light"
+                  >
+                    No options found for this property. You can skip this step
+                    and the default mapping will be used.
+                  </Alert>
+                )}
+              </>
+            ) : (
+              <Alert
+                icon={<IconAlertCircle size={16} />}
+                color="blue"
+                variant="light"
+              >
+                No status or select properties found in this database. Default
+                status mapping will be applied automatically.
+              </Alert>
+            )}
+          </Stack>
+        </Stepper.Step>
+
+        {/* Step 4: Configure Sync */}
         <Stepper.Step
           label="Sync"
           description="Configure sync settings"
@@ -546,7 +741,7 @@ export function NotionSetupWizard({
           </Stack>
         </Stepper.Step>
 
-        {/* Step 4: Confirm */}
+        {/* Step 5: Confirm */}
         <Stepper.Completed>
           <Stack gap="md" mt="md">
             <Alert
@@ -611,6 +806,21 @@ export function NotionSetupWizard({
                     )}
                   </Group>
                 </Group>
+                {Object.keys(statusMappings).length > 0 && (
+                  <Group justify="space-between" align="flex-start">
+                    <Text size="sm" c="dimmed">
+                      Status Mapping
+                    </Text>
+                    <Stack gap={2}>
+                      {Object.entries(statusMappings).map(([from, to]) => (
+                        <Text key={from} size="xs">
+                          {from} &rarr;{" "}
+                          {KANBAN_COLUMNS.find((c) => c.value === to)?.label ?? to}
+                        </Text>
+                      ))}
+                    </Stack>
+                  </Group>
+                )}
               </Stack>
             </Paper>
           </Stack>
@@ -632,7 +842,7 @@ export function NotionSetupWizard({
           {activeStep === 0 ? "Cancel" : "Back"}
         </Button>
 
-        {activeStep < 3 ? (
+        {activeStep < 4 ? (
           <Button
             onClick={() => setActiveStep((s) => s + 1)}
             disabled={!canProceedFromStep(activeStep)}

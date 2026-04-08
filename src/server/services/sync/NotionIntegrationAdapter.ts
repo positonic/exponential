@@ -157,11 +157,12 @@ export class NotionIntegrationAdapter implements IIntegrationService {
 
   parseToAction(item: ExternalItem, _mappings: PropertyMappings): ParsedAction {
     // The item already has parsed data from convertPageToExternalItem
+    // Status is the raw Notion value - SyncEngine maps it to kanbanStatus
     return {
       externalId: item.id,
       name: item.title,
       description: item.description,
-      status: item.status ?? 'ACTIVE',
+      status: item.status ?? 'Not Started',
       priority: item.priority,
       dueDate: item.dueDate,
       lastModified: item.lastEditedTime,
@@ -191,9 +192,12 @@ export class NotionIntegrationAdapter implements IIntegrationService {
       'Someday Maybe': 'Low',
     };
 
-    // Map status to external format
+    // Map status to external format - prefer kanbanStatus over legacy status
+    const kanbanStatus = (action as any).kanbanStatus as string | null;
+    const statusKey = kanbanStatus ?? action.status;
     const status =
-      statusMappings?.toExternal[action.status] ??
+      statusMappings?.toExternal[statusKey] ??
+      defaultStatusMapping[statusKey] ??
       defaultStatusMapping[action.status] ??
       action.status;
 
@@ -223,11 +227,35 @@ export class NotionIntegrationAdapter implements IIntegrationService {
     const result: Record<string, ExternalProperty> = {};
 
     for (const [key, value] of Object.entries(notionProps)) {
-      result[key] = {
+      const prop: ExternalProperty = {
         id: value.id,
         name: value.name,
         type: value.type,
       };
+
+      // Include options for select, multi_select, and status property types
+      const raw = value as any;
+      if (raw.type === 'select' && raw.select?.options) {
+        prop.options = raw.select.options.map((o: any) => ({
+          id: o.id,
+          name: o.name,
+          color: o.color,
+        }));
+      } else if (raw.type === 'multi_select' && raw.multi_select?.options) {
+        prop.options = raw.multi_select.options.map((o: any) => ({
+          id: o.id,
+          name: o.name,
+          color: o.color,
+        }));
+      } else if (raw.type === 'status' && raw.status?.options) {
+        prop.options = raw.status.options.map((o: any) => ({
+          id: o.id,
+          name: o.name,
+          color: o.color,
+        }));
+      }
+
+      result[key] = prop;
     }
 
     return result;
@@ -266,36 +294,20 @@ export class NotionIntegrationAdapter implements IIntegrationService {
       description = page.properties.Description.rich_text[0].plain_text;
     }
 
-    // Find status - handle both native status type and select type
+    // Find status - return raw Notion status value for mapping by SyncEngine
     const statusProperty = page.properties.Status;
-    const statusMapping: Record<string, string> = {
-      Done: 'COMPLETED',
-      Completed: 'COMPLETED',
-      Complete: 'COMPLETED',
-      Finished: 'COMPLETED',
-      Archived: 'COMPLETED',
-      'In Progress': 'ACTIVE',
-      'In progress': 'ACTIVE',
-      Active: 'ACTIVE',
-      Todo: 'ACTIVE',
-      'To-do': 'ACTIVE',
-      'Not Started': 'ACTIVE',
-      'Not started': 'ACTIVE',
-    };
 
     // Handle native Notion status type (different from select)
     if (statusProperty?.status?.name) {
-      const notionStatus = statusProperty.status.name;
-      status = statusMapping[notionStatus] ?? 'ACTIVE';
+      status = statusProperty.status.name;
     }
     // Handle select type status
     else if (statusProperty?.select?.name) {
-      const notionStatus = statusProperty.select.name;
-      status = statusMapping[notionStatus] ?? 'ACTIVE';
+      status = statusProperty.select.name;
     }
     // Handle checkbox type status
     else if (statusProperty?.checkbox !== undefined) {
-      status = statusProperty.checkbox ? 'COMPLETED' : 'ACTIVE';
+      status = statusProperty.checkbox ? 'Done' : 'Not Started';
     }
 
     // Find priority

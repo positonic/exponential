@@ -871,6 +871,11 @@ export const workflowRouter = createTRPCRouter({
       notionWorkspaceName: z.string().optional(),
       syncDirection: z.enum(['pull', 'push', 'bidirectional']),
       syncFrequency: z.enum(['manual', 'hourly', 'daily']),
+      statusProperty: z.string().optional(),
+      statusMappings: z.object({
+        toLocal: z.record(z.string()),
+        toExternal: z.record(z.string()),
+      }).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       // Verify the integration belongs to the user
@@ -897,6 +902,12 @@ export const workflowRouter = createTRPCRouter({
         },
       });
 
+      const workflowConfig: Record<string, string | Record<string, string | Record<string, string>>> = {
+        databaseId: input.databaseId,
+        ...(input.statusProperty ? { propertyMappings: { status: input.statusProperty } } : {}),
+        ...(input.statusMappings ? { statusMappings: input.statusMappings } : {}),
+      };
+
       let workflow;
       if (existingWorkflow) {
         workflow = await ctx.db.workflow.update({
@@ -904,7 +915,7 @@ export const workflowRouter = createTRPCRouter({
           data: {
             syncDirection: input.syncDirection,
             syncFrequency: input.syncFrequency,
-            config: { databaseId: input.databaseId },
+            config: workflowConfig,
             integrationId: input.integrationId,
           },
         });
@@ -916,7 +927,7 @@ export const workflowRouter = createTRPCRouter({
             provider: 'notion',
             syncDirection: input.syncDirection,
             syncFrequency: input.syncFrequency,
-            config: { databaseId: input.databaseId },
+            config: workflowConfig,
             integrationId: input.integrationId,
             userId: ctx.session.user.id,
             projectId: input.projectId,
@@ -942,6 +953,8 @@ export const workflowRouter = createTRPCRouter({
             syncDirection: input.syncDirection,
             syncFrequency: input.syncFrequency,
             syncStrategy: input.syncDirection === 'pull' ? 'notion_canonical' : 'manual',
+            ...(input.statusProperty ? { statusProperty: input.statusProperty } : {}),
+            ...(input.statusMappings ? { statusMappings: input.statusMappings } : {}),
           },
         },
       });
