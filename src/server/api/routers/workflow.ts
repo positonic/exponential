@@ -902,8 +902,9 @@ export const workflowRouter = createTRPCRouter({
         },
       });
 
-      const workflowConfig: Record<string, string | Record<string, string | Record<string, string>>> = {
+      const workflowConfig: Record<string, string | boolean | Record<string, string | Record<string, string>>> = {
         databaseId: input.databaseId,
+        useNewSyncEngine: true,
         ...(input.statusProperty ? { propertyMappings: { status: input.statusProperty } } : {}),
         ...(input.statusMappings ? { statusMappings: input.statusMappings } : {}),
       };
@@ -1114,9 +1115,8 @@ export const workflowRouter = createTRPCRouter({
       });
 
       try {
-        // Check for new sync engine feature flag
-        const workflowConfig = workflow.config as WorkflowConfig;
-        if (workflowConfig.useNewSyncEngine && workflow.provider === 'notion') {
+        // Use new sync engine for all Notion workflows (legacy path doesn't set kanbanStatus)
+        if (workflow.provider === 'notion') {
           // Use new provider-agnostic sync engine
           const typedWorkflow: WorkflowWithCredentials = {
             id: workflow.id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Modal,
   Stepper,
@@ -136,25 +136,47 @@ export function NotionSetupWizard({
   const existingConfig = project.taskManagementConfig as Record<string, unknown> | null;
 
   // Wizard state
-  const [activeStep, setActiveStep] = useState(editMode ? 1 : 0);
+  const [activeStep, setActiveStep] = useState(0);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<
     string | null
-  >((editMode ? (existingConfig?.integrationId as string) : null) ?? null);
-  const [selectedDatabaseId, setSelectedDatabaseId] = useState<string | null>(
-    (editMode ? (existingConfig?.databaseId as string) : null) ?? null,
-  );
+  >(null);
+  const [selectedDatabaseId, setSelectedDatabaseId] = useState<string | null>(null);
   const [syncDirection, setSyncDirection] = useState<
     "pull" | "push" | "bidirectional"
-  >((editMode ? (existingConfig?.syncDirection as "pull" | "push" | "bidirectional") : null) ?? "pull");
+  >("pull");
   const [syncFrequency, setSyncFrequency] = useState<
     "manual" | "hourly" | "daily"
-  >((editMode ? (existingConfig?.syncFrequency as "manual" | "hourly" | "daily") : null) ?? "manual");
-  const [statusProperty, setStatusProperty] = useState<string | null>(
-    (editMode ? (existingConfig?.statusProperty as string) : null) ?? null,
-  );
-  const [statusMappings, setStatusMappings] = useState<Record<string, string>>(
-    (editMode ? ((existingConfig?.statusMappings as any)?.toLocal as Record<string, string>) : null) ?? {},
-  );
+  >("manual");
+  const [statusProperty, setStatusProperty] = useState<string | null>(null);
+  const [statusMappings, setStatusMappings] = useState<Record<string, string>>({});
+
+  // Repopulate state from existing config when wizard opens in edit mode
+  useEffect(() => {
+    if (opened && editMode && existingConfig) {
+      setActiveStep(0);
+      setSelectedIntegrationId((existingConfig.integrationId as string) ?? null);
+      setSelectedDatabaseId((existingConfig.databaseId as string) ?? null);
+      setSyncDirection(
+        (existingConfig.syncDirection as "pull" | "push" | "bidirectional") ?? "pull",
+      );
+      setSyncFrequency(
+        (existingConfig.syncFrequency as "manual" | "hourly" | "daily") ?? "manual",
+      );
+      setStatusProperty((existingConfig.statusProperty as string) ?? null);
+      setStatusMappings(
+        ((existingConfig.statusMappings as Record<string, unknown>)?.toLocal as Record<string, string>) ?? {},
+      );
+    } else if (opened && !editMode) {
+      // Fresh wizard: ensure clean state
+      setActiveStep(0);
+      setSelectedIntegrationId(null);
+      setSelectedDatabaseId(null);
+      setSyncDirection("pull");
+      setSyncFrequency("manual");
+      setStatusProperty(null);
+      setStatusMappings({});
+    }
+  }, [opened, editMode, existingConfig]);
 
   // Queries
   const {
@@ -240,13 +262,6 @@ export function NotionSetupWizard({
   );
 
   const handleClose = () => {
-    setActiveStep(0);
-    setSelectedIntegrationId(null);
-    setSelectedDatabaseId(null);
-    setSyncDirection("pull");
-    setSyncFrequency("manual");
-    setStatusProperty(null);
-    setStatusMappings({});
     onClose();
   };
 
@@ -316,8 +331,9 @@ export function NotionSetupWizard({
         mt="md"
         active={activeStep}
         onStepClick={(step) => {
-          // Only allow clicking completed steps or current step
-          if (step <= activeStep) setActiveStep(step);
+          // In edit mode, allow clicking any step to review/change existing values
+          // In new mode, only allow clicking completed steps or current step
+          if (editMode || step <= activeStep) setActiveStep(step);
         }}
         size="sm"
       >
