@@ -67,7 +67,7 @@ export function CreateDayModal({ children }: CreateDayModalProps) {
         padding="lg"
         styles={{
           header: { display: 'none' },
-          body: { padding: 0 },
+          body: { padding: 0, backgroundColor: 'var(--color-bg-elevated)' },
           content: {
             backgroundColor: 'var(--color-bg-elevated)',
             color: 'var(--color-text-primary)',

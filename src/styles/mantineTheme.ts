@@ -41,6 +41,9 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           borderBottom: '1px solid var(--color-border-primary)',
         },
+        body: {
+          backgroundColor: 'var(--color-bg-elevated)',
+        },
         title: {
           color: 'var(--color-text-primary)',
         },

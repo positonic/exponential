@@ -459,8 +459,14 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
         radius="md"
         padding="lg"
         styles={{
+          content: {
+            backgroundColor: 'var(--color-bg-elevated)',
+          },
           header: { display: 'none' },
-          body: { padding: 0 },
+          body: {
+            padding: 0,
+            backgroundColor: 'var(--color-bg-elevated)',
+          },
         }}
       >
         <form

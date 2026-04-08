@@ -477,7 +477,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         fullScreen={width < 640}
         styles={{
           header: { display: 'none' },
-          body: { padding: 0 },
+          body: { padding: 0, backgroundColor: 'var(--color-bg-elevated)' },
           content: {
             backgroundColor: 'var(--color-bg-elevated)',
             color: 'var(--color-text-primary)',

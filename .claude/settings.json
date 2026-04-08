@@ -44,14 +44,18 @@
       "Read(//Users/james/.claude/**)",
       "Read(//Users/james/.nvm/versions/node/v20.20.0/lib/node_modules/**)",
       "Read(//Users/james/Library/Preferences/exponential-cli-nodejs/**)",
-      "WebFetch(domain:linear.app)"
+      "WebFetch(domain:linear.app)",
+      "Bash(sed -n '/^model OkrCheckin {/,/^}/p' /Users/james/code/exponential/prisma/schema.prisma)",
+      "Bash(sed -n '/^model OkrCheckinUpdate {/,/^}/p' /Users/james/code/exponential/prisma/schema.prisma)",
+      "Bash(sed -n '/^model OkrCheckinComment {/,/^}/p' /Users/james/code/exponential/prisma/schema.prisma)"
     ],
     "additionalDirectories": [
       "/tmp",
       "/Users/james/code/mastra/src/mastra/tools",
       "/Users/james/code/one-2b/.claude",
       "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]",
-      "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]/initiatives"
+      "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]/initiatives",
+      "/Users/james/code/exponential/prisma"
     ]
   },
   "hooks": {
