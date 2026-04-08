@@ -117,7 +117,7 @@ We evaluated three architectures:
 | **Data** | Deals with value, probability, contacts | Step input/output JSON |
 | **Model** | `Deal` + `PipelineStage` | `WorkflowPipelineRun` + `WorkflowStepRun` |
 | **Router** | `pipeline` | `workflowPipeline` |
-| **Docs** | This document | `/docs/WORKFLOW_PIPELINE.md` |
+| **Docs** | This document | `/dev-docs/WORKFLOW_PIPELINE.md` |
 
 **Future integration point**: Stage transitions in the deal pipeline could trigger workflow automations (e.g., "when deal moves to Won, send congratulations email"). This is not yet implemented.
 
@@ -370,7 +370,7 @@ The `pipeline.getStats` query computes:
 
 CRM data is **workspace-scoped**. All queries filter by `workspaceId`, which comes from the `useWorkspace()` provider on the frontend. The `protectedProcedure` middleware ensures the user is authenticated.
 
-**Current state**: The CRM routers use `protectedProcedure` (requires auth) but do not enforce workspace membership checks beyond the workspaceId filter. This means any authenticated user who knows a workspaceId could technically query CRM data. See `/docs/ACCESS_CONTROL.md` for the centralized access control system that should be applied.
+**Current state**: The CRM routers use `protectedProcedure` (requires auth) but do not enforce workspace membership checks beyond the workspaceId filter. This means any authenticated user who knows a workspaceId could technically query CRM data. See `/dev-docs/ACCESS_CONTROL.md` for the centralized access control system that should be applied.
 
 **Recommended**: Add `requireWorkspaceMembership` middleware to CRM endpoints, similar to how the workspace router protects its endpoints.
 

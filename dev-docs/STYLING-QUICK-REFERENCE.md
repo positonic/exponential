@@ -82,7 +82,7 @@ git diff --staged | grep -E "#[0-9A-Fa-f]{3,8}"
 ```
 
 ## Need Help?
-1. Read `/docs/styling-architecture.md`
+1. Read `/dev-docs/styling-architecture.md`
 2. Check similar components in codebase
 3. Use ESLint auto-fix: `npm run lint:fix`
 4. Ask in team chat with link to this guide

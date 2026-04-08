@@ -44,8 +44,8 @@
 - `/src/test/setup.ts`
 
 ### Documentation
-- `/docs/testing/calendar-integration-test-plan.md`
-- `/docs/testing/calendar-testing-summary.md`
+- `/dev-docs/testing/calendar-integration-test-plan.md`
+- `/dev-docs/testing/calendar-testing-summary.md`
 
 ### Database Changes
 - Added Feedback model to Prisma schema

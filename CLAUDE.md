@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. **NEVER USE HARDCODED HEX COLORS** like `#262626`, `#C1C2C5`, `#373A40`, `#1a1b1e`, etc.
 2. **NEVER USE RGB/RGBA COLORS** like `rgb(26, 27, 30)` or `rgba(0, 0, 0, 0.5)`
 3. **THE BUILD WILL FAIL** if you introduce ANY hardcoded color
-4. **ALWAYS READ** `/docs/styling-architecture.md` before ANY styling work
+4. **ALWAYS READ** `/dev-docs/styling-architecture.md` before ANY styling work
 
 ### ✅ CORRECT Color Usage:
 ```tsx
@@ -60,7 +60,7 @@ This project uses enhanced ESLint integration with immediate feedback and build-
 - Proper type imports (`import type {}`)
 - No unused variables or imports
 
-See `/docs/ESLINT_INTEGRATION.md` for complete rule details and fix patterns.
+See `/dev-docs/ESLINT_INTEGRATION.md` for complete rule details and fix patterns.
 
 ### Database Operations
 - `npx prisma migrate dev --name <migration_name>` - Create and apply a new migration (ALWAYS use this for schema changes!)
@@ -182,8 +182,8 @@ This is a productivity management application built with the T3 Stack (Next.js 1
 - **Daily Planning**: Journal system with reflection and planning tools
 - **AI Assistant**: Chat interface with semantic video search
 - **Video Processing**: YouTube analysis and transcription support
-- **CRM**: Contact/organization management, deal pipeline (Kanban), Gmail/Calendar import. See `/docs/CRM_ARCHITECTURE.md`
-- **Notifications**: Multi-channel notification system (email, push, WhatsApp). See `/docs/NOTIFICATION_ARCHITECTURE.md`
+- **CRM**: Contact/organization management, deal pipeline (Kanban), Gmail/Calendar import. See `/dev-docs/CRM_ARCHITECTURE.md`
+- **Notifications**: Multi-channel notification system (email, push, WhatsApp). See `/dev-docs/NOTIFICATION_ARCHITECTURE.md`
 
 ## Directory Structure
 
@@ -222,7 +222,7 @@ src/
   - `vercel build` (comprehensive) - used only for major features
   - Tests and additional validations as needed
 - **Enhanced ESLint Integration**: Triple protection system prevents non-compliant code:
-  1. **Prevention**: Comprehensive documentation (`/docs/ESLINT_INTEGRATION.md`)
+  1. **Prevention**: Comprehensive documentation (`/dev-docs/ESLINT_INTEGRATION.md`)
   2. **Immediate Feedback**: Post-edit hooks run `npm run check` after file changes
   3. **Comprehensive Validation**: Build-tester agent ensures deployment readiness
 - When asked about PR readiness, immediately use: `Task subagent_type="build-tester"` with the PR details
@@ -246,7 +246,7 @@ src/
 
 ### Access Control
 
-**REMINDER: Read `/docs/ACCESS_CONTROL.md` before modifying any access control logic.**
+**REMINDER: Read `/dev-docs/ACCESS_CONTROL.md` before modifying any access control logic.**
 
 - Centralized access control service at `src/server/services/access/`
 - Use middleware (`requireActionAccess`, `requireWorkspaceMembership`, etc.) for new endpoints
@@ -410,11 +410,11 @@ We use a hybrid git flow optimized for a small team (2 developers) that balances
 - All schema changes MUST go through develop branch first
 - Test database (Railway) shared by develop and all PR previews
 - Weekly batch merge from develop to main for migrations
-- See `/docs/DEVELOPMENT_WORKFLOW.md` for complete details
+- See `/dev-docs/DEVELOPMENT_WORKFLOW.md` for complete details
 
 ## Styling Architecture Details
 
-**REMINDER: Read `/docs/styling-architecture.md` for complete styling guidelines.**
+**REMINDER: Read `/dev-docs/styling-architecture.md` for complete styling guidelines.**
 
 The application uses a comprehensive styling system with light/dark mode support:
 
@@ -451,7 +451,7 @@ The application uses a comprehensive styling system with light/dark mode support
 - Borders: `border-border-primary`, `border-border-focus`
 - Interactive: `bg-brand-primary`, `hover:bg-surface-hover`
 
-**See `/docs/styling-architecture.md` for complete styling guidelines.**
+**See `/dev-docs/styling-architecture.md` for complete styling guidelines.**
 
 Always ensure code follows the project's ESLint rules and TypeScript configuration. Run `npm run check` before committing changes to maintain code quality.
 
@@ -470,7 +470,7 @@ Always ensure code follows the project's ESLint rules and TypeScript configurati
 - `❌ tRPC failed` - API errors and failures
 
 ## Git Worktree Workflow
-For parallel feature development using git worktrees, see the comprehensive guide at `/docs/git-worktree-workflow.md`. This includes:
+For parallel feature development using git worktrees, see the comprehensive guide at `/dev-docs/git-worktree-workflow.md`. This includes:
 - Claude Code custom commands for worktree management
 - Step-by-step instructions for feature development
 - Best practices and common gotchas
@@ -478,7 +478,7 @@ For parallel feature development using git worktrees, see the comprehensive guid
 
 ## IDE Enhancement with Serena MCP
 
-The project uses Serena MCP server for enhanced code intelligence. See `/docs/SERENA_MCP_GUIDE.md` for details.
+The project uses Serena MCP server for enhanced code intelligence. See `/dev-docs/SERENA_MCP_GUIDE.md` for details.
 
 ### Automatic Serena Management
 
