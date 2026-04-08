@@ -1,25 +1,14 @@
-'use client';
+"use client";
 
-import { Container, Title, Button, Skeleton, Text } from '@mantine/core';
-import { GoalsTable } from '~/app/_components/GoalsTable';
-import { CreateGoalModal } from '~/app/_components/CreateGoalModal';
-import { api } from '~/trpc/react';
-import { useWorkspace } from '~/providers/WorkspaceProvider';
-import { useTerminology } from '~/hooks/useTerminology';
+import { Suspense } from "react";
+import { Skeleton, Container, Stack, Text } from "@mantine/core";
+import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 
-export default function WorkspaceGoalsPage() {
-  const { workspace, workspaceId, isLoading: workspaceLoading } = useWorkspace();
-  const terminology = useTerminology();
-  const { data: goals } = api.goal.getAllMyGoals.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    {
-      refetchOnWindowFocus: true,
-      staleTime: 0,
-      enabled: !!workspace,
-    }
-  );
+function GoalsPageContent() {
+  const { workspace, isLoading } = useWorkspace();
 
-  if (workspaceLoading) {
+  if (isLoading) {
     return (
       <Container size="xl" className="py-8">
         <Skeleton height={40} width={200} mb="lg" />
@@ -36,29 +25,25 @@ export default function WorkspaceGoalsPage() {
     );
   }
 
-  return (
-    <Container size="xl" className="py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <Title
-          order={1}
-          className="text-4xl font-bold bg-gradient-to-r from-green-400 to-teal-400 bg-clip-text text-transparent"
-        >
-          {terminology.goals}
-        </Title>
-        <CreateGoalModal>
-          <Button
-            variant="filled"
-            color="dark"
-            leftSection="+"
-          >
-            {terminology.addGoal}
-          </Button>
-        </CreateGoalModal>
-      </div>
+  return <InitiativeDashboard />;
+}
 
-      {/* Content */}
-      <GoalsTable goals={goals ?? []} />
-    </Container>
+export default function WorkspaceGoalsPage() {
+  return (
+    <main className="flex h-full flex-col items-center justify-start text-text-primary">
+      <Suspense
+        fallback={
+          <Container size="xl" className="py-8">
+            <Stack gap="md">
+              <Skeleton height={60} />
+              <Skeleton height={100} />
+              <Skeleton height={200} />
+            </Stack>
+          </Container>
+        }
+      >
+        <GoalsPageContent />
+      </Suspense>
+    </main>
   );
 }

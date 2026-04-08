@@ -42,7 +42,9 @@ interface CreateGoalModalProps {
     notes: string | null;
     dueDate: Date | null;
     period: string | null;
+    status?: string;
     lifeDomainId: number | null;
+    parentGoalId?: number | null;
     outcomes?: { id: string; description: string }[];
     workspaceId?: string | null;
     driUserId?: string | null;
@@ -70,6 +72,10 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
   );
   const [period, setPeriod] = useState<string | null>(goal?.period ?? null);
   const [driUserId, setDriUserId] = useState<string | null>(goal?.driUserId ?? null);
+  const [status, setStatus] = useState<string | null>(goal?.status ?? "active");
+  const [parentGoalId, setParentGoalId] = useState<string | null>(
+    goal?.parentGoalId != null ? String(goal.parentGoalId) : null
+  );
 
   // Key results state
   const [pendingKeyResults, setPendingKeyResults] = useState<PendingKeyResult[]>([]);
@@ -97,6 +103,16 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
     { enabled: !!goal?.id && opened }
   );
   const terminology = useTerminology();
+  const { data: allGoals } = api.goal.getAllMyGoals.useQuery(
+    { workspaceId: workspace?.id },
+    { enabled: !!workspace && opened },
+  );
+  const parentGoalOptions = useMemo(() => {
+    if (!allGoals) return [];
+    return allGoals
+      .filter(g => g.id !== goal?.id) // Can't be own parent
+      .map(g => ({ value: String(g.id), label: g.title }));
+  }, [allGoals, goal?.id]);
 
   // Mutations for key results
   const createKeyResult = api.okr.create.useMutation({
@@ -459,11 +475,13 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
               notes: notes || undefined,
               dueDate: dueDate ?? undefined,
               period: period ?? undefined,
+              status: (status as "planned" | "active" | "completed" | "archived") ?? undefined,
               lifeDomainId: lifeDomainId ?? undefined,
               projectId: selectedProjectId,
               outcomeIds: selectedOutcomeIds.length > 0 ? selectedOutcomeIds : undefined,
               driUserId: driUserId ?? currentUser?.id,
               workspaceId: selectedWorkspaceId ?? undefined,
+              parentGoalId: parentGoalId ? Number(parentGoalId) : undefined,
             };
 
             if (goal?.id) {
@@ -506,6 +524,32 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
             value={driUserId}
             onChange={(value) => setDriUserId(value ?? null)}
             required
+            mt="md"
+          />
+
+          <Select
+            label="Status"
+            description="Lifecycle stage of this objective"
+            data={[
+              { value: "planned", label: "Planned" },
+              { value: "active", label: "Active" },
+              { value: "completed", label: "Completed" },
+              { value: "archived", label: "Archived" },
+            ]}
+            value={status}
+            onChange={(value) => setStatus(value ?? "active")}
+            mt="md"
+          />
+
+          <Select
+            label={`Parent ${terminology.goal}`}
+            description={`Nest this under another ${terminology.goal.toLowerCase()} (up to 5 levels)`}
+            placeholder="None (top-level)"
+            data={parentGoalOptions}
+            value={parentGoalId}
+            onChange={(value) => setParentGoalId(value)}
+            clearable
+            searchable
             mt="md"
           />
 

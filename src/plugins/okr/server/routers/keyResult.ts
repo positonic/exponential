@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { computeGoalHealth } from "~/server/services/goalService";
 
 // Input validation schemas
 const createKeyResultInput = z.object({
@@ -429,6 +430,11 @@ export const keyResultRouter = createTRPCRouter({
           },
         }),
       ]);
+
+      // Recompute parent goal health after check-in (fire-and-forget)
+      void computeGoalHealth({ ctx, goalId: keyResult.goalId }).catch(
+        (err: unknown) => { console.error("[goal-health] recompute after KR check-in:", err); },
+      );
 
       return checkIn;
     }),
