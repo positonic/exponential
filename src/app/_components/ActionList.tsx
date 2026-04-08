@@ -449,14 +449,8 @@ export function ActionList({
           // Check if the action is scheduled after tomorrow
           return normalizedScheduledDate && normalizedScheduledDate > tomorrow;
         default:
-          if (viewName.startsWith('project-')) {
-            // Extract project ID by splitting from the last hyphen (more robust)
-            // This handles both old format (name-1-id) and new format (name_1-id)
-            const parts = viewName.split('-');
-            const projectId = parts[parts.length - 1]; // Get the last part (the actual project ID)
-            return action.projectId === projectId;
-          }
-          return true; // Show all non-overdue if viewName doesn't match known types
+          // For project views, data is already filtered by projectId in the query
+          return true;
       }
     });
     // Then filter by status (ACTIVE/COMPLETED) and sort accordingly
