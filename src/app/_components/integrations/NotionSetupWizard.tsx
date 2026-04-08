@@ -310,7 +310,7 @@ export function NotionSetupWizard({
           </Text>
         </Group>
       }
-      size="lg"
+      size="xl"
     >
       <Stepper
         active={activeStep}
