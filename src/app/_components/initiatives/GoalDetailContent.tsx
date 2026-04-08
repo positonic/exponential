@@ -22,9 +22,6 @@ import {
   IconDots,
   IconSettings,
   IconCircleCheckFilled,
-  IconAlertTriangleFilled,
-  IconAlertCircleFilled,
-  IconClockFilled,
   IconUsers,
   IconCalendar,
   IconMessage,
@@ -35,39 +32,10 @@ import {
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import Link from "next/link";
+import DOMPurify from "dompurify";
 import { GoalDescriptionEditor } from "./GoalDescriptionEditor";
-
-type HealthStatus = "on-track" | "at-risk" | "off-track" | "no-update";
-
-const healthConfig: Record<
-  HealthStatus,
-  { color: string; mantineColor: string; icon: typeof IconCircleCheckFilled; label: string }
-> = {
-  "on-track": {
-    color: "var(--mantine-color-green-6)",
-    mantineColor: "green",
-    icon: IconCircleCheckFilled,
-    label: "On track",
-  },
-  "at-risk": {
-    color: "var(--mantine-color-yellow-6)",
-    mantineColor: "yellow",
-    icon: IconAlertTriangleFilled,
-    label: "At risk",
-  },
-  "off-track": {
-    color: "var(--mantine-color-red-6)",
-    mantineColor: "red",
-    icon: IconAlertCircleFilled,
-    label: "Off track",
-  },
-  "no-update": {
-    color: "var(--mantine-color-gray-6)",
-    mantineColor: "gray",
-    icon: IconClockFilled,
-    label: "No update",
-  },
-};
+import { GoalActivityTab } from "./GoalActivityTab";
+import { type HealthStatus, healthConfig } from "./healthConfig";
 
 function getTimeAgo(date: Date): string {
   const now = new Date();
@@ -180,9 +148,13 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                   </ActionIcon>
                 </Group>
                 {goal.description && (
-                  <Text size="sm" className="text-text-secondary mt-1">
-                    {goal.description}
-                  </Text>
+                  <Text
+                    size="sm"
+                    className="text-text-secondary mt-1"
+                    dangerouslySetInnerHTML={{
+                      __html: DOMPurify.sanitize(goal.description),
+                    }}
+                  />
                 )}
               </div>
             </Group>
@@ -351,9 +323,7 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
 
           {/* Activity Tab */}
           <Tabs.Panel value="activity" pt="lg">
-            <Text size="sm" c="dimmed">
-              Activity feed coming soon.
-            </Text>
+            <GoalActivityTab goalId={goalId} workspaceSlug={workspaceSlug} />
           </Tabs.Panel>
 
           {/* Projects Tab */}
