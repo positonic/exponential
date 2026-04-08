@@ -49,7 +49,8 @@ export class NotionIntegrationAdapter implements IIntegrationService {
   }
 
   async getDatabaseSchema(databaseId: string): Promise<DatabaseSchema> {
-    const database = await this.notionService.getDatabaseById(databaseId);
+    // Use raw properties so convertProperties can extract select/status options
+    const database = await this.notionService.getRawDatabaseById(databaseId);
     return {
       id: database.id,
       title: database.title,
