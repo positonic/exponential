@@ -310,9 +310,10 @@ export function NotionSetupWizard({
           </Text>
         </Group>
       }
-      size="xl"
+      size={900}
     >
       <Stepper
+        mt="md"
         active={activeStep}
         onStepClick={(step) => {
           // Only allow clicking completed steps or current step
