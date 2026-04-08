@@ -11,6 +11,7 @@ import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboard
 
 import {
   getMyPublicGoals,
+  getGoalById,
   updateGoal,
   getProjectGoals,
   deleteGoal,
@@ -21,6 +22,25 @@ import {
 export const goalRouter = createTRPCRouter({
   myPublicGoals: publicProcedure
     .query(getMyPublicGoals),
+
+  getById: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const goal = await getGoalById({ ctx, id: input.id });
+      if (!goal) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found" });
+      }
+      // Verify access: user is owner, DRI, or workspace member
+      if (goal.workspaceId) {
+        const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, goal.workspaceId);
+        if (!membership && goal.userId !== ctx.session.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      } else if (goal.userId !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
+      return goal;
+    }),
 
   getAllMyGoals: protectedProcedure
     .input(z.object({

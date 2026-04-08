@@ -372,6 +372,50 @@ export async function computeGoalHealth({ ctx, goalId }: { ctx: Context, goalId:
   return health;
 }
 
+export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+
+  const goal = await ctx.db.goal.findUnique({
+    where: { id },
+    include: {
+      lifeDomain: true,
+      projects: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          progress: true,
+          priority: true,
+          endDate: true,
+          createdById: true,
+          createdBy: { select: { id: true, name: true, image: true } },
+        },
+      },
+      outcomes: true,
+      keyResults: {
+        select: { id: true, title: true, status: true, currentValue: true, targetValue: true, unit: true },
+      },
+      childGoals: {
+        select: { id: true, title: true, status: true, health: true },
+      },
+      parentGoal: {
+        select: { id: true, title: true },
+      },
+      comments: {
+        include: { author: { select: { id: true, name: true, image: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+      user: { select: { id: true, name: true, image: true } },
+      driUser: { select: { id: true, name: true, image: true } },
+      workspace: { select: { id: true, name: true, slug: true } },
+    },
+  });
+
+  return goal;
+}
+
 export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: number } }) {
   const userId = ctx.session?.user?.id;
   if (!userId) throw new Error("User not authenticated");

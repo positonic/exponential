@@ -55,7 +55,8 @@
       "/Users/james/code/one-2b/.claude",
       "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]",
       "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]/initiatives",
-      "/Users/james/code/exponential/prisma"
+      "/Users/james/code/exponential/prisma",
+      "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]/goals"
     ]
   },
   "hooks": {

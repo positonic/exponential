@@ -100,7 +100,7 @@ function InitiativeRow({ goal, workspaceSlug }: { goal: GoalRow; workspaceSlug: 
       {/* Name */}
       <Table.Td>
         <Link
-          href={`/w/${workspaceSlug}/okrs`}
+          href={`/w/${workspaceSlug}/goals/${goal.id}`}
           className="no-underline"
         >
           <Group gap="sm" wrap="nowrap">
@@ -189,7 +189,7 @@ export function InitiativeDashboard() {
         {/* Header */}
         <Group justify="space-between">
           <Title order={3} className="text-text-primary">
-            Initiatives
+            Goals
           </Title>
           <CreateGoalModal>
             <ActionIcon variant="subtle" size="lg">
@@ -262,7 +262,7 @@ export function InitiativeDashboard() {
           <div className="py-16 text-center">
             <IconTarget size={48} className="text-text-muted mx-auto mb-4" />
             <Text size="lg" fw={500} className="text-text-primary">
-              No {statusFilter} initiatives
+              No {statusFilter} goals
             </Text>
             <Text size="sm" c="dimmed" mt={4}>
               Create {terminology.goals.toLowerCase()} to track strategic objectives and their progress.
