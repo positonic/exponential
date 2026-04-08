@@ -13,7 +13,9 @@ import {
   getMyPublicGoals,
   updateGoal,
   getProjectGoals,
-  deleteGoal
+  deleteGoal,
+  getGoalTree,
+  computeGoalHealth,
 } from "~/server/services/goalService";
 
 export const goalRouter = createTRPCRouter({
@@ -46,7 +48,9 @@ export const goalRouter = createTRPCRouter({
           lifeDomain: true,
           projects: true,
           outcomes: true,
+          childGoals: { select: { id: true, title: true, status: true, health: true } },
         },
+        orderBy: { displayOrder: "asc" },
       });
     }),
 
@@ -58,13 +62,33 @@ export const goalRouter = createTRPCRouter({
       notes: z.string().optional(),
       dueDate: z.date().optional(),
       period: z.string().optional(),
+      status: z.enum(["planned", "active", "completed", "archived"]).optional(),
       lifeDomainId: z.number().optional(),
       projectId: z.string().optional(),
       outcomeIds: z.array(z.string()).optional(),
       driUserId: z.string().optional(),
       workspaceId: z.string().optional(),
+      parentGoalId: z.number().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Enforce max nesting depth of 5 levels for sub-goals
+      if (input.parentGoalId) {
+        let depth = 1;
+        let currentParentId: number | null = input.parentGoalId;
+        while (currentParentId) {
+          const parentGoal: { parentGoalId: number | null } | null = await ctx.db.goal.findUnique({
+            where: { id: currentParentId },
+            select: { parentGoalId: true },
+          });
+          if (!parentGoal) break;
+          currentParentId = parentGoal.parentGoalId;
+          depth++;
+          if (depth > 5) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Maximum nesting depth of 5 levels exceeded" });
+          }
+        }
+      }
+
       const goal = await ctx.db.goal.create({
         data: {
           title: input.title,
@@ -73,10 +97,12 @@ export const goalRouter = createTRPCRouter({
           notes: input.notes,
           dueDate: input.dueDate,
           period: input.period ?? null,
+          status: input.status ?? "active",
           lifeDomainId: input.lifeDomainId ?? null,
           userId: ctx.session.user.id,
           driUserId: input.driUserId ?? ctx.session.user.id,
           workspaceId: input.workspaceId ?? null,
+          parentGoalId: input.parentGoalId ?? null,
           projects: input.projectId
             ? { connect: [{ id: input.projectId }] }
             : undefined,
@@ -108,11 +134,14 @@ export const goalRouter = createTRPCRouter({
       notes: z.string().optional(),
       dueDate: z.date().optional(),
       period: z.string().optional(),
+      status: z.enum(["planned", "active", "completed", "archived"]).optional(),
       lifeDomainId: z.number().optional(),
       projectId: z.string().optional(),
       outcomeIds: z.array(z.string()).optional(),
       driUserId: z.string().optional(),
       workspaceId: z.string().optional(),
+      parentGoalId: z.number().nullable().optional(),
+      displayOrder: z.number().optional(),
     }))
     .mutation(updateGoal),
 
@@ -127,6 +156,46 @@ export const goalRouter = createTRPCRouter({
         });
       }
       return getProjectGoals({ ctx, projectId: input.projectId });
+    }),
+
+  // Get goals as a nested tree (for initiative/sub-initiative views)
+  getGoalTree: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().optional(),
+      status: z.enum(["planned", "active", "completed", "archived"]).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      if (input?.workspaceId) {
+        const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
+        if (!membership) return [];
+      }
+      return getGoalTree({ ctx, workspaceId: input?.workspaceId, status: input?.status });
+    }),
+
+  // Quick status update (Planned → Active → Completed lifecycle)
+  updateGoalStatus: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      status: z.enum(["planned", "active", "completed", "archived"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const goal = await ctx.db.goal.findFirst({
+        where: { id: input.id, userId: ctx.session.user.id },
+      });
+      if (!goal) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found or unauthorized" });
+      }
+      return ctx.db.goal.update({
+        where: { id: input.id },
+        data: { status: input.status },
+      });
+    }),
+
+  // Trigger health recomputation for a goal
+  recomputeHealth: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      return computeGoalHealth({ ctx, goalId: input.id });
     }),
 
   deleteGoal: protectedProcedure

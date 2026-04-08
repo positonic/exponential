@@ -684,10 +684,27 @@ model Goal {
   notes        String? // Notes field for each goal
   dueDate      DateTime?
   period       String?    // OKR period e.g., "Q1-2026", "Annual-2026"
+  status       String     @default("active") // "planned" | "active" | "completed" | "archived"
   lifeDomainId Int?
   userId       String
   driUserId    String?
   workspaceId  String?
+
+  // Parent-child nesting (sub-goals / sub-initiatives, up to 5 levels)
+  parentGoalId Int?
+  parentGoal   Goal?      @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: SetNull)
+  childGoals   Goal[]     @relation("GoalHierarchy")
+
+  // Computed health cache (aggregated from KRs, projects, child goals)
+  health          String?   // "on-track" | "at-risk" | "off-track" | "no-update"
+  healthUpdatedAt DateTime?
+
+  // Display ordering within parent or at root level
+  displayOrder Int        @default(0)
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
   lifeDomain   LifeDomain? @relation(fields: [lifeDomainId], references: [id])
   user         User       @relation(fields: [userId], references: [id])
   driUser      User?      @relation("GoalDRI", fields: [driUserId], references: [id])
@@ -695,13 +712,31 @@ model Goal {
   outcomes     Outcome[]  @relation("GoalOutcomes")
   projects     Project[]  @relation("GoalProjects")
   habits       Habit[] // Habits linked to this goal
-  keyResults   KeyResult[] // OKR key results for this goal (objective)
-  comments     GoalComment[] // Discussion comments on this objective
+  keyResults      KeyResult[] // OKR key results for this goal (objective)
+  comments        GoalComment[] // Discussion comments on this objective
+  recommendations WheelOfLifeRecommendation[]
+  progressSnapshots GoalProgressSnapshot[]
 
   @@index([lifeDomainId])
   @@index([userId])
   @@index([driUserId])
   @@index([workspaceId])
+  @@index([parentGoalId])
+  @@index([status])
+}
+
+model GoalProgressSnapshot {
+  id           String   @id @default(cuid())
+  goalId       Int
+  progress     Float    // 0-100, computed from KRs + projects
+  health       String   // "on-track" | "at-risk" | "off-track" | "no-update"
+  snapshotDate DateTime @db.Date
+  createdAt    DateTime @default(now())
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@unique([goalId, snapshotDate])
+  @@index([goalId])
 }
 
 model Habit {
@@ -1896,6 +1931,7 @@ model WheelOfLifeRecommendation {
   goalId         Int?
 
   assessment WheelOfLifeAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  goal       Goal?                 @relation(fields: [goalId], references: [id], onDelete: SetNull)
 
   @@index([assessmentId])
   @@index([lifeDomainId])

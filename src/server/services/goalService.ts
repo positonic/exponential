@@ -35,16 +35,36 @@ interface GoalInput {
   notes?: string;
   dueDate?: Date;
   period?: string; // OKR period e.g., "Q1-2026", "Annual-2026"
+  status?: string; // "planned" | "active" | "completed" | "archived"
   lifeDomainId?: number;
   projectId?: string;
   outcomeIds?: string[];
   driUserId?: string;
   workspaceId?: string;
+  parentGoalId?: number | null;
 }
 
 export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInput }) {
   if (!ctx.session?.user?.id) {
     throw new Error("User not authenticated");
+  }
+
+  // Enforce max nesting depth of 5 levels for sub-goals
+  if (input.parentGoalId) {
+    let depth = 1;
+    let currentParentId: number | null = input.parentGoalId;
+    while (currentParentId) {
+      const parentGoal: { parentGoalId: number | null } | null = await ctx.db.goal.findUnique({
+        where: { id: currentParentId },
+        select: { parentGoalId: true },
+      });
+      if (!parentGoal) break;
+      currentParentId = parentGoal.parentGoalId;
+      depth++;
+      if (depth > 5) {
+        throw new Error("Maximum nesting depth of 5 levels exceeded");
+      }
+    }
   }
 
   return await ctx.db.goal.create({
@@ -55,10 +75,12 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
       notes: input.notes,
       dueDate: input.dueDate,
       period: input.period ?? null,
+      status: input.status ?? "active",
       lifeDomainId: input.lifeDomainId ?? null,
       userId: ctx.session.user.id,
       driUserId: input.driUserId ?? ctx.session.user.id,
       workspaceId: input.workspaceId ?? null,
+      parentGoalId: input.parentGoalId ?? null,
       projects: input.projectId ? {
         connect: [{ id: input.projectId }]
       } : undefined,
@@ -76,6 +98,7 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
 
 interface UpdateGoalInput extends GoalInput {
   id: number;
+  displayOrder?: number;
 }
 
 export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGoalInput }) {
@@ -95,6 +118,35 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     throw new Error("Goal not found or unauthorized");
   }
 
+  // Enforce max nesting depth of 5 levels when changing parent
+  if (input.parentGoalId !== undefined && input.parentGoalId !== existingGoal.parentGoalId) {
+    // Prevent setting self as parent
+    if (input.parentGoalId === input.id) {
+      throw new Error("A goal cannot be its own parent");
+    }
+
+    if (input.parentGoalId) {
+      // Check that the new parent isn't a descendant (would create a cycle)
+      let depth = 1;
+      let currentParentId: number | null = input.parentGoalId;
+      while (currentParentId) {
+        const parentGoal: { parentGoalId: number | null } | null = await ctx.db.goal.findUnique({
+          where: { id: currentParentId },
+          select: { parentGoalId: true },
+        });
+        if (!parentGoal) break;
+        if (parentGoal.parentGoalId === input.id) {
+          throw new Error("Cannot set a descendant goal as parent (would create a cycle)");
+        }
+        currentParentId = parentGoal.parentGoalId;
+        depth++;
+        if (depth > 5) {
+          throw new Error("Maximum nesting depth of 5 levels exceeded");
+        }
+      }
+    }
+  }
+
   return await ctx.db.goal.update({
     where: {
       id: input.id,
@@ -106,9 +158,12 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
       notes: input.notes,
       dueDate: input.dueDate,
       period: input.period ?? null,
+      status: input.status ?? existingGoal.status,
       lifeDomainId: input.lifeDomainId ?? null,
       driUserId: input.driUserId ?? existingGoal.driUserId ?? ctx.session.user.id,
       workspaceId: input.workspaceId ?? null,
+      parentGoalId: input.parentGoalId !== undefined ? (input.parentGoalId ?? null) : existingGoal.parentGoalId,
+      displayOrder: input.displayOrder ?? existingGoal.displayOrder,
       projects: input.projectId ? {
         set: [], // Clear existing connections
         connect: [{ id: input.projectId }]
@@ -148,6 +203,173 @@ export async function getProjectGoals({ ctx, projectId }: { ctx: Context, projec
       outcomes: true,
     },
   });
+}
+
+/**
+ * Returns a tree of goals for a workspace, with nested childGoals.
+ * Root-level goals (no parent) are returned, each with their children recursively included.
+ */
+export async function getGoalTree({ ctx, workspaceId, status }: { ctx: Context, workspaceId?: string, status?: string }) {
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+
+  const goals = await ctx.db.goal.findMany({
+    where: {
+      ...(workspaceId ? { workspaceId } : { userId }),
+      ...(status ? { status } : {}),
+    },
+    include: {
+      lifeDomain: true,
+      projects: true,
+      outcomes: true,
+      keyResults: { select: { id: true, status: true, currentValue: true, targetValue: true } },
+      childGoals: {
+        include: {
+          lifeDomain: true,
+          projects: true,
+          outcomes: true,
+          keyResults: { select: { id: true, status: true, currentValue: true, targetValue: true } },
+          childGoals: {
+            include: {
+              lifeDomain: true,
+              projects: true,
+              outcomes: true,
+              keyResults: { select: { id: true, status: true, currentValue: true, targetValue: true } },
+              childGoals: {
+                include: {
+                  lifeDomain: true,
+                  projects: true,
+                  outcomes: true,
+                  childGoals: {
+                    include: {
+                      lifeDomain: true,
+                      projects: true,
+                      outcomes: true,
+                      childGoals: true,
+                    },
+                    orderBy: { displayOrder: "asc" },
+                  },
+                },
+                orderBy: { displayOrder: "asc" },
+              },
+            },
+            orderBy: { displayOrder: "asc" },
+          },
+        },
+        orderBy: { displayOrder: "asc" },
+      },
+    },
+    orderBy: { displayOrder: "asc" },
+  });
+
+  // Return only root-level goals (no parent)
+  return goals.filter(g => g.parentGoalId === null);
+}
+
+/**
+ * Computes and updates the health status for a goal based on:
+ * 1. Key Result statuses (weighted by progress)
+ * 2. Linked project progress
+ * 3. Child goal health (recursive rollup)
+ */
+export async function computeGoalHealth({ ctx, goalId }: { ctx: Context, goalId: number }) {
+  const goal = await ctx.db.goal.findUnique({
+    where: { id: goalId },
+    include: {
+      keyResults: {
+        select: {
+          currentValue: true,
+          targetValue: true,
+          status: true,
+          updatedAt: true,
+        },
+      },
+      projects: {
+        select: {
+          progress: true,
+          createdAt: true,
+        },
+      },
+      childGoals: {
+        select: {
+          health: true,
+          healthUpdatedAt: true,
+        },
+      },
+    },
+  });
+
+  if (!goal) return null;
+
+  const healthScores: number[] = [];
+  let latestUpdate: Date | null = null;
+
+  // 1. Key Results: map progress percentage to health score
+  for (const kr of goal.keyResults) {
+    const progress = kr.targetValue > 0 ? (kr.currentValue / kr.targetValue) * 100 : 0;
+    healthScores.push(progress);
+    if (kr.updatedAt && (!latestUpdate || kr.updatedAt > latestUpdate)) {
+      latestUpdate = kr.updatedAt;
+    }
+  }
+
+  // 2. Projects: use progress field (0-1 float)
+  for (const project of goal.projects) {
+    if (project.progress !== null && project.progress !== undefined) {
+      healthScores.push(Number(project.progress) * 100);
+    }
+    if (project.createdAt && (!latestUpdate || project.createdAt > latestUpdate)) {
+      latestUpdate = project.createdAt;
+    }
+  }
+
+  // 3. Child goals: map health string to score
+  const healthToScore: Record<string, number> = {
+    "on-track": 80,
+    "at-risk": 50,
+    "off-track": 20,
+    "no-update": 0,
+  };
+  for (const child of goal.childGoals) {
+    if (child.health) {
+      healthScores.push(healthToScore[child.health] ?? 0);
+    }
+    if (child.healthUpdatedAt && (!latestUpdate || child.healthUpdatedAt > latestUpdate)) {
+      latestUpdate = child.healthUpdatedAt;
+    }
+  }
+
+  // Determine health status
+  let health: string;
+  if (healthScores.length === 0) {
+    health = "no-update";
+  } else {
+    // Check staleness: if no updates in 14 days, mark as no-update
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+    if (latestUpdate && latestUpdate < fourteenDaysAgo) {
+      health = "no-update";
+    } else {
+      const avgScore = healthScores.reduce((a, b) => a + b, 0) / healthScores.length;
+      if (avgScore >= 70) health = "on-track";
+      else if (avgScore >= 40) health = "at-risk";
+      else health = "off-track";
+    }
+  }
+
+  // Update the goal's cached health
+  await ctx.db.goal.update({
+    where: { id: goalId },
+    data: { health, healthUpdatedAt: new Date() },
+  });
+
+  // If this goal has a parent, recompute parent health too
+  if (goal.parentGoalId) {
+    // Fire-and-forget to avoid deep recursion blocking
+    void computeGoalHealth({ ctx, goalId: goal.parentGoalId });
+  }
+
+  return health;
 }
 
 export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: number } }) {
