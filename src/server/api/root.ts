@@ -61,6 +61,9 @@ import { bountyRouter } from "./routers/bounty";
 import { bugReportRouter } from "./routers/bugReport";
 import { actionCommentRouter } from "./routers/actionComment";
 import { blogCommentRouter } from "./routers/blogComment";
+import { goalCommentRouter } from "./routers/goalComment";
+import { goalUpdateRouter } from "./routers/goalUpdate";
+import { goalActivityRouter } from "./routers/goalActivity";
 import { crmApiRouter } from "./routers/crmApi";
 // Plugin system
 import { pluginConfigRouter } from "./routers/pluginConfig";
@@ -133,6 +136,9 @@ export const appRouter = createTRPCRouter({
   bugReport: bugReportRouter,
   actionComment: actionCommentRouter,
   blogComment: blogCommentRouter,
+  goalComment: goalCommentRouter,
+  goalUpdate: goalUpdateRouter,
+  goalActivity: goalActivityRouter,
   crmApi: crmApiRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,

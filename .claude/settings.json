@@ -47,7 +47,8 @@
       "WebFetch(domain:linear.app)",
       "Bash(sed -n '/^model OkrCheckin {/,/^}/p' /Users/james/code/exponential/prisma/schema.prisma)",
       "Bash(sed -n '/^model OkrCheckinUpdate {/,/^}/p' /Users/james/code/exponential/prisma/schema.prisma)",
-      "Bash(sed -n '/^model OkrCheckinComment {/,/^}/p' /Users/james/code/exponential/prisma/schema.prisma)"
+      "Bash(sed -n '/^model OkrCheckinComment {/,/^}/p' /Users/james/code/exponential/prisma/schema.prisma)",
+      "Bash(git reset:*)"
     ],
     "additionalDirectories": [
       "/tmp",

@@ -136,6 +136,7 @@ model User {
   okrCheckinComments          OkrCheckinComment[]        @relation("OkrCheckinCommentAuthor")
   // OKR Discussion relations
   goalComments                GoalComment[]              @relation("GoalCommentAuthor")
+  goalUpdates                 GoalUpdate[]               @relation("GoalUpdateAuthor")
   keyResultComments           KeyResultComment[]         @relation("KeyResultCommentAuthor")
   // Action Discussion relations
   actionComments              ActionComment[]            @relation("ActionCommentAuthor")
@@ -714,6 +715,7 @@ model Goal {
   habits       Habit[] // Habits linked to this goal
   keyResults      KeyResult[] // OKR key results for this goal (objective)
   comments        GoalComment[] // Discussion comments on this objective
+  updates         GoalUpdate[]  // Structured status updates with health
   recommendations WheelOfLifeRecommendation[]
   progressSnapshots GoalProgressSnapshot[]
 
@@ -2367,6 +2369,24 @@ model GoalComment {
 
   goal   Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
   author User @relation("GoalCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([goalId])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+// Goal Updates - structured status updates with health indicator
+model GoalUpdate {
+  id        String   @id @default(cuid())
+  goalId    Int
+  authorId  String
+  content   String   @db.Text
+  health    String   // "on-track" | "at-risk" | "off-track"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  goal   Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  author User @relation("GoalUpdateAuthor", fields: [authorId], references: [id])
 
   @@index([goalId])
   @@index([authorId])

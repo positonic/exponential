@@ -1,4 +1,32 @@
 import { type Context } from "~/server/auth/types";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+
+/**
+ * Verifies the current user has access to the given goal.
+ * Returns the goal if access is granted, throws otherwise.
+ */
+export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: number }) {
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+
+  const goal = await ctx.db.goal.findUnique({
+    where: { id: goalId },
+    select: { id: true, userId: true, driUserId: true, workspaceId: true },
+  });
+
+  if (!goal) throw new Error("Goal not found");
+
+  // Owner or DRI always has access
+  if (goal.userId === userId || goal.driUserId === userId) return goal;
+
+  // Workspace member has access
+  if (goal.workspaceId) {
+    const membership = await getWorkspaceMembership(ctx.db, userId, goal.workspaceId);
+    if (membership) return goal;
+  }
+
+  throw new Error("Access denied");
+}
 
 export async function getMyPublicGoals({ ctx }: { ctx: Context }) {
   const userId = ctx.session?.user?.id;
