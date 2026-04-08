@@ -747,12 +747,12 @@ export function ProjectContent({
         styles={{
           header: { display: 'none' },
           body: { padding: 0 },
-          content: { backgroundColor: 'var(--mantine-color-dark-7)' }
+          content: { backgroundColor: 'var(--color-bg-elevated)' }
         }}
       >
         <Stack gap="xl" p="lg" h="100vh" style={{ overflowY: 'auto' }}>
           {/* Custom Header with Close Button */}
-          <Group justify="space-between" align="center" pb="sm" style={{ borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
+          <Group justify="space-between" align="center" pb="sm" style={{ borderBottom: '1px solid var(--color-border-primary)' }}>
             <div>
               <Text size="lg" fw={600} c="bright">
                 {project.name}
@@ -775,8 +775,8 @@ export function ProjectContent({
           {project.team && (
             <Stack gap="xs">
               <Group gap="xs" align="center">
-                <IconTargetArrow size={16} color="var(--mantine-color-blue-4)" />
-                <Text size="sm" fw={600} c="blue.4">
+                <IconTargetArrow size={16} className="text-brand-primary" />
+                <Text size="sm" fw={600} className="text-brand-primary">
                   TEAM
                 </Text>
               </Group>
