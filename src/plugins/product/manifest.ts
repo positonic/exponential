@@ -19,7 +19,7 @@ export const productManifest: PluginManifest = {
         label: "Products",
         icon: "IconLayoutGrid",
         href: "/w/:workspaceSlug/products",
-        section: "workspace",
+        section: "sidebarTop",
         order: 3,
         workspaceScoped: true,
       },

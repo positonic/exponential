@@ -5,6 +5,8 @@ import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
 import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconMicrophone, IconGitBranch, IconUsers, IconTarget, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase, IconLayoutKanban, IconLayoutGrid } from "@tabler/icons-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
 import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
@@ -30,6 +32,7 @@ export function SidebarContent() {
   const { isSectionVisible, isItemVisible } = useNavigationPreferences();
   const { workspaceSlug, workspace } = useWorkspace();
   const { itemsBySection } = usePluginNavigation();
+  const pathname = usePathname();
 
   // Use workspace-aware paths when in a workspace context
   const projectsPath = workspaceSlug ? `/w/${workspaceSlug}/projects` : '/projects';
@@ -119,6 +122,27 @@ export function SidebarContent() {
           </Accordion.Item>
         )}
         
+        {itemsBySection.sidebarTop
+          ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
+          .map((item) => {
+            const IconComponent = getIcon(item.icon);
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.id}
+                href={item.href}
+                className={`flex items-center gap-3 rounded-lg px-4 py-2.5 transition-all duration-200 ${
+                  isActive ? "bg-surface-secondary" : "hover:bg-surface-hover"
+                }`}
+              >
+                <IconComponent size={16} className="text-text-muted" />
+                <span className="text-sm font-medium text-text-primary">
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
+
         {isSectionVisible("alignment") && workspace?.type === "personal" && (
           <Accordion.Item value="goals">
             <Accordion.Control>
