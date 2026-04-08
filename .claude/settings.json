@@ -39,11 +39,19 @@
       "Bash(printf 'a1995ede27b74cfe17e2bf6b12aa8e469d4370eecbd17f828202c5aba4a2fea8')",
       "WebFetch(domain:zulip.readthedocs.io)",
       "WebFetch(domain:zulip.com)",
-      "Bash(NODE_OPTIONS=\"--max-old-space-size=8192\" npx tsc --noEmit)"
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=8192\" npx tsc --noEmit)",
+      "Bash(git mv:*)",
+      "Read(//Users/james/.claude/**)",
+      "Read(//Users/james/.nvm/versions/node/v20.20.0/lib/node_modules/**)",
+      "Read(//Users/james/Library/Preferences/exponential-cli-nodejs/**)",
+      "WebFetch(domain:linear.app)"
     ],
     "additionalDirectories": [
       "/tmp",
-      "/Users/james/code/mastra/src/mastra/tools"
+      "/Users/james/code/mastra/src/mastra/tools",
+      "/Users/james/code/one-2b/.claude",
+      "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]",
+      "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]/initiatives"
     ]
   },
   "hooks": {
