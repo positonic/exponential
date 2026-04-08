@@ -162,10 +162,13 @@ async function fetchNotionDatabases(
           const dbData = await dbResponse.json();
 
           // Transform properties to a simpler format
+          // Skip dangerous keys to avoid prototype pollution errors in tRPC serialization
+          const BLOCKED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
           const properties: Record<string, any> = {};
           if (dbData.properties) {
             Object.entries(dbData.properties).forEach(
               ([key, prop]: [string, any]) => {
+                if (BLOCKED_KEYS.has(key)) return;
                 properties[key] = {
                   id: prop.id,
                   name: prop.name,

@@ -3,6 +3,7 @@ import {
   IconBolt,
   IconBrandSlack,
   IconBrandWhatsapp,
+  IconBrandNotion,
   IconFlame,
   IconPlug,
   IconBook,
@@ -145,6 +146,11 @@ export const docsNavigation: DocNavSection[] = [
         title: "Integrations",
         href: "/docs/features/integrations",
         icon: IconPlug,
+      },
+      {
+        title: "Notion Sync",
+        href: "/docs/features/notion-sync",
+        icon: IconBrandNotion,
       },
       {
         title: "Workspaces",

@@ -221,12 +221,15 @@ export class NotionIntegrationAdapter implements IIntegrationService {
   // Private Helper Methods
   // ============================================================================
 
+  private static readonly BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
   private convertProperties(
     notionProps: Record<string, { id: string; name: string; type: string }>
   ): Record<string, ExternalProperty> {
     const result: Record<string, ExternalProperty> = {};
 
     for (const [key, value] of Object.entries(notionProps)) {
+      if (NotionIntegrationAdapter.BLOCKED_KEYS.has(key)) continue;
       const prop: ExternalProperty = {
         id: value.id,
         name: value.name,

@@ -132,22 +132,29 @@ export function NotionSetupWizard({
   const { workspaceId } = useWorkspace();
   const utils = api.useUtils();
 
+  // Pre-populate from existing config in edit mode
+  const existingConfig = project.taskManagementConfig as Record<string, unknown> | null;
+
   // Wizard state
   const [activeStep, setActiveStep] = useState(editMode ? 1 : 0);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<
     string | null
-  >(null);
+  >((editMode ? (existingConfig?.integrationId as string) : null) ?? null);
   const [selectedDatabaseId, setSelectedDatabaseId] = useState<string | null>(
-    null,
+    (editMode ? (existingConfig?.databaseId as string) : null) ?? null,
   );
   const [syncDirection, setSyncDirection] = useState<
     "pull" | "push" | "bidirectional"
-  >("pull");
+  >((editMode ? (existingConfig?.syncDirection as "pull" | "push" | "bidirectional") : null) ?? "pull");
   const [syncFrequency, setSyncFrequency] = useState<
     "manual" | "hourly" | "daily"
-  >("manual");
-  const [statusProperty, setStatusProperty] = useState<string | null>(null);
-  const [statusMappings, setStatusMappings] = useState<Record<string, string>>({});
+  >((editMode ? (existingConfig?.syncFrequency as "manual" | "hourly" | "daily") : null) ?? "manual");
+  const [statusProperty, setStatusProperty] = useState<string | null>(
+    (editMode ? (existingConfig?.statusProperty as string) : null) ?? null,
+  );
+  const [statusMappings, setStatusMappings] = useState<Record<string, string>>(
+    (editMode ? ((existingConfig?.statusMappings as any)?.toLocal as Record<string, string>) : null) ?? {},
+  );
 
   // Queries
   const {

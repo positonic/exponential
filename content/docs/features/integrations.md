@@ -31,7 +31,7 @@ Integrations work in two directions:
 
 | Service | Status | Purpose |
 |---------|--------|---------|
-| Notion | Available | Bidirectional task sync with Notion databases |
+| [Notion](/docs/features/notion-sync) | Available | Bidirectional task sync with Notion databases |
 | Monday.com | Available | Push actions to Monday.com boards |
 
 ### Coming Soon
