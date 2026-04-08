@@ -26,7 +26,7 @@ export function GoalDescriptionEditor({
   const utils = api.useUtils();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const updateGoal = api.goal.update.useMutation({
+  const updateGoal = api.goal.updateGoal.useMutation({
     onSuccess: () => {
       void utils.goal.getById.invalidate({ id: goalId });
     },
@@ -67,7 +67,7 @@ export function GoalDescriptionEditor({
         description: isEmpty ? "" : sanitized,
       });
     },
-    [goalId, updateGoal],
+    [goalId, goalTitle, updateGoal],
   );
 
   const debouncedSave = useCallback(
