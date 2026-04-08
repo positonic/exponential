@@ -207,3 +207,118 @@ export async function addTeamMember(
     data: { teamId, userId, role },
   });
 }
+
+// ── Product Management Plugin Factories ─────────────────────────────
+
+interface ProductAttrs {
+  name: string;
+  slug: string;
+  workspaceId: string;
+  createdById: string;
+}
+
+export const productFactory = Factory.define<ProductAttrs>(({ sequence }) => ({
+  name: `Test Product ${sequence}`,
+  slug: `test-product-${uid()}-${sequence}`,
+  workspaceId: "",
+  createdById: "",
+}));
+
+export async function createProduct(
+  db: PrismaClient,
+  overrides: Partial<ProductAttrs> & {
+    workspaceId: string;
+    createdById: string;
+  },
+) {
+  const attrs = productFactory.build(overrides);
+  return db.product.create({ data: attrs });
+}
+
+interface FeatureAttrs {
+  name: string;
+  productId: string;
+  createdById: string;
+  description?: string;
+}
+
+export const featureFactory = Factory.define<FeatureAttrs>(({ sequence }) => ({
+  name: `Test Feature ${sequence}`,
+  productId: "",
+  createdById: "",
+}));
+
+export async function createFeature(
+  db: PrismaClient,
+  overrides: Partial<FeatureAttrs> & {
+    productId: string;
+    createdById: string;
+  },
+) {
+  const attrs = featureFactory.build(overrides);
+  return db.feature.create({ data: attrs });
+}
+
+interface TicketAttrs {
+  title: string;
+  productId: string;
+  createdById: string;
+  type?:
+    | "BUG"
+    | "FEATURE"
+    | "CHORE"
+    | "IMPROVEMENT"
+    | "SPIKE"
+    | "RESEARCH";
+}
+
+export const ticketFactory = Factory.define<TicketAttrs>(({ sequence }) => ({
+  title: `Test Ticket ${sequence}`,
+  productId: "",
+  createdById: "",
+}));
+
+export async function createTicket(
+  db: PrismaClient,
+  overrides: Partial<TicketAttrs> & {
+    productId: string;
+    createdById: string;
+  },
+) {
+  const attrs = ticketFactory.build(overrides);
+  return db.ticket.create({ data: attrs });
+}
+
+interface ResearchAttrs {
+  title: string;
+  productId: string;
+  createdById: string;
+}
+
+export async function createResearch(
+  db: PrismaClient,
+  overrides: ResearchAttrs,
+) {
+  return db.research.create({ data: overrides });
+}
+
+export async function createCycle(
+  db: PrismaClient,
+  overrides: {
+    workspaceId: string;
+    createdById: string;
+    name?: string;
+    slug?: string;
+  },
+) {
+  return db.list.create({
+    data: {
+      workspaceId: overrides.workspaceId,
+      createdById: overrides.createdById,
+      name: overrides.name ?? `Test Cycle ${uid()}`,
+      slug: overrides.slug ?? `test-cycle-${uid()}`,
+      listType: "SPRINT",
+      status: "PLANNED",
+    },
+  });
+}

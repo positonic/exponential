@@ -130,6 +130,7 @@ export function GlobalAddTaskButton() {
         isReminderOnly: false,
         createdAt: new Date(),
         epicId: newAction.epicId ?? null,
+        ticketId: null,
         effortEstimate: newAction.effortEstimate ?? null,
         // Bounty fields (defaults for non-bounty actions)
         isBounty: false,
