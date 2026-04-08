@@ -2,9 +2,9 @@
 
 import { Badge, Stack, Text } from "@mantine/core";
 import { useSession } from "next-auth/react";
-import { api } from "~/trpc/react";
-import { GoalActivityComposer } from "./GoalActivityComposer";
-import { GoalActivityFeed } from "./GoalActivityFeed";
+import { useGoalActivity } from "~/hooks/useGoalActivity";
+import { ActivityComposer } from "~/app/_components/shared/ActivityComposer";
+import { ActivityFeed } from "~/app/_components/shared/ActivityFeed";
 
 interface GoalActivityTabProps {
   goalId: number;
@@ -13,46 +13,46 @@ interface GoalActivityTabProps {
 
 export function GoalActivityTab({ goalId }: GoalActivityTabProps) {
   const { data: session } = useSession();
-  const utils = api.useUtils();
-
-  const { data: feed, isLoading: feedLoading } =
-    api.goalActivity.getFeed.useQuery({ goalId });
-
-  const { data: count } = api.goalActivity.getCount.useQuery({ goalId });
-
-  const invalidateAll = () => {
-    void utils.goalActivity.getFeed.invalidate({ goalId });
-    void utils.goalActivity.getCount.invalidate({ goalId });
-    void utils.goal.getById.invalidate({ id: goalId });
-  };
+  const activity = useGoalActivity(goalId);
 
   return (
     <Stack gap="lg">
-      {count != null && count > 0 && (
+      {activity.count > 0 && (
         <div>
           <Badge variant="light" color="gray" size="lg" radius="sm">
             <Text span size="xs">
               Open updates and activity{" "}
               <Text span fw={700}>
-                {count}
+                {activity.count}
               </Text>
             </Text>
           </Badge>
         </div>
       )}
 
-      <GoalActivityComposer goalId={goalId} onSuccess={invalidateAll} />
+      <ActivityComposer
+        onAddComment={activity.addComment}
+        onAddUpdate={activity.addUpdate}
+        statusOptions={activity.statusOptions}
+        defaultStatus={activity.defaultStatus}
+        updatePlaceholder="Write an initiative update..."
+      />
 
-      {feedLoading ? (
+      {activity.isLoading ? (
         <Text size="sm" c="dimmed">
           Loading activity...
         </Text>
       ) : (
-        <GoalActivityFeed
-          goalId={goalId}
+        <ActivityFeed
+          items={activity.items}
           currentUserId={session?.user?.id}
-          items={feed ?? []}
-          onMutationSuccess={invalidateAll}
+          onDeleteComment={activity.deleteComment}
+          onEditComment={activity.editComment}
+          onDeleteUpdate={activity.deleteUpdate}
+          onAddReply={activity.addReply}
+          onDeleteReply={activity.deleteReply}
+          onEditReply={activity.editReply}
+          statusOptions={activity.statusOptions}
         />
       )}
     </Stack>

@@ -23,16 +23,15 @@ import {
   getColorSeed,
   getTextColor,
 } from "~/utils/avatarColors";
-import { type HealthStatus, healthConfig } from "./healthConfig";
-import { api } from "~/trpc/react";
-import type {
-  GoalActivityItem,
-  GoalActivityComment,
-  GoalActivityUpdate,
-} from "~/server/api/routers/goalActivity";
 import { CommentThread } from "~/app/_components/shared/CommentThread";
 import { CommentInput } from "~/app/_components/shared/CommentInput";
 import type { Comment } from "~/app/_components/shared/CommentThread";
+import type {
+  ActivityItem,
+  ActivityUpdate,
+  ActivityComment,
+  StatusOption,
+} from "./activityTypes";
 
 const QUICK_EMOJIS = ["👍", "👎", "❤️", "🎉", "🚀", "👀", "💯", "🙌"];
 
@@ -43,42 +42,42 @@ function formatShortDate(date: Date): string {
   return format(d, "MMM d");
 }
 
-interface GoalActivityFeedProps {
-  goalId: number;
+interface ActivityFeedProps {
+  items: ActivityItem[];
   currentUserId?: string;
-  items: GoalActivityItem[];
-  onMutationSuccess: () => void;
+
+  onDeleteComment: (id: string) => void;
+  onEditComment: (id: string, content: string) => Promise<void>;
+  onDeleteImage?: (commentId: string, imageUrl: string) => void;
+
+  onDeleteUpdate?: (id: string) => void;
+  onAddReply?: (updateId: string, content: string) => Promise<void>;
+  onDeleteReply?: (id: string) => void;
+  onEditReply?: (id: string, content: string) => Promise<void>;
+
+  statusOptions?: StatusOption[];
+  mentionNames?: string[];
+  emptyMessage?: string;
 }
 
-export function GoalActivityFeed({
-  goalId,
-  currentUserId,
+export function ActivityFeed({
   items,
-  onMutationSuccess,
-}: GoalActivityFeedProps) {
-  const deleteCommentMutation = api.goalComment.deleteComment.useMutation({
-    onSuccess: onMutationSuccess,
-  });
-
-  const updateCommentMutation = api.goalComment.updateComment.useMutation({
-    onSuccess: onMutationSuccess,
-  });
-
-  const handleDeleteComment = (commentId: string) => {
-    deleteCommentMutation.mutate({ commentId });
-  };
-
-  const handleEditComment = async (commentId: string, newContent: string) => {
-    await updateCommentMutation.mutateAsync({
-      commentId,
-      content: newContent,
-    });
-  };
-
+  currentUserId,
+  onDeleteComment,
+  onEditComment,
+  onDeleteImage,
+  onDeleteUpdate,
+  onAddReply,
+  onDeleteReply,
+  onEditReply,
+  statusOptions,
+  mentionNames,
+  emptyMessage = "No activity yet. Post an update or leave a comment to get started.",
+}: ActivityFeedProps) {
   if (items.length === 0) {
     return (
       <Text size="sm" className="text-text-muted py-8 text-center">
-        No activity yet. Post an update or leave a comment to get started.
+        {emptyMessage}
       </Text>
     );
   }
@@ -90,9 +89,12 @@ export function GoalActivityFeed({
           <UpdateThread
             key={`update-${item.id}`}
             item={item}
-            goalId={goalId}
             currentUserId={currentUserId}
-            onMutationSuccess={onMutationSuccess}
+            onDeleteUpdate={onDeleteUpdate}
+            onAddReply={onAddReply}
+            onDeleteReply={onDeleteReply}
+            onEditReply={onEditReply}
+            statusOptions={statusOptions}
           />
         ) : (
           <Card
@@ -106,9 +108,11 @@ export function GoalActivityFeed({
               comments={[mapComment(item)]}
               variant="inline"
               emptyMessage={null}
-              onDeleteComment={handleDeleteComment}
-              onEditComment={handleEditComment}
+              onDeleteComment={onDeleteComment}
+              onEditComment={onEditComment}
+              onDeleteImage={onDeleteImage}
               currentUserId={currentUserId}
+              mentionNames={mentionNames}
             />
           </Card>
         ),
@@ -119,7 +123,7 @@ export function GoalActivityFeed({
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function mapComment(item: GoalActivityComment): Comment {
+function mapComment(item: ActivityComment): Comment {
   return {
     id: item.id,
     content: item.content,
@@ -129,9 +133,13 @@ function mapComment(item: GoalActivityComment): Comment {
   };
 }
 
-// ── Shared Components ──────────────────────────────────────────
+// ── Shared Sub-Components ─────────────────────────────────────
 
-function AuthorAvatar({ author }: { author: { id: string; name: string | null; image: string | null } }) {
+function AuthorAvatar({
+  author,
+}: {
+  author: { id: string; name: string | null; image: string | null };
+}) {
   const colorSeed = getColorSeed(author.name, null);
   const avatarBgColor = !author.image ? getAvatarColor(colorSeed) : undefined;
   const avatarTextColor = avatarBgColor ? getTextColor(avatarBgColor) : "white";
@@ -156,7 +164,11 @@ function AuthorAvatar({ author }: { author: { id: string; name: string | null; i
   );
 }
 
-function EmojiPopover({ onSelect }: { onSelect: (emoji: string) => void }) {
+function EmojiPopover({
+  onSelect,
+}: {
+  onSelect: (emoji: string) => void;
+}) {
   const [opened, setOpened] = useState(false);
   return (
     <Popover opened={opened} onChange={setOpened} shadow="md" radius="md">
@@ -192,65 +204,48 @@ function EmojiPopover({ onSelect }: { onSelect: (emoji: string) => void }) {
   );
 }
 
-// ── Update Thread (single card with replies) ───────────────────
+// ── Update Thread ─────────────────────────────────────────────
 
 function UpdateThread({
   item,
-  goalId,
   currentUserId,
-  onMutationSuccess,
+  onDeleteUpdate,
+  onAddReply,
+  onDeleteReply,
+  onEditReply,
+  statusOptions,
 }: {
-  item: GoalActivityUpdate;
-  goalId: number;
+  item: ActivityUpdate;
   currentUserId?: string;
-  onMutationSuccess: () => void;
+  onDeleteUpdate?: (id: string) => void;
+  onAddReply?: (updateId: string, content: string) => Promise<void>;
+  onDeleteReply?: (id: string) => void;
+  onEditReply?: (id: string, content: string) => Promise<void>;
+  statusOptions?: StatusOption[];
 }) {
   const [showReply, setShowReply] = useState(false);
-  const healthKey = (item.health as HealthStatus) ?? "no-update";
-  const health = healthConfig[healthKey] ?? healthConfig["no-update"];
-  const HealthIcon = health.icon;
+  const [isSubmittingReply, setIsSubmittingReply] = useState(false);
   const isOwn = currentUserId != null && item.author.id === currentUserId;
   const hasReplies = item.replies.length > 0;
 
-  const deleteUpdateMutation = api.goalUpdate.deleteUpdate.useMutation({
-    onSuccess: onMutationSuccess,
-  });
-
-  const deleteReplyMutation = api.goalComment.deleteComment.useMutation({
-    onSuccess: onMutationSuccess,
-  });
-
-  const updateReplyMutation = api.goalComment.updateComment.useMutation({
-    onSuccess: onMutationSuccess,
-  });
-
-  const addReplyMutation = api.goalComment.addComment.useMutation({
-    onSuccess: onMutationSuccess,
-  });
-
-  const handleDeleteReply = (commentId: string) => {
-    deleteReplyMutation.mutate({ commentId });
-  };
-
-  const handleEditReply = async (commentId: string, newContent: string) => {
-    await updateReplyMutation.mutateAsync({
-      commentId,
-      content: newContent,
-    });
-  };
+  const statusConfig = statusOptions?.find((s) => s.key === item.status);
+  const StatusIcon = statusConfig?.icon;
 
   const handleAddReply = async (content: string) => {
-    await addReplyMutation.mutateAsync({
-      goalId,
-      content,
-      parentUpdateId: item.id,
-    });
+    if (!onAddReply) return;
+    setIsSubmittingReply(true);
+    try {
+      await onAddReply(item.id, content);
+    } finally {
+      setIsSubmittingReply(false);
+    }
   };
 
   const repliesAsComments: Comment[] = item.replies.map((reply) => ({
     id: reply.id,
     content: reply.content,
     createdAt: reply.createdAt,
+    updatedAt: reply.updatedAt,
     author: reply.author,
   }));
 
@@ -260,12 +255,21 @@ function UpdateThread({
       <div className="p-4">
         <Group justify="space-between" mb="sm">
           <Group gap="sm">
-            <Group gap={4}>
-              <HealthIcon size={16} style={{ color: health.color }} />
-              <Text size="sm" fw={500} style={{ color: health.color }}>
-                {health.label}
-              </Text>
-            </Group>
+            {statusConfig && StatusIcon && (
+              <Group gap={4}>
+                <StatusIcon
+                  size={16}
+                  style={{ color: statusConfig.color }}
+                />
+                <Text
+                  size="sm"
+                  fw={500}
+                  style={{ color: statusConfig.color }}
+                >
+                  {statusConfig.label}
+                </Text>
+              </Group>
+            )}
             <AuthorAvatar author={item.author} />
             <Text size="sm" className="text-text-secondary">
               {item.author.name ?? "Anonymous"}
@@ -275,7 +279,7 @@ function UpdateThread({
             </Text>
           </Group>
 
-          {isOwn && (
+          {isOwn && onDeleteUpdate && (
             <Menu shadow="sm" position="bottom-end">
               <Menu.Target>
                 <ActionIcon variant="subtle" color="gray" size="xs">
@@ -286,7 +290,7 @@ function UpdateThread({
                 <Menu.Item
                   color="red"
                   leftSection={<IconTrash size={14} />}
-                  onClick={() => deleteUpdateMutation.mutate({ updateId: item.id })}
+                  onClick={() => onDeleteUpdate(item.id)}
                 >
                   Delete update
                 </Menu.Item>
@@ -301,15 +305,17 @@ function UpdateThread({
 
         {/* Action icons */}
         <Group gap="sm" mt="xs">
-          <ActionIcon
-            variant="subtle"
-            size="sm"
-            color="gray"
-            onClick={() => setShowReply((v) => !v)}
-            aria-label="Reply"
-          >
-            <IconMessage size={16} />
-          </ActionIcon>
+          {onAddReply && (
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              color="gray"
+              onClick={() => setShowReply((v) => !v)}
+              aria-label="Reply"
+            >
+              <IconMessage size={16} />
+            </ActionIcon>
+          )}
           <EmojiPopover
             onSelect={(emoji) => {
               console.log("Reaction:", emoji, "on update", item.id);
@@ -325,19 +331,19 @@ function UpdateThread({
             comments={repliesAsComments}
             variant="inline"
             emptyMessage={null}
-            onDeleteComment={handleDeleteReply}
-            onEditComment={handleEditReply}
+            onDeleteComment={onDeleteReply}
+            onEditComment={onEditReply}
             currentUserId={currentUserId}
           />
         </div>
       )}
 
       {/* Reply input */}
-      {(showReply || hasReplies) && (
+      {onAddReply && (showReply || hasReplies) && (
         <div className="border-t border-border-primary px-4 py-3">
           <CommentInput
             onSubmit={handleAddReply}
-            isSubmitting={addReplyMutation.isPending}
+            isSubmitting={isSubmittingReply}
             placeholder="Leave a reply..."
           />
         </div>

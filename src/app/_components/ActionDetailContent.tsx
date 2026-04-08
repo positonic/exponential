@@ -40,8 +40,9 @@ import { notifications } from "@mantine/notifications";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 import { PRIORITY_OPTIONS } from "~/types/action";
-import { CommentThread } from "~/app/_components/shared/CommentThread";
-import { CommentInput } from "~/app/_components/shared/CommentInput";
+import { ActivityComposer } from "~/app/_components/shared/ActivityComposer";
+import { ActivityFeed } from "~/app/_components/shared/ActivityFeed";
+import { useActionActivity } from "~/hooks/useActionActivity";
 import { AssignActionModal } from "./AssignActionModal";
 import { DeadlinePicker } from "./DeadlinePicker";
 import { UnifiedDatePicker } from "./UnifiedDatePicker";
@@ -88,12 +89,6 @@ export function ActionDetailContent({
     isLoading,
     error,
   } = api.action.getById.useQuery({ id: actionId });
-
-  // Fetch comments
-  const { data: comments = [] } = api.actionComment.getComments.useQuery(
-    { actionId },
-    { enabled: !!actionId },
-  );
 
   // Fetch projects for the dropdown
   const { data: projects } = api.project.getAll.useQuery(
@@ -164,31 +159,6 @@ export function ActionDetailContent({
     },
   });
 
-  const addCommentMutation = api.actionComment.addComment.useMutation({
-    onSuccess: () => {
-      void utils.actionComment.getComments.invalidate({ actionId });
-    },
-  });
-
-  const deleteCommentMutation = api.actionComment.deleteComment.useMutation({
-    onSuccess: () => {
-      void utils.actionComment.getComments.invalidate({ actionId });
-    },
-  });
-
-  const updateCommentMutation = api.actionComment.updateComment.useMutation({
-    onSuccess: () => {
-      void utils.actionComment.getComments.invalidate({ actionId });
-    },
-  });
-
-  const removeImageMutation = api.actionComment.removeImage.useMutation({
-    onSuccess: () => {
-      void utils.actionComment.getComments.invalidate({ actionId });
-      void utils.action.getById.invalidate({ id: actionId });
-    },
-  });
-
   const setTagsMutation = api.tag.setActionTags.useMutation({
     onSuccess: () => {
       void utils.action.getById.invalidate({ id: actionId });
@@ -243,22 +213,6 @@ export function ActionDetailContent({
     [actionId, setTagsMutation],
   );
 
-  const handleAddComment = async (content: string) => {
-    await addCommentMutation.mutateAsync({ actionId, content });
-  };
-
-  const handleDeleteComment = (commentId: string) => {
-    deleteCommentMutation.mutate({ commentId });
-  };
-
-  const handleEditComment = async (commentId: string, content: string) => {
-    await updateCommentMutation.mutateAsync({ commentId, content });
-  };
-
-  const handleDeleteImage = (commentId: string, imageUrl: string) => {
-    removeImageMutation.mutate({ commentId, imageUrl });
-  };
-
   // Build mention candidates from workspace members + linked team members + agents
   const mentionCandidates: MentionCandidate[] = useMemo(() => {
     const seenIds = new Set<string>();
@@ -307,6 +261,8 @@ export function ActionDetailContent({
     () => mentionCandidates.map((c) => c.name),
     [mentionCandidates],
   );
+
+  const activity = useActionActivity(actionId, { mentionCandidates, mentionNames });
 
   if (isLoading) {
     return (
@@ -536,25 +492,21 @@ export function ActionDetailContent({
             Activity
           </Text>
 
-          <CommentThread
-            comments={comments.map((c: { id: string; content: string; createdAt: Date | string; updatedAt?: Date | string; author: { id: string; name: string | null; image: string | null } }) => ({
-              ...c,
-              createdAt: new Date(c.createdAt),
-              updatedAt: c.updatedAt ? new Date(c.updatedAt) : undefined,
-            }))}
-            onDeleteComment={handleDeleteComment}
-            onEditComment={handleEditComment}
-            onDeleteImage={handleDeleteImage}
+          <ActivityFeed
+            items={activity.items}
             currentUserId={session?.user?.id}
-            mentionNames={mentionNames}
+            onDeleteComment={activity.deleteComment}
+            onEditComment={activity.editComment}
+            onDeleteImage={activity.deleteImage}
+            mentionNames={activity.mentionNames}
+            emptyMessage="No comments yet. Start the discussion!"
           />
 
-          <CommentInput
-            onSubmit={handleAddComment}
-            isSubmitting={addCommentMutation.isPending}
-            placeholder="Leave a comment... Use @ to mention"
-            mentionCandidates={mentionCandidates}
-            actionId={actionId}
+          <ActivityComposer
+            onAddComment={activity.addComment}
+            commentPlaceholder="Leave a comment... Use @ to mention"
+            mentionCandidates={activity.mentionCandidates}
+            entityId={activity.entityId}
           />
         </div>
       </div>
