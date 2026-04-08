@@ -35,6 +35,7 @@ import {
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import Link from "next/link";
+import { GoalDescriptionEditor } from "./GoalDescriptionEditor";
 
 type HealthStatus = "on-track" | "at-risk" | "off-track" | "no-update";
 
@@ -309,24 +310,18 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
               </Card>
 
               {/* Description */}
-              {goal.description && (
-                <div>
-                  <Group gap={6} mb="xs">
-                    <Text size="sm" fw={500} className="text-text-muted">
-                      Description
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      &#x25BC;
-                    </Text>
-                  </Group>
-                  <Text
-                    size="sm"
-                    className="text-text-primary whitespace-pre-wrap"
-                  >
-                    {goal.description}
+              <div>
+                <Group gap={6} mb="xs">
+                  <Text size="sm" fw={500} className="text-text-muted">
+                    Description
                   </Text>
-                </div>
-              )}
+                </Group>
+                <GoalDescriptionEditor
+                  goalId={goal.id}
+                  goalTitle={goal.title}
+                  initialContent={goal.description}
+                />
+              </div>
 
               {/* Projects section (in overview) */}
               {goal.projects.length > 0 && (
