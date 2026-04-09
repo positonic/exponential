@@ -152,7 +152,7 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
   const statusOrder = ["ACTIVE", "COMPLETED", "CANCELLED"];
 
   return (
-    <Container size="xl" className="py-6">
+    <Container size="xl" className="w-full py-6">
       <Stack gap="lg">
         {/* Header */}
         <div>

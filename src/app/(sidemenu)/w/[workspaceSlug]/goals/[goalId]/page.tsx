@@ -18,7 +18,7 @@ export default function GoalDetailPage() {
   }
 
   return (
-    <main className="flex h-full flex-col items-center justify-start text-text-primary">
+    <main className="flex h-full w-full flex-col items-center justify-start text-text-primary">
       <Suspense
         fallback={
           <Container size="xl" className="py-8">
