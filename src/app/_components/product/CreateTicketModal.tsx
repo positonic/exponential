@@ -6,7 +6,6 @@ import {
   ActionIcon,
   Badge,
   Button,
-  Group,
   Menu,
   Modal,
   NumberInput,
@@ -15,24 +14,27 @@ import {
   TextInput,
 } from "@mantine/core";
 import {
-  IconCircle,
+  IconCircleDot,
   IconDots,
-  IconGitBranch,
+  IconFlag3,
+  IconFlame,
   IconLink,
-  IconPaint,
   IconUser,
+  IconX,
 } from "@tabler/icons-react";
 import { RichTextEditor } from "@mantine/tiptap";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
-import Link from "@tiptap/extension-link";
+import TipTapLink from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import DOMPurify from "dompurify";
 import { api } from "~/trpc/react";
 import "@mantine/tiptap/styles.css";
 
-// -- constants ---------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const TYPE_OPTIONS = [
   { value: "BUG", label: "Bug" },
@@ -80,7 +82,32 @@ const ALLOWED_TAGS = [
   "ul", "ol", "li", "blockquote", "code", "pre", "hr",
 ];
 
-// -- component ---------------------------------------------------------------
+// Shared styles for the pill-shaped selects
+const pillStyles = {
+  root: { flex: "0 0 auto" },
+  wrapper: { flex: "0 0 auto" },
+  input: {
+    color: "var(--color-text-secondary)",
+    fontWeight: 500,
+    fontSize: "0.75rem",
+    height: 28,
+    minHeight: 28,
+    lineHeight: "28px",
+    paddingLeft: 6,
+    paddingRight: 18,
+    borderRadius: 14,
+    border: "1px solid var(--color-border-primary)",
+    backgroundColor: "transparent",
+    width: "auto",
+    minWidth: "unset",
+    cursor: "pointer",
+  },
+  section: { marginRight: 2, marginLeft: 4 },
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 interface CreateTicketModalProps {
   opened: boolean;
@@ -90,6 +117,7 @@ interface CreateTicketModalProps {
   basePath: string;
   features?: { id: string; name: string }[];
   cycles?: { id: string; name: string }[];
+  epics?: { id: string; name: string }[];
   members?: { id: string; name: string | null }[];
 }
 
@@ -101,6 +129,7 @@ export function CreateTicketModal({
   basePath,
   features,
   cycles,
+  epics,
   members,
 }: CreateTicketModalProps) {
   const router = useRouter();
@@ -112,24 +141,26 @@ export function CreateTicketModal({
   const [type, setType] = useState<TicketType>("FEATURE");
   const [priority, setPriority] = useState<string | null>(null);
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
-  const [featureId, setFeatureId] = useState<string | null>(null);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [points, setPoints] = useState<number | "">("");
 
-  // extra fields (hidden behind dots menu)
+  // extra fields (3-dot menu)
+  const [epicId, setEpicId] = useState<string | null>(null);
+  const [featureId, setFeatureId] = useState<string | null>(null);
   const [branchName, setBranchName] = useState("");
   const [prUrl, setPrUrl] = useState("");
   const [designUrl, setDesignUrl] = useState("");
-  const [showExtras, setShowExtras] = useState(false);
+  const [showLinks, setShowLinks] = useState(false);
+  const [showEpic, setShowEpic] = useState(false);
+  const [showFeature, setShowFeature] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
-  // rich text editor
   const editor = useEditor({
     extensions: [
       StarterKit,
       Underline,
-      Link.configure({ openOnClick: false }),
+      TipTapLink.configure({ openOnClick: false }),
       Placeholder.configure({ placeholder: "Add description..." }),
     ],
     content: "",
@@ -151,13 +182,16 @@ export function CreateTicketModal({
     setType("FEATURE");
     setPriority(null);
     setAssigneeId(null);
-    setFeatureId(null);
     setCycleId(null);
     setPoints("");
+    setEpicId(null);
+    setFeatureId(null);
     setBranchName("");
     setPrUrl("");
     setDesignUrl("");
-    setShowExtras(false);
+    setShowLinks(false);
+    setShowEpic(false);
+    setShowFeature(false);
     setError(null);
     editor?.commands.clearContent();
   };
@@ -177,6 +211,7 @@ export function CreateTicketModal({
       points: typeof points === "number" ? points : undefined,
       assigneeId: assigneeId ?? undefined,
       featureId: featureId ?? undefined,
+      epicId: epicId ?? undefined,
       cycleId: cycleId ?? undefined,
       branchName: branchName.trim() || undefined,
       prUrl: prUrl.trim() || undefined,
@@ -194,7 +229,7 @@ export function CreateTicketModal({
       opened={opened}
       onClose={handleClose}
       size="lg"
-      radius="md"
+      radius="lg"
       padding={0}
       withCloseButton={false}
       styles={{
@@ -203,6 +238,7 @@ export function CreateTicketModal({
           color: "var(--color-text-primary)",
           display: "flex",
           flexDirection: "column",
+          overflow: "hidden",
         },
         body: {
           padding: 0,
@@ -212,56 +248,48 @@ export function CreateTicketModal({
         },
       }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border-primary px-4 py-2.5">
-        <Group gap="xs">
-          <Badge
-            variant="light"
-            color="brand"
-            size="sm"
-            radius="sm"
-          >
+      {/* ---- Header ---- */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-border-primary">
+        <div className="flex items-center gap-2 text-sm">
+          <Badge variant="light" size="sm" radius="sm" className="uppercase">
             {productName}
           </Badge>
-          <Text size="sm" className="text-text-muted">
+          <Text span size="sm" className="text-text-muted">
             New ticket
           </Text>
-        </Group>
+        </div>
         <ActionIcon
           variant="subtle"
           size="sm"
           onClick={handleClose}
           className="text-text-muted hover:text-text-primary"
         >
-          x
+          <IconX size={16} />
         </ActionIcon>
       </div>
 
-      {/* Title input - borderless, large */}
-      <div className="px-4 pt-4">
+      {/* ---- Title ---- */}
+      <div className="px-5 pt-5">
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Ticket title"
-          className="w-full bg-transparent text-lg font-semibold text-text-primary placeholder-text-muted outline-none"
+          placeholder="Issue title"
+          className="w-full bg-transparent text-base font-medium text-text-primary placeholder-text-muted outline-none"
           autoFocus
         />
       </div>
 
-      {/* Rich text body */}
-      <div className="flex-1 px-4 py-2" style={{ minHeight: 200 }}>
+      {/* ---- Body (rich text) ---- */}
+      <div className="flex-1 px-5 py-1" style={{ minHeight: 180 }}>
         <RichTextEditor
           editor={editor}
           styles={{
-            root: {
-              border: "none",
-              backgroundColor: "transparent",
-            },
+            root: { border: "none", backgroundColor: "transparent" },
             content: {
               backgroundColor: "transparent",
               color: "var(--color-text-primary)",
-              minHeight: 160,
+              minHeight: 140,
               padding: 0,
               fontSize: "0.875rem",
             },
@@ -271,9 +299,9 @@ export function CreateTicketModal({
         </RichTextEditor>
       </div>
 
-      {/* Properties row */}
-      <div className="border-t border-border-primary px-4 py-3">
-        <Group gap="xs" wrap="wrap">
+      {/* ---- Property pills ---- */}
+      <div className="border-t border-border-primary px-5 py-3">
+        <div className="flex flex-wrap items-center gap-1.5">
           {/* Status */}
           <Select
             data={STATUS_OPTIONS}
@@ -282,15 +310,8 @@ export function CreateTicketModal({
             size="xs"
             variant="unstyled"
             comboboxProps={{ withinPortal: true }}
-            leftSection={<IconCircle size={14} />}
-            styles={{
-              input: {
-                color: "var(--color-text-secondary)",
-                fontWeight: 500,
-                fontSize: "0.8rem",
-                minWidth: 80,
-              },
-            }}
+            leftSection={<IconCircleDot size={13} />}
+            styles={pillStyles}
           />
 
           {/* Priority */}
@@ -303,66 +324,28 @@ export function CreateTicketModal({
             variant="unstyled"
             clearable
             comboboxProps={{ withinPortal: true }}
-            styles={{
-              input: {
-                color: "var(--color-text-secondary)",
-                fontWeight: 500,
-                fontSize: "0.8rem",
-                minWidth: 80,
-              },
-            }}
+            leftSection={<IconFlag3 size={13} />}
+            styles={pillStyles}
           />
 
           {/* Assignee */}
-          {members && members.length > 0 && (
-            <Select
-              data={members.map((m) => ({
+          <Select
+            data={
+              members?.map((m) => ({
                 value: m.id,
                 label: m.name ?? "Unknown",
-              }))}
-              value={assigneeId}
-              onChange={setAssigneeId}
-              placeholder="Assignee"
-              size="xs"
-              variant="unstyled"
-              clearable
-              comboboxProps={{ withinPortal: true }}
-              leftSection={<IconUser size={14} />}
-              styles={{
-                input: {
-                  color: "var(--color-text-secondary)",
-                  fontWeight: 500,
-                  fontSize: "0.8rem",
-                  minWidth: 90,
-                },
-              }}
-            />
-          )}
-
-          {/* Feature */}
-          {features && features.length > 0 && (
-            <Select
-              data={features.map((f) => ({
-                value: f.id,
-                label: f.name,
-              }))}
-              value={featureId}
-              onChange={setFeatureId}
-              placeholder="Feature"
-              size="xs"
-              variant="unstyled"
-              clearable
-              comboboxProps={{ withinPortal: true }}
-              styles={{
-                input: {
-                  color: "var(--color-text-secondary)",
-                  fontWeight: 500,
-                  fontSize: "0.8rem",
-                  minWidth: 80,
-                },
-              }}
-            />
-          )}
+              })) ?? []
+            }
+            value={assigneeId}
+            onChange={setAssigneeId}
+            placeholder="Assignee"
+            size="xs"
+            variant="unstyled"
+            clearable
+            comboboxProps={{ withinPortal: true }}
+            leftSection={<IconUser size={13} />}
+            styles={pillStyles}
+          />
 
           {/* Type */}
           <Select
@@ -372,105 +355,135 @@ export function CreateTicketModal({
             size="xs"
             variant="unstyled"
             comboboxProps={{ withinPortal: true }}
+            styles={pillStyles}
+          />
+
+          {/* Cycle */}
+          <Select
+            data={cycles?.map((c) => ({ value: c.id, label: c.name })) ?? []}
+            value={cycleId}
+            onChange={setCycleId}
+            placeholder="Cycle"
+            size="xs"
+            variant="unstyled"
+            clearable
+            comboboxProps={{ withinPortal: true }}
+            styles={pillStyles}
+          />
+
+          {/* Effort */}
+          <NumberInput
+            value={points}
+            onChange={(v) => setPoints(typeof v === "number" ? v : "")}
+            placeholder="Effort"
+            size="xs"
+            variant="unstyled"
+            min={0}
+            allowDecimal={false}
             styles={{
+              root: { flex: "0 0 auto" },
               input: {
-                color: "var(--color-text-secondary)",
-                fontWeight: 500,
-                fontSize: "0.8rem",
-                minWidth: 80,
+                ...pillStyles.input,
+                width: points === "" ? 60 : "auto",
               },
             }}
           />
 
-          {/* 3 dot menu for extras */}
+          {/* Conditionally shown extras */}
+          {showEpic && (
+            <Select
+              data={epics?.map((e) => ({ value: e.id, label: e.name })) ?? []}
+              value={epicId}
+              onChange={setEpicId}
+              placeholder="Epic"
+              size="xs"
+              variant="unstyled"
+              clearable
+              comboboxProps={{ withinPortal: true }}
+              styles={pillStyles}
+            />
+          )}
+
+          {showFeature && (
+            <Select
+              data={features?.map((f) => ({ value: f.id, label: f.name })) ?? []}
+              value={featureId}
+              onChange={setFeatureId}
+              placeholder="Feature"
+              size="xs"
+              variant="unstyled"
+              clearable
+              comboboxProps={{ withinPortal: true }}
+              styles={pillStyles}
+            />
+          )}
+
+          {/* 3-dot menu */}
           <Menu position="top-end" withinPortal>
             <Menu.Target>
               <ActionIcon
                 variant="subtle"
-                size="sm"
-                className="text-text-muted hover:text-text-primary"
+                size={28}
+                radius="xl"
+                className="text-text-muted hover:text-text-primary border border-border-primary"
               >
-                <IconDots size={16} />
+                <IconDots size={14} />
               </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item
-                leftSection={<IconGitBranch size={14} />}
-                onClick={() => setShowExtras(true)}
-              >
-                Branch / PR / Design URL
-              </Menu.Item>
-              {cycles && cycles.length > 0 && (
-                <Menu.Item onClick={() => setShowExtras(true)}>
-                  Cycle
+              {!showEpic && (
+                <Menu.Item onClick={() => setShowEpic(true)}>
+                  Epic
                 </Menu.Item>
               )}
-              <Menu.Item onClick={() => setShowExtras(true)}>
-                Story points
-              </Menu.Item>
+              {!showFeature && (
+                <Menu.Item onClick={() => setShowFeature(true)}>
+                  Feature
+                </Menu.Item>
+              )}
+              <Menu.Item disabled>Goal</Menu.Item>
+              {!showLinks && (
+                <Menu.Item
+                  leftSection={<IconLink size={14} />}
+                  onClick={() => setShowLinks(true)}
+                >
+                  Links
+                </Menu.Item>
+              )}
             </Menu.Dropdown>
           </Menu>
-        </Group>
+        </div>
 
-        {/* Extra fields (expanded) */}
-        {showExtras && (
-          <div className="mt-3 space-y-2">
-            <Group grow gap="xs">
-              <TextInput
-                size="xs"
-                placeholder="Branch name"
-                value={branchName}
-                onChange={(e) => setBranchName(e.currentTarget.value)}
-                leftSection={<IconGitBranch size={14} />}
-              />
-              <TextInput
-                size="xs"
-                placeholder="PR URL"
-                value={prUrl}
-                onChange={(e) => setPrUrl(e.currentTarget.value)}
-                leftSection={<IconLink size={14} />}
-              />
-              <TextInput
-                size="xs"
-                placeholder="Design URL"
-                value={designUrl}
-                onChange={(e) => setDesignUrl(e.currentTarget.value)}
-                leftSection={<IconPaint size={14} />}
-              />
-            </Group>
-            <Group gap="xs">
-              {cycles && cycles.length > 0 && (
-                <Select
-                  size="xs"
-                  placeholder="Cycle"
-                  clearable
-                  data={cycles.map((c) => ({
-                    value: c.id,
-                    label: c.name,
-                  }))}
-                  value={cycleId}
-                  onChange={setCycleId}
-                  comboboxProps={{ withinPortal: true }}
-                />
-              )}
-              <NumberInput
-                size="xs"
-                placeholder="Points"
-                value={points}
-                onChange={(v) =>
-                  setPoints(typeof v === "number" ? v : "")
-                }
-                min={0}
-                allowDecimal={false}
-                w={80}
-              />
-            </Group>
+        {/* Link fields (expanded from menu) */}
+        {showLinks && (
+          <div className="mt-3 flex gap-2">
+            <TextInput
+              size="xs"
+              placeholder="Branch"
+              value={branchName}
+              onChange={(e) => setBranchName(e.currentTarget.value)}
+              className="flex-1"
+            />
+            <TextInput
+              size="xs"
+              placeholder="PR URL"
+              value={prUrl}
+              onChange={(e) => setPrUrl(e.currentTarget.value)}
+              className="flex-1"
+            />
+            <TextInput
+              size="xs"
+              placeholder="Design URL"
+              value={designUrl}
+              onChange={(e) => setDesignUrl(e.currentTarget.value)}
+              className="flex-1"
+            />
           </div>
         )}
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t border-border-primary px-4 py-3">
+      {/* ---- Footer ---- */}
+      <div className="flex items-center justify-between border-t border-border-primary px-5 py-3">
         <div>
           {error && (
             <Text size="xs" c="red">
@@ -481,6 +494,7 @@ export function CreateTicketModal({
         <Button
           size="sm"
           color="brand"
+          radius="md"
           onClick={handleSubmit}
           loading={createTicket.isPending}
           disabled={!title.trim()}

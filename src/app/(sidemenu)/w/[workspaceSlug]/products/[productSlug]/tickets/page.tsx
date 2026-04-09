@@ -71,6 +71,11 @@ export default function TicketsBoardPage() {
     { enabled: !!workspaceId },
   );
 
+  const { data: epics } = api.epic.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
 
@@ -177,6 +182,7 @@ export default function TicketsBoardPage() {
           basePath={basePath}
           features={features}
           cycles={cycles}
+          epics={epics}
         />
       )}
     </Stack>
