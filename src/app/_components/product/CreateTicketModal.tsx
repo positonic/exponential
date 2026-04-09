@@ -8,8 +8,6 @@ import {
   Button,
   Menu,
   Modal,
-  NumberInput,
-  Select,
   Text,
   TextInput,
 } from "@mantine/core";
@@ -17,10 +15,12 @@ import {
   IconCircleDot,
   IconDots,
   IconFlag3,
-  IconFlame,
   IconLink,
   IconUser,
   IconX,
+  IconCategory,
+  IconClock,
+  IconFlame,
 } from "@tabler/icons-react";
 import { RichTextEditor } from "@mantine/tiptap";
 import { useEditor } from "@tiptap/react";
@@ -33,7 +33,7 @@ import { api } from "~/trpc/react";
 import "@mantine/tiptap/styles.css";
 
 // ---------------------------------------------------------------------------
-// Constants
+// Option data
 // ---------------------------------------------------------------------------
 
 const TYPE_OPTIONS = [
@@ -61,20 +61,8 @@ const PRIORITY_OPTIONS = [
   { value: "4", label: "No priority" },
 ];
 
-type TicketType =
-  | "BUG"
-  | "FEATURE"
-  | "CHORE"
-  | "IMPROVEMENT"
-  | "SPIKE"
-  | "RESEARCH";
-type TicketStatus =
-  | "BACKLOG"
-  | "TODO"
-  | "IN_PROGRESS"
-  | "IN_REVIEW"
-  | "DONE"
-  | "CANCELLED";
+type TicketType = "BUG" | "FEATURE" | "CHORE" | "IMPROVEMENT" | "SPIKE" | "RESEARCH";
+type TicketStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
 
 const ALLOWED_TAGS = [
   "p", "br", "strong", "em", "u", "s", "a",
@@ -82,26 +70,34 @@ const ALLOWED_TAGS = [
   "ul", "ol", "li", "blockquote", "code", "pre", "hr",
 ];
 
-// Shared styles for the pill-shaped selects
-const pillStyles = {
-  root: { flex: "0 0 auto", maxWidth: "fit-content" },
-  wrapper: { maxWidth: "fit-content" },
-  input: {
-    color: "var(--color-text-secondary)",
-    fontWeight: 500,
-    fontSize: "0.75rem",
-    height: 26,
-    minHeight: 26,
-    lineHeight: "26px",
-    paddingLeft: 4,
-    paddingRight: 14,
-    borderRadius: 13,
-    border: "1px solid var(--color-border-primary)",
-    backgroundColor: "transparent",
-    cursor: "pointer",
-  },
-  section: { marginRight: 0, marginLeft: 2, width: 16 },
-} as const;
+// ---------------------------------------------------------------------------
+// Pill button - a Menu trigger that looks like a compact chip
+// ---------------------------------------------------------------------------
+
+function Pill({
+  icon,
+  label,
+  children,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Menu position="bottom-start" withinPortal>
+      <Menu.Target>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-full border border-border-primary px-2.5 py-1 text-xs font-medium text-text-secondary hover:border-border-focus hover:text-text-primary transition-colors cursor-pointer bg-transparent whitespace-nowrap"
+        >
+          {icon}
+          <span>{label}</span>
+        </button>
+      </Menu.Target>
+      <Menu.Dropdown>{children}</Menu.Dropdown>
+    </Menu>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -133,24 +129,24 @@ export function CreateTicketModal({
   const router = useRouter();
   const utils = api.useUtils();
 
-  // core fields
+  // core
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState<TicketStatus>("TODO");
   const [type, setType] = useState<TicketType>("FEATURE");
   const [priority, setPriority] = useState<string | null>(null);
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
   const [cycleId, setCycleId] = useState<string | null>(null);
-  const [points, setPoints] = useState<number | "">("");
+  const [points, setPoints] = useState<string>("");
 
-  // extra fields (3-dot menu)
+  // overflow
   const [epicId, setEpicId] = useState<string | null>(null);
   const [featureId, setFeatureId] = useState<string | null>(null);
   const [branchName, setBranchName] = useState("");
   const [prUrl, setPrUrl] = useState("");
   const [designUrl, setDesignUrl] = useState("");
-  const [showLinks, setShowLinks] = useState(false);
   const [showEpic, setShowEpic] = useState(false);
   const [showFeature, setShowFeature] = useState(false);
+  const [showLinks, setShowLinks] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -206,7 +202,7 @@ export function CreateTicketModal({
       type,
       status,
       priority: priority != null ? Number(priority) : undefined,
-      points: typeof points === "number" ? points : undefined,
+      points: points ? Number(points) : undefined,
       assigneeId: assigneeId ?? undefined,
       featureId: featureId ?? undefined,
       epicId: epicId ?? undefined,
@@ -221,6 +217,25 @@ export function CreateTicketModal({
     resetForm();
     onClose();
   };
+
+  // Lookup helpers
+  const statusLabel = STATUS_OPTIONS.find((o) => o.value === status)?.label ?? "Status";
+  const priorityLabel = priority != null
+    ? PRIORITY_OPTIONS.find((o) => o.value === priority)?.label ?? "Priority"
+    : "Priority";
+  const typeLabel = TYPE_OPTIONS.find((o) => o.value === type)?.label ?? "Type";
+  const assigneeLabel = assigneeId
+    ? members?.find((m) => m.id === assigneeId)?.name ?? "Assignee"
+    : "Assignee";
+  const cycleLabel = cycleId
+    ? cycles?.find((c) => c.id === cycleId)?.name ?? "Cycle"
+    : "Cycle";
+  const epicLabel = epicId
+    ? epics?.find((e) => e.id === epicId)?.name ?? "Epic"
+    : "Epic";
+  const featureLabel = featureId
+    ? features?.find((f) => f.id === featureId)?.name ?? "Feature"
+    : "Feature";
 
   return (
     <Modal
@@ -246,7 +261,7 @@ export function CreateTicketModal({
         },
       }}
     >
-      {/* ---- Header ---- */}
+      {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-border-primary">
         <div className="flex items-center gap-2 text-sm">
           <Badge variant="light" size="sm" radius="sm" className="uppercase">
@@ -266,7 +281,7 @@ export function CreateTicketModal({
         </ActionIcon>
       </div>
 
-      {/* ---- Title ---- */}
+      {/* Title */}
       <div className="px-5 pt-5">
         <input
           type="text"
@@ -278,7 +293,7 @@ export function CreateTicketModal({
         />
       </div>
 
-      {/* ---- Body (rich text) ---- */}
+      {/* Body */}
       <div className="flex-1 px-5 py-1" style={{ minHeight: 180 }}>
         <RichTextEditor
           editor={editor}
@@ -289,6 +304,7 @@ export function CreateTicketModal({
               color: "var(--color-text-primary)",
               minHeight: 140,
               padding: 0,
+              paddingLeft: 0,
               fontSize: "0.875rem",
             },
           }}
@@ -297,165 +313,152 @@ export function CreateTicketModal({
         </RichTextEditor>
       </div>
 
-      {/* ---- Property pills ---- */}
+      {/* Property pills */}
       <div className="border-t border-border-primary px-5 py-3">
-        <div className="flex flex-wrap items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1.5">
           {/* Status */}
-          <Select
-            data={STATUS_OPTIONS}
-            value={status}
-            onChange={(v) => v && setStatus(v as TicketStatus)}
-            size="xs"
-            variant="unstyled"
-            comboboxProps={{ withinPortal: true }}
-            leftSection={<IconCircleDot size={13} />}
-            rightSection={null}
-            styles={pillStyles}
-          />
+          <Pill icon={<IconCircleDot size={14} />} label={statusLabel}>
+            {STATUS_OPTIONS.map((o) => (
+              <Menu.Item key={o.value} onClick={() => setStatus(o.value as TicketStatus)}>
+                {o.label}
+              </Menu.Item>
+            ))}
+          </Pill>
 
           {/* Priority */}
-          <Select
-            data={PRIORITY_OPTIONS}
-            value={priority}
-            onChange={setPriority}
-            placeholder="Priority"
-            size="xs"
-            variant="unstyled"
-            clearable
-            comboboxProps={{ withinPortal: true }}
-            leftSection={<IconFlag3 size={13} />}
-            rightSection={null}
-            styles={pillStyles}
-          />
+          <Pill icon={<IconFlag3 size={14} />} label={priorityLabel}>
+            {PRIORITY_OPTIONS.map((o) => (
+              <Menu.Item key={o.value} onClick={() => setPriority(o.value)}>
+                {o.label}
+              </Menu.Item>
+            ))}
+            {priority != null && (
+              <>
+                <Menu.Divider />
+                <Menu.Item onClick={() => setPriority(null)}>Clear</Menu.Item>
+              </>
+            )}
+          </Pill>
 
           {/* Assignee */}
-          <Select
-            data={
-              members?.map((m) => ({
-                value: m.id,
-                label: m.name ?? "Unknown",
-              })) ?? []
-            }
-            value={assigneeId}
-            onChange={setAssigneeId}
-            placeholder="Assignee"
-            size="xs"
-            variant="unstyled"
-            clearable
-            comboboxProps={{ withinPortal: true }}
-            leftSection={<IconUser size={13} />}
-            rightSection={null}
-            styles={pillStyles}
-          />
+          <Pill icon={<IconUser size={14} />} label={assigneeLabel}>
+            {members && members.length > 0 ? (
+              members.map((m) => (
+                <Menu.Item key={m.id} onClick={() => setAssigneeId(m.id)}>
+                  {m.name ?? "Unknown"}
+                </Menu.Item>
+              ))
+            ) : (
+              <Menu.Item disabled>No members</Menu.Item>
+            )}
+            {assigneeId && (
+              <>
+                <Menu.Divider />
+                <Menu.Item onClick={() => setAssigneeId(null)}>Clear</Menu.Item>
+              </>
+            )}
+          </Pill>
 
           {/* Type */}
-          <Select
-            data={TYPE_OPTIONS}
-            value={type}
-            onChange={(v) => v && setType(v as TicketType)}
-            size="xs"
-            variant="unstyled"
-            comboboxProps={{ withinPortal: true }}
-            rightSection={null}
-            styles={pillStyles}
-          />
+          <Pill icon={<IconCategory size={14} />} label={typeLabel}>
+            {TYPE_OPTIONS.map((o) => (
+              <Menu.Item key={o.value} onClick={() => setType(o.value as TicketType)}>
+                {o.label}
+              </Menu.Item>
+            ))}
+          </Pill>
 
           {/* Cycle */}
-          <Select
-            data={cycles?.map((c) => ({ value: c.id, label: c.name })) ?? []}
-            value={cycleId}
-            onChange={setCycleId}
-            placeholder="Cycle"
-            size="xs"
-            variant="unstyled"
-            clearable
-            comboboxProps={{ withinPortal: true }}
-            rightSection={null}
-            styles={pillStyles}
-          />
+          <Pill icon={<IconClock size={14} />} label={cycleLabel}>
+            {cycles && cycles.length > 0 ? (
+              cycles.map((c) => (
+                <Menu.Item key={c.id} onClick={() => setCycleId(c.id)}>
+                  {c.name}
+                </Menu.Item>
+              ))
+            ) : (
+              <Menu.Item disabled>No cycles</Menu.Item>
+            )}
+            {cycleId && (
+              <>
+                <Menu.Divider />
+                <Menu.Item onClick={() => setCycleId(null)}>Clear</Menu.Item>
+              </>
+            )}
+          </Pill>
 
           {/* Effort */}
-          <NumberInput
-            value={points}
-            onChange={(v) => setPoints(typeof v === "number" ? v : "")}
-            placeholder="Effort"
-            size="xs"
-            variant="unstyled"
-            min={0}
-            allowDecimal={false}
-            hideControls
-            styles={{
-              root: { flex: "0 0 auto", maxWidth: "fit-content" },
-              input: {
-                color: "var(--color-text-secondary)",
-                fontWeight: 500,
-                fontSize: "0.75rem",
-                height: 26,
-                minHeight: 26,
-                lineHeight: "26px",
-                paddingLeft: 8,
-                paddingRight: 8,
-                borderRadius: 13,
-                border: "1px solid var(--color-border-primary)",
-                backgroundColor: "transparent",
-                cursor: "pointer",
-                width: 56,
-                textAlign: "center",
-              },
-            }}
-          />
+          <Pill icon={<IconFlame size={14} />} label={points || "Effort"}>
+            {[1, 2, 3, 5, 8, 13].map((n) => (
+              <Menu.Item key={n} onClick={() => setPoints(String(n))}>
+                {n}
+              </Menu.Item>
+            ))}
+            {points && (
+              <>
+                <Menu.Divider />
+                <Menu.Item onClick={() => setPoints("")}>Clear</Menu.Item>
+              </>
+            )}
+          </Pill>
 
           {/* Conditionally shown extras */}
           {showEpic && (
-            <Select
-              data={epics?.map((e) => ({ value: e.id, label: e.name })) ?? []}
-              value={epicId}
-              onChange={setEpicId}
-              placeholder="Epic"
-              size="xs"
-              variant="unstyled"
-              clearable
-              comboboxProps={{ withinPortal: true }}
-              styles={pillStyles}
-            />
+            <Pill label={epicLabel}>
+              {epics && epics.length > 0 ? (
+                epics.map((e) => (
+                  <Menu.Item key={e.id} onClick={() => setEpicId(e.id)}>
+                    {e.name}
+                  </Menu.Item>
+                ))
+              ) : (
+                <Menu.Item disabled>No epics</Menu.Item>
+              )}
+              {epicId && (
+                <>
+                  <Menu.Divider />
+                  <Menu.Item onClick={() => setEpicId(null)}>Clear</Menu.Item>
+                </>
+              )}
+            </Pill>
           )}
 
           {showFeature && (
-            <Select
-              data={features?.map((f) => ({ value: f.id, label: f.name })) ?? []}
-              value={featureId}
-              onChange={setFeatureId}
-              placeholder="Feature"
-              size="xs"
-              variant="unstyled"
-              clearable
-              comboboxProps={{ withinPortal: true }}
-              styles={pillStyles}
-            />
+            <Pill label={featureLabel}>
+              {features && features.length > 0 ? (
+                features.map((f) => (
+                  <Menu.Item key={f.id} onClick={() => setFeatureId(f.id)}>
+                    {f.name}
+                  </Menu.Item>
+                ))
+              ) : (
+                <Menu.Item disabled>No features</Menu.Item>
+              )}
+              {featureId && (
+                <>
+                  <Menu.Divider />
+                  <Menu.Item onClick={() => setFeatureId(null)}>Clear</Menu.Item>
+                </>
+              )}
+            </Pill>
           )}
 
-          {/* 3-dot menu */}
+          {/* 3-dot overflow menu */}
           <Menu position="top-end" withinPortal>
             <Menu.Target>
-              <ActionIcon
-                variant="subtle"
-                size={26}
-                radius="xl"
-                className="text-text-muted hover:text-text-primary border border-border-primary"
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-full border border-border-primary w-7 h-7 text-text-muted hover:border-border-focus hover:text-text-primary transition-colors cursor-pointer bg-transparent"
               >
                 <IconDots size={14} />
-              </ActionIcon>
+              </button>
             </Menu.Target>
             <Menu.Dropdown>
               {!showEpic && (
-                <Menu.Item onClick={() => setShowEpic(true)}>
-                  Epic
-                </Menu.Item>
+                <Menu.Item onClick={() => setShowEpic(true)}>Epic</Menu.Item>
               )}
               {!showFeature && (
-                <Menu.Item onClick={() => setShowFeature(true)}>
-                  Feature
-                </Menu.Item>
+                <Menu.Item onClick={() => setShowFeature(true)}>Feature</Menu.Item>
               )}
               <Menu.Item disabled>Goal</Menu.Item>
               {!showLinks && (
@@ -470,41 +473,21 @@ export function CreateTicketModal({
           </Menu>
         </div>
 
-        {/* Link fields (expanded from menu) */}
+        {/* Link fields */}
         {showLinks && (
           <div className="mt-3 flex gap-2">
-            <TextInput
-              size="xs"
-              placeholder="Branch"
-              value={branchName}
-              onChange={(e) => setBranchName(e.currentTarget.value)}
-              className="flex-1"
-            />
-            <TextInput
-              size="xs"
-              placeholder="PR URL"
-              value={prUrl}
-              onChange={(e) => setPrUrl(e.currentTarget.value)}
-              className="flex-1"
-            />
-            <TextInput
-              size="xs"
-              placeholder="Design URL"
-              value={designUrl}
-              onChange={(e) => setDesignUrl(e.currentTarget.value)}
-              className="flex-1"
-            />
+            <TextInput size="xs" placeholder="Branch" value={branchName} onChange={(e) => setBranchName(e.currentTarget.value)} className="flex-1" />
+            <TextInput size="xs" placeholder="PR URL" value={prUrl} onChange={(e) => setPrUrl(e.currentTarget.value)} className="flex-1" />
+            <TextInput size="xs" placeholder="Design URL" value={designUrl} onChange={(e) => setDesignUrl(e.currentTarget.value)} className="flex-1" />
           </div>
         )}
       </div>
 
-      {/* ---- Footer ---- */}
+      {/* Footer */}
       <div className="flex items-center justify-between border-t border-border-primary px-5 py-3">
         <div>
           {error && (
-            <Text size="xs" c="red">
-              {error}
-            </Text>
+            <Text size="xs" c="red">{error}</Text>
           )}
         </div>
         <Button
