@@ -84,26 +84,24 @@ const ALLOWED_TAGS = [
 
 // Shared styles for the pill-shaped selects
 const pillStyles = {
-  root: { flex: "0 0 auto" },
-  wrapper: { flex: "0 0 auto" },
+  root: { flex: "0 0 auto", maxWidth: "fit-content" },
+  wrapper: { maxWidth: "fit-content" },
   input: {
     color: "var(--color-text-secondary)",
     fontWeight: 500,
     fontSize: "0.75rem",
-    height: 28,
-    minHeight: 28,
-    lineHeight: "28px",
-    paddingLeft: 6,
-    paddingRight: 18,
-    borderRadius: 14,
+    height: 26,
+    minHeight: 26,
+    lineHeight: "26px",
+    paddingLeft: 4,
+    paddingRight: 14,
+    borderRadius: 13,
     border: "1px solid var(--color-border-primary)",
     backgroundColor: "transparent",
-    width: "auto",
-    minWidth: "unset",
     cursor: "pointer",
   },
-  section: { marginRight: 2, marginLeft: 4 },
-};
+  section: { marginRight: 0, marginLeft: 2, width: 16 },
+} as const;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -301,7 +299,7 @@ export function CreateTicketModal({
 
       {/* ---- Property pills ---- */}
       <div className="border-t border-border-primary px-5 py-3">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1">
           {/* Status */}
           <Select
             data={STATUS_OPTIONS}
@@ -311,6 +309,7 @@ export function CreateTicketModal({
             variant="unstyled"
             comboboxProps={{ withinPortal: true }}
             leftSection={<IconCircleDot size={13} />}
+            rightSection={null}
             styles={pillStyles}
           />
 
@@ -325,6 +324,7 @@ export function CreateTicketModal({
             clearable
             comboboxProps={{ withinPortal: true }}
             leftSection={<IconFlag3 size={13} />}
+            rightSection={null}
             styles={pillStyles}
           />
 
@@ -344,6 +344,7 @@ export function CreateTicketModal({
             clearable
             comboboxProps={{ withinPortal: true }}
             leftSection={<IconUser size={13} />}
+            rightSection={null}
             styles={pillStyles}
           />
 
@@ -355,6 +356,7 @@ export function CreateTicketModal({
             size="xs"
             variant="unstyled"
             comboboxProps={{ withinPortal: true }}
+            rightSection={null}
             styles={pillStyles}
           />
 
@@ -368,6 +370,7 @@ export function CreateTicketModal({
             variant="unstyled"
             clearable
             comboboxProps={{ withinPortal: true }}
+            rightSection={null}
             styles={pillStyles}
           />
 
@@ -380,11 +383,24 @@ export function CreateTicketModal({
             variant="unstyled"
             min={0}
             allowDecimal={false}
+            hideControls
             styles={{
-              root: { flex: "0 0 auto" },
+              root: { flex: "0 0 auto", maxWidth: "fit-content" },
               input: {
-                ...pillStyles.input,
-                width: points === "" ? 60 : "auto",
+                color: "var(--color-text-secondary)",
+                fontWeight: 500,
+                fontSize: "0.75rem",
+                height: 26,
+                minHeight: 26,
+                lineHeight: "26px",
+                paddingLeft: 8,
+                paddingRight: 8,
+                borderRadius: 13,
+                border: "1px solid var(--color-border-primary)",
+                backgroundColor: "transparent",
+                cursor: "pointer",
+                width: 56,
+                textAlign: "center",
               },
             }}
           />
@@ -423,7 +439,7 @@ export function CreateTicketModal({
             <Menu.Target>
               <ActionIcon
                 variant="subtle"
-                size={28}
+                size={26}
                 radius="xl"
                 className="text-text-muted hover:text-text-primary border border-border-primary"
               >
