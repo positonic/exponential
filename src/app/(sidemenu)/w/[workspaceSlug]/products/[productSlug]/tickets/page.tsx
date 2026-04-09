@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import {
   Badge,
@@ -15,6 +16,7 @@ import { IconPlus, IconTicket } from "@tabler/icons-react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { EmptyState } from "~/app/_components/EmptyState";
+import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 
 const STATUSES = [
   "BACKLOG",
@@ -47,6 +49,7 @@ export default function TicketsBoardPage() {
   const params = useParams();
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
+  const [modalOpened, setModalOpened] = useState(false);
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
@@ -56,6 +59,16 @@ export default function TicketsBoardPage() {
   const { data: tickets, isLoading } = api.product.ticket.list.useQuery(
     { productId: product?.id ?? "" },
     { enabled: !!product?.id },
+  );
+
+  const { data: features } = api.product.feature.list.useQuery(
+    { productId: product?.id ?? "" },
+    { enabled: !!product?.id },
+  );
+
+  const { data: cycles } = api.product.cycle.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
   );
 
   if (!workspace) return null;
@@ -72,8 +85,7 @@ export default function TicketsBoardPage() {
     <Stack gap="lg">
       <Group justify="flex-end">
         <Button
-          component={Link}
-          href={`${basePath}/new`}
+          onClick={() => setModalOpened(true)}
           leftSection={<IconPlus size={16} />}
           color="brand"
           disabled={!product}
@@ -119,28 +131,17 @@ export default function TicketsBoardPage() {
                             color={TYPE_COLORS[ticket.type] ?? "gray"}
                             variant="light"
                           >
-                            {ticket.type.toLowerCase()}
+                            {ticket.type}
                           </Badge>
-                          {ticket.points !== null &&
-                            ticket.points !== undefined && (
-                              <Badge size="xs" variant="outline">
-                                {ticket.points}
-                              </Badge>
-                            )}
+                          {ticket.points != null && (
+                            <Badge size="xs" variant="outline">
+                              {ticket.points}pt
+                            </Badge>
+                          )}
                         </Group>
-                        <Text size="sm" className="text-text-primary">
+                        <Text size="sm" className="text-text-primary" lineClamp={2}>
                           {ticket.title}
                         </Text>
-                        {ticket.feature && (
-                          <Text size="xs" className="text-text-muted mt-1">
-                            → {ticket.feature.name}
-                          </Text>
-                        )}
-                        {ticket.assignee && (
-                          <Text size="xs" className="text-text-muted mt-1">
-                            @{ticket.assignee.name}
-                          </Text>
-                        )}
                       </Card>
                     </Link>
                   ))}
@@ -152,19 +153,30 @@ export default function TicketsBoardPage() {
       ) : (
         <EmptyState
           icon={IconTicket}
-          message="No tickets yet. Create one to start tracking work."
+          title="No tickets yet"
+          message="Create your first ticket to start tracking work."
           action={
-            product && (
-              <Button
-                component={Link}
-                href={`${basePath}/new`}
-                leftSection={<IconPlus size={16} />}
-                color="brand"
-              >
-                New ticket
-              </Button>
-            )
+            <Button
+              onClick={() => setModalOpened(true)}
+              leftSection={<IconPlus size={16} />}
+              color="brand"
+              disabled={!product}
+            >
+              New ticket
+            </Button>
           }
+        />
+      )}
+
+      {product && (
+        <CreateTicketModal
+          opened={modalOpened}
+          onClose={() => setModalOpened(false)}
+          productId={product.id}
+          productName={product.name}
+          basePath={basePath}
+          features={features}
+          cycles={cycles}
         />
       )}
     </Stack>
