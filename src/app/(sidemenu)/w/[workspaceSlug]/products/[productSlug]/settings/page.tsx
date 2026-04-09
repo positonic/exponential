@@ -93,15 +93,6 @@ export default function ProductSettingsPage() {
 
   return (
     <Stack gap="lg" maw={640}>
-      <div>
-        <Title order={2} className="text-text-primary">
-          Settings
-        </Title>
-        <Text className="text-text-muted">
-          Edit or delete this product.
-        </Text>
-      </div>
-
       <Card className="border border-border-primary bg-surface-secondary">
         <form onSubmit={onSave}>
           <Stack gap="md">

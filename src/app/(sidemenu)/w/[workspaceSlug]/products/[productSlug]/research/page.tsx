@@ -37,16 +37,7 @@ export default function ResearchListPage() {
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between">
-        <div>
-          <Title order={2} className="text-text-primary">
-            Research
-          </Title>
-          <Text className="text-text-muted">
-            User interviews, desk research, experiments, analytics, and the
-            insights that come out of them.
-          </Text>
-        </div>
+      <Group justify="flex-end">
         <Button
           component={Link}
           href={`${basePath}/new`}

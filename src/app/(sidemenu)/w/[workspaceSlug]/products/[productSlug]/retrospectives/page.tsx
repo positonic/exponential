@@ -39,16 +39,7 @@ export default function RetrospectivesListPage() {
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between">
-        <div>
-          <Title order={2} className="text-text-primary">
-            Retrospectives
-          </Title>
-          <Text className="text-text-muted">
-            Standalone retrospectives. Can cover any time period, optionally
-            linked to a cycle.
-          </Text>
-        </div>
+      <Group justify="flex-end">
         <Button
           component={Link}
           href={`${basePath}/new`}

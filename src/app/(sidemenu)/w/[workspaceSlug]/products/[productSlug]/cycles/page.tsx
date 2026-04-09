@@ -39,16 +39,7 @@ export default function CyclesListPage() {
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between">
-        <div>
-          <Title order={2} className="text-text-primary">
-            Cycles
-          </Title>
-          <Text className="text-text-muted">
-            Time-boxed iterations to group tickets, with goals and achievements.
-            Cycles are workspace-scoped and shared across products.
-          </Text>
-        </div>
+      <Group justify="flex-end">
         <Button
           component={Link}
           href={`${basePath}/new`}

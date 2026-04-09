@@ -10,7 +10,6 @@ import {
   Skeleton,
   Stack,
   Text,
-  Title,
 } from "@mantine/core";
 import { IconPlus, IconTicket } from "@tabler/icons-react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -71,15 +70,7 @@ export default function TicketsBoardPage() {
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between">
-        <div>
-          <Title order={2} className="text-text-primary">
-            Tickets
-          </Title>
-          <Text className="text-text-muted">
-            Work items for this product. Grouped by status.
-          </Text>
-        </div>
+      <Group justify="flex-end">
         <Button
           component={Link}
           href={`${basePath}/new`}

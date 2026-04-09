@@ -45,15 +45,7 @@ export default function FeaturesListPage() {
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between">
-        <div>
-          <Title order={2} className="text-text-primary">
-            Features
-          </Title>
-          <Text className="text-text-muted">
-            Long-lived product areas with versioned scopes and user stories.
-          </Text>
-        </div>
+      <Group justify="flex-end">
         <Button
           component={Link}
           href={`${basePath}/new`}

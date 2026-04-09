@@ -1,29 +1,36 @@
 "use client";
 
-import Link from "next/link";
-import { useParams, usePathname } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import {
-  IconLayoutDashboard,
+  IconHome,
+  IconLayoutList,
   IconBulb,
-  IconTicket,
-  IconMicrophone,
   IconCalendarClock,
+  IconMicrophone,
   IconClipboardList,
   IconSettings,
+  IconPlus,
 } from "@tabler/icons-react";
-import { Skeleton, Text } from "@mantine/core";
+import {
+  ActionIcon,
+  Group,
+  Skeleton,
+  Tabs,
+  Text,
+  Title,
+  Stack,
+} from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 
-const subNav = [
-  { label: "Overview", href: "", icon: IconLayoutDashboard },
-  { label: "Features", href: "/features", icon: IconBulb },
-  { label: "Tickets", href: "/tickets", icon: IconTicket },
-  { label: "Research", href: "/research", icon: IconMicrophone },
-  { label: "Cycles", href: "/cycles", icon: IconCalendarClock },
-  { label: "Retrospectives", href: "/retrospectives", icon: IconClipboardList },
-  { label: "Settings", href: "/settings", icon: IconSettings },
-];
+const tabs = [
+  { value: "overview", href: "", label: "Overview", icon: IconHome },
+  { value: "backlog", href: "/tickets", label: "Backlog", icon: IconLayoutList },
+  { value: "features", href: "/features", label: "Features", icon: IconBulb },
+  { value: "cycles", href: "/cycles", label: "Cycles", icon: IconCalendarClock },
+  { value: "research", href: "/research", label: "Research", icon: IconMicrophone },
+  { value: "retro", href: "/retrospectives", label: "Retro", icon: IconClipboardList },
+] as const;
 
 export default function ProductLayout({
   children,
@@ -31,6 +38,7 @@ export default function ProductLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const params = useParams();
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
@@ -46,70 +54,95 @@ export default function ProductLayout({
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;
 
+  // Determine active tab from pathname
+  const activeTab =
+    tabs.find(
+      (t) =>
+        t.href !== "" &&
+        (pathname === `${basePath}${t.href}` ||
+          pathname.startsWith(`${basePath}${t.href}/`)),
+    )?.value ?? "overview";
+
+  const handleTabChange = (value: string | null) => {
+    const tab = tabs.find((t) => t.value === value);
+    if (tab) {
+      router.push(`${basePath}${tab.href}`);
+    }
+  };
+
   return (
-    <div className="-m-4 flex min-h-screen lg:-m-8">
-      <nav className="w-60 shrink-0 border-r border-border-primary bg-background-primary">
-        <div className="sticky top-0 h-screen overflow-y-auto p-4">
-          <div className="mb-6 px-3">
-            <Link
-              href={`/w/${workspace.slug}/products`}
-              className="text-xs uppercase text-text-muted hover:text-text-secondary"
-            >
-              ← Products
-            </Link>
+    <div className="w-full">
+      {/* Header: Title + action icons */}
+      <div className="w-full pl-8 mb-6" style={{ paddingRight: 0 }}>
+        <Group justify="space-between" align="flex-start">
+          <div>
             {isLoading ? (
-              <Skeleton height={24} width={160} mt={8} />
+              <Skeleton height={32} width={220} mb={4} />
             ) : product ? (
-              <h2 className="mt-1 text-lg font-semibold text-text-primary truncate">
-                {product.name}
-              </h2>
+              <>
+                <Title
+                  order={2}
+                  mb={4}
+                  className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent"
+                >
+                  {product.name}
+                </Title>
+                {product.description && (
+                  <Text size="sm" c="dimmed" lineClamp={2} maw={800}>
+                    {product.description}
+                  </Text>
+                )}
+              </>
             ) : (
-              <Text className="text-text-muted" size="sm">
-                Product not found
-              </Text>
+              <Text className="text-text-muted">Product not found</Text>
             )}
           </div>
+          <Group gap="xs">
+            <ActionIcon
+              variant="filled"
+              size="lg"
+              title="Add"
+              className="hover:scale-105"
+              style={{ transition: "all 0.2s ease" }}
+            >
+              <IconPlus size={20} />
+            </ActionIcon>
+            <ActionIcon
+              variant="filled"
+              size="lg"
+              title="Product Settings"
+              className="hover:scale-105"
+              style={{ transition: "all 0.2s ease" }}
+              onClick={() => router.push(`${basePath}/settings`)}
+            >
+              <IconSettings size={20} />
+            </ActionIcon>
+          </Group>
+        </Group>
+      </div>
 
-          <ul className="space-y-1">
-            {subNav.map((item) => {
-              const href = `${basePath}${item.href}`;
-              const isActive =
-                item.href === ""
-                  ? pathname === href
-                  : pathname === href || pathname.startsWith(href + "/");
-              const Icon = item.icon;
-
+      {/* Tabs */}
+      <Tabs value={activeTab} onChange={handleTabChange}>
+        <Stack gap="xl" align="stretch" justify="flex-start">
+          <Tabs.List>
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
               return (
-                <li key={item.label}>
-                  <Link
-                    href={href}
-                    className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 ${
-                      isActive
-                        ? "bg-surface-secondary font-medium text-text-primary"
-                        : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-                    }`}
-                  >
-                    {isActive && (
-                      <div className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-blue-500" />
-                    )}
-                    <Icon
-                      size={16}
-                      className={`shrink-0 transition-colors duration-200 ${
-                        isActive
-                          ? "text-blue-500"
-                          : "text-text-muted group-hover:text-text-secondary"
-                      }`}
-                    />
-                    <span className="truncate">{item.label}</span>
-                  </Link>
-                </li>
+                <Tabs.Tab
+                  key={tab.value}
+                  value={tab.value}
+                  leftSection={<Icon size={16} />}
+                >
+                  {tab.label}
+                </Tabs.Tab>
               );
             })}
-          </ul>
-        </div>
-      </nav>
+          </Tabs.List>
 
-      <main className="flex-1 overflow-auto p-6">{children}</main>
+          {/* Tab content — rendered by sub-route pages */}
+          <div>{children}</div>
+        </Stack>
+      </Tabs>
     </div>
   );
 }

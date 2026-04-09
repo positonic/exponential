@@ -70,17 +70,6 @@ export default function ProductOverviewPage() {
 
   return (
     <Stack gap="lg">
-      <div>
-        <Title order={2} className="text-text-primary">
-          Overview
-        </Title>
-        {product?.description ? (
-          <Text className="text-text-muted">{product.description}</Text>
-        ) : (
-          <Text className="text-text-muted italic">No description</Text>
-        )}
-      </div>
-
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
         <StatCard
           label="Features"
