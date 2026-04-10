@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ActionIcon,
   Avatar,
   Badge,
   Button,
+  Menu,
+  Popover,
   SegmentedControl,
+  Select,
   Skeleton,
   Stack,
   Table,
@@ -47,121 +50,149 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_ORDER: Record<string, number> = {
-  BACKLOG: 0,
-  TODO: 1,
-  IN_PROGRESS: 2,
-  IN_REVIEW: 3,
-  DONE: 4,
-  CANCELLED: 5,
+  BACKLOG: 0, TODO: 1, IN_PROGRESS: 2, IN_REVIEW: 3, DONE: 4, CANCELLED: 5,
 };
 
+const STATUS_COLORS: Record<string, string> = {
+  BACKLOG: "gray",
+  TODO: "gray",
+  IN_PROGRESS: "yellow",
+  IN_REVIEW: "blue",
+  DONE: "green",
+  CANCELLED: "dark",
+};
+
+const ALL_STATUSES = ["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"] as const;
+
 const PRIORITY_LABELS: Record<number, string> = {
-  0: "Urgent",
-  1: "High",
-  2: "Medium",
-  3: "Low",
-  4: "None",
+  0: "Urgent", 1: "High", 2: "Medium", 3: "Low", 4: "None",
 };
 
 const TYPE_COLORS: Record<string, string> = {
-  BUG: "red",
-  FEATURE: "blue",
-  CHORE: "gray",
-  IMPROVEMENT: "teal",
-  SPIKE: "violet",
-  RESEARCH: "yellow",
+  BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow",
 };
 
+type TicketStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
+
 // ---------------------------------------------------------------------------
-// Sort helpers
+// Sort
 // ---------------------------------------------------------------------------
 
 type SortField = "status" | "title" | "priority" | "assignee" | "type" | "epic" | "cycle";
 type SortDir = "asc" | "desc";
 
-function compareField(
-  a: Record<string, unknown>,
-  b: Record<string, unknown>,
-  field: SortField,
-  dir: SortDir,
-): number {
-  let av: string | number;
-  let bv: string | number;
-
-  switch (field) {
-    case "status":
-      av = STATUS_ORDER[(a.status as string) ?? ""] ?? 99;
-      bv = STATUS_ORDER[(b.status as string) ?? ""] ?? 99;
-      break;
-    case "title":
-      av = ((a.title as string) ?? "").toLowerCase();
-      bv = ((b.title as string) ?? "").toLowerCase();
-      break;
-    case "priority":
-      av = (a.priority as number) ?? 99;
-      bv = (b.priority as number) ?? 99;
-      break;
-    case "assignee":
-      av = ((a.assignee as { name?: string } | null)?.name ?? "zzz").toLowerCase();
-      bv = ((b.assignee as { name?: string } | null)?.name ?? "zzz").toLowerCase();
-      break;
-    case "type":
-      av = (a.type as string) ?? "";
-      bv = (b.type as string) ?? "";
-      break;
-    case "epic":
-      av = ((a.epic as { name?: string } | null)?.name ?? "zzz").toLowerCase();
-      bv = ((b.epic as { name?: string } | null)?.name ?? "zzz").toLowerCase();
-      break;
-    case "cycle":
-      av = ((a.cycle as { name?: string } | null)?.name ?? "zzz").toLowerCase();
-      bv = ((b.cycle as { name?: string } | null)?.name ?? "zzz").toLowerCase();
-      break;
-    default:
-      return 0;
-  }
-
-  if (av < bv) return dir === "asc" ? -1 : 1;
-  if (av > bv) return dir === "asc" ? 1 : -1;
+function cmp(a: string | number, b: string | number, dir: SortDir) {
+  if (a < b) return dir === "asc" ? -1 : 1;
+  if (a > b) return dir === "asc" ? 1 : -1;
   return 0;
 }
 
+function sortValue(t: Record<string, unknown>, field: SortField): string | number {
+  switch (field) {
+    case "status": return STATUS_ORDER[(t.status as string) ?? ""] ?? 99;
+    case "title": return ((t.title as string) ?? "").toLowerCase();
+    case "priority": return (t.priority as number) ?? 99;
+    case "assignee": return ((t.assignee as { name?: string } | null)?.name ?? "zzz").toLowerCase();
+    case "type": return (t.type as string) ?? "";
+    case "epic": return ((t.epic as { name?: string } | null)?.name ?? "zzz").toLowerCase();
+    case "cycle": return ((t.cycle as { name?: string } | null)?.name ?? "zzz").toLowerCase();
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Sortable header
+// Group by
 // ---------------------------------------------------------------------------
 
-function SortHeader({
-  label,
-  field,
-  sortField,
-  sortDir,
-  onSort,
-}: {
-  label: string;
-  field: SortField;
-  sortField: SortField;
-  sortDir: SortDir;
-  onSort: (f: SortField) => void;
+type GroupByField = "none" | "status" | "priority" | "cycle" | "epic" | "type" | "assignee";
+
+const GROUP_BY_OPTIONS = [
+  { value: "none", label: "No grouping" },
+  { value: "status", label: "Status" },
+  { value: "priority", label: "Priority" },
+  { value: "cycle", label: "Cycle" },
+  { value: "epic", label: "Epic" },
+  { value: "type", label: "Label" },
+  { value: "assignee", label: "DRI" },
+];
+
+function groupKey(t: Record<string, unknown>, field: GroupByField): string {
+  switch (field) {
+    case "status": return (t.status as string) ?? "UNKNOWN";
+    case "priority": return t.priority != null ? String(t.priority) : "unset";
+    case "cycle": return (t.cycle as { name?: string } | null)?.name ?? "No cycle";
+    case "epic": return (t.epic as { name?: string } | null)?.name ?? "No epic";
+    case "type": return (t.type as string) ?? "UNKNOWN";
+    case "assignee": return (t.assignee as { name?: string } | null)?.name ?? "Unassigned";
+    default: return "all";
+  }
+}
+
+function groupLabel(key: string, field: GroupByField): string {
+  if (field === "status") return STATUS_LABELS[key] ?? key;
+  if (field === "priority") {
+    if (key === "unset") return "No priority";
+    return PRIORITY_LABELS[Number(key)] ?? key;
+  }
+  return key;
+}
+
+// ---------------------------------------------------------------------------
+// SortHeader
+// ---------------------------------------------------------------------------
+
+function SortHeader({ label, field, sortField, sortDir, onSort }: {
+  label: string; field: SortField; sortField: SortField; sortDir: SortDir; onSort: (f: SortField) => void;
 }) {
   const active = sortField === field;
   return (
-    <Table.Th
-      onClick={() => onSort(field)}
-      className="cursor-pointer select-none hover:bg-surface-hover transition-colors"
-    >
+    <Table.Th onClick={() => onSort(field)} className="cursor-pointer select-none hover:bg-surface-hover transition-colors">
       <div className="flex items-center gap-1">
         <span>{label}</span>
         {active ? (
-          sortDir === "asc" ? (
-            <IconSortAscending size={14} className="text-text-muted" />
-          ) : (
-            <IconSortDescending size={14} className="text-text-muted" />
-          )
+          sortDir === "asc" ? <IconSortAscending size={14} className="text-text-muted" /> : <IconSortDescending size={14} className="text-text-muted" />
         ) : (
-          <IconSelector size={14} className="text-text-muted opacity-0 group-hover:opacity-100" />
+          <IconSelector size={14} className="text-text-muted opacity-40" />
         )}
       </div>
     </Table.Th>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline status selector
+// ---------------------------------------------------------------------------
+
+function StatusCell({ status, onUpdate }: { status: string; onUpdate: (s: TicketStatus) => void }) {
+  return (
+    <Menu position="bottom-start" withinPortal>
+      <Menu.Target>
+        <Badge
+          size="xs"
+          variant="light"
+          color={STATUS_COLORS[status] ?? "gray"}
+          className="cursor-pointer hover:opacity-80 transition-opacity"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          {STATUS_LABELS[status] ?? status}
+        </Badge>
+      </Menu.Target>
+      <Menu.Dropdown>
+        {ALL_STATUSES.map((s) => (
+          <Menu.Item
+            key={s}
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              onUpdate(s);
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Badge size="xs" variant="light" color={STATUS_COLORS[s] ?? "gray"} />
+              {STATUS_LABELS[s]}
+            </div>
+          </Menu.Item>
+        ))}
+      </Menu.Dropdown>
+    </Menu>
   );
 }
 
@@ -171,6 +202,7 @@ function SortHeader({
 
 export default function TicketsBacklogPage() {
   const params = useParams();
+  const router = useRouter();
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
   const [modalOpened, setModalOpened] = useState(false);
@@ -178,6 +210,7 @@ export default function TicketsBacklogPage() {
   const [sortField, setSortField] = useState<SortField>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [view, setView] = useState("table");
+  const [groupBy, setGroupBy] = useState<GroupByField>("none");
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
@@ -204,6 +237,16 @@ export default function TicketsBacklogPage() {
     { enabled: !!workspaceId },
   );
 
+  const utils = api.useUtils();
+
+  const updateTicket = api.product.ticket.update.useMutation({
+    onSuccess: async () => {
+      if (product?.id) {
+        await utils.product.ticket.list.invalidate({ productId: product.id });
+      }
+    },
+  });
+
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -213,7 +256,12 @@ export default function TicketsBacklogPage() {
     }
   };
 
-  const filtered = useMemo(() => {
+  const handleStatusChange = (ticketId: string, newStatus: TicketStatus) => {
+    updateTicket.mutate({ id: ticketId, status: newStatus });
+  };
+
+  // Filter + sort
+  const sorted = useMemo(() => {
     if (!tickets) return [];
     const q = search.toLowerCase().trim();
     let list = q
@@ -224,13 +272,92 @@ export default function TicketsBacklogPage() {
             (t.assignee?.name ?? "").toLowerCase().includes(q),
         )
       : [...tickets];
-
-    list.sort((a, b) => compareField(a as unknown as Record<string, unknown>, b as unknown as Record<string, unknown>, sortField, sortDir));
+    list.sort((a, b) =>
+      cmp(
+        sortValue(a as unknown as Record<string, unknown>, sortField),
+        sortValue(b as unknown as Record<string, unknown>, sortField),
+        sortDir,
+      ),
+    );
     return list;
   }, [tickets, search, sortField, sortDir]);
 
+  // Group
+  const groups = useMemo(() => {
+    if (groupBy === "none") return [{ key: "all", label: "", items: sorted }];
+    const map = new Map<string, typeof sorted>();
+    for (const t of sorted) {
+      const k = groupKey(t as unknown as Record<string, unknown>, groupBy);
+      const arr = map.get(k);
+      if (arr) arr.push(t);
+      else map.set(k, [t]);
+    }
+    return Array.from(map.entries()).map(([key, items]) => ({
+      key,
+      label: groupLabel(key, groupBy),
+      items,
+    }));
+  }, [sorted, groupBy]);
+
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
+
+  // Shared row renderer
+  const renderRow = (ticket: (typeof sorted)[number]) => (
+    <Table.Tr
+      key={ticket.id}
+      className="cursor-pointer hover:bg-surface-hover transition-colors"
+      onClick={() => router.push(`${basePath}/${ticket.id}`)}
+    >
+      <Table.Td style={{ width: 110 }}>
+        <StatusCell
+          status={ticket.status}
+          onUpdate={(s) => handleStatusChange(ticket.id, s)}
+        />
+      </Table.Td>
+      <Table.Td>
+        <Text size="sm" className="text-text-primary" lineClamp={1}>{ticket.title}</Text>
+      </Table.Td>
+      <Table.Td style={{ width: 80 }}>
+        {ticket.priority != null ? (
+          <Text size="xs" className="text-text-secondary">{PRIORITY_LABELS[ticket.priority] ?? ticket.priority}</Text>
+        ) : (
+          <Text size="xs" className="text-text-muted">-</Text>
+        )}
+      </Table.Td>
+      <Table.Td style={{ width: 120 }}>
+        {ticket.assignee ? (
+          <div className="flex items-center gap-1.5">
+            <Avatar size="xs" radius="xl" src={ticket.assignee.image}>
+              {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
+            </Avatar>
+            <Text size="xs" className="text-text-secondary" lineClamp={1}>{ticket.assignee.name}</Text>
+          </div>
+        ) : (
+          <Text size="xs" className="text-text-muted">-</Text>
+        )}
+      </Table.Td>
+      <Table.Td style={{ width: 100 }}>
+        <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"}>
+          {ticket.type.toLowerCase()}
+        </Badge>
+      </Table.Td>
+      <Table.Td style={{ width: 120 }}>
+        {ticket.epic ? (
+          <Text size="xs" className="text-text-secondary" lineClamp={1}>{ticket.epic.name}</Text>
+        ) : (
+          <Text size="xs" className="text-text-muted">-</Text>
+        )}
+      </Table.Td>
+      <Table.Td style={{ width: 120 }}>
+        {ticket.cycle ? (
+          <Text size="xs" className="text-text-secondary" lineClamp={1}>{ticket.cycle.name}</Text>
+        ) : (
+          <Text size="xs" className="text-text-muted">-</Text>
+        )}
+      </Table.Td>
+    </Table.Tr>
+  );
 
   return (
     <Stack gap="sm">
@@ -241,40 +368,11 @@ export default function TicketsBacklogPage() {
           onChange={setView}
           size="xs"
           data={[
-            {
-              value: "table",
-              label: (
-                <Tooltip label="Table" position="bottom">
-                  <div className="flex items-center justify-center px-1">
-                    <IconLayoutList size={15} />
-                  </div>
-                </Tooltip>
-              ),
-            },
-            {
-              value: "board",
-              label: (
-                <Tooltip label="Board" position="bottom">
-                  <div className="flex items-center justify-center px-1">
-                    <IconLayoutColumns size={15} />
-                  </div>
-                </Tooltip>
-              ),
-            },
-            {
-              value: "list",
-              label: (
-                <Tooltip label="List" position="bottom">
-                  <div className="flex items-center justify-center px-1">
-                    <IconList size={15} />
-                  </div>
-                </Tooltip>
-              ),
-            },
+            { value: "table", label: (<Tooltip label="Table" position="bottom"><div className="flex items-center justify-center px-1"><IconLayoutList size={15} /></div></Tooltip>) },
+            { value: "board", label: (<Tooltip label="Board" position="bottom"><div className="flex items-center justify-center px-1"><IconLayoutColumns size={15} /></div></Tooltip>) },
+            { value: "list", label: (<Tooltip label="List" position="bottom"><div className="flex items-center justify-center px-1"><IconList size={15} /></div></Tooltip>) },
           ]}
-          styles={{
-            root: { backgroundColor: "var(--color-surface-secondary)", border: "1px solid var(--color-border-primary)" },
-          }}
+          styles={{ root: { backgroundColor: "var(--color-surface-secondary)", border: "1px solid var(--color-border-primary)" } }}
         />
 
         <div className="flex-1" />
@@ -286,47 +384,60 @@ export default function TicketsBacklogPage() {
           onChange={(e) => setSearch(e.currentTarget.value)}
           styles={{
             root: { width: 200 },
-            input: {
-              backgroundColor: "transparent",
-              border: "1px solid var(--color-border-primary)",
-              fontSize: "0.8rem",
-              height: 30,
-              minHeight: 30,
-            },
+            input: { backgroundColor: "transparent", border: "1px solid var(--color-border-primary)", fontSize: "0.8rem", height: 30, minHeight: 30 },
           }}
         />
+
         <div className="flex items-center border border-border-primary rounded-md overflow-hidden">
           <Tooltip label="Filter" position="bottom">
-            <ActionIcon
-              variant="subtle"
-              size="sm"
-              className="text-text-muted hover:text-text-primary rounded-none"
-              style={{ height: 30, width: 30 }}
-            >
+            <ActionIcon variant="subtle" size="sm" className="text-text-muted hover:text-text-primary rounded-none" style={{ height: 30, width: 30 }}>
               <IconFilter size={15} />
             </ActionIcon>
           </Tooltip>
           <div className="w-px h-4 bg-border-primary" />
-          <Tooltip label="Display settings" position="bottom">
-            <ActionIcon
-              variant="subtle"
-              size="sm"
-              className="text-text-muted hover:text-text-primary rounded-none"
-              style={{ height: 30, width: 30 }}
+          <Popover position="bottom-end" withinPortal shadow="md">
+            <Popover.Target>
+              <Tooltip label="Display settings" position="bottom">
+                <ActionIcon variant="subtle" size="sm" className="text-text-muted hover:text-text-primary rounded-none" style={{ height: 30, width: 30 }}>
+                  <IconAdjustments size={15} />
+                </ActionIcon>
+              </Tooltip>
+            </Popover.Target>
+            <Popover.Dropdown
+              styles={{
+                dropdown: {
+                  backgroundColor: "var(--color-bg-elevated)",
+                  border: "1px solid var(--color-border-primary)",
+                  minWidth: 260,
+                },
+              }}
             >
-              <IconAdjustments size={15} />
-            </ActionIcon>
-          </Tooltip>
+              <div className="flex items-center justify-between gap-4 py-1">
+                <Text size="xs" className="text-text-muted whitespace-nowrap">Group by</Text>
+                <Select
+                  value={groupBy}
+                  onChange={(v) => v && setGroupBy(v as GroupByField)}
+                  data={GROUP_BY_OPTIONS}
+                  size="xs"
+                  variant="filled"
+                  comboboxProps={{ withinPortal: true }}
+                  styles={{
+                    root: { flex: 1 },
+                    input: { fontSize: "0.8rem", height: 28, minHeight: 28 },
+                  }}
+                />
+              </div>
+            </Popover.Dropdown>
+          </Popover>
         </div>
+
         <Button
           size="xs"
           leftSection={<IconPlus size={14} />}
           onClick={() => setModalOpened(true)}
           disabled={!product}
           variant="light"
-          styles={{
-            root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem" },
-          }}
+          styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem" } }}
         >
           New ticket
         </Button>
@@ -335,11 +446,9 @@ export default function TicketsBacklogPage() {
       {/* Table */}
       {isLoading ? (
         <Stack gap="xs">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} height={36} />
-          ))}
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={36} />)}
         </Stack>
-      ) : filtered.length > 0 ? (
+      ) : sorted.length > 0 ? (
         <div className="border border-border-primary rounded-lg overflow-hidden">
           <Table
             highlightOnHover
@@ -347,20 +456,9 @@ export default function TicketsBacklogPage() {
             horizontalSpacing="md"
             styles={{
               table: { fontSize: "0.8rem" },
-              th: {
-                fontSize: "0.7rem",
-                fontWeight: 600,
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-                color: "var(--color-text-muted)",
-                borderBottom: "1px solid var(--color-border-primary)",
-              },
-              td: {
-                borderBottom: "1px solid var(--color-border-primary)",
-              },
-              tr: {
-                backgroundColor: "transparent",
-              },
+              th: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--color-text-muted)", borderBottom: "1px solid var(--color-border-primary)" },
+              td: { borderBottom: "1px solid var(--color-border-primary)" },
+              tr: { backgroundColor: "transparent" },
             }}
           >
             <Table.Thead>
@@ -375,87 +473,26 @@ export default function TicketsBacklogPage() {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {filtered.map((ticket) => (
-                <Table.Tr
-                  key={ticket.id}
-                  className="cursor-pointer hover:bg-surface-hover transition-colors"
-                  onClick={() => {
-                    window.location.href = `${basePath}/${ticket.id}`;
-                  }}
-                >
-                  <Table.Td style={{ width: 100 }}>
-                    <Badge
-                      size="xs"
-                      variant="light"
-                      color={
-                        ticket.status === "DONE"
-                          ? "green"
-                          : ticket.status === "IN_PROGRESS"
-                            ? "yellow"
-                            : ticket.status === "IN_REVIEW"
-                              ? "blue"
-                              : "gray"
-                      }
-                    >
-                      {STATUS_LABELS[ticket.status] ?? ticket.status}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm" className="text-text-primary" lineClamp={1}>
-                      {ticket.title}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td style={{ width: 80 }}>
-                    {ticket.priority != null ? (
-                      <Text size="xs" className="text-text-secondary">
-                        {PRIORITY_LABELS[ticket.priority] ?? ticket.priority}
-                      </Text>
-                    ) : (
-                      <Text size="xs" className="text-text-muted">-</Text>
-                    )}
-                  </Table.Td>
-                  <Table.Td style={{ width: 120 }}>
-                    {ticket.assignee ? (
-                      <div className="flex items-center gap-1.5">
-                        <Avatar size="xs" radius="xl" src={ticket.assignee.image}>
-                          {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
-                        </Avatar>
-                        <Text size="xs" className="text-text-secondary" lineClamp={1}>
-                          {ticket.assignee.name}
+              {groups.map((group) => (
+                groupBy === "none" ? (
+                  group.items.map(renderRow)
+                ) : (
+                  <>{/* Group header + rows */}
+                    <Table.Tr key={`group-${group.key}`}>
+                      <Table.Td
+                        colSpan={7}
+                        className="bg-surface-secondary/50"
+                        style={{ paddingTop: 8, paddingBottom: 8 }}
+                      >
+                        <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
+                          {group.label}
+                          <Badge size="xs" variant="light" ml="xs">{group.items.length}</Badge>
                         </Text>
-                      </div>
-                    ) : (
-                      <Text size="xs" className="text-text-muted">-</Text>
-                    )}
-                  </Table.Td>
-                  <Table.Td style={{ width: 100 }}>
-                    <Badge
-                      size="xs"
-                      variant="light"
-                      color={TYPE_COLORS[ticket.type] ?? "gray"}
-                    >
-                      {ticket.type.toLowerCase()}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td style={{ width: 120 }}>
-                    {ticket.epic ? (
-                      <Text size="xs" className="text-text-secondary" lineClamp={1}>
-                        {ticket.epic.name}
-                      </Text>
-                    ) : (
-                      <Text size="xs" className="text-text-muted">-</Text>
-                    )}
-                  </Table.Td>
-                  <Table.Td style={{ width: 120 }}>
-                    {ticket.cycle ? (
-                      <Text size="xs" className="text-text-secondary" lineClamp={1}>
-                        {ticket.cycle.name}
-                      </Text>
-                    ) : (
-                      <Text size="xs" className="text-text-muted">-</Text>
-                    )}
-                  </Table.Td>
-                </Table.Tr>
+                      </Table.Td>
+                    </Table.Tr>
+                    {group.items.map(renderRow)}
+                  </>
+                )
               ))}
             </Table.Tbody>
           </Table>
@@ -470,12 +507,7 @@ export default function TicketsBacklogPage() {
           title="No tickets yet"
           message="Create your first ticket to start tracking work."
           action={
-            <Button
-              onClick={() => setModalOpened(true)}
-              leftSection={<IconPlus size={16} />}
-              color="brand"
-              disabled={!product}
-            >
+            <Button onClick={() => setModalOpened(true)} leftSection={<IconPlus size={16} />} color="brand" disabled={!product}>
               New ticket
             </Button>
           }
