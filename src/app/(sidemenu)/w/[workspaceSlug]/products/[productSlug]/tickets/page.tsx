@@ -8,6 +8,7 @@ import {
   Avatar,
   Badge,
   Button,
+  SegmentedControl,
   Skeleton,
   Stack,
   Table,
@@ -18,6 +19,8 @@ import {
 import {
   IconAdjustments,
   IconFilter,
+  IconLayoutColumns,
+  IconLayoutList,
   IconPlus,
   IconSelector,
   IconSortAscending,
@@ -173,6 +176,7 @@ export default function TicketsBacklogPage() {
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [view, setView] = useState("table");
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
@@ -231,17 +235,52 @@ export default function TicketsBacklogPage() {
     <Stack gap="sm">
       {/* Action bar */}
       <div className="flex items-center gap-2">
+        <SegmentedControl
+          value={view}
+          onChange={setView}
+          size="xs"
+          data={[
+            {
+              value: "table",
+              label: (
+                <Tooltip label="Table view" position="bottom">
+                  <div className="flex items-center justify-center px-1">
+                    <IconLayoutList size={15} />
+                  </div>
+                </Tooltip>
+              ),
+            },
+            {
+              value: "board",
+              label: (
+                <Tooltip label="Board view" position="bottom">
+                  <div className="flex items-center justify-center px-1">
+                    <IconLayoutColumns size={15} />
+                  </div>
+                </Tooltip>
+              ),
+            },
+          ]}
+          styles={{
+            root: { backgroundColor: "var(--color-surface-secondary)", border: "1px solid var(--color-border-primary)" },
+          }}
+        />
+
+        <div className="flex-1" />
+
         <TextInput
-          placeholder="Search tickets..."
+          placeholder="Search..."
           size="xs"
           value={search}
           onChange={(e) => setSearch(e.currentTarget.value)}
-          className="flex-1 max-w-xs"
           styles={{
+            root: { width: 200 },
             input: {
               backgroundColor: "transparent",
               border: "1px solid var(--color-border-primary)",
               fontSize: "0.8rem",
+              height: 30,
+              minHeight: 30,
             },
           }}
         />
@@ -250,7 +289,7 @@ export default function TicketsBacklogPage() {
             <ActionIcon
               variant="subtle"
               size="sm"
-              className="text-text-muted hover:text-text-primary rounded-none px-2"
+              className="text-text-muted hover:text-text-primary rounded-none"
               style={{ height: 30, width: 30 }}
             >
               <IconFilter size={15} />
@@ -261,7 +300,7 @@ export default function TicketsBacklogPage() {
             <ActionIcon
               variant="subtle"
               size="sm"
-              className="text-text-muted hover:text-text-primary rounded-none px-2"
+              className="text-text-muted hover:text-text-primary rounded-none"
               style={{ height: 30, width: 30 }}
             >
               <IconAdjustments size={15} />
