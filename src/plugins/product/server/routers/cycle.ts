@@ -55,8 +55,6 @@ interface CycleConfig {
   cadenceWeeks: number;
   /** Day of week cycles start on (0=Sun, 1=Mon, ..., 6=Sat) */
   startDay: number;
-  /** Buffer days between cycles */
-  cooldownDays: number;
   /** How many cycles ahead to pre-generate (default 2) */
   lookahead: number;
 }
@@ -65,7 +63,6 @@ const DEFAULT_CONFIG: CycleConfig = {
   enabled: true,
   cadenceWeeks: 2,
   startDay: 1, // Monday
-  cooldownDays: 0,
   lookahead: 2,
 };
 
@@ -111,7 +108,7 @@ function maxCycleNumber(names: string[]): number {
  * Rules:
  * - Looks at the latest cycle (by endDate) to determine where
  *   the next one should start.
- * - New cycle start >= previous cycle end + cooldown.
+ * - New cycle start >= previous cycle end.
  * - If a user-created cycle already covers a window, skip it.
  * - Names are auto-assigned as "Cycle N" (incrementing).
  * - Generates up to `config.lookahead` cycles into the future
@@ -150,8 +147,8 @@ async function ensureUpcomingCycles(
   // Determine where the next cycle should start
   let nextStart: Date;
   if (latestEnd) {
-    // After latest cycle end + cooldown
-    nextStart = addDays(latestEnd, config.cooldownDays);
+    // After latest cycle end
+    nextStart = new Date(latestEnd);
     // Align to start day
     nextStart = nextDayOfWeek(nextStart, config.startDay);
   } else {
@@ -196,8 +193,8 @@ async function ensureUpcomingCycles(
       nextNumber++;
     }
 
-    // Move cursor to after this cycle + cooldown
-    cursor = nextDayOfWeek(addDays(cycleEnd, config.cooldownDays), config.startDay);
+    // Move cursor to after this cycle
+    cursor = nextDayOfWeek(cycleEnd, config.startDay);
   }
 
   // Batch create

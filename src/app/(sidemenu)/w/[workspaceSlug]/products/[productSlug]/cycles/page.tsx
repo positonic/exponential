@@ -243,14 +243,28 @@ function CycleCard({
                   <Menu.Item>Complete cycle</Menu.Item>
                 </>
               )}
-              <Menu.Item>Edit dates</Menu.Item>
-              <Menu.Divider />
-              <Menu.Item
-                color="red"
-                leftSection={<IconTrash size={14} />}
-              >
-                Cancel cycle
-              </Menu.Item>
+              {(cycle.status === "PLANNED" || cycle.status === "ACTIVE") && (
+                <Menu.Item>Edit dates</Menu.Item>
+              )}
+              {cycle.status === "ACTIVE" && (
+                <>
+                  <Menu.Divider />
+                  <Menu.Item color="red">
+                    Cancel cycle
+                  </Menu.Item>
+                </>
+              )}
+              {cycle.status === "PLANNED" && (
+                <>
+                  <Menu.Divider />
+                  <Menu.Item
+                    color="red"
+                    leftSection={<IconTrash size={14} />}
+                  >
+                    Delete cycle
+                  </Menu.Item>
+                </>
+              )}
             </Menu.Dropdown>
           </Menu>
         </Group>

@@ -131,13 +131,6 @@ const START_DAY_OPTIONS = [
   { value: "0", label: "Sunday" },
 ];
 
-const COOLDOWN_OPTIONS = [
-  { value: "0", label: "No cooldown" },
-  { value: "1", label: "1 day" },
-  { value: "2", label: "2 days" },
-  { value: "3", label: "3 days" },
-  { value: "5", label: "5 days" },
-];
 
 export default function ProductSettingsPage() {
   const router = useRouter();
@@ -157,7 +150,6 @@ export default function ProductSettingsPage() {
   const [autoCreateLookahead, setAutoCreateLookahead] = useState("2");
   const [cycleDuration, setCycleDuration] = useState("2");
   const [cycleStartDay, setCycleStartDay] = useState("1");
-  const [cooldownDays, setCooldownDays] = useState("0");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -342,25 +334,12 @@ export default function ProductSettingsPage() {
                 <SettingRow
                   label="Start day"
                   description="Which day of the week cycles begin."
+                  noBorder
                 >
                   <Select
                     value={cycleStartDay}
                     onChange={(v) => v && setCycleStartDay(v)}
                     data={START_DAY_OPTIONS}
-                    size="xs"
-                    comboboxProps={{ withinPortal: true }}
-                    styles={{ input: { width: 120, textAlign: "right" } }}
-                  />
-                </SettingRow>
-                <SettingRow
-                  label="Cooldown"
-                  description="Buffer days between cycles for planning and review."
-                  noBorder
-                >
-                  <Select
-                    value={cooldownDays}
-                    onChange={(v) => v && setCooldownDays(v)}
-                    data={COOLDOWN_OPTIONS}
                     size="xs"
                     comboboxProps={{ withinPortal: true }}
                     styles={{ input: { width: 120, textAlign: "right" } }}
