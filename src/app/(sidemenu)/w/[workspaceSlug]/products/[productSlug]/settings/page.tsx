@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Button,
   Card,
@@ -12,6 +13,7 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
+import { IconArrowLeft } from "@tabler/icons-react";
 import { modals } from "@mantine/modals";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
@@ -91,8 +93,23 @@ export default function ProductSettingsPage() {
     });
   };
 
+  const backPath = `/w/${workspace.slug}/products/${productSlug}`;
+
   return (
     <Stack gap="lg" maw={640}>
+      <div>
+        <Link
+          href={backPath}
+          className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors mb-4"
+        >
+          <IconArrowLeft size={16} />
+          Back to {product.name}
+        </Link>
+        <Title order={2} className="text-text-primary">
+          Settings
+        </Title>
+      </div>
+
       <Card className="border border-border-primary bg-surface-secondary">
         <form onSubmit={onSave}>
           <Stack gap="md">
