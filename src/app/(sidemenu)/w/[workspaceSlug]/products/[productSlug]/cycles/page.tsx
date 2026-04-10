@@ -57,13 +57,17 @@ export default function CyclesListPage() {
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/cycles`;
 
-  // Separate active/upcoming from past
-  const activeCycles = cycles?.filter(
-    (c) => c.status === "ACTIVE" || c.status === "PLANNED",
-  ) ?? [];
-  const pastCycles = cycles?.filter(
-    (c) => c.status === "COMPLETED" || c.status === "ARCHIVED",
-  ) ?? [];
+  // Group cycles by status
+  const active = cycles?.filter((c) => c.status === "ACTIVE") ?? [];
+  const upcoming = cycles?.filter((c) => c.status === "PLANNED") ?? [];
+  const completed = cycles?.filter((c) => c.status === "COMPLETED") ?? [];
+  const cancelled = cycles?.filter((c) => c.status === "ARCHIVED") ?? [];
+
+  // Sort: active/upcoming by startDate asc, completed/cancelled by endDate desc
+  active.sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+  upcoming.sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+  completed.sort((a, b) => (b.endDate?.getTime() ?? 0) - (a.endDate?.getTime() ?? 0));
+  cancelled.sort((a, b) => (b.endDate?.getTime() ?? 0) - (a.endDate?.getTime() ?? 0));
 
   return (
     <Stack gap="lg">
@@ -121,32 +125,17 @@ export default function CyclesListPage() {
         </Stack>
       ) : cycles && cycles.length > 0 ? (
         <Stack gap="md">
-          {/* Active & upcoming */}
-          {activeCycles.length > 0 && (
-            <div>
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-                Current & upcoming
-              </Text>
-              <Stack gap="sm">
-                {activeCycles.map((cycle) => (
-                  <CycleCard key={cycle.id} cycle={cycle} basePath={basePath} />
-                ))}
-              </Stack>
-            </div>
+          {active.length > 0 && (
+            <CycleSection label="Active" cycles={active} basePath={basePath} />
           )}
-
-          {/* Past */}
-          {pastCycles.length > 0 && (
-            <div>
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-                Past
-              </Text>
-              <Stack gap="sm">
-                {pastCycles.map((cycle) => (
-                  <CycleCard key={cycle.id} cycle={cycle} basePath={basePath} />
-                ))}
-              </Stack>
-            </div>
+          {upcoming.length > 0 && (
+            <CycleSection label="Upcoming" cycles={upcoming} basePath={basePath} />
+          )}
+          {completed.length > 0 && (
+            <CycleSection label="Completed" cycles={completed} basePath={basePath} />
+          )}
+          {cancelled.length > 0 && (
+            <CycleSection label="Cancelled" cycles={cancelled} basePath={basePath} />
           )}
         </Stack>
       ) : (
@@ -173,19 +162,44 @@ export default function CyclesListPage() {
 // Cycle card with overflow menu
 // ---------------------------------------------------------------------------
 
+type CycleItem = {
+  id: string;
+  name: string;
+  status: string;
+  startDate: Date | null;
+  endDate: Date | null;
+  cycleGoal: string | null;
+  _count: { tickets: number };
+};
+
+function CycleSection({
+  label,
+  cycles,
+  basePath,
+}: {
+  label: string;
+  cycles: CycleItem[];
+  basePath: string;
+}) {
+  return (
+    <div>
+      <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
+        {label}
+      </Text>
+      <Stack gap="sm">
+        {cycles.map((cycle) => (
+          <CycleCard key={cycle.id} cycle={cycle} basePath={basePath} />
+        ))}
+      </Stack>
+    </div>
+  );
+}
+
 function CycleCard({
   cycle,
   basePath,
 }: {
-  cycle: {
-    id: string;
-    name: string;
-    status: string;
-    startDate: Date | null;
-    endDate: Date | null;
-    cycleGoal: string | null;
-    _count: { tickets: number };
-  };
+  cycle: CycleItem;
   basePath: string;
 }) {
   return (

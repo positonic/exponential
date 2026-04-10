@@ -100,6 +100,45 @@ function maxCycleNumber(names: string[]): number {
 }
 
 /**
+ * Reconcile cycle statuses based on current date.
+ *
+ * - PLANNED cycles whose startDate <= now < endDate -> ACTIVE
+ * - PLANNED or ACTIVE cycles whose endDate <= now -> COMPLETED
+ *
+ * Called lazily from the list query alongside ensureUpcomingCycles.
+ */
+async function reconcileCycleStatuses(
+  db: PrismaClient,
+  workspaceId: string,
+): Promise<void> {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+
+  // Complete any cycles whose end date has passed
+  await db.list.updateMany({
+    where: {
+      workspaceId,
+      listType: "SPRINT",
+      status: { in: ["PLANNED", "ACTIVE"] },
+      endDate: { lte: now },
+    },
+    data: { status: "COMPLETED" },
+  });
+
+  // Activate any planned cycles whose start date has arrived but end date hasn't
+  await db.list.updateMany({
+    where: {
+      workspaceId,
+      listType: "SPRINT",
+      status: "PLANNED",
+      startDate: { lte: now },
+      endDate: { gt: now },
+    },
+    data: { status: "ACTIVE" },
+  });
+}
+
+/**
  * Lazily ensures enough upcoming cycles exist for a workspace.
  *
  * Called from the `list` query so cycles are generated on-demand
@@ -247,6 +286,9 @@ export const cycleRouter = createTRPCRouter({
         ctx.session.user.id,
         input.workspaceId,
       );
+
+      // Reconcile statuses based on current date (always runs)
+      await reconcileCycleStatuses(ctx.db, input.workspaceId);
 
       // Lazy-generate upcoming cycles if auto-create is on
       if (input.autoCreate) {
