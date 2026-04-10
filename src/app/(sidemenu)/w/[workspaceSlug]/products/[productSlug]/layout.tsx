@@ -53,6 +53,12 @@ export default function ProductLayout({
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;
+  const isSettings = pathname === `${basePath}/settings` || pathname.startsWith(`${basePath}/settings/`);
+
+  // Settings gets its own standalone page - no header or tabs
+  if (isSettings) {
+    return <div className="w-full">{children}</div>;
+  }
 
   // Determine active tab from pathname
   const activeTab =
@@ -139,7 +145,7 @@ export default function ProductLayout({
             })}
           </Tabs.List>
 
-          {/* Tab content — rendered by sub-route pages */}
+          {/* Tab content */}
           <div>{children}</div>
         </Stack>
       </Tabs>
