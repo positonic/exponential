@@ -17,6 +17,7 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core";
+import { modals } from "@mantine/modals";
 import {
   IconCalendarClock,
   IconDots,
@@ -53,6 +54,69 @@ export default function CyclesListPage() {
     { workspaceId: workspaceId ?? "", autoCreate: !autoCreatePaused },
     { enabled: !!workspaceId },
   );
+
+  const utils = api.useUtils();
+
+  const deleteCycle = api.product.cycle.delete.useMutation({
+    onSuccess: () => {
+      void utils.product.cycle.list.invalidate({ workspaceId: workspaceId ?? "" });
+    },
+  });
+
+  const updateCycle = api.product.cycle.update.useMutation({
+    onSuccess: () => {
+      void utils.product.cycle.list.invalidate({ workspaceId: workspaceId ?? "" });
+    },
+  });
+
+  const handleDelete = (id: string, name: string) => {
+    modals.openConfirmModal({
+      title: "Delete cycle",
+      children: (
+        <Text size="sm">
+          Permanently delete {name}? Tickets assigned to this cycle will be unlinked.
+        </Text>
+      ),
+      labels: { confirm: "Delete", cancel: "Cancel" },
+      confirmProps: { color: "red" },
+      onConfirm: () => deleteCycle.mutate({ id }),
+    });
+  };
+
+  const handleCancel = (id: string, name: string) => {
+    modals.openConfirmModal({
+      title: "Cancel cycle",
+      children: (
+        <Text size="sm">
+          Cancel {name}? Incomplete tickets will remain but won't be grouped under this cycle.
+        </Text>
+      ),
+      labels: { confirm: "Cancel cycle", cancel: "Keep" },
+      confirmProps: { color: "red" },
+      onConfirm: () => updateCycle.mutate({ id, status: "ARCHIVED" }),
+    });
+  };
+
+  const handleComplete = (id: string) => {
+    updateCycle.mutate({ id, status: "COMPLETED" });
+  };
+
+  const handleStart = (id: string) => {
+    updateCycle.mutate({ id, status: "ACTIVE" });
+  };
+
+  const handleExtend = (id: string, endDate: Date | null) => {
+    if (!endDate) return;
+    const newEnd = new Date(endDate);
+    newEnd.setDate(newEnd.getDate() + 7);
+    updateCycle.mutate({ id, endDate: newEnd });
+  };
+
+  const handleShortenToToday = (id: string) => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    updateCycle.mutate({ id, endDate: today, status: "COMPLETED" });
+  };
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/cycles`;
@@ -126,16 +190,16 @@ export default function CyclesListPage() {
       ) : cycles && cycles.length > 0 ? (
         <Stack gap="md">
           {active.length > 0 && (
-            <CycleSection label="Active" cycles={active} basePath={basePath} />
+            <CycleSection label="Active" cycles={active} basePath={basePath} actions={{ onDelete: handleDelete, onCancel: handleCancel, onComplete: handleComplete, onStart: handleStart, onExtend: handleExtend, onShortenToToday: handleShortenToToday }} />
           )}
           {upcoming.length > 0 && (
-            <CycleSection label="Upcoming" cycles={upcoming} basePath={basePath} />
+            <CycleSection label="Upcoming" cycles={upcoming} basePath={basePath} actions={{ onDelete: handleDelete, onCancel: handleCancel, onComplete: handleComplete, onStart: handleStart, onExtend: handleExtend, onShortenToToday: handleShortenToToday }} />
           )}
           {completed.length > 0 && (
-            <CycleSection label="Completed" cycles={completed} basePath={basePath} />
+            <CycleSection label="Completed" cycles={completed} basePath={basePath} actions={{ onDelete: handleDelete, onCancel: handleCancel, onComplete: handleComplete, onStart: handleStart, onExtend: handleExtend, onShortenToToday: handleShortenToToday }} />
           )}
           {cancelled.length > 0 && (
-            <CycleSection label="Cancelled" cycles={cancelled} basePath={basePath} />
+            <CycleSection label="Cancelled" cycles={cancelled} basePath={basePath} actions={{ onDelete: handleDelete, onCancel: handleCancel, onComplete: handleComplete, onStart: handleStart, onExtend: handleExtend, onShortenToToday: handleShortenToToday }} />
           )}
         </Stack>
       ) : (
@@ -172,14 +236,25 @@ type CycleItem = {
   _count: { tickets: number };
 };
 
+interface CycleActions {
+  onDelete: (id: string, name: string) => void;
+  onCancel: (id: string, name: string) => void;
+  onComplete: (id: string) => void;
+  onStart: (id: string) => void;
+  onExtend: (id: string, endDate: Date | null) => void;
+  onShortenToToday: (id: string) => void;
+}
+
 function CycleSection({
   label,
   cycles,
   basePath,
+  actions,
 }: {
   label: string;
   cycles: CycleItem[];
   basePath: string;
+  actions: CycleActions;
 }) {
   return (
     <div>
@@ -188,7 +263,7 @@ function CycleSection({
       </Text>
       <Stack gap="sm">
         {cycles.map((cycle) => (
-          <CycleCard key={cycle.id} cycle={cycle} basePath={basePath} />
+          <CycleCard key={cycle.id} cycle={cycle} basePath={basePath} actions={actions} />
         ))}
       </Stack>
     </div>
@@ -198,9 +273,11 @@ function CycleSection({
 function CycleCard({
   cycle,
   basePath,
+  actions,
 }: {
   cycle: CycleItem;
   basePath: string;
+  actions: CycleActions;
 }) {
   return (
     <Card className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors">
@@ -248,22 +325,30 @@ function CycleCard({
             </Menu.Target>
             <Menu.Dropdown>
               {cycle.status === "PLANNED" && (
-                <Menu.Item>Start cycle</Menu.Item>
+                <Menu.Item onClick={() => actions.onStart(cycle.id)}>
+                  Start cycle
+                </Menu.Item>
               )}
               {cycle.status === "ACTIVE" && (
                 <>
-                  <Menu.Item>Extend by 1 week</Menu.Item>
-                  <Menu.Item>Shorten to today</Menu.Item>
-                  <Menu.Item>Complete cycle</Menu.Item>
+                  <Menu.Item onClick={() => actions.onExtend(cycle.id, cycle.endDate)}>
+                    Extend by 1 week
+                  </Menu.Item>
+                  <Menu.Item onClick={() => actions.onShortenToToday(cycle.id)}>
+                    Shorten to today
+                  </Menu.Item>
+                  <Menu.Item onClick={() => actions.onComplete(cycle.id)}>
+                    Complete cycle
+                  </Menu.Item>
                 </>
-              )}
-              {(cycle.status === "PLANNED" || cycle.status === "ACTIVE") && (
-                <Menu.Item>Edit dates</Menu.Item>
               )}
               {cycle.status === "ACTIVE" && (
                 <>
                   <Menu.Divider />
-                  <Menu.Item color="red">
+                  <Menu.Item
+                    color="red"
+                    onClick={() => actions.onCancel(cycle.id, cycle.name)}
+                  >
                     Cancel cycle
                   </Menu.Item>
                 </>
@@ -274,6 +359,7 @@ function CycleCard({
                   <Menu.Item
                     color="red"
                     leftSection={<IconTrash size={14} />}
+                    onClick={() => actions.onDelete(cycle.id, cycle.name)}
                   >
                     Delete cycle
                   </Menu.Item>
