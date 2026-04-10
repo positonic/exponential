@@ -121,6 +121,24 @@ const CYCLE_DURATION_OPTIONS = [
   { value: "6", label: "6 weeks" },
 ];
 
+const START_DAY_OPTIONS = [
+  { value: "1", label: "Monday" },
+  { value: "2", label: "Tuesday" },
+  { value: "3", label: "Wednesday" },
+  { value: "4", label: "Thursday" },
+  { value: "5", label: "Friday" },
+  { value: "6", label: "Saturday" },
+  { value: "0", label: "Sunday" },
+];
+
+const COOLDOWN_OPTIONS = [
+  { value: "0", label: "No cooldown" },
+  { value: "1", label: "1 day" },
+  { value: "2", label: "2 days" },
+  { value: "3", label: "3 days" },
+  { value: "5", label: "5 days" },
+];
+
 export default function ProductSettingsPage() {
   const router = useRouter();
   const params = useParams();
@@ -136,7 +154,10 @@ export default function ProductSettingsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [enableCycles, setEnableCycles] = useState(true);
+  const [autoCreateCycles, setAutoCreateCycles] = useState(true);
   const [cycleDuration, setCycleDuration] = useState("2");
+  const [cycleStartDay, setCycleStartDay] = useState("1");
+  const [cooldownDays, setCooldownDays] = useState("0");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -284,20 +305,58 @@ export default function ProductSettingsPage() {
           />
         </SettingRow>
         {enableCycles && (
-          <SettingRow
-            label="Cycle duration"
-            description="Default length for new cycles."
-            noBorder
-          >
-            <Select
-              value={cycleDuration}
-              onChange={(v) => v && setCycleDuration(v)}
-              data={CYCLE_DURATION_OPTIONS}
-              size="xs"
-              comboboxProps={{ withinPortal: true }}
-              styles={{ input: { width: 120, textAlign: "right" } }}
-            />
-          </SettingRow>
+          <>
+            <SettingRow
+              label="Auto-create cycles"
+              description="Automatically generate upcoming cycles based on cadence. Individual cycles can still be adjusted, extended, or cancelled from the Cycles tab."
+            >
+              <Switch
+                checked={autoCreateCycles}
+                onChange={(e) => setAutoCreateCycles(e.currentTarget.checked)}
+                size="sm"
+              />
+            </SettingRow>
+            <SettingRow
+              label="Cadence"
+              description="Default length for each cycle."
+            >
+              <Select
+                value={cycleDuration}
+                onChange={(v) => v && setCycleDuration(v)}
+                data={CYCLE_DURATION_OPTIONS}
+                size="xs"
+                comboboxProps={{ withinPortal: true }}
+                styles={{ input: { width: 120, textAlign: "right" } }}
+              />
+            </SettingRow>
+            <SettingRow
+              label="Start day"
+              description="Which day of the week cycles begin."
+            >
+              <Select
+                value={cycleStartDay}
+                onChange={(v) => v && setCycleStartDay(v)}
+                data={START_DAY_OPTIONS}
+                size="xs"
+                comboboxProps={{ withinPortal: true }}
+                styles={{ input: { width: 120, textAlign: "right" } }}
+              />
+            </SettingRow>
+            <SettingRow
+              label="Cooldown"
+              description="Buffer days between cycles for planning and review."
+              noBorder
+            >
+              <Select
+                value={cooldownDays}
+                onChange={(v) => v && setCooldownDays(v)}
+                data={COOLDOWN_OPTIONS}
+                size="xs"
+                comboboxProps={{ withinPortal: true }}
+                styles={{ input: { width: 120, textAlign: "right" } }}
+              />
+            </SettingRow>
+          </>
         )}
       </SectionCard>
 
