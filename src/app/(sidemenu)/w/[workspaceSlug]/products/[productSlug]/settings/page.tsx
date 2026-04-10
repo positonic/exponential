@@ -154,7 +154,7 @@ export default function ProductSettingsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [enableCycles, setEnableCycles] = useState(true);
-  const [autoCreateCycles, setAutoCreateCycles] = useState(true);
+  const [autoCreateLookahead, setAutoCreateLookahead] = useState("2");
   const [cycleDuration, setCycleDuration] = useState("2");
   const [cycleStartDay, setCycleStartDay] = useState("1");
   const [cooldownDays, setCooldownDays] = useState("0");
@@ -308,54 +308,66 @@ export default function ProductSettingsPage() {
           <>
             <SettingRow
               label="Auto-create cycles"
-              description="Automatically generate upcoming cycles based on cadence. Individual cycles can still be adjusted, extended, or cancelled from the Cycles tab."
-            >
-              <Switch
-                checked={autoCreateCycles}
-                onChange={(e) => setAutoCreateCycles(e.currentTarget.checked)}
-                size="sm"
-              />
-            </SettingRow>
-            <SettingRow
-              label="Cadence"
-              description="Default length for each cycle."
+              description="How many upcoming cycles to pre-generate. Set to Off to create cycles manually."
             >
               <Select
-                value={cycleDuration}
-                onChange={(v) => v && setCycleDuration(v)}
-                data={CYCLE_DURATION_OPTIONS}
+                value={autoCreateLookahead}
+                onChange={(v) => v && setAutoCreateLookahead(v)}
+                data={[
+                  { value: "0", label: "Off" },
+                  { value: "1", label: "1 ahead" },
+                  { value: "2", label: "2 ahead" },
+                  { value: "3", label: "3 ahead" },
+                ]}
                 size="xs"
                 comboboxProps={{ withinPortal: true }}
                 styles={{ input: { width: 120, textAlign: "right" } }}
               />
             </SettingRow>
-            <SettingRow
-              label="Start day"
-              description="Which day of the week cycles begin."
-            >
-              <Select
-                value={cycleStartDay}
-                onChange={(v) => v && setCycleStartDay(v)}
-                data={START_DAY_OPTIONS}
-                size="xs"
-                comboboxProps={{ withinPortal: true }}
-                styles={{ input: { width: 120, textAlign: "right" } }}
-              />
-            </SettingRow>
-            <SettingRow
-              label="Cooldown"
-              description="Buffer days between cycles for planning and review."
-              noBorder
-            >
-              <Select
-                value={cooldownDays}
-                onChange={(v) => v && setCooldownDays(v)}
-                data={COOLDOWN_OPTIONS}
-                size="xs"
-                comboboxProps={{ withinPortal: true }}
-                styles={{ input: { width: 120, textAlign: "right" } }}
-              />
-            </SettingRow>
+            {autoCreateLookahead !== "0" && (
+              <>
+                <SettingRow
+                  label="Cadence"
+                  description="Default length for each cycle."
+                >
+                  <Select
+                    value={cycleDuration}
+                    onChange={(v) => v && setCycleDuration(v)}
+                    data={CYCLE_DURATION_OPTIONS}
+                    size="xs"
+                    comboboxProps={{ withinPortal: true }}
+                    styles={{ input: { width: 120, textAlign: "right" } }}
+                  />
+                </SettingRow>
+                <SettingRow
+                  label="Start day"
+                  description="Which day of the week cycles begin."
+                >
+                  <Select
+                    value={cycleStartDay}
+                    onChange={(v) => v && setCycleStartDay(v)}
+                    data={START_DAY_OPTIONS}
+                    size="xs"
+                    comboboxProps={{ withinPortal: true }}
+                    styles={{ input: { width: 120, textAlign: "right" } }}
+                  />
+                </SettingRow>
+                <SettingRow
+                  label="Cooldown"
+                  description="Buffer days between cycles for planning and review."
+                  noBorder
+                >
+                  <Select
+                    value={cooldownDays}
+                    onChange={(v) => v && setCooldownDays(v)}
+                    data={COOLDOWN_OPTIONS}
+                    size="xs"
+                    comboboxProps={{ withinPortal: true }}
+                    styles={{ input: { width: 120, textAlign: "right" } }}
+                  />
+                </SettingRow>
+              </>
+            )}
           </>
         )}
       </SectionCard>
