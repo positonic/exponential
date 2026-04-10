@@ -50,7 +50,7 @@ export default function CyclesListPage() {
   const [autoCreatePaused, setAutoCreatePaused] = useState(false);
 
   const { data: cycles, isLoading } = api.product.cycle.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
+    { workspaceId: workspaceId ?? "", autoCreate: !autoCreatePaused },
     { enabled: !!workspaceId },
   );
 
