@@ -21,6 +21,7 @@ import {
   IconFilter,
   IconLayoutColumns,
   IconLayoutList,
+  IconList,
   IconPlus,
   IconSelector,
   IconSortAscending,
@@ -243,7 +244,7 @@ export default function TicketsBacklogPage() {
             {
               value: "table",
               label: (
-                <Tooltip label="Table view" position="bottom">
+                <Tooltip label="Table" position="bottom">
                   <div className="flex items-center justify-center px-1">
                     <IconLayoutList size={15} />
                   </div>
@@ -253,9 +254,19 @@ export default function TicketsBacklogPage() {
             {
               value: "board",
               label: (
-                <Tooltip label="Board view" position="bottom">
+                <Tooltip label="Board" position="bottom">
                   <div className="flex items-center justify-center px-1">
                     <IconLayoutColumns size={15} />
+                  </div>
+                </Tooltip>
+              ),
+            },
+            {
+              value: "list",
+              label: (
+                <Tooltip label="List" position="bottom">
+                  <div className="flex items-center justify-center px-1">
+                    <IconList size={15} />
                   </div>
                 </Tooltip>
               ),
