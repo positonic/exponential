@@ -98,6 +98,7 @@ export const ticketRouter = createTRPCRouter({
           feature: { select: { id: true, name: true } },
           epic: { select: { id: true, name: true } },
           cycle: { select: { id: true, name: true } },
+          tags: { include: { tag: true } },
           _count: { select: { actions: true, comments: true } },
         },
       });
@@ -120,6 +121,7 @@ export const ticketRouter = createTRPCRouter({
           epic: { select: { id: true, name: true, status: true } },
           cycle: { select: { id: true, name: true, startDate: true, endDate: true } },
           scope: { select: { id: true, version: true } },
+          tags: { include: { tag: true } },
           actions: {
             select: {
               id: true,

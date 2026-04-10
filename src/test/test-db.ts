@@ -75,6 +75,8 @@ export async function truncateAllTables(): Promise<void> {
     db.$executeRawUnsafe(`DELETE FROM "ActionTag"`),
     db.$executeRawUnsafe(`DELETE FROM "Action"`),
     // Product Management plugin tables (children before parents)
+    db.$executeRawUnsafe(`DELETE FROM "TicketTag"`),
+    db.$executeRawUnsafe(`DELETE FROM "FeatureTag"`),
     db.$executeRawUnsafe(`DELETE FROM "TicketComment"`),
     db.$executeRawUnsafe(`DELETE FROM "FeatureInsight"`),
     db.$executeRawUnsafe(`DELETE FROM "Insight"`),

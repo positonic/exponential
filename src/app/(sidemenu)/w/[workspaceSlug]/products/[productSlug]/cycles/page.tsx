@@ -88,7 +88,7 @@ export default function CyclesListPage() {
       title: "Cancel cycle",
       children: (
         <Text size="sm">
-          Cancel {name}? Incomplete tickets will remain but won't be grouped under this cycle.
+          Cancel {name}? Incomplete tickets will remain but won&apos;t be grouped under this cycle.
         </Text>
       ),
       labels: { confirm: "Cancel cycle", cancel: "Keep" },

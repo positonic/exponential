@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -118,7 +117,7 @@ const GROUP_BY_OPTIONS = [
 function groupKey(t: Record<string, unknown>, field: GroupByField): string {
   switch (field) {
     case "status": return (t.status as string) ?? "UNKNOWN";
-    case "priority": return t.priority != null ? String(t.priority) : "unset";
+    case "priority": return t.priority != null ? String(t.priority as number) : "unset";
     case "cycle": return (t.cycle as { name?: string } | null)?.name ?? "No cycle";
     case "epic": return (t.epic as { name?: string } | null)?.name ?? "No epic";
     case "type": return (t.type as string) ?? "UNKNOWN";
@@ -264,7 +263,7 @@ export default function TicketsBacklogPage() {
   const sorted = useMemo(() => {
     if (!tickets) return [];
     const q = search.toLowerCase().trim();
-    let list = q
+    const list = q
       ? tickets.filter(
           (t) =>
             t.title.toLowerCase().includes(q) ||

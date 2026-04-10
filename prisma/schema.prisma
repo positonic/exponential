@@ -1674,6 +1674,7 @@ model Tag {
   slug        String
   color       String    // Semantic color key (e.g., "avatar-red", "brand-primary")
   description String?
+  category    String?   // e.g. "label", "area" - null treated as general "label"
   isSystem    Boolean   @default(false) // System tags cannot be deleted
   workspaceId String?   // null = global tag, available in all workspaces
   createdById String?   // null for system tags
@@ -1682,7 +1683,9 @@ model Tag {
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy User?      @relation("TagCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  actions   ActionTag[]
+  actions      ActionTag[]
+  tickets      TicketTag[]
+  features     FeatureTag[]
 
   // Global tags: unique by slug (when workspaceId is null)
   // Workspace tags: unique by slug within workspace
@@ -3228,6 +3231,7 @@ model Feature {
   userStories UserStory[]
   insights    FeatureInsight[]
   tickets     Ticket[]
+  tags        FeatureTag[]
 
   @@index([productId])
   @@index([goalId])
@@ -3411,6 +3415,7 @@ model Ticket {
   assignee   User?            @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   actions    Action[]         @relation("TicketActions")
   comments   TicketComment[]
+  tags       TicketTag[]
 
   @@index([productId])
   @@index([epicId])
@@ -3484,4 +3489,34 @@ model Retrospective {
   @@index([productId])
   @@index([cycleId])
   @@index([createdById])
+}
+
+// ---------------------------------------------------------------------------
+// Tag join tables for Product plugin entities
+// ---------------------------------------------------------------------------
+
+model TicketTag {
+  id        String   @id @default(cuid())
+  ticketId  String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, tagId])
+  @@index([tagId])
+}
+
+model FeatureTag {
+  id        String   @id @default(cuid())
+  featureId String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([featureId, tagId])
+  @@index([tagId])
 }

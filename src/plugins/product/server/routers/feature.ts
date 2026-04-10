@@ -112,6 +112,7 @@ export const featureRouter = createTRPCRouter({
         orderBy: { createdAt: "desc" },
         include: {
           goal: { select: { id: true, title: true, period: true } },
+          tags: { include: { tag: true } },
           _count: {
             select: { scopes: true, userStories: true, tickets: true },
           },
@@ -146,6 +147,7 @@ export const featureRouter = createTRPCRouter({
               },
             },
           },
+          tags: { include: { tag: true } },
           _count: { select: { tickets: true } },
         },
       });

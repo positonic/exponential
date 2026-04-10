@@ -12,14 +12,20 @@ export const tagRouter = createTRPCRouter({
       z
         .object({
           workspaceId: z.string().optional(),
+          category: z.string().optional(),
         })
         .optional()
     )
     .query(async ({ ctx, input }) => {
+      const categoryFilter = input?.category !== undefined
+        ? { category: input.category }
+        : {};
+
       // Get global tags (system tags + user-created global tags)
       const globalTags = await ctx.db.tag.findMany({
         where: {
           workspaceId: null,
+          ...categoryFilter,
         },
         orderBy: [{ isSystem: "desc" }, { name: "asc" }],
       });
@@ -31,6 +37,7 @@ export const tagRouter = createTRPCRouter({
         workspaceTags = await ctx.db.tag.findMany({
           where: {
             workspaceId: input.workspaceId,
+            ...categoryFilter,
           },
           include: {
             createdBy: {
@@ -40,7 +47,7 @@ export const tagRouter = createTRPCRouter({
           orderBy: { name: "asc" },
         });
       } else {
-        // No workspace specified — fetch tags from all workspaces the user belongs to
+        // No workspace specified - fetch tags from all workspaces the user belongs to
         // so custom tags are always visible even without explicit workspace context
         const userWorkspaces = await ctx.db.workspaceUser.findMany({
           where: { userId: ctx.session.user.id },
@@ -51,6 +58,7 @@ export const tagRouter = createTRPCRouter({
           workspaceTags = await ctx.db.tag.findMany({
             where: {
               workspaceId: { in: userWorkspaces.map((w) => w.workspaceId) },
+              ...categoryFilter,
             },
             include: {
               createdBy: {
@@ -99,6 +107,7 @@ export const tagRouter = createTRPCRouter({
         name: z.string().min(1).max(50),
         color: tagColorSchema,
         description: z.string().max(200).optional(),
+        category: z.string().max(50).optional(),
         workspaceId: z.string(), // Required - users create workspace-specific tags
       })
     )
@@ -147,6 +156,7 @@ export const tagRouter = createTRPCRouter({
           slug,
           color: input.color,
           description: input.description,
+          category: input.category ?? null,
           workspaceId: input.workspaceId,
           createdById: ctx.session.user.id,
           isSystem: false,
@@ -162,6 +172,7 @@ export const tagRouter = createTRPCRouter({
         name: z.string().min(1).max(50).optional(),
         color: tagColorSchema.optional(),
         description: z.string().max(200).optional(),
+        category: z.string().max(50).nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -234,6 +245,7 @@ export const tagRouter = createTRPCRouter({
           slug: input.name ? slug : undefined,
           color: input.color,
           description: input.description,
+          ...(input.category !== undefined ? { category: input.category } : {}),
         },
       });
     }),
@@ -495,6 +507,95 @@ export const tagRouter = createTRPCRouter({
           },
         },
         orderBy: { dueDate: "asc" },
+      });
+    }),
+
+  // Set tags for a ticket (replace all)
+  setTicketTags: protectedProcedure
+    .input(
+      z.object({
+        ticketId: z.string(),
+        tagIds: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const ticket = await ctx.db.ticket.findUnique({
+        where: { id: input.ticketId },
+        select: { id: true, product: { select: { workspaceId: true } } },
+      });
+      if (!ticket) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+      }
+      // Verify workspace membership
+      const membership = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: ticket.product.workspaceId,
+          },
+        },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
+      }
+
+      await ctx.db.$transaction([
+        ctx.db.ticketTag.deleteMany({ where: { ticketId: input.ticketId } }),
+        ctx.db.ticketTag.createMany({
+          data: input.tagIds.map((tagId) => ({
+            ticketId: input.ticketId,
+            tagId,
+          })),
+        }),
+      ]);
+
+      return ctx.db.ticket.findUnique({
+        where: { id: input.ticketId },
+        include: { tags: { include: { tag: true } } },
+      });
+    }),
+
+  // Set tags for a feature (replace all)
+  setFeatureTags: protectedProcedure
+    .input(
+      z.object({
+        featureId: z.string(),
+        tagIds: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const feature = await ctx.db.feature.findUnique({
+        where: { id: input.featureId },
+        select: { id: true, product: { select: { workspaceId: true } } },
+      });
+      if (!feature) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
+      }
+      const membership = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: feature.product.workspaceId,
+          },
+        },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
+      }
+
+      await ctx.db.$transaction([
+        ctx.db.featureTag.deleteMany({ where: { featureId: input.featureId } }),
+        ctx.db.featureTag.createMany({
+          data: input.tagIds.map((tagId) => ({
+            featureId: input.featureId,
+            tagId,
+          })),
+        }),
+      ]);
+
+      return ctx.db.feature.findUnique({
+        where: { id: input.featureId },
+        include: { tags: { include: { tag: true } } },
       });
     }),
 });
