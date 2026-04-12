@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ActionIcon,
@@ -20,6 +20,8 @@ import {
 } from "@mantine/core";
 import {
   IconAdjustments,
+  IconChevronDown,
+  IconChevronRight,
   IconFilter,
   IconLayoutColumns,
   IconLayoutList,
@@ -211,6 +213,16 @@ export default function TicketsBacklogPage() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [view, setView] = useState("table");
   const [groupBy, setGroupBy] = useState<GroupByField>("none");
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const toggleCollapsed = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
@@ -282,22 +294,57 @@ export default function TicketsBacklogPage() {
     return list;
   }, [tickets, search, sortField, sortDir]);
 
-  // Group
-  const groups = useMemo(() => {
-    if (groupBy === "none") return [{ key: "all", label: "", items: sorted }];
-    const map = new Map<string, typeof sorted>();
+  // Split completed tickets (DONE/CANCELLED) from active
+  const { active: activeTickets, completed: completedTickets } = useMemo(() => {
+    const active: typeof sorted = [];
+    const completed: typeof sorted = [];
     for (const t of sorted) {
+      if (t.status === "DONE" || t.status === "CANCELLED") {
+        completed.push(t);
+      } else {
+        active.push(t);
+      }
+    }
+    return { active, completed };
+  }, [sorted]);
+
+  // Group active tickets
+  const groups = useMemo(() => {
+    if (groupBy === "none") return [{ key: "all", label: "", items: activeTickets }];
+    const map = new Map<string, typeof activeTickets>();
+    for (const t of activeTickets) {
       const k = groupKey(t as unknown as Record<string, unknown>, groupBy);
       const arr = map.get(k);
       if (arr) arr.push(t);
       else map.set(k, [t]);
     }
-    return Array.from(map.entries()).map(([key, items]) => ({
+    const result = Array.from(map.entries()).map(([key, items]) => ({
       key,
       label: groupLabel(key, groupBy),
       items,
     }));
-  }, [sorted, groupBy]);
+
+    // Smart cycle ordering: ACTIVE first, then PLANNED by startDate, then "No cycle"
+    if (groupBy === "cycle") {
+      const cycleStatusOrder: Record<string, number> = { ACTIVE: 0, PLANNED: 1, COMPLETED: 2, ARCHIVED: 3 };
+      result.sort((a, b) => {
+        if (a.key === "No cycle") return 1;
+        if (b.key === "No cycle") return -1;
+        // Find cycle data from any ticket in the group
+        const aCycle = a.items[0]?.cycle;
+        const bCycle = b.items[0]?.cycle;
+        const aStatus = cycleStatusOrder[aCycle?.status ?? ""] ?? 99;
+        const bStatus = cycleStatusOrder[bCycle?.status ?? ""] ?? 99;
+        if (aStatus !== bStatus) return aStatus - bStatus;
+        // Same status: sort by startDate ascending
+        const aStart = aCycle?.startDate ? new Date(aCycle.startDate).getTime() : Infinity;
+        const bStart = bCycle?.startDate ? new Date(bCycle.startDate).getTime() : Infinity;
+        return aStart - bStart;
+      });
+    }
+
+    return result;
+  }, [activeTickets, groupBy]);
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
@@ -309,16 +356,16 @@ export default function TicketsBacklogPage() {
       className="cursor-pointer hover:bg-surface-hover transition-colors"
       onClick={() => router.push(`${basePath}/${ticket.id}`)}
     >
+      <Table.Td style={{ width: 120 }}>
+        <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
+          {ticket.shortId ?? (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
+        </Text>
+      </Table.Td>
       <Table.Td style={{ width: 110 }}>
         <StatusCell
           status={ticket.status}
           onUpdate={(s) => handleStatusChange(ticket.id, s)}
         />
-      </Table.Td>
-      <Table.Td style={{ width: 120 }}>
-        <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
-          {ticket.shortId ?? (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
-        </Text>
       </Table.Td>
       <Table.Td>
         <Text size="sm" className="text-text-primary" lineClamp={1}>{ticket.title}</Text>
@@ -453,7 +500,7 @@ export default function TicketsBacklogPage() {
         <Stack gap="xs">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={36} />)}
         </Stack>
-      ) : sorted.length > 0 ? (
+      ) : (activeTickets.length > 0 || completedTickets.length > 0) ? (
         <div className="border border-border-primary rounded-lg overflow-hidden">
           <Table
             highlightOnHover
@@ -468,10 +515,10 @@ export default function TicketsBacklogPage() {
           >
             <Table.Thead>
               <Table.Tr>
-                <SortHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <Table.Th style={{ width: 120 }}>
                   <span className="text-text-muted">ID</span>
                 </Table.Th>
+                <SortHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="Title" field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="Priority" field="priority" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="DRI" field="assignee" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
@@ -485,23 +532,62 @@ export default function TicketsBacklogPage() {
                 groupBy === "none" ? (
                   group.items.map(renderRow)
                 ) : (
-                  <>{/* Group header + rows */}
-                    <Table.Tr key={`group-${group.key}`}>
+                  <React.Fragment key={`group-${group.key}`}>
+                    <Table.Tr
+                      className="cursor-pointer select-none"
+                      onClick={() => toggleCollapsed(group.key)}
+                    >
                       <Table.Td
                         colSpan={8}
                         className="bg-surface-secondary/50"
-                        style={{ paddingTop: 8, paddingBottom: 8 }}
+                        style={{ paddingTop: 6, paddingBottom: 6 }}
                       >
-                        <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
-                          {group.label}
-                          <Badge size="xs" variant="light" ml="xs">{group.items.length}</Badge>
-                        </Text>
+                        <div className="flex items-center gap-1.5">
+                          {collapsed.has(group.key) ? (
+                            <IconChevronRight size={14} className="text-text-muted" />
+                          ) : (
+                            <IconChevronDown size={14} className="text-text-muted" />
+                          )}
+                          <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
+                            {group.label}
+                          </Text>
+                          <Badge size="xs" variant="light">{group.items.length}</Badge>
+                        </div>
                       </Table.Td>
                     </Table.Tr>
-                    {group.items.map(renderRow)}
-                  </>
+                    {!collapsed.has(group.key) && group.items.map(renderRow)}
+                  </React.Fragment>
                 )
               ))}
+
+              {/* Completed section */}
+              {completedTickets.length > 0 && (
+                <>
+                  <Table.Tr
+                    className="cursor-pointer select-none"
+                    onClick={() => toggleCollapsed("__completed")}
+                  >
+                    <Table.Td
+                      colSpan={8}
+                      className="bg-surface-secondary/50"
+                      style={{ paddingTop: 6, paddingBottom: 6 }}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {collapsed.has("__completed") ? (
+                          <IconChevronRight size={14} className="text-text-muted" />
+                        ) : (
+                          <IconChevronDown size={14} className="text-text-muted" />
+                        )}
+                        <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
+                          Completed
+                        </Text>
+                        <Badge size="xs" variant="light">{completedTickets.length}</Badge>
+                      </div>
+                    </Table.Td>
+                  </Table.Tr>
+                  {!collapsed.has("__completed") && completedTickets.map(renderRow)}
+                </>
+              )}
             </Table.Tbody>
           </Table>
         </div>

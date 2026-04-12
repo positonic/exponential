@@ -98,7 +98,7 @@ export const ticketRouter = createTRPCRouter({
           assignee: { select: { id: true, name: true, image: true } },
           feature: { select: { id: true, name: true } },
           epic: { select: { id: true, name: true } },
-          cycle: { select: { id: true, name: true } },
+          cycle: { select: { id: true, name: true, status: true, startDate: true, endDate: true } },
           tags: { include: { tag: true } },
           _count: { select: { actions: true, comments: true } },
         },
