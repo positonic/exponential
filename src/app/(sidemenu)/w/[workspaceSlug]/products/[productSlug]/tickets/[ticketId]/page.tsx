@@ -9,17 +9,18 @@ import {
   Avatar,
   Badge,
   Button,
-  Chip,
+  CheckIcon,
+  Combobox,
   Group,
   Menu,
   NumberInput,
-  Popover,
-  ScrollArea,
   Select,
   Skeleton,
   Stack,
   Text,
   Textarea,
+  TextInput,
+  useCombobox,
 } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import {
@@ -51,6 +52,7 @@ import {
 } from "~/app/_components/PropertiesSidebar";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TagBadge } from "~/app/_components/TagBadge";
+import { getTagMantineColor } from "~/utils/tagColors";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -132,6 +134,176 @@ function getDisplayId(ticket: {
 }
 
 // ---------------------------------------------------------------------------
+// Combobox: Epic (single-select with create)
+// ---------------------------------------------------------------------------
+
+function EpicCombobox({
+  value,
+  epics,
+  onChange,
+  onCreate,
+}: {
+  value: string | null;
+  epics: Array<{ id: string; name: string }>;
+  onChange: (val: string | null) => void;
+  onCreate: (name: string) => void;
+}) {
+  const combobox = useCombobox({ onDropdownClose: () => { combobox.resetSelectedOption(); setSearch(""); } });
+  const [search, setSearch] = useState("");
+
+  const selected = epics.find((e) => e.id === value);
+  const filtered = epics.filter((e) => e.name.toLowerCase().includes(search.toLowerCase().trim()));
+  const exactMatch = epics.some((e) => e.name.toLowerCase() === search.toLowerCase().trim());
+
+  return (
+    <Combobox store={combobox} onOptionSubmit={(val) => {
+      if (val === "__create") {
+        onCreate(search.trim());
+      } else if (val === "__clear") {
+        onChange(null);
+      } else {
+        onChange(val);
+      }
+      combobox.closeDropdown();
+    }}>
+      <Combobox.Target>
+        <TextInput
+          value={combobox.dropdownOpened ? search : (selected?.name ?? "")}
+          onChange={(e) => { setSearch(e.currentTarget.value); combobox.openDropdown(); combobox.updateSelectedOptionIndex(); }}
+          onClick={() => combobox.toggleDropdown()}
+          onFocus={() => { combobox.openDropdown(); setSearch(""); }}
+          onBlur={() => combobox.closeDropdown()}
+          placeholder="None"
+          size="xs"
+          variant="unstyled"
+          classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+          styles={{ input: { height: 24, minHeight: 24 } }}
+        />
+      </Combobox.Target>
+      <Combobox.Dropdown>
+        <Combobox.Options>
+          {value && (
+            <Combobox.Option value="__clear" className="text-text-muted">
+              <Text size="xs">Clear</Text>
+            </Combobox.Option>
+          )}
+          {filtered.map((e) => (
+            <Combobox.Option key={e.id} value={e.id} active={e.id === value}>
+              <div className="flex items-center gap-2">
+                {e.id === value && <CheckIcon size={12} />}
+                <Text size="xs">{e.name}</Text>
+              </div>
+            </Combobox.Option>
+          ))}
+          {search.trim() && !exactMatch && (
+            <Combobox.Option value="__create">
+              <Text size="xs" className="text-blue-400">+ Create &quot;{search.trim()}&quot;</Text>
+            </Combobox.Option>
+          )}
+          {!search.trim() && filtered.length === 0 && (
+            <Combobox.Empty>
+              <Text size="xs" className="text-text-muted">No epics</Text>
+            </Combobox.Empty>
+          )}
+        </Combobox.Options>
+      </Combobox.Dropdown>
+    </Combobox>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Combobox: Labels (multi-select with create)
+// ---------------------------------------------------------------------------
+
+function LabelsCombobox({
+  selectedIds,
+  allTags,
+  ticketTags,
+  onChange,
+  onCreate,
+}: {
+  selectedIds: string[];
+  allTags: Array<{ id: string; name: string; color: string }>;
+  ticketTags: Array<{ tag: { id: string; name: string; color: string } }>;
+  onChange: (tagIds: string[]) => void;
+  onCreate: (name: string) => void;
+}) {
+  const combobox = useCombobox({ onDropdownClose: () => { combobox.resetSelectedOption(); setSearch(""); } });
+  const [search, setSearch] = useState("");
+
+  const filtered = allTags.filter((t) => t.name.toLowerCase().includes(search.toLowerCase().trim()));
+  const exactMatch = allTags.some((t) => t.name.toLowerCase() === search.toLowerCase().trim());
+
+  const toggleTag = (tagId: string) => {
+    if (selectedIds.includes(tagId)) {
+      onChange(selectedIds.filter((id) => id !== tagId));
+    } else {
+      onChange([...selectedIds, tagId]);
+    }
+  };
+
+  return (
+    <Combobox store={combobox} onOptionSubmit={(val) => {
+      if (val === "__create") {
+        onCreate(search.trim());
+        combobox.closeDropdown();
+      } else {
+        toggleTag(val);
+        // Keep dropdown open for multi-select
+      }
+    }}>
+      <Combobox.Target>
+        <div
+          className="cursor-pointer min-h-[24px] flex items-center"
+          onClick={() => combobox.toggleDropdown()}
+        >
+          {ticketTags.length > 0 ? (
+            <Group gap={4}>
+              {ticketTags.map((t) => (
+                <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
+              ))}
+            </Group>
+          ) : (
+            <Text size="xs" className="text-text-muted">None</Text>
+          )}
+        </div>
+      </Combobox.Target>
+      <Combobox.Dropdown>
+        <Combobox.Search
+          value={search}
+          onChange={(e) => { setSearch(e.currentTarget.value); combobox.updateSelectedOptionIndex(); }}
+          placeholder="Search or create..."
+          size="xs"
+        />
+        <Combobox.Options>
+          {filtered.map((tag) => {
+            const isSelected = selectedIds.includes(tag.id);
+            return (
+              <Combobox.Option key={tag.id} value={tag.id} active={isSelected}>
+                <div className="flex items-center gap-2">
+                  {isSelected && <CheckIcon size={12} />}
+                  <Badge size="xs" variant="light" color={getTagMantineColor(tag.color)}>{tag.name}</Badge>
+                </div>
+              </Combobox.Option>
+            );
+          })}
+          {search.trim() && !exactMatch && (
+            <Combobox.Option value="__create">
+              <Text size="xs" className="text-blue-400">+ Create &quot;{search.trim()}&quot;</Text>
+            </Combobox.Option>
+          )}
+          {!search.trim() && filtered.length === 0 && (
+            <Combobox.Empty>
+              <Text size="xs" className="text-text-muted">No labels</Text>
+            </Combobox.Empty>
+          )}
+        </Combobox.Options>
+      </Combobox.Dropdown>
+    </Combobox>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -169,6 +341,20 @@ export default function TicketDetailPage() {
   const setTicketTags = api.tag.setTicketTags.useMutation({
     onSuccess: async () => {
       await utils.product.ticket.getById.invalidate({ id: ticketId });
+    },
+  });
+  const createTag = api.tag.create.useMutation({
+    onSuccess: async (newTag) => {
+      await utils.tag.list.invalidate();
+      // Auto-add new tag to this ticket
+      const currentIds = ticket?.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? [];
+      setTicketTags.mutate({ ticketId, tagIds: [...currentIds, newTag.id] });
+    },
+  });
+  const createEpic = api.epic.create.useMutation({
+    onSuccess: async (newEpic) => {
+      await utils.epic.list.invalidate();
+      handleFieldUpdate("epicId", newEpic.id);
     },
   });
 
@@ -538,16 +724,13 @@ export default function TicketDetailPage() {
 
         {/* Epic */}
         <PropertyRow icon={<IconFlag size={14} />} label="Epic">
-          <Select
+          <EpicCombobox
             value={ticket.epicId ?? null}
+            epics={epics ?? []}
             onChange={(val) => handleFieldUpdate("epicId", val)}
-            data={(epics ?? []).map((e) => ({ value: e.id, label: e.name }))}
-            size="xs"
-            variant="unstyled"
-            clearable
-            placeholder="None"
-            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
-            styles={{ input: { height: 24, minHeight: 24 } }}
+            onCreate={(name) => {
+              if (workspaceId) createEpic.mutate({ workspaceId, name });
+            }}
           />
         </PropertyRow>
 
@@ -568,39 +751,15 @@ export default function TicketDetailPage() {
 
         {/* Tags / Labels */}
         <PropertyRow icon={<IconTag size={14} />} label="Labels">
-          <Popover position="bottom-start" withinPortal width={240}>
-            <Popover.Target>
-              <div className="cursor-pointer min-h-[24px] flex items-center">
-                {ticket.tags && ticket.tags.length > 0 ? (
-                  <Group gap={4}>
-                    {ticket.tags.map((t: { tag: { id: string; name: string; color: string } }) => (
-                      <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
-                    ))}
-                  </Group>
-                ) : (
-                  <Text size="xs" className="text-text-muted">None</Text>
-                )}
-              </div>
-            </Popover.Target>
-            <Popover.Dropdown>
-              <Text size="xs" fw={500} mb="xs">Select labels</Text>
-              <ScrollArea.Autosize mah={200}>
-                <Chip.Group
-                  multiple
-                  value={ticket.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? []}
-                  onChange={(tagIds: string[]) => setTicketTags.mutate({ ticketId, tagIds })}
-                >
-                  <Group gap="xs">
-                    {(tags?.allTags ?? []).map((tag) => (
-                      <Chip key={tag.id} value={tag.id} size="xs" variant="light">
-                        {tag.name}
-                      </Chip>
-                    ))}
-                  </Group>
-                </Chip.Group>
-              </ScrollArea.Autosize>
-            </Popover.Dropdown>
-          </Popover>
+          <LabelsCombobox
+            selectedIds={ticket.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? []}
+            allTags={tags?.allTags ?? []}
+            ticketTags={ticket.tags ?? []}
+            onChange={(tagIds) => setTicketTags.mutate({ ticketId, tagIds })}
+            onCreate={(name) => {
+              if (workspaceId) createTag.mutate({ name, color: "avatar-blue", workspaceId });
+            }}
+          />
         </PropertyRow>
 
         {/* Links */}
