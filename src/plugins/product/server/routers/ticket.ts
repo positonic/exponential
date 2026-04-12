@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
 import type { PrismaClient } from "@prisma/client";
+import { generateFunId } from "~/lib/fun-ids";
 
 const ticketTypeEnum = z.enum([
   "BUG",
@@ -192,9 +193,30 @@ export const ticketRouter = createTRPCRouter({
         }
       }
 
+      // Increment product ticket counter atomically and generate IDs
+      const updated = await ctx.db.product.update({
+        where: { id: input.productId },
+        data: { ticketCounter: { increment: 1 } },
+        select: { ticketCounter: true, funTicketIds: true },
+      });
+      const ticketNumber = updated.ticketCounter;
+
+      // Generate fun ID if enabled
+      let shortId: string | null = null;
+      if (updated.funTicketIds) {
+        const existing = await ctx.db.ticket.findMany({
+          where: { productId: input.productId },
+          select: { shortId: true },
+        });
+        const existingIds = new Set(existing.map((t) => t.shortId).filter(Boolean) as string[]);
+        shortId = generateFunId(existingIds);
+      }
+
       return ctx.db.ticket.create({
         data: {
           productId: input.productId,
+          number: ticketNumber,
+          shortId,
           title: input.title,
           body,
           type: input.type ?? "FEATURE",

@@ -3177,16 +3177,18 @@ model DealActivity {
 // ============================================
 
 model Product {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String
-  description String?
-  icon        String?
-  color       String?
-  workspaceId String
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  name           String
+  slug           String
+  description    String?
+  icon           String?
+  color          String?
+  funTicketIds   Boolean  @default(true)
+  ticketCounter  Int      @default(0)
+  workspaceId    String
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy       User             @relation("ProductCreatedBy", fields: [createdById], references: [id])
@@ -3375,6 +3377,8 @@ enum TicketStatus {
 model Ticket {
   id          String       @id @default(cuid())
   productId   String
+  number      Int          @default(0)
+  shortId     String?
   title       String
   body        String?
   type        TicketType   @default(FEATURE)
@@ -3424,6 +3428,8 @@ model Ticket {
   @@index([scopeId])
   @@index([assigneeId])
   @@index([createdById])
+  @@unique([productId, number])
+  @@unique([productId, shortId])
   @@index([status])
   @@index([type])
 }

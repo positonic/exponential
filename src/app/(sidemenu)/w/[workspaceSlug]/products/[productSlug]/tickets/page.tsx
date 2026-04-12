@@ -34,6 +34,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { EmptyState } from "~/app/_components/EmptyState";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
+import { generateLinearId } from "~/lib/fun-ids";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -314,6 +315,11 @@ export default function TicketsBacklogPage() {
           onUpdate={(s) => handleStatusChange(ticket.id, s)}
         />
       </Table.Td>
+      <Table.Td style={{ width: 120 }}>
+        <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
+          {ticket.shortId ?? (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
+        </Text>
+      </Table.Td>
       <Table.Td>
         <Text size="sm" className="text-text-primary" lineClamp={1}>{ticket.title}</Text>
       </Table.Td>
@@ -463,6 +469,9 @@ export default function TicketsBacklogPage() {
             <Table.Thead>
               <Table.Tr>
                 <SortHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                <Table.Th style={{ width: 120 }}>
+                  <span className="text-text-muted">ID</span>
+                </Table.Th>
                 <SortHeader label="Title" field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="Priority" field="priority" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="DRI" field="assignee" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
@@ -479,7 +488,7 @@ export default function TicketsBacklogPage() {
                   <>{/* Group header + rows */}
                     <Table.Tr key={`group-${group.key}`}>
                       <Table.Td
-                        colSpan={7}
+                        colSpan={8}
                         className="bg-surface-secondary/50"
                         style={{ paddingTop: 8, paddingBottom: 8 }}
                       >

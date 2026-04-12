@@ -429,6 +429,7 @@ export default function ProductSettingsPage() {
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [funTicketIds, setFunTicketIds] = useState(true);
   const [enableCycles, setEnableCycles] = useState(true);
   const [autoCreateLookahead, setAutoCreateLookahead] = useState("2");
   const [cycleDuration, setCycleDuration] = useState("2");
@@ -439,6 +440,7 @@ export default function ProductSettingsPage() {
     if (product) {
       setName(product.name);
       setDescription(product.description ?? "");
+      setFunTicketIds(product.funTicketIds);
     }
   }, [product]);
 
@@ -475,6 +477,7 @@ export default function ProductSettingsPage() {
       id: product.id,
       name: name.trim(),
       description: description.trim() || undefined,
+      funTicketIds,
     });
   };
 
@@ -525,6 +528,16 @@ export default function ProductSettingsPage() {
               size="xs"
               maxLength={120}
               styles={{ input: { width: 200, textAlign: "right" } }}
+            />
+          </SettingRow>
+          <SettingRow
+            label="Fun ticket IDs"
+            description="Use memorable word pairs (e.g. swift.falcon) instead of sequential IDs."
+          >
+            <Switch
+              checked={funTicketIds}
+              onChange={(e) => setFunTicketIds(e.currentTarget.checked)}
+              size="sm"
             />
           </SettingRow>
           <SettingRow
