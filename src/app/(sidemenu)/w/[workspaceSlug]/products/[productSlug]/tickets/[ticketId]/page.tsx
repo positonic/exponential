@@ -9,8 +9,12 @@ import {
   Avatar,
   Badge,
   Button,
+  Chip,
   Group,
   Menu,
+  NumberInput,
+  Popover,
+  ScrollArea,
   Select,
   Skeleton,
   Stack,
@@ -136,13 +140,37 @@ export default function TicketDetailPage() {
   const params = useParams();
   const ticketId = params.ticketId as string;
   const productSlug = params.productSlug as string;
-  const { workspace } = useWorkspace();
+  const { workspace, workspaceId } = useWorkspace();
   const utils = api.useUtils();
 
   const { data: ticket, isLoading } = api.product.ticket.getById.useQuery(
     { id: ticketId },
     { enabled: !!ticketId },
   );
+
+  // Data for selectors
+  const members = workspace?.members ?? [];
+  const { data: cycles } = api.product.cycle.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+  const { data: epics } = api.epic.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+  const { data: features } = api.product.feature.list.useQuery(
+    { productId: ticket?.product.id ?? "" },
+    { enabled: !!ticket?.product.id },
+  );
+  const { data: tags } = api.tag.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+  const setTicketTags = api.tag.setTicketTags.useMutation({
+    onSuccess: async () => {
+      await utils.product.ticket.getById.invalidate({ id: ticketId });
+    },
+  });
 
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<TicketStatus | null>(null);
@@ -462,72 +490,117 @@ export default function TicketDetailPage() {
 
         {/* Assignee */}
         <PropertyRow icon={<IconUser size={14} />} label="Assignee">
-          {ticket.assignee ? (
-            <Group gap="xs">
-              <Avatar size={18} radius="xl" src={ticket.assignee.image}>
-                {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
-              </Avatar>
-              <Text size="xs" className="text-text-primary">
-                {ticket.assignee.name}
-              </Text>
-            </Group>
-          ) : (
-            <Text size="xs" className="text-text-muted">None</Text>
-          )}
+          <Select
+            value={ticket.assigneeId ?? null}
+            onChange={(val) => handleFieldUpdate("assigneeId", val)}
+            data={members.map((m) => ({ value: m.user.id, label: m.user.name ?? m.user.email ?? "Unknown" }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            placeholder="None"
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
         </PropertyRow>
 
         {/* Points */}
         <PropertyRow icon={<IconFlame size={14} />} label="Effort">
-          <Text size="xs" className="text-text-primary">
-            {ticket.points != null ? `${ticket.points} pts` : "None"}
-          </Text>
+          <NumberInput
+            value={ticket.points ?? ""}
+            onChange={(val) => handleFieldUpdate("points", val === "" ? null : Number(val))}
+            size="xs"
+            variant="unstyled"
+            placeholder="None"
+            min={0}
+            max={100}
+            suffix=" pts"
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24, width: 80 } }}
+          />
         </PropertyRow>
 
         <PropertyDivider />
 
         {/* Feature */}
         <PropertyRow icon={<IconFolder size={14} />} label="Feature">
-          {ticket.feature ? (
-            <Link
-              href={`/w/${workspace?.slug}/products/${productSlug}/features/${ticket.feature.id}`}
-              className="text-xs text-blue-400 hover:underline"
-            >
-              {ticket.feature.name}
-            </Link>
-          ) : (
-            <Text size="xs" className="text-text-muted">None</Text>
-          )}
+          <Select
+            value={ticket.featureId ?? null}
+            onChange={(val) => handleFieldUpdate("featureId", val)}
+            data={(features ?? []).map((f) => ({ value: f.id, label: f.name }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            placeholder="None"
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
         </PropertyRow>
 
         {/* Epic */}
         <PropertyRow icon={<IconFlag size={14} />} label="Epic">
-          {ticket.epic ? (
-            <Text size="xs" className="text-text-primary">{ticket.epic.name}</Text>
-          ) : (
-            <Text size="xs" className="text-text-muted">None</Text>
-          )}
+          <Select
+            value={ticket.epicId ?? null}
+            onChange={(val) => handleFieldUpdate("epicId", val)}
+            data={(epics ?? []).map((e) => ({ value: e.id, label: e.name }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            placeholder="None"
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
         </PropertyRow>
 
         {/* Cycle */}
         <PropertyRow icon={<IconClock size={14} />} label="Cycle">
-          {ticket.cycle ? (
-            <Text size="xs" className="text-text-primary">{ticket.cycle.name}</Text>
-          ) : (
-            <Text size="xs" className="text-text-muted">None</Text>
-          )}
+          <Select
+            value={ticket.cycleId ?? null}
+            onChange={(val) => handleFieldUpdate("cycleId", val)}
+            data={(cycles ?? []).map((c) => ({ value: c.id, label: c.name }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            placeholder="None"
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
         </PropertyRow>
 
-        {/* Tags */}
+        {/* Tags / Labels */}
         <PropertyRow icon={<IconTag size={14} />} label="Labels">
-          {ticket.tags && ticket.tags.length > 0 ? (
-            <Group gap={4}>
-              {ticket.tags.map((t: { tag: { id: string; name: string; color: string } }) => (
-                <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
-              ))}
-            </Group>
-          ) : (
-            <Text size="xs" className="text-text-muted">None</Text>
-          )}
+          <Popover position="bottom-start" withinPortal width={240}>
+            <Popover.Target>
+              <div className="cursor-pointer min-h-[24px] flex items-center">
+                {ticket.tags && ticket.tags.length > 0 ? (
+                  <Group gap={4}>
+                    {ticket.tags.map((t: { tag: { id: string; name: string; color: string } }) => (
+                      <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
+                    ))}
+                  </Group>
+                ) : (
+                  <Text size="xs" className="text-text-muted">None</Text>
+                )}
+              </div>
+            </Popover.Target>
+            <Popover.Dropdown>
+              <Text size="xs" fw={500} mb="xs">Select labels</Text>
+              <ScrollArea.Autosize mah={200}>
+                <Chip.Group
+                  multiple
+                  value={ticket.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? []}
+                  onChange={(tagIds: string[]) => setTicketTags.mutate({ ticketId, tagIds })}
+                >
+                  <Group gap="xs">
+                    {(tags?.allTags ?? []).map((tag) => (
+                      <Chip key={tag.id} value={tag.id} size="xs" variant="light">
+                        {tag.name}
+                      </Chip>
+                    ))}
+                  </Group>
+                </Chip.Group>
+              </ScrollArea.Autosize>
+            </Popover.Dropdown>
+          </Popover>
         </PropertyRow>
 
         {/* Links */}
