@@ -37,6 +37,7 @@ import { api } from "~/trpc/react";
 import { EmptyState } from "~/app/_components/EmptyState";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
+import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -501,6 +502,13 @@ export default function TicketsBacklogPage() {
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={36} />)}
         </Stack>
       ) : (activeTickets.length > 0 || completedTickets.length > 0) ? (
+        view === "board" ? (
+          <TicketKanbanBoard
+            tickets={sorted as Array<{ id: string; shortId: string | null; title: string; status: "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED"; priority: number | null; type: string; assignee: { id: string; name: string | null; image: string | null } | null; feature: { id: string; name: string } | null; epic: { id: string; name: string } | null }>}
+            productId={product?.id ?? ""}
+            basePath={basePath}
+          />
+        ) : (
         <div className="border border-border-primary rounded-lg overflow-hidden">
           <Table
             highlightOnHover
@@ -591,6 +599,7 @@ export default function TicketsBacklogPage() {
             </Table.Tbody>
           </Table>
         </div>
+        )
       ) : tickets && tickets.length > 0 ? (
         <Text size="sm" className="text-text-muted py-8 text-center">
           No tickets match your search.
