@@ -30,6 +30,7 @@ import TipTapLink from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import DOMPurify from "dompurify";
 import { api } from "~/trpc/react";
+import { STATUS_OPTIONS, type TicketStatus } from "~/lib/ticket-statuses";
 import "@mantine/tiptap/styles.css";
 
 // ---------------------------------------------------------------------------
@@ -45,13 +46,6 @@ const TYPE_OPTIONS = [
   { value: "RESEARCH", label: "Research" },
 ];
 
-const STATUS_OPTIONS = [
-  { value: "BACKLOG", label: "Backlog" },
-  { value: "TODO", label: "Todo" },
-  { value: "IN_PROGRESS", label: "In progress" },
-  { value: "IN_REVIEW", label: "In review" },
-  { value: "DONE", label: "Done" },
-];
 
 const PRIORITY_OPTIONS = [
   { value: "0", label: "Urgent" },
@@ -62,7 +56,6 @@ const PRIORITY_OPTIONS = [
 ];
 
 type TicketType = "BUG" | "FEATURE" | "CHORE" | "IMPROVEMENT" | "SPIKE" | "RESEARCH";
-type TicketStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
 
 const ALLOWED_TAGS = [
   "p", "br", "strong", "em", "u", "s", "a",
@@ -319,7 +312,7 @@ export function CreateTicketModal({
           {/* Status */}
           <Pill icon={<IconCircleDot size={14} />} label={statusLabel}>
             {STATUS_OPTIONS.map((o) => (
-              <Menu.Item key={o.value} onClick={() => setStatus(o.value as TicketStatus)}>
+              <Menu.Item key={o.value} onClick={() => setStatus(o.value)}>
                 {o.label}
               </Menu.Item>
             ))}

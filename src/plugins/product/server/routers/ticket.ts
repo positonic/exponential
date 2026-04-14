@@ -16,11 +16,14 @@ const ticketTypeEnum = z.enum([
 
 const ticketStatusEnum = z.enum([
   "BACKLOG",
-  "TODO",
+  "NEEDS_REFINEMENT",
+  "READY_TO_PLAN",
+  "COMMITTED",
   "IN_PROGRESS",
-  "IN_REVIEW",
+  "QA",
   "DONE",
-  "CANCELLED",
+  "DEPLOYED",
+  "ARCHIVED",
 ]);
 
 async function loadTicketWithAccess(

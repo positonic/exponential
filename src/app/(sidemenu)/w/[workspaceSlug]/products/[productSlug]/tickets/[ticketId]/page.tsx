@@ -51,30 +51,17 @@ import {
 } from "~/app/_components/PropertiesSidebar";
 import { generateLinearId } from "~/lib/fun-ids";
 import { getEffortOptions } from "~/lib/estimation";
+import {
+  STATUS_OPTIONS,
+  STATUS_COLORS,
+  type TicketStatus,
+} from "~/lib/ticket-statuses";
 import { TagBadge } from "~/app/_components/TagBadge";
 import { getTagMantineColor } from "~/utils/tagColors";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const STATUS_OPTIONS = [
-  { value: "BACKLOG", label: "Backlog" },
-  { value: "TODO", label: "To do" },
-  { value: "IN_PROGRESS", label: "In progress" },
-  { value: "IN_REVIEW", label: "In review" },
-  { value: "DONE", label: "Done" },
-  { value: "CANCELLED", label: "Cancelled" },
-];
-
-const STATUS_COLORS: Record<string, string> = {
-  BACKLOG: "gray",
-  TODO: "gray",
-  IN_PROGRESS: "yellow",
-  IN_REVIEW: "blue",
-  DONE: "green",
-  CANCELLED: "dark",
-};
 
 const PRIORITY_OPTIONS = [
   { value: "0", label: "Urgent" },
@@ -110,14 +97,6 @@ const TYPE_COLORS: Record<string, string> = {
   SPIKE: "violet",
   RESEARCH: "yellow",
 };
-
-type TicketStatus =
-  | "BACKLOG"
-  | "TODO"
-  | "IN_PROGRESS"
-  | "IN_REVIEW"
-  | "DONE"
-  | "CANCELLED";
 
 // ---------------------------------------------------------------------------
 // Helpers

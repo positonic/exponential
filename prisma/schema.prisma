@@ -3368,11 +3368,14 @@ enum TicketType {
 
 enum TicketStatus {
   BACKLOG
-  TODO
+  NEEDS_REFINEMENT
+  READY_TO_PLAN
+  COMMITTED
   IN_PROGRESS
-  IN_REVIEW
+  QA
   DONE
-  CANCELLED
+  DEPLOYED
+  ARCHIVED
 }
 
 model Ticket {

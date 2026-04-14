@@ -16,12 +16,11 @@ import { CSS } from "@dnd-kit/utilities";
 import { Badge, Card, Group, Paper, Stack, Text } from "@mantine/core";
 import { useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
+import { BOARD_COLUMNS, type TicketStatus } from "~/lib/ticket-statuses";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type TicketStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
 
 interface TicketItem {
   id: string;
@@ -34,15 +33,6 @@ interface TicketItem {
   feature: { id: string; name: string } | null;
   epic: { id: string; name: string } | null;
 }
-
-const COLUMNS: Array<{ status: TicketStatus; label: string; color: string }> = [
-  { status: "BACKLOG", label: "Backlog", color: "gray" },
-  { status: "TODO", label: "To do", color: "blue" },
-  { status: "IN_PROGRESS", label: "In progress", color: "yellow" },
-  { status: "IN_REVIEW", label: "In review", color: "orange" },
-  { status: "DONE", label: "Done", color: "green" },
-  { status: "CANCELLED", label: "Cancelled", color: "red" },
-];
 
 const PRIORITY_LABELS: Record<number, string> = { 0: "Urgent", 1: "High", 2: "Medium", 3: "Low", 4: "None" };
 const PRIORITY_COLORS: Record<number, string> = { 0: "red", 1: "orange", 2: "yellow", 3: "blue", 4: "gray" };
@@ -182,7 +172,7 @@ export function TicketKanbanBoard({ tickets, productId, basePath }: TicketKanban
 
   const columnTickets = useMemo(() => {
     const map: Record<string, TicketItem[]> = {};
-    for (const col of COLUMNS) map[col.status] = [];
+    for (const col of BOARD_COLUMNS) map[col.status] = [];
     for (const t of effectiveTickets) {
       (map[t.status] ??= []).push(t);
     }
@@ -201,7 +191,7 @@ export function TicketKanbanBoard({ tickets, productId, basePath }: TicketKanban
     if (!over) return;
 
     const ticketId = active.id as string;
-    const overColumn = COLUMNS.find((c) => c.status === over.id);
+    const overColumn = BOARD_COLUMNS.find((c) => c.status === over.id);
     if (!overColumn) return;
 
     const ticket = tickets.find((t) => t.id === ticketId);
@@ -215,7 +205,7 @@ export function TicketKanbanBoard({ tickets, productId, basePath }: TicketKanban
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex gap-3 overflow-x-auto pb-4">
-        {COLUMNS.map((col) => (
+        {BOARD_COLUMNS.map((col) => (
           <BoardColumn
             key={col.status}
             status={col.status}

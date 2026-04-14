@@ -38,34 +38,20 @@ import { EmptyState } from "~/app/_components/EmptyState";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
+import {
+  STATUS_LABELS,
+  STATUS_COLORS,
+  STATUS_ORDER,
+  TICKET_STATUSES,
+  COMPLETED_STATUSES,
+  type TicketStatus,
+} from "~/lib/ticket-statuses";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const STATUS_LABELS: Record<string, string> = {
-  BACKLOG: "Backlog",
-  TODO: "Todo",
-  IN_PROGRESS: "In progress",
-  IN_REVIEW: "In review",
-  DONE: "Done",
-  CANCELLED: "Cancelled",
-};
-
-const STATUS_ORDER: Record<string, number> = {
-  BACKLOG: 0, TODO: 1, IN_PROGRESS: 2, IN_REVIEW: 3, DONE: 4, CANCELLED: 5,
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  BACKLOG: "gray",
-  TODO: "gray",
-  IN_PROGRESS: "yellow",
-  IN_REVIEW: "blue",
-  DONE: "green",
-  CANCELLED: "dark",
-};
-
-const ALL_STATUSES = ["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"] as const;
+const ALL_STATUSES = TICKET_STATUSES.map((s) => s.value);
 
 const PRIORITY_LABELS: Record<number, string> = {
   0: "Urgent", 1: "High", 2: "Medium", 3: "Low", 4: "None",
@@ -75,7 +61,6 @@ const TYPE_COLORS: Record<string, string> = {
   BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow",
 };
 
-type TicketStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
 
 // ---------------------------------------------------------------------------
 // Sort
@@ -295,12 +280,12 @@ export default function TicketsBacklogPage() {
     return list;
   }, [tickets, search, sortField, sortDir]);
 
-  // Split completed tickets (DONE/CANCELLED) from active
+  // Split completed tickets from active
   const { active: activeTickets, completed: completedTickets } = useMemo(() => {
     const active: typeof sorted = [];
     const completed: typeof sorted = [];
     for (const t of sorted) {
-      if (t.status === "DONE" || t.status === "CANCELLED") {
+      if (COMPLETED_STATUSES.has(t.status)) {
         completed.push(t);
       } else {
         active.push(t);
@@ -536,7 +521,7 @@ export default function TicketsBacklogPage() {
       ) : (activeTickets.length > 0 || completedTickets.length > 0) ? (
         view === "board" ? (
           <TicketKanbanBoard
-            tickets={sorted as Array<{ id: string; shortId: string | null; title: string; status: "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED"; priority: number | null; type: string; assignee: { id: string; name: string | null; image: string | null } | null; feature: { id: string; name: string } | null; epic: { id: string; name: string } | null }>}
+            tickets={sorted as Array<{ id: string; shortId: string | null; title: string; status: TicketStatus; priority: number | null; type: string; assignee: { id: string; name: string | null; image: string | null } | null; feature: { id: string; name: string } | null; epic: { id: string; name: string } | null }>}
             productId={product?.id ?? ""}
             basePath={basePath}
           />

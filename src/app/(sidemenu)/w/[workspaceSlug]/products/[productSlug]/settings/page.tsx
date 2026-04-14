@@ -93,7 +93,7 @@ function SubSectionLabel({ children }: { children: React.ReactNode }) {
 // Stage config row
 // ---------------------------------------------------------------------------
 
-const TICKET_STATUSES = ["Backlog", "Todo", "In progress", "In review", "Done", "Cancelled"];
+const TICKET_STATUSES = ["Backlog", "Needs refinement", "Ready to plan", "Committed", "In progress", "QA", "Done", "Deployed", "Archived"];
 const EPIC_STATUSES = ["Open", "In progress", "Done", "Cancelled"];
 const CYCLE_STATUSES = ["Planned", "Active", "Completed", "Archived"];
 const FEATURE_STATUSES = ["Idea", "Defined", "In progress", "Shipped", "Archived"];
