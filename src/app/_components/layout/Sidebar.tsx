@@ -54,7 +54,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         bg-background-secondary
         fixed sm:static inset-y-0 left-0 z-[95]
         transform transition-all duration-300 ease-in-out
-        ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%]'}
+        ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%] sm:translate-x-0 sm:ml-[-16rem]'}
         `}>
         
         {/* Header with logo and close button */}
