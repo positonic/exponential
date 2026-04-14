@@ -21,7 +21,6 @@ import {
   FeaturesMenu,
   ResourcesMenu,
 } from "~/app/_components/home";
-import MobileNav from "~/app/_components/layout/MobileNav";
 
 export default async function Home() {
   const session = await auth();
@@ -55,36 +54,6 @@ export default async function Home() {
               </Link>
               <ResourcesMenu />
             </nav>
-
-            {/* Mobile Navigation */}
-            <MobileNav>
-              <nav className="flex flex-col p-4 space-y-4 bg-background-primary h-full">
-                <Link
-                  href="#features"
-                  className="text-text-secondary hover:text-text-primary transition-colors text-base font-medium py-2"
-                >
-                  Features
-                </Link>
-                <Link
-                  href="#how-it-works"
-                  className="text-text-secondary hover:text-text-primary transition-colors text-base font-medium py-2"
-                >
-                  How It Works
-                </Link>
-                <Link
-                  href="#pricing"
-                  className="text-text-secondary hover:text-text-primary transition-colors text-base font-medium py-2"
-                >
-                  Pricing
-                </Link>
-                <Link
-                  href="/signin"
-                  className="text-brand-primary hover:text-brand-primary/80 transition-colors text-base font-medium py-2"
-                >
-                  Sign In
-                </Link>
-              </nav>
-            </MobileNav>
 
             <div className="flex items-center gap-3">
               <HeaderAuthButtons session={session} />
