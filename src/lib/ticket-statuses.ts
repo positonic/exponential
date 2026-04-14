@@ -8,6 +8,7 @@ export type TicketStatus =
   | "READY_TO_PLAN"
   | "COMMITTED"
   | "IN_PROGRESS"
+  | "BLOCKED"
   | "QA"
   | "DONE"
   | "DEPLOYED"
@@ -15,14 +16,15 @@ export type TicketStatus =
 
 export const TICKET_STATUSES: Array<{ value: TicketStatus; label: string; color: string; order: number }> = [
   { value: "BACKLOG", label: "Backlog", color: "gray", order: 0 },
-  { value: "NEEDS_REFINEMENT", label: "Needs refinement", color: "violet", order: 1 },
-  { value: "READY_TO_PLAN", label: "Ready to plan", color: "indigo", order: 2 },
-  { value: "COMMITTED", label: "Committed", color: "blue", order: 3 },
-  { value: "IN_PROGRESS", label: "In progress", color: "yellow", order: 4 },
-  { value: "QA", label: "QA", color: "orange", order: 5 },
-  { value: "DONE", label: "Done", color: "green", order: 6 },
-  { value: "DEPLOYED", label: "Deployed", color: "teal", order: 7 },
-  { value: "ARCHIVED", label: "Archived", color: "dark", order: 8 },
+  { value: "NEEDS_REFINEMENT", label: "Needs refinement", color: "grape", order: 1 },
+  { value: "READY_TO_PLAN", label: "Ready to plan", color: "violet", order: 2 },
+  { value: "COMMITTED", label: "Committed", color: "indigo", order: 3 },
+  { value: "IN_PROGRESS", label: "In progress", color: "blue", order: 4 },
+  { value: "BLOCKED", label: "Blocked", color: "red", order: 5 },
+  { value: "QA", label: "QA", color: "orange", order: 6 },
+  { value: "DONE", label: "Done", color: "green", order: 7 },
+  { value: "DEPLOYED", label: "Deployed", color: "teal", order: 8 },
+  { value: "ARCHIVED", label: "Archived", color: "dark", order: 9 },
 ];
 
 export const STATUS_MAP = Object.fromEntries(

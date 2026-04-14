@@ -164,7 +164,7 @@ async function main() {
   // ── Tickets ──
   async function createTickets(productId: string, productName: string, ticketList: Array<{
     title: string; type: "BUG"|"FEATURE"|"CHORE"|"IMPROVEMENT"|"SPIKE"|"RESEARCH";
-    status: "BACKLOG"|"NEEDS_REFINEMENT"|"READY_TO_PLAN"|"COMMITTED"|"IN_PROGRESS"|"QA"|"DONE"|"DEPLOYED"|"ARCHIVED";
+    status: "BACKLOG"|"NEEDS_REFINEMENT"|"READY_TO_PLAN"|"COMMITTED"|"IN_PROGRESS"|"BLOCKED"|"QA"|"DONE"|"DEPLOYED"|"ARCHIVED";
     priority: number; points: number; feature: string; epic?: string; cycle?: string; labels?: string[];
     body?: string;
   }>) {
@@ -202,7 +202,7 @@ async function main() {
     { title: "Rate limit login attempts", type: "IMPROVEMENT", status: "BACKLOG", priority: 2, points: 3, feature: "User Authentication", cycle: "Sprint 2", labels: ["Security"] },
     { title: "Password strength indicator", type: "IMPROVEMENT", status: "DONE", priority: 3, points: 2, feature: "User Authentication", epic: "Q2 Launch", cycle: "Sprint 1", labels: ["quick-win"] },
     { title: "Session timeout bug", type: "BUG", status: "QA", priority: 1, points: 2, feature: "User Authentication", cycle: "Sprint 1", labels: [] },
-    { title: "Implement SAML SSO", type: "FEATURE", status: "BACKLOG", priority: 2, points: 8, feature: "User Authentication", epic: "Q2 Launch", labels: ["customer-request"] },
+    { title: "Implement SAML SSO", type: "FEATURE", status: "BLOCKED", priority: 2, points: 8, feature: "User Authentication", epic: "Q2 Launch", labels: ["customer-request"] },
     { title: "Dashboard slow on large datasets", type: "BUG", status: "COMMITTED", priority: 0, points: 8, feature: "Dashboard", epic: "Performance", cycle: "Sprint 1", labels: ["tech-debt"] },
     { title: "Add weekly trends widget", type: "FEATURE", status: "IN_PROGRESS", priority: 2, points: 5, feature: "Dashboard", epic: "Q2 Launch", cycle: "Sprint 1", labels: ["needs-design"] },
     { title: "Export dashboard as PDF", type: "FEATURE", status: "BACKLOG", priority: 3, points: 5, feature: "Dashboard", cycle: "Sprint 2", labels: ["customer-request"] },

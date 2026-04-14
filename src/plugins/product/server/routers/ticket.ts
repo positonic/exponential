@@ -20,6 +20,7 @@ const ticketStatusEnum = z.enum([
   "READY_TO_PLAN",
   "COMMITTED",
   "IN_PROGRESS",
+  "BLOCKED",
   "QA",
   "DONE",
   "DEPLOYED",

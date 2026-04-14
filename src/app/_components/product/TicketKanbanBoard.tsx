@@ -172,7 +172,7 @@ export function TicketKanbanBoard({ tickets, productId, basePath }: TicketKanban
 
   const columnTickets = useMemo(() => {
     const map: Record<string, TicketItem[]> = {};
-    for (const col of BOARD_COLUMNS) map[col.status] = [];
+    for (const col of BOARD_COLUMNS) map[col.value] = [];
     for (const t of effectiveTickets) {
       (map[t.status] ??= []).push(t);
     }
@@ -191,15 +191,15 @@ export function TicketKanbanBoard({ tickets, productId, basePath }: TicketKanban
     if (!over) return;
 
     const ticketId = active.id as string;
-    const overColumn = BOARD_COLUMNS.find((c) => c.status === over.id);
+    const overColumn = BOARD_COLUMNS.find((c) => c.value === over.id);
     if (!overColumn) return;
 
     const ticket = tickets.find((t) => t.id === ticketId);
-    if (!ticket || ticket.status === overColumn.status) return;
+    if (!ticket || ticket.status === overColumn.value) return;
 
     // Optimistic update
-    setOptimisticMoves((prev) => ({ ...prev, [ticketId]: overColumn.status }));
-    updateTicket.mutate({ id: ticketId, status: overColumn.status });
+    setOptimisticMoves((prev) => ({ ...prev, [ticketId]: overColumn.value }));
+    updateTicket.mutate({ id: ticketId, status: overColumn.value });
   }, [tickets, updateTicket]);
 
   return (
@@ -207,11 +207,11 @@ export function TicketKanbanBoard({ tickets, productId, basePath }: TicketKanban
       <div className="flex gap-3 overflow-x-auto pb-4">
         {BOARD_COLUMNS.map((col) => (
           <BoardColumn
-            key={col.status}
-            status={col.status}
+            key={col.value}
+            status={col.value}
             label={col.label}
             color={col.color}
-            tickets={columnTickets[col.status] ?? []}
+            tickets={columnTickets[col.value] ?? []}
             basePath={basePath}
           />
         ))}

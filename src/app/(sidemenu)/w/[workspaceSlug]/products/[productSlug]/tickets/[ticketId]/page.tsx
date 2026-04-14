@@ -440,7 +440,7 @@ export default function TicketDetailPage() {
               </Badge>
               <Badge
                 size="xs"
-                variant="light"
+                variant="filled"
                 color={STATUS_COLORS[ticket.status] ?? "gray"}
               >
                 {STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label ?? ticket.status}
