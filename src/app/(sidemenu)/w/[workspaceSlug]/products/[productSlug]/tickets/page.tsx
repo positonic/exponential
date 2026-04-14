@@ -350,6 +350,38 @@ export default function TicketsBacklogPage() {
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
 
+  // List item renderer (compact, no table)
+  const renderListItem = (ticket: (typeof sorted)[number]) => (
+    <div
+      key={ticket.id}
+      className="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors cursor-pointer border-b border-border-primary"
+      onClick={() => router.push(`${basePath}/${ticket.id}`)}
+    >
+      <Text size="xs" className="text-text-muted font-mono w-24 shrink-0" lineClamp={1}>
+        {ticket.shortId ?? (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
+      </Text>
+      <Badge size="xs" variant="light" color={STATUS_COLORS[ticket.status] ?? "gray"} className="shrink-0">
+        {STATUS_LABELS[ticket.status] ?? ticket.status}
+      </Badge>
+      <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
+        {ticket.title}
+      </Text>
+      {ticket.priority != null && ticket.priority < 4 && (
+        <Text size="xs" className="text-text-muted shrink-0">
+          {PRIORITY_LABELS[ticket.priority]}
+        </Text>
+      )}
+      {ticket.assignee && (
+        <Avatar size="xs" radius="xl" src={ticket.assignee.image} className="shrink-0">
+          {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
+        </Avatar>
+      )}
+      <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"} className="shrink-0">
+        {ticket.type.toLowerCase()}
+      </Badge>
+    </div>
+  );
+
   // Shared row renderer
   const renderRow = (ticket: (typeof sorted)[number]) => (
     <Table.Tr
@@ -508,6 +540,49 @@ export default function TicketsBacklogPage() {
             productId={product?.id ?? ""}
             basePath={basePath}
           />
+        ) : view === "list" ? (
+          <div className="border border-border-primary rounded-lg overflow-hidden">
+            {groups.map((group) => (
+              groupBy === "none" ? (
+                <div key={group.key}>{group.items.map(renderListItem)}</div>
+              ) : (
+                <React.Fragment key={`group-${group.key}`}>
+                  <div
+                    className="bg-surface-secondary/50 px-3 py-1.5 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
+                    onClick={() => toggleCollapsed(group.key)}
+                  >
+                    {collapsed.has(group.key) ? (
+                      <IconChevronRight size={14} className="text-text-muted" />
+                    ) : (
+                      <IconChevronDown size={14} className="text-text-muted" />
+                    )}
+                    <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
+                      {group.label}
+                    </Text>
+                    <Badge size="xs" variant="light">{group.items.length}</Badge>
+                  </div>
+                  {!collapsed.has(group.key) && group.items.map(renderListItem)}
+                </React.Fragment>
+              )
+            ))}
+            {completedTickets.length > 0 && (
+              <>
+                <div
+                  className="bg-surface-secondary/50 px-3 py-1.5 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
+                  onClick={() => toggleCollapsed("__completed")}
+                >
+                  {collapsed.has("__completed") ? (
+                    <IconChevronRight size={14} className="text-text-muted" />
+                  ) : (
+                    <IconChevronDown size={14} className="text-text-muted" />
+                  )}
+                  <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">Completed</Text>
+                  <Badge size="xs" variant="light">{completedTickets.length}</Badge>
+                </div>
+                {!collapsed.has("__completed") && completedTickets.map(renderListItem)}
+              </>
+            )}
+          </div>
         ) : (
         <div className="border border-border-primary rounded-lg overflow-hidden">
           <Table
