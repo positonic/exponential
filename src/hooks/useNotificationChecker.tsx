@@ -58,13 +58,21 @@ export function useNotificationChecker() {
         // Only track notifications that we actually show to avoid skipping unshown types
         shownNotificationIds.current.add(notification.id);
 
+        const metadata = (() => {
+          try { return JSON.parse(notification.metadata as string) as { transcriptionId?: string }; }
+          catch { return null; }
+        })();
+        const meetingHref = metadata?.transcriptionId
+          ? `/recording/${metadata.transcriptionId}`
+          : '/meetings';
+
         notifications.show({
           id: notification.id, // Use notification ID to prevent duplicate toasts
           title: notification.title,
           message: (
             <Text size="sm" className="text-text-secondary">
               {notification.message}{' '}
-              <Anchor component={Link} href="/meetings" size="sm" className="text-brand-primary">
+              <Anchor component={Link} href={meetingHref} size="sm" className="text-brand-primary">
                 View meeting
               </Anchor>
             </Text>
