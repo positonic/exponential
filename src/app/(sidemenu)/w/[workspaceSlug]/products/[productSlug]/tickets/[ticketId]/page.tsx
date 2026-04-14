@@ -13,7 +13,6 @@ import {
   Combobox,
   Group,
   Menu,
-  NumberInput,
   Select,
   Skeleton,
   Stack,
@@ -51,6 +50,7 @@ import {
   PropertyDivider,
 } from "~/app/_components/PropertiesSidebar";
 import { generateLinearId } from "~/lib/fun-ids";
+import { getEffortOptions } from "~/lib/estimation";
 import { TagBadge } from "~/app/_components/TagBadge";
 import { getTagMantineColor } from "~/utils/tagColors";
 
@@ -689,19 +689,18 @@ export default function TicketDetailPage() {
           />
         </PropertyRow>
 
-        {/* Points */}
+        {/* Points / Effort */}
         <PropertyRow icon={<IconFlame size={14} />} label="Effort">
-          <NumberInput
-            value={ticket.points ?? ""}
-            onChange={(val) => handleFieldUpdate("points", val === "" ? null : Number(val))}
+          <Select
+            value={ticket.points != null ? String(ticket.points) : null}
+            onChange={(val) => handleFieldUpdate("points", val != null ? Number(val) : null)}
+            data={getEffortOptions(ticket.product.estimationScale)}
             size="xs"
             variant="unstyled"
+            clearable
             placeholder="None"
-            min={0}
-            max={100}
-            suffix=" pts"
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
-            styles={{ input: { height: 24, minHeight: 24, width: 80 } }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
           />
         </PropertyRow>
 

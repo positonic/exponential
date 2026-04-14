@@ -178,6 +178,7 @@ export const productRouter = createTRPCRouter({
         icon: z.string().max(60).optional(),
         color: z.string().max(60).optional(),
         funTicketIds: z.boolean().optional(),
+        estimationScale: z.enum(["fibonacci", "tshirt"]).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

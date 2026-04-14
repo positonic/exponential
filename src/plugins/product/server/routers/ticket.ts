@@ -112,7 +112,7 @@ export const ticketRouter = createTRPCRouter({
         where: { id: input.id },
         include: {
           product: {
-            select: { id: true, slug: true, workspaceId: true, name: true },
+            select: { id: true, slug: true, workspaceId: true, name: true, estimationScale: true, funTicketIds: true },
           },
           assignee: {
             select: { id: true, name: true, email: true, image: true },

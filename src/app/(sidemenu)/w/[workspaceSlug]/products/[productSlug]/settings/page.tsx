@@ -430,6 +430,7 @@ export default function ProductSettingsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [funTicketIds, setFunTicketIds] = useState(true);
+  const [estimationScale, setEstimationScale] = useState("fibonacci");
   const [enableCycles, setEnableCycles] = useState(true);
   const [autoCreateLookahead, setAutoCreateLookahead] = useState("2");
   const [cycleDuration, setCycleDuration] = useState("2");
@@ -441,6 +442,7 @@ export default function ProductSettingsPage() {
       setName(product.name);
       setDescription(product.description ?? "");
       setFunTicketIds(product.funTicketIds);
+      setEstimationScale(product.estimationScale);
     }
   }, [product]);
 
@@ -478,6 +480,7 @@ export default function ProductSettingsPage() {
       name: name.trim(),
       description: description.trim() || undefined,
       funTicketIds,
+      estimationScale: estimationScale as "fibonacci" | "tshirt",
     });
   };
 
@@ -538,6 +541,22 @@ export default function ProductSettingsPage() {
               checked={funTicketIds}
               onChange={(e) => setFunTicketIds(e.currentTarget.checked)}
               size="sm"
+            />
+          </SettingRow>
+          <SettingRow
+            label="Estimation scale"
+            description="How effort is measured on tickets."
+          >
+            <Select
+              value={estimationScale}
+              onChange={(v) => v && setEstimationScale(v)}
+              data={[
+                { value: "fibonacci", label: "Fibonacci (1, 2, 3, 5, 8, 13)" },
+                { value: "tshirt", label: "T-shirt (XS, S, M, L, XL)" },
+              ]}
+              size="xs"
+              comboboxProps={{ withinPortal: true }}
+              styles={{ input: { width: 220, textAlign: "right" } }}
             />
           </SettingRow>
           <SettingRow

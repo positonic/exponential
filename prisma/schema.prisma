@@ -3183,8 +3183,9 @@ model Product {
   description    String?
   icon           String?
   color          String?
-  funTicketIds   Boolean  @default(true)
-  ticketCounter  Int      @default(0)
+  funTicketIds     Boolean  @default(true)
+  ticketCounter    Int      @default(0)
+  estimationScale  String   @default("fibonacci") // "fibonacci" | "tshirt"
   workspaceId    String
   createdById    String
   createdAt      DateTime @default(now())
