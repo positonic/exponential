@@ -620,6 +620,7 @@ export default function TicketDetailPage() {
             data={STATUS_OPTIONS}
             size="xs"
             variant="unstyled"
+            comboboxProps={{ withinPortal: true }}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
             styles={{ input: { height: 24, minHeight: 24 } }}
           />
@@ -635,6 +636,7 @@ export default function TicketDetailPage() {
             variant="unstyled"
             clearable
             placeholder="None"
+            comboboxProps={{ withinPortal: true }}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
             styles={{ input: { height: 24, minHeight: 24 } }}
           />
@@ -648,6 +650,7 @@ export default function TicketDetailPage() {
             data={TYPE_OPTIONS}
             size="xs"
             variant="unstyled"
+            comboboxProps={{ withinPortal: true }}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
             styles={{ input: { height: 24, minHeight: 24 } }}
           />
@@ -663,6 +666,7 @@ export default function TicketDetailPage() {
             variant="unstyled"
             clearable
             placeholder="None"
+            comboboxProps={{ withinPortal: true }}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
             styles={{ input: { height: 24, minHeight: 24 } }}
           />
@@ -678,6 +682,7 @@ export default function TicketDetailPage() {
             variant="unstyled"
             clearable
             placeholder="None"
+            comboboxProps={{ withinPortal: true }}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
             styles={{ input: { height: 24, minHeight: 24 } }}
           />
@@ -695,6 +700,7 @@ export default function TicketDetailPage() {
             variant="unstyled"
             clearable
             placeholder="None"
+            comboboxProps={{ withinPortal: true }}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
             styles={{ input: { height: 24, minHeight: 24 } }}
           />
@@ -722,6 +728,7 @@ export default function TicketDetailPage() {
             variant="unstyled"
             clearable
             placeholder="None"
+            comboboxProps={{ withinPortal: true }}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
             styles={{ input: { height: 24, minHeight: 24 } }}
           />
