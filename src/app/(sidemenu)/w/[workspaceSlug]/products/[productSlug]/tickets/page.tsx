@@ -343,7 +343,7 @@ export default function TicketsBacklogPage() {
       onClick={() => router.push(`${basePath}/${ticket.id}`)}
     >
       <Text size="xs" className="text-text-muted font-mono w-24 shrink-0" lineClamp={1}>
-        {ticket.shortId ?? (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
+        {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
       </Text>
       <Badge size="xs" variant="filled" color={STATUS_COLORS[ticket.status] ?? "gray"} className="shrink-0">
         {STATUS_LABELS[ticket.status] ?? ticket.status}
@@ -376,7 +376,7 @@ export default function TicketsBacklogPage() {
     >
       <Table.Td style={{ width: 120 }}>
         <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
-          {ticket.shortId ?? (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
+          {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
         </Text>
       </Table.Td>
       <Table.Td style={{ width: 110 }}>
@@ -421,7 +421,7 @@ export default function TicketsBacklogPage() {
       </Table.Td>
       <Table.Td style={{ width: 120 }}>
         {ticket.cycle ? (
-          <Text size="xs" className="text-text-secondary" lineClamp={1}>{ticket.cycle.name}</Text>
+          <Text size="xs" className="text-text-secondary" lineClamp={1}>{ticket.cycle.name.replace(/^Cycle\s*/i, "")}</Text>
         ) : (
           <Text size="xs" className="text-text-muted">-</Text>
         )}

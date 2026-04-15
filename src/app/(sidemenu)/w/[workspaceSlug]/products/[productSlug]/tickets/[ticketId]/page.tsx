@@ -105,9 +105,9 @@ const TYPE_COLORS: Record<string, string> = {
 function getDisplayId(ticket: {
   shortId: string | null;
   number: number;
-  product: { name: string };
+  product: { name: string; funTicketIds: boolean };
 }) {
-  if (ticket.shortId) return ticket.shortId;
+  if (ticket.product.funTicketIds && ticket.shortId) return ticket.shortId;
   if (ticket.number > 0) return generateLinearId(ticket.product.name, ticket.number);
   return null;
 }
