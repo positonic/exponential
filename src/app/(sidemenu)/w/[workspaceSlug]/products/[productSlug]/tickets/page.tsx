@@ -553,7 +553,7 @@ export default function TicketsBacklogPage() {
             {completedTickets.length > 0 && (
               <>
                 <div
-                  className="bg-surface-secondary/50 px-3 py-1.5 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
+                  className="bg-surface-secondary/50 px-3 pt-4 pb-2 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
                   onClick={() => toggleCollapsed("__completed")}
                 >
                   {collapsed.has("__completed") ? (
@@ -638,7 +638,7 @@ export default function TicketsBacklogPage() {
                     <Table.Td
                       colSpan={8}
                       className="bg-surface-secondary/50"
-                      style={{ paddingTop: 6, paddingBottom: 6 }}
+                      style={{ paddingTop: 16, paddingBottom: 8 }}
                     >
                       <div className="flex items-center gap-1.5">
                         {collapsed.has("__completed") ? (
