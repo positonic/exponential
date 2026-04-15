@@ -200,6 +200,30 @@ export default function TicketsBacklogPage() {
   const [view, setView] = useState("table");
   const [groupBy, setGroupBy] = useState<GroupByField>("none");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
+    new Set(["id", "status", "title", "priority", "dri", "label", "epic", "cycle"]),
+  );
+
+  const toggleColumn = (col: string) => {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev);
+      if (col === "title") return next; // title is always visible
+      if (next.has(col)) next.delete(col);
+      else next.add(col);
+      return next;
+    });
+  };
+
+  const COLUMN_OPTIONS = [
+    { key: "id", label: "ID" },
+    { key: "status", label: "Status" },
+    { key: "title", label: "Title", locked: true },
+    { key: "priority", label: "Priority" },
+    { key: "dri", label: "DRI" },
+    { key: "label", label: "Label" },
+    { key: "epic", label: "Epic" },
+    { key: "cycle", label: "Cycle" },
+  ];
 
   const toggleCollapsed = (key: string) => {
     setCollapsed((prev) => {
@@ -367,6 +391,9 @@ export default function TicketsBacklogPage() {
     </div>
   );
 
+  const vc = visibleColumns;
+  const colCount = vc.size;
+
   // Shared row renderer
   const renderRow = (ticket: (typeof sorted)[number]) => (
     <Table.Tr
@@ -374,58 +401,74 @@ export default function TicketsBacklogPage() {
       className="cursor-pointer hover:bg-surface-hover transition-colors"
       onClick={() => router.push(`${basePath}/${ticket.id}`)}
     >
-      <Table.Td style={{ width: 70 }}>
-        <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
-          {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
-        </Text>
-      </Table.Td>
-      <Table.Td style={{ width: 110 }}>
-        <StatusCell
-          status={ticket.status}
-          onUpdate={(s) => handleStatusChange(ticket.id, s)}
-        />
-      </Table.Td>
-      <Table.Td>
-        <Text size="sm" className="text-text-primary" lineClamp={1}>{ticket.title}</Text>
-      </Table.Td>
-      <Table.Td style={{ width: 80 }}>
-        {ticket.priority != null ? (
-          <Text size="xs" className="text-text-secondary">{PRIORITY_LABELS[ticket.priority] ?? ticket.priority}</Text>
-        ) : (
-          <Text size="xs" className="text-text-muted">-</Text>
-        )}
-      </Table.Td>
-      <Table.Td style={{ width: 120 }}>
-        {ticket.assignee ? (
-          <div className="flex items-center gap-1.5">
-            <Avatar size="xs" radius="xl" src={ticket.assignee.image}>
-              {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
-            </Avatar>
-            <Text size="xs" className="text-text-secondary" lineClamp={1}>{ticket.assignee.name}</Text>
-          </div>
-        ) : (
-          <Text size="xs" className="text-text-muted">-</Text>
-        )}
-      </Table.Td>
-      <Table.Td style={{ width: 100 }}>
-        <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"}>
-          {ticket.type.toLowerCase()}
-        </Badge>
-      </Table.Td>
-      <Table.Td style={{ width: 120 }}>
-        {ticket.epic ? (
-          <Text size="xs" className="text-text-secondary" lineClamp={1}>{ticket.epic.name}</Text>
-        ) : (
-          <Text size="xs" className="text-text-muted">-</Text>
-        )}
-      </Table.Td>
-      <Table.Td style={{ width: 50 }}>
-        {ticket.cycle ? (
-          <Text size="xs" className="text-text-secondary">{ticket.cycle.name.replace(/\D+/g, "") || ticket.cycle.name}</Text>
-        ) : (
-          <Text size="xs" className="text-text-muted">-</Text>
-        )}
-      </Table.Td>
+      {vc.has("id") && (
+        <Table.Td style={{ width: 70 }}>
+          <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
+            {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
+          </Text>
+        </Table.Td>
+      )}
+      {vc.has("status") && (
+        <Table.Td style={{ width: 110 }}>
+          <StatusCell
+            status={ticket.status}
+            onUpdate={(s) => handleStatusChange(ticket.id, s)}
+          />
+        </Table.Td>
+      )}
+      {vc.has("title") && (
+        <Table.Td>
+          <Text size="sm" className="text-text-primary" lineClamp={1}>{ticket.title}</Text>
+        </Table.Td>
+      )}
+      {vc.has("priority") && (
+        <Table.Td style={{ width: 80 }}>
+          {ticket.priority != null ? (
+            <Text size="xs" className="text-text-secondary">{PRIORITY_LABELS[ticket.priority] ?? ticket.priority}</Text>
+          ) : (
+            <Text size="xs" className="text-text-muted">-</Text>
+          )}
+        </Table.Td>
+      )}
+      {vc.has("dri") && (
+        <Table.Td style={{ width: 120 }}>
+          {ticket.assignee ? (
+            <div className="flex items-center gap-1.5">
+              <Avatar size="xs" radius="xl" src={ticket.assignee.image}>
+                {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
+              </Avatar>
+              <Text size="xs" className="text-text-secondary" lineClamp={1}>{ticket.assignee.name}</Text>
+            </div>
+          ) : (
+            <Text size="xs" className="text-text-muted">-</Text>
+          )}
+        </Table.Td>
+      )}
+      {vc.has("label") && (
+        <Table.Td style={{ width: 100 }}>
+          <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"}>
+            {ticket.type.toLowerCase()}
+          </Badge>
+        </Table.Td>
+      )}
+      {vc.has("epic") && (
+        <Table.Td style={{ width: 120 }}>
+          {ticket.epic ? (
+            <Text size="xs" className="text-text-secondary" lineClamp={1}>{ticket.epic.name}</Text>
+          ) : (
+            <Text size="xs" className="text-text-muted">-</Text>
+          )}
+        </Table.Td>
+      )}
+      {vc.has("cycle") && (
+        <Table.Td style={{ width: 50 }}>
+          {ticket.cycle ? (
+            <Text size="xs" className="text-text-secondary">{ticket.cycle.name.replace(/\D+/g, "") || ticket.cycle.name}</Text>
+          ) : (
+            <Text size="xs" className="text-text-muted">-</Text>
+          )}
+        </Table.Td>
+      )}
     </Table.Tr>
   );
 
@@ -496,6 +539,23 @@ export default function TicketsBacklogPage() {
                     input: { fontSize: "0.8rem", height: 28, minHeight: 28 },
                   }}
                 />
+              </div>
+              <div className="border-t border-border-primary mt-2 pt-2">
+                <Text size="xs" className="text-text-muted mb-2">Visibility</Text>
+                <div className="flex flex-wrap gap-1">
+                  {COLUMN_OPTIONS.map((col) => (
+                    <Badge
+                      key={col.key}
+                      size="sm"
+                      variant={visibleColumns.has(col.key) ? "filled" : "outline"}
+                      color={visibleColumns.has(col.key) ? "blue" : "gray"}
+                      className={col.locked ? "opacity-60 cursor-default" : "cursor-pointer"}
+                      onClick={() => !col.locked && toggleColumn(col.key)}
+                    >
+                      {col.label}
+                    </Badge>
+                  ))}
+                </div>
               </div>
             </Popover.Dropdown>
           </Popover>
@@ -583,16 +643,14 @@ export default function TicketsBacklogPage() {
           >
             <Table.Thead>
               <Table.Tr>
-                <Table.Th style={{ width: 70 }}>
-                  <span className="text-text-muted">ID</span>
-                </Table.Th>
-                <SortHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-                <SortHeader label="Title" field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-                <SortHeader label="Priority" field="priority" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-                <SortHeader label="DRI" field="assignee" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-                <SortHeader label="Label" field="type" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-                <SortHeader label="Epic" field="epic" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-                <SortHeader label="Cycle" field="cycle" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                {vc.has("id") && <Table.Th style={{ width: 70 }}><span className="text-text-muted">ID</span></Table.Th>}
+                {vc.has("status") && <SortHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
+                {vc.has("title") && <SortHeader label="Title" field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
+                {vc.has("priority") && <SortHeader label="Priority" field="priority" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
+                {vc.has("dri") && <SortHeader label="DRI" field="assignee" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
+                {vc.has("label") && <SortHeader label="Label" field="type" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
+                {vc.has("epic") && <SortHeader label="Epic" field="epic" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
+                {vc.has("cycle") && <SortHeader label="Cycle" field="cycle" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -606,7 +664,7 @@ export default function TicketsBacklogPage() {
                       onClick={() => toggleCollapsed(group.key)}
                     >
                       <Table.Td
-                        colSpan={8}
+                        colSpan={colCount}
                         className="bg-surface-secondary/50"
                         style={{ paddingTop: 16, paddingBottom: 8 }}
                       >
@@ -636,7 +694,7 @@ export default function TicketsBacklogPage() {
                     onClick={() => toggleCollapsed("__completed")}
                   >
                     <Table.Td
-                      colSpan={8}
+                      colSpan={colCount}
                       className="bg-surface-secondary/50"
                       style={{ paddingTop: 16, paddingBottom: 8 }}
                     >
