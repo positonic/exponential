@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Group, Title, SegmentedControl, Modal, Text, Collapse } from "@mantine/core";
+import { Button, Group, Title, SegmentedControl, Modal, Text, Collapse } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconCircleDot, IconFlag } from "@tabler/icons-react";
+import { IconCalendarEvent, IconCircleDot, IconFlag } from "@tabler/icons-react";
 import { PRIORITY_VALUES } from "~/types/priority";
 import { Actions } from "./Actions";
 import { ScoreBreakdown } from "./scoring/ScoreBreakdown";
@@ -159,6 +160,17 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
                   <StreakBadge streakCount={streak.currentStreak} streakType="daily_planning" />
                 )}
               </button>
+            )}
+            {filter === "today" && (
+              <Button
+                component={Link}
+                href="/daily-plan"
+                variant="subtle"
+                size="sm"
+                leftSection={<IconCalendarEvent size={16} />}
+              >
+                Daily plan
+              </Button>
             )}
             <SegmentedControl
               value={filter}

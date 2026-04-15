@@ -1,6 +1,6 @@
 "use client";
 
-import { Modal, Button, Group, TextInput, Select, Text, Textarea, MultiSelect, NumberInput, Stack, ActionIcon, Card, Badge } from '@mantine/core';
+import { Modal, Button, Group, TextInput, Select, Text, Textarea, MultiSelect, NumberInput, Stack, ActionIcon, Card, Badge, Accordion } from '@mantine/core';
 import { IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect, useMemo } from "react";
@@ -535,6 +535,10 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
             mt="md"
           />
 
+          <Accordion variant="separated" mt="md">
+            <Accordion.Item value="details">
+              <Accordion.Control>More details</Accordion.Control>
+              <Accordion.Panel>
           <Select
             label="Status"
             description="Lifecycle stage of this objective"
@@ -810,6 +814,9 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
               mt="md"
             />
           )}
+              </Accordion.Panel>
+            </Accordion.Item>
+          </Accordion>
 
           <Group justify="flex-end" mt="xl">
             {goal && (

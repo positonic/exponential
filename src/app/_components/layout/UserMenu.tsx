@@ -11,11 +11,23 @@ import {
   IconPalette,
   IconLogout,
   IconChevronUp,
+  IconChevronRight,
+  IconUsers,
+  IconKey,
+  IconCalendarEvent,
+  IconWriting,
+  IconVideo,
+  IconGitBranch,
+  IconMicrophone,
+  IconDatabase,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { useState } from "react";
 import { SidebarFeedback } from "./SidebarFeedback";
+import { VideoCount } from "./VideoCount";
 import { useBugReport } from "~/providers/BugReportProvider";
+import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { getDarkTheme, setDarkTheme } from "~/lib/dark-theme";
 
 interface UserMenuProps {
@@ -33,6 +45,9 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const { openBugReport } = useBugReport();
+  const { isSectionVisible, isItemVisible } = useNavigationPreferences();
+  const { workspaceSlug } = useWorkspace();
+  const kbHref = workspaceSlug ? `/w/${workspaceSlug}/knowledge-base` : "/knowledge-base";
 
   const user = session.user;
   const initials = user.name
@@ -102,6 +117,136 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
             >
               Settings
             </Menu.Item>
+
+            {isSectionVisible("teams") && (
+              <Menu
+                trigger="hover"
+                position="right-start"
+                offset={4}
+                closeOnItemClick
+                withinPortal
+              >
+                <Menu.Target>
+                  <Menu.Item
+                    leftSection={<IconUsers size={16} />}
+                    rightSection={<IconChevronRight size={14} />}
+                    closeMenuOnClick={false}
+                    className="text-text-primary hover:bg-surface-hover"
+                  >
+                    Teams
+                  </Menu.Item>
+                </Menu.Target>
+                <Menu.Dropdown className="bg-surface-secondary border-border-primary">
+                  {isItemVisible("teams/my-teams") && (
+                    <Menu.Item
+                      leftSection={<IconUsers size={16} />}
+                      component={Link}
+                      href="/teams"
+                      onClick={onClose}
+                      className="text-text-primary hover:bg-surface-hover"
+                    >
+                      My Teams
+                    </Menu.Item>
+                  )}
+                </Menu.Dropdown>
+              </Menu>
+            )}
+
+            {isSectionVisible("tools") && (
+              <Menu
+                trigger="hover"
+                position="right-start"
+                offset={4}
+                closeOnItemClick
+                withinPortal
+              >
+                <Menu.Target>
+                  <Menu.Item
+                    leftSection={<IconKey size={16} />}
+                    rightSection={<IconChevronRight size={14} />}
+                    closeMenuOnClick={false}
+                    className="text-text-primary hover:bg-surface-hover"
+                  >
+                    Tools
+                  </Menu.Item>
+                </Menu.Target>
+                <Menu.Dropdown className="bg-surface-secondary border-border-primary">
+                  {isItemVisible("tools/days") && (
+                    <Menu.Item
+                      leftSection={<IconCalendarEvent size={16} />}
+                      component={Link}
+                      href="/days"
+                      onClick={onClose}
+                      className="text-text-primary hover:bg-surface-hover"
+                    >
+                      Days
+                    </Menu.Item>
+                  )}
+                  {isItemVisible("tools/journal") && (
+                    <Menu.Item
+                      leftSection={<IconWriting size={16} />}
+                      component={Link}
+                      href="/journal"
+                      onClick={onClose}
+                      className="text-text-primary hover:bg-surface-hover"
+                    >
+                      Journal
+                    </Menu.Item>
+                  )}
+
+                  <Menu.Divider className="border-border-primary" />
+
+                  {isItemVisible("tools/media") && (
+                    <Menu.Item
+                      leftSection={<IconVideo size={16} />}
+                      rightSection={<VideoCount />}
+                      component={Link}
+                      href="/videos"
+                      onClick={onClose}
+                      className="text-text-primary hover:bg-surface-hover"
+                    >
+                      Media
+                    </Menu.Item>
+                  )}
+                  {isItemVisible("tools/workflows") && (
+                    <Menu.Item
+                      leftSection={<IconGitBranch size={16} />}
+                      component={Link}
+                      href="/workflows"
+                      onClick={onClose}
+                      className="text-text-primary hover:bg-surface-hover"
+                    >
+                      Workflows
+                    </Menu.Item>
+                  )}
+
+                  <Menu.Divider className="border-border-primary" />
+
+                  {isItemVisible("tools/meetings") && (
+                    <Menu.Item
+                      leftSection={<IconMicrophone size={16} />}
+                      component={Link}
+                      href="/meetings"
+                      onClick={onClose}
+                      className="text-text-primary hover:bg-surface-hover"
+                    >
+                      Meetings
+                    </Menu.Item>
+                  )}
+                  {isItemVisible("tools/knowledge-base") && (
+                    <Menu.Item
+                      leftSection={<IconDatabase size={16} />}
+                      component={Link}
+                      href={kbHref}
+                      onClick={onClose}
+                      className="text-text-primary hover:bg-surface-hover"
+                    >
+                      Knowledge Base
+                    </Menu.Item>
+                  )}
+                </Menu.Dropdown>
+              </Menu>
+            )}
 
             <Menu.Item
               leftSection={<IconMessageReport size={16} />}

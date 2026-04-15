@@ -7,6 +7,7 @@ import { type ValidDomain } from "~/config/themes";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { AgentChatModal } from "./AgentChatModal";
 import { GlobalAddTaskButton } from "./GlobalAddTaskButton";
+import { DailyPlanChecker } from "./DailyPlanChecker";
 
 export default async function Layout({ children, domain, showSidebar = true }: PropsWithChildren<{ domain: ValidDomain, showSidebar?: boolean }>) {
   const session = await auth();
@@ -33,6 +34,7 @@ export default async function Layout({ children, domain, showSidebar = true }: P
       </div>
       <MobileBottomNav />
       <AgentChatModal />
+      <DailyPlanChecker />
     </ThemeWrapper>
   );
 } 

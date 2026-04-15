@@ -1,7 +1,7 @@
 'use client';
 
 import { Menu, Button, Avatar, Group, Text, Skeleton } from '@mantine/core';
-import { IconChevronDown, IconPlus, IconSettings, IconCheck } from '@tabler/icons-react';
+import { IconChevronDown, IconPlus, IconSettings, IconCheck, IconBriefcase, IconLayoutKanban, IconDeviceProjector, IconWriting } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import Link from 'next/link';
@@ -118,14 +118,49 @@ export function WorkspaceSwitcher() {
           </Menu.Item>
 
           {workspace && (
-            <Menu.Item
-              leftSection={<IconSettings size={14} />}
-              component={Link}
-              href={`/w/${workspace.slug}/settings`}
-              className="text-text-primary hover:bg-surface-hover"
-            >
-              Workspace Settings
-            </Menu.Item>
+            <>
+              <Menu.Divider className="border-border-primary" />
+              <Menu.Item
+                leftSection={<IconBriefcase size={14} />}
+                component={Link}
+                href={`/w/${workspace.slug}/home`}
+                className="text-text-primary hover:bg-surface-hover"
+              >
+                Workspace Home
+              </Menu.Item>
+              <Menu.Item
+                leftSection={<IconLayoutKanban size={14} />}
+                component={Link}
+                href={`/w/${workspace.slug}/actions`}
+                className="text-text-primary hover:bg-surface-hover"
+              >
+                Actions
+              </Menu.Item>
+              <Menu.Item
+                leftSection={<IconDeviceProjector size={14} />}
+                component={Link}
+                href={`/w/${workspace.slug}/projects`}
+                className="text-text-primary hover:bg-surface-hover"
+              >
+                Projects
+              </Menu.Item>
+              <Menu.Item
+                leftSection={<IconWriting size={14} />}
+                component={Link}
+                href={`/w/${workspace.slug}/content`}
+                className="text-text-primary hover:bg-surface-hover"
+              >
+                Content
+              </Menu.Item>
+              <Menu.Item
+                leftSection={<IconSettings size={14} />}
+                component={Link}
+                href={`/w/${workspace.slug}/settings`}
+                className="text-text-primary hover:bg-surface-hover"
+              >
+                Workspace Settings
+              </Menu.Item>
+            </>
           )}
         </Menu.Dropdown>
       </Menu>

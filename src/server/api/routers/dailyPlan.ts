@@ -116,6 +116,34 @@ export const dailyPlanRouter = createTRPCRouter({
     }),
 
   /**
+   * Lightweight check: has the user completed their daily plan today?
+   * Does NOT create a DailyPlan row (unlike getOrCreateToday).
+   */
+  getTodayStatus: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+        date: z.date().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const planDate = input.date ?? startOfDay(new Date());
+
+      const completedPlan = await ctx.db.dailyPlan.findFirst({
+        where: {
+          userId,
+          date: planDate,
+          status: "COMPLETED",
+          workspaceId: input.workspaceId ?? null,
+        },
+        select: { id: true },
+      });
+
+      return { completed: !!completedPlan, date: planDate };
+    }),
+
+  /**
    * Update plan settings (shutdown time, obstacles, status)
    */
   updatePlan: protectedProcedure

@@ -4,13 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   IconInbox,
-  IconCalendarEvent,
   IconCalendar,
   IconHome,
   IconUsers,
   IconPlayerPlay,
   IconChartBar,
-  IconTimeline,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
@@ -56,7 +54,7 @@ export function NavLink({ href, icon: Icon, children, count }: {
       )}
       <span className="flex-1 min-w-0 truncate">{children}</span>
       {count && (
-        <span className={`ml-auto pl-2 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 flex-shrink-0 ${
+        <span className={`ml-auto pl-2 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 flex-shrink-0 empty:hidden ${
           isActive 
             ? 'bg-blue-500/20 text-blue-400' 
             : 'bg-surface-tertiary text-text-secondary group-hover:bg-surface-hover'
@@ -97,7 +95,7 @@ export function NavLinks() {
       <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>
         Inbox
       </NavLink>
-      <NavLink href="/today" icon={IconPlayerPlay}>
+      <NavLink href="/today" icon={IconPlayerPlay} count={<TodayCount />}>
         Today
       </NavLink>
       {/* Plugin navigation items for main section */}
@@ -109,9 +107,6 @@ export function NavLinks() {
           </NavLink>
         );
       })}
-      <NavLink href="/daily-plan" icon={IconCalendarEvent} count={<TodayCount />}>
-        Daily plan
-      </NavLink>
       {preferences?.showGamification !== false && (
         <NavLink href="/productivity" icon={IconChartBar}>
           Productivity
@@ -119,9 +114,6 @@ export function NavLinks() {
       )}
       <NavLink href="/calendar" icon={IconCalendar}>
         Calendar
-      </NavLink>
-      <NavLink href="/timeline" icon={IconTimeline}>
-        Timeline
       </NavLink>
 
       {/* Workspace Switcher - below Act, above accordion sections */}

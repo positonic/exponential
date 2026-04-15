@@ -10,7 +10,7 @@ export function TodayCount() {
   });
   const activeTodayCount = actions?.length ?? 0;
 
-  return (
-    <span className="ml-auto text-gray-500">{activeTodayCount}</span>
-  );
-} 
+  if (activeTodayCount === 0) return null;
+
+  return <>{activeTodayCount}</>;
+}

@@ -494,6 +494,55 @@ export const actionRouter = createTRPCRouter({
       return createdAction;
     }),
 
+  /**
+   * Idempotently ensure a "Do daily plan" prompt Action exists for today.
+   * Deduped via source="daily-plan-prompt". Safe to call on every app load.
+   */
+  ensureDailyPlanPromptAction: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+      }).optional(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const today = startOfDay(new Date());
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const existing = await ctx.db.action.findFirst({
+        where: {
+          createdById: userId,
+          source: "daily-plan-prompt",
+          status: "ACTIVE",
+          dueDate: { gte: today, lt: tomorrow },
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        select: { id: true },
+      });
+
+      if (existing) {
+        return { created: false, actionId: existing.id };
+      }
+
+      const created = await ctx.db.action.create({
+        data: {
+          name: "Do daily plan",
+          description: "Set aside 5 minutes to plan your day.",
+          dueDate: today,
+          priority: "High",
+          status: "ACTIVE",
+          source: "daily-plan-prompt",
+          createdById: userId,
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        select: { id: true },
+      });
+
+      return { created: true, actionId: created.id };
+    }),
+
   update: protectedProcedure
     .input(
       z.object({
