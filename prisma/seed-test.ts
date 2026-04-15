@@ -90,23 +90,23 @@ async function main() {
   console.log(`Epics: ${Object.keys(epics).join(", ")}`);
 
   // ── Cycles (for Product 1 only) ──
-  await db.list.deleteMany({ where: { workspaceId: workspace.id, slug: { startsWith: "test-cycle" } } });
+  await db.list.deleteMany({ where: { workspaceId: workspace.id, slug: { startsWith: "demo-cycle" } } });
   const now = new Date();
   const monday = new Date(now);
   monday.setDate(now.getDate() - now.getDay() + 1);
   monday.setHours(0, 0, 0, 0);
 
   const cycleData = [
-    { name: "Sprint 1", status: "ACTIVE" as const, startOff: -7, endOff: 7 },
-    { name: "Sprint 2", status: "PLANNED" as const, startOff: 7, endOff: 21 },
-    { name: "Sprint 3", status: "PLANNED" as const, startOff: 21, endOff: 35 },
+    { name: "Cycle 1", status: "ACTIVE" as const, startOff: -7, endOff: 7 },
+    { name: "Cycle 2", status: "PLANNED" as const, startOff: 7, endOff: 21 },
+    { name: "Cycle 3", status: "PLANNED" as const, startOff: 21, endOff: 35 },
   ];
   const cycles: Record<string, string> = {};
   for (const c of cycleData) {
     const start = new Date(monday); start.setDate(start.getDate() + c.startOff);
     const end = new Date(monday); end.setDate(end.getDate() + c.endOff);
     const cycle = await db.list.create({
-      data: { workspaceId: workspace.id, createdById: user.id, name: c.name, slug: `test-cycle-${c.name.toLowerCase().replace(/\s/g, "-")}`, listType: "SPRINT", status: c.status, startDate: start, endDate: end },
+      data: { workspaceId: workspace.id, createdById: user.id, name: c.name, slug: `demo-cycle-${c.name.toLowerCase().replace(/\s/g, "-")}`, listType: "SPRINT", status: c.status, startDate: start, endDate: end },
     });
     cycles[c.name] = cycle.id;
   }
@@ -153,7 +153,7 @@ async function main() {
   await db.retrospective.create({
     data: {
       workspaceId: workspace.id, productId: product1.id, createdById: user.id,
-      title: "Sprint 0 Retro", conductedAt: new Date(),
+      title: "Cycle 0 Retro", conductedAt: new Date(),
       wentWell: "- Fast iteration on auth flows\n- Good team communication",
       wentPoorly: "- Underestimated OAuth complexity\n- No design review before dev",
       actionItems: "- Add design review step to workflow\n- Spike OAuth providers early",
@@ -197,26 +197,26 @@ async function main() {
 
   // Product 1 tickets
   await createTickets(product1.id, "Horizon Platform", [
-    { title: "Fix login redirect on Safari", type: "BUG", status: "IN_PROGRESS", priority: 1, points: 3, feature: "User Authentication", epic: "Q2 Launch", cycle: "Sprint 1", labels: [] },
-    { title: "Add Google OAuth", type: "FEATURE", status: "COMMITTED", priority: 2, points: 5, feature: "User Authentication", epic: "Q2 Launch", cycle: "Sprint 1", labels: ["customer-request"], body: "<h2>Requirements</h2><p>Support Google OAuth for signup and login.</p><ul><li>Google consent screen</li><li>Token exchange</li><li>Account linking</li></ul>" },
-    { title: "Rate limit login attempts", type: "IMPROVEMENT", status: "BACKLOG", priority: 2, points: 3, feature: "User Authentication", cycle: "Sprint 2", labels: ["Security"] },
-    { title: "Password strength indicator", type: "IMPROVEMENT", status: "DONE", priority: 3, points: 2, feature: "User Authentication", epic: "Q2 Launch", cycle: "Sprint 1", labels: ["quick-win"] },
-    { title: "Session timeout bug", type: "BUG", status: "QA", priority: 1, points: 2, feature: "User Authentication", cycle: "Sprint 1", labels: [] },
+    { title: "Fix login redirect on Safari", type: "BUG", status: "IN_PROGRESS", priority: 1, points: 3, feature: "User Authentication", epic: "Q2 Launch", cycle: "Cycle 1", labels: [] },
+    { title: "Add Google OAuth", type: "FEATURE", status: "COMMITTED", priority: 2, points: 5, feature: "User Authentication", epic: "Q2 Launch", cycle: "Cycle 1", labels: ["customer-request"], body: "<h2>Requirements</h2><p>Support Google OAuth for signup and login.</p><ul><li>Google consent screen</li><li>Token exchange</li><li>Account linking</li></ul>" },
+    { title: "Rate limit login attempts", type: "IMPROVEMENT", status: "BACKLOG", priority: 2, points: 3, feature: "User Authentication", cycle: "Cycle 2", labels: ["Security"] },
+    { title: "Password strength indicator", type: "IMPROVEMENT", status: "DONE", priority: 3, points: 2, feature: "User Authentication", epic: "Q2 Launch", cycle: "Cycle 1", labels: ["quick-win"] },
+    { title: "Session timeout bug", type: "BUG", status: "QA", priority: 1, points: 2, feature: "User Authentication", cycle: "Cycle 1", labels: [] },
     { title: "Implement SAML SSO", type: "FEATURE", status: "BLOCKED", priority: 2, points: 8, feature: "User Authentication", epic: "Q2 Launch", labels: ["customer-request"] },
-    { title: "Dashboard slow on large datasets", type: "BUG", status: "COMMITTED", priority: 0, points: 8, feature: "Dashboard", epic: "Performance", cycle: "Sprint 1", labels: ["tech-debt"] },
-    { title: "Add weekly trends widget", type: "FEATURE", status: "IN_PROGRESS", priority: 2, points: 5, feature: "Dashboard", epic: "Q2 Launch", cycle: "Sprint 1", labels: ["needs-design"] },
-    { title: "Export dashboard as PDF", type: "FEATURE", status: "BACKLOG", priority: 3, points: 5, feature: "Dashboard", cycle: "Sprint 2", labels: ["customer-request"] },
-    { title: "WebSocket real-time updates", type: "SPIKE", status: "BACKLOG", priority: 2, points: 8, feature: "Dashboard", epic: "Performance", cycle: "Sprint 3", labels: [] },
-    { title: "Custom date range picker", type: "IMPROVEMENT", status: "READY_TO_PLAN", priority: 3, points: 3, feature: "Dashboard", cycle: "Sprint 2", labels: ["quick-win"] },
-    { title: "Email delivery failures", type: "BUG", status: "IN_PROGRESS", priority: 0, points: 5, feature: "Notifications", cycle: "Sprint 1", labels: [] },
-    { title: "Push notification support", type: "FEATURE", status: "BACKLOG", priority: 2, points: 8, feature: "Notifications", epic: "Mobile App", cycle: "Sprint 3", labels: ["needs-design"] },
-    { title: "Notification preferences UI", type: "FEATURE", status: "NEEDS_REFINEMENT", priority: 2, points: 5, feature: "Notifications", epic: "Mobile App", cycle: "Sprint 2", labels: ["needs-design"] },
+    { title: "Dashboard slow on large datasets", type: "BUG", status: "COMMITTED", priority: 0, points: 8, feature: "Dashboard", epic: "Performance", cycle: "Cycle 1", labels: ["tech-debt"] },
+    { title: "Add weekly trends widget", type: "FEATURE", status: "IN_PROGRESS", priority: 2, points: 5, feature: "Dashboard", epic: "Q2 Launch", cycle: "Cycle 1", labels: ["needs-design"] },
+    { title: "Export dashboard as PDF", type: "FEATURE", status: "BACKLOG", priority: 3, points: 5, feature: "Dashboard", cycle: "Cycle 2", labels: ["customer-request"] },
+    { title: "WebSocket real-time updates", type: "SPIKE", status: "BACKLOG", priority: 2, points: 8, feature: "Dashboard", epic: "Performance", cycle: "Cycle 3", labels: [] },
+    { title: "Custom date range picker", type: "IMPROVEMENT", status: "READY_TO_PLAN", priority: 3, points: 3, feature: "Dashboard", cycle: "Cycle 2", labels: ["quick-win"] },
+    { title: "Email delivery failures", type: "BUG", status: "IN_PROGRESS", priority: 0, points: 5, feature: "Notifications", cycle: "Cycle 1", labels: [] },
+    { title: "Push notification support", type: "FEATURE", status: "BACKLOG", priority: 2, points: 8, feature: "Notifications", epic: "Mobile App", cycle: "Cycle 3", labels: ["needs-design"] },
+    { title: "Notification preferences UI", type: "FEATURE", status: "NEEDS_REFINEMENT", priority: 2, points: 5, feature: "Notifications", epic: "Mobile App", cycle: "Cycle 2", labels: ["needs-design"] },
     { title: "Batch digest for alerts", type: "IMPROVEMENT", status: "BACKLOG", priority: 3, points: 3, feature: "Notifications", labels: ["quick-win"] },
     { title: "Design API v2 schema", type: "SPIKE", status: "DONE", priority: 1, points: 5, feature: "API v2", epic: "Q2 Launch", labels: [] },
     { title: "Rate limiting middleware", type: "FEATURE", status: "DEPLOYED", priority: 1, points: 5, feature: "API v2", epic: "Q2 Launch", labels: [] },
-    { title: "Migrate endpoints to v2", type: "CHORE", status: "IN_PROGRESS", priority: 2, points: 13, feature: "API v2", epic: "Q2 Launch", cycle: "Sprint 1", labels: ["tech-debt"] },
-    { title: "API v2 documentation", type: "CHORE", status: "BACKLOG", priority: 3, points: 5, feature: "API v2", cycle: "Sprint 2", labels: [] },
-    { title: "v1 deprecation warnings", type: "IMPROVEMENT", status: "READY_TO_PLAN", priority: 2, points: 3, feature: "API v2", cycle: "Sprint 2", labels: [] },
+    { title: "Migrate endpoints to v2", type: "CHORE", status: "IN_PROGRESS", priority: 2, points: 13, feature: "API v2", epic: "Q2 Launch", cycle: "Cycle 1", labels: ["tech-debt"] },
+    { title: "API v2 documentation", type: "CHORE", status: "BACKLOG", priority: 3, points: 5, feature: "API v2", cycle: "Cycle 2", labels: [] },
+    { title: "v1 deprecation warnings", type: "IMPROVEMENT", status: "READY_TO_PLAN", priority: 2, points: 3, feature: "API v2", cycle: "Cycle 2", labels: [] },
   ]);
 
   // Product 2 tickets
