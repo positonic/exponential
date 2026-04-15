@@ -205,9 +205,18 @@ export const goalRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       const goal = await ctx.db.goal.findFirst({
-        where: { id: input.id, userId: ctx.session.user.id },
+        where: { id: input.id },
       });
       if (!goal) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found or unauthorized" });
+      }
+      // Check access: owner OR workspace member
+      if (goal.workspaceId) {
+        const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, goal.workspaceId);
+        if (!membership && goal.userId !== ctx.session.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      } else if (goal.userId !== ctx.session.user.id) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found or unauthorized" });
       }
       return ctx.db.goal.update({
