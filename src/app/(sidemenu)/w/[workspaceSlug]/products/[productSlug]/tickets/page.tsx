@@ -556,7 +556,8 @@ export default function TicketsBacklogPage() {
                 dropdown: {
                   backgroundColor: "var(--color-bg-elevated)",
                   border: "1px solid var(--color-border-primary)",
-                  minWidth: 260,
+                  minWidth: 220,
+                  maxWidth: 240,
                 },
               }}
             >
@@ -576,20 +577,27 @@ export default function TicketsBacklogPage() {
                 />
               </div>
               <div className="border-t border-border-primary mt-2 pt-2">
-                <Text size="xs" className="text-text-muted mb-2">Visibility</Text>
+                <Text size="xs" className="text-text-muted mb-2.5">Visibility</Text>
                 <div className="flex flex-wrap gap-1">
-                  {COLUMN_OPTIONS.map((col) => (
-                    <Badge
-                      key={col.key}
-                      size="sm"
-                      variant={visibleColumns.has(col.key) ? "filled" : "outline"}
-                      color={visibleColumns.has(col.key) ? "blue" : "gray"}
-                      className={col.locked ? "opacity-60 cursor-default" : "cursor-pointer"}
-                      onClick={() => !col.locked && toggleColumn(col.key)}
-                    >
-                      {col.label}
-                    </Badge>
-                  ))}
+                  {COLUMN_OPTIONS.map((col) => {
+                    const on = visibleColumns.has(col.key);
+                    return (
+                      <button
+                        key={col.key}
+                        type="button"
+                        onClick={() => !col.locked && toggleColumn(col.key)}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                          col.locked
+                            ? "bg-surface-hover text-text-muted cursor-default"
+                            : on
+                              ? "bg-surface-hover text-text-primary cursor-pointer"
+                              : "bg-transparent text-text-muted/40 cursor-pointer hover:text-text-muted"
+                        }`}
+                      >
+                        {col.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </Popover.Dropdown>
