@@ -201,7 +201,7 @@ export const goalRouter = createTRPCRouter({
   updateGoalStatus: protectedProcedure
     .input(z.object({
       id: z.number(),
-      status: z.enum(["planned", "active", "completed", "archived"]),
+      status: z.enum(["planned", "active", "completed", "archived", "on-hold"]),
     }))
     .mutation(async ({ ctx, input }) => {
       const goal = await ctx.db.goal.findFirst({

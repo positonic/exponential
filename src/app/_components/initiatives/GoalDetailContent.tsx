@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import React from "react";
 import {
   Container,
   Title,
@@ -15,6 +16,7 @@ import {
   Skeleton,
   Divider,
   Card,
+  Menu,
 } from "@mantine/core";
 import {
   IconTarget,
@@ -53,6 +55,7 @@ function getTimeAgo(date: Date): string {
 }
 
 function formatStatus(status: string): string {
+  if (status === "on-hold") return "On Hold";
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
@@ -66,6 +69,8 @@ function getStatusColor(status: string): string {
     case "completed":
     case "COMPLETED":
       return "teal";
+    case "on-hold":
+      return "yellow";
     case "archived":
     case "CANCELLED":
       return "gray";
@@ -73,6 +78,12 @@ function getStatusColor(status: string): string {
       return "gray";
   }
 }
+
+const goalStatusOptions = [
+  { key: "active" as const,    label: "Active",   color: "green"  },
+  { key: "completed" as const, label: "Complete", color: "teal"   },
+  { key: "on-hold" as const,   label: "On Hold",  color: "yellow" },
+];
 
 function getProjectStatusPercent(progress: number | null): string {
   if (progress === null || progress === undefined) return "0%";
@@ -100,6 +111,25 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
           icon: newData.icon,
           iconColor: newData.iconColor,
         });
+      }
+      return { previous };
+    },
+    onError: (_err, _newData, context) => {
+      if (context?.previous) {
+        utils.goal.getById.setData({ id: goalId }, context.previous);
+      }
+    },
+    onSettled: () => {
+      void utils.goal.getById.invalidate({ id: goalId });
+    },
+  });
+
+  const updateStatusMutation = api.goal.updateGoalStatus.useMutation({
+    onMutate: async (newData) => {
+      await utils.goal.getById.cancel({ id: goalId });
+      const previous = utils.goal.getById.getData({ id: goalId });
+      if (previous) {
+        utils.goal.getById.setData({ id: goalId }, { ...previous, status: newData.status });
       }
       return { previous };
     },
@@ -214,13 +244,29 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                     Properties
                   </Text>
                 </Group>
-                <Badge
-                  color={getStatusColor(goal.status)}
-                  variant="dot"
-                  size="lg"
-                >
-                  {formatStatus(goal.status)}
-                </Badge>
+                <Menu shadow="md" width={160}>
+                  <Menu.Target>
+                    <Badge
+                      color={getStatusColor(goal.status)}
+                      variant="dot"
+                      size="lg"
+                      className="cursor-pointer"
+                    >
+                      {formatStatus(goal.status)}
+                    </Badge>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    {goalStatusOptions.map((opt) => (
+                      <Menu.Item
+                        key={opt.key}
+                        leftSection={<Badge color={opt.color} variant="dot" size="xs" />}
+                        onClick={() => updateStatusMutation.mutate({ id: goal.id, status: opt.key })}
+                      >
+                        {opt.label}
+                      </Menu.Item>
+                    ))}
+                  </Menu.Dropdown>
+                </Menu>
                 <Group gap={6}>
                   <IconUsers size={14} className="text-text-muted" />
                   <Text size="sm" className="text-text-secondary">
