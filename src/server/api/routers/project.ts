@@ -59,6 +59,7 @@ export const projectRouter = createTRPCRouter({
         actions: z.boolean()
       }).optional(),
       workspaceId: z.string().optional(),
+      goalId: z.number().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       console.log('🔍 [PROJECT.GETALL DEBUG] Query started', {
@@ -75,6 +76,8 @@ export const projectRouter = createTRPCRouter({
         where: {
           // Filter by workspace if provided
           ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          // Filter by goal if provided
+          ...(input?.goalId ? { goals: { some: { id: input.goalId } } } : {}),
           OR: [
             // User is the project creator
             { createdById: ctx.session.user.id },
@@ -468,6 +471,7 @@ export const projectRouter = createTRPCRouter({
     .input(z.object({
       workspaceId: z.string().optional(),
       includeCompleted: z.boolean().default(false),
+      goalId: z.number().optional(),
     }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -476,6 +480,7 @@ export const projectRouter = createTRPCRouter({
       const projects = await ctx.db.project.findMany({
         where: {
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(input.goalId ? { goals: { some: { id: input.goalId } } } : {}),
           OR: [
             { createdById: userId },
             { team: { members: { some: { userId } } } },

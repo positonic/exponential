@@ -48,6 +48,8 @@ interface TimelineProjectRange extends TimelineProject {
 interface ProjectTimelineViewProps {
   workspaceId?: string;
   workspaceSlug?: string;
+  goalId?: number;
+  standalone?: boolean;
 }
 
 interface DragState {
@@ -193,6 +195,8 @@ function TimelineBar({
 export function ProjectTimelineView({
   workspaceId,
   workspaceSlug,
+  goalId,
+  standalone,
 }: ProjectTimelineViewProps) {
   const [zoom, setZoom] = useState<TimelineZoom>("quarter");
   const [searchQuery, setSearchQuery] = useState("");
@@ -203,7 +207,10 @@ export function ProjectTimelineView({
   const isGlobal = !workspaceId;
 
   const utils = api.useUtils();
-  const queryInput = workspaceId ? { workspaceId } : {};
+  const queryInput = {
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(goalId !== undefined ? { goalId } : {}),
+  };
   const updateDates = api.project.updateDates.useMutation({
     onMutate: async (newData) => {
       await utils.project.getAll.cancel();
@@ -228,7 +235,7 @@ export function ProjectTimelineView({
   });
 
   const { data: projects, isLoading } = api.project.getAll.useQuery(
-    workspaceId ? { workspaceId } : {},
+    queryInput,
     {
       select: (data): TimelineProject[] =>
         data?.map((project) => ({
@@ -391,26 +398,7 @@ export function ProjectTimelineView({
     );
   }
 
-  return (
-    <ProjectViewLayout
-      activeView="timeline"
-      title="Timeline"
-      description="Project timeline based on start and end dates"
-      tabsRightSection={
-        <ToolbarActions
-          searchValue={searchQuery}
-          onSearchChange={setSearchQuery}
-          searchPlaceholder="Search projects..."
-          extra={
-            <ProjectSortMenu
-              sortState={sortState}
-              onSortChange={setSortField}
-              onClearSort={clearSort}
-            />
-          }
-        />
-      }
-    >
+  const innerContent = (
     <Stack gap="md">
       <Group justify="flex-end" align="center">
         <Group gap="sm">
@@ -633,6 +621,31 @@ export function ProjectTimelineView({
         </div>
       </Paper>
     </Stack>
+  );
+
+  if (standalone) return innerContent;
+
+  return (
+    <ProjectViewLayout
+      activeView="timeline"
+      title="Timeline"
+      description="Project timeline based on start and end dates"
+      tabsRightSection={
+        <ToolbarActions
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search projects..."
+          extra={
+            <ProjectSortMenu
+              sortState={sortState}
+              onSortChange={setSortField}
+              onClearSort={clearSort}
+            />
+          }
+        />
+      }
+    >
+      {innerContent}
     </ProjectViewLayout>
   );
 }

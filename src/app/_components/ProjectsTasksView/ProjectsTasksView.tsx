@@ -71,9 +71,11 @@ interface ProjectData {
 
 interface ProjectsTasksViewProps {
   workspaceId?: string;
+  goalId?: number;
+  standalone?: boolean;
 }
 
-export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
+export function ProjectsTasksView({ workspaceId, goalId, standalone }: ProjectsTasksViewProps) {
   // Track expanded projects - Set of project IDs
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   // Track if "No project" section is expanded
@@ -91,6 +93,7 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
   const { data, isLoading, error } = api.project.getProjectsWithActions.useQuery({
     workspaceId,
     includeCompleted,
+    ...(goalId !== undefined ? { goalId } : {}),
   });
 
   // Update action status mutation
@@ -175,26 +178,8 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
     );
   }
 
-  return (
-    <ProjectViewLayout
-      activeView="projects-tasks"
-      title="Projects & Tasks"
-      description={`${totalProjects} projects, ${totalTasks} tasks`}
-      tabsRightSection={
-        <ToolbarActions
-          searchValue={searchQuery}
-          onSearchChange={setSearchQuery}
-          searchPlaceholder="Search projects & tasks..."
-          extra={
-            <ProjectSortMenu
-              sortState={sortState}
-              onSortChange={setSortField}
-              onClearSort={clearSort}
-            />
-          }
-        />
-      }
-    >
+  const innerContent = (
+    <>
       {/* Header controls */}
       <Group justify="flex-end" mb="lg">
         <Group gap="sm">
@@ -276,8 +261,8 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
               </div>
             ))}
 
-            {/* No project section */}
-            {filteredNoProjectActions.length > 0 && (
+            {/* No project section (hidden in goal-scoped mode) */}
+            {!goalId && filteredNoProjectActions.length > 0 && (
               <div>
                 <NoProjectSection
                   taskCount={filteredNoProjectActions.length}
@@ -303,7 +288,7 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
             )}
 
             {/* Empty state */}
-            {data?.projects.length === 0 && data?.noProjectActions.length === 0 && (
+            {data?.projects.length === 0 && (goalId ?? data?.noProjectActions.length === 0) && (
               <div className="px-6 py-12 text-center">
                 <Text className="text-text-muted">No projects or tasks found</Text>
                 <Text size="sm" className="text-text-muted mt-2">
@@ -324,6 +309,32 @@ export function ProjectsTasksView({ workspaceId }: ProjectsTasksViewProps) {
           void utils.project.getProjectsWithActions.invalidate();
         }}
       />
+    </>
+  );
+
+  if (standalone) return innerContent;
+
+  return (
+    <ProjectViewLayout
+      activeView="projects-tasks"
+      title="Projects & Tasks"
+      description={`${totalProjects} projects, ${totalTasks} tasks`}
+      tabsRightSection={
+        <ToolbarActions
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search projects & tasks..."
+          extra={
+            <ProjectSortMenu
+              sortState={sortState}
+              onSortChange={setSortField}
+              onClearSort={clearSort}
+            />
+          }
+        />
+      }
+    >
+      {innerContent}
     </ProjectViewLayout>
   );
 }

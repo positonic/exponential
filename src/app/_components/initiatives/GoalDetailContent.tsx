@@ -41,6 +41,9 @@ import { type HealthStatus, healthConfig } from "./healthConfig";
 import { GoalIcon } from "../GoalIcon";
 import { IconPicker } from "../IconPicker";
 import { CreateProjectModal } from "../CreateProjectModal";
+import { ProjectViewTabs, type ProjectView } from "../ProjectViewTabs";
+import { ProjectsTasksView } from "../ProjectsTasksView/ProjectsTasksView";
+import { ProjectTimelineView } from "../ProjectTimelineView";
 
 function getTimeAgo(date: Date): string {
   const now = new Date();
@@ -98,6 +101,7 @@ interface GoalDetailContentProps {
 
 export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentProps) {
   const [activeTab, setActiveTab] = useState<string>("overview");
+  const [projectView, setProjectView] = useState<ProjectView>("table");
 
   const utils = api.useUtils();
   const { data: goal, isLoading } = api.goal.getById.useQuery({ id: goalId });
@@ -397,11 +401,20 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                       </CreateProjectModal>
                     </Group>
                   </Group>
-                  <ProjectsTable
-                    projectsByStatus={projectsByStatus}
-                    statusOrder={statusOrder}
-                    workspaceSlug={workspaceSlug}
-                  />
+                  <ProjectViewTabs activeView={projectView} onViewChange={setProjectView} />
+                  {projectView === "table" && (
+                    <ProjectsTable
+                      projectsByStatus={projectsByStatus}
+                      statusOrder={statusOrder}
+                      workspaceSlug={workspaceSlug}
+                    />
+                  )}
+                  {projectView === "projects-tasks" && (
+                    <ProjectsTasksView goalId={goal.id} standalone />
+                  )}
+                  {projectView === "timeline" && (
+                    <ProjectTimelineView goalId={goal.id} standalone />
+                  )}
                 </div>
               )}
             </Stack>
@@ -414,16 +427,25 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
 
           {/* Projects Tab */}
           <Tabs.Panel value="projects" pt="lg">
-            {goal.projects.length > 0 ? (
-              <ProjectsTable
-                projectsByStatus={projectsByStatus}
-                statusOrder={statusOrder}
-                workspaceSlug={workspaceSlug}
-              />
-            ) : (
-              <Text size="sm" c="dimmed">
-                No projects linked to this goal.
-              </Text>
+            <ProjectViewTabs activeView={projectView} onViewChange={setProjectView} />
+            {projectView === "table" && (
+              goal.projects.length > 0 ? (
+                <ProjectsTable
+                  projectsByStatus={projectsByStatus}
+                  statusOrder={statusOrder}
+                  workspaceSlug={workspaceSlug}
+                />
+              ) : (
+                <Text size="sm" c="dimmed">
+                  No projects linked to this goal.
+                </Text>
+              )
+            )}
+            {projectView === "projects-tasks" && (
+              <ProjectsTasksView goalId={goal.id} standalone />
+            )}
+            {projectView === "timeline" && (
+              <ProjectTimelineView goalId={goal.id} standalone />
             )}
           </Tabs.Panel>
 
