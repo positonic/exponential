@@ -198,4 +198,64 @@ export const productRouter = createTRPCRouter({
       await ctx.db.product.delete({ where: { id: input.id } });
       return { success: true };
     }),
+
+  // ── View preferences (stored in PluginConfig.settings) ──
+
+  getViewPrefs: protectedProcedure
+    .input(z.object({ productSlug: z.string(), workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const config = await ctx.db.pluginConfig.findFirst({
+        where: { pluginId: "product", workspaceId: input.workspaceId, userId: ctx.session.user.id },
+        select: { settings: true },
+      });
+      const settings = (config?.settings as Record<string, unknown>) ?? {};
+      const viewPrefs = (settings.viewPrefs as Record<string, unknown>) ?? {};
+      return (viewPrefs[input.productSlug] as Record<string, unknown>) ?? {};
+    }),
+
+  saveViewPrefs: protectedProcedure
+    .input(z.object({
+      productSlug: z.string(),
+      workspaceId: z.string(),
+      prefs: z.object({
+        view: z.string().optional(),
+        groupBy: z.string().optional(),
+        sortField: z.string().optional(),
+        sortDir: z.string().optional(),
+        visibleColumns: z.array(z.string()).optional(),
+      }),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.pluginConfig.findFirst({
+        where: { pluginId: "product", workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      });
+
+      const currentSettings = (existing?.settings as Record<string, unknown>) ?? {};
+      const currentViewPrefs = (currentSettings.viewPrefs as Record<string, unknown>) ?? {};
+      const currentProductPrefs = (currentViewPrefs[input.productSlug] as Record<string, unknown>) ?? {};
+
+      // Merge: only override fields that are provided
+      const merged = { ...currentProductPrefs, ...input.prefs };
+      const newSettings = {
+        ...currentSettings,
+        viewPrefs: { ...currentViewPrefs, [input.productSlug]: merged },
+      };
+
+      if (existing) {
+        return ctx.db.pluginConfig.update({
+          where: { id: existing.id },
+          data: { settings: newSettings },
+        });
+      }
+
+      return ctx.db.pluginConfig.create({
+        data: {
+          pluginId: "product",
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          enabled: true,
+          settings: newSettings,
+        },
+      });
+    }),
 });

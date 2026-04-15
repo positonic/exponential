@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ActionIcon,
@@ -203,13 +203,45 @@ export default function TicketsBacklogPage() {
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     new Set(["id", "status", "title", "priority", "dri", "label", "epic", "cycle"]),
   );
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+
+  // ── Load & save view preferences ──
+  const { data: savedPrefs } = api.product.product.getViewPrefs.useQuery(
+    { productSlug, workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+
+  const savePrefs = api.product.product.saveViewPrefs.useMutation();
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const debouncedSave = useCallback((prefs: Record<string, unknown>) => {
+    if (!workspaceId) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      savePrefs.mutate({ productSlug, workspaceId, prefs: prefs as { view?: string; groupBy?: string; sortField?: string; sortDir?: string; visibleColumns?: string[] } });
+    }, 500);
+  }, [workspaceId, productSlug, savePrefs]);
+
+  // Restore prefs on load
+  useEffect(() => {
+    if (savedPrefs && !prefsLoaded) {
+      if (savedPrefs.view) setView(savedPrefs.view as string);
+      if (savedPrefs.groupBy) setGroupBy(savedPrefs.groupBy as GroupByField);
+      if (savedPrefs.sortField) setSortField(savedPrefs.sortField as SortField);
+      if (savedPrefs.sortDir) setSortDir(savedPrefs.sortDir as SortDir);
+      if (savedPrefs.visibleColumns) setVisibleColumns(new Set(savedPrefs.visibleColumns as string[]));
+      setPrefsLoaded(true);
+    }
+  }, [savedPrefs, prefsLoaded]);
 
   const toggleColumn = (col: string) => {
     setVisibleColumns((prev) => {
       const next = new Set(prev);
-      if (col === "title") return next; // title is always visible
+      if (col === "title") return next;
       if (next.has(col)) next.delete(col);
       else next.add(col);
+      const arr = Array.from(next);
+      debouncedSave({ visibleColumns: arr });
       return next;
     });
   };
@@ -271,10 +303,13 @@ export default function TicketsBacklogPage() {
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      const newDir = sortDir === "asc" ? "desc" : "asc";
+      setSortDir(newDir);
+      debouncedSave({ sortField: field, sortDir: newDir });
     } else {
       setSortField(field);
       setSortDir("asc");
+      debouncedSave({ sortField: field, sortDir: "asc" });
     }
   };
 
@@ -478,7 +513,7 @@ export default function TicketsBacklogPage() {
       <div className="flex items-center gap-2">
         <SegmentedControl
           value={view}
-          onChange={setView}
+          onChange={(v) => { setView(v); debouncedSave({ view: v }); }}
           size="xs"
           data={[
             { value: "table", label: (<Tooltip label="Table" position="bottom"><div className="flex items-center justify-center px-1"><IconLayoutList size={15} /></div></Tooltip>) },
@@ -529,7 +564,7 @@ export default function TicketsBacklogPage() {
                 <Text size="xs" className="text-text-muted whitespace-nowrap">Group by</Text>
                 <Select
                   value={groupBy}
-                  onChange={(v) => v && setGroupBy(v as GroupByField)}
+                  onChange={(v) => { if (v) { setGroupBy(v as GroupByField); debouncedSave({ groupBy: v }); } }}
                   data={GROUP_BY_OPTIONS}
                   size="xs"
                   variant="filled"
