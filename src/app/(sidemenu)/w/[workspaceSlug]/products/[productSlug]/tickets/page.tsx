@@ -342,7 +342,7 @@ export default function TicketsBacklogPage() {
       className="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors cursor-pointer border-b border-border-primary"
       onClick={() => router.push(`${basePath}/${ticket.id}`)}
     >
-      <Text size="xs" className="text-text-muted font-mono w-24 shrink-0" lineClamp={1}>
+      <Text size="xs" className="text-text-muted font-mono w-14 shrink-0" lineClamp={1}>
         {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
       </Text>
       <Badge size="xs" variant="filled" color={STATUS_COLORS[ticket.status] ?? "gray"} className="shrink-0">
@@ -374,7 +374,7 @@ export default function TicketsBacklogPage() {
       className="cursor-pointer hover:bg-surface-hover transition-colors"
       onClick={() => router.push(`${basePath}/${ticket.id}`)}
     >
-      <Table.Td style={{ width: 120 }}>
+      <Table.Td style={{ width: 70 }}>
         <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
           {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
         </Text>
@@ -419,9 +419,9 @@ export default function TicketsBacklogPage() {
           <Text size="xs" className="text-text-muted">-</Text>
         )}
       </Table.Td>
-      <Table.Td style={{ width: 120 }}>
+      <Table.Td style={{ width: 50 }}>
         {ticket.cycle ? (
-          <Text size="xs" className="text-text-secondary" lineClamp={1}>{ticket.cycle.name.replace(/^Cycle\s*/i, "")}</Text>
+          <Text size="xs" className="text-text-secondary">{ticket.cycle.name.replace(/\D+/g, "") || ticket.cycle.name}</Text>
         ) : (
           <Text size="xs" className="text-text-muted">-</Text>
         )}
@@ -583,7 +583,7 @@ export default function TicketsBacklogPage() {
           >
             <Table.Thead>
               <Table.Tr>
-                <Table.Th style={{ width: 120 }}>
+                <Table.Th style={{ width: 70 }}>
                   <span className="text-text-muted">ID</span>
                 </Table.Th>
                 <SortHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
