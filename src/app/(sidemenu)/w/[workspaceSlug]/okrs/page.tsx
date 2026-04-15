@@ -1,11 +1,32 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { Skeleton, Container, Stack } from "@mantine/core";
-import { OkrDashboard } from "~/plugins/okr/client/components/OkrDashboard";
 
-function OkrPageContent() {
-  return <OkrDashboard />;
+function OkrRedirectContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    // Redirect to goals page with okrs tab active, preserving year/period params
+    const workspaceSlug = pathname.split("/w/")[1]?.split("/")[0];
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "okrs");
+    router.replace(`/w/${workspaceSlug}/goals?${params.toString()}`);
+  }, [router, pathname, searchParams]);
+
+  return (
+    <Container size="lg" className="py-8">
+      <Stack gap="md">
+        <Skeleton height={60} />
+        <Skeleton height={100} />
+        <Skeleton height={200} />
+      </Stack>
+    </Container>
+  );
 }
 
 export default function OkrsPage() {
@@ -22,7 +43,7 @@ export default function OkrsPage() {
           </Container>
         }
       >
-        <OkrPageContent />
+        <OkrRedirectContent />
       </Suspense>
     </main>
   );
