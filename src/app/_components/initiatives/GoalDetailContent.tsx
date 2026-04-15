@@ -40,6 +40,7 @@ import { GoalActivityTab } from "./GoalActivityTab";
 import { type HealthStatus, healthConfig } from "./healthConfig";
 import { GoalIcon } from "../GoalIcon";
 import { IconPicker } from "../IconPicker";
+import { CreateProjectModal } from "../CreateProjectModal";
 
 function getTimeAgo(date: Date): string {
   const now = new Date();
@@ -386,9 +387,14 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                       <ActionIcon variant="subtle" size="sm" color="gray">
                         <IconAdjustments size={16} />
                       </ActionIcon>
-                      <ActionIcon variant="subtle" size="sm" color="gray">
-                        <IconPlus size={16} />
-                      </ActionIcon>
+                      <CreateProjectModal
+                        prefillGoalId={goal.id.toString()}
+                        onSuccess={() => void utils.goal.getById.invalidate()}
+                      >
+                        <ActionIcon variant="subtle" size="sm" color="gray">
+                          <IconPlus size={16} />
+                        </ActionIcon>
+                      </CreateProjectModal>
                     </Group>
                   </Group>
                   <ProjectsTable
@@ -468,83 +474,86 @@ function ProjectsTable({ projectsByStatus, statusOrder, workspaceSlug }: Project
         {statusOrder.map((status) => {
           const projects = projectsByStatus[status];
           if (!projects?.length) return null;
-          return projects.map((project, idx) => (
-            <Table.Tr key={project.id}>
-              {idx === 0 && (
+          return (
+            <React.Fragment key={status}>
+              <Table.Tr>
                 <Table.Td colSpan={6} className="py-1">
                   <Text size="xs" c="dimmed" fw={500}>
                     {formatStatus(status)}
                   </Text>
                 </Table.Td>
-              )}
-              {idx === 0 && <Table.Tr key={`${project.id}-sep`} />}
-              <Table.Td>
-                <Link
-                  href={`/w/${workspaceSlug}/projects/${project.id}`}
-                  className="no-underline"
-                >
-                  <Group gap="sm" wrap="nowrap">
-                    <IconTarget size={14} className="text-text-muted" />
-                    <Text size="sm" className="text-text-primary">
-                      {project.name}
+              </Table.Tr>
+              {projects.map((project) => (
+                <Table.Tr key={project.id}>
+                  <Table.Td>
+                    <Link
+                      href={`/w/${workspaceSlug}/projects/${project.id}`}
+                      className="no-underline"
+                    >
+                      <Group gap="sm" wrap="nowrap">
+                        <IconTarget size={14} className="text-text-muted" />
+                        <Text size="sm" className="text-text-primary">
+                          {project.name}
+                        </Text>
+                      </Group>
+                    </Link>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm" c="dimmed">
+                      No updates
                     </Text>
-                  </Group>
-                </Link>
-              </Table.Td>
-              <Table.Td>
-                <Text size="sm" c="dimmed">
-                  No updates
-                </Text>
-              </Table.Td>
-              <Table.Td>
-                <Text size="sm" c="dimmed">
-                  {project.priority ?? "---"}
-                </Text>
-              </Table.Td>
-              <Table.Td>
-                <Avatar
-                  src={project.createdBy.image}
-                  size={24}
-                  radius="xl"
-                  color="brand"
-                >
-                  {project.createdBy.name?.[0] ?? "?"}
-                </Avatar>
-              </Table.Td>
-              <Table.Td>
-                {project.endDate ? (
-                  <Group gap={6} wrap="nowrap">
-                    <IconCalendar size={14} className="text-text-muted" />
-                    <Text size="sm" className="text-text-secondary">
-                      {new Date(project.endDate).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year:
-                          new Date(project.endDate).getFullYear() !== new Date().getFullYear()
-                            ? "numeric"
-                            : undefined,
-                      })}
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm" c="dimmed">
+                      {project.priority ?? "---"}
                     </Text>
-                  </Group>
-                ) : (
-                  <Group gap={6} wrap="nowrap">
-                    <IconCalendar size={14} className="text-text-muted" />
-                  </Group>
-                )}
-              </Table.Td>
-              <Table.Td>
-                <Group gap={6} wrap="nowrap">
-                  <IconCircleCheckFilled
-                    size={14}
-                    style={{ color: "var(--mantine-color-green-6)" }}
-                  />
-                  <Text size="sm" className="text-text-primary">
-                    {getProjectStatusPercent(project.progress)}
-                  </Text>
-                </Group>
-              </Table.Td>
-            </Table.Tr>
-          ));
+                  </Table.Td>
+                  <Table.Td>
+                    <Avatar
+                      src={project.createdBy.image}
+                      size={24}
+                      radius="xl"
+                      color="brand"
+                    >
+                      {project.createdBy.name?.[0] ?? "?"}
+                    </Avatar>
+                  </Table.Td>
+                  <Table.Td>
+                    {project.endDate ? (
+                      <Group gap={6} wrap="nowrap">
+                        <IconCalendar size={14} className="text-text-muted" />
+                        <Text size="sm" className="text-text-secondary">
+                          {new Date(project.endDate).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year:
+                              new Date(project.endDate).getFullYear() !== new Date().getFullYear()
+                                ? "numeric"
+                                : undefined,
+                          })}
+                        </Text>
+                      </Group>
+                    ) : (
+                      <Group gap={6} wrap="nowrap">
+                        <IconCalendar size={14} className="text-text-muted" />
+                      </Group>
+                    )}
+                  </Table.Td>
+                  <Table.Td>
+                    <Group gap={6} wrap="nowrap">
+                      <IconCircleCheckFilled
+                        size={14}
+                        style={{ color: "var(--mantine-color-green-6)" }}
+                      />
+                      <Text size="sm" className="text-text-primary">
+                        {getProjectStatusPercent(project.progress)}
+                      </Text>
+                    </Group>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </React.Fragment>
+          );
         })}
       </Table.Tbody>
     </Table>

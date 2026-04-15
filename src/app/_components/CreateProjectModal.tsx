@@ -26,18 +26,21 @@ interface CreateProjectModalProps {
   project?: Partial<ProjectWithRelations> & { id: string; name: string };
   prefillName?: string;
   prefillNotionProjectId?: string;
+  prefillGoalId?: string;
   onClose?: () => void;
   onSuccess?: (project: Project) => void;
 }
 
-export function CreateProjectModal({ children, project, prefillName, prefillNotionProjectId, onClose, onSuccess }: CreateProjectModalProps) {
+export function CreateProjectModal({ children, project, prefillName, prefillNotionProjectId, prefillGoalId, onClose, onSuccess }: CreateProjectModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [projectName, setProjectName] = useState(project?.name ?? prefillName ?? "");
   const [notionProjectId] = useState(prefillNotionProjectId);
   const [description, setDescription] = useState(project?.description ?? "");
   const [status, setStatus] = useState<ProjectStatus>(project?.status as ProjectStatus ?? "ACTIVE");
   const [priority, setPriority] = useState<ProjectPriority>(project?.priority as ProjectPriority ?? "NONE");
-  const [selectedGoals, setSelectedGoals] = useState<string[]>(project?.goals?.map(g => g.id.toString()) ?? []);
+  const [selectedGoals, setSelectedGoals] = useState<string[]>(
+    project?.goals?.map(g => g.id.toString()) ?? (prefillGoalId ? [prefillGoalId] : [])
+  );
   const [selectedOutcomes, setSelectedOutcomes] = useState<string[]>(project?.outcomes?.map(o => o.id) ?? []);
   const [selectedLifeDomainIds, setSelectedLifeDomainIds] = useState<string[]>(project?.lifeDomains?.map(d => d.id.toString()) ?? []);
   const [goalSearchValue, setGoalSearchValue] = useState("");
