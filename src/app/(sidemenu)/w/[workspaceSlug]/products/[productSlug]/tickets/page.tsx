@@ -637,7 +637,7 @@ export default function TicketsBacklogPage() {
           leftSection={<IconPlus size={14} />}
           onClick={() => setModalOpened(true)}
           disabled={!product}
-          variant="filled"
+          variant="light"
           styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem" } }}
         >
           New ticket
