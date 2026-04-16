@@ -155,7 +155,7 @@ function StatusCell({ status, onUpdate }: { status: string; onUpdate: (s: Ticket
       <Menu.Target>
         <Badge
           size="xs"
-          variant="filled"
+          variant="light"
           color={STATUS_COLORS[status] ?? "gray"}
           className="cursor-pointer hover:opacity-80 transition-opacity"
           onClick={(e: React.MouseEvent) => e.stopPropagation()}
@@ -173,7 +173,7 @@ function StatusCell({ status, onUpdate }: { status: string; onUpdate: (s: Ticket
             }}
           >
             <div className="flex items-center gap-2">
-              <Badge size="xs" variant="filled" color={STATUS_COLORS[s] ?? "gray"} />
+              <Badge size="xs" variant="light" color={STATUS_COLORS[s] ?? "gray"} />
               {STATUS_LABELS[s]}
             </div>
           </Menu.Item>
@@ -403,7 +403,7 @@ export default function TicketsBacklogPage() {
       <Text size="xs" className="text-text-muted font-mono w-14 shrink-0" lineClamp={1}>
         {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
       </Text>
-      <Badge size="xs" variant="filled" color={STATUS_COLORS[ticket.status] ?? "gray"} className="shrink-0">
+      <Badge size="xs" variant="light" color={STATUS_COLORS[ticket.status] ?? "gray"} className="shrink-0">
         {STATUS_LABELS[ticket.status] ?? ticket.status}
       </Badge>
       <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
