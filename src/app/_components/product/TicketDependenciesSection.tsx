@@ -4,23 +4,27 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ActionIcon,
-  Avatar,
-  Badge,
   Combobox,
   Loader,
   Text,
   TextInput,
   Tooltip,
+  UnstyledButton,
   useCombobox,
 } from "@mantine/core";
-import { IconAlertTriangle, IconPlus, IconX } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconArrowNarrowLeft,
+  IconArrowNarrowRight,
+  IconPlus,
+  IconX,
+} from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import {
   STATUS_COLORS,
   STATUS_LABELS,
   type TicketStatus,
 } from "~/lib/ticket-statuses";
-import { generateLinearId } from "~/lib/fun-ids";
 
 interface LinkedTicket {
   id: string;
@@ -35,19 +39,14 @@ interface LinkedTicket {
 interface Props {
   ticketId: string;
   productId: string;
-  productName: string;
-  funTicketIds: boolean;
   basePath: string;
   dependsOn: LinkedTicket[];
   requiredFor: LinkedTicket[];
-  /** Compact variant for narrow contexts like the right-side properties sidebar. */
-  compact?: boolean;
 }
 
 /**
- * Small chip shown next to a ticket title in list/table/board views when it
- * has open dependencies. Red when the ticket is actively blocked (derived on
- * the server); subtle muted when deps exist but ticket isn't in-flight yet.
+ * Chip shown in list/table/board views when a ticket has open dependencies.
+ * Red when actively blocked, muted when deps exist but ticket isn't in-flight.
  */
 export function BlockedIndicator({
   openBlockerCount,
@@ -75,145 +74,155 @@ export function BlockedIndicator({
   );
 }
 
-function displayId(
-  t: Pick<LinkedTicket, "shortId" | "number">,
-  productName: string,
-  funTicketIds: boolean,
-): string | null {
-  if (funTicketIds && t.shortId) return t.shortId;
-  if (t.number > 0) return generateLinearId(productName, t.number);
-  return null;
-}
-
+/**
+ * Two dependency sections - "Depends on" and "Required for" - for use inside
+ * `PropertiesSidebar`. Label sits on its own row, list + add button below.
+ */
 export function TicketDependenciesSection({
   ticketId,
   productId,
-  productName,
-  funTicketIds,
   basePath,
   dependsOn,
   requiredFor,
-  compact = false,
 }: Props) {
   const alreadyLinkedIds = new Set([
     ...dependsOn.map((t) => t.id),
     ...requiredFor.map((t) => t.id),
   ]);
+
   return (
-    <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>
-      <DependencyList
-        title="Depends on"
-        emptyHint="No dependencies yet."
+    <div className="flex flex-col gap-3 py-1.5">
+      <DependencySection
+        icon={<IconArrowNarrowLeft size={14} />}
+        label="Depends on"
         direction="out"
         tickets={dependsOn}
         ticketId={ticketId}
         productId={productId}
-        productName={productName}
-        funTicketIds={funTicketIds}
         basePath={basePath}
         alreadyLinkedIds={alreadyLinkedIds}
-        compact={compact}
       />
-      <DependencyList
-        title="Required for"
-        emptyHint="Nothing depends on this yet."
+      <DependencySection
+        icon={<IconArrowNarrowRight size={14} />}
+        label="Required for"
         direction="in"
         tickets={requiredFor}
         ticketId={ticketId}
         productId={productId}
-        productName={productName}
-        funTicketIds={funTicketIds}
         basePath={basePath}
         alreadyLinkedIds={alreadyLinkedIds}
-        compact={compact}
       />
     </div>
   );
 }
 
-function DependencyList({
-  title,
-  emptyHint,
+function DependencySection({
+  icon,
+  label,
   direction,
   tickets,
   ticketId,
   productId,
-  productName,
-  funTicketIds,
   basePath,
   alreadyLinkedIds,
-  compact,
 }: {
-  title: string;
-  emptyHint: string;
+  icon: React.ReactNode;
+  label: string;
   direction: "out" | "in";
   tickets: LinkedTicket[];
   ticketId: string;
   productId: string;
-  productName: string;
-  funTicketIds: boolean;
   basePath: string;
   alreadyLinkedIds: Set<string>;
-  compact: boolean;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-text-muted">{icon}</span>
+        <Text size="xs" className="text-text-muted">
+          {label}
+        </Text>
+      </div>
+      <DependencyListContent
+        direction={direction}
+        tickets={tickets}
+        ticketId={ticketId}
+        productId={productId}
+        basePath={basePath}
+        alreadyLinkedIds={alreadyLinkedIds}
+      />
+    </div>
+  );
+}
+
+function DependencyListContent({
+  direction,
+  tickets,
+  ticketId,
+  productId,
+  basePath,
+  alreadyLinkedIds,
+}: {
+  direction: "out" | "in";
+  tickets: LinkedTicket[];
+  ticketId: string;
+  productId: string;
+  basePath: string;
+  alreadyLinkedIds: Set<string>;
 }) {
   const [isAdding, setIsAdding] = useState(false);
 
+  if (isAdding) {
+    return (
+      <AddDependencyCombobox
+        ticketId={ticketId}
+        productId={productId}
+        direction={direction}
+        excludedIds={alreadyLinkedIds}
+        onDone={() => setIsAdding(false)}
+      />
+    );
+  }
+
+  const addButton = (
+    <ActionIcon
+      variant="subtle"
+      size="xs"
+      onClick={() => setIsAdding(true)}
+      title="Add dependency"
+      className="shrink-0 text-text-muted hover:text-text-primary"
+    >
+      <IconPlus size={14} />
+    </ActionIcon>
+  );
+
+  if (tickets.length === 0) {
+    return (
+      <div className="flex items-center">
+        <UnstyledButton
+          onClick={() => setIsAdding(true)}
+          className="inline-flex items-center gap-1 text-text-muted hover:text-text-primary transition-colors"
+        >
+          <IconPlus size={12} />
+          <Text size="xs">Add</Text>
+        </UnstyledButton>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider">
-          {title}
-        </Text>
-        {!isAdding && (
-          <ActionIcon
-            variant="subtle"
-            size="xs"
-            onClick={() => setIsAdding(true)}
-            title={`Add ${title.toLowerCase()}`}
-          >
-            <IconPlus size={14} />
-          </ActionIcon>
-        )}
-      </div>
-
-      <div className="rounded-lg border border-border-primary overflow-hidden">
-        {tickets.length === 0 && !isAdding && (
-          <div className="px-3 py-2.5">
-            <Text size="xs" className="text-text-muted">
-              {emptyHint}
-            </Text>
-          </div>
-        )}
-
-        {tickets.map((t, i) => (
-          <DependencyRow
-            key={t.id}
-            ticket={t}
-            ticketId={ticketId}
-            productId={productId}
-            productName={productName}
-            funTicketIds={funTicketIds}
-            basePath={basePath}
-            direction={direction}
-            isLast={i === tickets.length - 1 && !isAdding}
-            compact={compact}
-          />
-        ))}
-
-        {isAdding && (
-          <div
-            className={`px-3 py-2 ${tickets.length > 0 ? "border-t border-border-primary" : ""}`}
-          >
-            <AddDependencyCombobox
-              ticketId={ticketId}
-              productId={productId}
-              direction={direction}
-              excludedIds={alreadyLinkedIds}
-              onDone={() => setIsAdding(false)}
-            />
-          </div>
-        )}
-      </div>
+    <div className="flex flex-col gap-0.5">
+      {tickets.map((t, i) => (
+        <DependencyRow
+          key={t.id}
+          ticket={t}
+          ticketId={ticketId}
+          productId={productId}
+          basePath={basePath}
+          direction={direction}
+          trailing={i === tickets.length - 1 ? addButton : null}
+        />
+      ))}
     </div>
   );
 }
@@ -222,22 +231,16 @@ function DependencyRow({
   ticket,
   ticketId,
   productId,
-  productName,
-  funTicketIds,
   basePath,
   direction,
-  isLast,
-  compact,
+  trailing,
 }: {
   ticket: LinkedTicket;
   ticketId: string;
   productId: string;
-  productName: string;
-  funTicketIds: boolean;
   basePath: string;
   direction: "out" | "in";
-  isLast: boolean;
-  compact: boolean;
+  trailing: React.ReactNode;
 }) {
   const router = useRouter();
   const utils = api.useUtils();
@@ -252,56 +255,29 @@ function DependencyRow({
     },
   });
 
-  const id = displayId(ticket, productName, funTicketIds);
   const statusLabel = STATUS_LABELS[ticket.status] ?? ticket.status;
   const statusColor = STATUS_COLORS[ticket.status] ?? "gray";
 
   return (
-    <div
-      className={`group flex items-center gap-2 ${compact ? "px-2 py-1.5" : "px-3 py-2"} hover:bg-surface-hover transition-colors cursor-pointer ${!isLast ? "border-b border-border-primary" : ""}`}
-      onClick={() => router.push(`${basePath}/${ticket.id}`)}
-    >
-      {compact ? (
-        <Tooltip label={statusLabel} position="top" withArrow>
-          <span
-            className="inline-block rounded-full shrink-0"
-            style={{
-              width: 8,
-              height: 8,
-              backgroundColor: `var(--mantine-color-${statusColor}-6)`,
-            }}
-          />
-        </Tooltip>
-      ) : (
-        <>
-          {id && (
-            <Text size="xs" className="text-text-muted font-mono shrink-0 w-14" lineClamp={1}>
-              {id}
-            </Text>
-          )}
-          <Badge
-            size="xs"
-            variant="filled"
-            color={statusColor}
-            className="shrink-0"
-            styles={{ label: { color: "var(--mantine-color-dark-9)" } }}
-          >
-            {statusLabel}
-          </Badge>
-        </>
-      )}
+    <div className="group flex items-center gap-1.5 py-0.5">
+      <Tooltip label={statusLabel} position="top" withArrow>
+        <span
+          className="inline-block rounded-full shrink-0"
+          style={{
+            width: 8,
+            height: 8,
+            backgroundColor: `var(--mantine-color-${statusColor}-6)`,
+          }}
+        />
+      </Tooltip>
       <Text
-        size={compact ? "xs" : "sm"}
-        className="text-text-primary flex-1 min-w-0"
+        size="xs"
+        className="text-text-primary flex-1 min-w-0 hover:text-blue-400 transition-colors cursor-pointer"
         lineClamp={1}
+        onClick={() => router.push(`${basePath}/${ticket.id}`)}
       >
         {ticket.title}
       </Text>
-      {!compact && ticket.assignee && (
-        <Avatar size="xs" radius="xl" src={ticket.assignee.image} className="shrink-0">
-          {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
-        </Avatar>
-      )}
       <ActionIcon
         variant="subtle"
         size="xs"
@@ -320,6 +296,7 @@ function DependencyRow({
       >
         <IconX size={12} />
       </ActionIcon>
+      {trailing}
     </div>
   );
 }
@@ -379,11 +356,7 @@ function AddDependencyCombobox({
 
   return (
     <div>
-      <Combobox
-        store={combobox}
-        onOptionSubmit={handleSelect}
-        withinPortal
-      >
+      <Combobox store={combobox} onOptionSubmit={handleSelect} withinPortal>
         <Combobox.Target>
           <TextInput
             placeholder="Search by ID or title..."
@@ -411,9 +384,9 @@ function AddDependencyCombobox({
               input: {
                 backgroundColor: "transparent",
                 border: "1px solid var(--color-border-primary)",
-                fontSize: "0.8rem",
-                height: 30,
-                minHeight: 30,
+                fontSize: "0.75rem",
+                height: 26,
+                minHeight: 26,
               },
             }}
           />
@@ -430,29 +403,26 @@ function AddDependencyCombobox({
               <Combobox.Empty>No matching tickets</Combobox.Empty>
             )}
             {!isLoading &&
-              filtered.map((t) => (
-                <Combobox.Option value={t.id} key={t.id}>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      size="xs"
-                      variant="filled"
-                      color={STATUS_COLORS[t.status] ?? "gray"}
-                      className="shrink-0"
-                      styles={{ label: { color: "var(--mantine-color-dark-9)" } }}
-                    >
-                      {STATUS_LABELS[t.status] ?? t.status}
-                    </Badge>
-                    <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
-                      {t.title}
-                    </Text>
-                    {t.assignee && (
-                      <Avatar size="xs" radius="xl" src={t.assignee.image}>
-                        {(t.assignee.name ?? "?")[0]?.toUpperCase()}
-                      </Avatar>
-                    )}
-                  </div>
-                </Combobox.Option>
-              ))}
+              filtered.map((t) => {
+                const color = STATUS_COLORS[t.status] ?? "gray";
+                return (
+                  <Combobox.Option value={t.id} key={t.id}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block rounded-full shrink-0"
+                        style={{
+                          width: 8,
+                          height: 8,
+                          backgroundColor: `var(--mantine-color-${color}-6)`,
+                        }}
+                      />
+                      <Text size="xs" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
+                        {t.title}
+                      </Text>
+                    </div>
+                  </Combobox.Option>
+                );
+              })}
           </Combobox.Options>
         </Combobox.Dropdown>
       </Combobox>

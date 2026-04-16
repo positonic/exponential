@@ -704,6 +704,17 @@ export default function TicketDetailPage() {
 
         <PropertyDivider />
 
+        {/* Dependencies */}
+        <TicketDependenciesSection
+          ticketId={ticketId}
+          productId={ticket.product.id}
+          basePath={`/w/${workspace?.slug}/products/${ticket.product.slug}/tickets`}
+          dependsOn={ticket.dependsOn ?? []}
+          requiredFor={ticket.requiredFor ?? []}
+        />
+
+        <PropertyDivider />
+
         {/* Feature */}
         <PropertyRow icon={<IconFolder size={14} />} label="Feature">
           <Select
@@ -815,21 +826,6 @@ export default function TicketDetailPage() {
             </Text>
           </PropertyRow>
         )}
-
-        <PropertyDivider />
-
-        <div className="py-1">
-          <TicketDependenciesSection
-            ticketId={ticketId}
-            productId={ticket.product.id}
-            productName={ticket.product.name}
-            funTicketIds={ticket.product.funTicketIds}
-            basePath={`/w/${workspace?.slug}/products/${ticket.product.slug}/tickets`}
-            dependsOn={ticket.dependsOn ?? []}
-            requiredFor={ticket.requiredFor ?? []}
-            compact
-          />
-        </div>
       </PropertiesSidebar>
     </div>
   );
