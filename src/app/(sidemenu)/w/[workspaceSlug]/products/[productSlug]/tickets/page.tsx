@@ -38,6 +38,7 @@ import { EmptyState } from "~/app/_components/EmptyState";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
+import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import {
   STATUS_LABELS,
   STATUS_COLORS,
@@ -53,9 +54,7 @@ import {
 
 const ALL_STATUSES = TICKET_STATUSES.map((s) => s.value);
 
-const PRIORITY_LABELS: Record<number, string> = {
-  0: "Urgent", 1: "High", 2: "Medium", 3: "Low", 4: "None",
-};
+const PRIORITY_LABELS = PRIORITY_LABEL_MAP;
 
 const TYPE_COLORS: Record<string, string> = {
   BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow",
@@ -410,11 +409,9 @@ export default function TicketsBacklogPage() {
       <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
         {ticket.title}
       </Text>
-      {ticket.priority != null && ticket.priority < 4 && (
-        <Text size="xs" className="text-text-muted shrink-0">
-          {PRIORITY_LABELS[ticket.priority]}
-        </Text>
-      )}
+      <div className="shrink-0">
+        <PriorityIcon priority={ticket.priority} size={14} />
+      </div>
       {ticket.assignee && (
         <Avatar size="xs" radius="xl" src={ticket.assignee.image} className="shrink-0">
           {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
@@ -457,12 +454,12 @@ export default function TicketsBacklogPage() {
         </Table.Td>
       )}
       {vc.has("priority") && (
-        <Table.Td style={{ width: 80 }}>
-          {ticket.priority != null ? (
-            <Text size="xs" className="text-text-secondary">{PRIORITY_LABELS[ticket.priority] ?? ticket.priority}</Text>
-          ) : (
-            <Text size="xs" className="text-text-muted">-</Text>
-          )}
+        <Table.Td style={{ width: 40 }}>
+          <Tooltip label={PRIORITY_LABELS[ticket.priority ?? 4] ?? "No priority"} position="top">
+            <div className="flex items-center justify-center">
+              <PriorityIcon priority={ticket.priority} size={16} />
+            </div>
+          </Tooltip>
         </Table.Td>
       )}
       {vc.has("dri") && (

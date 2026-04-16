@@ -17,6 +17,7 @@ import { Badge, Card, Group, Paper, Stack, Text } from "@mantine/core";
 import { useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
 import { BOARD_COLUMNS, type TicketStatus } from "~/lib/ticket-statuses";
+import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,8 +35,6 @@ interface TicketItem {
   epic: { id: string; name: string } | null;
 }
 
-const PRIORITY_LABELS: Record<number, string> = { 0: "Urgent", 1: "High", 2: "Medium", 3: "Low", 4: "None" };
-const PRIORITY_COLORS: Record<number, string> = { 0: "red", 1: "orange", 2: "yellow", 3: "blue", 4: "gray" };
 const TYPE_COLORS: Record<string, string> = { BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow" };
 
 // ---------------------------------------------------------------------------
@@ -79,11 +78,7 @@ function TicketCard({ ticket, basePath, isDragOverlay }: { ticket: TicketItem; b
         <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"}>
           {ticket.type.toLowerCase()}
         </Badge>
-        {ticket.priority != null && ticket.priority < 4 && (
-          <Badge size="xs" variant="outline" color={PRIORITY_COLORS[ticket.priority] ?? "gray"}>
-            {PRIORITY_LABELS[ticket.priority]}
-          </Badge>
-        )}
+        <PriorityIcon priority={ticket.priority} size={14} />
       </Group>
       {(ticket.feature ?? ticket.assignee) && (
         <Group gap="xs" mt="xs">

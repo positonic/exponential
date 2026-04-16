@@ -51,6 +51,7 @@ import {
 } from "~/app/_components/PropertiesSidebar";
 import { generateLinearId } from "~/lib/fun-ids";
 import { getEffortOptions } from "~/lib/estimation";
+import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import {
   STATUS_OPTIONS,
   STATUS_COLORS,
@@ -70,6 +71,15 @@ const PRIORITY_OPTIONS = [
   { value: "3", label: "Low" },
   { value: "4", label: "No priority" },
 ];
+
+function PrioritySelectOption({ option }: { option: { value: string; label: string } }) {
+  return (
+    <div className="flex items-center gap-2">
+      <PriorityIcon priority={Number(option.value)} size={14} />
+      <span>{option.label}</span>
+    </div>
+  );
+}
 
 const TYPE_OPTIONS = [
   { value: "BUG", label: "Bug" },
@@ -637,8 +647,10 @@ export default function TicketDetailPage() {
             clearable
             placeholder="None"
             comboboxProps={{ withinPortal: true }}
+            renderOption={({ option }) => <PrioritySelectOption option={option} />}
+            leftSection={<PriorityIcon priority={ticket.priority} size={14} />}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
-            styles={{ input: { height: 24, minHeight: 24 } }}
+            styles={{ input: { height: 24, minHeight: 24, paddingLeft: 24 } }}
           />
         </PropertyRow>
 
