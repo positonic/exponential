@@ -39,6 +39,7 @@ import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
+import { TagBadge } from "~/app/_components/TagBadge";
 import {
   STATUS_LABELS,
   STATUS_COLORS,
@@ -98,7 +99,7 @@ const GROUP_BY_OPTIONS = [
   { value: "priority", label: "Priority" },
   { value: "cycle", label: "Cycle" },
   { value: "epic", label: "Epic" },
-  { value: "type", label: "Label" },
+  { value: "type", label: "Type" },
   { value: "assignee", label: "DRI" },
 ];
 
@@ -201,7 +202,7 @@ export default function TicketsBacklogPage() {
   const [groupBy, setGroupBy] = useState<GroupByField>("none");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
-    new Set(["id", "status", "title", "priority", "dri", "label", "epic", "cycle"]),
+    new Set(["id", "status", "title", "priority", "dri", "type", "labels", "epic", "cycle"]),
   );
   const [prefsLoaded, setPrefsLoaded] = useState(false);
 
@@ -252,7 +253,8 @@ export default function TicketsBacklogPage() {
     { key: "title", label: "Title", locked: true },
     { key: "priority", label: "Priority" },
     { key: "dri", label: "DRI" },
-    { key: "label", label: "Label" },
+    { key: "type", label: "Type" },
+    { key: "labels", label: "Labels" },
     { key: "epic", label: "Epic" },
     { key: "cycle", label: "Cycle" },
   ];
@@ -421,6 +423,16 @@ export default function TicketsBacklogPage() {
       <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"} className="shrink-0">
         {ticket.type.toLowerCase()}
       </Badge>
+      {ticket.tags && ticket.tags.length > 0 && (
+        <div className="flex gap-1 shrink-0">
+          {ticket.tags.slice(0, 1).map((t: { tag: { id: string; name: string; color: string } }) => (
+            <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
+          ))}
+          {ticket.tags.length > 1 && (
+            <Text size="xs" className="text-text-muted">+{ticket.tags.length - 1}</Text>
+          )}
+        </div>
+      )}
     </div>
   );
 
@@ -477,11 +489,27 @@ export default function TicketsBacklogPage() {
           )}
         </Table.Td>
       )}
-      {vc.has("label") && (
-        <Table.Td style={{ width: 100 }}>
+      {vc.has("type") && (
+        <Table.Td style={{ width: 90 }}>
           <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"}>
             {ticket.type.toLowerCase()}
           </Badge>
+        </Table.Td>
+      )}
+      {vc.has("labels") && (
+        <Table.Td style={{ width: 140 }}>
+          {ticket.tags && ticket.tags.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {ticket.tags.slice(0, 2).map((t: { tag: { id: string; name: string; color: string } }) => (
+                <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
+              ))}
+              {ticket.tags.length > 2 && (
+                <Text size="xs" className="text-text-muted">+{ticket.tags.length - 2}</Text>
+              )}
+            </div>
+          ) : (
+            <Text size="xs" className="text-text-muted">-</Text>
+          )}
         </Table.Td>
       )}
       {vc.has("epic") && (
@@ -689,7 +717,8 @@ export default function TicketsBacklogPage() {
                 {vc.has("title") && <SortHeader label="Title" field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
                 {vc.has("priority") && <SortHeader label="Priority" field="priority" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
                 {vc.has("dri") && <SortHeader label="DRI" field="assignee" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
-                {vc.has("label") && <SortHeader label="Label" field="type" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
+                {vc.has("type") && <SortHeader label="Type" field="type" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
+                {vc.has("labels") && <Table.Th style={{ width: 140 }}><span className="text-text-muted">Labels</span></Table.Th>}
                 {vc.has("epic") && <SortHeader label="Epic" field="epic" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
                 {vc.has("cycle") && <SortHeader label="Cycle" field="cycle" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
               </Table.Tr>
