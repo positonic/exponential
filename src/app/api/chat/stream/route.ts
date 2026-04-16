@@ -16,6 +16,9 @@ import { sanitizeAIOutput } from "~/lib/sanitize-output";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
+// Extend Vercel function timeout for streaming AI responses (default is 10s hobby / 60s pro)
+export const maxDuration = 300;
+
 /**
  * Resolve a Slack channel name (e.g., "#commons-lab-exec") to its channel ID (e.g., "C08XXXXXX")
  * by looking up the integration's bot token and calling the Slack conversations.list API.

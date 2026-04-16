@@ -741,7 +741,7 @@ export const mastraRouter = createTRPCRouter({
           id: goal.id,
           title: goal.title,
           description: goal.description,
-          dueDate: goal.dueDate?.toISOString(),
+          dueDate: goal.dueDate ? goal.dueDate.toISOString() : null,
           lifeDomain: goal.lifeDomain ? {
             id: goal.lifeDomain.id,
             title: goal.lifeDomain.title,
@@ -756,7 +756,7 @@ export const mastraRouter = createTRPCRouter({
             id: outcome.id,
             description: outcome.description,
             type: outcome.type ?? 'daily',
-            dueDate: outcome.dueDate?.toISOString(),
+            dueDate: outcome.dueDate ? outcome.dueDate.toISOString() : null,
           })),
         })),
         total: goals.length,

@@ -1029,9 +1029,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         } else if (errorText.includes('not found') || errorText.includes('404')) {
           errorType = 'Resource Not Found';
           errorMessage = `📂 **Resource Error**: The requested project or data was not found. This might be a security restriction or the data may not exist. Working with available context only.`;
-        } else if (errorText.includes('timeout') || errorText.includes('network')) {
+        } else if (errorText.includes('timeout') || errorText.includes('network') || errorText.includes('failed to fetch') || error.name === 'TypeError') {
           errorType = 'Network';
-          errorMessage = `🌐 **Network Error**: Agent communication failed due to network issues. Please try again. Working with available context only.`;
+          errorMessage = `🌐 **Network Error**: The connection to the AI service was interrupted (possibly a timeout). Please try again. Working with available context only.`;
         } else if (errorText.includes('mastra') || errorText.includes('agent')) {
           errorType = 'Agent Communication';
           errorMessage = `🤖 **Agent Error**: Failed to communicate with the AI agent system. The agent service might be unavailable. Working with available context only.`;
