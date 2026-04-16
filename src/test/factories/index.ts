@@ -283,10 +283,23 @@ export async function createTicket(
   overrides: Partial<TicketAttrs> & {
     productId: string;
     createdById: string;
+    status?: string;
+    number?: number;
   },
 ) {
   const attrs = ticketFactory.build(overrides);
-  return db.ticket.create({ data: attrs });
+  const { number: explicitNumber, status, ...rest } = overrides;
+  const number =
+    explicitNumber ??
+    (await db.ticket.count({ where: { productId: overrides.productId } })) + 1;
+  return db.ticket.create({
+    data: {
+      ...attrs,
+      ...rest,
+      number,
+      ...(status ? { status: status as never } : {}),
+    },
+  });
 }
 
 interface ResearchAttrs {

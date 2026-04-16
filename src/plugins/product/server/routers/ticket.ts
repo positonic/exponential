@@ -51,6 +51,59 @@ async function loadTicketWithAccess(
   return ticket;
 }
 
+/** Ticket statuses that count as "completed" for blocker derivation. */
+const COMPLETED_TICKET_STATUSES: ReadonlyArray<z.infer<typeof ticketStatusEnum>> = [
+  "DONE",
+  "DEPLOYED",
+];
+
+/** Ticket statuses where an open blocker means the ticket is actively blocked. */
+const IN_FLIGHT_TICKET_STATUSES: ReadonlyArray<z.infer<typeof ticketStatusEnum>> = [
+  "READY_TO_PLAN",
+  "COMMITTED",
+  "IN_PROGRESS",
+  "QA",
+];
+
+/** Minimal ticket shape returned for dependency edges. */
+const DEP_TICKET_SELECT = {
+  id: true,
+  number: true,
+  shortId: true,
+  title: true,
+  status: true,
+  priority: true,
+  assignee: { select: { id: true, name: true, image: true } },
+} as const;
+
+/**
+ * BFS from `startId` following depsOut edges. Returns true if `targetId` is
+ * transitively reachable. Used to prevent cycles when adding a dependency.
+ */
+async function wouldCreateCycle(
+  db: PrismaClient,
+  startId: string,
+  targetId: string,
+): Promise<boolean> {
+  if (startId === targetId) return true;
+  const visited = new Set<string>();
+  const queue: string[] = [startId];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    const edges = await db.ticketDependency.findMany({
+      where: { ticketId: current },
+      select: { dependsOnId: true },
+    });
+    for (const e of edges) {
+      if (e.dependsOnId === targetId) return true;
+      if (!visited.has(e.dependsOnId)) queue.push(e.dependsOnId);
+    }
+  }
+  return false;
+}
+
 async function loadTemplateWithAccess(
   db: PrismaClient,
   userId: string,
@@ -87,7 +140,7 @@ export const ticketRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
 
-      return ctx.db.ticket.findMany({
+      const tickets = await ctx.db.ticket.findMany({
         where: {
           productId: input.productId,
           ...(input.status ? { status: input.status } : {}),
@@ -104,8 +157,19 @@ export const ticketRouter = createTRPCRouter({
           epic: { select: { id: true, name: true } },
           cycle: { select: { id: true, name: true, status: true, startDate: true, endDate: true } },
           tags: { include: { tag: true } },
+          depsOut: { select: { dependsOn: { select: { status: true } } } },
           _count: { select: { actions: true, comments: true } },
         },
+      });
+
+      return tickets.map((t) => {
+        const openBlockerCount = t.depsOut.filter(
+          (d) => !COMPLETED_TICKET_STATUSES.includes(d.dependsOn.status),
+        ).length;
+        const isBlocked =
+          openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(t.status);
+        const { depsOut: _depsOut, ...rest } = t;
+        return { ...rest, openBlockerCount, isBlocked };
       });
     }),
 
@@ -142,6 +206,14 @@ export const ticketRouter = createTRPCRouter({
               author: { select: { id: true, name: true, image: true } },
             },
           },
+          depsOut: {
+            orderBy: { createdAt: "asc" },
+            select: { id: true, dependsOn: { select: DEP_TICKET_SELECT } },
+          },
+          depsIn: {
+            orderBy: { createdAt: "asc" },
+            select: { id: true, ticket: { select: DEP_TICKET_SELECT } },
+          },
         },
       });
       if (!ticket) {
@@ -152,7 +224,17 @@ export const ticketRouter = createTRPCRouter({
         ctx.session.user.id,
         ticket.product.workspaceId,
       );
-      return ticket;
+
+      const dependsOn = ticket.depsOut.map((d) => d.dependsOn);
+      const requiredFor = ticket.depsIn.map((d) => d.ticket);
+      const openBlockerCount = dependsOn.filter(
+        (d) => !COMPLETED_TICKET_STATUSES.includes(d.status),
+      ).length;
+      const isBlocked =
+        openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(ticket.status);
+
+      const { depsOut: _depsOut, depsIn: _depsIn, ...rest } = ticket;
+      return { ...rest, dependsOn, requiredFor, openBlockerCount, isBlocked };
     }),
 
   create: protectedProcedure
@@ -291,18 +373,123 @@ export const ticketRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  setDependencies: protectedProcedure
+  search: protectedProcedure
     .input(
       z.object({
-        id: z.string(),
-        blockedByIds: z.array(z.string()).optional(),
-        blockingIds: z.array(z.string()).optional(),
+        productId: z.string(),
+        query: z.string().max(200).optional(),
+        excludeTicketId: z.string().optional(),
+        limit: z.number().int().min(1).max(50).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const q = (input.query ?? "").trim();
+      const limit = input.limit ?? 20;
+
+      const numberFromQuery = /^\d+$/.test(q) ? parseInt(q, 10) : undefined;
+
+      return ctx.db.ticket.findMany({
+        where: {
+          productId: input.productId,
+          ...(input.excludeTicketId ? { id: { not: input.excludeTicketId } } : {}),
+          ...(q
+            ? {
+                OR: [
+                  { title: { contains: q, mode: "insensitive" as const } },
+                  { shortId: { contains: q, mode: "insensitive" as const } },
+                  ...(numberFromQuery !== undefined ? [{ number: numberFromQuery }] : []),
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ updatedAt: "desc" }],
+        take: limit,
+        select: DEP_TICKET_SELECT,
+      });
+    }),
+
+  addDependency: protectedProcedure
+    .input(
+      z.object({
+        ticketId: z.string(),
+        dependsOnId: z.string(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
-      const { id, ...data } = input;
-      return ctx.db.ticket.update({ where: { id }, data });
+      if (input.ticketId === input.dependsOnId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A ticket cannot depend on itself.",
+        });
+      }
+
+      const [ticket, dependsOn] = await Promise.all([
+        ctx.db.ticket.findUnique({
+          where: { id: input.ticketId },
+          select: { id: true, productId: true, product: { select: { workspaceId: true } } },
+        }),
+        ctx.db.ticket.findUnique({
+          where: { id: input.dependsOnId },
+          select: { id: true, productId: true },
+        }),
+      ]);
+      if (!ticket || !dependsOn) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+      }
+      if (ticket.productId !== dependsOn.productId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Dependencies must be within the same product.",
+        });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        ticket.product.workspaceId,
+      );
+
+      // Cycle check: would adding ticketId -> dependsOnId let dependsOnId reach ticketId?
+      if (await wouldCreateCycle(ctx.db, input.dependsOnId, input.ticketId)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This would create a dependency cycle.",
+        });
+      }
+
+      return ctx.db.ticketDependency.upsert({
+        where: {
+          ticketId_dependsOnId: {
+            ticketId: input.ticketId,
+            dependsOnId: input.dependsOnId,
+          },
+        },
+        create: {
+          ticketId: input.ticketId,
+          dependsOnId: input.dependsOnId,
+          createdById: ctx.session.user.id,
+        },
+        update: {},
+        select: {
+          id: true,
+          dependsOn: { select: DEP_TICKET_SELECT },
+        },
+      });
+    }),
+
+  removeDependency: protectedProcedure
+    .input(
+      z.object({
+        ticketId: z.string(),
+        dependsOnId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId);
+      await ctx.db.ticketDependency.deleteMany({
+        where: { ticketId: input.ticketId, dependsOnId: input.dependsOnId },
+      });
+      return { success: true };
     }),
 
   // ────────────────── Ticket comments ──────────────────

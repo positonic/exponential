@@ -168,6 +168,125 @@ describe("ticket router", () => {
     });
   });
 
+  describe("dependencies", () => {
+    it("addDependency links two tickets and removeDependency unlinks them", async () => {
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id });
+      const product = await createProduct(db, {
+        workspaceId: ws.id,
+        createdById: user.id,
+      });
+      const a = await createTicket(db, { productId: product.id, createdById: user.id, title: "A" });
+      const b = await createTicket(db, { productId: product.id, createdById: user.id, title: "B" });
+
+      const caller = createTestCaller(user.id);
+      await caller.product.ticket.addDependency({ ticketId: a.id, dependsOnId: b.id });
+
+      const detail = await caller.product.ticket.getById({ id: a.id });
+      expect(detail.dependsOn.map((t) => t.id)).toEqual([b.id]);
+
+      const bDetail = await caller.product.ticket.getById({ id: b.id });
+      expect(bDetail.requiredFor.map((t) => t.id)).toEqual([a.id]);
+
+      await caller.product.ticket.removeDependency({ ticketId: a.id, dependsOnId: b.id });
+      const afterRemove = await caller.product.ticket.getById({ id: a.id });
+      expect(afterRemove.dependsOn).toEqual([]);
+    });
+
+    it("rejects self-dependency", async () => {
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id });
+      const product = await createProduct(db, { workspaceId: ws.id, createdById: user.id });
+      const a = await createTicket(db, { productId: product.id, createdById: user.id });
+
+      const caller = createTestCaller(user.id);
+      await expect(
+        caller.product.ticket.addDependency({ ticketId: a.id, dependsOnId: a.id }),
+      ).rejects.toThrow(/cannot depend on itself/i);
+    });
+
+    it("rejects cycles", async () => {
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id });
+      const product = await createProduct(db, { workspaceId: ws.id, createdById: user.id });
+      const a = await createTicket(db, { productId: product.id, createdById: user.id });
+      const b = await createTicket(db, { productId: product.id, createdById: user.id });
+      const c = await createTicket(db, { productId: product.id, createdById: user.id });
+
+      const caller = createTestCaller(user.id);
+      // A -> B -> C, then attempt C -> A (would close the loop)
+      await caller.product.ticket.addDependency({ ticketId: a.id, dependsOnId: b.id });
+      await caller.product.ticket.addDependency({ ticketId: b.id, dependsOnId: c.id });
+
+      await expect(
+        caller.product.ticket.addDependency({ ticketId: c.id, dependsOnId: a.id }),
+      ).rejects.toThrow(/cycle/i);
+    });
+
+    it("rejects dependencies across different products", async () => {
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id });
+      const p1 = await createProduct(db, { workspaceId: ws.id, createdById: user.id });
+      const p2 = await createProduct(db, { workspaceId: ws.id, createdById: user.id });
+      const a = await createTicket(db, { productId: p1.id, createdById: user.id });
+      const b = await createTicket(db, { productId: p2.id, createdById: user.id });
+
+      const caller = createTestCaller(user.id);
+      await expect(
+        caller.product.ticket.addDependency({ ticketId: a.id, dependsOnId: b.id }),
+      ).rejects.toThrow(/same product/i);
+    });
+
+    it("list derives isBlocked and openBlockerCount", async () => {
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id });
+      const product = await createProduct(db, { workspaceId: ws.id, createdById: user.id });
+      const blocker = await createTicket(db, {
+        productId: product.id,
+        createdById: user.id,
+        status: "IN_PROGRESS",
+      });
+      const dependent = await createTicket(db, {
+        productId: product.id,
+        createdById: user.id,
+        status: "IN_PROGRESS",
+      });
+      const caller = createTestCaller(user.id);
+      await caller.product.ticket.addDependency({
+        ticketId: dependent.id,
+        dependsOnId: blocker.id,
+      });
+
+      const listed = await caller.product.ticket.list({ productId: product.id });
+      const dep = listed.find((t) => t.id === dependent.id);
+      expect(dep?.openBlockerCount).toBe(1);
+      expect(dep?.isBlocked).toBe(true);
+
+      // Completing the blocker clears derived state
+      await caller.product.ticket.update({ id: blocker.id, status: "DONE" });
+      const listed2 = await caller.product.ticket.list({ productId: product.id });
+      const dep2 = listed2.find((t) => t.id === dependent.id);
+      expect(dep2?.openBlockerCount).toBe(0);
+      expect(dep2?.isBlocked).toBe(false);
+    });
+
+    it("search returns matching tickets excluding the current one", async () => {
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id });
+      const product = await createProduct(db, { workspaceId: ws.id, createdById: user.id });
+      const a = await createTicket(db, { productId: product.id, createdById: user.id, title: "Auth refactor" });
+      const b = await createTicket(db, { productId: product.id, createdById: user.id, title: "Auth errors" });
+
+      const caller = createTestCaller(user.id);
+      const results = await caller.product.ticket.search({
+        productId: product.id,
+        query: "auth",
+        excludeTicketId: a.id,
+      });
+      expect(results.map((t) => t.id)).toEqual([b.id]);
+    });
+  });
+
   describe("access control", () => {
     it("non-member cannot list or create tickets", async () => {
       const owner = await createUser(db);
