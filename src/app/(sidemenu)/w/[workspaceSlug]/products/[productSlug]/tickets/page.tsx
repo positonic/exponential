@@ -213,15 +213,17 @@ export default function TicketsBacklogPage() {
   );
 
   const savePrefs = api.product.product.saveViewPrefs.useMutation();
+  const saveMutateRef = useRef(savePrefs.mutate);
+  saveMutateRef.current = savePrefs.mutate;
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const debouncedSave = useCallback((prefs: Record<string, unknown>) => {
     if (!workspaceId) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      savePrefs.mutate({ productSlug, workspaceId, prefs: prefs as { view?: string; groupBy?: string; sortField?: string; sortDir?: string; visibleColumns?: string[] } });
+      saveMutateRef.current({ productSlug, workspaceId, prefs: prefs as { view?: string; groupBy?: string; sortField?: string; sortDir?: string; visibleColumns?: string[] } });
     }, 500);
-  }, [workspaceId, productSlug, savePrefs]);
+  }, [workspaceId, productSlug]);
 
   // Restore prefs on load
   useEffect(() => {
@@ -650,8 +652,10 @@ export default function TicketsBacklogPage() {
       ) : (activeTickets.length > 0 || completedTickets.length > 0) ? (
         view === "board" ? (
           <TicketKanbanBoard
-            tickets={sorted as Array<{ id: string; shortId: string | null; title: string; status: TicketStatus; priority: number | null; type: string; assignee: { id: string; name: string | null; image: string | null } | null; feature: { id: string; name: string } | null; epic: { id: string; name: string } | null }>}
+            tickets={sorted as Array<{ id: string; shortId: string | null; number: number; title: string; status: TicketStatus; priority: number | null; type: string; assignee: { id: string; name: string | null; image: string | null } | null; feature: { id: string; name: string } | null; epic: { id: string; name: string } | null }>}
             productId={product?.id ?? ""}
+            productName={product?.name ?? ""}
+            funTicketIds={product?.funTicketIds ?? false}
             basePath={basePath}
           />
         ) : view === "list" ? (
