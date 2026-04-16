@@ -39,6 +39,7 @@ import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
+import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import { TagBadge } from "~/app/_components/TagBadge";
 import {
   STATUS_LABELS,
@@ -414,6 +415,10 @@ export default function TicketsBacklogPage() {
       <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
         {ticket.title}
       </Text>
+      <BlockedIndicator
+        openBlockerCount={ticket.openBlockerCount}
+        isBlocked={ticket.isBlocked}
+      />
       <div className="shrink-0">
         <PriorityIcon priority={ticket.priority} size={14} />
       </div>
@@ -465,7 +470,15 @@ export default function TicketsBacklogPage() {
       )}
       {vc.has("title") && (
         <Table.Td>
-          <Text size="sm" className="text-text-primary" lineClamp={1}>{ticket.title}</Text>
+          <div className="flex items-center gap-2 min-w-0">
+            <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
+              {ticket.title}
+            </Text>
+            <BlockedIndicator
+              openBlockerCount={ticket.openBlockerCount}
+              isBlocked={ticket.isBlocked}
+            />
+          </div>
         </Table.Td>
       )}
       {vc.has("priority") && (
@@ -652,7 +665,7 @@ export default function TicketsBacklogPage() {
       ) : (activeTickets.length > 0 || completedTickets.length > 0) ? (
         view === "board" ? (
           <TicketKanbanBoard
-            tickets={sorted as Array<{ id: string; shortId: string | null; number: number; title: string; status: TicketStatus; priority: number | null; type: string; assignee: { id: string; name: string | null; image: string | null } | null; feature: { id: string; name: string } | null; epic: { id: string; name: string } | null }>}
+            tickets={sorted as Array<{ id: string; shortId: string | null; number: number; title: string; status: TicketStatus; priority: number | null; type: string; assignee: { id: string; name: string | null; image: string | null } | null; feature: { id: string; name: string } | null; epic: { id: string; name: string } | null; openBlockerCount: number; isBlocked: boolean }>}
             productId={product?.id ?? ""}
             productName={product?.name ?? ""}
             funTicketIds={product?.funTicketIds ?? false}

@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
 import { BOARD_COLUMNS, type TicketStatus } from "~/lib/ticket-statuses";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
+import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import { generateLinearId } from "~/lib/fun-ids";
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,8 @@ interface TicketItem {
   assignee: { id: string; name: string | null; image: string | null } | null;
   feature: { id: string; name: string } | null;
   epic: { id: string; name: string } | null;
+  openBlockerCount: number;
+  isBlocked: boolean;
 }
 
 const TYPE_COLORS: Record<string, string> = { BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow" };
@@ -80,9 +83,15 @@ function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName
           <Text size="xs" className="text-text-muted font-mono mb-1">{displayId}</Text>
         ) : null;
       })()}
-      <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
-        {ticket.title}
-      </Text>
+      <div className="flex items-start gap-2">
+        <Text size="sm" fw={500} className="text-text-primary flex-1 min-w-0" lineClamp={2}>
+          {ticket.title}
+        </Text>
+        <BlockedIndicator
+          openBlockerCount={ticket.openBlockerCount}
+          isBlocked={ticket.isBlocked}
+        />
+      </div>
       <Group gap="xs" mt="xs">
         <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"}>
           {ticket.type.toLowerCase()}
