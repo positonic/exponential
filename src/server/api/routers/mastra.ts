@@ -17,6 +17,7 @@ import { userEmailService } from "~/server/services/UserEmailService";
 import { slugify } from "~/utils/slugify";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getProjectAccess, hasProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
+import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -68,6 +69,26 @@ function hashApiKey(key: string): string {
 const API_KEY_ENC_PREFIX = 'enc:';
 function encryptApiKey(key: string): string {
   return API_KEY_ENC_PREFIX + encryptToBase64(key);
+}
+
+// Approximate costs in USD per 1M tokens (prices as of April 2026)
+const MODEL_COSTS: Record<string, { input: number; output: number }> = {
+  'gpt-4o': { input: 2.50, output: 10.00 },
+  'gpt-4o-mini': { input: 0.15, output: 0.60 },
+  'gpt-4-turbo': { input: 10.00, output: 30.00 },
+  'gpt-3.5-turbo': { input: 0.50, output: 1.50 },
+};
+
+function estimateCost(
+  modelId: string | undefined,
+  usage: { promptTokens?: number; completionTokens?: number }
+): number | undefined {
+  if (!modelId) return undefined;
+  const rates = Object.entries(MODEL_COSTS).find(([k]) => modelId.toLowerCase().includes(k))?.[1];
+  if (!rates || !usage.promptTokens) return undefined;
+  const inputCost = ((usage.promptTokens ?? 0) / 1_000_000) * rates.input;
+  const outputCost = ((usage.completionTokens ?? 0) / 1_000_000) * rates.output;
+  return Math.round((inputCost + outputCost) * 100_000) / 100_000;
 }
 
 // Utility to cache agent instruction embeddings
@@ -390,6 +411,7 @@ export const mastraRouter = createTRPCRouter({
         select: { externalUserId: true },
       });
 
+      const startTime = Date.now();
       const res = await fetch(
         `${MASTRA_API_URL}/api/agents/${agentId}/generate`,
         {
@@ -448,6 +470,44 @@ export const mastraRouter = createTRPCRouter({
         if (redacted) {
           console.warn('🔒 [mastra/callAgent] Redacted potential secret leak from AI response');
         }
+
+        // Extract token usage from Mastra response (fire-and-forget — don't block return)
+        const rawUsage = (responseData.usage ?? responseData.tokenUsage) as
+          | { promptTokens?: number; completionTokens?: number; totalTokens?: number; prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+          | undefined
+          | null;
+        const tokenUsage = rawUsage
+          ? {
+              prompt: rawUsage.promptTokens ?? rawUsage.prompt_tokens,
+              completion: rawUsage.completionTokens ?? rawUsage.completion_tokens,
+              total: rawUsage.totalTokens ?? rawUsage.total_tokens,
+              cost: estimateCost(responseData.model as string | undefined, {
+                promptTokens: rawUsage.promptTokens ?? rawUsage.prompt_tokens,
+                completionTokens: rawUsage.completionTokens ?? rawUsage.completion_tokens,
+              }),
+            }
+          : undefined;
+
+        const lastUserMessage = [...input.messages].reverse().find(m => m.role === 'user')?.content ?? '';
+        const toolsUsed = ((responseData.toolCalls ?? []) as Array<{ toolName?: string; name?: string }>)
+          .map(tc => tc.toolName ?? tc.name)
+          .filter((n): n is string => !!n);
+
+        void getAiInteractionLogger(ctx.db).logInteraction({
+          platform: 'direct',
+          systemUserId: ctx.session.user.id,
+          userName: ctx.session.user.name ?? undefined,
+          userMessage: lastUserMessage,
+          aiResponse: safeResponse,
+          agentId,
+          agentName: agentId,
+          model: (responseData.model as string | undefined) ?? 'mastra-agent',
+          conversationId: input.threadId ?? undefined,
+          projectId: input.resourceId ?? undefined,
+          responseTime: Date.now() - startTime,
+          tokenUsage,
+          toolsUsed,
+        });
 
         return {
           response: safeResponse,

@@ -353,6 +353,81 @@ export const aiInteractionRouter = createTRPCRouter({
     }),
 
   /**
+   * Aggregate token usage per user, grouped by agent or model.
+   * Returns total prompt/completion/total tokens and estimated cost.
+   */
+  getTokenUsageSummary: protectedProcedure
+    .input(
+      z.object({
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+        groupBy: z.enum(['agent', 'model', 'day']).default('agent'),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const where: Record<string, unknown> = {
+        systemUserId: ctx.session.user.id,
+        tokenUsage: { not: null },
+      };
+      if (input.startDate ?? input.endDate) {
+        where.createdAt = {
+          ...(input.startDate ? { gte: input.startDate } : {}),
+          ...(input.endDate ? { lte: input.endDate } : {}),
+        };
+      }
+
+      const rows = await ctx.db.aiInteractionHistory.findMany({
+        where,
+        select: {
+          agentName: true,
+          model: true,
+          createdAt: true,
+          tokenUsage: true,
+        },
+      });
+
+      type BucketKey = string;
+      const buckets = new Map<
+        BucketKey,
+        { label: string; interactions: number; prompt: number; completion: number; total: number; cost: number }
+      >();
+
+      for (const row of rows) {
+        let key: BucketKey;
+        let label: string;
+
+        if (input.groupBy === 'agent') {
+          label = row.agentName ?? 'unknown';
+          key = label;
+        } else if (input.groupBy === 'model') {
+          label = row.model ?? 'unknown';
+          key = label;
+        } else {
+          // 'day'
+          label = row.createdAt.toISOString().slice(0, 10);
+          key = label;
+        }
+
+        if (!buckets.has(key)) {
+          buckets.set(key, { label, interactions: 0, prompt: 0, completion: 0, total: 0, cost: 0 });
+        }
+
+        const bucket = buckets.get(key)!;
+        bucket.interactions += 1;
+
+        if (row.tokenUsage) {
+          const usage = row.tokenUsage as { prompt?: number; completion?: number; total?: number; cost?: number };
+          bucket.prompt += usage.prompt ?? 0;
+          bucket.completion += usage.completion ?? 0;
+          bucket.total += usage.total ?? 0;
+          bucket.cost += usage.cost ?? 0;
+        }
+      }
+
+      return Array.from(buckets.values()).sort((a, b) => b.total - a.total);
+    }),
+
+  /**
    * Start a new conversation and return conversation ID
    */
   startConversation: protectedProcedure

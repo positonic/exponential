@@ -193,6 +193,67 @@ export const adminRouter = createTRPCRouter({
     }),
 
   /**
+   * Get token usage totals grouped by user (admin only)
+   */
+  getTokenUsageSummaryByUser: adminProcedure
+    .input(
+      z.object({
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const where: Record<string, unknown> = { tokenUsage: { not: null } };
+      if (input?.startDate ?? input?.endDate) {
+        where.createdAt = {
+          ...(input?.startDate ? { gte: input.startDate } : {}),
+          ...(input?.endDate ? { lte: input.endDate } : {}),
+        };
+      }
+
+      const rows = await ctx.db.aiInteractionHistory.findMany({
+        where,
+        select: {
+          systemUserId: true,
+          tokenUsage: true,
+          user: { select: { name: true, email: true } },
+        },
+      });
+
+      const buckets = new Map<
+        string,
+        { userId: string; name: string | null; email: string | null; interactions: number; prompt: number; completion: number; total: number; cost: number }
+      >();
+
+      for (const row of rows) {
+        const key = row.systemUserId ?? 'unknown';
+        if (!buckets.has(key)) {
+          buckets.set(key, {
+            userId: key,
+            name: row.user?.name ?? null,
+            email: row.user?.email ?? null,
+            interactions: 0,
+            prompt: 0,
+            completion: 0,
+            total: 0,
+            cost: 0,
+          });
+        }
+        const bucket = buckets.get(key)!;
+        bucket.interactions += 1;
+        const usage = row.tokenUsage as { prompt?: number; completion?: number; total?: number; cost?: number } | null;
+        if (usage) {
+          bucket.prompt += usage.prompt ?? 0;
+          bucket.completion += usage.completion ?? 0;
+          bucket.total += usage.total ?? 0;
+          bucket.cost += usage.cost ?? 0;
+        }
+      }
+
+      return Array.from(buckets.values()).sort((a, b) => b.total - a.total);
+    }),
+
+  /**
    * Get platform breakdown for AI interactions
    */
   getPlatformStats: adminProcedure.query(async ({ ctx }) => {
