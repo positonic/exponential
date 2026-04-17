@@ -7,7 +7,9 @@ import {
   Avatar,
   Badge,
   Button,
+  Group,
   Menu,
+  Modal,
   Popover,
   SegmentedControl,
   Select,
@@ -15,6 +17,7 @@ import {
   Stack,
   Table,
   Text,
+  Textarea,
   TextInput,
   Tooltip,
   UnstyledButton,
@@ -131,6 +134,63 @@ function groupLabel(key: string, field: GroupByField): string {
 // SortHeader
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Create Epic Modal
+// ---------------------------------------------------------------------------
+
+function CreateEpicModal({ opened, onClose, workspaceId }: { opened: boolean; onClose: () => void; workspaceId: string }) {
+  const utils = api.useUtils();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+
+  const createEpic = api.epic.create.useMutation({
+    onSuccess: async () => {
+      await utils.epic.list.invalidate();
+      onClose();
+      setName("");
+      setDescription("");
+    },
+  });
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="New epic" size="md">
+      <Stack gap="md">
+        <TextInput
+          label="Name"
+          placeholder="Epic name"
+          value={name}
+          onChange={(e) => setName(e.currentTarget.value)}
+          size="sm"
+          required
+          autoFocus
+        />
+        <Textarea
+          label="Description"
+          placeholder="What does this epic cover?"
+          value={description}
+          onChange={(e) => setDescription(e.currentTarget.value)}
+          autosize
+          minRows={2}
+          maxRows={5}
+          size="sm"
+        />
+        <Group justify="flex-end">
+          <Button variant="subtle" onClick={onClose}>Cancel</Button>
+          <Button
+            onClick={() => createEpic.mutate({ workspaceId, name: name.trim(), description: description.trim() || undefined })}
+            loading={createEpic.isPending}
+            disabled={!name.trim()}
+          >
+            Create
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
 function SortHeader({ label, field, sortField, sortDir, onSort }: {
   label: string; field: SortField; sortField: SortField; sortDir: SortDir; onSort: (f: SortField) => void;
 }) {
@@ -198,6 +258,7 @@ export default function TicketsBacklogPage() {
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
   const [modalOpened, setModalOpened] = useState(false);
+  const [epicModalOpened, setEpicModalOpened] = useState(false);
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -613,7 +674,6 @@ export default function TicketsBacklogPage() {
           }}
         />
 
-        {entity === "tickets" && (
         <div className="flex items-center border border-border-primary rounded-md overflow-hidden">
           <Tooltip label="Filter" position="bottom">
             <ActionIcon variant="subtle" size="sm" className="text-text-muted hover:text-text-primary rounded-none" style={{ height: 30, width: 30 }}>
@@ -639,62 +699,72 @@ export default function TicketsBacklogPage() {
                 },
               }}
             >
-              <div className="flex items-center justify-between gap-4 py-1">
-                <Text size="xs" className="text-text-muted whitespace-nowrap">Group by</Text>
-                <Select
-                  value={groupBy}
-                  onChange={(v) => { if (v) { setGroupBy(v as GroupByField); debouncedSave({ groupBy: v }); } }}
-                  data={GROUP_BY_OPTIONS}
-                  size="xs"
-                  variant="filled"
-                  comboboxProps={{ withinPortal: true }}
-                  styles={{
-                    root: { flex: 1 },
-                    input: { fontSize: "0.8rem", height: 28, minHeight: 28 },
-                  }}
-                />
-              </div>
-              <div className="border-t border-border-primary mt-2 pt-2">
-                <Text size="xs" className="text-text-muted mb-2.5">Visibility</Text>
-                <div className="flex flex-wrap gap-1">
-                  {COLUMN_OPTIONS.map((col) => {
-                    const on = visibleColumns.has(col.key);
-                    return (
-                      <button
-                        key={col.key}
-                        type="button"
-                        onClick={() => !col.locked && toggleColumn(col.key)}
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                          col.locked
-                            ? "bg-surface-hover text-text-muted cursor-default"
-                            : on
-                              ? "bg-surface-hover text-text-primary cursor-pointer"
-                              : "bg-transparent text-text-muted/40 cursor-pointer hover:text-text-muted"
-                        }`}
-                      >
-                        {col.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              {entity === "tickets" && (
+                <>
+                  <div className="flex items-center justify-between gap-4 py-1">
+                    <Text size="xs" className="text-text-muted whitespace-nowrap">Group by</Text>
+                    <Select
+                      value={groupBy}
+                      onChange={(v) => { if (v) { setGroupBy(v as GroupByField); debouncedSave({ groupBy: v }); } }}
+                      data={GROUP_BY_OPTIONS}
+                      size="xs"
+                      variant="filled"
+                      comboboxProps={{ withinPortal: true }}
+                      styles={{
+                        root: { flex: 1 },
+                        input: { fontSize: "0.8rem", height: 28, minHeight: 28 },
+                      }}
+                    />
+                  </div>
+                  <div className="border-t border-border-primary mt-2 pt-2">
+                    <Text size="xs" className="text-text-muted mb-2.5">Visibility</Text>
+                    <div className="flex flex-wrap gap-1">
+                      {COLUMN_OPTIONS.map((col) => {
+                        const on = visibleColumns.has(col.key);
+                        return (
+                          <button
+                            key={col.key}
+                            type="button"
+                            onClick={() => !col.locked && toggleColumn(col.key)}
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                              col.locked
+                                ? "bg-surface-hover text-text-muted cursor-default"
+                                : on
+                                  ? "bg-surface-hover text-text-primary cursor-pointer"
+                                  : "bg-transparent text-text-muted/40 cursor-pointer hover:text-text-muted"
+                            }`}
+                          >
+                            {col.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+              {entity === "epics" && (
+                <Text size="xs" className="text-text-muted">Display settings for epics coming soon.</Text>
+              )}
             </Popover.Dropdown>
           </Popover>
         </div>
-        )}
 
-        {entity === "tickets" && (
-          <Button
-            size="xs"
-            leftSection={<IconPlus size={14} />}
-            onClick={() => setModalOpened(true)}
-            disabled={!product}
-            variant="light"
-            styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem" } }}
-          >
-            New ticket
-          </Button>
-        )}
+        <Button
+          size="xs"
+          leftSection={<IconPlus size={14} />}
+          onClick={() => {
+            if (entity === "epics") {
+              setEpicModalOpened(true);
+            } else {
+              setModalOpened(true);
+            }
+          }}
+          disabled={!product}
+          variant="light"
+          styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem" } }}
+        >
+          {entity === "epics" ? "New epic" : "New ticket"}
+        </Button>
       </div>
 
       {/* Content */}
@@ -882,6 +952,12 @@ export default function TicketsBacklogPage() {
           epics={epics}
         />
       )}
+
+      <CreateEpicModal
+        opened={epicModalOpened}
+        onClose={() => setEpicModalOpened(false)}
+        workspaceId={workspaceId ?? ""}
+      />
     </Stack>
   );
 }
