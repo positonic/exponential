@@ -14,7 +14,7 @@ const researchTypeEnum = z.enum([
   "OTHER",
 ]);
 
-const insightTypeEnum = z.enum(["PAIN_POINT", "WISH", "OPPORTUNITY"]);
+const insightTypeEnum = z.enum(["PAIN_POINT", "OPPORTUNITY", "FEEDBACK", "PERSONA", "JOURNEY", "OBSERVATION", "COMPETITIVE"]);
 const insightStatusEnum = z.enum(["INBOX", "TRIAGED", "LINKED", "DISMISSED"]);
 
 async function loadResearchWithAccess(
@@ -50,10 +50,7 @@ async function loadInsightWithAccess(
     where: { id: insightId },
     select: {
       id: true,
-      researchId: true,
-      research: {
-        select: { product: { select: { workspaceId: true } } },
-      },
+      product: { select: { workspaceId: true } },
     },
   });
   if (!insight) {
@@ -62,7 +59,7 @@ async function loadInsightWithAccess(
   await assertWorkspaceMember(
     db,
     userId,
-    insight.research.product.workspaceId,
+    insight.product.workspaceId,
   );
   return insight;
 }

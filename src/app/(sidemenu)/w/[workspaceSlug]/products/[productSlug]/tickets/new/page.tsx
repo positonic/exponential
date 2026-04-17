@@ -44,11 +44,15 @@ type TicketType =
 
 type TicketStatus =
   | "BACKLOG"
-  | "TODO"
+  | "NEEDS_REFINEMENT"
+  | "READY_TO_PLAN"
+  | "COMMITTED"
   | "IN_PROGRESS"
-  | "IN_REVIEW"
+  | "BLOCKED"
+  | "QA"
   | "DONE"
-  | "CANCELLED";
+  | "DEPLOYED"
+  | "ARCHIVED";
 
 export default function NewTicketPage() {
   const router = useRouter();

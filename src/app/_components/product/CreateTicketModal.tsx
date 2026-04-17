@@ -124,7 +124,7 @@ export function CreateTicketModal({
 
   // core
   const [title, setTitle] = useState("");
-  const [status, setStatus] = useState<TicketStatus>("TODO");
+  const [status, setStatus] = useState<TicketStatus>("BACKLOG");
   const [type, setType] = useState<TicketType>("FEATURE");
   const [priority, setPriority] = useState<string | null>(null);
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
@@ -165,7 +165,7 @@ export function CreateTicketModal({
 
   const resetForm = () => {
     setTitle("");
-    setStatus("TODO");
+    setStatus("BACKLOG");
     setType("FEATURE");
     setPriority(null);
     setAssigneeId(null);

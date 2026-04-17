@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, Prisma } from "@prisma/client";
 
 /**
  * Ensure the caller is a member of the workspace. Throws FORBIDDEN otherwise.
@@ -245,7 +245,7 @@ export const productRouter = createTRPCRouter({
       if (existing) {
         return ctx.db.pluginConfig.update({
           where: { id: existing.id },
-          data: { settings: newSettings },
+          data: { settings: newSettings as Prisma.InputJsonValue },
         });
       }
 
@@ -255,7 +255,7 @@ export const productRouter = createTRPCRouter({
           workspaceId: input.workspaceId,
           userId: ctx.session.user.id,
           enabled: true,
-          settings: newSettings,
+          settings: newSettings as Prisma.InputJsonValue,
         },
       });
     }),
