@@ -98,23 +98,38 @@ export const insightRouter = createTRPCRouter({
         source: z.string().max(500).optional(),
         sentiment: z.enum(["positive", "neutral", "negative"]).optional(),
         status: insightStatusEnum.optional(),
+        featureIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
 
-      return ctx.db.insight.create({
-        data: {
-          productId: input.productId,
-          type: input.type,
-          title: input.title,
-          body: input.body,
-          source: input.source,
-          sentiment: input.sentiment,
-          description: input.title,
-          status: input.status ?? "INBOX",
-          createdById: ctx.session.user.id,
-        },
+      return ctx.db.$transaction(async (tx) => {
+        const insight = await tx.insight.create({
+          data: {
+            productId: input.productId,
+            type: input.type,
+            title: input.title,
+            body: input.body,
+            source: input.source,
+            sentiment: input.sentiment,
+            description: input.title,
+            status: input.status ?? "INBOX",
+            createdById: ctx.session.user.id,
+          },
+        });
+
+        if (input.featureIds && input.featureIds.length > 0) {
+          await tx.featureInsight.createMany({
+            data: input.featureIds.map((featureId) => ({
+              insightId: insight.id,
+              featureId,
+            })),
+            skipDuplicates: true,
+          });
+        }
+
+        return insight;
       });
     }),
 
@@ -161,6 +176,24 @@ export const insightRouter = createTRPCRouter({
       await ctx.db.featureInsight.delete({
         where: { featureId_insightId: { insightId: input.insightId, featureId: input.featureId } },
       });
+      return { success: true };
+    }),
+
+  /** Replace the full set of features linked to an insight. */
+  setFeatures: protectedProcedure
+    .input(z.object({ insightId: z.string(), featureIds: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
+      await ctx.db.$transaction([
+        ctx.db.featureInsight.deleteMany({ where: { insightId: input.insightId } }),
+        ctx.db.featureInsight.createMany({
+          data: input.featureIds.map((featureId) => ({
+            insightId: input.insightId,
+            featureId,
+          })),
+          skipDuplicates: true,
+        }),
+      ]);
       return { success: true };
     }),
 });

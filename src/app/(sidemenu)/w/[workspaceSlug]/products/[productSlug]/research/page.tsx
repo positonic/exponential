@@ -10,12 +10,15 @@ import {
   Group,
   Menu,
   Modal,
+  MultiSelect,
+  Popover,
   Select,
   Skeleton,
   Stack,
   Text,
   Textarea,
   TextInput,
+  UnstyledButton,
 } from "@mantine/core";
 import {
   IconBulb,
@@ -93,6 +96,12 @@ function CreateInsightModal({
   const [body, setBody] = useState("");
   const [source, setSource] = useState("");
   const [sentiment, setSentiment] = useState<string | null>(null);
+  const [featureIds, setFeatureIds] = useState<string[]>([]);
+
+  const { data: features } = api.product.feature.list.useQuery(
+    { productId },
+    { enabled: !!productId && opened },
+  );
 
   const create = api.product.insight.create.useMutation({
     onSuccess: async () => {
@@ -102,6 +111,7 @@ function CreateInsightModal({
       setBody("");
       setSource("");
       setSentiment(null);
+      setFeatureIds([]);
     },
   });
 
@@ -154,6 +164,18 @@ function CreateInsightModal({
             clearable
           />
         )}
+        <MultiSelect
+          label="Features"
+          placeholder="Link to one or more features..."
+          value={featureIds}
+          onChange={setFeatureIds}
+          data={(features ?? []).map((f) => ({ value: f.id, label: f.name }))}
+          searchable
+          clearable
+          size="sm"
+          comboboxProps={{ withinPortal: true }}
+          nothingFoundMessage="No features yet"
+        />
         <Group justify="flex-end">
           <Button variant="subtle" onClick={onClose}>Cancel</Button>
           <Button
@@ -163,7 +185,8 @@ function CreateInsightModal({
               title: title.trim(),
               body: body.trim() || undefined,
               source: source.trim() || undefined,
-              sentiment: sentiment as "positive" | "neutral" | "negative" | undefined,
+              sentiment: (sentiment ?? undefined) as "positive" | "neutral" | "negative" | undefined,
+              featureIds: featureIds.length > 0 ? featureIds : undefined,
             })}
             loading={create.isPending}
             disabled={!title.trim()}
@@ -173,6 +196,93 @@ function CreateInsightModal({
         </Group>
       </Stack>
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline features editor
+// ---------------------------------------------------------------------------
+
+function InsightFeaturesEditor({
+  insightId,
+  productId,
+  currentFeatures,
+}: {
+  insightId: string;
+  productId: string;
+  currentFeatures: Array<{ feature: { id: string; name: string } }>;
+}) {
+  const utils = api.useUtils();
+  const [opened, setOpened] = useState(false);
+  const [selected, setSelected] = useState<string[]>(
+    currentFeatures.map((f) => f.feature.id),
+  );
+
+  const { data: features } = api.product.feature.list.useQuery(
+    { productId },
+    { enabled: opened },
+  );
+
+  const setFeatures = api.product.insight.setFeatures.useMutation({
+    onSuccess: async () => {
+      await utils.product.insight.list.invalidate({ productId });
+    },
+  });
+
+  const hasFeatures = currentFeatures.length > 0;
+
+  return (
+    <Popover
+      position="bottom-start"
+      withinPortal
+      shadow="md"
+      opened={opened}
+      onChange={(next) => {
+        setOpened(next);
+        if (next) setSelected(currentFeatures.map((f) => f.feature.id));
+      }}
+    >
+      <Popover.Target>
+        <UnstyledButton
+          onClick={() => setOpened((o) => !o)}
+          className="inline-flex items-center gap-1 text-text-muted hover:text-text-primary transition-colors"
+        >
+          <IconTarget size={10} />
+          {hasFeatures ? (
+            <Text size="xs">
+              {currentFeatures.map((f) => f.feature.name).join(", ")}
+            </Text>
+          ) : (
+            <Text size="xs">Add feature</Text>
+          )}
+        </UnstyledButton>
+      </Popover.Target>
+      <Popover.Dropdown
+        styles={{
+          dropdown: {
+            backgroundColor: "var(--color-bg-elevated)",
+            border: "1px solid var(--color-border-primary)",
+            minWidth: 260,
+          },
+        }}
+      >
+        <MultiSelect
+          autoFocus
+          value={selected}
+          onChange={(next) => {
+            setSelected(next);
+            setFeatures.mutate({ insightId, featureIds: next });
+          }}
+          data={(features ?? []).map((f) => ({ value: f.id, label: f.name }))}
+          searchable
+          clearable
+          size="xs"
+          placeholder="Search features..."
+          comboboxProps={{ withinPortal: true }}
+          nothingFoundMessage="No features yet"
+        />
+      </Popover.Dropdown>
+    </Popover>
   );
 }
 
@@ -373,13 +483,12 @@ export default function ResearchPage() {
                           {insight.source}
                         </Text>
                       )}
-                      {insight.features.length > 0 && (
-                        <div className="flex items-center gap-1">
-                          <IconTarget size={10} className="text-text-muted" />
-                          <Text size="xs" className="text-text-muted">
-                            {insight.features.map((f) => f.feature.name).join(", ")}
-                          </Text>
-                        </div>
+                      {product && (
+                        <InsightFeaturesEditor
+                          insightId={insight.id}
+                          productId={product.id}
+                          currentFeatures={insight.features}
+                        />
                       )}
                       <Text size="xs" className="text-text-muted">
                         {new Date(insight.createdAt).toLocaleDateString()}
