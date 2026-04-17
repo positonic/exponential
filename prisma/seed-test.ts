@@ -33,7 +33,7 @@ async function main() {
       workspaceId: workspace.id, createdById: user.id,
       name: "Horizon Platform", slug: "horizon-platform",
       description: "Core platform product for user-facing features, authentication, and data infrastructure.",
-      funTicketIds: true, estimationScale: "fibonacci",
+      funTicketIds: false, estimationScale: "fibonacci",
     },
   });
   console.log(`Product 1: ${product1.name} (${product1.id})`);
@@ -45,7 +45,7 @@ async function main() {
       workspaceId: workspace.id, createdById: user.id,
       name: "Pulse Analytics", slug: "pulse-analytics",
       description: "Real-time analytics and reporting platform for business intelligence.",
-      funTicketIds: true, estimationScale: "tshirt",
+      funTicketIds: false, estimationScale: "tshirt",
     },
   });
   console.log(`Product 2: ${product2.name} (${product2.id})\n`);
