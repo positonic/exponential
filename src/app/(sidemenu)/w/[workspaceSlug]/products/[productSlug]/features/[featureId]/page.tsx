@@ -391,11 +391,18 @@ export default function FeatureDetailPage() {
                         {link.insight.type.toLowerCase().replace("_", " ")}
                       </Badge>
                       <Text size="sm" className="text-text-primary mt-1">
-                        {link.insight.description}
+                        {link.insight.title ?? link.insight.description}
                       </Text>
-                      <Text size="xs" className="text-text-muted mt-1">
-                        From: {link.insight.research.title}
-                      </Text>
+                      {link.insight.source && (
+                        <Text size="xs" className="text-text-muted mt-1">
+                          {link.insight.source}
+                        </Text>
+                      )}
+                      {!link.insight.source && link.insight.research && (
+                        <Text size="xs" className="text-text-muted mt-1">
+                          From: {link.insight.research.title}
+                        </Text>
+                      )}
                     </div>
                   </Group>
                 </Card>
