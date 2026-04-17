@@ -704,7 +704,7 @@ export default function TicketsBacklogPage() {
             <Text size="sm" className="text-text-muted">Timeline view coming soon</Text>
           </div>
         ) : (
-          <EpicsList epics={epics ?? []} search={search} basePath={basePath} />
+          <EpicsList epics={epics ?? []} search={search} basePath={basePath} view={view === "list" ? "list" : "table"} />
         )
       ) : isLoading ? (
         <Stack gap="xs">
