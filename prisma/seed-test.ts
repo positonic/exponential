@@ -133,21 +133,35 @@ async function main() {
   }
   console.log(`Features: ${Object.keys(features).join(", ")}`);
 
-  // ── Research (Product 1) ──
-  const researchData = [
-    { title: "User Interview: Onboarding Pain Points", type: "INTERVIEW" as const, notes: "Users struggle with the 5-step signup flow. 3/5 participants abandoned at step 3 (email verification)." },
-    { title: "Competitor Analysis: Auth Flows", type: "DESK_RESEARCH" as const, notes: "Linear uses magic links. Notion uses Google OAuth primarily. Both have < 2 step signups." },
-    { title: "Analytics Review: Drop-off Rates", type: "ANALYTICS" as const, notes: "40% drop-off between signup start and first login. Highest drop at email verification step." },
+  // ── Insights (Product 1) ──
+  const insightData: Array<{ title: string; type: "PAIN_POINT" | "OPPORTUNITY" | "FEEDBACK" | "PERSONA" | "JOURNEY" | "OBSERVATION" | "COMPETITIVE"; body?: string; source?: string; sentiment?: string; status: "INBOX" | "TRIAGED" | "LINKED" | "DISMISSED" }> = [
+    { title: "Email verification causes 40% drop-off", type: "PAIN_POINT", body: "Users struggle with the 5-step signup flow. 3/5 participants abandoned at step 3.", source: "User interview - March 2026", status: "TRIAGED" },
+    { title: "Switch to magic link or social-first auth", type: "OPPORTUNITY", body: "Linear uses magic links. Notion uses Google OAuth primarily. Both have < 2 step signups.", source: "Competitor analysis", status: "INBOX" },
+    { title: "Dashboard too slow for enterprise accounts", type: "FEEDBACK", body: "Multiple reports from Acme Corp and BuildFast about dashboard loading > 5s on datasets with 10k+ rows.", source: "Zendesk tickets #4231, #4298", sentiment: "negative", status: "TRIAGED" },
+    { title: "Love the new API v2 rate limiting", type: "FEEDBACK", body: "Several customers mentioned they appreciate the transparent rate limit headers.", source: "G2 reviews", sentiment: "positive", status: "DISMISSED" },
+    { title: "Developer Dave", type: "PERSONA", body: "Mid-level engineer at a 50-person startup. Builds internal tools. Frustrated by slow APIs and unclear docs. Needs reliable webhooks and good error messages. Values speed and simplicity over configurability.", status: "LINKED" },
+    { title: "Product Manager Pat", type: "PERSONA", body: "PM at a growth-stage company. Manages a backlog of 200+ tickets. Needs clear prioritization, stakeholder reporting, and research-backed decisions. Frustrated by context-switching between tools.", status: "LINKED" },
+    { title: "First-time user onboarding flow", type: "JOURNEY", body: "1. Lands on marketing page\n2. Clicks 'Get Started'\n3. Google OAuth (smooth)\n4. Workspace creation (confused by 'slug')\n5. Empty dashboard (lost - no guidance)\n6. Tries to create a project (finds it)\n7. Adds first task (satisfied)", status: "TRIAGED" },
+    { title: "Notion has real-time collaboration on docs", type: "COMPETITIVE", body: "Notion's collaborative editing is a key differentiator. Users can see each other's cursors and edits in real-time. We don't offer this for ticket descriptions.", source: "Competitor analysis - Q2 2026", status: "INBOX" },
+    { title: "Users want keyboard shortcuts for status changes", type: "OBSERVATION", body: "Watched 3 users navigate the backlog. All reached for keyboard shortcuts that don't exist. They expected 1-9 number keys to change status.", source: "Usability testing session", status: "INBOX" },
+    { title: "Mobile experience is unusable", type: "PAIN_POINT", body: "The backlog table doesn't render properly on mobile. Columns overflow and there's no responsive layout.", source: "Internal QA", status: "TRIAGED" },
   ];
-  for (const r of researchData) {
-    const research = await db.research.create({
-      data: { productId: product1.id, createdById: user.id, title: r.title, type: r.type, notes: r.notes, conductedAt: new Date() },
+  for (const i of insightData) {
+    await db.insight.create({
+      data: {
+        productId: product1.id,
+        createdById: user.id,
+        type: i.type,
+        title: i.title,
+        body: i.body,
+        source: i.source,
+        sentiment: i.sentiment,
+        description: i.title,
+        status: i.status,
+      },
     });
-    // Add insights
-    await db.insight.create({ data: { researchId: research.id, type: "PAIN_POINT", description: "Email verification step causes 40% abandonment", status: "TRIAGED" } });
-    await db.insight.create({ data: { researchId: research.id, type: "OPPORTUNITY", description: "Switch to magic link or social-first auth", status: "INBOX" } });
   }
-  console.log(`Research: ${researchData.length} items with insights`);
+  console.log(`Insights: ${insightData.length} items`);
 
   // ── Retrospectives (Product 1) ──
   await db.retrospective.create({

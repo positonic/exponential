@@ -79,6 +79,7 @@ export async function truncateAllTables(): Promise<void> {
     db.$executeRawUnsafe(`DELETE FROM "FeatureTag"`),
     db.$executeRawUnsafe(`DELETE FROM "TicketComment"`),
     db.$executeRawUnsafe(`DELETE FROM "FeatureInsight"`),
+    db.$executeRawUnsafe(`DELETE FROM "InsightTag"`),
     db.$executeRawUnsafe(`DELETE FROM "Insight"`),
     db.$executeRawUnsafe(`DELETE FROM "Retrospective"`),
     db.$executeRawUnsafe(`DELETE FROM "Ticket"`),

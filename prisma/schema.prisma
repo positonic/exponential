@@ -202,6 +202,7 @@ model User {
   productsCreated       Product[]          @relation("ProductCreatedBy")
   featuresCreated       Feature[]          @relation("FeatureCreatedBy")
   researchesCreated     Research[]         @relation("ResearchCreatedBy")
+  insightsCreated       Insight[]          @relation("InsightCreatedBy")
   ticketsCreated        Ticket[]           @relation("TicketCreatedBy")
   ticketsAssigned       Ticket[]           @relation("TicketAssignee")
   retrospectivesCreated Retrospective[]    @relation("RetrospectiveCreatedBy")
@@ -1687,6 +1688,7 @@ model Tag {
   actions   ActionTag[]
   tickets   TicketTag[]
   features  FeatureTag[]
+  insights  InsightTag[]
 
   // Global tags: unique by slug (when workspaceId is null)
   // Workspace tags: unique by slug within workspace
@@ -3197,6 +3199,7 @@ model Product {
   features        Feature[]
   tickets         Ticket[]
   researches      Research[]
+  insights        Insight[]
   retrospectives  Retrospective[]
   ticketTemplates TicketTemplate[]
 
@@ -3319,8 +3322,12 @@ model Research {
 
 enum InsightType {
   PAIN_POINT
-  WISH
   OPPORTUNITY
+  FEEDBACK
+  PERSONA
+  JOURNEY
+  OBSERVATION
+  COMPETITIVE
 }
 
 enum InsightStatus {
@@ -3332,18 +3339,30 @@ enum InsightStatus {
 
 model Insight {
   id          String        @id @default(cuid())
-  researchId  String
+  productId   String
+  researchId  String?
   type        InsightType
-  description String
+  title       String
+  body        String?
+  source      String?
+  sentiment   String?
+  description String        @default("")
   status      InsightStatus @default(INBOX)
+  createdById String
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  research Research         @relation(fields: [researchId], references: [id], onDelete: Cascade)
+  product  Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  research Research?        @relation(fields: [researchId], references: [id], onDelete: SetNull)
+  createdBy User            @relation("InsightCreatedBy", fields: [createdById], references: [id])
   features FeatureInsight[]
+  tags     InsightTag[]
 
+  @@index([productId])
   @@index([researchId])
   @@index([status])
+  @@index([type])
+  @@index([createdById])
 }
 
 model FeatureInsight {
@@ -3544,5 +3563,18 @@ model FeatureTag {
   tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([featureId, tagId])
+  @@index([tagId])
+}
+
+model InsightTag {
+  id        String   @id @default(cuid())
+  insightId String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  insight Insight @relation(fields: [insightId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([insightId, tagId])
   @@index([tagId])
 }
