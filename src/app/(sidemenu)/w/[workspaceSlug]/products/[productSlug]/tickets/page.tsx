@@ -761,7 +761,7 @@ export default function TicketsBacklogPage() {
           }}
           disabled={!product}
           variant="light"
-          styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem" } }}
+          styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem", minWidth: 110 } }}
         >
           {entity === "epics" ? "New epic" : "New ticket"}
         </Button>
