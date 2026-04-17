@@ -127,6 +127,7 @@ export const featureRouter = createTRPCRouter({
         where: { id: input.id },
         include: {
           product: { select: { id: true, slug: true, workspaceId: true, name: true } },
+          createdBy: { select: { id: true, name: true, image: true } },
           goal: {
             select: {
               id: true,
