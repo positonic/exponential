@@ -6,7 +6,6 @@ import {
   IconLayoutList,
   IconBulb,
   IconCalendarClock,
-  IconMicrophone,
   IconClipboardList,
   IconSettings,
   IconPlus,
@@ -28,7 +27,7 @@ const tabs = [
   { value: "backlog", href: "/tickets", label: "Backlog", icon: IconLayoutList },
   { value: "features", href: "/features", label: "Features", icon: IconBulb },
   { value: "cycles", href: "/cycles", label: "Cycles", icon: IconCalendarClock },
-  { value: "research", href: "/research", label: "Research", icon: IconMicrophone },
+  { value: "research", href: "/research", label: "Insights", icon: IconBulb },
   { value: "retro", href: "/retrospectives", label: "Retro", icon: IconClipboardList },
 ] as const;
 
