@@ -223,6 +223,7 @@ export const productRouter = createTRPCRouter({
         sortField: z.string().optional(),
         sortDir: z.string().optional(),
         visibleColumns: z.array(z.string()).optional(),
+        entity: z.enum(["tickets", "epics"]).optional(),
       }),
     }))
     .mutation(async ({ ctx, input }) => {

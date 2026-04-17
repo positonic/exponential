@@ -17,6 +17,7 @@ import {
   Text,
   TextInput,
   Tooltip,
+  UnstyledButton,
 } from "@mantine/core";
 import {
   IconAdjustments,
@@ -40,6 +41,7 @@ import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
+import { EpicsList } from "~/app/_components/product/EpicsList";
 import { TagBadge } from "~/app/_components/TagBadge";
 import {
   STATUS_LABELS,
@@ -200,6 +202,7 @@ export default function TicketsBacklogPage() {
   const [sortField, setSortField] = useState<SortField>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [view, setView] = useState("table");
+  const [entity, setEntity] = useState<"tickets" | "epics">("tickets");
   const [groupBy, setGroupBy] = useState<GroupByField>("none");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
@@ -222,7 +225,7 @@ export default function TicketsBacklogPage() {
     if (!workspaceId) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      saveMutateRef.current({ productSlug, workspaceId, prefs: prefs as { view?: string; groupBy?: string; sortField?: string; sortDir?: string; visibleColumns?: string[] } });
+      saveMutateRef.current({ productSlug, workspaceId, prefs: prefs as { view?: string; groupBy?: string; sortField?: string; sortDir?: string; visibleColumns?: string[]; entity?: "tickets" | "epics" } });
     }, 500);
   }, [workspaceId, productSlug]);
 
@@ -234,6 +237,9 @@ export default function TicketsBacklogPage() {
       if (savedPrefs.sortField) setSortField(savedPrefs.sortField as SortField);
       if (savedPrefs.sortDir) setSortDir(savedPrefs.sortDir as SortDir);
       if (savedPrefs.visibleColumns) setVisibleColumns(new Set(savedPrefs.visibleColumns as string[]));
+      if (savedPrefs.entity === "epics" || savedPrefs.entity === "tickets") {
+        setEntity(savedPrefs.entity);
+      }
       setPrefsLoaded(true);
     }
   }, [savedPrefs, prefsLoaded]);
@@ -552,17 +558,45 @@ export default function TicketsBacklogPage() {
     <Stack gap="sm">
       {/* Action bar */}
       <div className="flex items-center gap-2">
-        <SegmentedControl
-          value={view}
-          onChange={(v) => { setView(v); debouncedSave({ view: v }); }}
-          size="xs"
-          data={[
-            { value: "table", label: (<Tooltip label="Table" position="bottom"><div className="flex items-center justify-center px-1"><IconLayoutList size={15} /></div></Tooltip>) },
-            { value: "board", label: (<Tooltip label="Board" position="bottom"><div className="flex items-center justify-center px-1"><IconLayoutColumns size={15} /></div></Tooltip>) },
-            { value: "list", label: (<Tooltip label="List" position="bottom"><div className="flex items-center justify-center px-1"><IconList size={15} /></div></Tooltip>) },
-          ]}
-          styles={{ root: { backgroundColor: "var(--color-surface-secondary)", border: "1px solid var(--color-border-primary)" } }}
-        />
+        <Menu position="bottom-start" shadow="md">
+          <Menu.Target>
+            <UnstyledButton
+              className="flex items-center gap-1 text-text-primary hover:text-blue-400 transition-colors px-1"
+              title="Switch view"
+            >
+              <Text size="sm" fw={600}>
+                {entity === "epics" ? "Epics" : "Tickets"}
+              </Text>
+              <IconChevronDown size={14} />
+            </UnstyledButton>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item
+              onClick={() => { setEntity("tickets"); debouncedSave({ entity: "tickets" }); }}
+            >
+              Tickets
+            </Menu.Item>
+            <Menu.Item
+              onClick={() => { setEntity("epics"); debouncedSave({ entity: "epics" }); }}
+            >
+              Epics
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+
+        {entity === "tickets" && (
+          <SegmentedControl
+            value={view}
+            onChange={(v) => { setView(v); debouncedSave({ view: v }); }}
+            size="xs"
+            data={[
+              { value: "table", label: (<Tooltip label="Table" position="bottom"><div className="flex items-center justify-center px-1"><IconLayoutList size={15} /></div></Tooltip>) },
+              { value: "board", label: (<Tooltip label="Board" position="bottom"><div className="flex items-center justify-center px-1"><IconLayoutColumns size={15} /></div></Tooltip>) },
+              { value: "list", label: (<Tooltip label="List" position="bottom"><div className="flex items-center justify-center px-1"><IconList size={15} /></div></Tooltip>) },
+            ]}
+            styles={{ root: { backgroundColor: "var(--color-surface-secondary)", border: "1px solid var(--color-border-primary)" } }}
+          />
+        )}
 
         <div className="flex-1" />
 
@@ -577,6 +611,7 @@ export default function TicketsBacklogPage() {
           }}
         />
 
+        {entity === "tickets" && (
         <div className="flex items-center border border-border-primary rounded-md overflow-hidden">
           <Tooltip label="Filter" position="bottom">
             <ActionIcon variant="subtle" size="sm" className="text-text-muted hover:text-text-primary rounded-none" style={{ height: 30, width: 30 }}>
@@ -644,21 +679,26 @@ export default function TicketsBacklogPage() {
             </Popover.Dropdown>
           </Popover>
         </div>
+        )}
 
-        <Button
-          size="xs"
-          leftSection={<IconPlus size={14} />}
-          onClick={() => setModalOpened(true)}
-          disabled={!product}
-          variant="light"
-          styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem" } }}
-        >
-          New ticket
-        </Button>
+        {entity === "tickets" && (
+          <Button
+            size="xs"
+            leftSection={<IconPlus size={14} />}
+            onClick={() => setModalOpened(true)}
+            disabled={!product}
+            variant="light"
+            styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem" } }}
+          >
+            New ticket
+          </Button>
+        )}
       </div>
 
-      {/* Table */}
-      {isLoading ? (
+      {/* Content */}
+      {entity === "epics" ? (
+        <EpicsList epics={epics ?? []} search={search} basePath={basePath} />
+      ) : isLoading ? (
         <Stack gap="xs">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={36} />)}
         </Stack>
