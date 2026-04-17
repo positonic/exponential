@@ -22,17 +22,25 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 const INSIGHT_TYPES = [
   { value: "PAIN_POINT", label: "Pain point" },
-  { value: "WISH", label: "Wish" },
   { value: "OPPORTUNITY", label: "Opportunity" },
+  { value: "FEEDBACK", label: "Feedback" },
+  { value: "PERSONA", label: "Persona" },
+  { value: "JOURNEY", label: "Journey" },
+  { value: "OBSERVATION", label: "Observation" },
+  { value: "COMPETITIVE", label: "Competitive" },
 ];
 
 const INSIGHT_TYPE_COLORS: Record<string, string> = {
   PAIN_POINT: "red",
-  WISH: "blue",
   OPPORTUNITY: "teal",
+  FEEDBACK: "blue",
+  PERSONA: "grape",
+  JOURNEY: "cyan",
+  OBSERVATION: "orange",
+  COMPETITIVE: "indigo",
 };
 
-type InsightType = "PAIN_POINT" | "WISH" | "OPPORTUNITY";
+type InsightType = "PAIN_POINT" | "OPPORTUNITY" | "FEEDBACK" | "PERSONA" | "JOURNEY" | "OBSERVATION" | "COMPETITIVE";
 
 export default function ResearchDetailPage() {
   const router = useRouter();

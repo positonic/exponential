@@ -204,17 +204,20 @@ export const researchRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadResearchWithAccess(
+      const research = await loadResearchWithAccess(
         ctx.db,
         ctx.session.user.id,
         input.researchId,
       );
       return ctx.db.insight.create({
         data: {
+          productId: research.productId,
           researchId: input.researchId,
           type: input.type,
+          title: input.description,
           description: input.description,
           status: input.status ?? "INBOX",
+          createdById: ctx.session.user.id,
         },
       });
     }),
