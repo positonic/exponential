@@ -47,7 +47,7 @@ export const tagRouter = createTRPCRouter({
           orderBy: { name: "asc" },
         });
       } else {
-        // No workspace specified — fetch tags from all workspaces the user belongs to
+        // No workspace specified - fetch tags from all workspaces the user belongs to
         // No workspace specified - fetch tags from all workspaces the user belongs to
         // so custom tags are always visible even without explicit workspace context
         const userWorkspaces = await ctx.db.workspaceUser.findMany({
@@ -540,6 +540,20 @@ export const tagRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
       }
 
+      const uniqueTagIds = [...new Set(input.tagIds)];
+      if (uniqueTagIds.length > 0) {
+        const validTags = await ctx.db.tag.findMany({
+          where: {
+            id: { in: uniqueTagIds },
+            OR: [{ workspaceId: null }, { workspaceId: ticket.product.workspaceId }],
+          },
+          select: { id: true },
+        });
+        if (validTags.length !== uniqueTagIds.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "One or more tags are not available in this workspace" });
+        }
+      }
+
       await ctx.db.$transaction([
         ctx.db.ticketTag.deleteMany({ where: { ticketId: input.ticketId } }),
         ctx.db.ticketTag.createMany({
@@ -582,6 +596,20 @@ export const tagRouter = createTRPCRouter({
       });
       if (!membership) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
+      }
+
+      const uniqueFeatureTagIds = [...new Set(input.tagIds)];
+      if (uniqueFeatureTagIds.length > 0) {
+        const validFeatureTags = await ctx.db.tag.findMany({
+          where: {
+            id: { in: uniqueFeatureTagIds },
+            OR: [{ workspaceId: null }, { workspaceId: feature.product.workspaceId }],
+          },
+          select: { id: true },
+        });
+        if (validFeatureTags.length !== uniqueFeatureTagIds.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "One or more tags are not available in this workspace" });
+        }
       }
 
       await ctx.db.$transaction([

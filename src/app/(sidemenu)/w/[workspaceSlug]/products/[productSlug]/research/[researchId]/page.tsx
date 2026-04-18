@@ -55,9 +55,12 @@ export default function ResearchDetailPage() {
     { enabled: !!researchId },
   );
 
+  // Ensure the loaded research belongs to the product in the URL
+  const researchBelongsToProduct = research?.product.slug === productSlug;
+
   const { data: features } = api.product.feature.list.useQuery(
     { productId: research?.product.id ?? "" },
-    { enabled: !!research?.product.id },
+    { enabled: !!research?.product.id && researchBelongsToProduct },
   );
 
   const [insightType, setInsightType] = useState<InsightType>("PAIN_POINT");
@@ -112,7 +115,7 @@ export default function ResearchDetailPage() {
       </Stack>
     );
   }
-  if (!research)
+  if (!research || !researchBelongsToProduct)
     return <Text className="text-text-muted">Research not found</Text>;
 
   const onDelete = () => {

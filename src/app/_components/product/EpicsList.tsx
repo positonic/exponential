@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Badge, Table, Text, Tooltip } from "@mantine/core";
 import {
   IconSelector,
@@ -86,6 +87,7 @@ function SortHeader({ label, field, sortField, sortDir, onSort }: {
 export function EpicsList({
   epics,
   search,
+  basePath,
   view = "table",
 }: {
   epics: EpicRow[];
@@ -93,6 +95,7 @@ export function EpicsList({
   basePath: string;
   view?: "table" | "list";
 }) {
+  const router = useRouter();
   const [sortField, setSortField] = useState<SortField>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -158,7 +161,8 @@ export function EpicsList({
         {filtered.map((epic, i) => (
           <div
             key={epic.id}
-            className={`flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors ${i < filtered.length - 1 ? "border-b border-border-primary" : ""}`}
+            className={`flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors cursor-pointer ${i < filtered.length - 1 ? "border-b border-border-primary" : ""}`}
+            onClick={() => router.push(`${basePath}/${epic.id}`)}
           >
             <Badge size="xs" variant="filled" color={EPIC_STATUS_COLORS[epic.status] ?? "gray"} styles={{ label: { color: "var(--mantine-color-dark-9)" } }} className="shrink-0">
               {EPIC_STATUS_LABELS[epic.status] ?? epic.status}
@@ -200,7 +204,7 @@ export function EpicsList({
         </Table.Thead>
         <Table.Tbody>
           {filtered.map((epic) => (
-            <Table.Tr key={epic.id} className="hover:bg-surface-hover transition-colors">
+            <Table.Tr key={epic.id} className="hover:bg-surface-hover transition-colors cursor-pointer" onClick={() => router.push(`${basePath}/${epic.id}`)}>
               <Table.Td style={{ width: 110 }}>
                 <Badge size="xs" variant="filled" color={EPIC_STATUS_COLORS[epic.status] ?? "gray"} styles={{ label: { color: "var(--mantine-color-dark-9)" } }}>
                   {EPIC_STATUS_LABELS[epic.status] ?? epic.status}

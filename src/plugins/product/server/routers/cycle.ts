@@ -372,6 +372,13 @@ export const cycleRouter = createTRPCRouter({
         input.workspaceId,
       );
 
+      if (input.startDate && input.endDate && input.endDate <= input.startDate) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cycle end date must be after the start date",
+        });
+      }
+
       // Auto-name if not provided
       let name = input.name?.trim();
       if (!name) {
@@ -459,6 +466,13 @@ export const cycleRouter = createTRPCRouter({
         });
         const newStart = input.startDate === undefined ? current?.startDate : input.startDate;
         const newEnd = input.endDate === undefined ? current?.endDate : input.endDate;
+
+        if (newStart && newEnd && newEnd <= newStart) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cycle end date must be after the start date",
+          });
+        }
 
         if (newStart && newEnd) {
           const overlapping = await ctx.db.list.findFirst({

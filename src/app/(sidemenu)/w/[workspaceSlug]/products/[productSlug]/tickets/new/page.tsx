@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Button,
   Card,
@@ -28,10 +29,15 @@ const TYPE_OPTIONS = [
 
 const STATUS_OPTIONS = [
   { value: "BACKLOG", label: "Backlog" },
-  { value: "TODO", label: "To do" },
-  { value: "IN_PROGRESS", label: "In progress" },
-  { value: "IN_REVIEW", label: "In review" },
+  { value: "NEEDS_REFINEMENT", label: "Needs Refinement" },
+  { value: "READY_TO_PLAN", label: "Ready to Plan" },
+  { value: "COMMITTED", label: "Committed" },
+  { value: "IN_PROGRESS", label: "In Progress" },
+  { value: "BLOCKED", label: "Blocked" },
+  { value: "QA", label: "QA" },
   { value: "DONE", label: "Done" },
+  { value: "DEPLOYED", label: "Deployed" },
+  { value: "ARCHIVED", label: "Archived" },
 ];
 
 type TicketType =
@@ -221,7 +227,7 @@ export default function NewTicketPage() {
             <Group justify="flex-end">
               <Button
                 variant="subtle"
-                component="a"
+                component={Link}
                 href={`/w/${workspace.slug}/products/${productSlug}/tickets`}
               >
                 Cancel

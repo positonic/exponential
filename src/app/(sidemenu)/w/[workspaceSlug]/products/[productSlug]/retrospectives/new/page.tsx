@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Button,
   Card,
@@ -175,7 +176,7 @@ export default function NewRetrospectivePage() {
             <Group justify="flex-end">
               <Button
                 variant="subtle"
-                component="a"
+                component={Link}
                 href={`/w/${workspace.slug}/products/${productSlug}/retrospectives`}
               >
                 Cancel

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Button,
   Card,
@@ -121,7 +122,7 @@ export default function NewProductPage() {
             <Group justify="flex-end">
               <Button
                 variant="subtle"
-                component="a"
+                component={Link}
                 href={`/w/${workspace.slug}/products`}
               >
                 Cancel

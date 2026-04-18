@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, Prisma } from "@prisma/client";
 import { generateFunId } from "~/lib/fun-ids";
 
 const ticketTypeEnum = z.enum([
@@ -55,6 +55,7 @@ async function loadTicketWithAccess(
 const COMPLETED_TICKET_STATUSES: ReadonlyArray<z.infer<typeof ticketStatusEnum>> = [
   "DONE",
   "DEPLOYED",
+  "ARCHIVED",
 ];
 
 /** Ticket statuses where an open blocker means the ticket is actively blocked. */
@@ -81,7 +82,7 @@ const DEP_TICKET_SELECT = {
  * transitively reachable. Used to prevent cycles when adding a dependency.
  */
 async function wouldCreateCycle(
-  db: PrismaClient,
+  db: PrismaClient | Prisma.TransactionClient,
   startId: string,
   targetId: string,
 ): Promise<boolean> {
@@ -352,8 +353,8 @@ export const ticketRouter = createTRPCRouter({
       const { id, ...rest } = input;
       const data: Record<string, unknown> = { ...rest };
 
-      // Auto-track completedAt when transitioning to DONE
-      if (input.status === "DONE") {
+      // Auto-track completedAt when transitioning to a completed status
+      if (input.status && COMPLETED_TICKET_STATUSES.includes(input.status)) {
         data.completedAt = new Date();
       } else if (input.status) {
         data.completedAt = null;
@@ -449,31 +450,33 @@ export const ticketRouter = createTRPCRouter({
         ticket.product.workspaceId,
       );
 
-      // Cycle check: would adding ticketId -> dependsOnId let dependsOnId reach ticketId?
-      if (await wouldCreateCycle(ctx.db, input.dependsOnId, input.ticketId)) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "This would create a dependency cycle.",
-        });
-      }
+      return ctx.db.$transaction(async (tx) => {
+        // Cycle check: would adding ticketId -> dependsOnId let dependsOnId reach ticketId?
+        if (await wouldCreateCycle(tx, input.dependsOnId, input.ticketId)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This would create a dependency cycle.",
+          });
+        }
 
-      return ctx.db.ticketDependency.upsert({
-        where: {
-          ticketId_dependsOnId: {
+        return tx.ticketDependency.upsert({
+          where: {
+            ticketId_dependsOnId: {
+              ticketId: input.ticketId,
+              dependsOnId: input.dependsOnId,
+            },
+          },
+          create: {
             ticketId: input.ticketId,
             dependsOnId: input.dependsOnId,
+            createdById: ctx.session.user.id,
           },
-        },
-        create: {
-          ticketId: input.ticketId,
-          dependsOnId: input.dependsOnId,
-          createdById: ctx.session.user.id,
-        },
-        update: {},
-        select: {
-          id: true,
-          dependsOn: { select: DEP_TICKET_SELECT },
-        },
+          update: {},
+          select: {
+            id: true,
+            dependsOn: { select: DEP_TICKET_SELECT },
+          },
+        });
       });
     }),
 

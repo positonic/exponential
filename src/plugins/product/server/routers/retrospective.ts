@@ -179,7 +179,34 @@ export const retrospectiveRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadRetroWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const retro = await loadRetroWithAccess(ctx.db, ctx.session.user.id, input.id);
+
+      if (input.productId) {
+        const product = await ctx.db.product.findUnique({
+          where: { id: input.productId },
+          select: { workspaceId: true },
+        });
+        if (!product || product.workspaceId !== retro.workspaceId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Product does not belong to this workspace",
+          });
+        }
+      }
+
+      if (input.cycleId) {
+        const cycle = await ctx.db.list.findUnique({
+          where: { id: input.cycleId },
+          select: { workspaceId: true, listType: true },
+        });
+        if (!cycle || cycle.workspaceId !== retro.workspaceId || cycle.listType !== "SPRINT") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cycle does not belong to this workspace",
+          });
+        }
+      }
+
       const { id, ...data } = input;
       return ctx.db.retrospective.update({ where: { id }, data });
     }),

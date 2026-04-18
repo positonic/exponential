@@ -120,8 +120,19 @@ export const insightRouter = createTRPCRouter({
         });
 
         if (input.featureIds && input.featureIds.length > 0) {
+          const uniqueFeatureIds = [...new Set(input.featureIds)];
+          const validFeatures = await tx.feature.findMany({
+            where: { id: { in: uniqueFeatureIds }, productId: insight.productId },
+            select: { id: true },
+          });
+          if (validFeatures.length !== uniqueFeatureIds.length) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "One or more features do not belong to this insight's product",
+            });
+          }
           await tx.featureInsight.createMany({
-            data: input.featureIds.map((featureId) => ({
+            data: uniqueFeatureIds.map((featureId) => ({
               insightId: insight.id,
               featureId,
             })),
@@ -162,7 +173,20 @@ export const insightRouter = createTRPCRouter({
   linkToFeature: protectedProcedure
     .input(z.object({ insightId: z.string(), featureId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
+      const feature = await ctx.db.feature.findUnique({
+        where: { id: input.featureId },
+        select: { id: true, productId: true },
+      });
+      if (!feature) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
+      }
+      if (feature.productId !== insight.productId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "One or more features do not belong to this insight's product",
+        });
+      }
       await ctx.db.featureInsight.create({
         data: { insightId: input.insightId, featureId: input.featureId },
       });
@@ -183,11 +207,24 @@ export const insightRouter = createTRPCRouter({
   setFeatures: protectedProcedure
     .input(z.object({ insightId: z.string(), featureIds: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
+      const uniqueFeatureIds = [...new Set(input.featureIds)];
+      if (uniqueFeatureIds.length > 0) {
+        const validFeatures = await ctx.db.feature.findMany({
+          where: { id: { in: uniqueFeatureIds }, productId: insight.productId },
+          select: { id: true },
+        });
+        if (validFeatures.length !== uniqueFeatureIds.length) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "One or more features do not belong to this insight's product",
+          });
+        }
+      }
       await ctx.db.$transaction([
         ctx.db.featureInsight.deleteMany({ where: { insightId: input.insightId } }),
         ctx.db.featureInsight.createMany({
-          data: input.featureIds.map((featureId) => ({
+          data: uniqueFeatureIds.map((featureId) => ({
             insightId: input.insightId,
             featureId,
           })),

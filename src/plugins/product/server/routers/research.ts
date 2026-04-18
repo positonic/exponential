@@ -50,6 +50,7 @@ async function loadInsightWithAccess(
     where: { id: insightId },
     select: {
       id: true,
+      productId: true,
       product: { select: { workspaceId: true } },
     },
   });
@@ -263,6 +264,7 @@ export const researchRouter = createTRPCRouter({
         where: { id: input.featureId },
         select: {
           id: true,
+          productId: true,
           product: { select: { workspaceId: true } },
         },
       });
@@ -274,6 +276,12 @@ export const researchRouter = createTRPCRouter({
         ctx.session.user.id,
         feature.product.workspaceId,
       );
+      if (feature.productId !== insight.productId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Insight and feature must belong to the same product",
+        });
+      }
 
       await ctx.db.featureInsight.upsert({
         where: {

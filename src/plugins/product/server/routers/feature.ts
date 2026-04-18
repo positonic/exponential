@@ -177,11 +177,11 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const product = await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
 
       if (input.goalId) {
-        const goal = await ctx.db.goal.findUnique({
-          where: { id: input.goalId },
+        const goal = await ctx.db.goal.findFirst({
+          where: { id: input.goalId, workspaceId: product.workspaceId },
           select: { id: true },
         });
         if (!goal) {
@@ -221,7 +221,20 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+
+      if (input.goalId) {
+        const goal = await ctx.db.goal.findFirst({
+          where: { id: input.goalId, workspaceId: feature.product.workspaceId },
+          select: { id: true },
+        });
+        if (!goal) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Goal not found",
+          });
+        }
+      }
 
       const { id, ...data } = input;
       return ctx.db.feature.update({
@@ -358,7 +371,20 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadUserStoryWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const story = await loadUserStoryWithAccess(ctx.db, ctx.session.user.id, input.id);
+
+      if (input.scopeId) {
+        const scope = await ctx.db.featureScope.findUnique({
+          where: { id: input.scopeId },
+          select: { featureId: true },
+        });
+        if (!scope || scope.featureId !== story.featureId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Scope does not belong to this feature",
+          });
+        }
+      }
 
       const { id, ...data } = input;
       return ctx.db.userStory.update({

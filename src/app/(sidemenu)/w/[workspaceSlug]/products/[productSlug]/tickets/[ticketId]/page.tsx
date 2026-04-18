@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import DOMPurify from "dompurify";
 import {
   ActionIcon,
   Anchor,
@@ -526,7 +527,7 @@ export default function TicketDetailPage() {
             <div
               className="prose prose-sm prose-invert max-w-none text-text-primary [&_h1]:text-text-primary [&_h2]:text-text-primary [&_h3]:text-text-primary [&_a]:text-blue-400"
             >
-              <div dangerouslySetInnerHTML={{ __html: ticket.body }} />
+              <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(ticket.body ?? '') }} />
             </div>
           ) : (
             <Text size="sm" className="text-text-muted">

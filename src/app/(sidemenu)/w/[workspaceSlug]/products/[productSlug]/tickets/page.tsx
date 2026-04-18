@@ -950,6 +950,7 @@ export default function TicketsBacklogPage() {
           features={features}
           cycles={cycles}
           epics={epics}
+          members={workspace?.members?.map((m: { user: { id: string; name: string | null } }) => ({ id: m.user.id, name: m.user.name })) ?? []}
         />
       )}
 

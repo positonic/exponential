@@ -203,6 +203,7 @@ export const productRouter = createTRPCRouter({
   getViewPrefs: protectedProcedure
     .input(z.object({ productSlug: z.string(), workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
       const config = await ctx.db.pluginConfig.findFirst({
         where: { pluginId: "product", workspaceId: input.workspaceId, userId: ctx.session.user.id },
         select: { settings: true },
@@ -226,6 +227,7 @@ export const productRouter = createTRPCRouter({
       }),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
       const existing = await ctx.db.pluginConfig.findFirst({
         where: { pluginId: "product", workspaceId: input.workspaceId, userId: ctx.session.user.id },
       });

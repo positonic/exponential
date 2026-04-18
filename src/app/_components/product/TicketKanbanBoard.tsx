@@ -213,16 +213,19 @@ export function TicketKanbanBoard({ tickets, productId, productName, funTicketId
     if (!over) return;
 
     const ticketId = active.id as string;
-    const overColumn = BOARD_COLUMNS.find((c) => c.value === over.id);
-    if (!overColumn) return;
+    const overId = String(over.id);
+    const overColumn = BOARD_COLUMNS.find((c) => c.value === overId);
+    const overTicket = effectiveTickets.find((t) => t.id === overId);
+    const nextStatus = overColumn?.value ?? overTicket?.status;
+    if (!nextStatus) return;
 
-    const ticket = tickets.find((t) => t.id === ticketId);
-    if (!ticket || ticket.status === overColumn.value) return;
+    const ticket = effectiveTickets.find((t) => t.id === ticketId);
+    if (!ticket || ticket.status === nextStatus) return;
 
     // Optimistic update
-    setOptimisticMoves((prev) => ({ ...prev, [ticketId]: overColumn.value }));
-    updateTicket.mutate({ id: ticketId, status: overColumn.value });
-  }, [tickets, updateTicket]);
+    setOptimisticMoves((prev) => ({ ...prev, [ticketId]: nextStatus }));
+    updateTicket.mutate({ id: ticketId, status: nextStatus });
+  }, [effectiveTickets, updateTicket]);
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
