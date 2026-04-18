@@ -35,6 +35,7 @@ export interface Tag {
   slug: string;
   color: TagColor;
   description: string | null;
+  category: string | null; // e.g. "label", "area" - null treated as general "label"
   isSystem: boolean;
   workspaceId: string | null;
   createdById: string | null;
