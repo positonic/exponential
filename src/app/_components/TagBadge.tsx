@@ -5,7 +5,7 @@ interface TagBadgeProps {
   tag: {
     id: string;
     name: string;
-    slug: string;
+    slug?: string;
     color: string;
   };
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -41,7 +41,7 @@ interface TagBadgeListProps {
   tags: Array<{
     id: string;
     name: string;
-    slug: string;
+    slug?: string;
     color: string;
   }>;
   maxDisplay?: number;

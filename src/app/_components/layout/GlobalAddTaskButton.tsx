@@ -141,6 +141,7 @@ export function GlobalAddTaskButton() {
         bountyDeadline: null,
         bountyMaxClaimants: 1,
         bountyExternalUrl: null,
+        ticketId: null,
         epic: null,
         project: newAction.projectId
           ? (previousState.projects?.find((p) => p.id === newAction.projectId) ??

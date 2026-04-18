@@ -4,10 +4,6 @@ import Header from "./Header";
 import { auth } from "~/server/auth";
 import { ThemeWrapper } from "./ThemeWrapper";
 import { type ValidDomain } from "~/config/themes";
-import { MobileBottomNav } from "./MobileBottomNav";
-import { AgentChatModal } from "./AgentChatModal";
-import { GlobalAddTaskButton } from "./GlobalAddTaskButton";
-import { DailyPlanChecker } from "./DailyPlanChecker";
 
 export default async function Layout({ children, domain, showSidebar = true }: PropsWithChildren<{ domain: ValidDomain, showSidebar?: boolean }>) {
   const session = await auth();
@@ -26,15 +22,9 @@ export default async function Layout({ children, domain, showSidebar = true }: P
   return (
     <ThemeWrapper>
       {showSidebar && <Sidebar session={session} domain={domain} />}
-      <main className="flex-1 p-4 pt-16 sm:pt-4 lg:p-8 pb-20 sm:pb-4 lg:pb-8 w-full transition-all duration-200">
+      <main className="flex-1 min-w-0 p-4 pt-16 sm:pt-4 lg:p-8 pb-20 sm:pb-4 lg:pb-8 w-full transition-all duration-200">
         {children}
       </main>
-      <div className="fixed top-4 right-4 z-50">
-        <GlobalAddTaskButton />
-      </div>
-      <MobileBottomNav />
-      <AgentChatModal />
-      <DailyPlanChecker />
     </ThemeWrapper>
   );
 } 
