@@ -87,6 +87,7 @@ export function NextActionCapture({
   const updateAction = api.action.update.useMutation({
     onSuccess: () => {
       void utils.project.getActiveWithDetails.invalidate();
+      onActionUpdated?.();
     },
     onError: (error) => {
       notifications.show({
