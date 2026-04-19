@@ -34,6 +34,7 @@ describe("research router", () => {
     const insight = await caller.product.research.addInsight({
       researchId: research.id,
       type: "PAIN_POINT",
+      title: "Activity visibility issue",
       description: "Users don't notice new activity",
     });
 
@@ -62,6 +63,7 @@ describe("research router", () => {
     const insight = await caller.product.research.addInsight({
       researchId: research.id,
       type: "OPPORTUNITY",
+      title: "Cross-channel notifications",
       description: "Want cross-channel notifications",
     });
 
@@ -106,6 +108,7 @@ describe("research router", () => {
     const insight = await caller.product.research.addInsight({
       researchId: research.id,
       type: "OPPORTUNITY",
+      title: "AI suggestion opportunity",
       description: "Could use AI suggestions",
     });
 
