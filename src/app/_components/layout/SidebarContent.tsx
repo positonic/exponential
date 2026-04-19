@@ -114,12 +114,6 @@ export function SidebarContent() {
           </Accordion.Control>
           <Accordion.Panel>
             <div className="space-y-1">
-              {/* <ModernNavLink href="/startup-routine" icon={IconSunrise}>
-                Startup Routine
-              </ModernNavLink>
-              <ModernNavLink href="/wind-down" icon={IconMoonStars}>
-                Wind Down
-              </ModernNavLink> */}
               <NavLink href="/days" icon={IconCalendarEvent}>
                 Days
               </NavLink>

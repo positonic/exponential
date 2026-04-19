@@ -303,8 +303,6 @@ export const researchRouter = createTRPCRouter({
         data: { status: "LINKED" },
       });
 
-      // Suppress unused-var lint by referencing the loaded insight
-      void insight;
       return { success: true };
     }),
 

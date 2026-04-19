@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ActionIcon,
   Combobox,
@@ -242,7 +242,6 @@ function DependencyRow({
   direction: "out" | "in";
   trailing: React.ReactNode;
 }) {
-  const router = useRouter();
   const utils = api.useUtils();
 
   const remove = api.product.ticket.removeDependency.useMutation({
@@ -272,9 +271,10 @@ function DependencyRow({
       </Tooltip>
       <Text
         size="xs"
-        className="text-text-primary flex-1 min-w-0 hover:text-blue-400 transition-colors cursor-pointer"
+        component={Link}
+        href={`${basePath}/${ticket.id}`}
+        className="text-text-primary flex-1 min-w-0 hover:text-blue-400 transition-colors"
         lineClamp={1}
-        onClick={() => router.push(`${basePath}/${ticket.id}`)}
       >
         {ticket.title}
       </Text>

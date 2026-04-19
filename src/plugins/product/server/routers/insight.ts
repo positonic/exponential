@@ -187,8 +187,10 @@ export const insightRouter = createTRPCRouter({
           message: "One or more features do not belong to this insight's product",
         });
       }
-      await ctx.db.featureInsight.create({
-        data: { insightId: input.insightId, featureId: input.featureId },
+      await ctx.db.featureInsight.upsert({
+        where: { featureId_insightId: { featureId: input.featureId, insightId: input.insightId } },
+        create: { insightId: input.insightId, featureId: input.featureId },
+        update: {},
       });
       return { success: true };
     }),
@@ -197,8 +199,8 @@ export const insightRouter = createTRPCRouter({
     .input(z.object({ insightId: z.string(), featureId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
-      await ctx.db.featureInsight.delete({
-        where: { featureId_insightId: { insightId: input.insightId, featureId: input.featureId } },
+      await ctx.db.featureInsight.deleteMany({
+        where: { insightId: input.insightId, featureId: input.featureId },
       });
       return { success: true };
     }),

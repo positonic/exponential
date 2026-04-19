@@ -405,14 +405,13 @@ export const cycleRouter = createTRPCRouter({
         slug = `${baseSlug}-${counter}`;
       }
 
-      // Validate: start date must be >= previous cycle end date
-      if (input.startDate) {
+      if (input.startDate ?? input.endDate) {
         const overlapping = await ctx.db.list.findFirst({
           where: {
             workspaceId: input.workspaceId,
             listType: "SPRINT",
-            endDate: { gt: input.startDate },
-            startDate: { lt: input.endDate ?? input.startDate },
+            ...(input.startDate ? { endDate: { gt: input.startDate } } : {}),
+            ...(input.endDate ? { startDate: { lt: input.endDate } } : {}),
           },
           select: { id: true, name: true },
         });
@@ -474,14 +473,14 @@ export const cycleRouter = createTRPCRouter({
           });
         }
 
-        if (newStart && newEnd) {
+        if (newStart ?? newEnd) {
           const overlapping = await ctx.db.list.findFirst({
             where: {
               workspaceId: cycle.workspaceId,
               listType: "SPRINT",
               id: { not: input.id },
-              endDate: { gt: newStart },
-              startDate: { lt: newEnd },
+              ...(newStart ? { endDate: { gt: newStart } } : {}),
+              ...(newEnd ? { startDate: { lt: newEnd } } : {}),
             },
             select: { id: true, name: true },
           });

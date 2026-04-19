@@ -1,6 +1,6 @@
 import { Factory } from "fishery";
 import { randomUUID } from "crypto";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, $Enums } from "@prisma/client";
 
 // Use randomUUID to avoid collisions when test files run in parallel
 const uid = () => randomUUID().slice(0, 8);
@@ -283,21 +283,20 @@ export async function createTicket(
   overrides: Partial<TicketAttrs> & {
     productId: string;
     createdById: string;
-    status?: string;
+    status?: $Enums.TicketStatus;
     number?: number;
   },
 ) {
   const attrs = ticketFactory.build(overrides);
   const { number: explicitNumber, status, ...rest } = overrides;
-  const number =
-    explicitNumber ??
-    (await db.ticket.count({ where: { productId: overrides.productId } })) + 1;
+  const count = await db.ticket.count({ where: { productId: overrides.productId } });
+  const number = explicitNumber ?? count + 1;
   return db.ticket.create({
     data: {
       ...attrs,
       ...rest,
       number,
-      ...(status ? { status: status as never } : {}),
+      ...(status ? { status } : {}),
     },
   });
 }

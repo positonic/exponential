@@ -230,32 +230,35 @@ export const productRouter = createTRPCRouter({
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
       const existing = await ctx.db.pluginConfig.findFirst({
         where: { pluginId: "product", workspaceId: input.workspaceId, userId: ctx.session.user.id },
+        select: { settings: true },
       });
 
       const currentSettings = (existing?.settings as Record<string, unknown>) ?? {};
       const currentViewPrefs = (currentSettings.viewPrefs as Record<string, unknown>) ?? {};
       const currentProductPrefs = (currentViewPrefs[input.productSlug] as Record<string, unknown>) ?? {};
 
-      // Merge: only override fields that are provided
       const merged = { ...currentProductPrefs, ...input.prefs };
       const newSettings = {
         ...currentSettings,
         viewPrefs: { ...currentViewPrefs, [input.productSlug]: merged },
       };
 
-      if (existing) {
-        return ctx.db.pluginConfig.update({
-          where: { id: existing.id },
-          data: { settings: newSettings as Prisma.InputJsonValue },
-        });
-      }
-
-      return ctx.db.pluginConfig.create({
-        data: {
+      return ctx.db.pluginConfig.upsert({
+        where: {
+          pluginId_workspaceId_userId: {
+            pluginId: "product",
+            workspaceId: input.workspaceId,
+            userId: ctx.session.user.id,
+          },
+        },
+        create: {
           pluginId: "product",
           workspaceId: input.workspaceId,
           userId: ctx.session.user.id,
           enabled: true,
+          settings: newSettings as Prisma.InputJsonValue,
+        },
+        update: {
           settings: newSettings as Prisma.InputJsonValue,
         },
       });
