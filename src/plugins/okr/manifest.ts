@@ -18,7 +18,7 @@ export const okrManifest: PluginManifest = {
         id: "okr-dashboard",
         label: "OKRs",
         icon: "IconTargetArrow",
-        href: "/w/:workspaceSlug/okrs",
+        href: "/w/:workspaceSlug/goals?tab=okrs",
         section: "workspace",
         order: 5,
         workspaceScoped: true,
