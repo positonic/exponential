@@ -3,7 +3,7 @@
 import { Suspense } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { Skeleton, Container, Stack, Text } from '@mantine/core';
-import { CommandCenter } from '~/app/_components/home/CommandCenter';
+import { WorkspaceHomeConceptD } from '~/app/_components/home/WorkspaceHomeConceptD';
 
 function WorkspaceHomeContent() {
   const { workspace, isLoading: workspaceLoading } = useWorkspace();
@@ -28,7 +28,7 @@ function WorkspaceHomeContent() {
     );
   }
 
-  return <CommandCenter variant="workspace" />;
+  return <WorkspaceHomeConceptD />;
 }
 
 export default function WorkspaceHomePage() {

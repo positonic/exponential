@@ -4,6 +4,9 @@ import { useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import { WorkspaceProvider, useWorkspace } from '~/providers/WorkspaceProvider';
 import { useRegisterPageContext } from '~/hooks/useRegisterPageContext';
+import { WorkspaceTopNav } from '~/app/_components/layout/WorkspaceTopNav';
+import { WorkspaceTopbar } from '~/app/_components/layout/WorkspaceTopbar';
+import styles from './WorkspaceLayout.module.css';
 
 /**
  * Registers workspace context for the AI agent chat.
@@ -29,7 +32,13 @@ function WorkspaceContextRegistrar({ children }: { children: React.ReactNode }) 
 
   useRegisterPageContext(pageContext);
 
-  return <>{children}</>;
+  return (
+    <div className={styles.wrapper}>
+      <WorkspaceTopbar />
+      <WorkspaceTopNav />
+      {children}
+    </div>
+  );
 }
 
 export default function WorkspaceLayout({

@@ -43,6 +43,16 @@
     --color-brand-error: #fa5252;
     --color-brand-info: #339af0;
 
+    /* Command palette / workspace nav tokens */
+    --brand-400: #4E89FF;
+    --brand-500: #1F5DE0;
+    --color-bg-hover: #f1f3f5;
+    --color-surface-muted: #f8f9fa;
+    --color-border-subtle: #e9ecef;
+    --color-border-strong: #adb5bd;
+    --color-brand-subtle: rgba(78, 137, 255, 0.06);
+    --color-brand-glow: rgba(31, 93, 224, 0.12);
+
     /* Onboarding */
     --color-onboarding-illustration-bg: #fdf4f3;
     --color-onboarding-accent: #f87171;
@@ -118,6 +128,16 @@
     --color-brand-error: #ff6b6b;
     --color-brand-info: #4dabf7;
 
+    /* Command palette / workspace nav tokens */
+    --brand-400: #4E89FF;
+    --brand-500: #1F5DE0;
+    --color-bg-hover: #1A263E;
+    --color-surface-muted: #141E32;
+    --color-border-subtle: #141E32;
+    --color-border-strong: #1A263E;
+    --color-brand-subtle: rgba(78, 137, 255, 0.06);
+    --color-brand-glow: rgba(31, 93, 224, 0.12);
+
     /* Onboarding */
     --color-onboarding-illustration-bg: #141E32;
     --color-onboarding-accent: #f87171;
@@ -192,6 +212,16 @@
     --color-brand-warning: #ffd43b;
     --color-brand-error: #ff6b6b;
     --color-brand-info: #4dabf7;
+
+    /* Command palette / workspace nav tokens */
+    --brand-400: #4E89FF;
+    --brand-500: #1F5DE0;
+    --color-bg-hover: #1A263E;
+    --color-surface-muted: #141E32;
+    --color-border-subtle: #141E32;
+    --color-border-strong: #1A263E;
+    --color-brand-subtle: rgba(78, 137, 255, 0.06);
+    --color-brand-glow: rgba(31, 93, 224, 0.12);
 
     /* Onboarding */
     --color-onboarding-illustration-bg: #141E32;
