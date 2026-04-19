@@ -374,7 +374,7 @@ export class AiInteractionLogger {
    * Helper method to create logging data from common patterns
    */
   static createFromMastraCall(data: {
-    platform: "slack" | "manychat" | "api" | "direct";
+    platform: AiInteractionData["platform"];
     userMessage: string;
     aiResponse: string;
     agentId?: string;
