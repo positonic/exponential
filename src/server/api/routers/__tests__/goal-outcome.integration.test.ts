@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { TRPCError } from "@trpc/server";
 import { getTestDb } from "~/test/test-db";
 import { createTestCaller } from "~/test/trpc-helpers";
 import {
@@ -43,15 +42,14 @@ describe("goal router", () => {
       expect(goals[0]!.title).toBe("WS Goal");
     });
 
-    it("throws FORBIDDEN for non-member workspace query", async () => {
+    it("returns empty array for non-member workspace query", async () => {
       const owner = await createUser(db);
       const stranger = await createUser(db);
       const ws = await createWorkspace(db, { ownerId: owner.id, slug: "forbidden-goal-ws" });
 
       const strangerCaller = createTestCaller(stranger.id);
-      await expect(
-        strangerCaller.goal.getAllMyGoals({ workspaceId: ws.id }),
-      ).rejects.toThrow(TRPCError);
+      const goals = await strangerCaller.goal.getAllMyGoals({ workspaceId: ws.id });
+      expect(goals).toEqual([]);
     });
   });
 
