@@ -61,7 +61,7 @@ describe("research router", () => {
     });
     const insight = await caller.product.research.addInsight({
       researchId: research.id,
-      type: "WISH",
+      type: "OPPORTUNITY",
       description: "Want cross-channel notifications",
     });
 
