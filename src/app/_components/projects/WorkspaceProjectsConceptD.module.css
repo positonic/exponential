@@ -1,0 +1,290 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ── top bar: tabs left, actions right ── */
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 32px;
+  border-bottom: 1px solid var(--color-border-primary);
+  flex-shrink: 0;
+}
+
+.viewTabs {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.viewTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 100ms, color 100ms;
+}
+
+.viewTab:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.viewTab[data-active='true'] {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.searchWrap {
+  position: relative;
+}
+
+.searchInput {
+  height: 32px;
+  padding: 0 10px 0 30px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  outline: none;
+  width: 200px;
+  transition: border-color 120ms, width 120ms;
+}
+
+.searchInput:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--color-brand-glow);
+  width: 240px;
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-primary);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 100ms, color 100ms, border-color 100ms;
+  text-decoration: none;
+}
+
+.actionBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.newBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 0;
+  background: var(--brand-500);
+  color: var(--color-text-inverse);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 120ms;
+}
+
+.newBtn:hover {
+  opacity: 0.88;
+}
+
+/* ── table ── */
+.tableWrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tableHead th {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-primary);
+  white-space: nowrap;
+  background: var(--color-bg-primary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tableHead th:first-child {
+  padding-left: 32px;
+}
+
+.tableHead th:last-child {
+  padding-right: 32px;
+}
+
+.tableRow {
+  border-bottom: 1px solid var(--color-border-secondary);
+  transition: background 80ms;
+}
+
+.tableRow:hover {
+  background: var(--color-bg-secondary);
+}
+
+.tableRow td {
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.tableRow td:first-child {
+  padding-left: 32px;
+}
+
+.tableRow td:last-child {
+  padding-right: 32px;
+}
+
+/* ── Name cell ── */
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.nameText {
+  font-weight: 500;
+  color: var(--color-text-primary);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nameText:hover {
+  color: var(--brand-400);
+}
+
+.nameSub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ── Health segments ── */
+.healthBar {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.healthSeg {
+  width: 10px;
+  height: 14px;
+  border-radius: 2px;
+}
+
+/* ── Status chip ── */
+.statusChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ── Priority chip ── */
+.priorityChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.priorityBars {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.5px;
+}
+
+.priorityBar {
+  width: 3px;
+  border-radius: 1px;
+}
+
+/* ── ETA ── */
+.etaText {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.etaOverdue {
+  color: var(--color-brand-error);
+}
+
+/* ── Empty state ── */
+.empty {
+  text-align: center;
+  padding: 80px 40px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
