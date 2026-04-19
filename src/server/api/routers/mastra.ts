@@ -3393,6 +3393,81 @@ export const mastraRouter = createTRPCRouter({
       };
     }),
 
+  linkProjectToGoal: protectedProcedure
+    .input(z.object({
+      goalId: z.number(),
+      projectId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const goal = await ctx.db.goal.findFirst({
+        where: { id: input.goalId, userId },
+      });
+      if (!goal) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Objective not found or access denied' });
+      }
+
+      const project = await ctx.db.project.findFirst({
+        where: { id: input.projectId, createdById: userId },
+      });
+      if (!project) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found or access denied' });
+      }
+
+      await ctx.db.goal.update({
+        where: { id: input.goalId },
+        data: { projects: { connect: { id: input.projectId } } },
+      });
+
+      console.log(`🔗 [tRPC linkProjectToGoal] Linked project ${input.projectId} to goal ${input.goalId}`);
+      return { success: true, goalId: input.goalId, projectId: input.projectId };
+    }),
+
+  unlinkProjectFromGoal: protectedProcedure
+    .input(z.object({
+      goalId: z.number(),
+      projectId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const goal = await ctx.db.goal.findFirst({
+        where: { id: input.goalId, userId },
+      });
+      if (!goal) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Objective not found or access denied' });
+      }
+
+      await ctx.db.goal.update({
+        where: { id: input.goalId },
+        data: { projects: { disconnect: { id: input.projectId } } },
+      });
+
+      console.log(`🔗 [tRPC unlinkProjectFromGoal] Unlinked project ${input.projectId} from goal ${input.goalId}`);
+      return { success: true, goalId: input.goalId, projectId: input.projectId };
+    }),
+
+  deleteProject: protectedProcedure
+    .input(z.object({
+      projectId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const project = await ctx.db.project.findFirst({
+        where: { id: input.projectId, createdById: userId },
+      });
+      if (!project) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found or access denied' });
+      }
+
+      await ctx.db.project.delete({ where: { id: input.projectId } });
+
+      console.log(`🗑️ [tRPC deleteProject] Deleted project ${input.projectId}`);
+      return { success: true, projectId: input.projectId, name: project.name };
+    }),
+
   // ==================== Action Management ====================
 
   updateAction: protectedProcedure
