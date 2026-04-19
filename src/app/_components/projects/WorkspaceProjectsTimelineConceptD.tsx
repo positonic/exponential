@@ -102,10 +102,10 @@ function buildProjectRange(project: TimelineProject): TimelineProjectRange {
 
 function getBarClass(status: string): string {
   switch (status) {
-    case 'ACTIVE': return styles.ganttBarActive;
-    case 'ON_HOLD': return styles.ganttBarOnHold;
-    case 'COMPLETED': return styles.ganttBarCompleted;
-    default: return styles.ganttBarCancelled;
+    case 'ACTIVE': return styles.ganttBarActive ?? '';
+    case 'ON_HOLD': return styles.ganttBarOnHold ?? '';
+    case 'COMPLETED': return styles.ganttBarCompleted ?? '';
+    default: return styles.ganttBarCancelled ?? '';
   }
 }
 
