@@ -94,17 +94,14 @@ export const authConfig = {
       }
     }),
     Postmark({
-      apiKey: (() => {
-        const key = process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN;
-        if (!key) {
+      apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN ?? "",
+      from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
+      sendVerificationRequest: async ({ identifier, url }) => {
+        if (!process.env.AUTH_POSTMARK_KEY && !process.env.POSTMARK_SERVER_TOKEN) {
           throw new Error(
             'Postmark API key is not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable.'
           );
         }
-        return key;
-      })(),
-      from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
-      sendVerificationRequest: async ({ identifier, url }) => {
         try {
           // Check if user exists to determine which email to send
           const existingUser = await db.user.findUnique({

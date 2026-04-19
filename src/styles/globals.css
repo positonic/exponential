@@ -548,6 +548,43 @@
   font-weight: 600;
 }
 
+/* Agent thinking/reasoning collapsible (chat AI responses) */
+.chat-html-content details.agent-thinking {
+  margin-bottom: 1rem;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+.chat-html-content details.agent-thinking > summary {
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  background-color: var(--color-surface-secondary);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  user-select: none;
+}
+.chat-html-content details.agent-thinking > summary::before {
+  content: '▶';
+  font-size: 0.6rem;
+  transition: transform 0.15s;
+}
+.chat-html-content details.agent-thinking[open] > summary::before {
+  transform: rotate(90deg);
+}
+.chat-html-content .agent-thinking-content {
+  padding: 0.75rem;
+  border-top: 1px solid var(--color-border-primary);
+}
+.chat-html-content .agent-thinking-content p {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.375rem;
+}
+
 /* Blog content typography — overrides Mantine inline styles */
 .blog-content p {
   font-size: 1.125rem !important;

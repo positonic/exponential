@@ -165,6 +165,33 @@ function formatPageContextData(context: PageContext): string {
   }
 }
 
+// Preprocesses sanitized agent HTML to improve readability:
+// 1. Splits long narration paragraphs at action boundaries (":Now ", ":Let ", etc.)
+// 2. Wraps narration text preceding structured results in a collapsible <details>
+function preprocessAgentHtml(html: string): string {
+  // Split long narration paragraphs at agent action boundaries
+  // Pattern: colon immediately followed by a new action phrase (agent narration style)
+  let processed = html.replace(/<p([^>]*)>([\s\S]{250,}?)<\/p>/gi, (_match, attrs: string, content: string) => {
+    const split = content.replace(
+      /:(Now |Let |Great|Good|Perfect|However, |I |The |Then |First, |Next )/g,
+      (_: string, word: string) => `</p><p${attrs}>${word}`
+    );
+    return `<p${attrs}>${split}</p>`;
+  });
+
+  // If structured results (headings) exist, wrap preceding narration in a collapsible
+  const headingMatch = processed.match(/<h[1-6][^>]*>/i);
+  if (headingMatch?.index !== undefined && headingMatch.index > 80) {
+    const thinkingHtml = processed.slice(0, headingMatch.index).trim();
+    const resultsHtml = processed.slice(headingMatch.index);
+    if (thinkingHtml.length > 100) {
+      processed = `<details class="agent-thinking"><summary>View reasoning</summary><div class="agent-thinking-content">${thinkingHtml}</div></details>${resultsHtml}`;
+    }
+  }
+
+  return processed;
+}
+
 // Render message content with markdown/video support
 function renderMessageContent(content: string, messageType: string) {
   // Handle video links first — reset lastIndex since VIDEO_PATTERN is a global regex
@@ -196,10 +223,11 @@ function renderMessageContent(content: string, messageType: string) {
   // Detect HTML content from AI responses (tables, formatted paragraphs, etc.)
   if (messageType === 'ai' && HTML_PATTERN.test(content)) {
     const sanitizedHtml = DOMPurify.sanitize(content, HTML_SANITIZE_CONFIG);
+    const processedHtml = preprocessAgentHtml(sanitizedHtml);
     return (
       <div
         className="chat-html-content"
-        dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+        dangerouslySetInnerHTML={{ __html: processedHtml }}
       />
     );
   }

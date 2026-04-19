@@ -13,6 +13,7 @@ import { generateAgentJWT } from "~/server/utils/jwt";
 import { db } from "~/server/db";
 import { SECURITY_POLICY } from "~/lib/security-policy";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
+import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
@@ -280,12 +281,14 @@ export async function POST(req: Request) {
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
+    const startTime = Date.now();
+    const threadId = conversationId ?? `session-${session.user.id}-${Date.now()}`;
     const agent = client.getAgent(resolvedAgentId);
     const response = await agent.stream(finalMessages as MessageListInput, {
       requestContext: requestContext as RequestContext<unknown>,
       memory: {
         resource: session.user.id,
-        thread: conversationId ?? `session-${session.user.id}-${Date.now()}`,
+        thread: threadId,
       },
     });
 
@@ -295,6 +298,8 @@ export async function POST(req: Request) {
     const nonTextChunkTypes = new Set<string>();
     const textStream = new ReadableStream({
       async start(controller) {
+        let fullText = "";
+        let finishUsage: { inputTokens: number; outputTokens: number } | undefined;
         try {
           await response.processDataStream({
             onChunk: async (chunk) => {
@@ -306,9 +311,15 @@ export async function POST(req: Request) {
                 if (redacted) {
                   console.warn('🔒 [chat/stream] Redacted potential secret leak from AI response');
                 }
+                fullText += safeText;
                 controller.enqueue(
                   new TextEncoder().encode(safeText),
                 );
+              } else if (chunk.type === "finish") {
+                finishUsage = {
+                  inputTokens: chunk.payload.output.usage.inputTokens ?? 0,
+                  outputTokens: chunk.payload.output.usage.outputTokens ?? 0,
+                };
               } else {
                 nonTextChunkTypes.add(chunk.type);
                 // Log non-text chunks for debugging (first 5 only to avoid noise)
@@ -319,6 +330,38 @@ export async function POST(req: Request) {
             },
           });
           console.log(`📊 [chat/stream] Stream complete: ${chunkCount} total chunks, ${textChunkCount} text chunks, non-text types: [${[...nonTextChunkTypes].join(', ')}]`);
+
+          // Fire-and-forget: save interaction metadata (must not block the stream)
+          const anthropicRequestId =
+            response.headers.get("x-request-id") ??
+            response.headers.get("x-anthropic-request-id") ??
+            undefined;
+          const lastUserMsg =
+            [...messages].reverse().find(m => m.role === "user")?.content ?? "";
+          getAiInteractionLogger(db)
+            .logInteraction({
+              platform: "web",
+              systemUserId: session.user.id,
+              agentId: resolvedAgentId,
+              conversationId: threadId,
+              userMessage: lastUserMsg.slice(0, 2000),
+              aiResponse: fullText.slice(0, 5000),
+              tokenUsage: finishUsage
+                ? {
+                    prompt: finishUsage.inputTokens,
+                    completion: finishUsage.outputTokens,
+                    total: finishUsage.inputTokens + finishUsage.outputTokens,
+                  }
+                : undefined,
+              anthropicRequestId: anthropicRequestId ?? undefined,
+              responseTime: Date.now() - startTime,
+              hadError: false,
+              projectId: projectId ?? undefined,
+              model: "mastra-agents",
+              messageType: "question",
+            })
+            .catch(err => console.error("Failed to save AI history:", err));
+
           controller.close();
         } catch (err) {
           controller.error(err);

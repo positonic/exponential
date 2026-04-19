@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 
 export interface AiInteractionData {
   // Source Information (Required)
-  platform: "slack" | "manychat" | "api" | "webhook" | "direct";
+  platform: "slack" | "manychat" | "api" | "webhook" | "direct" | "web";
   sourceId?: string; // Platform-specific ID (Slack channel, chat session, etc.)
 
   // User Context
@@ -51,6 +51,7 @@ export interface AiInteractionData {
   // Additional metadata
   userAgent?: string; // Browser/client information
   ipAddress?: string; // For security/analytics (should be hashed)
+  anthropicRequestId?: string; // Anthropic API request ID for correlation
 }
 
 export interface ConversationContext {
@@ -128,9 +129,10 @@ export class AiInteractionLogger {
 
           // Additional metadata
           userAgent: data.userAgent,
-          ipAddress: this.options.hashIpAddresses 
-            ? this.hashIpAddress(data.ipAddress) 
+          ipAddress: this.options.hashIpAddresses
+            ? this.hashIpAddress(data.ipAddress)
             : data.ipAddress,
+          anthropicRequestId: data.anthropicRequestId,
         },
       });
 

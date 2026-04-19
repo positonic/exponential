@@ -1243,12 +1243,13 @@ model AiInteractionHistory {
   projectId       String?
   actionsTaken    Json?
   toolsUsed       String[]
-  userAgent       String?
-  ipAddress       String?
-  createdAt       DateTime   @default(now())
-  project         Project?   @relation(fields: [projectId], references: [id])
-  user            User?      @relation(fields: [systemUserId], references: [id])
-  feedback        Feedback[]
+  userAgent          String?
+  ipAddress          String?
+  anthropicRequestId String?
+  createdAt          DateTime   @default(now())
+  project            Project?   @relation(fields: [projectId], references: [id])
+  user               User?      @relation(fields: [systemUserId], references: [id])
+  feedback           Feedback[]
 
   @@index([systemUserId])
   @@index([platform])
@@ -1260,6 +1261,7 @@ model AiInteractionHistory {
   @@index([createdAt])
   @@index([platform, systemUserId])
   @@index([conversationId, createdAt])
+  @@index([anthropicRequestId])
 }
 
 model Feedback {

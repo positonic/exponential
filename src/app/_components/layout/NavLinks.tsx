@@ -33,7 +33,8 @@ export function NavLink({ href, icon: Icon, children, count }: {
   count?: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const isActive = pathname === href;
+  const hrefPath = href.split("?")[0];
+  const isActive = pathname === hrefPath;
   
   return (
     <Link
