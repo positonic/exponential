@@ -413,6 +413,23 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - When asked about meetings or transcriptions: refer to the meeting context above${projectSlackConfig?.slackChannel ? `\n      - When asked about Slack or project communications: search in channel${projectSlackConfig.slackChannelId ? ` ID "${projectSlackConfig.slackChannelId}"` : ` "${projectSlackConfig.slackChannel}"`}` : ''}
     ` : '';
 
+    const goalTitle = typeof pageContext?.data?.goalTitle === 'string' ? pageContext.data.goalTitle : '';
+    const goalId = typeof pageContext?.data?.goalId === 'number' ? pageContext.data.goalId : null;
+    const goalDescription = typeof pageContext?.data?.goalDescription === 'string' ? pageContext.data.goalDescription : '';
+    const goalWhy = typeof pageContext?.data?.goalWhy === 'string' ? pageContext.data.goalWhy : '';
+    const goalStatus = typeof pageContext?.data?.goalStatus === 'string' ? pageContext.data.goalStatus : '';
+    const goalContext = pageContext?.pageType === 'goal' ? `
+
+      🎯 CURRENT GOAL CONTEXT:
+      - Goal: ${goalTitle} (ID: ${goalId})
+      - Description: ${goalDescription || 'No description'}
+      - Why: ${goalWhy || 'Not specified'}
+      - Status: ${goalStatus || 'Unknown'}
+      🎯 ACTIONS:
+      - When creating actions or outcomes, link to this goal where appropriate
+      - When asked about progress, refer to this goal's description and why
+    ` : '';
+
     // Extract workspace info from page context for the system prompt
     const wsName = typeof pageContext?.data?.workspaceName === 'string' ? pageContext.data.workspaceName : '';
     const wsId = typeof pageContext?.data?.workspaceId === 'string' ? pageContext.data.workspaceId : '';
@@ -496,6 +513,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   
                   ${githubSettings ? `When creating GitHub issues, use repo: "${githubSettings.repo}" and owner: "${githubSettings.owner}". Valid assignees are: ${githubSettings.validAssignees.join(", ")}` : ''}
                   ${projectContext}
+                  ${goalContext}
                   ${pageContext ? `
                   📍 CURRENT PAGE CONTEXT:
                   The user is currently viewing this page:

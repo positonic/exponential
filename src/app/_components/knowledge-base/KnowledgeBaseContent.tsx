@@ -33,6 +33,8 @@ import {
   IconNote,
   IconAlertCircle,
   IconCheck,
+  IconPin,
+  IconPinnedFilled,
 } from '@tabler/icons-react';
 import { useState, useRef } from 'react';
 import { api } from '~/trpc/react';
@@ -179,6 +181,12 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   const regenerateEmbeddingsMutation = api.resource.regenerateEmbeddings.useMutation({
     onSuccess: () => {
       void refetchStats();
+    },
+  });
+
+  const setPinnedMutation = api.resource.setPinned.useMutation({
+    onSuccess: () => {
+      void refetchResources();
     },
   });
 
@@ -419,6 +427,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                     <Table.Th className="text-text-muted">Title</Table.Th>
                     <Table.Th className="text-text-muted">Type</Table.Th>
                     <Table.Th className="text-text-muted">Words</Table.Th>
+                    <Table.Th className="text-text-muted">Context</Table.Th>
                     <Table.Th className="text-text-muted">Created</Table.Th>
                     <Table.Th className="text-text-muted">Actions</Table.Th>
                   </Table.Tr>
@@ -452,6 +461,18 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                           <Text size="sm" className="text-text-secondary">
                             {resource.wordCount ?? '-'}
                           </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Tooltip label={resource.pinnedAsContext ? 'Always injected into agent chat' : 'Pin to inject into every agent chat'}>
+                            <ActionIcon
+                              variant={resource.pinnedAsContext ? 'filled' : 'subtle'}
+                              color={resource.pinnedAsContext ? 'brand' : 'gray'}
+                              onClick={() => setPinnedMutation.mutate({ id: resource.id, pinned: !resource.pinnedAsContext })}
+                              loading={setPinnedMutation.isPending}
+                            >
+                              {resource.pinnedAsContext ? <IconPinnedFilled size={16} /> : <IconPin size={16} />}
+                            </ActionIcon>
+                          </Tooltip>
                         </Table.Td>
                         <Table.Td>
                           <Text size="sm" className="text-text-secondary">

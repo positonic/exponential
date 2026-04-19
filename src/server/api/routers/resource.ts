@@ -187,6 +187,7 @@ export const resourceRouter = createTRPCRouter({
           contentType: true,
           wordCount: true,
           tags: true,
+          pinnedAsContext: true,
           createdAt: true,
           updatedAt: true,
           archivedAt: true,
@@ -371,6 +372,26 @@ export const resourceRouter = createTRPCRouter({
       const chunkCount = await knowledgeService.embedResource(resource.id);
 
       return { chunkCount };
+    }),
+
+  // Toggle pinned-as-context for a resource
+  setPinned: protectedProcedure
+    .input(z.object({ id: z.string(), pinned: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const existing = await ctx.db.resource.findFirst({
+        where: { id: input.id, userId },
+      });
+      if (!existing) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Resource not found" });
+      }
+
+      return ctx.db.resource.update({
+        where: { id: input.id },
+        data: { pinnedAsContext: input.pinned },
+        select: { id: true, pinnedAsContext: true },
+      });
     }),
 
   // Search resources using semantic search

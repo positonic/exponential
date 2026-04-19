@@ -375,7 +375,7 @@ export default function WorkspaceSettingsPage() {
                 }}
               />
               <Textarea
-                label="Description"
+                label="Description (injected into every AI agent conversation in this workspace)"
                 value={description}
                 onChange={(e) => setDescription(e.currentTarget.value)}
                 classNames={{

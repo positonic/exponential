@@ -39,7 +39,10 @@ import {
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import { useMemo } from "react";
+import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import DOMPurify from "dompurify";
 import { CreateGoalModal } from "../CreateGoalModal";
 import { GoalDescriptionEditor } from "./GoalDescriptionEditor";
@@ -113,8 +116,32 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
   const editTriggerRef = useRef<HTMLSpanElement>(null);
 
   const router = useRouter();
+  const pathname = usePathname();
+  const { workspace, workspaceId } = useWorkspace();
   const utils = api.useUtils();
   const { data: goal, isLoading } = api.goal.getById.useQuery({ id: goalId });
+
+  const goalPageContext = useMemo(() => {
+    if (!goal) return null;
+    return {
+      pageType: 'goal' as const,
+      pageTitle: goal.title,
+      pagePath: pathname,
+      data: {
+        goalId: goal.id,
+        goalTitle: goal.title,
+        goalDescription: goal.description ?? '',
+        goalWhy: goal.whyThisGoal ?? '',
+        goalStatus: goal.status ?? '',
+        ...(workspaceId && {
+          workspaceId,
+          workspaceName: workspace?.name,
+          workspaceSlug: workspace?.slug,
+        }),
+      },
+    };
+  }, [goal, pathname, workspaceId, workspace?.name, workspace?.slug]);
+  useRegisterPageContext(goalPageContext);
 
   const deleteGoalMutation = api.goal.deleteGoal.useMutation({
     onSuccess: () => {

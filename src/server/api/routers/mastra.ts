@@ -3361,46 +3361,6 @@ export const mastraRouter = createTRPCRouter({
       };
     }),
 
-  // ==================== Project–Goal Linking ====================
-
-  linkProjectToGoal: protectedProcedure
-    .input(z.object({
-      goalId: z.number(),
-      projectId: z.string(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
-      const goal = await ctx.db.goal.findFirst({ where: { id: input.goalId, userId } });
-      if (!goal) throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found or access denied" });
-
-      await ctx.db.goal.update({
-        where: { id: input.goalId },
-        data: { projects: { connect: { id: input.projectId } } },
-      });
-
-      return { success: true, goalId: input.goalId, projectId: input.projectId };
-    }),
-
-  unlinkProjectFromGoal: protectedProcedure
-    .input(z.object({
-      goalId: z.number(),
-      projectId: z.string(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
-      const goal = await ctx.db.goal.findFirst({ where: { id: input.goalId, userId } });
-      if (!goal) throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found or access denied" });
-
-      await ctx.db.goal.update({
-        where: { id: input.goalId },
-        data: { projects: { disconnect: { id: input.projectId } } },
-      });
-
-      return { success: true, goalId: input.goalId, projectId: input.projectId };
-    }),
-
   // ==================== Bulk Workspace Structure Creation ====================
 
   bulkCreateStructure: protectedProcedure

@@ -2004,6 +2004,9 @@ model Resource {
   projectId   String?
   workspaceId String?
 
+  // Agent context injection
+  pinnedAsContext Boolean @default(false)
+
   // Timestamps
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
