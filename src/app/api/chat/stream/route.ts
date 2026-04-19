@@ -125,7 +125,7 @@ export async function POST(req: Request) {
     ];
     
     // Verify workspace access and fetch workspace details for agent context
-    let workspaceInfo: { slug: string; name: string; type: string } | null = null;
+    let workspaceInfo: { slug: string; name: string; type: string; description: string | null } | null = null;
     if (workspaceId) {
       const workspaceAccess = await db.workspaceUser.findFirst({
         where: {
