@@ -58,7 +58,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         `}>
         
         {/* Header with logo and close button */}
-        <div className="flex-shrink-0 bg-background-secondary px-4 py-4 flex items-center justify-between border-b border-border-primary mt-12 lg:mt-0">
+        <div className="flex-shrink-0 bg-background-secondary px-4 h-12 flex items-center justify-between border-b border-border-primary mt-12 lg:mt-0">
           <LogoDisplay 
             theme={theme} 
             href="/" 
