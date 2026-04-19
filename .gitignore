@@ -21,9 +21,6 @@ next-env.d.ts
 # production
 /build
 
-# electron
-/dist-electron
-
 # misc
 .DS_Store
 *.pem
@@ -72,10 +69,10 @@ node_modules/
 *.sw?
 # OS specific
 
-# Package manager lock files (we use npm)
+# Package manager lock files (we use bun)
+package-lock.json
 yarn.lock
 pnpm-lock.yaml
-bun.lockb
 
 # Task files
 # tasks.json
@@ -86,6 +83,13 @@ bun.lockb
 
 # Serena MCP cache (regenerated automatically)
 .serena/
+
+# Playwright MCP test artifacts
+.playwright-mcp/
+
+# Test seed scripts (local development only)
+prisma/seed-test.ts
+prisma/seed-product.ts
 
 db-backups/
 

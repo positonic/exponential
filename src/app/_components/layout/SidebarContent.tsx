@@ -1,45 +1,29 @@
 "use client";
 
+import React from "react";
 import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconDeviceProjector, IconKey, IconUsers, IconTarget, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase, IconLayoutKanban } from "@tabler/icons-react";
+import {
+  IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey,
+  IconMicrophone, IconGitBranch, IconUsers, IconTarget, IconSparkles, IconPlug,
+  IconBrain, IconLayoutGrid,
+} from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
-import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
+import { VideoCount } from "./VideoCount";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { usePluginNavigation } from "~/hooks/usePluginNavigation";
+import { api } from "~/trpc/react";
 
-// Map of icon names to components for plugin navigation
-const iconMap = {
-  IconTargetArrow,
-  IconTarget,
-  IconCircleCheck,
-  IconUsers,
-  IconSettings,
-  IconKey,
-  IconDatabase,
-  IconBriefcase,
-} as const;
+export function SidebarContent(): React.JSX.Element {
+  const { workspaceId, workspaceSlug } = useWorkspace();
 
-type IconMapKey = keyof typeof iconMap;
+  const { data: enabledPlugins } = api.pluginConfig.getEnabled.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspaceId, staleTime: 5 * 60 * 1000 },
+  );
 
-export function SidebarContent() {
-  const { isSectionVisible, isItemVisible } = useNavigationPreferences();
-  const { workspaceSlug, workspace } = useWorkspace();
-  const { itemsBySection } = usePluginNavigation();
-
-  // Use workspace-aware paths when in a workspace context
-  const projectsPath = workspaceSlug ? `/w/${workspaceSlug}/projects` : '/projects';
-
-  // Helper to get icon component from name
-  const getIcon = (iconName: string) => {
-    if (iconName in iconMap) {
-      return iconMap[iconName as IconMapKey];
-    }
-    return IconTarget;
-  };
-
+  const isProductEnabled = enabledPlugins?.includes("product") ?? false;
   return (
     <div className="space-y-0.5">
       <Accordion 
@@ -61,71 +45,107 @@ export function SidebarContent() {
           }
         }}
       >
-        {isSectionVisible("projects") && (
-          <Accordion.Item value="projects">
-            <Accordion.Control>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <IconDeviceProjector size={16} className="text-text-muted" />
-                  <span className="text-sm font-medium text-text-primary">Projects</span>
-                </div>
+        <Accordion.Item value="projects">
+          <Accordion.Control>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <IconDeviceProjector size={16} className="text-text-muted" />
+                <span className="text-sm font-medium text-text-primary">Projects</span>
               </div>
-            </Accordion.Control>
-            <Accordion.Panel>
-              {isItemVisible("projects/my-projects") && (
-                <NavLink href={projectsPath} icon={IconDeviceProjector}>
-                  My Projects
-                </NavLink>
-              )}
-              {/* All Actions link - available when not in workspace context */}
-              {!workspaceSlug && (
-                <NavLink href="/actions" icon={IconLayoutKanban}>
-                  All Actions
-                </NavLink>
-              )}
-              {isItemVisible("projects/project-list") && <ProjectList />}
-              {isItemVisible("projects/add-project") && <AddProjectButton />}
-            </Accordion.Panel>
-          </Accordion.Item>
-        )}
-        
-        {isSectionVisible("alignment") && workspace?.type === "personal" && (
-          <Accordion.Item value="goals">
-            <Accordion.Control>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <IconTarget size={16} className="text-text-muted" />
-                  <span className="text-sm font-medium text-text-primary">Alignment</span>
-                </div>
-              </div>
-            </Accordion.Control>
-            <Accordion.Panel>
-              {isItemVisible("alignment/overview") && (
-                <NavLink href={workspaceSlug ? `/w/${workspaceSlug}/alignment` : '/alignment'} icon={IconTarget}>
-                  Overview
-                </NavLink>
-              )}
-              {isItemVisible("alignment/goals") && <GoalList />}
-              {/* Plugin navigation items for alignment section */}
-              {itemsBySection.alignment
-                ?.filter((item) => !item.workspaceScoped || !!workspaceSlug)
-                .map((item) => {
-                  const IconComponent = getIcon(item.icon);
-                  return (
-                    <NavLink key={item.id} href={item.href} icon={IconComponent}>
-                      {item.label}
-                    </NavLink>
-                  );
-                })}
-              {isItemVisible("alignment/wheel-of-life") && (
-                <NavLink href="/wheel-of-life" icon={IconCircleCheck}>
-                  Wheel of Life
-                </NavLink>
-              )}
-            </Accordion.Panel>
-          </Accordion.Item>
+            </div>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <NavLink href="/projects" icon={IconDeviceProjector}>
+              My Projects
+            </NavLink>
+          
+            <ProjectList />
+            <AddProjectButton />
+          </Accordion.Panel>
+        </Accordion.Item>
+
+        {/* Product Management Plugin nav item */}
+        {isProductEnabled && workspaceSlug && (
+          <NavLink href={`/w/${workspaceSlug}/products`} icon={IconLayoutGrid}>
+            Products
+          </NavLink>
         )}
 
+        <Accordion.Item value="goals">
+          <Accordion.Control>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <IconTarget size={16} className="text-text-muted" />
+                <span className="text-sm font-medium text-text-primary">Alignment</span>
+              </div>
+            </div>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <GoalList />
+          </Accordion.Panel>
+        </Accordion.Item>
+
+        <Accordion.Item value="teams">
+          <Accordion.Control>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <IconUsers size={16} className="text-text-muted" />
+                <span className="text-sm font-medium text-text-primary">Teams</span>
+              </div>
+            </div>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <NavLink href="/teams" icon={IconUsers}>
+              My Teams
+            </NavLink>
+            <NavLink href="/weekly-review" icon={IconUsers}>
+              Weekly Project Review
+            </NavLink>
+          </Accordion.Panel>
+        </Accordion.Item>
+
+        <Accordion.Item value="Tools">
+          <Accordion.Control>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <IconKey size={16} className="text-text-muted" />
+                <span className="text-sm font-medium text-text-primary">Tools</span>
+              </div>
+            </div>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <div className="space-y-1">
+              <NavLink href="/days" icon={IconCalendarEvent}>
+                Days
+              </NavLink>
+              <NavLink href="/videos" icon={IconVideo}>
+                Media
+                <VideoCount />
+              </NavLink>
+              <NavLink href="/journal" icon={IconWriting}>
+                Journal
+              </NavLink>
+              <NavLink href="/meetings" icon={IconMicrophone}>
+                Meetings
+              </NavLink>
+              <NavLink href="/workflows" icon={IconGitBranch}>
+                Workflows
+              </NavLink>
+              <NavLink href="/ai-sales-demo" icon={IconSparkles}>
+                AI Sales Demo
+              </NavLink>
+              <NavLink href="/integrations" icon={IconPlug}>
+                Connect Services
+              </NavLink>
+              <NavLink href="/ai-history" icon={IconBrain}>
+                AI History
+              </NavLink>
+              <NavLink href="/tokens" icon={IconKey}>
+                API Access
+              </NavLink>
+            </div>
+          </Accordion.Panel>
+        </Accordion.Item>
       </Accordion>
     </div>
   );
