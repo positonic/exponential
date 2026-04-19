@@ -19,7 +19,6 @@ interface ActionAccessInfo {
   isAssignee: boolean;
   hasProjectAccess: boolean;
   canEditProject: boolean;
-  isUnassigned: boolean;
 }
 
 export async function getActionAccess(
@@ -40,7 +39,6 @@ export async function getActionAccess(
 
   const isCreator = action.createdById === userId;
   const isAssignee = action.assignees.some((a) => a.userId === userId);
-  const isUnassigned = action.assignees.length === 0;
 
   // Check project-level access if action belongs to a project
   let projectAccess = null;
@@ -53,14 +51,13 @@ export async function getActionAccess(
     isAssignee,
     hasProjectAccess: projectAccess ? hasProjectAccess(projectAccess) : false,
     canEditProject: projectAccess ? canEditProject(projectAccess) : false,
-    isUnassigned,
   };
 }
 
 /** Check if user can view this action */
 export function canViewAction(access: ActionAccessInfo): boolean {
-  // Creator can view their own unassigned actions
-  if (access.isCreator && access.isUnassigned) return true;
+  // Creator can always view their own actions
+  if (access.isCreator) return true;
   // Assignee can always view
   if (access.isAssignee) return true;
   // Project access grants view
@@ -109,8 +106,8 @@ export function checkActionPermission(
 export function buildActionAccessWhere(userId: string) {
   return {
     OR: [
-      // Created by user AND no assignees
-      { createdById: userId, assignees: { none: {} } },
+      // Created by user
+      { createdById: userId },
       // Assigned to user
       { assignees: { some: { userId } } },
       // User is the project creator

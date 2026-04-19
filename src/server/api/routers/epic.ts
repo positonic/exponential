@@ -41,7 +41,7 @@ export const epicRouter = createTRPCRouter({
           owner: {
             select: { id: true, name: true, email: true, image: true },
           },
-          _count: { select: { actions: true } },
+          _count: { select: { actions: true, tickets: true } },
         },
       });
     }),

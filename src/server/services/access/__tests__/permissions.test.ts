@@ -30,14 +30,12 @@ function makeActionAccess(overrides: Partial<{
   isAssignee: boolean;
   hasProjectAccess: boolean;
   canEditProject: boolean;
-  isUnassigned: boolean;
 }> = {}) {
   return {
     isCreator: false,
     isAssignee: false,
     hasProjectAccess: false,
     canEditProject: false,
-    isUnassigned: false,
     ...overrides,
   };
 }
@@ -129,12 +127,8 @@ describe("hasMinimumTeamRole", () => {
 // ── canViewAction ────────────────────────────────────────────────────
 
 describe("canViewAction", () => {
-  it("creator of unassigned action can view", () => {
-    expect(canViewAction(makeActionAccess({ isCreator: true, isUnassigned: true }))).toBe(true);
-  });
-
-  it("creator of assigned action (not assignee) cannot view", () => {
-    expect(canViewAction(makeActionAccess({ isCreator: true, isUnassigned: false }))).toBe(false);
+  it("creator can always view their action", () => {
+    expect(canViewAction(makeActionAccess({ isCreator: true }))).toBe(true);
   });
 
   it("assignee can always view", () => {
@@ -218,9 +212,9 @@ describe("buildActionAccessWhere", () => {
     expect(where.OR).toHaveLength(8);
   });
 
-  it("includes creator+unassigned path", () => {
+  it("includes creator path", () => {
     const where = buildActionAccessWhere("user-123");
-    expect(where.OR[0]).toEqual({ createdById: "user-123", assignees: { none: {} } });
+    expect(where.OR[0]).toEqual({ createdById: "user-123" });
   });
 
   it("includes assigned-to-user path", () => {

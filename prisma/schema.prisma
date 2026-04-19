@@ -197,6 +197,17 @@ model User {
   bountyClaims                BountyClaim[]
   // Notification override relations
   workspaceNotificationOverrides WorkspaceNotificationOverride[]
+
+  // Product Management plugin relations
+  productsCreated       Product[]       @relation("ProductCreatedBy")
+  featuresCreated       Feature[]       @relation("FeatureCreatedBy")
+  researchesCreated     Research[]      @relation("ResearchCreatedBy")
+  ticketsCreated        Ticket[]        @relation("TicketCreatedBy")
+  ticketsAssigned       Ticket[]        @relation("TicketAssignee")
+  retrospectivesCreated Retrospective[] @relation("RetrospectiveCreatedBy")
+  ticketComments        TicketComment[] @relation("TicketCommentAuthor")
+  ticketDepsCreated     TicketDependency[] @relation("TicketDependencyCreatedBy")
+  insightsCreated       Insight[]          @relation("InsightCreatedBy")
 }
 
 model VerificationToken {
@@ -288,6 +299,10 @@ model Workspace {
   notificationOverrides    WorkspaceNotificationOverride[]
   // Slack channel config relation
   slackConfig              SlackChannelConfig?
+  // Product Management plugin relations
+  products                 Product[]
+  ticketTemplates          TicketTemplate[]
+  retrospectives           Retrospective[]
 
   @@index([slug])
   @@index([ownerId])
@@ -371,6 +386,8 @@ model List {
 
   startDate    DateTime?  // Optional: for sprints/iterations
   endDate      DateTime?  // Optional: for sprints/iterations
+  cycleGoal    String?    // Goal/objective for this cycle
+  achievements String?    // What was accomplished this cycle
 
   displayOrder Int        @default(0)
 
@@ -382,6 +399,8 @@ model List {
   workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy    User       @relation("ListsCreated", fields: [createdById], references: [id])
   actions      ActionList[]
+  tickets      Ticket[]          @relation("TicketCycle")
+  retrospectives Retrospective[] @relation("RetrospectiveCycle")
   // PM Agent sprint tracking
   snapshots    SprintSnapshot[]
   metrics      SprintMetrics?
@@ -448,6 +467,9 @@ model Action {
   epicId                 String?
   effortEstimate         Float?                // Story points, t-shirt mapped value, or hours
 
+  // Product Management plugin: optional link to parent Ticket
+  ticketId               String?
+
   createdBy              User                  @relation(fields: [createdById], references: [id])
   project                Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   team                   Team?                 @relation(fields: [teamId], references: [id])
@@ -455,6 +477,7 @@ model Action {
   transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
   schedule               TaskSchedule?         @relation(fields: [scheduleId], references: [id])
   epic                   Epic?                 @relation(fields: [epicId], references: [id], onDelete: SetNull)
+  ticket                 Ticket?               @relation("TicketActions", fields: [ticketId], references: [id], onDelete: SetNull)
   recurringParent        RecurringTask?        @relation("RecurringInstances", fields: [recurringParentId], references: [id])
   parentChunk            Action?               @relation("ActionChunks", fields: [parentChunkId], references: [id], onDelete: SetNull)
   childChunks            Action[]              @relation("ActionChunks")
@@ -494,6 +517,7 @@ model Action {
   @@index([isAutoScheduled])
   @@index([etaStatus])
   @@index([epicId])
+  @@index([ticketId])
   @@index([isBounty])
   @@index([bountyStatus])
 }
@@ -722,6 +746,7 @@ model Goal {
   updates         GoalUpdate[]  // Structured status updates with health
   recommendations WheelOfLifeRecommendation[]
   progressSnapshots GoalProgressSnapshot[]
+  features          Feature[]              @relation("FeatureGoal")
 
   @@index([lifeDomainId])
   @@index([userId])
@@ -1648,6 +1673,7 @@ model Tag {
   slug        String
   color       String    // Semantic color key (e.g., "avatar-red", "brand-primary")
   description String?
+  category    String?   // e.g. "label", "area" - null treated as general "label"
   isSystem    Boolean   @default(false) // System tags cannot be deleted
   workspaceId String?   // null = global tag, available in all workspaces
   createdById String?   // null for system tags
@@ -1656,7 +1682,10 @@ model Tag {
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy User?      @relation("TagCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  actions   ActionTag[]
+  actions      ActionTag[]
+  tickets      TicketTag[]
+  features     FeatureTag[]
+  insights     InsightTag[]
 
   // Global tags: unique by slug (when workspaceId is null)
   // Workspace tags: unique by slug within workspace
@@ -1711,6 +1740,7 @@ model Epic {
   owner     User      @relation("EpicOwner", fields: [ownerId], references: [id])
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   actions   Action[]
+  tickets   Ticket[]  @relation("TicketEpic")
 
   @@index([workspaceId])
   @@index([ownerId])
@@ -3139,4 +3169,411 @@ model DealActivity {
 
   @@index([dealId])
   @@index([createdAt])
+}
+
+// ============================================
+// Product Management Plugin Models
+// ============================================
+
+model Product {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String
+  description    String?
+  icon           String?
+  color          String?
+  funTicketIds   Boolean  @default(false)
+  ticketCounter  Int      @default(0)
+  workspaceId    String
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy       User             @relation("ProductCreatedBy", fields: [createdById], references: [id])
+  features        Feature[]
+  tickets         Ticket[]
+  researches      Research[]
+  insights        Insight[]
+  retrospectives  Retrospective[]
+  ticketTemplates TicketTemplate[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@index([createdById])
+}
+
+enum FeatureStatus {
+  IDEA
+  DEFINED
+  IN_PROGRESS
+  SHIPPED
+  ARCHIVED
+}
+
+model Feature {
+  id          String        @id @default(cuid())
+  productId   String
+  name        String
+  description String?
+  vision      String?
+  status      FeatureStatus @default(IDEA)
+  effort      Float?
+  priority    Int?
+  // Strategic alignment: optional link to a Goal (which may be an Objective in the OKR hierarchy)
+  goalId      Int?
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  product     Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy   User               @relation("FeatureCreatedBy", fields: [createdById], references: [id])
+  goal        Goal?              @relation("FeatureGoal", fields: [goalId], references: [id], onDelete: SetNull)
+  scopes      FeatureScope[]
+  userStories UserStory[]
+  insights    FeatureInsight[]
+  tickets     Ticket[]
+  tags        FeatureTag[]
+
+  @@index([productId])
+  @@index([goalId])
+  @@index([createdById])
+  @@index([status])
+}
+
+enum FeatureScopeStatus {
+  PLANNED
+  IN_PROGRESS
+  SHIPPED
+  DEPRECATED
+}
+
+model FeatureScope {
+  id           String             @id @default(cuid())
+  featureId    String
+  version      String
+  description  String
+  status       FeatureScopeStatus @default(PLANNED)
+  shippedAt    DateTime?
+  displayOrder Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  feature     Feature     @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  userStories UserStory[]
+  tickets     Ticket[]    @relation("TicketScope")
+
+  @@index([featureId])
+}
+
+model UserStory {
+  id                 String        @id @default(cuid())
+  featureId          String
+  scopeId            String?
+  asA                String?
+  iWant              String?
+  soThat             String?
+  acceptanceCriteria String?
+  displayOrder       Int           @default(0)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  feature Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  scope   FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+
+  @@index([featureId])
+  @@index([scopeId])
+}
+
+enum ResearchType {
+  INTERVIEW
+  DESK_RESEARCH
+  EXPERIMENT
+  ANALYTICS
+  SURVEY
+  OBSERVATION
+  OTHER
+}
+
+model Research {
+  id           String       @id @default(cuid())
+  productId    String
+  title        String
+  type         ResearchType @default(OTHER)
+  conductedAt  DateTime?
+  participants String?
+  notes        String?
+  createdById  String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("ResearchCreatedBy", fields: [createdById], references: [id])
+  insights  Insight[]
+
+  @@index([productId])
+  @@index([createdById])
+}
+
+enum InsightType {
+  PAIN_POINT
+  OPPORTUNITY
+  FEEDBACK
+  PERSONA
+  JOURNEY
+  OBSERVATION
+  COMPETITIVE
+}
+
+enum InsightStatus {
+  INBOX
+  TRIAGED
+  LINKED
+  DISMISSED
+}
+
+model Insight {
+  id          String        @id @default(cuid())
+  productId   String
+  researchId  String?
+  type        InsightType
+  title       String
+  body        String?
+  source      String?
+  sentiment   String?
+  description String        @default("")
+  status      InsightStatus @default(INBOX)
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  product  Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  research Research?        @relation(fields: [researchId], references: [id], onDelete: SetNull)
+  createdBy User            @relation("InsightCreatedBy", fields: [createdById], references: [id])
+  features FeatureInsight[]
+  tags     InsightTag[]
+
+  @@index([productId])
+  @@index([researchId])
+  @@index([status])
+  @@index([type])
+  @@index([createdById])
+}
+
+model FeatureInsight {
+  featureId String
+  insightId String
+  createdAt DateTime @default(now())
+
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  insight Insight @relation(fields: [insightId], references: [id], onDelete: Cascade)
+
+  @@id([featureId, insightId])
+  @@index([insightId])
+}
+
+enum TicketType {
+  BUG
+  FEATURE
+  CHORE
+  IMPROVEMENT
+  SPIKE
+  RESEARCH
+}
+
+enum TicketStatus {
+  BACKLOG
+  NEEDS_REFINEMENT
+  READY_TO_PLAN
+  COMMITTED
+  IN_PROGRESS
+  BLOCKED
+  QA
+  DONE
+  DEPLOYED
+  ARCHIVED
+}
+
+model Ticket {
+  id          String       @id @default(cuid())
+  productId   String
+  number      Int          @default(0)
+  shortId     String?
+  title       String
+  body        String?
+  type        TicketType   @default(FEATURE)
+  status      TicketStatus @default(BACKLOG)
+  priority    Int?
+  points      Float?
+
+  // Engineering metadata (queryable)
+  branchName String?
+  prUrl      String?
+  designUrl  String?
+  specUrl    String?
+  // Future-proof: arbitrary additional links
+  links Json?
+
+  // Relations
+  epicId     String?
+  featureId  String?
+  cycleId    String?
+  scopeId    String?
+  createdById String
+  assigneeId String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  // Dependencies (separate from Action's blockedBy)
+
+  product    Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  epic       Epic?            @relation("TicketEpic", fields: [epicId], references: [id], onDelete: SetNull)
+  feature    Feature?         @relation(fields: [featureId], references: [id], onDelete: SetNull)
+  cycle      List?            @relation("TicketCycle", fields: [cycleId], references: [id], onDelete: SetNull)
+  scope      FeatureScope?    @relation("TicketScope", fields: [scopeId], references: [id], onDelete: SetNull)
+  createdBy  User             @relation("TicketCreatedBy", fields: [createdById], references: [id])
+  assignee   User?            @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  actions    Action[]         @relation("TicketActions")
+  comments   TicketComment[]
+  depsOut   TicketDependency[] @relation("TicketDepsOut")
+  depsIn    TicketDependency[] @relation("TicketDepsIn")
+  tags       TicketTag[]
+
+  @@index([productId])
+  @@index([epicId])
+  @@index([featureId])
+  @@index([cycleId])
+  @@index([scopeId])
+  @@index([assigneeId])
+  @@index([createdById])
+  @@unique([productId, number])
+  @@unique([productId, shortId])
+  @@index([status])
+  @@index([type])
+}
+
+
+model TicketDependency {
+  id          String   @id @default(cuid())
+  ticketId    String
+  dependsOnId String
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  ticket    Ticket @relation("TicketDepsOut", fields: [ticketId], references: [id], onDelete: Cascade)
+  dependsOn Ticket @relation("TicketDepsIn", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("TicketDependencyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([ticketId, dependsOnId])
+  @@index([ticketId])
+  @@index([dependsOnId])
+}
+
+model TicketTemplate {
+  id          String     @id @default(cuid())
+  productId   String?
+  workspaceId String
+  type        TicketType
+  name        String
+  body        String
+  isDefault   Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([productId])
+  @@index([type])
+}
+
+model TicketComment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User   @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([ticketId])
+  @@index([authorId])
+}
+
+model Retrospective {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  productId      String?
+  cycleId        String?
+  title          String
+  coversFromDate DateTime?
+  coversToDate   DateTime?
+  conductedAt    DateTime?
+  participants   String?
+  wentWell       String?
+  wentPoorly     String?
+  actionItems    String?
+  notes          String?
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  cycle     List?     @relation("RetrospectiveCycle", fields: [cycleId], references: [id], onDelete: SetNull)
+  createdBy User      @relation("RetrospectiveCreatedBy", fields: [createdById], references: [id])
+
+  @@index([workspaceId])
+  @@index([productId])
+  @@index([cycleId])
+  @@index([createdById])
+}
+
+// ---------------------------------------------------------------------------
+// Tag join tables for Product plugin entities
+// ---------------------------------------------------------------------------
+
+model TicketTag {
+  id        String   @id @default(cuid())
+  ticketId  String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, tagId])
+  @@index([tagId])
+}
+
+model FeatureTag {
+  id        String   @id @default(cuid())
+  featureId String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([featureId, tagId])
+  @@index([tagId])
+}
+
+
+model InsightTag {
+  id        String   @id @default(cuid())
+  insightId String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  insight Insight @relation(fields: [insightId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([insightId, tagId])
+  @@index([tagId])
 }

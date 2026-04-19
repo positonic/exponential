@@ -68,6 +68,7 @@ import { crmApiRouter } from "./routers/crmApi";
 // Plugin system
 import { pluginConfigRouter } from "./routers/pluginConfig";
 import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
+import { productPluginRouter } from "~/plugins/product/server/routers";
 /**
  * This is the primary router for your server.
  *
@@ -143,6 +144,7 @@ export const appRouter = createTRPCRouter({
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,
+  product: productPluginRouter,
 });
 
 // export type definition of API
