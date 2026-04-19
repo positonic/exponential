@@ -52,7 +52,6 @@ import {
   PropertyDivider,
 } from "~/app/_components/PropertiesSidebar";
 import { generateLinearId } from "~/lib/fun-ids";
-import { getEffortOptions } from "~/lib/estimation";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
 import {

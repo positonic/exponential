@@ -4,29 +4,25 @@ import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
-import { IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey, IconMicrophone, IconGitBranch, IconUsers, IconTarget, IconCircleCheck, IconSettings, IconDatabase, IconTargetArrow, IconBriefcase, IconLayoutKanban, IconLayoutGrid, IconSparkles, IconPlug, IconBrain } from "@tabler/icons-react";
+import {
+  IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey,
+  IconMicrophone, IconGitBranch, IconUsers, IconTarget, IconSparkles, IconPlug,
+  IconBrain, IconLayoutGrid,
+} from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { VideoCount } from "./VideoCount";
-import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { usePluginNavigation } from "~/hooks/usePluginNavigation";
-
-// Map of icon names to components for plugin navigation
-const iconMap = {
-  IconTargetArrow,
-  IconTarget,
-  IconCircleCheck,
-  IconUsers,
-  IconSettings,
-  IconKey,
-  IconDatabase,
-  IconBriefcase,
-  IconLayoutGrid,
-} as const;
-
-type IconMapKey = keyof typeof iconMap;
+import { api } from "~/trpc/react";
 
 export function SidebarContent() {
+  const { workspaceId, workspaceSlug } = useWorkspace();
+
+  const { data: enabledPlugins } = api.pluginConfig.getEnabled.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspaceId, staleTime: 5 * 60 * 1000 },
+  );
+
+  const isProductEnabled = enabledPlugins?.includes("product") ?? false;
   return (
     <div className="space-y-0.5">
       <Accordion 
@@ -66,7 +62,14 @@ export function SidebarContent() {
             <AddProjectButton />
           </Accordion.Panel>
         </Accordion.Item>
-        
+
+        {/* Product Management Plugin nav item */}
+        {isProductEnabled && workspaceSlug && (
+          <NavLink href={`/w/${workspaceSlug}/products`} icon={IconLayoutGrid}>
+            Products
+          </NavLink>
+        )}
+
         <Accordion.Item value="goals">
           <Accordion.Control>
             <div className="flex items-center justify-between">
