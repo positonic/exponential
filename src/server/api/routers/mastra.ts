@@ -3342,6 +3342,174 @@ export const mastraRouter = createTRPCRouter({
       };
     }),
 
+  // ==================== Workspace Discovery ====================
+
+  getUserWorkspaces: protectedProcedure
+    .query(async ({ ctx }) => {
+      const memberships = await ctx.db.workspaceUser.findMany({
+        where: { userId: ctx.session.user.id },
+        include: { workspace: { select: { id: true, name: true, slug: true, type: true } } },
+      });
+      return {
+        workspaces: memberships.map((m) => ({
+          id: m.workspace.id,
+          name: m.workspace.name,
+          slug: m.workspace.slug,
+          type: m.workspace.type,
+          role: m.role,
+        })),
+      };
+    }),
+
+  // ==================== Project–Goal Linking ====================
+
+  linkProjectToGoal: protectedProcedure
+    .input(z.object({
+      goalId: z.number(),
+      projectId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const goal = await ctx.db.goal.findFirst({ where: { id: input.goalId, userId } });
+      if (!goal) throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found or access denied" });
+
+      await ctx.db.goal.update({
+        where: { id: input.goalId },
+        data: { projects: { connect: { id: input.projectId } } },
+      });
+
+      return { success: true, goalId: input.goalId, projectId: input.projectId };
+    }),
+
+  unlinkProjectFromGoal: protectedProcedure
+    .input(z.object({
+      goalId: z.number(),
+      projectId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const goal = await ctx.db.goal.findFirst({ where: { id: input.goalId, userId } });
+      if (!goal) throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found or access denied" });
+
+      await ctx.db.goal.update({
+        where: { id: input.goalId },
+        data: { projects: { disconnect: { id: input.projectId } } },
+      });
+
+      return { success: true, goalId: input.goalId, projectId: input.projectId };
+    }),
+
+  // ==================== Bulk Workspace Structure Creation ====================
+
+  bulkCreateStructure: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string(),
+      goals: z.array(z.object({
+        title: z.string().min(1),
+        description: z.string().optional(),
+        projects: z.array(z.object({
+          name: z.string().min(1),
+          description: z.string().optional(),
+          priority: z.enum(['HIGH', 'MEDIUM', 'LOW', 'NONE']).optional().default('MEDIUM'),
+          actions: z.array(z.object({
+            name: z.string().min(1),
+          })).optional().default([]),
+        })).optional().default([]),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Verify user belongs to this workspace
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: input.workspaceId, userId },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You do not have access to this workspace" });
+      }
+
+      const created: { type: string; name: string; id: string | number }[] = [];
+      const failed: { type: string; name: string; error: string }[] = [];
+
+      for (const goalInput of input.goals) {
+        let goalId: number | null = null;
+        try {
+          const goal = await ctx.db.goal.create({
+            data: {
+              title: goalInput.title,
+              description: goalInput.description ?? null,
+              userId,
+              driUserId: userId,
+              workspaceId: input.workspaceId,
+            },
+          });
+          goalId = goal.id;
+          created.push({ type: "goal", name: goal.title, id: goal.id });
+        } catch (err) {
+          failed.push({ type: "goal", name: goalInput.title, error: err instanceof Error ? err.message : String(err) });
+          continue;
+        }
+
+        for (const projectInput of (goalInput.projects ?? [])) {
+          let projectId: string | null = null;
+          try {
+            const baseSlug = slugify(projectInput.name);
+            let slug = baseSlug;
+            let counter = 1;
+            while (await ctx.db.project.findFirst({ where: { slug } })) {
+              slug = `${baseSlug}_${counter}`;
+              counter++;
+            }
+
+            const project = await ctx.db.project.create({
+              data: {
+                name: projectInput.name,
+                description: projectInput.description ?? null,
+                status: "ACTIVE",
+                priority: projectInput.priority ?? "MEDIUM",
+                progress: 0,
+                slug,
+                createdById: userId,
+                workspaceId: input.workspaceId,
+              },
+            });
+            projectId = project.id;
+            created.push({ type: "project", name: project.name, id: project.id });
+
+            // Link project to goal
+            await ctx.db.goal.update({
+              where: { id: goalId },
+              data: { projects: { connect: { id: project.id } } },
+            });
+          } catch (err) {
+            failed.push({ type: "project", name: projectInput.name, error: err instanceof Error ? err.message : String(err) });
+            continue;
+          }
+
+          for (const actionInput of (projectInput.actions ?? [])) {
+            try {
+              const action = await ctx.db.action.create({
+                data: {
+                  name: actionInput.name,
+                  status: "ACTIVE",
+                  priority: "Scheduled",
+                  createdById: userId,
+                  projectId,
+                },
+              });
+              created.push({ type: "action", name: action.name, id: action.id });
+            } catch (err) {
+              failed.push({ type: "action", name: actionInput.name, error: err instanceof Error ? err.message : String(err) });
+            }
+          }
+        }
+      }
+
+      return { created, failed, totalCreated: created.length, totalFailed: failed.length };
+    }),
+
   // ==================== Project Management ====================
 
   createProject: protectedProcedure

@@ -6,12 +6,9 @@ import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
 import { GoalList } from "./GoalList";
 import {
-  IconCalendarEvent, IconDeviceProjector, IconVideo, IconWriting, IconKey,
-  IconMicrophone, IconGitBranch, IconUsers, IconTarget, IconSparkles, IconPlug,
-  IconBrain, IconLayoutGrid,
+  IconDeviceProjector, IconTarget, IconLayoutGrid,
 } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
-import { VideoCount } from "./VideoCount";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 
@@ -85,67 +82,6 @@ export function SidebarContent(): React.JSX.Element {
           </Accordion.Panel>
         </Accordion.Item>
 
-        <Accordion.Item value="teams">
-          <Accordion.Control>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <IconUsers size={16} className="text-text-muted" />
-                <span className="text-sm font-medium text-text-primary">Teams</span>
-              </div>
-            </div>
-          </Accordion.Control>
-          <Accordion.Panel>
-            <NavLink href="/teams" icon={IconUsers}>
-              My Teams
-            </NavLink>
-            <NavLink href="/weekly-review" icon={IconUsers}>
-              Weekly Project Review
-            </NavLink>
-          </Accordion.Panel>
-        </Accordion.Item>
-
-        <Accordion.Item value="Tools">
-          <Accordion.Control>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <IconKey size={16} className="text-text-muted" />
-                <span className="text-sm font-medium text-text-primary">Tools</span>
-              </div>
-            </div>
-          </Accordion.Control>
-          <Accordion.Panel>
-            <div className="space-y-1">
-              <NavLink href="/days" icon={IconCalendarEvent}>
-                Days
-              </NavLink>
-              <NavLink href="/videos" icon={IconVideo}>
-                Media
-                <VideoCount />
-              </NavLink>
-              <NavLink href="/journal" icon={IconWriting}>
-                Journal
-              </NavLink>
-              <NavLink href="/meetings" icon={IconMicrophone}>
-                Meetings
-              </NavLink>
-              <NavLink href="/workflows" icon={IconGitBranch}>
-                Workflows
-              </NavLink>
-              <NavLink href="/ai-sales-demo" icon={IconSparkles}>
-                AI Sales Demo
-              </NavLink>
-              <NavLink href="/integrations" icon={IconPlug}>
-                Connect Services
-              </NavLink>
-              <NavLink href="/ai-history" icon={IconBrain}>
-                AI History
-              </NavLink>
-              <NavLink href="/tokens" icon={IconKey}>
-                API Access
-              </NavLink>
-            </div>
-          </Accordion.Panel>
-        </Accordion.Item>
       </Accordion>
     </div>
   );
