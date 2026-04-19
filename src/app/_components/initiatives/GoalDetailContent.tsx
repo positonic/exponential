@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import React from "react";
 import {
   Container,
@@ -17,7 +17,10 @@ import {
   Divider,
   Card,
   Menu,
+  Modal,
+  Button,
 } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
 import {
   IconTarget,
   IconStar,
@@ -31,10 +34,14 @@ import {
   IconPencil,
   IconPlus,
   IconAdjustments,
+  IconEdit,
+  IconTrash,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import DOMPurify from "dompurify";
+import { CreateGoalModal } from "../CreateGoalModal";
 import { GoalDescriptionEditor } from "./GoalDescriptionEditor";
 import { GoalActivityTab } from "./GoalActivityTab";
 import { type HealthStatus, healthConfig } from "./healthConfig";
@@ -102,9 +109,18 @@ interface GoalDetailContentProps {
 export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentProps) {
   const [activeTab, setActiveTab] = useState<string>("overview");
   const [projectView, setProjectView] = useState<ProjectView>("table");
+  const [deleteModalOpen, { open: openDelete, close: closeDelete }] = useDisclosure(false);
+  const editTriggerRef = useRef<HTMLSpanElement>(null);
 
+  const router = useRouter();
   const utils = api.useUtils();
   const { data: goal, isLoading } = api.goal.getById.useQuery({ id: goalId });
+
+  const deleteGoalMutation = api.goal.deleteGoal.useMutation({
+    onSuccess: () => {
+      router.push(`/w/${workspaceSlug}/goals`);
+    },
+  });
 
   const updateIconMutation = api.goal.updateGoalIcon.useMutation({
     onMutate: async (newData) => {
@@ -212,9 +228,28 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                   <ActionIcon variant="subtle" size="sm" color="gray">
                     <IconStar size={16} />
                   </ActionIcon>
-                  <ActionIcon variant="subtle" size="sm" color="gray">
-                    <IconDots size={16} />
-                  </ActionIcon>
+                  <Menu shadow="md" width={180} position="bottom-end">
+                    <Menu.Target>
+                      <ActionIcon variant="subtle" size="sm" color="gray">
+                        <IconDots size={16} />
+                      </ActionIcon>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item
+                        leftSection={<IconEdit size={16} />}
+                        onClick={() => editTriggerRef.current?.click()}
+                      >
+                        Edit Goal
+                      </Menu.Item>
+                      <Menu.Item
+                        leftSection={<IconTrash size={16} />}
+                        color="red"
+                        onClick={openDelete}
+                      >
+                        Delete Goal
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
                 </Group>
                 {goal.description && (
                   <Text
@@ -457,6 +492,51 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
           </Tabs.Panel>
         </Tabs>
       </Stack>
+
+      {/* Hidden trigger for EditGoalModal */}
+      <CreateGoalModal
+        goal={{
+          id: goal.id,
+          title: goal.title,
+          description: goal.description,
+          whyThisGoal: goal.whyThisGoal,
+          notes: goal.notes,
+          dueDate: goal.dueDate,
+          period: goal.period,
+          status: goal.status,
+          lifeDomainId: goal.lifeDomainId,
+          parentGoalId: goal.parentGoalId,
+          workspaceId: goal.workspaceId,
+          driUserId: goal.driUserId,
+        }}
+        trigger={<span ref={editTriggerRef} />}
+        onSuccess={() => void utils.goal.getById.invalidate({ id: goalId })}
+      />
+
+      {/* Delete confirmation modal */}
+      <Modal
+        opened={deleteModalOpen}
+        onClose={closeDelete}
+        title="Delete Goal"
+        centered
+        size="sm"
+      >
+        <Text size="sm" className="text-text-secondary">
+          Are you sure you want to delete <strong>{goal.title}</strong>? This cannot be undone.
+        </Text>
+        <Group justify="flex-end" mt="md" gap="sm">
+          <Button variant="subtle" onClick={closeDelete}>
+            Cancel
+          </Button>
+          <Button
+            color="red"
+            loading={deleteGoalMutation.isPending}
+            onClick={() => deleteGoalMutation.mutate({ id: goal.id })}
+          >
+            Delete
+          </Button>
+        </Group>
+      </Modal>
     </Container>
   );
 }
