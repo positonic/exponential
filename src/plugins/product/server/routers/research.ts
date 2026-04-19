@@ -200,7 +200,8 @@ export const researchRouter = createTRPCRouter({
       z.object({
         researchId: z.string(),
         type: insightTypeEnum,
-        description: z.string().min(1).max(5000),
+        title: z.string().min(1).max(300),
+        description: z.string().max(5000).optional(),
         status: insightStatusEnum.optional(),
       }),
     )
@@ -215,8 +216,8 @@ export const researchRouter = createTRPCRouter({
           productId: research.productId,
           researchId: input.researchId,
           type: input.type,
-          title: input.description,
-          description: input.description,
+          title: input.title,
+          description: input.description ?? input.title,
           status: input.status ?? "INBOX",
           createdById: ctx.session.user.id,
         },

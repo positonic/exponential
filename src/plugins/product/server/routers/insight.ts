@@ -159,7 +159,14 @@ export const insightRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
       const { id, ...data } = input;
-      return ctx.db.insight.update({ where: { id }, data });
+      return ctx.db.insight.update({
+        where: { id },
+        data: {
+          ...data,
+          // Keep description in sync with title so both columns stay consistent
+          ...(input.title ? { description: input.title } : {}),
+        },
+      });
     }),
 
   delete: protectedProcedure
@@ -211,28 +218,28 @@ export const insightRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
       const uniqueFeatureIds = [...new Set(input.featureIds)];
-      if (uniqueFeatureIds.length > 0) {
-        const validFeatures = await ctx.db.feature.findMany({
-          where: { id: { in: uniqueFeatureIds }, productId: insight.productId },
-          select: { id: true },
-        });
-        if (validFeatures.length !== uniqueFeatureIds.length) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "One or more features do not belong to this insight's product",
+      await ctx.db.$transaction(async (tx) => {
+        if (uniqueFeatureIds.length > 0) {
+          const validFeatures = await tx.feature.findMany({
+            where: { id: { in: uniqueFeatureIds }, productId: insight.productId },
+            select: { id: true },
           });
+          if (validFeatures.length !== uniqueFeatureIds.length) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "One or more features do not belong to this insight's product",
+            });
+          }
         }
-      }
-      await ctx.db.$transaction([
-        ctx.db.featureInsight.deleteMany({ where: { insightId: input.insightId } }),
-        ctx.db.featureInsight.createMany({
+        await tx.featureInsight.deleteMany({ where: { insightId: input.insightId } });
+        await tx.featureInsight.createMany({
           data: uniqueFeatureIds.map((featureId) => ({
             insightId: input.insightId,
             featureId,
           })),
           skipDuplicates: true,
-        }),
-      ]);
+        });
+      });
       return { success: true };
     }),
 });

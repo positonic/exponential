@@ -315,7 +315,7 @@ export default function ResearchDetailPage() {
                     addInsight.mutate({
                       researchId,
                       type: insightType,
-                      description: insightDescription.trim(),
+                      title: insightDescription.trim(),
                     })
                   }
                   loading={addInsight.isPending}

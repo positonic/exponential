@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { Accordion } from "@mantine/core";
 import { AddProjectButton } from "../AddProjectButton";
 import { ProjectList } from "./ProjectList";
@@ -14,7 +15,7 @@ import { VideoCount } from "./VideoCount";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 
-export function SidebarContent() {
+export function SidebarContent(): React.JSX.Element {
   const { workspaceId, workspaceSlug } = useWorkspace();
 
   const { data: enabledPlugins } = api.pluginConfig.getEnabled.useQuery(

@@ -204,8 +204,14 @@ export const productRouter = createTRPCRouter({
     .input(z.object({ productSlug: z.string(), workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
-      const config = await ctx.db.pluginConfig.findFirst({
-        where: { pluginId: "product", workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      const config = await ctx.db.pluginConfig.findUnique({
+        where: {
+          pluginId_workspaceId_userId: {
+            pluginId: "product",
+            workspaceId: input.workspaceId,
+            userId: ctx.session.user.id,
+          },
+        },
         select: { settings: true },
       });
       const settings = (config?.settings as Record<string, unknown>) ?? {};
@@ -228,8 +234,14 @@ export const productRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
-      const existing = await ctx.db.pluginConfig.findFirst({
-        where: { pluginId: "product", workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      const existing = await ctx.db.pluginConfig.findUnique({
+        where: {
+          pluginId_workspaceId_userId: {
+            pluginId: "product",
+            workspaceId: input.workspaceId,
+            userId: ctx.session.user.id,
+          },
+        },
         select: { settings: true },
       });
 

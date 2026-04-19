@@ -261,6 +261,8 @@ function DependencyRow({
     <div className="group flex items-center gap-1.5 py-0.5">
       <Tooltip label={statusLabel} position="top" withArrow>
         <span
+          role="img"
+          aria-label={`Status: ${statusLabel}`}
           className="inline-block rounded-full shrink-0"
           style={{
             width: 8,
@@ -281,8 +283,7 @@ function DependencyRow({
       <ActionIcon
         variant="subtle"
         size="xs"
-        color="red"
-        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity shrink-0 text-brand-error hover:bg-surface-hover"
         onClick={(e) => {
           e.stopPropagation();
           remove.mutate(

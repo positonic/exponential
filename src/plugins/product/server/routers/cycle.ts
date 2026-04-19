@@ -316,6 +316,8 @@ export const cycleRouter = createTRPCRouter({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      await loadCycleWithAccess(ctx.db, ctx.session.user.id, input.id);
+
       const cycle = await ctx.db.list.findUnique({
         where: { id: input.id },
         include: {
@@ -345,11 +347,6 @@ export const cycleRouter = createTRPCRouter({
       if (!cycle || cycle.listType !== "SPRINT") {
         throw new TRPCError({ code: "NOT_FOUND", message: "Cycle not found" });
       }
-      await assertWorkspaceMember(
-        ctx.db,
-        ctx.session.user.id,
-        cycle.workspaceId,
-      );
       return cycle;
     }),
 
