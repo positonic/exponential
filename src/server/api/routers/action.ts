@@ -1699,6 +1699,18 @@ export const actionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { actionId, kanbanStatus, targetPosition, droppedOnTaskId } = input;
 
+      // Verify user has edit access to this action
+      const access = await getActionAccess(ctx.db, ctx.session.user.id, actionId);
+      if (!access) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
+      }
+      if (!canEditAction(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have permission to update this action",
+        });
+      }
+
       // Get the action being moved
       const action = await ctx.db.action.findUnique({
         where: { id: actionId },
@@ -1706,34 +1718,7 @@ export const actionRouter = createTRPCRouter({
       });
 
       if (!action) {
-        throw new Error("Action not found");
-      }
-
-      // Ensure user has permission to update this action
-      const isCreator = action.createdById === ctx.session.user.id;
-      const isAssignee = await ctx.db.actionAssignee.findFirst({
-        where: {
-          actionId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!isCreator && !isAssignee) {
-        if (action.project) {
-          // Check if user is a project member
-          const projectMember = await ctx.db.projectMember.findFirst({
-            where: {
-              projectId: action.projectId!,
-              userId: ctx.session.user.id,
-            },
-          });
-
-          if (!projectMember) {
-            throw new Error("Not authorized to update this action");
-          }
-        } else {
-          throw new Error("Not authorized to update this action");
-        }
+        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
       }
 
       let newOrder: number;
@@ -1858,7 +1843,19 @@ export const actionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { actionId, newPosition, targetColumnStatus } = input;
 
-      // Get the action to verify permissions
+      // Verify user has edit access to this action
+      const access = await getActionAccess(ctx.db, ctx.session.user.id, actionId);
+      if (!access) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
+      }
+      if (!canEditAction(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have permission to reorder this action",
+        });
+      }
+
+      // Get the action for the ordering logic below
       const action = await ctx.db.action.findUnique({
         where: { id: actionId },
         select: {
@@ -1866,39 +1863,11 @@ export const actionRouter = createTRPCRouter({
           projectId: true,
           kanbanStatus: true,
           kanbanOrder: true,
-          createdById: true,
-          project: true
         }
       });
 
       if (!action) {
-        throw new Error("Action not found");
-      }
-
-      // Ensure user has permission to reorder this action
-      const isCreator = action.createdById === ctx.session.user.id;
-      const isAssignee = await ctx.db.actionAssignee.findFirst({
-        where: {
-          actionId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!isCreator && !isAssignee) {
-        if (action.project) {
-          const projectMember = await ctx.db.projectMember.findFirst({
-            where: {
-              projectId: action.projectId!,
-              userId: ctx.session.user.id,
-            },
-          });
-
-          if (!projectMember) {
-            throw new Error("Not authorized to reorder this action");
-          }
-        } else {
-          throw new Error("Not authorized to reorder this action");
-        }
+        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
       }
 
       // Get all tasks in the target column, ordered
