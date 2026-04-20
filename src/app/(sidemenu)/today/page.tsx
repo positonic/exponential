@@ -24,7 +24,7 @@ export default async function TodayPage({ searchParams }: PageProps) {
   return (
     <HydrateClient>
       <main className="flex h-full flex-col items-center justify-start text-text-primary">
-        <div className="container flex flex-col items-stretch justify-start gap-4 px-4 py-8">
+        <div className="container flex flex-col items-stretch justify-start px-4 pb-20 pt-6">
           <Suspense fallback={<div>Loading...</div>}>
             <ActionsWrapper initialFilter={filter} />
           </Suspense>

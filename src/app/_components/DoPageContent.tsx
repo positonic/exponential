@@ -8,6 +8,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { IconCalendarEvent, IconCircleDot, IconFlag } from "@tabler/icons-react";
 import { PRIORITY_VALUES } from "~/types/priority";
 import { Actions } from "./Actions";
+import { TodayView } from "./today/TodayView";
 import { ScoreBreakdown } from "./scoring/ScoreBreakdown";
 import { StreakBadge } from "./scoring/StreakBadge";
 import { ToolbarActions } from "./toolbar";
@@ -131,7 +132,7 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
   return (
     <>
       {/* Page Header */}
-      <div className="mb-6 w-full">
+      <div className="mb-4 w-full">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           {/* Left side: Page title */}
           <div>
@@ -219,7 +220,11 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
       </Collapse>
 
       {/* Actions List */}
-      <Actions viewName={getViewName(filter)} searchQuery={searchQuery} filters={filters} />
+      {filter === "today" ? (
+        <TodayView />
+      ) : (
+        <Actions viewName={getViewName(filter)} searchQuery={searchQuery} filters={filters} />
+      )}
     </>
   );
 }

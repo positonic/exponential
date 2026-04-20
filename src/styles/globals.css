@@ -63,6 +63,18 @@
     --accent-due: #F87171;
     --color-text-faint: #adb5bd;
 
+    /* Today page palette (project chips, timeline) */
+    --today-proj-5: #F472B6;
+    --today-proj-6: #34D399;
+    --today-proj-7: #FBBF24;
+    --today-proj-8: #A3E635;
+    --today-proj-9: #818CF8;
+    --today-zoe-text: #C5B1FD;
+    --today-zoe-text-strong: #DACBFF;
+    --today-rail-cal-text: #A8C5FF;
+    --today-rail-task-text: #F9D48A;
+    --today-rail-focus-text: #A7F0C3;
+
     /* Onboarding */
     --color-onboarding-illustration-bg: #fdf4f3;
     --color-onboarding-accent: #f87171;
@@ -158,6 +170,18 @@
     --accent-due: #F87171;
     --color-text-faint: #3F4A5C;
 
+    /* Today page palette (project chips, timeline) */
+    --today-proj-5: #F472B6;
+    --today-proj-6: #34D399;
+    --today-proj-7: #FBBF24;
+    --today-proj-8: #A3E635;
+    --today-proj-9: #818CF8;
+    --today-zoe-text: #C5B1FD;
+    --today-zoe-text-strong: #DACBFF;
+    --today-rail-cal-text: #A8C5FF;
+    --today-rail-task-text: #F9D48A;
+    --today-rail-focus-text: #A7F0C3;
+
     /* Onboarding */
     --color-onboarding-illustration-bg: #141E32;
     --color-onboarding-accent: #f87171;
@@ -252,6 +276,18 @@
     --accent-okr: #F5B94A;
     --accent-due: #F87171;
     --color-text-faint: #3F4A5C;
+
+    /* Today page palette (project chips, timeline) */
+    --today-proj-5: #F472B6;
+    --today-proj-6: #34D399;
+    --today-proj-7: #FBBF24;
+    --today-proj-8: #A3E635;
+    --today-proj-9: #818CF8;
+    --today-zoe-text: #C5B1FD;
+    --today-zoe-text-strong: #DACBFF;
+    --today-rail-cal-text: #A8C5FF;
+    --today-rail-task-text: #F9D48A;
+    --today-rail-focus-text: #A7F0C3;
 
     /* Onboarding */
     --color-onboarding-illustration-bg: #141E32;
