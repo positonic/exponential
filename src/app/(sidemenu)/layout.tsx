@@ -23,6 +23,7 @@ import { Analytics } from '@vercel/analytics/next';
 import { GoogleAnalytics } from '@next/third-parties/google';
 import { FloatingChatButton } from '~/app/_components/FloatingChatButton';
 import { AgentChatModal } from '~/app/_components/layout/AgentChatModal';
+import { CommandPalette } from '~/app/_components/layout/CommandPalette';
 import { ColorSchemeScript } from '~/app/_components/layout/ColorSchemeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
 import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvider';
@@ -78,6 +79,7 @@ export default async function RootLayout({
                         <ServiceWorkerRegistration />
                         <FloatingChatButton />
                         <AgentChatModal />
+                        <CommandPalette />
                       </WorkspaceProvider>
                     </ColorSchemeProvider>
                   </BugReportProvider>

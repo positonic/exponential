@@ -4,7 +4,6 @@ import { useState, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Avatar, Tooltip, Skeleton } from '@mantine/core';
-import { useHotkeys } from '@mantine/hooks';
 import {
   IconTable,
   IconLayoutList,
@@ -294,8 +293,6 @@ export function WorkspaceProjectsConceptD() {
   }, [pathname]);
 
   const prefix = workspace?.slug ? `/w/${workspace.slug}` : '';
-
-  useHotkeys([['mod+k', () => searchRef.current?.focus()]]);
 
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') searchRef.current?.blur();

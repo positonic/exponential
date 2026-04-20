@@ -4,7 +4,6 @@ import React, { useState, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Avatar, Checkbox, Skeleton, Tooltip } from '@mantine/core';
-import { useHotkeys } from '@mantine/hooks';
 import {
   IconTable,
   IconLayoutList,
@@ -288,8 +287,6 @@ export function WorkspaceProjectsTasksConceptD() {
     if (pathname.includes('/timeline')) return 'timeline';
     return 'table';
   }, [pathname]);
-
-  useHotkeys([['mod+k', () => searchRef.current?.focus()]]);
 
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') searchRef.current?.blur();

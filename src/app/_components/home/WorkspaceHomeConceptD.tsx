@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useHotkeys } from '@mantine/hooks';
 import {
   Container,
   Text,
@@ -85,8 +84,6 @@ export function WorkspaceHomeConceptD() {
     .slice(0, 4);
 
   const totalRows = filteredProjects.length + SUGGESTED.length;
-
-  useHotkeys([['mod+k', () => inputRef.current?.focus()]]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {

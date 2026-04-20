@@ -32,12 +32,13 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
       <button
         onClick={() => setIsMenuOpen(!isMenuOpen)}
         className={`
-          fixed top-[calc(1rem+env(safe-area-inset-top))] left-4 z-[100] p-2 rounded-lg bg-surface-secondary
-          transition-all duration-200
+          fixed top-[calc(0.5rem+env(safe-area-inset-top))] left-3 z-[100] p-1.5 rounded-md
+          hover:bg-surface-hover transition-all duration-200
           ${isMenuOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}
         `}
+        aria-label="Open sidebar"
       >
-        <IconMenu2 size={24} className="text-text-secondary" />
+        <IconMenu2 size={20} className="text-text-secondary" />
       </button>
 
       {/* Backdrop for mobile */}

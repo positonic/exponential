@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { SlackSummaryModal } from './SlackSummaryModal';
 import Link from "next/link";
 import {
@@ -15,9 +15,13 @@ import {
   Button,
   Card,
   Checkbox,
-  MultiSelect,
   Menu,
   Modal,
+  TextInput,
+  ActionIcon,
+  Collapse,
+  Tooltip,
+  Kbd,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
@@ -27,7 +31,6 @@ import {
   IconCalendar,
   IconCalendarEvent,
   IconFilter,
-  // IconCheck,
   IconChecks,
   IconSquare,
   IconDotsVertical,
@@ -40,6 +43,20 @@ import {
   IconRefresh,
   IconPlayerPlay,
   IconExternalLink,
+  IconSearch,
+  IconStar,
+  IconStarFilled,
+  IconChevronDown,
+  IconChevronUp,
+  IconClock,
+  IconPlayerPlayFilled,
+  IconUsers,
+  IconSparkles,
+  IconLayersIntersect,
+  IconFlag,
+  IconBell,
+  IconSettings,
+  IconCheck,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 // import { ActionList } from "./ActionList";
@@ -114,6 +131,8 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
 
   // New state for filtering and bulk operations
   const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [syncBannerOpen, setSyncBannerOpen] = useState(true);
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
   const [bulkProjectAssignment, setBulkProjectAssignment] = useState<string | null>(null);
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
