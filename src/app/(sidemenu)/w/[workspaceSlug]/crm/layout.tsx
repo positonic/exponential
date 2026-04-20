@@ -40,7 +40,7 @@ export default function CRMLayout({
   const basePath = `/w/${workspace.slug}/crm`;
 
   return (
-    <div className="-m-4 flex min-h-screen lg:-m-8">
+    <div className="flex">
       {/* CRM Sidebar */}
       <nav className="w-64 shrink-0 border-r border-border-primary bg-background-primary">
         <div className="sticky top-0 h-screen overflow-y-auto p-4">
