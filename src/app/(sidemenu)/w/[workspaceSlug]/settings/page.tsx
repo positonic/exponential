@@ -1,10 +1,6 @@
 'use client';
 
 import {
-  Container,
-  Title,
-  Card,
-  Text,
   TextInput,
   Textarea,
   Button,
@@ -13,10 +9,8 @@ import {
   Skeleton,
   Avatar,
   Badge,
-  Table,
   ActionIcon,
   Tooltip,
-  Divider,
   SegmentedControl,
   Switch,
   Modal,
@@ -24,8 +18,32 @@ import {
   Alert,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconCrown, IconShield, IconUser, IconEye, IconUserPlus, IconPlug, IconChevronRight, IconFlame, IconRocket, IconMail, IconPlugConnected, IconLayoutList, IconCoin, IconSun, IconCalendarCheck, IconBrandSlack, IconBrandNotion, IconRefresh, IconArrowsExchange, IconMessageCircle } from '@tabler/icons-react';
-import Link from 'next/link';
+import {
+  IconTrash,
+  IconUserPlus,
+  IconPlug,
+  IconFolder,
+  IconUsers,
+  IconRocket,
+  IconMail,
+  IconPlugConnected,
+  IconCoin,
+  IconSun,
+  IconCalendarCheck,
+  IconBrandSlack,
+  IconBrandNotion,
+  IconRefresh,
+  IconArrowsExchange,
+  IconMessageCircle,
+  IconSettings,
+  IconPalette,
+  IconLayoutList,
+  IconFlame,
+  IconClock,
+  IconPlus,
+  IconShieldExclamation,
+  type Icon as TablerIcon,
+} from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -39,27 +57,37 @@ import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWi
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { EFFORT_UNIT_OPTIONS, type EffortUnit } from '~/types/effort';
 import { notifications } from '@mantine/notifications';
+import {
+  SettingsShell,
+  SettingsHero,
+  SettingsLayout,
+  SettingsSidebar,
+  SettingsSection,
+  SettingsField,
+  SettingsPill,
+  SettingsFieldButton,
+  SettingsDangerRow,
+  SettingsDangerZone,
+  SettingsRowLink,
+  type SidebarGroup,
+} from '~/app/_components/settings/SettingsShell';
 
-const roleIcons = {
-  owner: IconCrown,
-  admin: IconShield,
-  member: IconUser,
-  viewer: IconEye,
-};
-
-const roleColors = {
-  owner: 'yellow',
-  admin: 'blue',
-  member: 'gray',
-  viewer: 'gray',
-};
+type SectionId =
+  | 'general'
+  | 'members'
+  | 'teams'
+  | 'features'
+  | 'integrations'
+  | 'plugins'
+  | 'danger';
 
 export default function WorkspaceSettingsPage() {
   const router = useRouter();
   const { workspace, workspaceId, isLoading, userRole, refetchWorkspace } = useWorkspace();
+  const [section, setSection] = useState<SectionId>('general');
+  const [editingField, setEditingField] = useState<'name' | 'description' | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [deleteModalOpened, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
   const [inviteModalOpened, { open: openInviteModal, close: closeInviteModal }] = useDisclosure(false);
@@ -98,7 +126,6 @@ export default function WorkspaceSettingsPage() {
     deleteWorkspaceMutation.mutate({ workspaceId });
   };
 
-  // Workspace data for effort unit
   const { data: workspaceData } = api.workspace.getBySlug.useQuery(
     { slug: workspace?.slug ?? '' },
     { enabled: !!workspace?.slug }
@@ -111,88 +138,55 @@ export default function WorkspaceSettingsPage() {
   const weeklyReviewBannerEnabled = workspaceData?.enableWeeklyReviewBanner ?? true;
   const emailNotificationsEnabled = workspaceData?.enableEmailNotifications ?? true;
 
+  const featureSuccess = (message: string) => () => {
+    void utils.workspace.getBySlug.invalidate();
+    notifications.show({
+      title: 'Settings Updated',
+      message,
+      color: 'green',
+      autoClose: 3000,
+    });
+  };
+
   const updateAdvancedActionsMutation = api.workspace.update.useMutation({
-    onSuccess: () => {
-      void utils.workspace.getBySlug.invalidate();
-      notifications.show({
-        title: 'Settings Updated',
-        message: advancedActionsEnabled
-          ? 'Advanced action features have been disabled'
-          : 'Advanced action features have been enabled',
-        color: 'green',
-        autoClose: 3000,
-      });
-    },
+    onSuccess: featureSuccess(
+      advancedActionsEnabled
+        ? 'Advanced action features have been disabled'
+        : 'Advanced action features have been enabled'
+    ),
   });
-
   const updateDetailedActionsMutation = api.workspace.update.useMutation({
-    onSuccess: () => {
-      void utils.workspace.getBySlug.invalidate();
-      notifications.show({
-        title: 'Settings Updated',
-        message: detailedActionsEnabled
-          ? 'Detailed action pages have been disabled'
-          : 'Detailed action pages have been enabled',
-        color: 'green',
-        autoClose: 3000,
-      });
-    },
+    onSuccess: featureSuccess(
+      detailedActionsEnabled
+        ? 'Detailed action pages have been disabled'
+        : 'Detailed action pages have been enabled'
+    ),
   });
-
   const updateBountiesMutation = api.workspace.update.useMutation({
-    onSuccess: () => {
-      void utils.workspace.getBySlug.invalidate();
-      notifications.show({
-        title: 'Settings Updated',
-        message: bountiesEnabled
-          ? 'Bounties have been disabled'
-          : 'Bounties have been enabled',
-        color: 'green',
-        autoClose: 3000,
-      });
-    },
+    onSuccess: featureSuccess(
+      bountiesEnabled ? 'Bounties have been disabled' : 'Bounties have been enabled'
+    ),
   });
-
   const updateDailyPlanBannerMutation = api.workspace.update.useMutation({
-    onSuccess: () => {
-      void utils.workspace.getBySlug.invalidate();
-      notifications.show({
-        title: 'Settings Updated',
-        message: dailyPlanBannerEnabled
-          ? 'Daily plan banner has been disabled'
-          : 'Daily plan banner has been enabled',
-        color: 'green',
-        autoClose: 3000,
-      });
-    },
+    onSuccess: featureSuccess(
+      dailyPlanBannerEnabled
+        ? 'Daily plan banner has been disabled'
+        : 'Daily plan banner has been enabled'
+    ),
   });
-
   const updateWeeklyReviewBannerMutation = api.workspace.update.useMutation({
-    onSuccess: () => {
-      void utils.workspace.getBySlug.invalidate();
-      notifications.show({
-        title: 'Settings Updated',
-        message: weeklyReviewBannerEnabled
-          ? 'Weekly review banner has been disabled'
-          : 'Weekly review banner has been enabled',
-        color: 'green',
-        autoClose: 3000,
-      });
-    },
+    onSuccess: featureSuccess(
+      weeklyReviewBannerEnabled
+        ? 'Weekly review banner has been disabled'
+        : 'Weekly review banner has been enabled'
+    ),
   });
-
   const updateEmailNotificationsMutation = api.workspace.update.useMutation({
-    onSuccess: () => {
-      void utils.workspace.getBySlug.invalidate();
-      notifications.show({
-        title: 'Settings Updated',
-        message: emailNotificationsEnabled
-          ? 'Email notifications have been disabled'
-          : 'Email notifications have been enabled',
-        color: 'green',
-        autoClose: 3000,
-      });
-    },
+    onSuccess: featureSuccess(
+      emailNotificationsEnabled
+        ? 'Email notifications have been disabled'
+        : 'Email notifications have been enabled'
+    ),
   });
 
   const updateEffortUnitMutation = api.workspace.update.useMutation({
@@ -211,7 +205,7 @@ export default function WorkspaceSettingsPage() {
     onSuccess: () => {
       refetchWorkspace();
       void utils.workspace.list.invalidate();
-      setIsEditing(false);
+      setEditingField(null);
     },
   });
 
@@ -221,7 +215,6 @@ export default function WorkspaceSettingsPage() {
     },
   });
 
-  // Workspace email configuration
   const { data: emailStatus, refetch: refetchEmailStatus } = api.integration.getWorkspaceEmailStatus.useQuery(
     { workspaceId: workspaceId! },
     { enabled: !!workspaceId }
@@ -252,7 +245,6 @@ export default function WorkspaceSettingsPage() {
     },
   });
 
-  // Notion configuration
   const { data: notionConfig, refetch: refetchNotionConfig } = api.workspace.getNotionConfig.useQuery(
     { workspaceId: workspaceId! },
     { enabled: !!workspaceId }
@@ -287,6 +279,11 @@ export default function WorkspaceSettingsPage() {
     },
   });
 
+  const { data: pendingInvites } = api.workspace.listInvitations.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: !!workspaceId }
+  );
+
   const handleSaveEmail = () => {
     if (!workspaceId || !emailAddress || !emailAppPassword) return;
     createEmailMutation.mutate({
@@ -305,20 +302,19 @@ export default function WorkspaceSettingsPage() {
     removeEmailMutation.mutate({ workspaceId });
   };
 
-  const handleStartEdit = () => {
-    if (workspace) {
-      setName(workspace.name);
-      setDescription(workspace.description ?? '');
-      setIsEditing(true);
-    }
+  const handleStartEdit = (field: 'name' | 'description') => {
+    if (!workspace) return;
+    if (field === 'name') setName(workspace.name);
+    if (field === 'description') setDescription(workspace.description ?? '');
+    setEditingField(field);
   };
 
   const handleSave = () => {
     if (!workspaceId) return;
     updateMutation.mutate({
       workspaceId,
-      name: name || undefined,
-      description: description || undefined,
+      name: editingField === 'name' ? (name || undefined) : undefined,
+      description: editingField === 'description' ? (description || undefined) : undefined,
     });
   };
 
@@ -331,739 +327,706 @@ export default function WorkspaceSettingsPage() {
 
   if (isLoading) {
     return (
-      <Container size="md" className="py-8">
+      <div className="mx-auto max-w-[1200px] p-10">
         <Skeleton height={40} width={300} mb="xl" />
         <Skeleton height={200} mb="lg" />
         <Skeleton height={300} />
-      </Container>
+      </div>
     );
   }
 
   if (!workspace) {
     return (
-      <Container size="md" className="py-8">
-        <Text className="text-text-secondary">Workspace not found</Text>
-      </Container>
+      <div className="mx-auto max-w-[1200px] p-10">
+        <div className="text-text-secondary">Workspace not found</div>
+      </div>
     );
   }
 
   const canEdit = userRole === 'owner' || userRole === 'admin';
   const canManageMembers = userRole === 'owner' || userRole === 'admin';
 
+  const memberCount = workspace.members?.length ?? 0;
+  const pendingCount = pendingInvites?.length ?? 0;
+  const featureList = [
+    advancedActionsEnabled,
+    detailedActionsEnabled,
+    bountiesEnabled,
+    dailyPlanBannerEnabled,
+    weeklyReviewBannerEnabled,
+    emailNotificationsEnabled,
+  ];
+  const featureOn = featureList.filter(Boolean).length;
+  const featureTotal = featureList.length;
+
+  const groups: SidebarGroup<SectionId>[] = [
+    {
+      title: 'Workspace',
+      items: [
+        { id: 'general', label: 'General', icon: IconFolder },
+        { id: 'members', label: 'Members', icon: IconUsers, badge: memberCount },
+        { id: 'teams', label: 'Teams', icon: IconUsers },
+      ],
+    },
+    {
+      title: 'Configuration',
+      items: [
+        { id: 'features', label: 'Features', icon: IconRocket, badge: `${featureOn}/${featureTotal}` },
+        { id: 'integrations', label: 'Integrations', icon: IconPalette },
+        { id: 'plugins', label: 'Plugins', icon: IconPlug },
+      ],
+    },
+    ...(userRole === 'owner'
+      ? [{ items: [{ id: 'danger' as const, label: 'Danger zone', icon: IconTrash }] }]
+      : []),
+  ];
+
+  const workspaceTypeLabel = workspace.type === 'personal' ? 'Personal' : 'Team';
+
   return (
-    <Container size="md" className="py-8">
-      <Title order={1} className="text-3xl font-bold text-text-primary mb-8">
-        Workspace Settings
-      </Title>
+    <SettingsShell>
+      <SettingsHero
+        eyebrow={`Workspace · ${workspaceTypeLabel}`}
+        icon={IconSettings}
+        title={workspace.name}
+        description="Configure identity, members, features, and integrations for this workspace. Changes apply to every project inside."
+        stats={[
+          { label: 'members', value: memberCount },
+          { label: 'features on', value: `${featureOn}/${featureTotal}` },
+          { label: 'pending invites', value: pendingCount },
+        ]}
+      />
 
-      <Stack gap="lg">
-        {/* General Settings */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Title order={3} className="text-text-primary mb-4">
-            General
-          </Title>
+      <SettingsLayout
+        sidebar={
+          <SettingsSidebar<SectionId>
+            groups={groups}
+            activeId={section}
+            onSelect={setSection}
+          />
+        }
+      >
+        {section === 'general' && (
+          <SettingsSection
+            icon={IconFolder}
+            title="General"
+            description="Identity for this workspace. Visible to members and in shared links."
+          >
+            <SettingsField
+              label="Name"
+              action={
+                canEdit ? (
+                  <SettingsFieldButton
+                    onClick={() => {
+                      if (editingField === 'name') {
+                        handleSave();
+                      } else {
+                        handleStartEdit('name');
+                      }
+                    }}
+                  >
+                    {editingField === 'name' ? 'Save' : 'Edit'}
+                  </SettingsFieldButton>
+                ) : null
+              }
+            >
+              {editingField === 'name' ? (
+                <TextInput
+                  value={name}
+                  onChange={(e) => setName(e.currentTarget.value)}
+                  autoFocus
+                  size="xs"
+                  classNames={{
+                    input: 'bg-background-primary border-border-primary text-text-primary',
+                  }}
+                />
+              ) : (
+                workspace.name
+              )}
+            </SettingsField>
 
-          {isEditing ? (
-            <Stack gap="md">
-              <TextInput
-                label="Workspace Name"
-                value={name}
-                onChange={(e) => setName(e.currentTarget.value)}
-                classNames={{
-                  input: 'bg-surface-primary border-border-primary text-text-primary',
-                  label: 'text-text-secondary',
-                }}
-              />
-              <Textarea
-                label="Description (injected into every AI agent conversation in this workspace)"
-                value={description}
-                onChange={(e) => setDescription(e.currentTarget.value)}
-                classNames={{
-                  input: 'bg-surface-primary border-border-primary text-text-primary',
-                  label: 'text-text-secondary',
-                }}
-              />
-              <Group>
-                <Button
-                  onClick={handleSave}
-                  loading={updateMutation.isPending}
-                  color="brand"
-                >
-                  Save Changes
-                </Button>
-                <Button
-                  variant="subtle"
-                  onClick={() => setIsEditing(false)}
-                  className="text-text-secondary"
-                >
-                  Cancel
-                </Button>
-              </Group>
-            </Stack>
-          ) : (
-            <Stack gap="md">
-              <div>
-                <Text size="sm" className="text-text-muted mb-1">Name</Text>
-                <Text className="text-text-primary">{workspace.name}</Text>
-              </div>
-              <div>
-                <Text size="sm" className="text-text-muted mb-1">Slug</Text>
-                <Text className="text-text-secondary font-mono">{workspace.slug}</Text>
-              </div>
-              <div>
-                <Text size="sm" className="text-text-muted mb-1">Type</Text>
-                <Badge color={workspace.type === 'personal' ? 'gray' : 'blue'}>
-                  {workspace.type}
-                </Badge>
-              </div>
-              {workspace.description && (
-                <div>
-                  <Text size="sm" className="text-text-muted mb-1">Description</Text>
-                  <Text className="text-text-secondary">{workspace.description}</Text>
+            <SettingsField label="Slug" sublabel="Used in URLs" mono>
+              exponential.im/<span className="text-text-primary">{workspace.slug}</span>
+            </SettingsField>
+
+            <SettingsField label="Type">
+              <SettingsPill variant={workspace.type === 'personal' ? 'neutral' : 'team'}>
+                {workspaceTypeLabel}
+              </SettingsPill>
+            </SettingsField>
+
+            <SettingsField
+              label="Description"
+              sublabel="Injected into every AI agent conversation"
+              action={
+                canEdit ? (
+                  <SettingsFieldButton
+                    onClick={() => {
+                      if (editingField === 'description') {
+                        handleSave();
+                      } else {
+                        handleStartEdit('description');
+                      }
+                    }}
+                  >
+                    {editingField === 'description' ? 'Save' : 'Edit'}
+                  </SettingsFieldButton>
+                ) : null
+              }
+            >
+              {editingField === 'description' ? (
+                <Textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.currentTarget.value)}
+                  autoFocus
+                  size="xs"
+                  autosize
+                  minRows={2}
+                  classNames={{
+                    input: 'bg-background-primary border-border-primary text-text-primary',
+                  }}
+                />
+              ) : (
+                <span className="text-text-secondary">
+                  {workspace.description ?? <span className="text-text-muted">—</span>}
+                </span>
+              )}
+            </SettingsField>
+          </SettingsSection>
+        )}
+
+        {section === 'members' && (
+          <>
+            <SettingsSection
+              icon={IconUsers}
+              title="Members"
+              count={`${memberCount} · ${pendingCount} pending`}
+              description="People with access to projects, goals, and integrations in this workspace."
+              action={
+                canManageMembers && (
+                  <Button
+                    size="xs"
+                    leftSection={<IconUserPlus size={14} />}
+                    onClick={openInviteModal}
+                  >
+                    Invite member
+                  </Button>
+                )
+              }
+              flush
+            >
+              <div className="grid grid-cols-[1fr_140px_auto] px-2 pt-3 text-[13px]">
+                <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+                  Member
                 </div>
-              )}
-              {canEdit && (
-                <Button
-                  variant="light"
-                  onClick={handleStartEdit}
-                  className="w-fit"
-                >
-                  Edit Settings
-                </Button>
-              )}
-            </Stack>
-          )}
-        </Card>
+                <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+                  Role
+                </div>
+                <div className="border-b border-border-primary px-3.5 pb-2.5" />
 
-        {/* Members */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" className="mb-4">
-            <Title order={3} className="text-text-primary">
-              Members
-            </Title>
-            {canManageMembers && (
-              <Button
-                variant="light"
-                leftSection={<IconUserPlus size={16} />}
-                onClick={openInviteModal}
-              >
-                Invite Member
-              </Button>
-            )}
-          </Group>
-
-          <Table>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th className="text-text-muted">Member</Table.Th>
-                <Table.Th className="text-text-muted">Role</Table.Th>
-                {canManageMembers && <Table.Th className="text-text-muted">Actions</Table.Th>}
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {workspace.members?.map((member) => {
-                const RoleIcon = roleIcons[member.role as keyof typeof roleIcons] ?? IconUser;
-                return (
-                  <Table.Tr key={member.userId}>
-                    <Table.Td>
-                      <Group gap="sm">
-                        <Avatar
-                          src={member.user.image}
-                          size="sm"
-                          radius="xl"
-                          className="bg-brand-primary"
-                        >
-                          {member.user.name?.charAt(0).toUpperCase() ?? 'U'}
-                        </Avatar>
-                        <div>
-                          <Text size="sm" className="text-text-primary">
-                            {member.user.name ?? 'Unknown'}
-                          </Text>
-                          <Text size="xs" className="text-text-muted">
-                            {member.user.email}
-                          </Text>
+                {workspace.members?.map((member) => (
+                  <div key={member.userId} className="contents group">
+                    <div className="flex items-center gap-2.5 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                      <Avatar src={member.user.image} size="sm" radius="xl">
+                        {member.user.name?.charAt(0).toUpperCase() ?? 'U'}
+                      </Avatar>
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-medium text-text-primary truncate">
+                          {member.user.name ?? 'Unknown'}
                         </div>
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge
-                        color={roleColors[member.role as keyof typeof roleColors] ?? 'gray'}
-                        leftSection={<RoleIcon size={12} />}
+                        <div className="text-[11.5px] text-text-muted truncate">
+                          {member.user.email}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                      <SettingsPill
+                        variant={
+                          member.role === 'owner'
+                            ? 'owner'
+                            : member.role === 'admin'
+                              ? 'admin'
+                              : 'neutral'
+                        }
                       >
                         {member.role}
-                      </Badge>
-                    </Table.Td>
-                    {canManageMembers && (
-                      <Table.Td>
-                        {member.role !== 'owner' && (
-                          <Tooltip label="Remove member">
-                            <ActionIcon
-                              variant="subtle"
-                              color="red"
-                              onClick={() => handleRemoveMember(member.userId)}
-                              loading={removeMemberMutation.isPending}
-                            >
-                              <IconTrash size={16} />
-                            </ActionIcon>
-                          </Tooltip>
-                        )}
-                      </Table.Td>
-                    )}
-                  </Table.Tr>
-                );
-              })}
-            </Table.Tbody>
-          </Table>
-
-          {/* Pending Invitations */}
-          <Divider my="lg" />
-          <Title order={4} className="text-text-primary mb-3">
-            Pending Invitations
-          </Title>
-          <PendingInvitationsTable
-            workspaceId={workspaceId!}
-            canManage={canManageMembers}
-          />
-        </Card>
-
-        {/* Advanced Action Features */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" align="flex-start">
-            <Group gap="md">
-              <IconRocket size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Advanced Action Features
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Enable epics, sprint assignment, effort estimates, and dependency tracking for actions in this workspace.
-                </Text>
+                      </SettingsPill>
+                    </div>
+                    <div className="flex items-center justify-end border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                      {canManageMembers && member.role !== 'owner' && (
+                        <Tooltip label="Remove member">
+                          <ActionIcon
+                            variant="subtle"
+                            color="red"
+                            onClick={() => handleRemoveMember(member.userId)}
+                            loading={removeMemberMutation.isPending}
+                          >
+                            <IconTrash size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            </Group>
-            <Switch
-              checked={advancedActionsEnabled}
-              onChange={(event) => {
+            </SettingsSection>
+
+            {pendingInvites && pendingInvites.length > 0 && (
+              <SettingsSection
+                icon={IconClock}
+                title="Pending invitations"
+                count={pendingCount}
+                description="Invitations that have not yet been accepted."
+              >
+                <PendingInvitationsTable
+                  workspaceId={workspaceId!}
+                  canManage={canManageMembers}
+                />
+              </SettingsSection>
+            )}
+          </>
+        )}
+
+        {section === 'teams' && (
+          <div className="w-full [&>div]:w-full">
+            <WorkspaceTeamsSection workspaceId={workspaceId!} canManage={canManageMembers} />
+          </div>
+        )}
+
+        {section === 'features' && (
+          <SettingsSection
+            icon={IconRocket}
+            title="Features"
+            count={`${featureOn}/${featureTotal}`}
+            description="Product behaviors and notifications. Members can override their own notifications."
+            flush
+          >
+            <div className="grid grid-cols-[1fr_120px_70px] border-b border-border-primary px-[22px] py-3 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+              <div>Feature</div>
+              <div>Last changed</div>
+              <div className="text-right">Enabled</div>
+            </div>
+
+            <FeatureRow
+              icon={IconRocket}
+              tag="Product"
+              title="Advanced Action Features"
+              description="Enable epics, sprint assignment, effort estimates, and dependency tracking for actions in this workspace."
+              enabled={advancedActionsEnabled}
+              disabled={!canEdit || updateAdvancedActionsMutation.isPending}
+              onToggle={(checked) => {
                 if (!workspaceId) return;
                 updateAdvancedActionsMutation.mutate({
                   workspaceId,
-                  enableAdvancedActions: event.currentTarget.checked,
+                  enableAdvancedActions: checked,
                 });
               }}
-              disabled={!canEdit || updateAdvancedActionsMutation.isPending}
-              size="lg"
             />
-          </Group>
-        </Card>
 
-        {/* Effort Estimation */}
-        {advancedActionsEnabled && (
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group gap="md" mb="md">
-            <IconFlame size={24} className="text-text-muted" />
-            <div>
-              <Title order={3} className="text-text-primary">
-                Effort Estimation
-              </Title>
-              <Text size="sm" className="text-text-muted">
-                Choose how your team estimates task effort
-              </Text>
-            </div>
-          </Group>
-
-          <SegmentedControl
-            value={currentEffortUnit}
-            onChange={(value) => {
-              if (!workspaceId) return;
-              updateEffortUnitMutation.mutate({
-                workspaceId,
-                effortUnit: value as EffortUnit,
-              });
-            }}
-            data={EFFORT_UNIT_OPTIONS.map((o) => ({
-              value: o.value,
-              label: o.label,
-            }))}
-            fullWidth
-            disabled={!canEdit}
-          />
-
-          <Text size="xs" className="text-text-muted mt-3">
-            Changing the estimation method will not convert existing effort values on tasks.
-          </Text>
-        </Card>
-        )}
-
-        {/* Detailed Action Pages */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" align="flex-start">
-            <Group gap="md">
-              <IconLayoutList size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Detailed Action Pages
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Enable full detail pages for actions with activity threads, comments,
-                  and a properties sidebar. Individual projects can override this setting.
-                </Text>
+            {advancedActionsEnabled && (
+              <div className="grid grid-cols-[1fr_120px_70px] items-center gap-3.5 border-t border-border-primary px-[22px] py-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-surface-tertiary text-text-secondary flex-shrink-0">
+                    <IconFlame size={14} />
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2 text-[13px] font-medium text-text-primary">
+                      Effort Estimation
+                      <span className="rounded-sm border border-border-primary px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-[0.04em] text-text-muted">
+                        Product
+                      </span>
+                    </div>
+                    <div className="mt-0.5 max-w-[520px] text-[11.5px] leading-[1.45] text-text-muted">
+                      How your team estimates task effort. Changing this will not convert existing values.
+                    </div>
+                  </div>
+                </div>
+                <div className="text-[11px] tabular-nums text-text-muted">—</div>
+                <div className="flex justify-end">
+                  <SegmentedControl
+                    size="xs"
+                    value={currentEffortUnit}
+                    onChange={(value) => {
+                      if (!workspaceId) return;
+                      updateEffortUnitMutation.mutate({
+                        workspaceId,
+                        effortUnit: value as EffortUnit,
+                      });
+                    }}
+                    data={EFFORT_UNIT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                    disabled={!canEdit}
+                  />
+                </div>
               </div>
-            </Group>
-            <Switch
-              checked={detailedActionsEnabled}
-              onChange={(event) => {
+            )}
+
+            <FeatureRow
+              icon={IconLayoutList}
+              tag="Product"
+              title="Detailed Action Pages"
+              description="Enable full detail pages for actions with activity threads, comments, and a properties sidebar. Projects can override."
+              enabled={detailedActionsEnabled}
+              disabled={!canEdit || updateDetailedActionsMutation.isPending}
+              onToggle={(checked) => {
                 if (!workspaceId) return;
                 updateDetailedActionsMutation.mutate({
                   workspaceId,
-                  enableDetailedActions: event.currentTarget.checked,
+                  enableDetailedActions: checked,
                 });
               }}
-              disabled={!canEdit || updateDetailedActionsMutation.isPending}
-              size="lg"
             />
-          </Group>
-        </Card>
-
-        {/* Bounties */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" align="flex-start">
-            <Group gap="md">
-              <IconCoin size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Bounties
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Enable bounty rewards on actions in public projects.
-                  Individual projects can override this setting.
-                </Text>
-              </div>
-            </Group>
-            <Switch
-              checked={bountiesEnabled}
-              onChange={(event) => {
-                if (!workspaceId) return;
-                updateBountiesMutation.mutate({
-                  workspaceId,
-                  enableBounties: event.currentTarget.checked,
-                });
-              }}
+            <FeatureRow
+              icon={IconCoin}
+              tag="Product"
+              title="Bounties"
+              description="Enable bounty rewards on actions in public projects. Projects can override."
+              enabled={bountiesEnabled}
               disabled={!canEdit || updateBountiesMutation.isPending}
-              size="lg"
+              onToggle={(checked) => {
+                if (!workspaceId) return;
+                updateBountiesMutation.mutate({ workspaceId, enableBounties: checked });
+              }}
             />
-          </Group>
-        </Card>
-
-        {/* Daily Plan Banner */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" align="flex-start">
-            <Group gap="md">
-              <IconSun size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Daily Plan Banner
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Show a daily planning reminder on the home page when the daily plan has not been completed.
-                </Text>
-              </div>
-            </Group>
-            <Switch
-              checked={dailyPlanBannerEnabled}
-              onChange={(event) => {
+            <FeatureRow
+              icon={IconSun}
+              tag="Home"
+              title="Daily Plan Banner"
+              description="Show a daily planning reminder on the home page when the daily plan has not been completed."
+              enabled={dailyPlanBannerEnabled}
+              disabled={!canEdit || updateDailyPlanBannerMutation.isPending}
+              onToggle={(checked) => {
                 if (!workspaceId) return;
                 updateDailyPlanBannerMutation.mutate({
                   workspaceId,
-                  enableDailyPlanBanner: event.currentTarget.checked,
+                  enableDailyPlanBanner: checked,
                 });
               }}
-              disabled={!canEdit || updateDailyPlanBannerMutation.isPending}
-              size="lg"
             />
-          </Group>
-        </Card>
-
-        {/* Weekly Review Banner */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" align="flex-start">
-            <Group gap="md">
-              <IconCalendarCheck size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Weekly Review Banner
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Show a weekly review reminder on the home page when the weekly review has not been completed.
-                </Text>
-              </div>
-            </Group>
-            <Switch
-              checked={weeklyReviewBannerEnabled}
-              onChange={(event) => {
+            <FeatureRow
+              icon={IconCalendarCheck}
+              tag="Home"
+              title="Weekly Review Banner"
+              description="Show a weekly review reminder on the home page when the weekly review has not been completed."
+              enabled={weeklyReviewBannerEnabled}
+              disabled={!canEdit || updateWeeklyReviewBannerMutation.isPending}
+              onToggle={(checked) => {
                 if (!workspaceId) return;
                 updateWeeklyReviewBannerMutation.mutate({
                   workspaceId,
-                  enableWeeklyReviewBanner: event.currentTarget.checked,
+                  enableWeeklyReviewBanner: checked,
                 });
               }}
-              disabled={!canEdit || updateWeeklyReviewBannerMutation.isPending}
-              size="lg"
             />
-          </Group>
-        </Card>
-
-        {/* Email Notifications */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" align="flex-start">
-            <Group gap="md">
-              <IconMail size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Email Notifications
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Send email notifications to members when they are assigned to actions or mentioned in comments. Members can override this in their personal notification settings.
-                </Text>
-              </div>
-            </Group>
-            <Switch
-              checked={emailNotificationsEnabled}
-              onChange={(event) => {
+            <FeatureRow
+              icon={IconMail}
+              tag="Notifications"
+              title="Email Notifications"
+              description="Send emails on assignments and mentions. Members can override in personal settings."
+              enabled={emailNotificationsEnabled}
+              disabled={!canEdit || updateEmailNotificationsMutation.isPending}
+              onToggle={(checked) => {
                 if (!workspaceId) return;
                 updateEmailNotificationsMutation.mutate({
                   workspaceId,
-                  enableEmailNotifications: event.currentTarget.checked,
+                  enableEmailNotifications: checked,
                 });
               }}
-              disabled={!canEdit || updateEmailNotificationsMutation.isPending}
-              size="lg"
             />
-          </Group>
-        </Card>
-
-        {/* Plugins */}
-        <Card
-          className="bg-surface-secondary border-border-primary cursor-pointer hover:bg-surface-hover transition-colors"
-          withBorder
-          component={Link}
-          href={`/w/${workspace.slug}/settings/plugins`}
-        >
-          <Group justify="space-between">
-            <Group gap="md">
-              <IconPlug size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Plugins
-                </Title>
-                <Text size="sm" className="text-text-muted">
-                  Enable or disable plugins for this workspace
-                </Text>
-              </div>
-            </Group>
-            <IconChevronRight size={20} className="text-text-muted" />
-          </Group>
-        </Card>
-
-        {/* Email Account */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" align="flex-start">
-            <Group gap="md">
-              <IconMail size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Email Account
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Configure which email address agents use when operating in this workspace.
-                </Text>
-              </div>
-            </Group>
-          </Group>
-
-          <Stack gap="sm" mt="md">
-            {emailStatus?.isWorkspaceSpecific ? (
-              <Group justify="space-between">
-                <div>
-                  <Text size="sm" className="text-text-secondary">
-                    {emailStatus.email}
-                  </Text>
-                  <Text size="xs" className="text-text-muted">
-                    Workspace-specific email
-                  </Text>
-                </div>
-                <Group gap="xs">
-                  <Button variant="light" size="xs" onClick={openEmailModal}>
-                    Change
-                  </Button>
-                  <Button
-                    variant="subtle"
-                    size="xs"
-                    color="red"
-                    onClick={handleRemoveWorkspaceEmail}
-                    loading={removeEmailMutation.isPending}
-                  >
-                    Remove
-                  </Button>
-                </Group>
-              </Group>
-            ) : emailStatus ? (
-              <Group justify="space-between">
-                <div>
-                  <Text size="sm" className="text-text-secondary">
-                    Using default email: {emailStatus.email}
-                  </Text>
-                  <Text size="xs" className="text-text-muted">
-                    From your account settings
-                  </Text>
-                </div>
-                <Button variant="light" size="xs" onClick={openEmailModal}>
-                  Override for this workspace
-                </Button>
-              </Group>
-            ) : (
-              <Group justify="space-between">
-                <Text size="sm" className="text-text-muted">
-                  No email configured
-                </Text>
-                <Button variant="light" size="xs" onClick={openEmailModal}>
-                  Add email
-                </Button>
-              </Group>
-            )}
-          </Stack>
-        </Card>
-
-        {/* Slack Channel */}
-        {workspace && workspaceId && (
-          <Card className="bg-surface-secondary border-border-primary" withBorder>
-            <Group gap="md" mb="md">
-              <IconBrandSlack size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Slack Channel
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Link a Slack channel to this workspace so Zoe can provide workspace-wide context including OKRs and project progress.
-                </Text>
-              </div>
-            </Group>
-            <SlackChannelSettings workspace={{ id: workspaceId, name: workspace.name }} />
-          </Card>
+          </SettingsSection>
         )}
 
-        {/* Zulip Notifications */}
-        {workspace && workspaceId && (
-          <Card className="bg-surface-secondary border-border-primary" withBorder>
-            <Group gap="md" mb="md">
-              <IconMessageCircle size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Zulip Notifications
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Send workspace notifications to a Zulip stream and direct message users for task assignments and mentions.
-                </Text>
-              </div>
-            </Group>
-            <ZulipSettings workspace={{ id: workspaceId, name: workspace.name }} workspaceSlug={workspace.slug} />
-          </Card>
-        )}
-
-        {/* Notion Integration */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" align="flex-start" mb="md">
-            <Group gap="md">
-              <IconBrandNotion size={24} className="text-text-muted" />
-              <div>
-                <Title order={3} className="text-text-primary">
-                  Notion Integration
-                </Title>
-                <Text size="sm" className="text-text-muted" maw={500}>
-                  Configure default Notion settings for projects in this workspace.
-                  Individual projects can override these defaults.
-                </Text>
-              </div>
-            </Group>
-          </Group>
-
-          <Stack gap="md">
-            {/* Connected Accounts */}
-            {notionConnections && notionConnections.length > 0 ? (
-              <>
-                <div>
-                  <Text size="sm" fw={500} className="text-text-secondary mb-2">
-                    Connected Accounts
-                  </Text>
-                  <Stack gap="xs">
-                    {notionConnections.map((connection) => (
-                      <Group key={connection.id} gap="sm" className="rounded-md bg-surface-primary p-2 border border-border-primary">
-                        <IconBrandNotion size={18} className="text-text-muted" />
-                        <div className="flex-1">
-                          <Text size="sm" className="text-text-primary">
-                            {(connection as { notionWorkspaceName?: string }).notionWorkspaceName ?? connection.name}
-                          </Text>
-                        </div>
-                        <Badge
-                          size="xs"
-                          color={notionConfig?.defaultIntegrationId === connection.id ? 'green' : 'gray'}
-                          variant={notionConfig?.defaultIntegrationId === connection.id ? 'filled' : 'light'}
-                        >
-                          {notionConfig?.defaultIntegrationId === connection.id ? 'Default' : 'Connected'}
-                        </Badge>
-                      </Group>
-                    ))}
-                  </Stack>
-                </div>
-
-                {/* Default Settings */}
-                {canEdit && (
-                  <div>
-                    <Text size="sm" fw={500} className="text-text-secondary mb-2">
-                      Default Sync Preferences
-                    </Text>
-                    <Group gap="md" grow>
-                      <Select
-                        label="Default Account"
-                        placeholder="Select default account"
-                        data={notionConnections.map((c) => ({
-                          value: c.id,
-                          label: (c as { notionWorkspaceName?: string }).notionWorkspaceName ?? c.name,
-                        }))}
-                        value={notionConfig?.defaultIntegrationId ?? null}
-                        onChange={(value) => {
-                          if (!workspaceId) return;
-                          updateNotionConfigMutation.mutate({
-                            workspaceId,
-                            notionDefaultConfig: {
-                              ...notionConfig,
-                              defaultIntegrationId: value ?? undefined,
-                            },
-                          });
-                        }}
-                        classNames={{
-                          input: 'bg-surface-primary border-border-primary text-text-primary',
-                          label: 'text-text-muted',
-                        }}
-                      />
-                      <Select
-                        label="Sync Direction"
-                        data={[
-                          { value: 'pull', label: 'Pull from Notion' },
-                          { value: 'push', label: 'Push to Notion' },
-                          { value: 'bidirectional', label: 'Bidirectional' },
-                        ]}
-                        value={notionConfig?.syncDirection ?? 'pull'}
-                        onChange={(value) => {
-                          if (!workspaceId || !value) return;
-                          updateNotionConfigMutation.mutate({
-                            workspaceId,
-                            notionDefaultConfig: {
-                              ...notionConfig,
-                              syncDirection: value as 'pull' | 'push' | 'bidirectional',
-                            },
-                          });
-                        }}
-                        leftSection={<IconArrowsExchange size={16} />}
-                        classNames={{
-                          input: 'bg-surface-primary border-border-primary text-text-primary',
-                          label: 'text-text-muted',
-                        }}
-                      />
-                      <Select
-                        label="Sync Frequency"
-                        data={[
-                          { value: 'manual', label: 'Manual' },
-                          { value: 'hourly', label: 'Hourly' },
-                          { value: 'daily', label: 'Daily' },
-                        ]}
-                        value={notionConfig?.syncFrequency ?? 'manual'}
-                        onChange={(value) => {
-                          if (!workspaceId || !value) return;
-                          updateNotionConfigMutation.mutate({
-                            workspaceId,
-                            notionDefaultConfig: {
-                              ...notionConfig,
-                              syncFrequency: value as 'manual' | 'hourly' | 'daily',
-                            },
-                          });
-                        }}
-                        leftSection={<IconRefresh size={16} />}
-                        classNames={{
-                          input: 'bg-surface-primary border-border-primary text-text-primary',
-                          label: 'text-text-muted',
-                        }}
-                      />
-                    </Group>
-                  </div>
-                )}
-
-                {/* Connect another account */}
-                {canEdit && (
-                  <Button
-                    variant="light"
-                    size="sm"
-                    leftSection={<IconBrandNotion size={16} />}
-                    className="w-fit"
-                    onClick={() => {
-                      const params = new URLSearchParams();
-                      if (workspaceId) params.set('workspaceId', workspaceId);
-                      params.set('redirectUrl', window.location.href);
-                      window.location.href = `/api/auth/notion/authorize?${params.toString()}`;
-                    }}
-                  >
-                    Connect Another Notion Account
-                  </Button>
-                )}
-              </>
-            ) : (
-              <Group justify="space-between" align="center">
-                <Text size="sm" className="text-text-muted">
-                  No Notion accounts connected to this workspace.
-                </Text>
-                {canEdit && (
-                  <Button
-                    variant="light"
-                    size="sm"
-                    leftSection={<IconBrandNotion size={16} />}
-                    onClick={() => {
-                      const params = new URLSearchParams();
-                      if (workspaceId) params.set('workspaceId', workspaceId);
-                      params.set('redirectUrl', window.location.href);
-                      window.location.href = `/api/auth/notion/authorize?${params.toString()}`;
-                    }}
-                  >
-                    Connect Notion
-                  </Button>
-                )}
-              </Group>
-            )}
-          </Stack>
-        </Card>
-
-        {/* Integrations */}
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" align="center" mb="md">
-            <Title order={3} className="text-text-primary">
-              Integrations
-            </Title>
-            <Button
-              variant="light"
-              size="sm"
-              onClick={openFirefliesModal}
+        {section === 'integrations' && (
+          <>
+            <SettingsSection
+              icon={IconMail}
+              title="Email Account"
+              description="Configure which email address agents use when operating in this workspace."
             >
-              Add Fireflies
-            </Button>
-          </Group>
-          <FirefliesIntegrationsList />
-        </Card>
+              <Stack gap="sm">
+                {emailStatus?.isWorkspaceSpecific ? (
+                  <Group justify="space-between">
+                    <div>
+                      <div className="text-[13px] text-text-secondary">{emailStatus.email}</div>
+                      <div className="text-[11.5px] text-text-muted">Workspace-specific email</div>
+                    </div>
+                    <Group gap="xs">
+                      <Button variant="light" size="xs" onClick={openEmailModal}>
+                        Change
+                      </Button>
+                      <Button
+                        variant="subtle"
+                        size="xs"
+                        color="red"
+                        onClick={handleRemoveWorkspaceEmail}
+                        loading={removeEmailMutation.isPending}
+                      >
+                        Remove
+                      </Button>
+                    </Group>
+                  </Group>
+                ) : emailStatus ? (
+                  <Group justify="space-between">
+                    <div>
+                      <div className="text-[13px] text-text-secondary">
+                        Using default email: {emailStatus.email}
+                      </div>
+                      <div className="text-[11.5px] text-text-muted">
+                        From your account settings
+                      </div>
+                    </div>
+                    <Button variant="light" size="xs" onClick={openEmailModal}>
+                      Override for this workspace
+                    </Button>
+                  </Group>
+                ) : (
+                  <Group justify="space-between">
+                    <div className="text-[13px] text-text-muted">No email configured</div>
+                    <Button variant="light" size="xs" onClick={openEmailModal}>
+                      Add email
+                    </Button>
+                  </Group>
+                )}
+              </Stack>
+            </SettingsSection>
 
-        {/* Teams */}
-        <WorkspaceTeamsSection
-          workspaceId={workspaceId!}
-          canManage={canManageMembers}
-        />
-      </Stack>
+            {workspaceId && (
+              <SettingsSection
+                icon={IconBrandSlack}
+                title="Slack"
+                description="Link a Slack channel so Zoe can provide workspace-wide context including OKRs and project progress."
+              >
+                <SlackChannelSettings workspace={{ id: workspaceId, name: workspace.name }} />
+              </SettingsSection>
+            )}
 
-      {/* Invite Member Modal */}
+            {workspaceId && (
+              <SettingsSection
+                icon={IconMessageCircle}
+                title="Zulip"
+                description="Send workspace notifications to a Zulip stream and direct message users for task assignments and mentions."
+              >
+                <ZulipSettings
+                  workspace={{ id: workspaceId, name: workspace.name }}
+                  workspaceSlug={workspace.slug}
+                />
+              </SettingsSection>
+            )}
+
+            <SettingsSection
+              icon={IconBrandNotion}
+              title="Notion"
+              description="Configure default Notion settings for projects in this workspace. Individual projects can override."
+            >
+              <Stack gap="md">
+                {notionConnections && notionConnections.length > 0 ? (
+                  <>
+                    <div>
+                      <div className="mb-2 text-[12.5px] font-medium text-text-secondary">
+                        Connected Accounts
+                      </div>
+                      <Stack gap="xs">
+                        {notionConnections.map((connection) => (
+                          <Group
+                            key={connection.id}
+                            gap="sm"
+                            className="rounded-md border border-border-primary bg-surface-primary p-2"
+                          >
+                            <IconBrandNotion size={18} className="text-text-muted" />
+                            <div className="flex-1">
+                              <div className="text-[13px] text-text-primary">
+                                {(connection as { notionWorkspaceName?: string }).notionWorkspaceName ??
+                                  connection.name}
+                              </div>
+                            </div>
+                            <Badge
+                              size="xs"
+                              color={
+                                notionConfig?.defaultIntegrationId === connection.id
+                                  ? 'green'
+                                  : 'gray'
+                              }
+                              variant={
+                                notionConfig?.defaultIntegrationId === connection.id
+                                  ? 'filled'
+                                  : 'light'
+                              }
+                            >
+                              {notionConfig?.defaultIntegrationId === connection.id
+                                ? 'Default'
+                                : 'Connected'}
+                            </Badge>
+                          </Group>
+                        ))}
+                      </Stack>
+                    </div>
+
+                    {canEdit && (
+                      <div>
+                        <div className="mb-2 text-[12.5px] font-medium text-text-secondary">
+                          Default Sync Preferences
+                        </div>
+                        <Group gap="md" grow>
+                          <Select
+                            label="Default Account"
+                            placeholder="Select default account"
+                            size="xs"
+                            data={notionConnections.map((c) => ({
+                              value: c.id,
+                              label:
+                                (c as { notionWorkspaceName?: string }).notionWorkspaceName ??
+                                c.name,
+                            }))}
+                            value={notionConfig?.defaultIntegrationId ?? null}
+                            onChange={(value) => {
+                              if (!workspaceId) return;
+                              updateNotionConfigMutation.mutate({
+                                workspaceId,
+                                notionDefaultConfig: {
+                                  ...notionConfig,
+                                  defaultIntegrationId: value ?? undefined,
+                                },
+                              });
+                            }}
+                          />
+                          <Select
+                            label="Sync Direction"
+                            size="xs"
+                            data={[
+                              { value: 'pull', label: 'Pull from Notion' },
+                              { value: 'push', label: 'Push to Notion' },
+                              { value: 'bidirectional', label: 'Bidirectional' },
+                            ]}
+                            value={notionConfig?.syncDirection ?? 'pull'}
+                            onChange={(value) => {
+                              if (!workspaceId || !value) return;
+                              updateNotionConfigMutation.mutate({
+                                workspaceId,
+                                notionDefaultConfig: {
+                                  ...notionConfig,
+                                  syncDirection: value as 'pull' | 'push' | 'bidirectional',
+                                },
+                              });
+                            }}
+                            leftSection={<IconArrowsExchange size={14} />}
+                          />
+                          <Select
+                            label="Sync Frequency"
+                            size="xs"
+                            data={[
+                              { value: 'manual', label: 'Manual' },
+                              { value: 'hourly', label: 'Hourly' },
+                              { value: 'daily', label: 'Daily' },
+                            ]}
+                            value={notionConfig?.syncFrequency ?? 'manual'}
+                            onChange={(value) => {
+                              if (!workspaceId || !value) return;
+                              updateNotionConfigMutation.mutate({
+                                workspaceId,
+                                notionDefaultConfig: {
+                                  ...notionConfig,
+                                  syncFrequency: value as 'manual' | 'hourly' | 'daily',
+                                },
+                              });
+                            }}
+                            leftSection={<IconRefresh size={14} />}
+                          />
+                        </Group>
+                      </div>
+                    )}
+
+                    {canEdit && (
+                      <Button
+                        variant="light"
+                        size="xs"
+                        leftSection={<IconPlus size={14} />}
+                        className="w-fit"
+                        onClick={() => {
+                          const params = new URLSearchParams();
+                          if (workspaceId) params.set('workspaceId', workspaceId);
+                          params.set('redirectUrl', window.location.href);
+                          window.location.href = `/api/auth/notion/authorize?${params.toString()}`;
+                        }}
+                      >
+                        Connect another Notion account
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <Group justify="space-between" align="center">
+                    <div className="text-[13px] text-text-muted">
+                      No Notion accounts connected to this workspace.
+                    </div>
+                    {canEdit && (
+                      <Button
+                        variant="light"
+                        size="xs"
+                        leftSection={<IconBrandNotion size={14} />}
+                        onClick={() => {
+                          const params = new URLSearchParams();
+                          if (workspaceId) params.set('workspaceId', workspaceId);
+                          params.set('redirectUrl', window.location.href);
+                          window.location.href = `/api/auth/notion/authorize?${params.toString()}`;
+                        }}
+                      >
+                        Connect Notion
+                      </Button>
+                    )}
+                  </Group>
+                )}
+              </Stack>
+            </SettingsSection>
+
+            <SettingsSection
+              icon={IconPlug}
+              title="Fireflies"
+              description="Meeting transcription and insights. Connect one or more Fireflies accounts."
+              action={
+                <Button
+                  variant="light"
+                  size="xs"
+                  leftSection={<IconPlus size={14} />}
+                  onClick={openFirefliesModal}
+                >
+                  Add
+                </Button>
+              }
+            >
+              <FirefliesIntegrationsList />
+            </SettingsSection>
+          </>
+        )}
+
+        {section === 'plugins' && (
+          <SettingsSection
+            icon={IconPlug}
+            title="Plugins"
+            description="Enable or disable workspace plugins."
+            flush
+          >
+            <SettingsRowLink
+              href={`/w/${workspace.slug}/settings/plugins`}
+              icon={IconPlug}
+              title="Manage plugins"
+              description="Toggle OKRs, CRM, notifications, and other plugins for this workspace."
+            />
+          </SettingsSection>
+        )}
+
+        {section === 'danger' && userRole === 'owner' && (
+          <SettingsDangerZone icon={IconShieldExclamation}>
+            <SettingsDangerRow
+              title="Delete workspace"
+              description="Permanently remove this workspace and all projects, actions, goals, outcomes, contacts, and deals. This action cannot be undone."
+              action={
+                <Button color="red" variant="outline" onClick={openDeleteModal}>
+                  Delete workspace
+                </Button>
+              }
+            />
+          </SettingsDangerZone>
+        )}
+      </SettingsLayout>
+
       <InviteMemberModal
         workspaceId={workspaceId!}
         opened={inviteModalOpened}
@@ -1073,14 +1036,12 @@ export default function WorkspaceSettingsPage() {
         }}
       />
 
-      {/* Fireflies Wizard Modal */}
       <FirefliesWizardModal
         opened={firefliesModalOpened}
         onClose={closeFirefliesModal}
         teamId={workspaceId ?? undefined}
       />
 
-      {/* Email Configuration Modal */}
       <Modal
         opened={emailModalOpened}
         onClose={closeEmailModal}
@@ -1088,11 +1049,7 @@ export default function WorkspaceSettingsPage() {
         size="md"
       >
         <Stack gap="md">
-          <Alert
-            icon={<IconPlugConnected size={16} />}
-            title="Email Setup"
-            color="blue"
-          >
+          <Alert icon={<IconPlugConnected size={16} />} title="Email Setup" color="blue">
             Connect an email for agents to use in this workspace. You&apos;ll need an App Password — not your regular password.
             For Gmail: Google Account &rarr; Security &rarr; 2-Step Verification &rarr; App Passwords.
           </Alert>
@@ -1157,24 +1114,6 @@ export default function WorkspaceSettingsPage() {
         </Stack>
       </Modal>
 
-      {/* Danger Zone */}
-      {userRole === 'owner' && (
-        <Card withBorder mt="xl" className="border-red-500/30">
-          <Stack>
-            <Title order={4} className="text-red-500">Danger Zone</Title>
-            <Text size="sm" className="text-text-secondary">
-              Permanently delete this workspace and all of its data, including projects, actions, goals, outcomes, contacts, and deals. This action cannot be undone.
-            </Text>
-            <Group justify="flex-end">
-              <Button color="red" variant="outline" onClick={openDeleteModal}>
-                Delete Workspace
-              </Button>
-            </Group>
-          </Stack>
-        </Card>
-      )}
-
-      {/* Delete Confirmation Modal */}
       <Modal
         opened={deleteModalOpened}
         onClose={() => {
@@ -1215,6 +1154,54 @@ export default function WorkspaceSettingsPage() {
           </Group>
         </Stack>
       </Modal>
-    </Container>
+    </SettingsShell>
+  );
+}
+
+function FeatureRow({
+  icon: Icon,
+  tag,
+  title,
+  description,
+  enabled,
+  disabled,
+  onToggle,
+}: {
+  icon: TablerIcon;
+  tag: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+  disabled?: boolean;
+  onToggle: (checked: boolean) => void;
+}) {
+  return (
+    <div className="grid grid-cols-[1fr_120px_70px] items-center gap-3.5 border-t border-border-primary px-[22px] py-3 first:border-t-0">
+      <div className="flex items-center gap-2.5">
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-surface-tertiary text-text-secondary flex-shrink-0">
+          <Icon size={14} />
+        </span>
+        <div>
+          <div className="flex items-center gap-2 text-[13px] font-medium text-text-primary">
+            {title}
+            <span className="rounded-sm border border-border-primary px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-[0.04em] text-text-muted">
+              {tag}
+            </span>
+          </div>
+          <div className="mt-0.5 max-w-[520px] text-[11.5px] leading-[1.45] text-text-muted">
+            {description}
+          </div>
+        </div>
+      </div>
+      <div className="text-[11px] tabular-nums text-text-muted">—</div>
+      <div className="flex justify-end">
+        <Switch
+          checked={enabled}
+          onChange={(e) => onToggle(e.currentTarget.checked)}
+          disabled={disabled}
+          size="sm"
+        />
+      </div>
+    </div>
   );
 }
