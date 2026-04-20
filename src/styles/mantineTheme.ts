@@ -1,8 +1,12 @@
 /* eslint-disable no-restricted-syntax */
-import { createTheme, type MantineColorsTuple } from '@mantine/core';
+import {
+  createTheme,
+  type MantineColorsTuple,
+  type MantineThemeOverride,
+} from '@mantine/core';
 
-// Create Mantine color tuples for brand colors
-const brandColors: MantineColorsTuple = [
+// Default Mantine color tuple for the built-in brand (Exponential blue).
+const DEFAULT_BRAND_COLORS: MantineColorsTuple = [
   '#EEF3FF', // 0 - lightest
   '#D4E2FF',
   '#A8C5FF',
@@ -14,6 +18,15 @@ const brandColors: MantineColorsTuple = [
   '#10308C',
   '#0A2070', // 9 - darkest
 ];
+
+export interface BrandConfig {
+  /** 10-stop Mantine color tuple used as the theme's primary color. */
+  brandColors: MantineColorsTuple;
+}
+
+const DEFAULT_BRAND: BrandConfig = {
+  brandColors: DEFAULT_BRAND_COLORS,
+};
 
 // Component styles that apply to both light and dark themes
 // NOTE: Mantine v7's styles prop only supports flat CSS properties (inline styles).
@@ -421,18 +434,31 @@ const componentStyles = {
   },
 };
 
-// Create theme
-export const mantineTheme = createTheme({
-  colors: {
-    brand: brandColors,
-  },
-  primaryColor: 'brand',
-  primaryShade: 5,
-  components: componentStyles,
-  
-  // Other theme settings
-  respectReducedMotion: true,
-  cursorType: 'pointer',
-  defaultRadius: 'sm',
-  focusRing: 'auto',
-});
+/**
+ * Build a Mantine theme, optionally overriding the brand color tuple.
+ * Call with no arguments to get the default Exponential theme.
+ * Pass `{ brandColors: [...] }` to re-skin for a different brand (white-label).
+ */
+export function createAppTheme(
+  overrides: Partial<BrandConfig> = {},
+): MantineThemeOverride {
+  const brandColors = overrides.brandColors ?? DEFAULT_BRAND.brandColors;
+
+  return createTheme({
+    colors: {
+      brand: brandColors,
+    },
+    primaryColor: 'brand',
+    primaryShade: 5,
+    components: componentStyles,
+
+    // Other theme settings
+    respectReducedMotion: true,
+    cursorType: 'pointer',
+    defaultRadius: 'sm',
+    focusRing: 'auto',
+  });
+}
+
+// Default theme instance — preserves the existing import surface.
+export const mantineTheme = createAppTheme();
