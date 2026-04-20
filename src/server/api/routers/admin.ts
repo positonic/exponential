@@ -254,6 +254,121 @@ export const adminRouter = createTRPCRouter({
     }),
 
   /**
+   * Top conversations by aggregate cost (admin only).
+   *
+   * Returns the N most expensive conversations in the window, grouping each
+   * conversation's requests together. Use this to spot pathological chats
+   * and drill in via `getConversationHistory`.
+   */
+  getTopExpensiveConversations: adminProcedure
+    .input(
+      z.object({
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+        limit: z.number().min(1).max(50).default(10),
+      }).optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const where: Record<string, unknown> = { tokenUsage: { not: null } };
+      if (input?.startDate ?? input?.endDate) {
+        where.createdAt = {
+          ...(input?.startDate ? { gte: input.startDate } : {}),
+          ...(input?.endDate ? { lte: input.endDate } : {}),
+        };
+      }
+
+      const rows = await ctx.db.aiInteractionHistory.findMany({
+        where,
+        select: {
+          conversationId: true,
+          workspaceId: true,
+          systemUserId: true,
+          agentId: true,
+          tokenUsage: true,
+          createdAt: true,
+          user: { select: { name: true, email: true } },
+        },
+      });
+
+      const buckets = new Map<
+        string,
+        {
+          conversationId: string;
+          workspaceId: string | null;
+          userId: string | null;
+          userName: string | null;
+          userEmail: string | null;
+          agentId: string | null;
+          requests: number;
+          prompt: number;
+          completion: number;
+          cacheRead: number;
+          cacheCreation: number;
+          cost: number;
+          firstSeen: Date;
+          lastSeen: Date;
+        }
+      >();
+
+      for (const row of rows) {
+        const convId = row.conversationId ?? 'unknown';
+        if (!buckets.has(convId)) {
+          buckets.set(convId, {
+            conversationId: convId,
+            workspaceId: row.workspaceId ?? null,
+            userId: row.systemUserId ?? null,
+            userName: row.user?.name ?? null,
+            userEmail: row.user?.email ?? null,
+            agentId: row.agentId ?? null,
+            requests: 0,
+            prompt: 0,
+            completion: 0,
+            cacheRead: 0,
+            cacheCreation: 0,
+            cost: 0,
+            firstSeen: row.createdAt,
+            lastSeen: row.createdAt,
+          });
+        }
+        const bucket = buckets.get(convId)!;
+        bucket.requests += 1;
+        if (row.createdAt < bucket.firstSeen) bucket.firstSeen = row.createdAt;
+        if (row.createdAt > bucket.lastSeen) bucket.lastSeen = row.createdAt;
+
+        // tokenUsage is written via JSON.stringify, so Prisma returns it as a string.
+        interface UsageShape {
+          prompt?: number;
+          completion?: number;
+          cost?: number;
+          cacheReadInput?: number;
+          cacheCreationInput?: number;
+        }
+        const raw: unknown = row.tokenUsage;
+        let usage: UsageShape | null = null;
+        if (typeof raw === 'string') {
+          try {
+            usage = JSON.parse(raw) as UsageShape;
+          } catch {
+            usage = null;
+          }
+        } else if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+          usage = raw as UsageShape;
+        }
+        if (usage) {
+          bucket.prompt += usage.prompt ?? 0;
+          bucket.completion += usage.completion ?? 0;
+          bucket.cacheRead += usage.cacheReadInput ?? 0;
+          bucket.cacheCreation += usage.cacheCreationInput ?? 0;
+          bucket.cost += usage.cost ?? 0;
+        }
+      }
+
+      return Array.from(buckets.values())
+        .sort((a, b) => b.cost - a.cost)
+        .slice(0, input?.limit ?? 10);
+    }),
+
+  /**
    * Get platform breakdown for AI interactions
    */
   getPlatformStats: adminProcedure.query(async ({ ctx }) => {

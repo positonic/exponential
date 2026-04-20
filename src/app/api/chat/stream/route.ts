@@ -14,6 +14,7 @@ import { db } from "~/server/db";
 import { SECURITY_POLICY } from "~/lib/security-policy";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
+import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
 import { PRODUCT_NAME } from "~/lib/brand";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
@@ -329,7 +330,15 @@ export async function POST(req: Request) {
     const textStream = new ReadableStream({
       async start(controller) {
         let fullText = "";
-        let finishUsage: { inputTokens: number; outputTokens: number } | undefined;
+        let finishUsage:
+          | {
+              inputTokens: number;
+              outputTokens: number;
+              cacheReadInputTokens?: number;
+              cacheCreationInputTokens?: number;
+            }
+          | undefined;
+        let responseModelId: string | undefined;
 
         const emit = (snippet: string) => {
           const { text: safeText, redacted } = sanitizeAIOutput(snippet);
@@ -377,9 +386,28 @@ export async function POST(req: Request) {
                   new TextEncoder().encode(safeText),
                 );
               } else if (chunk.type === "finish") {
+                const usage = chunk.payload.output.usage as {
+                  inputTokens?: number;
+                  outputTokens?: number;
+                  cachedInputTokens?: number;
+                  raw?: {
+                    cache_read_input_tokens?: number;
+                    cache_creation_input_tokens?: number;
+                  };
+                };
+                const providerMeta = (chunk.payload.metadata as { providerMetadata?: Record<string, Record<string, unknown>> } | undefined)
+                  ?.providerMetadata?.anthropic;
+                const cacheCreationFromMeta =
+                  typeof providerMeta?.cacheCreationInputTokens === 'number'
+                    ? providerMeta.cacheCreationInputTokens
+                    : undefined;
                 finishUsage = {
-                  inputTokens: chunk.payload.output.usage.inputTokens ?? 0,
-                  outputTokens: chunk.payload.output.usage.outputTokens ?? 0,
+                  inputTokens: usage.inputTokens ?? 0,
+                  outputTokens: usage.outputTokens ?? 0,
+                  cacheReadInputTokens:
+                    usage.raw?.cache_read_input_tokens ?? usage.cachedInputTokens,
+                  cacheCreationInputTokens:
+                    usage.raw?.cache_creation_input_tokens ?? cacheCreationFromMeta,
                 };
                 const fr = readString(chunk.payload, 'finishReason');
                 if (fr) lastStepFinishReason = fr;
@@ -410,6 +438,9 @@ export async function POST(req: Request) {
                     emit(`\n_⚠️ step ended: ${fr}_\n`);
                   }
                 }
+                const response = readUnknown(chunk.payload, 'response');
+                const modelId = readString(response, 'modelId');
+                if (modelId) responseModelId = modelId;
               } else {
                 nonTextChunkTypes.add(chunk.type);
                 // Log non-text chunks for debugging (first 5 only to avoid noise)
@@ -421,6 +452,14 @@ export async function POST(req: Request) {
           });
           const durationMs = Date.now() - startTime;
           const emptyResponse = fullText.trim() === '';
+          const cost = finishUsage
+            ? computeRequestCost(responseModelId, {
+                inputTokens: finishUsage.inputTokens,
+                outputTokens: finishUsage.outputTokens,
+                cacheReadInputTokens: finishUsage.cacheReadInputTokens,
+                cacheCreationInputTokens: finishUsage.cacheCreationInputTokens,
+              })
+            : undefined;
           console.log(`📊 [chat/stream] Stream complete`, {
             agentId: resolvedAgentId,
             threadId,
@@ -433,7 +472,26 @@ export async function POST(req: Request) {
             hadToolError,
             hadAgentError,
             emptyResponse,
+            modelId: responseModelId,
+            inputTokens: finishUsage?.inputTokens,
+            outputTokens: finishUsage?.outputTokens,
+            cacheReadInputTokens: finishUsage?.cacheReadInputTokens ?? 0,
+            cacheCreationInputTokens: finishUsage?.cacheCreationInputTokens ?? 0,
+            costUsd: cost,
           });
+          if (cost !== undefined && cost >= PER_REQUEST_COST_ALERT_USD) {
+            console.warn(`💸 [chat/stream] Expensive request: $${cost.toFixed(4)} (threshold $${PER_REQUEST_COST_ALERT_USD})`, {
+              agentId: resolvedAgentId,
+              userId: session.user.id,
+              workspaceId: workspaceId ?? null,
+              threadId,
+              modelId: responseModelId,
+              inputTokens: finishUsage?.inputTokens,
+              outputTokens: finishUsage?.outputTokens,
+              cacheReadInputTokens: finishUsage?.cacheReadInputTokens ?? 0,
+              cacheCreationInputTokens: finishUsage?.cacheCreationInputTokens ?? 0,
+            });
+          }
 
           // Fire-and-forget: save interaction metadata (must not block the stream)
           const anthropicRequestId =
@@ -455,6 +513,10 @@ export async function POST(req: Request) {
                     prompt: finishUsage.inputTokens,
                     completion: finishUsage.outputTokens,
                     total: finishUsage.inputTokens + finishUsage.outputTokens,
+                    cost,
+                    cacheReadInput: finishUsage.cacheReadInputTokens,
+                    cacheCreationInput: finishUsage.cacheCreationInputTokens,
+                    modelId: responseModelId,
                   }
                 : undefined,
               anthropicRequestId: anthropicRequestId ?? undefined,
@@ -470,7 +532,7 @@ export async function POST(req: Request) {
                 : undefined,
               projectId: projectId ?? undefined,
               workspaceId: workspaceId ?? undefined,
-              model: "mastra-agents",
+              model: responseModelId ?? "mastra-agents",
               messageType: "question",
             })
             .catch(err => console.error("Failed to save AI history:", err));

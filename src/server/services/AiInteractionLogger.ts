@@ -34,6 +34,9 @@ export interface AiInteractionData {
     completion?: number;
     total?: number;
     cost?: number; // Cost in USD
+    cacheReadInput?: number; // Anthropic cache_read_input_tokens / OpenAI cached_tokens
+    cacheCreationInput?: number; // Anthropic cache_creation_input_tokens
+    modelId?: string; // Provider-reported model id (e.g. claude-sonnet-4-6)
   };
   hadError?: boolean;
   errorMessage?: string;
