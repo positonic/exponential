@@ -208,7 +208,7 @@ export const keyResultRouter = createTRPCRouter({
             include: {
               checkIns: {
                 orderBy: { createdAt: "desc" },
-                take: 1,
+                take: 20,
               },
               user: {
                 select: { id: true, name: true, email: true, image: true },
@@ -731,7 +731,10 @@ export const keyResultRouter = createTRPCRouter({
       }
 
       const periods = ["Annual", "Q1", "Q2", "Q3", "Q4"];
-      const counts: Record<string, { objectives: number; keyResults: number }> = {};
+      const counts: Record<
+        string,
+        { objectives: number; keyResults: number; averageProgress: number }
+      > = {};
 
       await Promise.all(
         periods.map(async (periodType) => {
@@ -743,20 +746,39 @@ export const keyResultRouter = createTRPCRouter({
             period,
           };
 
-          const [keyResultCount, objectiveIds] = await Promise.all([
+          const [keyResultCount, objectiveIds, krsForProgress] = await Promise.all([
             ctx.db.keyResult.count({ where }),
             ctx.db.keyResult.findMany({
               where,
               select: { goalId: true },
               distinct: ["goalId"],
             }),
+            ctx.db.keyResult.findMany({
+              where,
+              select: { startValue: true, currentValue: true, targetValue: true },
+            }),
           ]);
+
+          const averageProgress =
+            krsForProgress.length > 0
+              ? Math.round(
+                  krsForProgress.reduce((acc, kr) => {
+                    const range = kr.targetValue - kr.startValue;
+                    const progress =
+                      range > 0
+                        ? ((kr.currentValue - kr.startValue) / range) * 100
+                        : 0;
+                    return acc + Math.min(100, Math.max(0, progress));
+                  }, 0) / krsForProgress.length,
+                )
+              : 0;
 
           counts[periodType] = {
             objectives: objectiveIds.length,
             keyResults: keyResultCount,
+            averageProgress,
           };
-        })
+        }),
       );
 
       return counts;

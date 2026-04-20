@@ -3,10 +3,8 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Container,
-  Title,
   Text,
   Stack,
-  Card,
   Group,
   Button,
   Select,
@@ -16,27 +14,39 @@ import {
   NumberInput,
   Textarea,
   SegmentedControl,
-  Collapse,
+  ActionIcon,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconTargetArrow, IconPlus, IconChevronDown, IconChevronUp } from "@tabler/icons-react";
+import {
+  IconTargetArrow,
+  IconPlus,
+  IconFilter,
+  IconHierarchy,
+  IconSparkles,
+  IconX,
+} from "@tabler/icons-react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { PeriodTabs } from "./PeriodTabs";
-import {
-  extractYearsFromPeriods,
-} from "../utils/periodUtils";
+import { extractYearsFromPeriods } from "../utils/periodUtils";
 import { useOkrSearchParams } from "../hooks/useOkrSearchParams";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
-import { OkrOverview } from "./OkrOverview";
-import { ObjectiveRow } from "./ObjectiveRow";
 import { EditKeyResultModal } from "./EditKeyResultModal";
 import { OkrDetailDrawer } from "./OkrDetailDrawer";
 import { KeyResultGuidanceIcon } from "./KeyResultGuidance";
+import { OkrHeroCards } from "./OkrHeroCards";
+import {
+  ObjectiveCardV2,
+  type ObjectiveCardKeyResult,
+  type ObjectiveCardObjective,
+} from "./ObjectiveCardV2";
+import {
+  periodCountdownLabel,
+  statusToConfidence,
+} from "../utils/okrDashboardUtils";
 
-// Unit options
 const unitOptions = [
   { value: "percent", label: "Percentage (%)" },
   { value: "count", label: "Count (#)" },
@@ -47,35 +57,18 @@ const unitOptions = [
 
 export function OkrDashboard() {
   const { workspaceId, workspaceSlug } = useWorkspace();
-  const { year: selectedYear, period: selectedPeriod, setYear, setPeriod } = useOkrSearchParams();
-  const [statsExpanded, { toggle: toggleStats }] = useDisclosure(false);
-  const [
-    createModalOpened,
-    { open: openCreateModal, close: closeCreateModal },
-  ] = useDisclosure(false);
-  const [
-    editKrModalOpened,
-    { open: openEditKrModal, close: closeEditKrModal },
-  ] = useDisclosure(false);
-  const [editingKeyResult, setEditingKeyResult] = useState<{
-    id: string;
-    title: string;
-    description?: string | null;
-    currentValue: number;
-    targetValue: number;
-    startValue: number;
-    unit?: string;
-    unitLabel?: string | null;
-    status: string;
-    confidence?: number | null;
-    period?: string;
-  } | null>(null);
+  const { year: selectedYear, period: selectedPeriod, setYear, setPeriod } =
+    useOkrSearchParams();
 
-  // Drawer state for viewing OKR details
-  const [
-    drawerOpened,
-    { open: openDrawer, close: closeDrawer },
-  ] = useDisclosure(false);
+  const [createModalOpened, { open: openCreateModal, close: closeCreateModal }] =
+    useDisclosure(false);
+  const [editKrModalOpened, { open: openEditKrModal, close: closeEditKrModal }] =
+    useDisclosure(false);
+  const [editingKeyResult, setEditingKeyResult] =
+    useState<ObjectiveCardKeyResult | null>(null);
+
+  const [drawerOpened, { open: openDrawer, close: closeDrawer }] =
+    useDisclosure(false);
   const [drawerItem, setDrawerItem] = useState<{
     type: "objective" | "keyResult";
     id: number | string;
@@ -86,15 +79,11 @@ export function OkrDashboard() {
     lifeDomainName?: string | null;
   } | null>(null);
 
-  // Track expanded objectives (all expanded by default)
   const [expandedObjectives, setExpandedObjectives] = useState<Set<number>>(
-    new Set()
+    new Set(),
   );
+  const [nudgeDismissed, setNudgeDismissed] = useState(false);
 
-  // Track expanded key results (for showing linked projects via Accordion)
-  const [expandedKeyResults, setExpandedKeyResults] = useState<string[]>([]);
-
-  // Form state for creating key results
   const [formData, setFormData] = useState({
     goalId: "",
     title: "",
@@ -108,81 +97,90 @@ export function OkrDashboard() {
 
   const utils = api.useUtils();
 
-  // Derive the effective period string
-  const effectivePeriod = useMemo(() => {
-    return `${selectedPeriod}-${selectedYear}`;
-  }, [selectedYear, selectedPeriod]);
+  const effectivePeriod = useMemo(
+    () => `${selectedPeriod}-${selectedYear}`,
+    [selectedYear, selectedPeriod],
+  );
 
-  // Sync selected period to form data
   useEffect(() => {
     setFormData((prev) => ({ ...prev, period: effectivePeriod }));
   }, [effectivePeriod]);
 
-  // Fetch periods (used to extract available years)
   const { data: periods } = api.okr.getPeriods.useQuery();
 
-  // Extract available years from periods (for year selector)
   const availableYears = useMemo(() => {
     if (!periods) return [];
     return extractYearsFromPeriods(periods);
   }, [periods]);
 
-  // Get period counts for badge display
-  const { data: periodCounts, isLoading: countsLoading } = api.okr.getCountsByYear.useQuery({
-    workspaceId: workspaceId ?? undefined,
-    year: selectedYear,
-  }, {
-    enabled: !!workspaceId,
-    placeholderData: keepPreviousData,
-  });
+  const { data: periodCounts, isLoading: countsLoading } =
+    api.okr.getCountsByYear.useQuery(
+      { workspaceId: workspaceId ?? undefined, year: selectedYear },
+      { enabled: !!workspaceId, placeholderData: keepPreviousData },
+    );
 
-  // Fetch available goals for selection
-  const { data: availableGoals } = api.okr.getAvailableGoals.useQuery({
-    workspaceId: workspaceId ?? undefined,
-  }, {
-    enabled: !!workspaceId,
-  });
+  const { data: availableGoals } = api.okr.getAvailableGoals.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspaceId },
+  );
 
-  // Fetch OKRs grouped by objective
-  const { data: objectives, isLoading } = api.okr.getByObjective.useQuery({
-    workspaceId: workspaceId ?? undefined,
-    period: effectivePeriod,
-    includePairedPeriod: false,
-  }, {
-    enabled: !!workspaceId,
-    placeholderData: keepPreviousData,
-  });
+  const { data: objectives, isLoading } = api.okr.getByObjective.useQuery(
+    {
+      workspaceId: workspaceId ?? undefined,
+      period: effectivePeriod,
+      includePairedPeriod: false,
+    },
+    { enabled: !!workspaceId, placeholderData: keepPreviousData },
+  );
 
-  // Fetch stats
-  const { data: stats, isLoading: statsLoading } = api.okr.getStats.useQuery({
-    workspaceId: workspaceId ?? undefined,
-    period: effectivePeriod,
-  }, {
-    enabled: !!workspaceId,
-    placeholderData: keepPreviousData,
-  });
+  // Only show objectives that belong to this period. Newly created KRs or
+  // legacy period-less goals with matching period-specific KRs still show up.
+  const visibleObjectives: ObjectiveCardObjective[] = useMemo(() => {
+    if (!objectives) return [];
+    return objectives
+      .filter((o) => o.keyResults.length > 0 || o.period === effectivePeriod)
+      .map((o) => ({
+        ...o,
+        lifeDomain: o.lifeDomain
+          ? { id: o.lifeDomain.id, name: o.lifeDomain.title }
+          : null,
+        keyResults: o.keyResults.map(
+          (kr): ObjectiveCardKeyResult => ({
+            id: kr.id,
+            title: kr.title,
+            description: kr.description ?? null,
+            currentValue: kr.currentValue,
+            targetValue: kr.targetValue,
+            startValue: kr.startValue,
+            unit: kr.unit,
+            unitLabel: kr.unitLabel,
+            status: kr.status,
+            confidence: kr.confidence,
+            period: kr.period,
+            checkIns: kr.checkIns,
+            user: kr.user,
+            driUser: kr.driUser,
+            projects: kr.projects,
+          }),
+        ),
+      }));
+  }, [objectives, effectivePeriod]);
 
-  // Initialize expanded state when objectives load (all expanded by default)
   useEffect(() => {
-    if (objectives && expandedObjectives.size === 0) {
-      setExpandedObjectives(new Set(objectives.map((o) => o.id)));
+    if (visibleObjectives.length > 0 && expandedObjectives.size === 0) {
+      setExpandedObjectives(new Set([visibleObjectives[0]!.id]));
     }
-  }, [objectives, expandedObjectives.size]);
+  }, [visibleObjectives, expandedObjectives.size]);
 
-  // Toggle expand/collapse for an objective
   const toggleExpand = (objectiveId: number) => {
     setExpandedObjectives((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(objectiveId)) {
-        newSet.delete(objectiveId);
-      } else {
-        newSet.add(objectiveId);
-      }
-      return newSet;
+      const next = new Set(prev);
+      if (next.has(objectiveId)) next.delete(objectiveId);
+      else next.add(objectiveId);
+      return next;
     });
   };
 
-  // Create key result mutation
   const createKeyResult = api.okr.create.useMutation({
     onSuccess: () => {
       void utils.okr.getByObjective.invalidate();
@@ -202,7 +200,6 @@ export function OkrDashboard() {
     },
   });
 
-  // Delete objective (goal) mutation
   const deleteObjective = api.goal.deleteGoal.useMutation({
     onSuccess: () => {
       void utils.okr.getByObjective.invalidate();
@@ -216,7 +213,6 @@ export function OkrDashboard() {
 
   const handleCreateKeyResult = () => {
     if (!formData.goalId || !formData.title || !formData.period) return;
-
     createKeyResult.mutate({
       goalId: parseInt(formData.goalId),
       title: formData.title,
@@ -238,99 +234,85 @@ export function OkrDashboard() {
   const handleDeleteObjective = (id: number) => {
     if (
       confirm(
-        "Are you sure you want to delete this objective? This will also delete all associated key results."
+        "Are you sure you want to delete this objective? This will also delete all associated key results.",
       )
     ) {
       deleteObjective.mutate({ id });
     }
   };
 
-  // Handler to open create modal with objective pre-selected
   const handleAddKeyResultToObjective = (objectiveId: number) => {
     setFormData((prev) => ({ ...prev, goalId: objectiveId.toString() }));
     openCreateModal();
   };
 
-  // Handler to open edit modal for a key result
-  const handleEditKeyResult = (keyResult: {
-    id: string;
-    title: string;
-    description?: string | null;
-    currentValue: number;
-    targetValue: number;
-    startValue: number;
-    unit?: string;
-    unitLabel?: string | null;
-    status: string;
-    confidence?: number | null;
-    period?: string;
-  }) => {
-    setEditingKeyResult(keyResult);
+  const handleEditKeyResult = (kr: ObjectiveCardKeyResult) => {
+    setEditingKeyResult(kr);
     openEditKrModal();
   };
 
-  // Handler to open drawer for viewing objective details
-  const handleViewObjective = (objective: {
-    id: number;
-    title: string;
-    description?: string | null;
-    progress: number;
-    lifeDomain?: { id: number; name: string } | null;
-  }) => {
+  const handleViewObjective = (obj: ObjectiveCardObjective) => {
+    const statusFromProgress =
+      obj.progress >= 100
+        ? "achieved"
+        : obj.progress >= 70
+          ? "on-track"
+          : obj.progress >= 40
+            ? "at-risk"
+            : "off-track";
     setDrawerItem({
       type: "objective",
-      id: objective.id,
-      title: objective.title,
-      description: objective.description,
-      progress: objective.progress,
-      status: objective.progress >= 100 ? "achieved" : objective.progress >= 70 ? "on-track" : objective.progress >= 40 ? "at-risk" : "off-track",
-      lifeDomainName: objective.lifeDomain?.name ?? null,
+      id: obj.id,
+      title: obj.title,
+      description: obj.description,
+      progress: obj.progress,
+      status: statusFromProgress,
+      lifeDomainName: obj.lifeDomain?.name ?? null,
     });
     openDrawer();
   };
 
-  // Handler to open drawer for viewing key result details
-  const handleViewKeyResult = (keyResult: {
-    id: string;
-    title: string;
-    description?: string | null;
-    currentValue: number;
-    targetValue: number;
-    startValue: number;
-    status: string;
-  }) => {
-    const range = keyResult.targetValue - keyResult.startValue;
-    const progress = range > 0 ? ((keyResult.currentValue - keyResult.startValue) / range) * 100 : 0;
+  const handleViewKeyResult = (kr: ObjectiveCardKeyResult) => {
+    const range = kr.targetValue - kr.startValue;
+    const progress = range > 0 ? ((kr.currentValue - kr.startValue) / range) * 100 : 0;
     setDrawerItem({
       type: "keyResult",
-      id: keyResult.id,
-      title: keyResult.title,
-      description: keyResult.description,
+      id: kr.id,
+      title: kr.title,
+      description: kr.description ?? null,
       progress: Math.min(100, Math.max(0, progress)),
-      status: keyResult.status,
+      status: kr.status,
       lifeDomainName: null,
     });
     openDrawer();
   };
 
-  // Transform stats for OkrOverview component
-  const overviewStats = useMemo(() => {
-    if (!stats) return null;
-    return {
-      totalKeyResults: stats.totalKeyResults,
-      completedKeyResults: stats.completedKeyResults,
-      averageProgress: stats.averageProgress,
-      averageConfidence: stats.averageConfidence,
-      periodEndDate: stats.periodEndDate,
-    };
-  }, [stats]);
+  // Summary for the header subtitle
+  const summary = useMemo(() => {
+    const allKrs = visibleObjectives.flatMap((o) => o.keyResults);
+    const atRisk = allKrs.filter((kr) => {
+      const c = statusToConfidence(kr.status);
+      return c === "warn" || c === "bad";
+    }).length;
+    const avg =
+      visibleObjectives.length > 0
+        ? Math.round(
+            visibleObjectives.reduce((a, o) => a + o.progress, 0) /
+              visibleObjectives.length,
+          )
+        : 0;
+    return { atRisk, avg, total: allKrs.length };
+  }, [visibleObjectives]);
+
+  // Nudge: only show if at-risk KRs exist.
+  const showNudge = !nudgeDismissed && summary.atRisk > 0;
 
   if (isLoading) {
     return (
-      <Container size="lg" py="xl">
+      <Container size="xl" py="xl">
         <Stack gap="lg">
-          <Skeleton height={40} width={300} />
-          <Skeleton height={100} />
+          <Skeleton height={60} width={380} />
+          <Skeleton height={48} />
           <Skeleton height={200} />
           <Skeleton height={200} />
         </Stack>
@@ -339,54 +321,94 @@ export function OkrDashboard() {
   }
 
   return (
-    <Container size="lg" py="xl">
+    <Container size="xl" py="xl">
       <Stack gap="lg">
         {/* Header */}
-        <Group justify="space-between" align="start">
-          <div>
-            <Title
-              order={2}
-              className="text-text-primary flex items-center gap-2"
-            >
-              <IconTargetArrow size={22} />
-              OKRs
-            </Title>
-            <Text className="text-text-muted">
-              Track your Objectives and Key Results
-            </Text>
-          </div>
-          <Group>
-            {availableYears.length > 1 && (
-              <SegmentedControl
-                value={selectedYear}
-                onChange={setYear}
-                data={availableYears.map((y) => ({ label: y, value: y }))}
-                size="sm"
-                color="brand"
-              />
-            )}
-            <CreateGoalModal
-              onSuccess={() => {
-                void utils.okr.getAvailableGoals.invalidate();
-                void utils.okr.getByObjective.invalidate();
-                void utils.okr.getStats.invalidate();
-                void utils.okr.getCountsByYear.invalidate();
-              }}
-            >
-              <Button variant="outline" leftSection={<IconPlus size={16} />}>
-                Create Objective
-              </Button>
-            </CreateGoalModal>
-            <Button
-              leftSection={<IconPlus size={16} />}
-              onClick={openCreateModal}
-            >
-              Add Key Result
-            </Button>
-          </Group>
-        </Group>
+        <div className="border-b border-border-primary pb-4">
+          <Group justify="space-between" align="end" wrap="wrap" gap="md">
+            <div className="min-w-[260px] flex-1">
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{ background: "var(--accent-okr)" }}
+                />
+                Company OKRs · {selectedPeriod} {selectedYear}
+              </div>
+              <h1 className="m-0 flex items-center gap-3 text-2xl font-semibold tracking-tight text-text-primary">
+                <IconTargetArrow
+                  size={22}
+                  style={{ color: "var(--accent-okr)" }}
+                />
+                What we&apos;re betting on this quarter
+              </h1>
+              <div className="mt-2 text-sm text-text-secondary">
+                The team is{" "}
+                <strong className="font-semibold text-text-primary">
+                  {summary.avg}% through
+                </strong>{" "}
+                the quarter&apos;s KRs
+                {summary.atRisk > 0 ? (
+                  <>
+                    {" with "}
+                    <span
+                      className="font-medium"
+                      style={{ color: "var(--color-brand-error)" }}
+                    >
+                      {summary.atRisk} at risk
+                    </span>
+                    .
+                  </>
+                ) : (
+                  "."
+                )}
+                {(() => {
+                  const label = periodCountdownLabel(effectivePeriod);
+                  return label ? (
+                    <span className="text-text-muted"> · {label}</span>
+                  ) : null;
+                })()}
+              </div>
+            </div>
 
-        {/* Period Navigation Tabs */}
+            <Group gap="sm">
+              {availableYears.length > 1 && (
+                <SegmentedControl
+                  value={selectedYear}
+                  onChange={setYear}
+                  data={availableYears.map((y) => ({ label: y, value: y }))}
+                  size="sm"
+                  color="brand"
+                />
+              )}
+              <Button
+                variant="default"
+                leftSection={<IconHierarchy size={14} />}
+                disabled
+              >
+                Grouping
+              </Button>
+              <Button
+                variant="default"
+                leftSection={<IconFilter size={14} />}
+                disabled
+              >
+                Filter
+              </Button>
+              <CreateGoalModal
+                onSuccess={() => {
+                  void utils.okr.getAvailableGoals.invalidate();
+                  void utils.okr.getByObjective.invalidate();
+                  void utils.okr.getStats.invalidate();
+                  void utils.okr.getCountsByYear.invalidate();
+                }}
+              >
+                <Button leftSection={<IconPlus size={14} />}>New objective</Button>
+              </CreateGoalModal>
+            </Group>
+          </Group>
+        </div>
+
+        {/* Period tabs */}
         <PeriodTabs
           selectedPeriod={selectedPeriod}
           onPeriodChange={setPeriod}
@@ -394,82 +416,89 @@ export function OkrDashboard() {
           isLoading={countsLoading}
         />
 
-        {/* Collapsible Overview Metrics */}
-        <Card className="border border-border-primary bg-surface-secondary">
-          <Group 
-            justify="space-between" 
-            onClick={toggleStats}
-            style={{ cursor: 'pointer' }}
-            className="select-none"
-          >
-            <Text size="sm" fw={500} className="text-text-primary">
-              Overview Metrics
-            </Text>
-            {statsExpanded ? (
-              <IconChevronUp size={20} className="text-text-secondary" />
-            ) : (
-              <IconChevronDown size={20} className="text-text-secondary" />
-            )}
-          </Group>
-          <Collapse in={statsExpanded} transitionDuration={200}>
-            <div className="mt-4">
-              <OkrOverview stats={overviewStats} isLoading={statsLoading} />
-            </div>
-          </Collapse>
-        </Card>
+        {/* Hero cards */}
+        {visibleObjectives.length > 0 && (
+          <OkrHeroCards
+            objectives={visibleObjectives}
+            period={effectivePeriod}
+          />
+        )}
 
-        {/* Objectives with Key Results */}
-        {objectives && objectives.length > 0 ? (
-          <Card className="border border-border-primary bg-surface-secondary">
-            {objectives
-              .filter((obj) => obj.keyResults.length > 0 || obj.period === effectivePeriod)
-              .map((objective) => (
-              <ObjectiveRow
-                key={objective.id}
-                objective={{
-                  ...objective,
-                  lifeDomain: objective.lifeDomain
-                    ? {
-                        id: objective.lifeDomain.id,
-                        name: objective.lifeDomain.title,
-                      }
-                    : null,
-                }}
-                isExpanded={expandedObjectives.has(objective.id)}
-                onToggleExpand={() => toggleExpand(objective.id)}
-                onDelete={handleDeleteObjective}
-                isDeleting={deleteObjective.isPending}
-                onEditSuccess={() => {
-                  void utils.okr.getByObjective.invalidate();
-                  void utils.okr.getStats.invalidate();
-                  void utils.okr.getCountsByYear.invalidate();
-                }}
-                onAddKeyResult={handleAddKeyResultToObjective}
-                onEditKeyResult={handleEditKeyResult}
-                onViewObjective={() => handleViewObjective({
-                  ...objective,
-                  lifeDomain: objective.lifeDomain
-                    ? { id: objective.lifeDomain.id, name: objective.lifeDomain.title }
-                    : null,
-                })}
-                onViewKeyResult={handleViewKeyResult}
-                expandedKeyResults={expandedKeyResults}
-                onToggleKeyResult={setExpandedKeyResults}
-              />
+        {/* Nudge */}
+        {showNudge && (
+          <div
+            className="flex items-center gap-3 rounded-lg border px-4 py-3"
+            style={{
+              background:
+                "linear-gradient(90deg, var(--color-brand-subtle), transparent 80%)",
+              borderColor: "var(--color-brand-glow)",
+            }}
+          >
+            <div
+              className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-md"
+              style={{
+                background: "var(--color-brand-glow)",
+                color: "var(--color-brand-primary)",
+              }}
+            >
+              <IconSparkles size={14} />
+            </div>
+            <div className="flex-1 text-sm text-text-primary">
+              <strong className="font-semibold">Zoe noticed:</strong>{" "}
+              <span className="text-text-secondary">
+                {summary.atRisk} KR{summary.atRisk === 1 ? " is" : "s are"} off
+                expected pace. Consider reviewing blockers in your next check-in.
+              </span>
+            </div>
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              aria-label="Dismiss insight"
+              onClick={() => setNudgeDismissed(true)}
+            >
+              <IconX size={14} />
+            </ActionIcon>
+          </div>
+        )}
+
+        {/* Objective list */}
+        {visibleObjectives.length > 0 ? (
+          <div>
+            {visibleObjectives.map((obj, idx) => (
+              <div key={obj.id} id={`okr-obj-${obj.id}`}>
+                <ObjectiveCardV2
+                  objective={obj}
+                  code={`O${idx + 1}`}
+                  period={effectivePeriod}
+                  isExpanded={expandedObjectives.has(obj.id)}
+                  onToggleExpand={() => toggleExpand(obj.id)}
+                  onDelete={handleDeleteObjective}
+                  isDeleting={deleteObjective.isPending}
+                  onEditSuccess={() => {
+                    void utils.okr.getByObjective.invalidate();
+                    void utils.okr.getStats.invalidate();
+                    void utils.okr.getCountsByYear.invalidate();
+                  }}
+                  onAddKeyResult={handleAddKeyResultToObjective}
+                  onEditKeyResult={handleEditKeyResult}
+                  onViewObjective={() => handleViewObjective(obj)}
+                  onViewKeyResult={handleViewKeyResult}
+                />
+              </div>
             ))}
-          </Card>
+          </div>
         ) : (
-          <Card className="border border-border-primary bg-surface-secondary text-center py-12">
+          <div className="rounded-lg border border-border-primary bg-surface-secondary px-6 py-12 text-center">
             <IconTargetArrow
               size={48}
-              className="text-text-muted mx-auto mb-4"
+              className="mx-auto mb-4 text-text-muted"
             />
-            <Title order={3} className="text-text-primary mb-2">
-              No OKRs Yet
-            </Title>
-            <Text className="text-text-muted mb-4">
-              Create your first Key Result to start tracking progress toward
-              your goals.
+            <h3 className="mb-2 text-lg font-semibold text-text-primary">
+              No OKRs yet for this period
+            </h3>
+            <Text className="mb-4 text-text-muted">
+              Create a new objective, or add a Key Result to an existing one to
+              start tracking progress.
             </Text>
             <Group justify="center" gap="md">
               <Button component={Link} href={goalsPath} variant="light">
@@ -482,7 +511,7 @@ export function OkrDashboard() {
                 Add Key Result
               </Button>
             </Group>
-          </Card>
+          </div>
         )}
       </Stack>
 
@@ -608,7 +637,6 @@ export function OkrDashboard() {
         </Stack>
       </Modal>
 
-      {/* Edit Key Result Modal */}
       <EditKeyResultModal
         keyResult={editingKeyResult}
         opened={editKrModalOpened}
@@ -623,7 +651,6 @@ export function OkrDashboard() {
         }}
       />
 
-      {/* OKR Detail Drawer */}
       <OkrDetailDrawer
         opened={drawerOpened}
         onClose={closeDrawer}
