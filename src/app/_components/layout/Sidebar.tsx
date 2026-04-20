@@ -2,11 +2,11 @@
 
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
-import { IconMenu2, IconX } from "@tabler/icons-react";
+import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { themes, type ValidDomain } from "~/config/themes";
-import { LogoDisplay } from "./LogoDisplay";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { UserMenu } from "./UserMenu";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
@@ -58,23 +58,12 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%] sm:translate-x-0 sm:ml-[-16rem]'}
         `}>
         
-        {/* Header with logo and close button */}
-        <div className="flex-shrink-0 bg-background-secondary px-4 h-12 flex items-center justify-between border-b border-border-primary mt-12 lg:mt-0">
-          <LogoDisplay 
-            theme={theme} 
-            href="/" 
-            onClick={() => setIsMenuOpen(false)}
-            className="text"
-            imageSize={40}
+        {/* Header with workspace switcher and collapse button */}
+        <div className="flex-shrink-0 bg-background-secondary h-12 flex items-center border-b border-border-primary mt-12 lg:mt-0">
+          <WorkspaceSwitcher
+            theme={theme}
+            onCollapse={() => setIsMenuOpen(false)}
           />
-          
-          {/* Close button */}
-          <button
-            onClick={() => setIsMenuOpen(false)}
-            className="p-2 rounded-lg hover:bg-surface-hover transition-colors"
-          >
-            <IconX size={20} className="text-text-secondary hover:text-text-primary" />
-          </button>
         </div>
 
         {/* Scrollable content area */}

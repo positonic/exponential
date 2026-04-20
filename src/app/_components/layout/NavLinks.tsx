@@ -14,7 +14,6 @@ import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { usePluginNavigation } from "~/hooks/usePluginNavigation";
-import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { api } from "~/trpc/react";
 
 // Icon map for plugin navigation items in main nav
@@ -116,11 +115,6 @@ export function NavLinks() {
       <NavLink href="/calendar" icon={IconCalendar}>
         Calendar
       </NavLink>
-
-      {/* Workspace Switcher - below Act, above accordion sections */}
-      <div className="pt-4 mt-2 border-t border-border-primary">
-        <WorkspaceSwitcher />
-      </div>
     </div>
   );
 }
