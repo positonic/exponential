@@ -29,8 +29,14 @@ import {
   IconTool,
   IconFileText,
   IconRefresh,
+  IconRocket,
+  IconPlus,
 } from "@tabler/icons-react";
-import type { GitHubCommit } from "~/server/services/githubService";
+import type {
+  GitHubCommit,
+  GitHubRelease,
+} from "~/server/services/githubService";
+import { ReleaseBody } from "./ReleaseBody";
 import classes from "./ProductTimeline.module.css";
 
 const CATEGORY_CONFIG: Record<
@@ -122,6 +128,46 @@ function groupCommitsByDate(
   );
 }
 
+type TimelineEntry =
+  | { type: "release"; sortAt: number; release: GitHubRelease }
+  | {
+      type: "commit-group";
+      sortAt: number;
+      date: Date;
+      commits: GitHubCommit[];
+    };
+
+function buildTimeline(
+  commits: GitHubCommit[],
+  releases: GitHubRelease[],
+): TimelineEntry[] {
+  const commitGroups = groupCommitsByDate(commits);
+  const entries: TimelineEntry[] = [];
+
+  for (const group of commitGroups) {
+    entries.push({
+      type: "commit-group",
+      sortAt: group.date.getTime(),
+      date: group.date,
+      commits: group.commits,
+    });
+  }
+
+  for (const release of releases) {
+    if (!release.publishedAt) continue;
+    // Releases sort slightly after their day's commits so they appear above
+    // that day's commit group (the list is sorted desc by sortAt).
+    const published = new Date(release.publishedAt).getTime();
+    entries.push({
+      type: "release",
+      sortAt: published + 1,
+      release,
+    });
+  }
+
+  return entries.sort((a, b) => b.sortAt - a.sortAt);
+}
+
 export function ProductTimelineClient() {
   const [pages, setPages] = useState([1]);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
@@ -151,7 +197,14 @@ export function ProductTimelineClient() {
     }),
   );
 
+  const releasesQuery = api.github.listReleases.useQuery({
+    owner: "positonic",
+    repo: "exponential",
+    perPage: 30,
+  });
+
   const allCommits = queries.flatMap((q) => q.data?.commits ?? []);
+  const releases = releasesQuery.data ?? [];
   const lastQuery = queries[queries.length - 1];
   const isLoading = queries.some((q) => q.isLoading);
   const hasNextPage = lastQuery?.data?.hasNextPage ?? false;
@@ -160,7 +213,7 @@ export function ProductTimelineClient() {
     setPages((prev) => [...prev, (prev[prev.length - 1] ?? 0) + 1]);
   }, []);
 
-  const groups = groupCommitsByDate(allCommits);
+  const entries = buildTimeline(allCommits, releases);
 
   if (isLoading && allCommits.length === 0) {
     return (
@@ -174,23 +227,77 @@ export function ProductTimelineClient() {
 
   return (
     <Container size="md" py="xl">
-      <Title order={1} mb="xs">
-        Product Timeline
-      </Title>
+      <Group justify="space-between" align="flex-start" mb="xs">
+        <Title order={1}>Product Timeline</Title>
+        <Anchor
+          href="https://github.com/positonic/exponential/releases/new"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: "none" }}
+        >
+          <Button
+            variant="light"
+            size="xs"
+            leftSection={<IconPlus size={14} />}
+          >
+            Draft release
+          </Button>
+        </Anchor>
+      </Group>
       <Text c="dimmed" mb="xl">
         Every change we make to Exponential, straight from our git history.
       </Text>
 
-      <Timeline active={groups.length - 1} bulletSize={24} lineWidth={2}>
-        {groups.map((group) => {
-          const groupId = group.date.toISOString();
+      <Timeline active={entries.length - 1} bulletSize={24} lineWidth={2}>
+        {entries.map((entry) => {
+          if (entry.type === "release") {
+            const { release } = entry;
+            return (
+              <Timeline.Item
+                key={`release-${release.id}`}
+                bullet={
+                  <IconRocket
+                    size={14}
+                    style={{ color: "var(--mantine-color-brand-4)" }}
+                  />
+                }
+                title={
+                  <Group gap="xs" align="center">
+                    <Text fw={700}>{release.name}</Text>
+                    <Badge size="xs" variant="light" color="brand">
+                      {release.tagName}
+                    </Badge>
+                  </Group>
+                }
+                styles={{ itemTitle: { fontWeight: 600 } }}
+              >
+                <Text size="xs" c="dimmed" mb="xs">
+                  {format(new Date(release.publishedAt), "PPP")}
+                </Text>
+                <ReleaseBody markdown={release.body} />
+                <Anchor
+                  href={release.htmlUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  size="xs"
+                >
+                  <Group gap={4} align="center">
+                    <IconBrandGithub size={12} />
+                    <span>View on GitHub</span>
+                  </Group>
+                </Anchor>
+              </Timeline.Item>
+            );
+          }
+
+          const groupId = entry.date.toISOString();
           const isExpanded = expandedGroups.has(groupId);
-          const summary = getCategorySummary(group.commits);
-          const dominantColor = getDominantColor(group.commits);
+          const summary = getCategorySummary(entry.commits);
+          const dominantColor = getDominantColor(entry.commits);
 
           return (
             <Timeline.Item
-              key={groupId}
+              key={`commits-${groupId}`}
               bullet={
                 <IconGitCommit
                   size={14}
@@ -199,7 +306,7 @@ export function ProductTimelineClient() {
                   }}
                 />
               }
-              title={format(group.date, "PPP")}
+              title={format(entry.date, "PPP")}
               styles={{
                 itemTitle: {
                   fontWeight: 600,
@@ -217,8 +324,8 @@ export function ProductTimelineClient() {
                     <IconChevronRight size={14} />
                   )}
                   <Text size="sm" className={classes.toggleText}>
-                    {group.commits.length} update
-                    {group.commits.length !== 1 ? "s" : ""}
+                    {entry.commits.length} update
+                    {entry.commits.length !== 1 ? "s" : ""}
                   </Text>
                   <Group gap={4}>
                     {summary.map(({ category, count }) => {
@@ -242,7 +349,7 @@ export function ProductTimelineClient() {
 
               <Collapse in={isExpanded}>
                 <Stack gap={4} mt="xs">
-                  {group.commits.map((commit) => {
+                  {entry.commits.map((commit) => {
                     const { category, text } = parseCommitMessage(
                       commit.message,
                     );

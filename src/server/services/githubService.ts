@@ -176,6 +176,45 @@ export interface CommitListResult {
   page: number;
 }
 
+export interface GitHubRelease {
+  id: number;
+  tagName: string;
+  name: string;
+  body: string;
+  htmlUrl: string;
+  publishedAt: string;
+  author: string | null;
+  avatarUrl: string | null;
+}
+
+export async function listReleases(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  options?: { page?: number; perPage?: number },
+): Promise<GitHubRelease[]> {
+  const { repoOwner, repoName } = parseRepoInfo(owner, repo);
+  const response = await octokit.repos.listReleases({
+    owner: repoOwner,
+    repo: repoName,
+    per_page: options?.perPage ?? 30,
+    page: options?.page ?? 1,
+  });
+
+  return response.data
+    .filter((r) => !r.draft)
+    .map((r) => ({
+      id: r.id,
+      tagName: r.tag_name,
+      name: r.name ?? r.tag_name,
+      body: r.body ?? "",
+      htmlUrl: r.html_url,
+      publishedAt: r.published_at ?? r.created_at,
+      author: r.author?.login ?? null,
+      avatarUrl: r.author?.avatar_url ?? null,
+    }));
+}
+
 export async function listCommits(
   octokit: Octokit,
   owner: string,

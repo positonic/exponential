@@ -34,6 +34,27 @@ export const githubRouter = createTRPCRouter({
       );
     }),
 
+  listReleases: publicProcedure
+    .input(
+      z.object({
+        page: z.number().min(1).default(1),
+        perPage: z.number().min(1).max(100).default(30),
+        owner: z.string().default("positonic"),
+        repo: z.string().default("exponential"),
+      }).optional(),
+    )
+    .query(async ({ input }) => {
+      const owner = input?.owner ?? "positonic";
+      const repo = input?.repo ?? "exponential";
+      const octokit = githubService.initGithubClient(
+        process.env.GITHUB_TOKEN ?? "",
+      );
+      return githubService.listReleases(octokit, owner, repo, {
+        page: input?.page,
+        perPage: input?.perPage,
+      });
+    }),
+
   createIssue: protectedProcedure
     .input(
       z.object({
