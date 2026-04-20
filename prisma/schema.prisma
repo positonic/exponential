@@ -144,6 +144,8 @@ model User {
   blogComments                BlogComment[]              @relation("BlogCommentAuthor")
   // Daily Planning relations
   dailyPlans                  DailyPlan[]
+  // Zoe daily briefing
+  dailyBriefings              DailyBriefing[]
   // Push notification subscriptions
   pushSubscriptions           PushSubscription[]
   // Webhook activity logs
@@ -274,6 +276,8 @@ model Workspace {
   okrCheckins              OkrCheckin[]
   // Daily Planning relations
   dailyPlans               DailyPlan[]
+  // Zoe daily briefing
+  dailyBriefings           DailyBriefing[]
   // Meetings/Transcription relations
   transcriptionSessions    TranscriptionSession[]
   // Auto-scheduling relations
@@ -1444,11 +1448,47 @@ model NavigationPreference {
   showInspiringQuote Boolean  @default(true)
   showSuggestedFocus Boolean  @default(true)
   showGamification   Boolean  @default(false)
+  showDailyBriefing  Boolean  @default(false)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model DailyBriefing {
+  id               String                 @id @default(cuid())
+  userId           String
+  workspaceId      String?
+  date             DateTime               @db.Date
+  promptVersion    String
+  modelId          String
+  inputSnapshot    Json
+  outputText       String
+  outputStructured Json?
+  latencyMs        Int?
+  tokensIn         Int?
+  tokensOut        Int?
+  createdAt        DateTime               @default(now())
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace        Workspace?             @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  interactions     BriefingInteraction[]
+
+  @@index([userId, date])
+  @@index([promptVersion])
+  @@index([createdAt])
+}
+
+model BriefingInteraction {
+  id          String        @id @default(cuid())
+  briefingId  String
+  type        String
+  createdAt   DateTime      @default(now())
+  briefing    DailyBriefing @relation(fields: [briefingId], references: [id], onDelete: Cascade)
+
+  @@index([briefingId])
+  @@index([type])
+  @@index([createdAt])
 }
 
 model CalendarPreference {
