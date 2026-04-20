@@ -1,6 +1,7 @@
 import { type Metadata } from "next";
 import { api, HydrateClient } from "~/trpc/server";
 import { ProjectPageClient } from "./ProjectPageClient";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 
   const description = project.description ?? `Browse open bounties for ${project.name} on Exponential.`;
-  const url = `https://www.exponential.im/explore/${projectSlug}`;
+  const url = `${getPublicBaseUrlFromEnv()}/explore/${projectSlug}`;
 
   return {
     title: `${project.name} — Bounties | Exponential`,

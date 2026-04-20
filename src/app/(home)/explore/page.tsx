@@ -1,21 +1,24 @@
 import { type Metadata } from "next";
 import { api, HydrateClient } from "~/trpc/server";
 import { ExplorePageClient } from "./ExplorePageClient";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export const dynamic = "force-dynamic";
+
+const exploreUrl = `${getPublicBaseUrlFromEnv()}/explore`;
 
 export const metadata: Metadata = {
   title: "Explore Bounties | Exponential",
   description:
     "Browse open bounties across public projects. Find work, earn rewards, and contribute to open source.",
   alternates: {
-    canonical: "https://www.exponential.im/explore",
+    canonical: exploreUrl,
   },
   openGraph: {
     type: 'website',
     title: "Explore Bounties | Exponential",
     description: "Browse open bounties across public projects. Find work, earn rewards, and contribute to open source.",
-    url: "https://www.exponential.im/explore",
+    url: exploreUrl,
     siteName: "Exponential",
     images: [{ url: '/og-image.png', width: 1200, height: 630 }],
   },

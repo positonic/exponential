@@ -23,11 +23,13 @@ import { ModalsProvider } from '@mantine/modals';
 import { Analytics } from '@vercel/analytics/next';
 import { GoogleAnalytics } from '@next/third-parties/google';
 import { FloatingFeedbackButton } from '~/app/_components/FloatingFeedbackButton';
+import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 const domain = getThemeDomain();
+const baseUrl = getPublicBaseUrlFromEnv();
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://www.exponential.im'),
+  metadataBase: new URL(baseUrl),
   title: themes[domain].branding.title,
   description: themes[domain].branding.description,
   icons: themes[domain].branding.icons,
@@ -40,7 +42,7 @@ export const metadata: Metadata = {
     siteName: 'Exponential',
     title: themes[domain].branding.title,
     description: themes[domain].branding.description,
-    url: 'https://www.exponential.im',
+    url: baseUrl,
     images: [
       {
         url: '/og-image.png',
@@ -83,7 +85,7 @@ export default async function HomeLayout({
               "@type": "SoftwareApplication",
               "name": "Exponential",
               "description": "The coordination layer for AI-first organizations. Goals cascade into outcomes, AI handles execution, and your team stays aligned.",
-              "url": "https://exponential.im",
+              "url": baseUrl,
               "applicationCategory": "ProductivityApplication",
               "operatingSystem": "Web Browser",
               "offers": {
@@ -94,7 +96,7 @@ export default async function HomeLayout({
               "creator": {
                 "@type": "Organization",
                 "name": "Exponential",
-                "url": "https://exponential.im"
+                "url": baseUrl
               },
               "featureList": [
                 "AI-native organization coordination",

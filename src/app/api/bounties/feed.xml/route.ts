@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "~/server/db";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export const dynamic = "force-dynamic";
-
-const SITE_URL = "https://www.exponential.im";
 
 function escapeXml(str: string): string {
   return str
@@ -19,6 +18,7 @@ function escapeXml(str: string): string {
  * For RSS readers, aggregators, and bot scrapers.
  */
 export async function GET() {
+  const SITE_URL = getPublicBaseUrlFromEnv();
   const bounties = await db.action.findMany({
     where: {
       isBounty: true,

@@ -9,6 +9,7 @@
 /* eslint-disable no-restricted-syntax */
 
 import { colorTokens } from "~/styles/colors";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 const POSTMARK_API_URL = "https://api.postmarkapp.com/email";
 
@@ -349,7 +350,7 @@ export async function sendWelcomeWithMagicLinkEmail(
 ): Promise<void> {
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = "Exponential";
-  const appUrl = process.env.NEXTAUTH_URL ?? "https://exponential.im";
+  const appUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
 
   const { htmlBody, textBody } = generateWelcomeEmailContent({
     brandColor,
@@ -379,7 +380,7 @@ export async function sendWelcomeEmail(
 ): Promise<void> {
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = "Exponential";
-  const appUrl = process.env.NEXTAUTH_URL ?? "https://exponential.im";
+  const appUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
   const signInUrl = `${appUrl}/signin`;
 
   const greeting = name ? `Hi ${name},` : "Hi there,";

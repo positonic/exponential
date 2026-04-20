@@ -9,6 +9,7 @@ import {
   getClusterArticles,
 } from "~/lib/learn/getLearnArticle";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 interface LearnArticlePageProps {
   params: Promise<{ slug: string }>;
@@ -29,7 +30,7 @@ export async function generateMetadata({
     return { title: "Article Not Found" };
   }
 
-  const url = `https://www.exponential.im/learn/${slug}`;
+  const url = `${getPublicBaseUrlFromEnv()}/learn/${slug}`;
 
   return {
     title: `${article.meta.title} | Exponential`,
@@ -91,14 +92,14 @@ export default async function LearnArticlePage({
     publisher: {
       "@type": "Organization",
       name: "Exponential",
-      url: "https://www.exponential.im",
+      url: getPublicBaseUrlFromEnv(),
       logo: {
         "@type": "ImageObject",
-        url: "https://www.exponential.im/expo-logo-20.png",
+        url: `${getPublicBaseUrlFromEnv()}/expo-logo-20.png`,
       },
     },
-    url: `https://www.exponential.im/learn/${slug}`,
-    mainEntityOfPage: `https://www.exponential.im/learn/${slug}`,
+    url: `${getPublicBaseUrlFromEnv()}/learn/${slug}`,
+    mainEntityOfPage: `${getPublicBaseUrlFromEnv()}/learn/${slug}`,
     ...(article.meta.coverImage ? { image: article.meta.coverImage } : {}),
     ...(article.meta.tags
       ? { keywords: article.meta.tags.join(", ") }

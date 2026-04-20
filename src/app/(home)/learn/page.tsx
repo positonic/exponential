@@ -7,20 +7,23 @@ import {
   getAllClusters,
   getClusterArticles,
 } from "~/lib/learn/getLearnArticle";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+
+const learnUrl = `${getPublicBaseUrlFromEnv()}/learn`;
 
 export const metadata: Metadata = {
   title: "Learn | Exponential",
   description:
     "Guides and frameworks for founders building in the AI era. Learn about AI-native execution, weekly planning, and the founder operating system.",
   alternates: {
-    canonical: "https://www.exponential.im/learn",
+    canonical: learnUrl,
   },
   openGraph: {
     type: "website",
     title: "Learn | Exponential",
     description:
       "Guides and frameworks for founders building in the AI era.",
-    url: "https://www.exponential.im/learn",
+    url: learnUrl,
     siteName: "Exponential",
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
   },

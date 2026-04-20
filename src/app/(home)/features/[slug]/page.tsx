@@ -9,6 +9,7 @@ import { ThemeToggle } from "~/app/_components/ThemeToggle";
 import { themes } from "~/config/themes";
 import { getThemeDomain } from "~/config/site";
 import { FooterSection } from "~/app/_components/home";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 interface FeaturePageProps {
   params: Promise<{ slug: string }>;
@@ -27,7 +28,7 @@ export async function generateMetadata({ params }: FeaturePageProps) {
     return { title: "Feature Not Found" };
   }
 
-  const url = `https://www.exponential.im/features/${slug}`;
+  const url = `${getPublicBaseUrlFromEnv()}/features/${slug}`;
 
   return {
     title: `${feature.title} | Exponential`,

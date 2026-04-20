@@ -6,6 +6,7 @@ import { createCallerFactory } from '~/server/api/trpc';
 import { appRouter } from '~/server/api/root';
 import { parseActionInput } from '~/server/services/parsing';
 import { SlackChannelResolver } from '~/server/services/SlackChannelResolver';
+import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 // Slack API client
 const SLACK_API_BASE = 'https://slack.com/api';
@@ -1066,7 +1067,7 @@ Use the project IDs above when querying for project-specific data.`;
         if (workspaces.length >= 1) {
           const workspace = workspaces[0]!;
           resolvedWorkspaceId = workspace.id;
-          const todoAppBaseUrl = process.env.TODO_APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? 'https://www.exponential.im';
+          const todoAppBaseUrl = process.env.TODO_APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
           const okrPageUrl = `${todoAppBaseUrl}/w/${workspace.slug}/okrs`;
           const okrContext = await buildWorkspaceOKRContext(workspace.id);
           workspaceContext = `\n\nWORKSPACE CONTEXT:
@@ -1507,7 +1508,7 @@ async function listUserActions(user: any, _responseUrl: string) {
 
     return {
       response_type: 'ephemeral',
-      text: `📋 Your pending actions:\n${actionList}\n\n_Visit your <https://exponential.im/home|Exponential> dashboard to manage these actions_`
+      text: `📋 Your pending actions:\n${actionList}\n\n_Visit your <${getPublicBaseUrlFromEnv()}/home|Exponential> dashboard to manage these actions_`
     };
   } catch (error) {
     console.error('Error listing actions:', error);
@@ -1563,7 +1564,7 @@ async function listUserProjects(user: any, _responseUrl: string) {
 
     return {
       response_type: 'ephemeral',
-      text: `📁 Your active projects:\n${projectList}\n\n_Visit your <https://exponential.im/projects|Exponential> dashboard to manage these projects_`
+      text: `📁 Your active projects:\n${projectList}\n\n_Visit your <${getPublicBaseUrlFromEnv()}/projects|Exponential> dashboard to manage these projects_`
     };
   } catch (error) {
     console.error('Error listing projects:', error);

@@ -5,8 +5,9 @@ import {
 } from "~/server/services/EmailService";
 import { sendPushToUser } from "~/server/services/notifications/WebPushService";
 import { ZulipNotificationService } from "~/server/services/notifications/ZulipNotificationService";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
-const BASE_URL = process.env.NEXTAUTH_URL ?? "https://exponential.im";
+const BASE_URL = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
 
 /**
  * Send a Zulip DM to a user if the workspace has a Zulip integration

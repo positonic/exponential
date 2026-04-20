@@ -1,8 +1,9 @@
 import { getAllBlogPosts } from '~/lib/blog/getBlogPost';
+import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 export async function GET() {
   const posts = await getAllBlogPosts();
-  const baseUrl = 'https://www.exponential.im';
+  const baseUrl = getPublicBaseUrlFromEnv();
 
   const rssItems = posts
     .map(

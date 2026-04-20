@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { getDocContent, getAllDocSlugs } from "~/lib/docs/getDoc";
 import { DocsSidebar, DocsContent, DocsTableOfContents } from "~/app/_components/docs";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 interface DocsPageProps {
   params: Promise<{ slug?: string[] }>;
@@ -23,7 +24,7 @@ export async function generateMetadata({ params }: DocsPageProps): Promise<Metad
   }
 
   const description = doc.meta.description ?? `Learn about ${doc.meta.title} in the Exponential documentation.`;
-  const url = `https://www.exponential.im/docs/${slug.join('/')}`;
+  const url = `${getPublicBaseUrlFromEnv()}/docs/${slug.join('/')}`;
 
   return {
     title: `${doc.meta.title} — Exponential Docs`,

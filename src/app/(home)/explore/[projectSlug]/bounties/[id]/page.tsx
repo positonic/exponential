@@ -1,6 +1,7 @@
 import { type Metadata } from "next";
 import { api, HydrateClient } from "~/trpc/server";
 import { BountyDetailClient } from "./BountyDetailClient";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 
   const description = bounty.description ?? `View bounty details for ${bounty.name}`;
-  const url = `https://www.exponential.im/explore/${projectSlug}/bounties/${id}`;
+  const url = `${getPublicBaseUrlFromEnv()}/explore/${projectSlug}/bounties/${id}`;
 
   return {
     title: `${bounty.name} — Bounty | Exponential`,
@@ -75,13 +76,13 @@ export default async function BountyDetailPage({ params }: Props) {
         hiringOrganization: {
           "@type": "Organization",
           name: bounty.project?.name ?? "Exponential",
-          sameAs: `https://www.exponential.im/explore/${projectSlug}`,
+          sameAs: `${getPublicBaseUrlFromEnv()}/explore/${projectSlug}`,
         },
         jobLocation: {
           "@type": "Place",
           address: { "@type": "PostalAddress", addressCountry: "Remote" },
         },
-        url: `https://www.exponential.im/explore/${projectSlug}/bounties/${id}`,
+        url: `${getPublicBaseUrlFromEnv()}/explore/${projectSlug}/bounties/${id}`,
       }
     : null;
 

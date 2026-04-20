@@ -1,4 +1,5 @@
 import type { MetadataRoute } from 'next';
+import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 export default function robots(): MetadataRoute.Robots {
   return {
@@ -41,6 +42,6 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    sitemap: 'https://www.exponential.im/sitemap.xml',
+    sitemap: `${getPublicBaseUrlFromEnv()}/sitemap.xml`,
   };
 }

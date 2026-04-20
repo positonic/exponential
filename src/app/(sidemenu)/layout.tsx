@@ -30,11 +30,12 @@ import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvide
 import { SessionProvider } from "next-auth/react";
 import { WorkspaceProvider } from '~/providers/WorkspaceProvider';
 import { ServiceWorkerRegistration } from '~/app/_components/ServiceWorkerRegistration';
+import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 const domain = getThemeDomain();
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://www.exponential.im'),
+  metadataBase: new URL(getPublicBaseUrlFromEnv()),
   title: themes[domain].branding.title,
   description: themes[domain].branding.description,
   icons: themes[domain].branding.icons,

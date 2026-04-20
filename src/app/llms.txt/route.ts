@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
  * Follows the emerging llms.txt convention (similar to robots.txt).
  */
 export function GET() {
+  const baseUrl = getPublicBaseUrlFromEnv();
   const content = `# Exponential — Open Source Project Management with Bounties
 
 > Exponential is a project management platform where teams post bounties
@@ -14,7 +16,7 @@ export function GET() {
 
 ## Bounty API
 
-Base URL: https://www.exponential.im
+Base URL: ${baseUrl}
 
 ### List open bounties
 GET /api/bounties
@@ -25,10 +27,10 @@ GET /api/bounties?limit=50&status=OPEN
 GET /api/bounties/{id}
 
 ### Browse bounties (HTML)
-https://www.exponential.im/explore
+${baseUrl}/explore
 
 ### Blog RSS Feed
-https://www.exponential.im/blog/feed.xml
+${baseUrl}/blog/feed.xml
 
 ## Response Format
 
@@ -60,7 +62,7 @@ All API endpoints return JSON. Example bounty object:
 ## Authentication
 
 Claiming bounties requires authentication. Contact the project owner or
-sign in at https://www.exponential.im/signin to get started.
+sign in at ${baseUrl}/signin to get started.
 `;
 
   return new NextResponse(content, {

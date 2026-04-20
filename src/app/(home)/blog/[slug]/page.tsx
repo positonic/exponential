@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { getBlogPost, getAllBlogSlugs } from "~/lib/blog/getBlogPost";
 import { BlogContent } from "~/app/_components/blog/BlogContent";
 import { auth } from "~/server/auth";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 interface BlogPostPageProps {
   params: Promise<{ slug: string }>;
@@ -23,7 +24,7 @@ export async function generateMetadata({
     return { title: "Post Not Found" };
   }
 
-  const url = `https://www.exponential.im/blog/${slug}`;
+  const url = `${getPublicBaseUrlFromEnv()}/blog/${slug}`;
 
   return {
     title: `${post.meta.title} | Exponential`,
@@ -61,6 +62,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     notFound();
   }
 
+  const baseUrl = getPublicBaseUrlFromEnv();
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Article",
@@ -74,14 +76,14 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     publisher: {
       "@type": "Organization",
       name: "Exponential",
-      url: "https://www.exponential.im",
+      url: baseUrl,
       logo: {
         "@type": "ImageObject",
-        url: "https://www.exponential.im/expo-logo-20.png",
+        url: `${baseUrl}/expo-logo-20.png`,
       },
     },
-    url: `https://www.exponential.im/blog/${slug}`,
-    mainEntityOfPage: `https://www.exponential.im/blog/${slug}`,
+    url: `${baseUrl}/blog/${slug}`,
+    mainEntityOfPage: `${baseUrl}/blog/${slug}`,
     ...(post.meta.coverImage ? { image: post.meta.coverImage } : {}),
     ...(post.meta.tags ? { keywords: post.meta.tags.join(", ") } : {}),
   };
