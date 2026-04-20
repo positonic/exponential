@@ -11,7 +11,6 @@ interface CoreMessage {
 import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { db } from "~/server/db";
-import { SECURITY_POLICY } from "~/lib/security-policy";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
@@ -316,12 +315,14 @@ export async function POST(req: Request) {
       ];
     }
 
-    // Inject ACIP security policy as the highest-priority system message
-    // This teaches the model to recognize and resist prompt injection attacks
-    finalMessages = [
-      { role: 'system' as const, content: SECURITY_POLICY },
-      ...finalMessages,
-    ];
+    // NOTE: The ACIP security policy is NOT injected here. Each Mastra agent
+    // embeds SECURITY_POLICY (or SECURITY_POLICY_COMPACT) inside its own
+    // instructions (see mastra/src/mastra/agents/*), so the policy reaches
+    // Anthropic exactly once instead of twice. This also means Slack/Telegram/
+    // WhatsApp/Signal transports (which don't run through this route) get the
+    // same policy via the agent's instructions — consistent security across
+    // all transports. When adding a new agent, make sure it imports and
+    // includes SECURITY_POLICY if it handles user data.
 
     console.log(`🔗 [chat/stream] agentId=${agentId ?? "none"}, assistantId=${assistantId ?? "none"}, projectId=${projectId ?? "none"}, workspaceId=${workspaceId ?? "none"}, messages=${finalMessages.length}`);
     console.log('📤 [chat/stream] RequestContext entries:', entries.map(([k, v]) => [k, k.includes('Token') || k.includes('token') || k.includes('JWT') || k.includes('auth') ? `${v.slice(0, 20)}...` : v]));
