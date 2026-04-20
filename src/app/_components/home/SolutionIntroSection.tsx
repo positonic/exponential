@@ -1,5 +1,6 @@
 import { Container } from "@mantine/core";
 import { IconArrowRight } from "@tabler/icons-react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface SolutionIntroSectionProps {
   id?: string;
@@ -18,7 +19,7 @@ export function SolutionIntroSection({ id }: SolutionIntroSectionProps) {
 
           {/* Subheadline */}
           <p className="text-lg md:text-xl text-text-secondary mb-16 leading-relaxed">
-            Exponential isn&apos;t another project tool. It&apos;s the
+            {PRODUCT_NAME} isn&apos;t another project tool. It&apos;s the
             coordination layer where your goals, your team, and your AI agents
             work as one system.
           </p>

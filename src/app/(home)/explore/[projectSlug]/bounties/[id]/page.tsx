@@ -1,6 +1,7 @@
 import { type Metadata } from "next";
 import { api, HydrateClient } from "~/trpc/server";
 import { BountyDetailClient } from "./BountyDetailClient";
+import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export const dynamic = "force-dynamic";
@@ -14,29 +15,29 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const bounty = await api.bounty.getPublic({ id });
 
   if (!bounty) {
-    return { title: "Bounty Not Found | Exponential" };
+    return { title: `Bounty Not Found | ${PRODUCT_NAME}` };
   }
 
   const description = bounty.description ?? `View bounty details for ${bounty.name}`;
   const url = `${getPublicBaseUrlFromEnv()}/explore/${projectSlug}/bounties/${id}`;
 
   return {
-    title: `${bounty.name} — Bounty | Exponential`,
+    title: `${bounty.name} — Bounty | ${PRODUCT_NAME}`,
     description,
     alternates: {
       canonical: url,
     },
     openGraph: {
       type: 'website',
-      title: `${bounty.name} — Bounty | Exponential`,
+      title: `${bounty.name} — Bounty | ${PRODUCT_NAME}`,
       description,
       url,
-      siteName: 'Exponential',
+      siteName: PRODUCT_NAME,
       images: [{ url: '/og-image.png', width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
-      title: `${bounty.name} — Bounty | Exponential`,
+      title: `${bounty.name} — Bounty | ${PRODUCT_NAME}`,
       description,
       images: ['/og-image.png'],
     },
@@ -75,7 +76,7 @@ export default async function BountyDetailPage({ params }: Props) {
           : {}),
         hiringOrganization: {
           "@type": "Organization",
-          name: bounty.project?.name ?? "Exponential",
+          name: bounty.project?.name ?? PRODUCT_NAME,
           sameAs: `${getPublicBaseUrlFromEnv()}/explore/${projectSlug}`,
         },
         jobLocation: {

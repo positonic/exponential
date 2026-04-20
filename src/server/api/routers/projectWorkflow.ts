@@ -6,6 +6,7 @@ import { mondaySyncService } from "~/server/services/monday-sync";
 import { MondayService } from "~/server/services/MondayService";
 import { encryptCredential } from "~/server/utils/credentialHelper";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 // Define the workflow template structure (hardcoded templates)
 const WORKFLOW_TEMPLATES = {
@@ -242,7 +243,7 @@ function getIntegrationInstructions(provider: string) {
         oauth: true,
         authUrl: "/api/auth/notion/authorize",
         instructions:
-          "Connect with Notion using OAuth for secure authentication. Click the button below to authorize Exponential to access your Notion workspace.",
+          `Connect with Notion using OAuth for secure authentication. Click the button below to authorize ${PRODUCT_NAME} to access your Notion workspace.`,
       };
     case "monday":
       return {
@@ -256,14 +257,14 @@ function getIntegrationInstructions(provider: string) {
         oauth: true,
         authUrl: "/api/auth/github/authorize",
         instructions:
-          "Connect with GitHub using OAuth for secure authentication. Click the button below to authorize Exponential to access your GitHub repositories.",
+          `Connect with GitHub using OAuth for secure authentication. Click the button below to authorize ${PRODUCT_NAME} to access your GitHub repositories.`,
       };
     case "slack":
       return {
         oauth: true,
         authUrl: "/api/auth/slack/authorize",
         instructions:
-          "Connect with Slack using OAuth for secure authentication. Click the button below to authorize Exponential to access your Slack workspace.",
+          `Connect with Slack using OAuth for secure authentication. Click the button below to authorize ${PRODUCT_NAME} to access your Slack workspace.`,
       };
     default:
       return {

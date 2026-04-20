@@ -18,6 +18,7 @@ import { slugify } from "~/utils/slugify";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getProjectAccess, hasProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -350,7 +351,7 @@ export const mastraRouter = createTRPCRouter({
             `Current workspace: "${workspaceAccess.workspace.name}" (type: ${workspaceAccess.workspace.type})`,
             `Workspace slug: ${workspaceAccess.workspace.slug}`,
             `Base URL: ${todoAppBaseUrl}`,
-            `When linking to Exponential pages, replace {workspaceSlug} with "${workspaceAccess.workspace.slug}". Example: ${todoAppBaseUrl}/w/${workspaceAccess.workspace.slug}/okrs`,
+            `When linking to ${PRODUCT_NAME} pages, replace {workspaceSlug} with "${workspaceAccess.workspace.slug}". Example: ${todoAppBaseUrl}/w/${workspaceAccess.workspace.slug}/okrs`,
           ].join('\n');
           messages = [{ role: 'system' as const, content: wsNav }, ...messages];
         }

@@ -1,10 +1,11 @@
 'use client';
 
 import Image from 'next/image';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 /**
- * Animated hub-and-spoke illustration showing tools connecting into Exponential.
- * Used on the onboarding "See how Exponential works" step.
+ * Animated hub-and-spoke illustration showing tools connecting into the product.
+ * Used on the onboarding "See how it works" step.
  */
 
 interface ToolNode {
@@ -167,7 +168,7 @@ export function OnboardingIntegrationIllustration() {
         })}
       </svg>
 
-      {/* Center hub - Exponential logo */}
+      {/* Center hub - product logo */}
       <div
         className="absolute rounded-full bg-surface-primary border-2 border-brand-primary/40 flex items-center justify-center shadow-xl"
         style={{
@@ -182,7 +183,7 @@ export function OnboardingIntegrationIllustration() {
       >
         <Image
           src="/expo-logo-20.png"
-          alt="Exponential"
+          alt={PRODUCT_NAME}
           width={52}
           height={52}
           className="rounded-full"

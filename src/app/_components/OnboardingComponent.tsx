@@ -50,6 +50,7 @@ import { OnboardingWorkHoursIllustration } from './OnboardingWorkHoursIllustrati
 import { GoogleCalendarConnect } from './GoogleCalendarConnect';
 import { MicrosoftCalendarConnect } from './MicrosoftCalendarConnect';
 import { CalendarMultiSelect } from './calendar/CalendarMultiSelect';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 // New flow: 1=Profile+Attribution, 2=Video, 3=Tools, 4=Calendar, 5=WorkHours, 6=Project+Tasks
 type OnboardingStep = 1 | 2 | 3 | 4 | 5 | 6;
@@ -440,7 +441,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
       });
 
       notifications.show({
-        title: 'Welcome to Exponential!',
+        title: `Welcome to ${PRODUCT_NAME}!`,
         message: 'Your project is ready. Let\'s get started!',
         color: 'green',
         icon: <IconCheck size={16} />,
@@ -513,13 +514,13 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           <div>
             <div className="mb-12">
               <Title order={3} className="text-brand-primary font-bold">
-                Exponential
+                {PRODUCT_NAME}
               </Title>
             </div>
 
             <div className="mb-8">
               <Title order={1} className="text-3xl lg:text-4xl font-bold mb-2 text-text-primary">
-                Welcome to Exponential!
+                Welcome to {PRODUCT_NAME}!
               </Title>
               <Text className="text-text-secondary">
                 You&apos;re signing up as {userEmail}.
@@ -641,7 +642,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           <div>
             <div className="mb-12">
               <Title order={3} className="text-brand-primary font-bold">
-                Exponential
+                {PRODUCT_NAME}
               </Title>
             </div>
 
@@ -655,11 +656,11 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                   <IconArrowLeft size={20} />
                 </ActionIcon>
                 <Title order={1} className="text-3xl lg:text-4xl font-bold text-text-primary">
-                  See how Exponential works
+                  See how {PRODUCT_NAME} works
                 </Title>
               </Group>
               <Text className="text-text-secondary">
-                Watch this quick video to learn how Exponential can help you achieve more.
+                Watch this quick video to learn how {PRODUCT_NAME} can help you achieve more.
               </Text>
             </div>
 
@@ -669,7 +670,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
                 width="100%"
                 height="100%"
                 src="https://www.youtube.com/embed/bMdIFEIDvis"
-                title="How Exponential works"
+                title={`How ${PRODUCT_NAME} works`}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
                 className="border-0"
@@ -703,7 +704,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
         >
           <Image
             src="/expo-torus-logos.png"
-            alt="Exponential Hub"
+            alt={`${PRODUCT_NAME} Hub`}
             width={1200}
             height={800}
             className="rounded-xl shadow-2xl w-full h-auto object-contain"
@@ -725,7 +726,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           <div>
             <div className="mb-12">
               <Title order={3} className="text-brand-primary font-bold">
-                Exponential
+                {PRODUCT_NAME}
               </Title>
             </div>
 
@@ -874,7 +875,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           <div>
             <div className="mb-12">
               <Title order={3} className="text-brand-primary font-bold">
-                Exponential
+                {PRODUCT_NAME}
               </Title>
             </div>
 
@@ -1006,7 +1007,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
           <div>
             <div className="mb-12">
               <Title order={3} className="text-brand-primary font-bold">
-                Exponential
+                {PRODUCT_NAME}
               </Title>
             </div>
 
@@ -1151,7 +1152,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
         <div>
           <div className="mb-8">
             <Title order={3} className="text-brand-primary font-bold">
-              Exponential
+              {PRODUCT_NAME}
             </Title>
           </div>
 

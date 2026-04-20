@@ -397,7 +397,7 @@ export const onboardingRouter = createTRPCRouter({
           );
         }
 
-        // Create the "Learn Exponential" onboarding project in the user's personal workspace
+        // Create the onboarding project (see ONBOARDING_PROJECT_NAME) in the user's personal workspace
         const userWithWorkspace = await tx.user.findUnique({
           where: { id: userId },
           select: { defaultWorkspaceId: true },

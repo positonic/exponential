@@ -4,6 +4,7 @@ import { IconBrandTwitter, IconBrandGithub, IconBrandLinkedin } from "@tabler/ic
 import { LogoDisplay } from "../layout/LogoDisplay";
 import { themes } from "~/config/themes";
 import { getThemeDomain } from "~/config/site";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface FooterSectionProps {
   id?: string;
@@ -108,7 +109,7 @@ export function FooterSection({ id }: FooterSectionProps) {
         {/* Bottom Bar */}
         <div className="border-t border-border-primary pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-text-muted text-sm">
-            © {currentYear} Exponential. All rights reserved.
+            © {currentYear} {PRODUCT_NAME}. All rights reserved.
           </p>
 
           {/* Social Links */}

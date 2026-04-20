@@ -44,6 +44,7 @@ import { useSearchParams } from 'next/navigation';
 import { IntegrationPermissionManager } from '~/app/_components/IntegrationPermissionManager';
 import { ConnectedServicesGrid } from '~/app/_components/ConnectedServicesGrid';
 import { AvailableServicesGrid } from '~/app/_components/AvailableServicesGrid';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 interface CreateIntegrationForm {
   name: string;
@@ -89,7 +90,7 @@ const PROVIDER_OPTIONS = [
   },
   { 
     value: 'exponential-plugin', 
-    label: 'Exponential Plugin', 
+    label: `${PRODUCT_NAME} Plugin`,
     description: 'Browser extension for seamless task creation from web content',
     disabled: false, 
     oauth: false 
@@ -666,10 +667,10 @@ export default function IntegrationsClient() {
           <div>
             <Title order={1} size="h2">External Service Integrations</Title>
             <Text c="dimmed" size="sm">
-              Connect Exponential to external services (Fireflies, GitHub, etc.) using their API keys
+              Connect {PRODUCT_NAME} to external services (Fireflies, GitHub, etc.) using their API keys
             </Text>
             <Text c="blue" size="sm" mt="xs">
-              💡 Need to give external apps access to YOUR Exponential data? <Link href="/settings/api-keys" style={{ textDecoration: 'underline' }}>Generate API tokens here</Link>
+              💡 Need to give external apps access to YOUR {PRODUCT_NAME} data? <Link href="/settings/api-keys" style={{ textDecoration: 'underline' }}>Generate API tokens here</Link>
             </Text>
           </div>
           {viewMode === 'grid' && (

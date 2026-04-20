@@ -1,4 +1,5 @@
 import { getAllBlogPosts } from '~/lib/blog/getBlogPost';
+import { PRODUCT_NAME } from '~/lib/brand';
 import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 export async function GET() {
@@ -25,7 +26,7 @@ export async function GET() {
   xmlns:dc="http://purl.org/dc/elements/1.1/"
   xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>Exponential Blog</title>
+    <title>${PRODUCT_NAME} Blog</title>
     <link>${baseUrl}/blog</link>
     <description>Insights on productivity, AI-powered project management, and building AI-native organizations.</description>
     <language>en-us</language>

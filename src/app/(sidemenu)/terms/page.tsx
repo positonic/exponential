@@ -1,8 +1,9 @@
 import { type Metadata } from "next";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 export const metadata: Metadata = {
-  title: 'Terms of Service | Exponential',
-  description: 'Terms of Service for Exponential - Understanding your rights and responsibilities when using our service.',
+  title: `Terms of Service | ${PRODUCT_NAME}`,
+  description: `Terms of Service for ${PRODUCT_NAME} - Understanding your rights and responsibilities when using our service.`,
 };
 
 export default function TermsOfUse() {
@@ -15,7 +16,7 @@ export default function TermsOfUse() {
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4 text-text-primary">1. Introduction</h2>
         <p className="text-text-secondary mb-4">
-          Welcome to Exponential (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;). Exponential is an AI-powered productivity
+          Welcome to {PRODUCT_NAME} (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;). {PRODUCT_NAME} is an AI-powered productivity
           and project management platform designed to help individuals and teams organize their work,
           set goals, track outcomes, and collaborate effectively. By accessing or using our service
           at exponential.im (the &quot;Service&quot;), you agree to be bound by these Terms of Service
@@ -55,7 +56,7 @@ export default function TermsOfUse() {
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4 text-text-primary">4. Description of Service</h2>
         <p className="text-text-secondary mb-4">
-          Exponential provides a suite of productivity and project management tools, including but not limited to:
+          {PRODUCT_NAME} provides a suite of productivity and project management tools, including but not limited to:
         </p>
         <ul className="list-disc pl-5 text-text-secondary space-y-2">
           <li>Project and task management with priorities, statuses, and deadlines.</li>
@@ -115,7 +116,7 @@ export default function TermsOfUse() {
         <h2 className="text-2xl font-semibold mb-4 text-text-primary">8. Intellectual Property</h2>
         <p className="text-text-secondary mb-4">
           All content, design, software, trademarks, and functionality provided through the Service are
-          the property of Exponential or its licensors and are protected by intellectual property laws.
+          the property of {PRODUCT_NAME} or its licensors and are protected by intellectual property laws.
           You may not copy, modify, distribute, sell, or lease any part of the Service without our
           prior written consent. Unauthorized use, reproduction, or distribution is strictly prohibited.
         </p>
@@ -148,7 +149,7 @@ export default function TermsOfUse() {
           fitness for a particular purpose, and non-infringement.
         </p>
         <p className="text-text-secondary mb-4">
-          To the fullest extent permitted by law, Exponential shall not be liable for any indirect,
+          To the fullest extent permitted by law, {PRODUCT_NAME} shall not be liable for any indirect,
           incidental, special, consequential, or punitive damages, or any loss of profits, data,
           or goodwill, arising out of or in connection with your use of the Service, even if we have
           been advised of the possibility of such damages.

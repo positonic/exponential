@@ -7,12 +7,13 @@ import {
   getAllClusters,
   getClusterArticles,
 } from "~/lib/learn/getLearnArticle";
+import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 const learnUrl = `${getPublicBaseUrlFromEnv()}/learn`;
 
 export const metadata: Metadata = {
-  title: "Learn | Exponential",
+  title: `Learn | ${PRODUCT_NAME}`,
   description:
     "Guides and frameworks for founders building in the AI era. Learn about AI-native execution, weekly planning, and the founder operating system.",
   alternates: {
@@ -20,16 +21,16 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: "website",
-    title: "Learn | Exponential",
+    title: `Learn | ${PRODUCT_NAME}`,
     description:
       "Guides and frameworks for founders building in the AI era.",
     url: learnUrl,
-    siteName: "Exponential",
+    siteName: PRODUCT_NAME,
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Learn | Exponential",
+    title: `Learn | ${PRODUCT_NAME}`,
     description:
       "Guides and frameworks for founders building in the AI era.",
     images: ["/og-image.png"],

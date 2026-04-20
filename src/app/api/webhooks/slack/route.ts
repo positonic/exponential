@@ -6,6 +6,7 @@ import { createCallerFactory } from '~/server/api/trpc';
 import { appRouter } from '~/server/api/root';
 import { parseActionInput } from '~/server/services/parsing';
 import { SlackChannelResolver } from '~/server/services/SlackChannelResolver';
+import { PRODUCT_NAME } from '~/lib/brand';
 import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 // Slack API client
@@ -422,9 +423,9 @@ async function sendAccessDeniedWithRegistration(
     const registrationUrl = `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/auth/slack-connect?token=${registrationToken}`;
     
     const message = `🚨 **Access denied** - You are not authorized to use this system.\n\n` +
-      `To connect your Slack account to Exponential, please:\n` +
+      `To connect your Slack account to ${PRODUCT_NAME}, please:\n` +
       `1. Click here: ${registrationUrl}\n` +
-      `2. Sign in to your Exponential account\n` +
+      `2. Sign in to your ${PRODUCT_NAME} account\n` +
       `3. Complete the connection process\n\n` +
       `*This link expires in 24 hours. Contact your team administrator if you need help.*`;
 
@@ -1074,7 +1075,7 @@ Use the project IDs above when querying for project-specific data.`;
 This channel is linked to workspace "${workspace.name}" (slug: ${workspace.slug}, type: ${workspace.type}).
 When the user mentions "the workspace", "our team", or asks about overall progress, they mean "${workspace.name}".
 OKR page: ${okrPageUrl}
-When discussing OKRs, ALWAYS include a link to the OKR page using Slack format: <${okrPageUrl}|View OKRs in Exponential>
+When discussing OKRs, ALWAYS include a link to the OKR page using Slack format: <${okrPageUrl}|View OKRs in ${PRODUCT_NAME}>
 Only show OKRs belonging to this workspace ("${workspace.name}"). Do NOT include OKRs from other workspaces.
 ${okrContext}`;
         }
@@ -1406,7 +1407,7 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
 • \`/expo create Fix bug for Acme project\` - linked to "Acme" project
 • \`/expo create Send report tomorrow for Sales project\` - both!
 
-You can also mention me (@Exponential) in any channel to chat with Zoe!`
+You can also mention me (@${PRODUCT_NAME}) in any channel to chat with Zoe!`
       };
 
     default:
@@ -1465,7 +1466,7 @@ async function createActionFromSlack(title: string, user: any, channelId: string
     if (details.length > 0) {
       confirmationMessage += '\n' + details.join(' • ');
     }
-    confirmationMessage += '\n_Added to your Exponential inbox_';
+    confirmationMessage += `\n_Added to your ${PRODUCT_NAME} inbox_`;
 
     await sendSlackResponse(confirmationMessage, channelId, integrationData);
 
@@ -1508,7 +1509,7 @@ async function listUserActions(user: any, _responseUrl: string) {
 
     return {
       response_type: 'ephemeral',
-      text: `📋 Your pending actions:\n${actionList}\n\n_Visit your <${getPublicBaseUrlFromEnv()}/home|Exponential> dashboard to manage these actions_`
+      text: `📋 Your pending actions:\n${actionList}\n\n_Visit your <${getPublicBaseUrlFromEnv()}/home|${PRODUCT_NAME}> dashboard to manage these actions_`
     };
   } catch (error) {
     console.error('Error listing actions:', error);
@@ -1548,7 +1549,7 @@ async function listUserProjects(user: any, _responseUrl: string) {
     if (projects.length === 0) {
       return {
         response_type: 'ephemeral',
-        text: '📁 No active projects found. Create your first project in the Exponential dashboard!'
+        text: `📁 No active projects found. Create your first project in the ${PRODUCT_NAME} dashboard!`
       };
     }
 
@@ -1564,7 +1565,7 @@ async function listUserProjects(user: any, _responseUrl: string) {
 
     return {
       response_type: 'ephemeral',
-      text: `📁 Your active projects:\n${projectList}\n\n_Visit your <${getPublicBaseUrlFromEnv()}/projects|Exponential> dashboard to manage these projects_`
+      text: `📁 Your active projects:\n${projectList}\n\n_Visit your <${getPublicBaseUrlFromEnv()}/projects|${PRODUCT_NAME}> dashboard to manage these projects_`
     };
   } catch (error) {
     console.error('Error listing projects:', error);
@@ -1656,7 +1657,7 @@ async function handleCreateAction(payload: SlackInteractivePayload, integrationD
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             response_type: 'ephemeral',
-            text: 'Could not create action — your Slack account is not linked to Exponential.'
+            text: `Could not create action — your Slack account is not linked to ${PRODUCT_NAME}.`
           })
         });
       }
@@ -1821,7 +1822,7 @@ async function handleAppHomeOpened(event: SlackEvent, user: any, integrationData
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: 'Welcome to your Exponential Slack app home tab!'
+          text: `Welcome to your ${PRODUCT_NAME} Slack app home tab!`
         }
       },
       {

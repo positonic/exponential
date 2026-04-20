@@ -14,6 +14,7 @@ import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { sendAssignmentNotifications } from "~/server/services/notifications/EmailNotificationService";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
+import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 
@@ -2172,7 +2173,7 @@ export const actionRouter = createTRPCRouter({
 
       return {
         success: true,
-        message: "✅ Added to Exponential",
+        message: `✅ Added to ${PRODUCT_NAME}`,
         title: action.name,
         url: `${getPublicBaseUrlFromEnv()}/actions?actionId=${action.id}`,
         action,

@@ -34,6 +34,7 @@ import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import type { ConfigSource } from "~/server/services/notion-config-resolver";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface NotionSetupWizardProps {
   opened: boolean;
@@ -512,7 +513,7 @@ export function NotionSetupWizard({
                         Click <strong>&hellip;</strong> (top-right) &rarr;{" "}
                         <strong>Connections</strong>
                       </li>
-                      <li>Add the Exponential integration</li>
+                      <li>Add the {PRODUCT_NAME} integration</li>
                     </Text>
                     <Text size="sm">
                       Then click &ldquo;Refresh&rdquo; below to reload.
@@ -572,7 +573,7 @@ export function NotionSetupWizard({
         >
           <Stack gap="md" mt="md">
             <Text size="sm" c="dimmed">
-              Map your Notion status values to Exponential kanban columns so tasks
+              Map your Notion status values to {PRODUCT_NAME} kanban columns so tasks
               appear in the correct column.
             </Text>
 
@@ -683,7 +684,7 @@ export function NotionSetupWizard({
         >
           <Stack gap="md" mt="md">
             <Text size="sm" c="dimmed">
-              Configure how tasks should be synced between Exponential and
+              Configure how tasks should be synced between {PRODUCT_NAME} and
               Notion.
             </Text>
 
@@ -703,7 +704,7 @@ export function NotionSetupWizard({
                   },
                   {
                     value: "push",
-                    label: "Push to Notion (Exponential is source of truth)",
+                    label: `Push to Notion (${PRODUCT_NAME} is source of truth)`,
                   },
                   {
                     value: "bidirectional",

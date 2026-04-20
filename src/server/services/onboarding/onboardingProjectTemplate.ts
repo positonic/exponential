@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from "~/lib/brand";
+
 export interface OnboardingActionTemplate {
   /** Unique key matching the welcome checklist step ID */
   stepKey: string;
@@ -6,10 +8,9 @@ export interface OnboardingActionTemplate {
   order: number;
 }
 
-export const ONBOARDING_PROJECT_NAME = "Learn Exponential";
+export const ONBOARDING_PROJECT_NAME = `Learn ${PRODUCT_NAME}`;
 
-export const ONBOARDING_PROJECT_DESCRIPTION =
-  "Your guided tour of Exponential. Complete these actions to master the core features — goals, outcomes, actions, daily planning, and more.";
+export const ONBOARDING_PROJECT_DESCRIPTION = `Your guided tour of ${PRODUCT_NAME}. Complete these actions to master the core features — goals, outcomes, actions, daily planning, and more.`;
 
 export const ONBOARDING_ACTIONS: OnboardingActionTemplate[] = [
   {

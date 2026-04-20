@@ -31,6 +31,7 @@ import { api } from "~/trpc/react";
 import { useAgentModal } from "~/providers/AgentModalProvider";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useRouter } from "next/navigation";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface ChecklistItem {
   id: string;
@@ -184,7 +185,7 @@ export function WelcomeChecklist() {
         .filter((a) => a.status !== "COMPLETED")
         .map((a) => a.name);
 
-      onboardingContext = `\n\nThe user has a "Learn Exponential" onboarding project tracking their setup progress.${
+      onboardingContext = `\n\nThe user has a "Learn ${PRODUCT_NAME}" onboarding project tracking their setup progress.${
         completed.length > 0
           ? `\nCompleted: ${completed.join(", ")}.`
           : ""
@@ -198,12 +199,12 @@ export function WelcomeChecklist() {
     setMessages([
       {
         type: "system",
-        content: `The user just signed up and is setting up their workspace${usageContext}${roleContext}. Help them understand how Goals, Outcomes, and Actions work together in Exponential. Guide them through their setup checklist. Be encouraging and concise.${onboardingContext}`,
+        content: `The user just signed up and is setting up their workspace${usageContext}${roleContext}. Help them understand how Goals, Outcomes, and Actions work together in ${PRODUCT_NAME}. Guide them through their setup checklist. Be encouraging and concise.${onboardingContext}`,
       },
       {
         type: "ai",
         agentName: "Assistant",
-        content: `Welcome${userName ? `, ${userName}` : ""}! I'm here to help you get set up. Exponential works on a simple framework:\n\n**Goals** define what you want to achieve\n**Outcomes** measure whether you're getting there\n**Actions** are the concrete tasks that move things forward\n**Projects** group related work together\n\nWould you like help setting up your first goal, or is there something specific you'd like to explore?`,
+        content: `Welcome${userName ? `, ${userName}` : ""}! I'm here to help you get set up. ${PRODUCT_NAME} works on a simple framework:\n\n**Goals** define what you want to achieve\n**Outcomes** measure whether you're getting there\n**Actions** are the concrete tasks that move things forward\n**Projects** group related work together\n\nWould you like help setting up your first goal, or is there something specific you'd like to explore?`,
       },
     ]);
     openModal(onboardingProject?.id);

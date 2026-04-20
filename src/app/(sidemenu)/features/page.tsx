@@ -3,6 +3,7 @@ import { Container, Title, Text, SimpleGrid, Card, ThemeIcon, Collapse, Stack, B
 import { IconGitBranch, IconUsers, IconCode, IconBriefcase, IconChartBar, IconWorld, IconChevronDown, IconArrowRight } from "@tabler/icons-react";
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface Feature {
   icon: React.ElementType;
@@ -252,7 +253,7 @@ export default function Features() {
             className="max-w-3xl text-justify px-4"
             ta="justify"
           >
-            Exponential combines AI-driven project coordination, decentralized funding, and a
+            {PRODUCT_NAME} combines AI-driven project coordination, decentralized funding, and a
             governance model that rewards contributions fairly.
           </Text>
         </div>

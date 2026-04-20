@@ -9,6 +9,7 @@ import { ThemeToggle } from "~/app/_components/ThemeToggle";
 import { themes } from "~/config/themes";
 import { getThemeDomain } from "~/config/site";
 import { FooterSection } from "~/app/_components/home";
+import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 interface FeaturePageProps {
@@ -31,22 +32,22 @@ export async function generateMetadata({ params }: FeaturePageProps) {
   const url = `${getPublicBaseUrlFromEnv()}/features/${slug}`;
 
   return {
-    title: `${feature.title} | Exponential`,
+    title: `${feature.title} | ${PRODUCT_NAME}`,
     description: feature.description,
     alternates: {
       canonical: url,
     },
     openGraph: {
       type: 'website',
-      title: `${feature.title} | Exponential`,
+      title: `${feature.title} | ${PRODUCT_NAME}`,
       description: feature.description,
       url,
-      siteName: 'Exponential',
+      siteName: PRODUCT_NAME,
       images: [{ url: '/og-image.png', width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
-      title: `${feature.title} | Exponential`,
+      title: `${feature.title} | ${PRODUCT_NAME}`,
       description: feature.description,
       images: ['/og-image.png'],
     },

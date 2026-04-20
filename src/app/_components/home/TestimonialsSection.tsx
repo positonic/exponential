@@ -1,5 +1,6 @@
 import { Container, SimpleGrid } from "@mantine/core";
 import { IconQuote } from "@tabler/icons-react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface TestimonialsSectionProps {
   id?: string;
@@ -16,7 +17,7 @@ const testimonials = [
   },
   {
     quote:
-      "Our AI agents handle execution. Exponential is the layer that keeps them coordinated with the humans. Planning time dropped 60%.",
+      `Our AI agents handle execution. ${PRODUCT_NAME} is the layer that keeps them coordinated with the humans. Planning time dropped 60%.`,
     name: "Marcus Rivera",
     title: "CTO",
     company: "BuildFast",

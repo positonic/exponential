@@ -2,6 +2,7 @@
 import React from "react";
 import { Title, Text } from "@mantine/core";
 import { IconTarget, IconCalendarWeek, IconBrain } from "@tabler/icons-react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface FeatureDetailCardProps {
   icon: React.ReactNode;
@@ -76,7 +77,7 @@ export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = (
           <div className="flex flex-col justify-center">
             <div className="mb-6">
               <span className="px-4 py-2 bg-surface-secondary rounded-full text-brand-primary text-sm font-medium">
-                Why Use Exponential?
+                Why Use {PRODUCT_NAME}?
               </span>
             </div>
 
@@ -85,7 +86,7 @@ export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = (
             </Title>
 
             <Text className="text-text-muted text-xl mb-12 leading-relaxed">
-              Most productivity tools help you check boxes. Exponential helps you know which boxes matter — and why.
+              Most productivity tools help you check boxes. {PRODUCT_NAME} helps you know which boxes matter — and why.
             </Text>
 
             <div className="space-y-3 mt-4">

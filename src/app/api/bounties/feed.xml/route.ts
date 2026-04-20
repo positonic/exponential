@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "~/server/db";
+import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export const dynamic = "force-dynamic";
@@ -88,13 +89,13 @@ ${b.bountySkills.map((s) => `    <category term="${escapeXml(s)}" label="Skill" 
   const feed = `<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <id>${SITE_URL}/api/bounties/feed.xml</id>
-  <title>Exponential — Open Bounties</title>
-  <subtitle>Open bounties from public projects on Exponential</subtitle>
+  <title>${escapeXml(PRODUCT_NAME)} — Open Bounties</title>
+  <subtitle>Open bounties from public projects on ${escapeXml(PRODUCT_NAME)}</subtitle>
   <link href="${SITE_URL}/api/bounties/feed.xml" rel="self" type="application/atom+xml" />
   <link href="${SITE_URL}/explore" rel="alternate" type="text/html" />
   <updated>${updated.toISOString()}</updated>
   <author>
-    <name>Exponential</name>
+    <name>${escapeXml(PRODUCT_NAME)}</name>
     <uri>${SITE_URL}</uri>
   </author>
 ${entries}

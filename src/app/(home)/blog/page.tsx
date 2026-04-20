@@ -2,12 +2,13 @@ import Link from "next/link";
 import { Title, Text, Badge } from "@mantine/core";
 import type { Metadata } from "next";
 import { getAllBlogPosts } from "~/lib/blog/getBlogPost";
+import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 const blogUrl = `${getPublicBaseUrlFromEnv()}/blog`;
 
 export const metadata: Metadata = {
-  title: "Blog | Exponential",
+  title: `Blog | ${PRODUCT_NAME}`,
   description:
     "Insights on productivity, AI-powered project management, and building products as a solo founder.",
   alternates: {
@@ -18,15 +19,15 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: 'website',
-    title: "Blog | Exponential",
+    title: `Blog | ${PRODUCT_NAME}`,
     description: "Insights on productivity, AI-powered project management, and building products as a solo founder.",
     url: blogUrl,
-    siteName: "Exponential",
+    siteName: PRODUCT_NAME,
     images: [{ url: '/og-image.png', width: 1200, height: 630 }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: "Blog | Exponential",
+    title: `Blog | ${PRODUCT_NAME}`,
     description: "Insights on productivity, AI-powered project management, and building products as a solo founder.",
     images: ['/og-image.png'],
   },

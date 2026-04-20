@@ -27,6 +27,7 @@ import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
 import Link from 'next/link';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 // interface ApiToken {
 //   tokenId: string;
@@ -140,10 +141,10 @@ export default function TokensPage() {
           <div>
             <Title order={1} size="h2">API / Webhook Access Tokens</Title>
             <Text c="dimmed" size="sm">
-              Generate API keys for external applications to access YOUR Exponential data, or insert / update your exponential data via webhooks.
+              Generate API keys for external applications to access YOUR {PRODUCT_NAME} data, or insert / update your {PRODUCT_NAME.toLowerCase()} data via webhooks.
             </Text>
             <Text c="orange" size="sm" mt="xs">
-              Looking to connect Exponential to external services? <Link href="/settings/integrations" style={{ textDecoration: 'underline' }}>Set up integrations here</Link>
+              Looking to connect {PRODUCT_NAME} to external services? <Link href="/settings/integrations" style={{ textDecoration: 'underline' }}>Set up integrations here</Link>
             </Text>
           </div>
           <Button

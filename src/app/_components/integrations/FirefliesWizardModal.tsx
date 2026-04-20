@@ -32,6 +32,7 @@ import {
   IconCircleCheck,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 type WizardStep =
   | "checking"
@@ -454,7 +455,7 @@ export function FirefliesWizardModal({
 
             <Text>
               Now let&apos;s configure the webhook. This allows Fireflies to notify
-              Exponential when a meeting has been transcribed, so we can automatically
+              {` ${PRODUCT_NAME} `}when a meeting has been transcribed, so we can automatically
               fetch the details and bring them to your account.
             </Text>
 

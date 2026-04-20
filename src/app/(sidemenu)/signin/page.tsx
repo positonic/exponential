@@ -7,10 +7,11 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { SignInButtons } from "./SignInButtons";
 import { auth } from "~/server/auth";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 export const metadata: Metadata = {
-  title: "Sign In | Exponential",
-  description: "Sign in to Exponential with your Google or Discord account.",
+  title: `Sign In | ${PRODUCT_NAME}`,
+  description: `Sign in to ${PRODUCT_NAME} with your Google or Discord account.`,
   robots: { index: false, follow: false },
   alternates: {
     canonical: "/signin",
@@ -31,7 +32,7 @@ export default async function SignIn() {
         {/* Logo */}
         <div className="mb-12">
           <Text className="text-2xl font-bold text-text-primary">
-            Exponential.im
+            {PRODUCT_NAME}.im
           </Text>
         </div>
 
@@ -41,7 +42,7 @@ export default async function SignIn() {
             {/* Header */}
             <div>
               <Title order={1} className="text-4xl font-bold text-text-primary mb-2">
-                👋 Try Exponential for free!
+                👋 Try {PRODUCT_NAME} for free!
               </Title>
               <Text className="text-text-secondary text-lg">
                 Sign up with your Google or Discord account

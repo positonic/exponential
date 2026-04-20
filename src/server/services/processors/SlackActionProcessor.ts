@@ -1,6 +1,7 @@
 import { ActionProcessor, type ParsedActionItem, type ActionProcessorResult, type ActionProcessorConfig } from './ActionProcessor';
 import { db } from '~/server/db';
 import { SlackNotificationService } from '../notifications/SlackNotificationService';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 export class SlackActionProcessor extends ActionProcessor {
   name = 'Slack Notifications';
@@ -142,7 +143,7 @@ export class SlackActionProcessor extends ActionProcessor {
         message: `${interactivePayload.message}\n\n` +
           `• Use \`/expo create [description]\` to add new actions\n` +
           `• Use \`/expo list\` to see all your pending actions\n` +
-          `• Mention @Exponential to create actions via chat`
+          `• Mention @${PRODUCT_NAME} to create actions via chat`
       });
     } catch (error) {
       console.error('Failed to send interactive buttons:', error);

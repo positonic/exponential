@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from "~/lib/brand";
+
 export interface FeatureData {
   slug: string;
   category: string;
@@ -12,7 +14,7 @@ export const features: FeatureData[] = [
   // ALIGNMENT
   {
     slug: "goals",
-    category: "Exponential's Goals",
+    category: `${PRODUCT_NAME}'s Goals`,
     title: "Goals",
     headline: "Define what matters. Stay focused on why.",
     description:
@@ -27,7 +29,7 @@ export const features: FeatureData[] = [
   },
   {
     slug: "outcomes",
-    category: "Exponential's Outcomes",
+    category: `${PRODUCT_NAME}'s Outcomes`,
     title: "Outcomes",
     headline: "Measure success at any time horizon.",
     description:
@@ -42,7 +44,7 @@ export const features: FeatureData[] = [
   },
   {
     slug: "okrs",
-    category: "Exponential's OKRs",
+    category: `${PRODUCT_NAME}'s OKRs`,
     title: "OKRs",
     headline: "Objectives & Key Results that actually work.",
     description:
@@ -57,7 +59,7 @@ export const features: FeatureData[] = [
   },
   {
     slug: "weekly-review",
-    category: "Exponential's Weekly Review",
+    category: `${PRODUCT_NAME}'s Weekly Review`,
     title: "Weekly Review",
     headline: "Reflect, reset, realign—every week.",
     description:
@@ -75,7 +77,7 @@ export const features: FeatureData[] = [
   // EXECUTION
   {
     slug: "projects",
-    category: "Exponential's Projects",
+    category: `${PRODUCT_NAME}'s Projects`,
     title: "Projects",
     headline: "Containers for focused work.",
     description:
@@ -90,11 +92,11 @@ export const features: FeatureData[] = [
   },
   {
     slug: "actions",
-    category: "Exponential's Actions",
+    category: `${PRODUCT_NAME}'s Actions`,
     title: "Actions",
     headline: "Tasks that connect to outcomes.",
     description:
-      "Every action in Exponential links to why it matters. No more orphan tasks floating in a void—see exactly how each task drives your bigger goals.",
+      `Every action in ${PRODUCT_NAME} links to why it matters. No more orphan tasks floating in a void—see exactly how each task drives your bigger goals.`,
     benefits: [
       "AI-generated action suggestions",
       "Automatic outcome linking",
@@ -105,7 +107,7 @@ export const features: FeatureData[] = [
   },
   {
     slug: "today-view",
-    category: "Exponential's Today View",
+    category: `${PRODUCT_NAME}'s Today View`,
     title: "Today View",
     headline: "Focus on what matters now.",
     description:
@@ -120,7 +122,7 @@ export const features: FeatureData[] = [
   },
   {
     slug: "inbox",
-    category: "Exponential's Inbox",
+    category: `${PRODUCT_NAME}'s Inbox`,
     title: "Inbox",
     headline: "Capture anything, process later.",
     description:
@@ -137,7 +139,7 @@ export const features: FeatureData[] = [
   // AI FEATURES
   {
     slug: "ai-assistant",
-    category: "Exponential's AI Assistant",
+    category: `${PRODUCT_NAME}'s AI Assistant`,
     title: "AI Assistant",
     headline: "Chat with Zoe about your work.",
     description:
@@ -152,7 +154,7 @@ export const features: FeatureData[] = [
   },
   {
     slug: "meeting-intelligence",
-    category: "Exponential's Meeting Intelligence",
+    category: `${PRODUCT_NAME}'s Meeting Intelligence`,
     title: "Meeting Intelligence",
     headline: "Meetings become actions automatically.",
     description:
@@ -167,7 +169,7 @@ export const features: FeatureData[] = [
   },
   {
     slug: "smart-search",
-    category: "Exponential's Smart Search",
+    category: `${PRODUCT_NAME}'s Smart Search`,
     title: "Smart Search",
     headline: "Find anything across your work.",
     description:
@@ -216,7 +218,7 @@ export const features: FeatureData[] = [
   // TEAM
   {
     slug: "workspaces",
-    category: "Exponential's Workspaces",
+    category: `${PRODUCT_NAME}'s Workspaces`,
     title: "Workspaces",
     headline: "Organize by client or project.",
     description:
@@ -231,7 +233,7 @@ export const features: FeatureData[] = [
   },
   {
     slug: "weekly-planning",
-    category: "Exponential's Weekly Planning",
+    category: `${PRODUCT_NAME}'s Weekly Planning`,
     title: "Weekly Planning",
     headline: "See what everyone's doing.",
     description:
@@ -246,7 +248,7 @@ export const features: FeatureData[] = [
   },
   {
     slug: "team-capacity",
-    category: "Exponential's Team Capacity",
+    category: `${PRODUCT_NAME}'s Team Capacity`,
     title: "Team Capacity",
     headline: "Track who's available.",
     description:

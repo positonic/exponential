@@ -15,6 +15,7 @@ import {
 } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 function slugify(input: string): string {
   return input
@@ -87,7 +88,7 @@ export default function NewProductPage() {
           <Stack gap="md">
             <TextInput
               label="Name"
-              placeholder="e.g. Exponential Core"
+              placeholder={`e.g. ${PRODUCT_NAME} Core`}
               value={name}
               onChange={(e) => onNameChange(e.currentTarget.value)}
               required

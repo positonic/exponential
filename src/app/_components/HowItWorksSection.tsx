@@ -2,6 +2,7 @@
 import React from "react";
 import { Title, Text } from "@mantine/core";
 import { IconTarget, IconChartBar, IconChecklist, IconRefresh } from "@tabler/icons-react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface StepCardProps {
   number: number;
@@ -70,7 +71,7 @@ export const HowItWorksSection: React.FC<HowItWorksSectionProps> = ({ id }) => {
             className="text-4xl md:text-5xl font-bold mb-6"
             style={{ color: "var(--color-brand-primary)" }}
           >
-            How Exponential Works
+            How {PRODUCT_NAME} Works
           </Title>
           <Text className="text-text-muted text-lg max-w-2xl mx-auto">
             A simple system that connects strategy to execution. No complex setup required.

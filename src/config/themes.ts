@@ -1,5 +1,6 @@
 import type { MantineTheme } from '@mantine/core';
 import { mantineTheme } from '~/styles/mantineTheme';
+import { PRODUCT_NAME } from '~/lib/brand';
 export type ValidDomain = 'forceflow.com' | 'exponential.im';
 
 export type ThemeConfig = {
@@ -70,9 +71,9 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
         }
       },
     branding: {
-      title: 'Exponential - The OS for AI-Native Organizations',
+      title: `${PRODUCT_NAME} - The OS for AI-Native Organizations`,
       description: 'The coordination layer for AI-first organizations. Goals cascade into outcomes, AI handles execution, and your team stays aligned.',
-      descriptionLonger: 'Exponential is the operating system where humans and AI build together. A coordination layer for AI-first organizations that connects goals to outcomes to actions — with AI handling execution while your team stays aligned on what matters.',
+      descriptionLonger: `${PRODUCT_NAME} is the operating system where humans and AI build together. A coordination layer for AI-first organizations that connects goals to outcomes to actions — with AI handling execution while your team stays aligned on what matters.`,
       heroTitle: 'Where humans and AI build together',
       heroSubtitle: 'The coordination layer for AI-first organizations. Goals cascade into outcomes. AI handles execution. Your team stays aligned.'
     }

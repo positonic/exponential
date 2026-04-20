@@ -9,6 +9,7 @@ import {
   getClusterArticles,
 } from "~/lib/learn/getLearnArticle";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 interface LearnArticlePageProps {
@@ -33,7 +34,7 @@ export async function generateMetadata({
   const url = `${getPublicBaseUrlFromEnv()}/learn/${slug}`;
 
   return {
-    title: `${article.meta.title} | Exponential`,
+    title: `${article.meta.title} | ${PRODUCT_NAME}`,
     description: article.meta.description,
     alternates: {
       canonical: url,
@@ -43,7 +44,7 @@ export async function generateMetadata({
       title: article.meta.title,
       description: article.meta.description,
       url,
-      siteName: "Exponential",
+      siteName: PRODUCT_NAME,
       publishedTime: new Date(article.meta.date).toISOString(),
       authors: article.meta.author ? [article.meta.author] : undefined,
       tags: article.meta.tags,
@@ -86,12 +87,12 @@ export default async function LearnArticlePage({
     datePublished: new Date(article.meta.date).toISOString(),
     author: {
       "@type":
-        article.meta.author === "Exponential Team" ? "Organization" : "Person",
-      name: article.meta.author ?? "Exponential Team",
+        article.meta.author === `${PRODUCT_NAME} Team` ? "Organization" : "Person",
+      name: article.meta.author ?? `${PRODUCT_NAME} Team`,
     },
     publisher: {
       "@type": "Organization",
-      name: "Exponential",
+      name: PRODUCT_NAME,
       url: getPublicBaseUrlFromEnv(),
       logo: {
         "@type": "ImageObject",
@@ -227,7 +228,7 @@ export default async function LearnArticlePage({
               Ready to build your founder operating system?
             </h2>
             <Text className="mx-auto mb-8 max-w-lg text-white/80">
-              Exponential gives you an AI copilot that runs your productivity
+              {PRODUCT_NAME} gives you an AI copilot that runs your productivity
               system — so you stay focused on the work that matters.
             </Text>
 

@@ -30,6 +30,7 @@ import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvide
 import { SessionProvider } from "next-auth/react";
 import { WorkspaceProvider } from '~/providers/WorkspaceProvider';
 import { ServiceWorkerRegistration } from '~/app/_components/ServiceWorkerRegistration';
+import { PRODUCT_NAME } from '~/lib/brand';
 import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 const domain = getThemeDomain();
@@ -56,10 +57,10 @@ export default async function RootLayout({
       <head>
         <ColorSchemeScript />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-        <link rel="manifest" href="/site.webmanifest" />
+        <link rel="manifest" href="/manifest.webmanifest" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="Exponential" />
+        <meta name="apple-mobile-web-app-title" content={PRODUCT_NAME} />
       </head>
       <body className="h-full bg-background-primary">
         <ThemeProvider domain={domain}>

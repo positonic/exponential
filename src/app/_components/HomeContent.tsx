@@ -18,6 +18,7 @@ import {
 } from '@tabler/icons-react';
 import Link from 'next/link';
 import { PluginWidgets } from './PluginWidgets';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 interface HomeContentProps {
   userName: string;
@@ -62,7 +63,7 @@ export function HomeContent({
   // Display title based on workspace context
   const welcomeTitle = workspaceName
     ? `Welcome to ${workspaceName}!`
-    : `Welcome to Exponential, ${userName}!`;
+    : `Welcome to ${PRODUCT_NAME}, ${userName}!`;
 
   return (
     <Container size="lg" py="xl">
@@ -71,7 +72,7 @@ export function HomeContent({
         {isNewUser && (
           <Alert
             icon={<IconConfetti size={20} />}
-            title="Welcome to Exponential!"
+            title={`Welcome to ${PRODUCT_NAME}!`}
             color="green"
             variant="light"
             className="border-border-primary"
@@ -108,7 +109,7 @@ export function HomeContent({
             ) : workspaceName ? (
               `Your productivity hub for ${workspaceName}. Manage projects, track goals, and stay organized.`
             ) : (
-              'Exponential is your AI-powered productivity assistant that helps you manage tasks, projects, and goals while learning from your meetings and daily activities.'
+              `${PRODUCT_NAME} is your AI-powered productivity assistant that helps you manage tasks, projects, and goals while learning from your meetings and daily activities.`
             )}
           </Text>
         </div>

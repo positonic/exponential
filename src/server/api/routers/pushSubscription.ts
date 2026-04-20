@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { sendPushNotification } from "~/server/services/notifications/WebPushService";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 export const pushSubscriptionRouter = createTRPCRouter({
   /** Save a push subscription for the current user */
@@ -84,7 +85,7 @@ export const pushSubscriptionRouter = createTRPCRouter({
             keys: { p256dh: sub.p256dh, auth: sub.auth },
           },
           {
-            title: "Exponential",
+            title: PRODUCT_NAME,
             body: "Push notifications are working!",
             tag: "test",
             url: "/",

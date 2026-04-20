@@ -23,6 +23,7 @@ import { ModalsProvider } from '@mantine/modals';
 import { Analytics } from '@vercel/analytics/next';
 import { GoogleAnalytics } from '@next/third-parties/google';
 import { FloatingFeedbackButton } from '~/app/_components/FloatingFeedbackButton';
+import { PRODUCT_NAME } from '~/lib/brand';
 import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 const domain = getThemeDomain();
@@ -39,7 +40,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    siteName: 'Exponential',
+    siteName: PRODUCT_NAME,
     title: themes[domain].branding.title,
     description: themes[domain].branding.description,
     url: baseUrl,
@@ -48,7 +49,7 @@ export const metadata: Metadata = {
         url: '/og-image.png',
         width: 1200,
         height: 630,
-        alt: 'Exponential - The OS for AI-Native Organizations',
+        alt: `${PRODUCT_NAME} - The OS for AI-Native Organizations`,
       },
     ],
   },
@@ -74,7 +75,7 @@ export default async function HomeLayout({
         <link
           rel="alternate"
           type="application/rss+xml"
-          title="Exponential Blog"
+          title={`${PRODUCT_NAME} Blog`}
           href="/blog/feed.xml"
         />
         <script
@@ -83,7 +84,7 @@ export default async function HomeLayout({
             __html: JSON.stringify({
               "@context": "https://schema.org",
               "@type": "SoftwareApplication",
-              "name": "Exponential",
+              "name": PRODUCT_NAME,
               "description": "The coordination layer for AI-first organizations. Goals cascade into outcomes, AI handles execution, and your team stays aligned.",
               "url": baseUrl,
               "applicationCategory": "ProductivityApplication",
@@ -95,7 +96,7 @@ export default async function HomeLayout({
               },
               "creator": {
                 "@type": "Organization",
-                "name": "Exponential",
+                "name": PRODUCT_NAME,
                 "url": baseUrl
               },
               "featureList": [

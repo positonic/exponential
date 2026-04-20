@@ -9,6 +9,7 @@
 /* eslint-disable no-restricted-syntax */
 
 import { colorTokens } from "~/styles/colors";
+import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 const POSTMARK_API_URL = "https://api.postmarkapp.com/email";
@@ -67,7 +68,7 @@ export async function sendMagicLinkEmail(
   url: string
 ): Promise<void> {
   const brandColor = EMAIL_BRAND_COLOR;
-  const appName = "Exponential";
+  const appName = PRODUCT_NAME;
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -349,7 +350,7 @@ export async function sendWelcomeWithMagicLinkEmail(
   magicLinkUrl: string
 ): Promise<void> {
   const brandColor = EMAIL_BRAND_COLOR;
-  const appName = "Exponential";
+  const appName = PRODUCT_NAME;
   const appUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
 
   const { htmlBody, textBody } = generateWelcomeEmailContent({
@@ -379,7 +380,7 @@ export async function sendWelcomeEmail(
   authProvider?: string
 ): Promise<void> {
   const brandColor = EMAIL_BRAND_COLOR;
-  const appName = "Exponential";
+  const appName = PRODUCT_NAME;
   const appUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
   const signInUrl = `${appUrl}/signin`;
 
@@ -422,7 +423,7 @@ export async function sendTeamInvitationEmail(params: {
 }): Promise<void> {
   const { to, teamName, inviterName, inviteUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
-  const appName = "Exponential";
+  const appName = PRODUCT_NAME;
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -565,7 +566,7 @@ export async function sendAssignmentNotificationEmail(params: {
 }): Promise<void> {
   const { to, assigneeName, assignerName, actionName, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
-  const appName = "Exponential";
+  const appName = PRODUCT_NAME;
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
   const greeting = assigneeName ? `Hi ${assigneeName},` : "Hi there,";
 
@@ -669,7 +670,7 @@ export async function sendMentionNotificationEmail(params: {
 }): Promise<void> {
   const { to, mentionedName, authorName, actionName, commentPreview, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
-  const appName = "Exponential";
+  const appName = PRODUCT_NAME;
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
   const greeting = mentionedName ? `Hi ${mentionedName},` : "Hi there,";
 

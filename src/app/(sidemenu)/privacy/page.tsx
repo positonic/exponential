@@ -1,8 +1,9 @@
 import { type Metadata } from "next";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy | Exponential',
-  description: 'Privacy Policy for Exponential - Learn how we protect your data and respect your privacy.',
+  title: `Privacy Policy | ${PRODUCT_NAME}`,
+  description: `Privacy Policy for ${PRODUCT_NAME} - Learn how we protect your data and respect your privacy.`,
 };
 
 export default function PrivacyPolicy() {
@@ -15,7 +16,7 @@ export default function PrivacyPolicy() {
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Introduction</h2>
         <p className="text-text-secondary mb-4">
-          Welcome to Exponential. We value your privacy and are committed to protecting your personal information.
+          Welcome to {PRODUCT_NAME}. We value your privacy and are committed to protecting your personal information.
           This Privacy Policy explains how we collect, use, disclose, and safeguard your data when you use our service.
         </p>
       </section>
@@ -23,7 +24,7 @@ export default function PrivacyPolicy() {
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Information We Collect</h2>
         <p className="text-text-secondary mb-4">
-          We collect the following types of information when you use Exponential:
+          We collect the following types of information when you use {PRODUCT_NAME}:
         </p>
 
         <div className="mb-4">
@@ -79,7 +80,7 @@ export default function PrivacyPolicy() {
       <section className="mb-8 p-6 border border-border-primary rounded-lg bg-surface-secondary">
         <h2 className="text-2xl font-semibold mb-4">Google User Data</h2>
         <p className="text-text-secondary mb-4">
-          When you connect your Google account to Exponential, we access specific Google user data to provide
+          When you connect your Google account to {PRODUCT_NAME}, we access specific Google user data to provide
           our CRM and productivity features. This section describes exactly what data we access, how we use it,
           and how we protect it.
         </p>
@@ -205,10 +206,10 @@ export default function PrivacyPolicy() {
         <div className="mb-4">
           <h3 className="text-xl font-semibold mb-3">Revoking Access</h3>
           <p className="text-text-secondary">
-            You can revoke Exponential&apos;s access to your Google account at any time by:
+            You can revoke {PRODUCT_NAME}&apos;s access to your Google account at any time by:
           </p>
           <ol className="list-decimal pl-5 text-text-secondary space-y-1 mt-2">
-            <li>Disconnecting Google from your Exponential account settings, or</li>
+            <li>Disconnecting Google from your {PRODUCT_NAME} account settings, or</li>
             <li>Visiting your{' '}
               <a
                 href="https://myaccount.google.com/permissions"
@@ -218,7 +219,7 @@ export default function PrivacyPolicy() {
               >
                 Google Account permissions page
               </a>
-              {' '}and removing Exponential from the list of connected apps.
+              {' '}and removing {PRODUCT_NAME} from the list of connected apps.
             </li>
           </ol>
         </div>

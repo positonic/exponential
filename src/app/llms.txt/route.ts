@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export const dynamic = "force-dynamic";
@@ -9,9 +10,9 @@ export const dynamic = "force-dynamic";
  */
 export function GET() {
   const baseUrl = getPublicBaseUrlFromEnv();
-  const content = `# Exponential — Open Source Project Management with Bounties
+  const content = `# ${PRODUCT_NAME} — Open Source Project Management with Bounties
 
-> Exponential is a project management platform where teams post bounties
+> ${PRODUCT_NAME} is a project management platform where teams post bounties
 > (paid tasks) that contributors — human or AI — can claim and complete.
 
 ## Bounty API

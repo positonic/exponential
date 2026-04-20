@@ -14,6 +14,7 @@ import { db } from "~/server/db";
 import { SECURITY_POLICY } from "~/lib/security-policy";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
@@ -235,7 +236,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Inject workspace navigation context so agents can build links to Exponential pages
+    // Inject workspace navigation context so agents can build links to product pages
     if (workspaceInfo) {
       const baseUrl = process.env.TODO_APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
       const wsContext = [
@@ -243,7 +244,7 @@ export async function POST(req: Request) {
         ...(workspaceInfo.description ? [`Workspace description: ${workspaceInfo.description}`] : []),
         `Workspace slug: ${workspaceInfo.slug}`,
         `Base URL: ${baseUrl}`,
-        `When linking to Exponential pages, replace {workspaceSlug} with "${workspaceInfo.slug}". Example: ${baseUrl}/w/${workspaceInfo.slug}/okrs`,
+        `When linking to ${PRODUCT_NAME} pages, replace {workspaceSlug} with "${workspaceInfo.slug}". Example: ${baseUrl}/w/${workspaceInfo.slug}/okrs`,
       ].join('\n');
       finalMessages = [
         { role: 'system' as const, content: wsContext },

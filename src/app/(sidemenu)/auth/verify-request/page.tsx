@@ -6,6 +6,7 @@ import {
 } from "@mantine/core";
 import { IconMail, IconArrowLeft } from "@tabler/icons-react";
 import Link from "next/link";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 export default function VerifyRequest() {
   return (
@@ -15,7 +16,7 @@ export default function VerifyRequest() {
         {/* Logo */}
         <div className="mb-12">
           <Text className="text-2xl font-bold text-text-primary">
-            Exponential.im
+            {PRODUCT_NAME}.im
           </Text>
         </div>
 

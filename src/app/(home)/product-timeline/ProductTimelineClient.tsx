@@ -37,6 +37,7 @@ import type {
   GitHubRelease,
 } from "~/server/services/githubService";
 import { ReleaseBody } from "./ReleaseBody";
+import { PRODUCT_NAME } from "~/lib/brand";
 import classes from "./ProductTimeline.module.css";
 
 const CATEGORY_CONFIG: Record<
@@ -245,7 +246,7 @@ export function ProductTimelineClient() {
         </Anchor>
       </Group>
       <Text c="dimmed" mb="xl">
-        Every change we make to Exponential, straight from our git history.
+        Every change we make to {PRODUCT_NAME}, straight from our git history.
       </Text>
 
       <Timeline active={entries.length - 1} bulletSize={24} lineWidth={2}>

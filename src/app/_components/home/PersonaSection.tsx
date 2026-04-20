@@ -1,5 +1,6 @@
 import { Container, SimpleGrid } from "@mantine/core";
 import { IconUser, IconUsersGroup, IconCpu } from "@tabler/icons-react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface PersonaSectionProps {
   id?: string;
@@ -26,7 +27,7 @@ const personas = [
     icon: IconCpu,
     title: "For organizations scaling with AI",
     description:
-      "As AI takes on more execution, coordination becomes the bottleneck. Exponential is the operating system that solves it.",
+      `As AI takes on more execution, coordination becomes the bottleneck. ${PRODUCT_NAME} is the operating system that solves it.`,
     audience: "AI-First Organizations",
     color: "var(--color-brand-warning)",
   },

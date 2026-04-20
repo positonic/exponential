@@ -20,6 +20,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { IconCheck, IconX, IconTrash, IconLink } from "@tabler/icons-react";
 import { useState } from "react";
 import { api } from "~/trpc/react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface ZulipSettingsProps {
   workspace: { id: string; name: string };
@@ -203,7 +204,7 @@ export function ZulipSettings({ workspace, workspaceSlug }: ZulipSettingsProps) 
           <Table>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Exponential User</Table.Th>
+                <Table.Th>{PRODUCT_NAME} User</Table.Th>
                 <Table.Th>Zulip Email</Table.Th>
                 <Table.Th />
               </Table.Tr>

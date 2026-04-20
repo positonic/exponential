@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { signIn, useSession } from 'next-auth/react';
 import { api } from '~/trpc/react';
+import { PRODUCT_NAME } from '~/lib/brand';
 import { 
   Container, 
   Paper, 
@@ -103,7 +104,7 @@ function SlackConnectContent() {
           </ThemeIcon>
           
           <Title order={2} ta="center">
-            Connect Slack to Exponential
+            Connect Slack to {PRODUCT_NAME}
           </Title>
 
           {registrationStep === 'loading' && (
@@ -118,7 +119,7 @@ function SlackConnectContent() {
           {registrationStep === 'login' && validateToken.data && (
             <>
               <Alert icon={<IconUser size={16} />} title="Authentication Required" color="blue">
-                To connect your Slack account, please log in to your Exponential account first.
+                To connect your Slack account, please log in to your {PRODUCT_NAME} account first.
               </Alert>
               
               <Text ta="center" size="sm" c="dimmed">
@@ -130,7 +131,7 @@ function SlackConnectContent() {
                 onClick={handleSignIn}
                 leftSection={<IconUser size={16} />}
               >
-                Sign In to Exponential
+                Sign In to {PRODUCT_NAME}
               </Button>
             </>
           )}
@@ -151,7 +152,7 @@ function SlackConnectContent() {
               </ThemeIcon>
               
               <Alert icon={<IconCheck size={16} />} title="Successfully Connected!" color="green">
-                Your Slack account has been connected to your Exponential account.
+                Your Slack account has been connected to your {PRODUCT_NAME} account.
                 You can now use the Slack bot to access your projects and meeting data.
               </Alert>
               

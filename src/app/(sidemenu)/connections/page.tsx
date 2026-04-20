@@ -2,6 +2,7 @@
 
 import { Container, Title, Text, Tabs, Stack } from '@mantine/core';
 import { IconKey, IconPlug } from '@tabler/icons-react';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 // Import existing components
 // import TokensContent from '../settings/api-keys/TokensContent';
@@ -14,7 +15,7 @@ export default function ConnectionsPage() {
         <div>
           <Title order={1} size="h2">Connections</Title>
           <Text c="dimmed" size="sm">
-            Manage how Exponential connects with other services and applications
+            Manage how {PRODUCT_NAME} connects with other services and applications
           </Text>
         </div>
 
@@ -33,7 +34,7 @@ export default function ConnectionsPage() {
               <div>
                 <Title order={3} size="h4">Connect to External Services</Title>
                 <Text c="dimmed" size="sm">
-                  Connect Exponential to external services like Fireflies, GitHub, etc. 
+                  Connect {PRODUCT_NAME} to external services like Fireflies, GitHub, etc.
                   You&apos;ll need API keys from those services.
                 </Text>
               </div>
@@ -49,7 +50,7 @@ export default function ConnectionsPage() {
               <div>
                 <Title order={3} size="h4">API Access Keys</Title>    
                 <Text c="dimmed" size="sm">
-                  Generate API keys for external applications to access your Exponential data.
+                  Generate API keys for external applications to access your {PRODUCT_NAME} data.
                   Perfect for webhooks, browser extensions, and custom integrations.
                 </Text>
               </div>

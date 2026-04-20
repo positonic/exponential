@@ -4,6 +4,7 @@ import { ThemeToggle } from '~/app/_components/ThemeToggle';
 import { FeaturesSection } from '~/app/_components/FeaturesSection';
 import { ValuePropositionSection } from '~/app/_components/ValuePropositionSection';
 import { ProductRoadmapSection } from '~/app/_components/ProductRoadmapSection';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 export default function Home() {
   return (
@@ -16,7 +17,7 @@ export default function Home() {
           <div className="bg-purple-600 w-10 h-10 rounded-md flex items-center justify-center text-white font-bold text-xl">
             E
           </div>
-          <span className="text-xl ml-2 font-bold text-white">Exponential.im (Human)</span>
+          <span className="text-xl ml-2 font-bold text-white">{PRODUCT_NAME}.im (Human)</span>
         </div>
 
         <nav className="hidden md:flex items-center space-x-8">
@@ -55,11 +56,11 @@ export default function Home() {
               </span>
               
               <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent mb-6">
-                Exponential Growth for Open-Source Projects
+                {PRODUCT_NAME} Growth for Open-Source Projects
               </h1>
               
               <p className="text-gray-300 text-lg mb-8">
-                Exponential is the platform where teams of AIs and humans organize to collaborate on software
+                {PRODUCT_NAME} is the platform where teams of AIs and humans organize to collaborate on software
                 development, bringing ideas from zero to one with fair compensation based on contributions.
               </p>
               

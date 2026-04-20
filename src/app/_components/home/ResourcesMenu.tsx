@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { IconChevronDown, IconBook, IconPencil, IconSchool } from "@tabler/icons-react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 export function ResourcesMenu() {
   const [isOpen, setIsOpen] = useState(false);
@@ -50,7 +51,7 @@ export function ResourcesMenu() {
                   </p>
                   <p className="text-sm text-text-muted leading-snug mt-1">
                     Step-by-step tutorials, FAQs, and documentation to help you
-                    get the most out of Exponential
+                    get the most out of {PRODUCT_NAME}
                   </p>
                 </div>
               </Link>

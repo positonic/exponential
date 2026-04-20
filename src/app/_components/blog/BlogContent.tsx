@@ -8,6 +8,7 @@ import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { CommentThread } from "~/app/_components/shared/CommentThread";
 import { CommentInput } from "~/app/_components/shared/CommentInput";
 import { api } from "~/trpc/react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface BlogContentProps {
   post: BlogPost;
@@ -153,7 +154,7 @@ export function BlogContent({ post, isLoggedIn, userId }: BlogContentProps) {
               Stop managing. Start steering.
             </Title>
             <Text className="mx-auto mb-8 max-w-lg text-white/80">
-              Exponential gives you an AI copilot that runs your
+              {PRODUCT_NAME} gives you an AI copilot that runs your
               productivity system — so you stay focused on the work that
               matters.
             </Text>

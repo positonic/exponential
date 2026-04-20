@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { getBlogPost, getAllBlogSlugs } from "~/lib/blog/getBlogPost";
 import { BlogContent } from "~/app/_components/blog/BlogContent";
 import { auth } from "~/server/auth";
+import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 interface BlogPostPageProps {
@@ -27,7 +28,7 @@ export async function generateMetadata({
   const url = `${getPublicBaseUrlFromEnv()}/blog/${slug}`;
 
   return {
-    title: `${post.meta.title} | Exponential`,
+    title: `${post.meta.title} | ${PRODUCT_NAME}`,
     description: post.meta.description,
     alternates: {
       canonical: url,
@@ -37,7 +38,7 @@ export async function generateMetadata({
       title: post.meta.title,
       description: post.meta.description,
       url,
-      siteName: 'Exponential',
+      siteName: PRODUCT_NAME,
       publishedTime: new Date(post.meta.date).toISOString(),
       authors: post.meta.author ? [post.meta.author] : undefined,
       tags: post.meta.tags,
@@ -70,12 +71,12 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     description: post.meta.description,
     datePublished: new Date(post.meta.date).toISOString(),
     author: {
-      "@type": post.meta.author === "Exponential Team" ? "Organization" : "Person",
-      name: post.meta.author ?? "Exponential Team",
+      "@type": post.meta.author === `${PRODUCT_NAME} Team` ? "Organization" : "Person",
+      name: post.meta.author ?? `${PRODUCT_NAME} Team`,
     },
     publisher: {
       "@type": "Organization",
-      name: "Exponential",
+      name: PRODUCT_NAME,
       url: baseUrl,
       logo: {
         "@type": "ImageObject",
