@@ -17,6 +17,7 @@ import { IconTrash } from "@tabler/icons-react";
 import { useState, useEffect, useMemo } from "react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { KeyResultGuidanceIcon } from "./KeyResultGuidance";
 
 // Unit options for key results
 const unitOptions = [
@@ -257,7 +258,12 @@ export function EditKeyResultModal({
         <Stack gap="md" p="md">
           {/* Title */}
           <TextInput
-            label="Title"
+            label={
+              <Group gap={4} align="center" component="span">
+                <span>Title</span>
+                <KeyResultGuidanceIcon />
+              </Group>
+            }
             placeholder="What do you want to achieve?"
             value={title}
             onChange={(e) => setTitle(e.currentTarget.value)}

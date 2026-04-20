@@ -34,6 +34,7 @@ import { OkrOverview } from "./OkrOverview";
 import { ObjectiveRow } from "./ObjectiveRow";
 import { EditKeyResultModal } from "./EditKeyResultModal";
 import { OkrDetailDrawer } from "./OkrDetailDrawer";
+import { KeyResultGuidanceIcon } from "./KeyResultGuidance";
 
 // Unit options
 const unitOptions = [
@@ -510,7 +511,12 @@ export function OkrDashboard() {
           />
 
           <TextInput
-            label="Key Result Title"
+            label={
+              <Group gap={4} align="center" component="span">
+                <span>Key Result Title</span>
+                <KeyResultGuidanceIcon />
+              </Group>
+            }
             placeholder="e.g., Increase revenue by 20%"
             value={formData.title}
             onChange={(e) =>
