@@ -7,7 +7,7 @@ import { MeetingsContent } from "~/app/_components/MeetingsContent";
 export default async function MeetingsPage() {
   return (
     <HydrateClient>
-      <div className="container flex flex-col items-stretch justify-start gap-4 px-4 py-8">
+      <div className="container flex flex-col items-center justify-start gap-4 px-4 py-8">
         <Suspense fallback={<div>Loading...</div>}>
           <MeetingsWrapper />
         </Suspense>
