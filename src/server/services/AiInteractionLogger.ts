@@ -41,6 +41,7 @@ export interface AiInteractionData {
 
   // Context & Results
   projectId?: string; // Associated project
+  workspaceId?: string; // Associated workspace (for per-workspace chat scoping)
   actionsTaken?: Array<{
     action: string;
     result: string;
@@ -124,6 +125,7 @@ export class AiInteractionLogger {
 
           // Context & Results
           projectId: data.projectId,
+          workspaceId: data.workspaceId,
           actionsTaken: data.actionsTaken ? JSON.stringify(data.actionsTaken) : undefined,
           toolsUsed: data.toolsUsed ?? [],
 

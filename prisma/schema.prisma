@@ -1266,6 +1266,7 @@ model AiInteractionHistory {
   errorMessage    String?
   confidenceScore Float?
   projectId       String?
+  workspaceId     String?
   actionsTaken    Json?
   toolsUsed       String[]
   userAgent          String?
@@ -1287,6 +1288,8 @@ model AiInteractionHistory {
   @@index([platform, systemUserId])
   @@index([conversationId, createdAt])
   @@index([anthropicRequestId])
+  @@index([workspaceId, conversationId])
+  @@index([workspaceId, systemUserId, createdAt])
 }
 
 model Feedback {

@@ -504,6 +504,7 @@ export const mastraRouter = createTRPCRouter({
           model: (responseData.model as string | undefined) ?? 'mastra-agent',
           conversationId: input.threadId ?? undefined,
           projectId: input.resourceId ?? undefined,
+          workspaceId: input.workspaceId ?? undefined,
           responseTime: Date.now() - startTime,
           tokenUsage,
           toolsUsed,

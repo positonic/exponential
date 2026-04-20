@@ -14,6 +14,7 @@ interface ChatSidebarProps {
   onNewChat: () => void;
   activeConversationId?: string;
   activeAgentName?: string;
+  workspaceId?: string;
 }
 
 export function ChatSidebar({
@@ -22,7 +23,8 @@ export function ChatSidebar({
   onSelectDefault,
   onNewChat,
   activeConversationId,
-  activeAgentName
+  activeAgentName,
+  workspaceId: scopedWorkspaceId,
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [agentsExpanded, setAgentsExpanded] = useState(true); // Default expanded
@@ -30,6 +32,7 @@ export function ChatSidebar({
 
   const { data: conversations } = api.aiInteraction.getConversationList.useQuery({
     search: searchQuery || undefined,
+    workspaceId: scopedWorkspaceId,
   });
 
   const { workspaceId } = useWorkspace();

@@ -87,11 +87,16 @@ function AgentHeader({
   );
 }
 
-export function AgentChatPage() {
+interface AgentChatPageProps {
+  scopeToWorkspace?: boolean;
+}
+
+export function AgentChatPage({ scopeToWorkspace = false }: AgentChatPageProps = {}) {
   const [defaultAgent, setDefaultAgent] = useState<{ id: string; name: string } | null>(null);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const { conversationId, loadConversation, clearChat, messages } = useAgentModal();
   const { workspaceId } = useWorkspace();
+  const sidebarWorkspaceId = scopeToWorkspace ? (workspaceId ?? undefined) : undefined;
 
   // Fetch the user's custom assistant to use as the default agent name
   const { data: customAssistant } = api.assistant.getDefault.useQuery(
@@ -166,6 +171,7 @@ export function AgentChatPage() {
         onNewChat={handleNewChat}
         activeConversationId={conversationId}
         activeAgentName={activeAgentName}
+        workspaceId={sidebarWorkspaceId}
       />
       <div className="flex-1 flex flex-col relative">
         {/* Agent Selector Header */}

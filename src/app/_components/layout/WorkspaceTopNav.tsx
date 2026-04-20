@@ -6,6 +6,7 @@ import {
   IconHome,
   IconStack2,
   IconBook,
+  IconMessageChatbot,
   IconMicrophone,
   IconUsers,
   IconTarget,
@@ -26,6 +27,7 @@ type NavItem = {
 const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Home', icon: IconHome, segment: 'home' },
   { label: 'Projects', icon: IconStack2, segment: 'projects' },
+  { label: 'Agent', icon: IconMessageChatbot, segment: 'agent' },
   { label: 'Knowledge', icon: IconBook, segment: 'knowledge-base' },
   { label: 'Meetings', icon: IconMicrophone, segment: 'meetings' },
   { label: 'CRM', icon: IconUsers, segment: 'crm' },

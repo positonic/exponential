@@ -286,18 +286,24 @@ export const aiInteractionRouter = createTRPCRouter({
       z.object({
         limit: z.number().min(1).max(50).default(20),
         search: z.string().optional(),
+        workspaceId: z.string().optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const limit = input?.limit ?? 20;
       const search = input?.search;
+      const workspaceId = input?.workspaceId;
 
       // Build where clause
       const whereClause: any = {
         systemUserId: userId,
         conversationId: { not: null },
       };
+
+      if (workspaceId) {
+        whereClause.workspaceId = workspaceId;
+      }
 
       if (search) {
         whereClause.userMessage = { contains: search, mode: 'insensitive' };

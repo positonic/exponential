@@ -381,6 +381,7 @@ export async function POST(req: Request) {
               responseTime: Date.now() - startTime,
               hadError: false,
               projectId: projectId ?? undefined,
+              workspaceId: workspaceId ?? undefined,
               model: "mastra-agents",
               messageType: "question",
             })
