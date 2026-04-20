@@ -162,8 +162,12 @@ export function AgentChatPage({ scopeToWorkspace = false }: AgentChatPageProps =
     setDefaultAgent(null);
   }, [clearChat]);
 
+  const outerClassName = scopeToWorkspace
+    ? 'flex h-[calc(100dvh-98px)]'
+    : '-m-4 lg:-m-8 flex h-screen';
+
   return (
-    <div className="-m-4 lg:-m-8 flex h-screen">
+    <div className={outerClassName}>
       <ChatSidebar
         onSelectConversation={handleSelectConversation}
         onSelectAgent={handleSelectAgent}
