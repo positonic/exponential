@@ -320,10 +320,46 @@ export async function POST(req: Request) {
     let chunkCount = 0;
     let textChunkCount = 0;
     const nonTextChunkTypes = new Set<string>();
+    const toolCallNames: string[] = [];
+    let lastStepFinishReason: string | undefined;
+    let hadToolError = false;
+    let hadAgentError = false;
+    const firstToolErrorMessages: string[] = [];
     const textStream = new ReadableStream({
       async start(controller) {
         let fullText = "";
         let finishUsage: { inputTokens: number; outputTokens: number } | undefined;
+
+        const emit = (snippet: string) => {
+          const { text: safeText, redacted } = sanitizeAIOutput(snippet);
+          if (redacted) {
+            console.warn('🔒 [chat/stream] Redacted potential secret leak from agent progress chunk');
+          }
+          fullText += safeText;
+          controller.enqueue(new TextEncoder().encode(safeText));
+        };
+
+        const formatErr = (e: unknown): string => {
+          if (e == null) return 'unknown error';
+          if (typeof e === 'string') return e;
+          if (e instanceof Error) return e.message;
+          try { return JSON.stringify(e).slice(0, 500); } catch { return 'unserializable error'; }
+        };
+
+        const readString = (obj: unknown, key: string): string | undefined => {
+          if (obj && typeof obj === 'object' && key in obj) {
+            const v = (obj as Record<string, unknown>)[key];
+            if (typeof v === 'string') return v;
+          }
+          return undefined;
+        };
+        const readUnknown = (obj: unknown, key: string): unknown => {
+          if (obj && typeof obj === 'object' && key in obj) {
+            return (obj as Record<string, unknown>)[key];
+          }
+          return undefined;
+        };
+
         try {
           await response.processDataStream({
             onChunk: async (chunk) => {
@@ -344,6 +380,35 @@ export async function POST(req: Request) {
                   inputTokens: chunk.payload.output.usage.inputTokens ?? 0,
                   outputTokens: chunk.payload.output.usage.outputTokens ?? 0,
                 };
+                const fr = readString(chunk.payload, 'finishReason');
+                if (fr) lastStepFinishReason = fr;
+              } else if (chunk.type === "tool-call") {
+                const name = readString(chunk.payload, 'toolName') ?? 'tool';
+                toolCallNames.push(name);
+                emit(`\n\n_🔧 Calling \`${name}\`…_\n`);
+              } else if (chunk.type === "tool-result") {
+                const name = readString(chunk.payload, 'toolName') ?? 'tool';
+                emit(`\n_✓ \`${name}\`_\n`);
+              } else if (chunk.type === "tool-error") {
+                const name = readString(chunk.payload, 'toolName') ?? 'tool';
+                const msg = formatErr(readUnknown(chunk.payload, 'error'));
+                if (firstToolErrorMessages.length < 3) firstToolErrorMessages.push(`${name}: ${msg}`);
+                hadToolError = true;
+                emit(`\n_❌ \`${name}\` failed: ${msg}_\n`);
+              } else if (chunk.type === "error") {
+                const msg = readString(chunk.payload, 'message')
+                  ?? formatErr(readUnknown(chunk.payload, 'error'));
+                hadAgentError = true;
+                emit(`\n\n⚠️ **Agent error:** ${msg}\n`);
+              } else if (chunk.type === "step-finish") {
+                const fr = readString(chunk.payload, 'finishReason');
+                if (fr) {
+                  lastStepFinishReason = fr;
+                  // 'stop' and 'tool-calls' are normal; other reasons indicate a cap/filter was hit
+                  if (fr !== 'stop' && fr !== 'tool-calls') {
+                    emit(`\n_⚠️ step ended: ${fr}_\n`);
+                  }
+                }
               } else {
                 nonTextChunkTypes.add(chunk.type);
                 // Log non-text chunks for debugging (first 5 only to avoid noise)
@@ -353,7 +418,21 @@ export async function POST(req: Request) {
               }
             },
           });
-          console.log(`📊 [chat/stream] Stream complete: ${chunkCount} total chunks, ${textChunkCount} text chunks, non-text types: [${[...nonTextChunkTypes].join(', ')}]`);
+          const durationMs = Date.now() - startTime;
+          const emptyResponse = fullText.trim() === '';
+          console.log(`📊 [chat/stream] Stream complete`, {
+            agentId: resolvedAgentId,
+            threadId,
+            durationMs,
+            chunkCount,
+            textChunkCount,
+            nonTextChunkTypes: [...nonTextChunkTypes],
+            toolCallNames,
+            finishReason: lastStepFinishReason ?? 'unknown',
+            hadToolError,
+            hadAgentError,
+            emptyResponse,
+          });
 
           // Fire-and-forget: save interaction metadata (must not block the stream)
           const anthropicRequestId =
@@ -379,7 +458,15 @@ export async function POST(req: Request) {
                 : undefined,
               anthropicRequestId: anthropicRequestId ?? undefined,
               responseTime: Date.now() - startTime,
-              hadError: false,
+              hadError: hadToolError || hadAgentError || emptyResponse,
+              errorMessage: hadToolError || hadAgentError || emptyResponse
+                ? JSON.stringify({
+                    finishReason: lastStepFinishReason ?? 'unknown',
+                    toolErrors: firstToolErrorMessages,
+                    emptyResponse,
+                    nonTextChunkTypes: [...nonTextChunkTypes],
+                  }).slice(0, 2000)
+                : undefined,
               projectId: projectId ?? undefined,
               workspaceId: workspaceId ?? undefined,
               model: "mastra-agents",
@@ -389,6 +476,16 @@ export async function POST(req: Request) {
 
           controller.close();
         } catch (err) {
+          console.error(`❌ [chat/stream] Stream failed`, {
+            agentId: resolvedAgentId,
+            threadId,
+            durationMs: Date.now() - startTime,
+            chunkCount,
+            textChunkCount,
+            toolCallNames,
+            finishReason: lastStepFinishReason ?? 'unknown',
+            error: err instanceof Error ? err.message : (typeof err === 'string' ? err : 'unknown error'),
+          });
           controller.error(err);
         }
       },

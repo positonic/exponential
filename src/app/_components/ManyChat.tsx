@@ -969,13 +969,34 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         })),
       });
 
+      // Idle-timeout watchdog: abort if no chunk arrives for IDLE_TIMEOUT_MS.
+      // Prevents the stuck-isStreaming state when the server stream stalls silently.
+      const abortController = new AbortController();
+      const IDLE_TIMEOUT_MS = 60_000;
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      const clearIdleTimer = () => {
+        if (idleTimer) {
+          clearTimeout(idleTimer);
+          idleTimer = null;
+        }
+      };
+      const resetIdleTimer = () => {
+        clearIdleTimer();
+        idleTimer = setTimeout(() => {
+          abortController.abort(new DOMException('stream-idle-timeout', 'AbortError'));
+        }, IDLE_TIMEOUT_MS);
+      };
+      resetIdleTimer();
+
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(streamPayload),
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
+        clearIdleTimer();
         throw new Error('Stream request failed');
       }
 
@@ -987,6 +1008,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          resetIdleTimer();
 
           const chunk = decoder.decode(value, { stream: true });
           fullResponse += chunk;
@@ -1005,8 +1027,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         }
       }
 
+      clearIdleTimer();
       setIsStreaming(false);
       const responseTime = Date.now() - startTime;
+      const isEmptyResponse = fullResponse.trim() === '';
 
       // Debug: log what we received back
       console.log('📥 [Mastra → ManyChat] Response:', {
@@ -1014,8 +1038,31 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         responsePreview: fullResponse.slice(0, 300) + (fullResponse.length > 300 ? '...' : ''),
         responseTime,
         agentId: targetAgentId,
-        isEmpty: !fullResponse,
+        isEmpty: isEmptyResponse,
+        conversationId,
       });
+
+      // Treat empty response as an error so the user sees a concrete message
+      // instead of a blank bubble with a "Rate this response" prompt beneath it.
+      if (isEmptyResponse) {
+        console.error('[ManyChat] Empty response from agent — stream closed with zero text', {
+          conversationId,
+          agentId: targetAgentId,
+          responseTime,
+        });
+        const emptyMessage = `⚠️ **No response from the assistant.**\n\nThe agent started but produced no output — this usually means a tool failed silently or the step budget was exhausted. Try rephrasing, or ask again in smaller pieces. Server logs (search \`[chat/stream]\`) have the details.`;
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMessage = updated[updated.length - 1];
+          if (lastMessage && lastMessage.type === 'ai') {
+            updated[updated.length - 1] = {
+              ...lastMessage,
+              content: emptyMessage,
+            };
+          }
+          return updated;
+        });
+      }
 
       // Log the successful interaction after streaming completes
       let interactionId: string | undefined;
@@ -1034,7 +1081,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           projectId: projectId || undefined,
           toolsUsed: [],
           actionsTaken: [],
-          hadError: false,
+          hadError: isEmptyResponse,
+          errorMessage: isEmptyResponse ? 'empty-response' : undefined,
         });
         interactionId = logResult.interactionId;
       } catch (logError) {
@@ -1064,13 +1112,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       
       if (error instanceof Error) {
         const errorText = error.message.toLowerCase();
-        
+
         // Detect specific error types
-        if (errorText.includes('unauthorized') || errorText.includes('401')) {
+        if (error.name === 'AbortError' || errorText.includes('stream-idle-timeout')) {
+          errorType = 'Idle Timeout';
+          errorMessage = `⏱ **Connection stalled**: The assistant sent no data for 60 seconds and the stream was aborted. The agent is likely stuck on a tool call. Please try again — smaller requests tend to succeed.`;
+        } else if (errorText.includes('unauthorized') || errorText.includes('401')) {
           errorType = 'Authentication';
           errorMessage = `🔐 **Authentication Error**: Agent tools are not accessible due to expired or invalid authentication. Please check your API tokens in the /settings/api-keys page. Working with available context only.`;
         } else if (errorText.includes('forbidden') || errorText.includes('403')) {
-          errorType = 'Authorization';  
+          errorType = 'Authorization';
           errorMessage = `🚫 **Authorization Error**: Agent doesn't have permission to access the requested data. This might be a security issue. Working with available context only.`;
         } else if (errorText.includes('not found') || errorText.includes('404')) {
           errorType = 'Resource Not Found';
