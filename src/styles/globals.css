@@ -52,6 +52,16 @@
     --color-border-strong: #adb5bd;
     --color-brand-subtle: rgba(78, 137, 255, 0.06);
     --color-brand-glow: rgba(31, 93, 224, 0.12);
+    --brand-200: #A8C5FF;
+    --brand-700: #153FA8;
+
+    /* Accents (project detail, timeline, eyebrows, cues) */
+    --accent-ritual: #6B8CFF;
+    --accent-meetings: #A78BFA;
+    --accent-crm: #4ADE8C;
+    --accent-okr: #F5B94A;
+    --accent-due: #F87171;
+    --color-text-faint: #adb5bd;
 
     /* Onboarding */
     --color-onboarding-illustration-bg: #fdf4f3;
@@ -137,6 +147,16 @@
     --color-border-strong: #1A263E;
     --color-brand-subtle: rgba(78, 137, 255, 0.06);
     --color-brand-glow: rgba(31, 93, 224, 0.12);
+    --brand-200: #A8C5FF;
+    --brand-700: #153FA8;
+
+    /* Accents (project detail, timeline, eyebrows, cues) */
+    --accent-ritual: #6B8CFF;
+    --accent-meetings: #A78BFA;
+    --accent-crm: #4ADE8C;
+    --accent-okr: #F5B94A;
+    --accent-due: #F87171;
+    --color-text-faint: #3F4A5C;
 
     /* Onboarding */
     --color-onboarding-illustration-bg: #141E32;
@@ -222,6 +242,16 @@
     --color-border-strong: #1A263E;
     --color-brand-subtle: rgba(78, 137, 255, 0.06);
     --color-brand-glow: rgba(31, 93, 224, 0.12);
+    --brand-200: #A8C5FF;
+    --brand-700: #153FA8;
+
+    /* Accents (project detail, timeline, eyebrows, cues) */
+    --accent-ritual: #6B8CFF;
+    --accent-meetings: #A78BFA;
+    --accent-crm: #4ADE8C;
+    --accent-okr: #F5B94A;
+    --accent-due: #F87171;
+    --color-text-faint: #3F4A5C;
 
     /* Onboarding */
     --color-onboarding-illustration-bg: #141E32;

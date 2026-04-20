@@ -42,6 +42,13 @@ export const colorTokens = {
       error: '#fa5252',
       info: '#339af0',
     },
+    accent: {
+      ritual: '#6B8CFF',
+      meetings: '#A78BFA',
+      crm: '#4ADE8C',
+      okr: '#F5B94A',
+      due: '#F87171',
+    },
     avatar: {
       red: '#FF6B6B',
       teal: '#4ECDC4',
@@ -102,6 +109,13 @@ export const colorTokens = {
       warning: '#ffd43b',
       error: '#ff6b6b',
       info: '#4dabf7',
+    },
+    accent: {
+      ritual: '#6B8CFF',
+      meetings: '#A78BFA',
+      crm: '#4ADE8C',
+      okr: '#F5B94A',
+      due: '#F87171',
     },
     avatar: {
       red: '#FF6B6B',
@@ -235,10 +249,11 @@ export function getColorValue(
 }
 
 // Type-safe color token paths
-export type ColorTokenPath = 
+export type ColorTokenPath =
   | `background.${keyof typeof colorTokens.light.background}`
   | `surface.${keyof typeof colorTokens.light.surface}`
   | `text.${keyof typeof colorTokens.light.text}`
   | `border.${keyof typeof colorTokens.light.border}`
   | `brand.${keyof typeof colorTokens.light.brand}`
+  | `accent.${keyof typeof colorTokens.light.accent}`
   | `avatar.${keyof typeof colorTokens.light.avatar}`;

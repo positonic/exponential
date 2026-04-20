@@ -47,6 +47,8 @@ import {
   IconCoin,
   IconPlug,
 } from "@tabler/icons-react";
+import { format, isBefore, startOfDay } from "date-fns";
+import overviewStyles from "./ProjectOverview.module.css";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { SmartContentRenderer } from "./SmartContentRenderer";
@@ -305,68 +307,139 @@ export function ProjectContent({
     return <div>Project not found</div>;
   }
 
+  // Derive header stats
+  const monogram = project.name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0] ?? "")
+    .join("")
+    .toUpperCase() || "P";
+
+  const statusLabel = (() => {
+    switch (project.status) {
+      case "ACTIVE":
+        return "Active project";
+      case "ON_HOLD":
+        return "On hold";
+      case "COMPLETED":
+        return "Completed";
+      case "CANCELLED":
+        return "Cancelled";
+      default:
+        return "Project";
+    }
+  })();
+
+  const totalActions = projectActions?.length ?? 0;
+  const doneActions =
+    projectActions?.filter((a) => a.status === "COMPLETED").length ?? 0;
+  const progressPct = Math.max(0, Math.min(100, Math.round(project.progress ?? 0)));
+
+  const dueDate = project.reviewDate ? new Date(project.reviewDate) : null;
+  const dueLabel = dueDate ? format(dueDate, "MMM d") : null;
+  const dueIsOverdue = dueDate ? isBefore(dueDate, startOfDay(new Date())) : false;
+
+  const ownerUser = project.dri ?? project.createdBy;
+  const ownerName = ownerUser?.name ?? null;
+  const ownerFirstName = ownerName ? ownerName.split(" ")[0] : null;
+  const ownerInitial = (ownerName ?? "?")[0]?.toUpperCase() ?? "?";
+
   return (
     <>
-      {/* Project Title and Description */}
-      <Paper className="w-full pl-8" px={0} bg="transparent" mb="xl">
-        <Group justify="space-between" align="flex-start">
-          <div>
-            <Title
-              order={2}
-              mb={4}
-              className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent"
-            >
-              {project.name}
-            </Title>
-            <Text size="sm" c="dimmed" lineClamp={2} maw={800}>
-              {project.description}
-            </Text>
+      {/* Project Header */}
+      <div className={overviewStyles.header}>
+        <div className={overviewStyles.headerMain}>
+          <div className={overviewStyles.eyebrow}>
+            <span className={overviewStyles.eyebrowDot} />
+            {statusLabel}
+            {workspace?.name ? ` · ${workspace.name}` : ""}
           </div>
-          <Group gap="xs">
-            <CreateProjectModal project={project}>
-              <ActionIcon
-                variant="filled"
-                size="lg"
-                title="Edit Project"
-                className="hover:scale-105"
-                style={{ transition: 'all 0.2s ease' }}
+          <h1 className={overviewStyles.title}>
+            <span className={overviewStyles.titleGlyph}>{monogram}</span>
+            {project.name}
+          </h1>
+          {project.description && (
+            <div className={overviewStyles.sub}>{project.description}</div>
+          )}
+
+          <div className={overviewStyles.stats}>
+            <div className={overviewStyles.stat}>
+              <div className={overviewStyles.statLabel}>Progress</div>
+              <div className={overviewStyles.statValue}>
+                <div className={overviewStyles.progressBar}>
+                  <div
+                    className={overviewStyles.progressBarFill}
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+                {progressPct}%
+              </div>
+            </div>
+            <div className={overviewStyles.stat}>
+              <div className={overviewStyles.statLabel}>Actions</div>
+              <div className={overviewStyles.statValue}>
+                {doneActions} of {totalActions}
+              </div>
+            </div>
+            <div className={overviewStyles.stat}>
+              <div className={overviewStyles.statLabel}>Due</div>
+              <div
+                className={`${overviewStyles.statValue} ${
+                  dueIsOverdue ? overviewStyles.statValueDue : ""
+                }`}
               >
-                <IconEdit size={20} />
-              </ActionIcon>
-            </CreateProjectModal>
-            <ActionIcon
-              variant={chatModalOpen ? 'gradient' : 'filled'}
-              gradient={chatModalOpen ? { from: 'blue', to: 'indigo', deg: 45 } : undefined}
-              size="lg"
-              onClick={() => openChatModal(projectId)}
-              title={chatModalOpen ? 'Close Project Chat' : 'Open Project Chat'}
-              className={chatModalOpen ? 'shadow-lg scale-105' : 'hover:scale-105'}
-              style={{
-                transition: 'all 0.2s ease',
-                transform: chatModalOpen ? 'scale(1.05)' : 'scale(1)',
-                boxShadow: chatModalOpen ? '0 4px 12px rgba(59, 130, 246, 0.3)' : undefined,
-              }}
+                {dueLabel ?? "—"}
+              </div>
+            </div>
+            {ownerFirstName && (
+              <div className={overviewStyles.stat}>
+                <div className={overviewStyles.statLabel}>Owner</div>
+                <div className={overviewStyles.statValue}>
+                  <div className={overviewStyles.ownerAvatar}>{ownerInitial}</div>
+                  {ownerFirstName}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={overviewStyles.headerActions}>
+          <CreateProjectModal project={project}>
+            <button
+              type="button"
+              className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
+              title="Edit Project"
+              aria-label="Edit project"
             >
-              <IconMessageCircle size={20} />
-            </ActionIcon>
-            <ActionIcon
-              variant={activeDrawer === 'settings' ? 'gradient' : 'filled'}
-              gradient={activeDrawer === 'settings' ? { from: 'gray', to: 'dark', deg: 45 } : undefined}
-              size="lg"
-              onClick={() => setActiveDrawer(activeDrawer === 'settings' ? null : 'settings')}
-              title={activeDrawer === 'settings' ? 'Close Project Settings' : 'Open Project Settings'}
-              className={activeDrawer === 'settings' ? 'shadow-lg scale-105' : 'hover:scale-105'}
-              style={{
-                transition: 'all 0.2s ease',
-                transform: activeDrawer === 'settings' ? 'scale(1.05)' : 'scale(1)',
-                boxShadow: activeDrawer === 'settings' ? '0 4px 12px rgba(107, 114, 128, 0.3)' : undefined,
-              }}
-            >
-              <IconSettings size={20} />
-            </ActionIcon>
-          </Group>
-        </Group>
-      </Paper>
+              <IconEdit size={14} />
+            </button>
+          </CreateProjectModal>
+          <button
+            type="button"
+            className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
+            onClick={() => openChatModal(projectId)}
+            title={chatModalOpen ? "Close Project Chat" : "Open Project Chat"}
+            aria-label="Project chat"
+          >
+            <IconMessageCircle size={14} />
+          </button>
+          <button
+            type="button"
+            className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
+            onClick={() =>
+              setActiveDrawer(activeDrawer === "settings" ? null : "settings")
+            }
+            title={
+              activeDrawer === "settings"
+                ? "Close Project Settings"
+                : "Open Project Settings"
+            }
+            aria-label="Project settings"
+          >
+            <IconSettings size={14} />
+          </button>
+        </div>
+      </div>
 
       {/* Main Content */}
       <div className="w-full">
@@ -383,6 +456,17 @@ export function ProjectContent({
               <Tabs.Tab
                 value="tasks"
                 leftSection={<IconLayoutKanban size={16} />}
+                rightSection={
+                  totalActions > 0 ? (
+                    <span
+                      className={`${overviewStyles.tabCount} ${
+                        activeTab === "tasks" ? overviewStyles.tabCountActive : ""
+                      }`}
+                    >
+                      {totalActions}
+                    </span>
+                  ) : null
+                }
               >
                 Tasks
               </Tabs.Tab>

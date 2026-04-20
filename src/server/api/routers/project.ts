@@ -779,6 +779,22 @@ export const projectRouter = createTRPCRouter({
           outcomes: true,
           lifeDomains: true,
           actions: true,
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
+          dri: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
           team: {
             select: {
               id: true,
