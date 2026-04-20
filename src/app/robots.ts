@@ -1,7 +1,8 @@
 import type { MetadataRoute } from 'next';
-import { getPublicBaseUrlFromEnv } from '~/lib/urls';
+import { getPublicBaseUrl } from '~/lib/urls';
 
-export default function robots(): MetadataRoute.Robots {
+export default async function robots(): Promise<MetadataRoute.Robots> {
+  const baseUrl = await getPublicBaseUrl();
   return {
     rules: [
       {
@@ -42,6 +43,6 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    sitemap: `${getPublicBaseUrlFromEnv()}/sitemap.xml`,
+    sitemap: `${baseUrl}/sitemap.xml`,
   };
 }

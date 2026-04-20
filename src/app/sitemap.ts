@@ -2,10 +2,10 @@ import type { MetadataRoute } from 'next';
 import { getAllBlogPosts } from '~/lib/blog/getBlogPost';
 import { getAllFeatureSlugs } from '~/app/(home)/features/_data/features';
 import { getAllDocSlugs } from '~/lib/docs/getDoc';
-import { getPublicBaseUrlFromEnv } from '~/lib/urls';
+import { getPublicBaseUrl } from '~/lib/urls';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = getPublicBaseUrlFromEnv();
+  const baseUrl = await getPublicBaseUrl();
 
   const staticPages: MetadataRoute.Sitemap = [
     {
