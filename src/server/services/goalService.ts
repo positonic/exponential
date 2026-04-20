@@ -138,17 +138,11 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     throw new Error("User not authenticated");
   }
 
-  // First verify the goal belongs to the user
-  const existingGoal = await ctx.db.goal.findFirst({
-    where: {
-      id: input.id,
-      userId: ctx.session.user.id,
-    },
-  });
+  await verifyGoalAccess({ ctx, goalId: input.id });
 
-  if (!existingGoal) {
-    throw new Error("Goal not found or unauthorized");
-  }
+  const existingGoal = await ctx.db.goal.findUniqueOrThrow({
+    where: { id: input.id },
+  });
 
   // Enforce max nesting depth of 5 levels when changing parent
   if (input.parentGoalId !== undefined && input.parentGoalId !== existingGoal.parentGoalId) {
@@ -451,16 +445,7 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
 }
 
 export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: number } }) {
-  const userId = ctx.session?.user?.id;
-  if (!userId) throw new Error("User not authenticated");
-
-  const existingGoal = await ctx.db.goal.findFirst({
-    where: { id: input.id, userId },
-  });
-
-  if (!existingGoal) {
-    throw new Error("Goal not found or unauthorized");
-  }
+  await verifyGoalAccess({ ctx, goalId: input.id });
 
   return await ctx.db.goal.delete({
     where: { id: input.id },
@@ -468,16 +453,7 @@ export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: nu
 }
 
 export async function updateGoalIcon({ ctx, input }: { ctx: Context; input: { id: number; icon: string | null; iconColor: string | null } }) {
-  if (!ctx.session?.user?.id) {
-    throw new Error("User not authenticated");
-  }
-
-  const goal = await ctx.db.goal.findFirst({
-    where: { id: input.id, userId: ctx.session.user.id },
-  });
-  if (!goal) {
-    throw new Error("Goal not found or unauthorized");
-  }
+  await verifyGoalAccess({ ctx, goalId: input.id });
 
   return ctx.db.goal.update({
     where: { id: input.id },

@@ -70,6 +70,7 @@ interface Interaction {
   aiResponse: string;
   createdAt: Date;
   tokenUsage?: unknown;
+  anthropicRequestId?: string | null;
   user: {
     id: string;
     name: string | null;
@@ -370,6 +371,14 @@ export function AiInteractionsTable() {
               <Text size="sm" className="font-medium text-text-muted">Date</Text>
               <Text className="text-text-primary">{formatDate(selectedInteraction.createdAt)}</Text>
             </div>
+            {selectedInteraction.anthropicRequestId && (
+              <div>
+                <Text size="sm" className="font-medium text-text-muted">Anthropic request ID</Text>
+                <Text className="break-all font-mono text-xs text-text-primary">
+                  {selectedInteraction.anthropicRequestId}
+                </Text>
+              </div>
+            )}
             <div>
               <Text size="sm" className="font-medium text-text-muted">Rating</Text>
               {selectedInteraction.feedback[0] ? (
