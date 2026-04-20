@@ -15,13 +15,27 @@ import {
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import styles from './WorkspaceTopNav.module.css';
 
-const NAV_ITEMS = [
+type NavItem = {
+  readonly label: string;
+  readonly icon: typeof IconHome;
+  readonly segment: string;
+  readonly href?: string;
+  readonly matchSegments?: readonly string[];
+};
+
+const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Home', icon: IconHome, segment: 'home' },
   { label: 'Projects', icon: IconStack2, segment: 'projects' },
   { label: 'Knowledge', icon: IconBook, segment: 'knowledge-base' },
   { label: 'Meetings', icon: IconMicrophone, segment: 'meetings' },
   { label: 'CRM', icon: IconUsers, segment: 'crm' },
-  { label: 'OKRs', icon: IconTarget, segment: 'okrs' },
+  {
+    label: 'OKRs',
+    icon: IconTarget,
+    segment: 'goals',
+    href: 'goals?tab=okrs',
+    matchSegments: ['goals', 'okrs'],
+  },
   { label: 'Calendar', icon: IconCalendar, segment: 'timeline' },
   { label: 'Settings', icon: IconSettings, segment: 'settings' },
 ] as const;
@@ -34,13 +48,16 @@ export function WorkspaceTopNav() {
 
   return (
     <nav className={styles.strip}>
-      {NAV_ITEMS.map(({ label, icon: Icon, segment }) => {
-        const href = `/w/${workspaceSlug}/${segment}`;
-        const isActive = pathname.startsWith(href);
+      {NAV_ITEMS.map(({ label, icon: Icon, segment, href, matchSegments }) => {
+        const linkHref = `/w/${workspaceSlug}/${href ?? segment}`;
+        const segmentsToMatch = matchSegments ?? [segment];
+        const isActive = segmentsToMatch.some((s) =>
+          pathname.startsWith(`/w/${workspaceSlug}/${s}`),
+        );
         return (
           <Link
             key={segment}
-            href={href}
+            href={linkHref}
             className={styles.chip}
             data-active={isActive ? 'true' : 'false'}
           >

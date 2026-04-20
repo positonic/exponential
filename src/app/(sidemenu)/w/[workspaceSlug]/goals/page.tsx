@@ -46,7 +46,7 @@ function GoalsPageContent() {
       onChange={handleTabChange}
       className="w-full"
     >
-      <Tabs.List className="px-4 border-b border-border-primary">
+      <Tabs.List className="px-10 border-b border-border-primary">
         <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>
           Goals
         </Tabs.Tab>

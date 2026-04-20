@@ -344,10 +344,10 @@ export function OkrDashboard() {
         <Group justify="space-between" align="start">
           <div>
             <Title
-              order={1}
+              order={2}
               className="text-text-primary flex items-center gap-2"
             >
-              <IconTargetArrow size={32} />
+              <IconTargetArrow size={22} />
               OKRs
             </Title>
             <Text className="text-text-muted">
