@@ -5,6 +5,9 @@ import { createContext, useContext, useState, useCallback, useEffect, useMemo, t
 // sessionStorage keys for per-tab isolation (prevents context bleeding between tabs)
 const CHAT_STORAGE_KEY = 'agent-chat-messages';
 const CONVERSATION_STORAGE_KEY = 'agent-chat-conversation-id';
+const DRAWER_SIZE_STORAGE_KEY = 'zoe-drawer-size';
+
+export type DrawerSize = 's' | 'm' | 'l';
 
 // Message type shared between provider and ManyChat
 export interface ChatMessage {
@@ -63,6 +66,10 @@ interface AgentModalContextValue {
   setConversationId: Dispatch<SetStateAction<string>>;
   displayMode: ChatDisplayMode;
   toggleDisplayMode: () => void;
+  drawerSize: DrawerSize;
+  setDrawerSize: (size: DrawerSize) => void;
+  maximised: boolean;
+  setMaximised: Dispatch<SetStateAction<boolean>>;
   openModal: (projectId?: string) => void;
   closeModal: () => void;
   clearChat: () => void;
@@ -70,12 +77,19 @@ interface AgentModalContextValue {
   pendingNotification: PendingNotification | null;
   setPendingNotification: (notification: PendingNotification | null) => void;
   openModalWithNotification: () => void;
+  pendingPrompt: string | null;
+  openWithPrompt: (text: string) => void;
+  consumePendingPrompt: () => void;
 }
 
 const AgentModalContext = createContext<AgentModalContextValue>({
   isOpen: false,
   displayMode: 'panel',
   toggleDisplayMode: () => undefined,
+  drawerSize: 'm',
+  setDrawerSize: () => undefined,
+  maximised: false,
+  setMaximised: () => undefined,
   workspaceId: null,
   setWorkspaceId: () => undefined,
   projectId: null,
@@ -93,6 +107,9 @@ const AgentModalContext = createContext<AgentModalContextValue>({
   pendingNotification: null,
   setPendingNotification: () => undefined,
   openModalWithNotification: () => undefined,
+  pendingPrompt: null,
+  openWithPrompt: () => undefined,
+  consumePendingPrompt: () => undefined,
 });
 
 export function useAgentModal() {
@@ -118,8 +135,11 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
 
   const [conversationId, setConversationId] = useState<string>('');
   const [pendingNotification, setPendingNotification] = useState<PendingNotification | null>(null);
+  const [drawerSize, setDrawerSizeState] = useState<DrawerSize>('m');
+  const [maximised, setMaximised] = useState(false);
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
 
-  // Hydrate state from sessionStorage after mount (per-tab, avoids SSR mismatch)
+  // Hydrate state from sessionStorage / localStorage after mount (per-tab, avoids SSR mismatch)
   useEffect(() => {
     const storedMessages = sessionStorage.getItem(CHAT_STORAGE_KEY);
     if (storedMessages) {
@@ -134,6 +154,16 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     if (storedConvId) {
       setConversationId(storedConvId);
     }
+
+    const storedSize = localStorage.getItem(DRAWER_SIZE_STORAGE_KEY);
+    if (storedSize === 's' || storedSize === 'm' || storedSize === 'l') {
+      setDrawerSizeState(storedSize);
+    }
+  }, []);
+
+  const setDrawerSize = useCallback((size: DrawerSize) => {
+    setDrawerSizeState(size);
+    localStorage.setItem(DRAWER_SIZE_STORAGE_KEY, size);
   }, []);
 
   // Sync messages to sessionStorage when they change (debounced to avoid thrashing during streaming)
@@ -161,8 +191,21 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     setIsOpen(true);
   }, []);
 
+  const openWithPrompt = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setPendingPrompt(trimmed);
+    setDisplayMode('panel');
+    setIsOpen(true);
+  }, []);
+
+  const consumePendingPrompt = useCallback(() => {
+    setPendingPrompt(null);
+  }, []);
+
   const closeModal = useCallback(() => {
     setIsOpen(false);
+    setMaximised(false);
     // Keep projectId until next open so animations can complete
   }, []);
 
@@ -202,6 +245,10 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     isOpen,
     displayMode,
     toggleDisplayMode,
+    drawerSize,
+    setDrawerSize,
+    maximised,
+    setMaximised,
     workspaceId,
     setWorkspaceId,
     projectId,
@@ -219,10 +266,16 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     pendingNotification,
     setPendingNotification,
     openModalWithNotification,
+    pendingPrompt,
+    openWithPrompt,
+    consumePendingPrompt,
   }), [
     isOpen,
     displayMode,
     toggleDisplayMode,
+    drawerSize,
+    setDrawerSize,
+    maximised,
     workspaceId,
     setWorkspaceId,
     projectId,
@@ -237,6 +290,9 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     loadConversation,
     pendingNotification,
     openModalWithNotification,
+    pendingPrompt,
+    openWithPrompt,
+    consumePendingPrompt,
   ]);
 
   return (

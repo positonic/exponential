@@ -339,7 +339,7 @@ interface ManyChatProps {
 
 export default function ManyChat({ initialMessages, githubSettings, buttons, projectId: projectIdProp, workspaceId: workspaceIdProp, initialInput, defaultAgentId }: ManyChatProps) {
   // Get messages, conversationId, and page context from context to persist across navigation
-  const { messages, setMessages, conversationId, setConversationId, pageContext } = useAgentModal();
+  const { messages, setMessages, conversationId, setConversationId, pageContext, isOpen, pendingPrompt, consumePendingPrompt } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
   const workspaceId = workspaceIdProp ?? urlWorkspaceId;
 
@@ -736,6 +736,26 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   }, [initialInput]);
 
+  // Auto-submit when the drawer opens with a pending prompt seeded from
+  // another surface (e.g. the home-page Zoe input). Runs once per open.
+  const didSeedRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      didSeedRef.current = false;
+      return;
+    }
+    if (!pendingPrompt || didSeedRef.current) return;
+    didSeedRef.current = true;
+    const seeded = pendingPrompt;
+    consumePendingPrompt();
+    // Defer one tick so any mount-phase work settles before we fire the submit.
+    setTimeout(() => {
+      void handleSubmit(null, seeded);
+    }, 0);
+    // handleSubmit intentionally omitted — it's a stable closure over current state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, pendingPrompt, consumePendingPrompt]);
+
   // Handle input changes and autocomplete
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -863,28 +883,29 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+  const handleSubmit = async (e: React.FormEvent | null, overrideText?: string) => {
+    e?.preventDefault();
+    const text = overrideText ?? input;
+    if (!text.trim()) return;
 
-    const userMessage: Message = { type: 'human', content: input };
+    const userMessage: Message = { type: 'human', content: text };
     setMessages(prev => [...prev, userMessage]);
-    
+
     // Parse for agent mentions
-    const { agentId: mentionedAgentId, cleanMessage } = parseAgentMention(input);
-    const messageToSend = mentionedAgentId ? cleanMessage : input;
-    
+    const { agentId: mentionedAgentId, cleanMessage } = parseAgentMention(text);
+    const messageToSend = mentionedAgentId ? cleanMessage : text;
+
     setInput('');
     setShowAgentDropdown(false);
 
     let targetAgentId: string | undefined;
-    
+
     try {
-      
+
       // Security audit logging for agent calls
       console.log('🔒 [SECURITY AUDIT] Agent call initiated:', {
         projectId,
-        messageLength: input.length,
+        messageLength: text.length,
         hasMentionedAgent: !!mentionedAgentId,
         timestamp: new Date().toISOString(),
         contextScope: 'single-project-only'
@@ -914,7 +935,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         } else {
           // Fallback: Use AI to choose if Zoe not found
           console.warn('⚠️ Zoe agent not found, using AI selection');
-          const { agentId } = await chooseAgent.mutateAsync({ message: input });
+          const { agentId } = await chooseAgent.mutateAsync({ message: text });
           targetAgentId = agentId;
           console.log('🔮 [AGENT] AI selected agent:', { agentId });
         }

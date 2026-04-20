@@ -21,7 +21,7 @@ import { CalendarWeekView } from "./CalendarWeekView";
 import { CalendarMonthView } from "./CalendarMonthView";
 import type { FocusPeriod, DateRange } from "~/types/focus";
 import { formatFocusLabel } from "~/lib/dateUtils";
-import { Projects } from "./Projects";
+import { WorkspaceProjectsConceptD } from "./projects/WorkspaceProjectsConceptD";
 
 type TabValue = "overview" | "tasks" | "calendar" | "journal" | "projects";
 
@@ -350,7 +350,7 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
           </Tabs.Panel>
 
           <Tabs.Panel value="projects">
-            <Projects />
+            <WorkspaceProjectsConceptD />
           </Tabs.Panel>
 
           {focus === "today" && (

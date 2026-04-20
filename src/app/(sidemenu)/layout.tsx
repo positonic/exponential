@@ -21,8 +21,7 @@ import { themes } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { Analytics } from '@vercel/analytics/next';
 import { GoogleAnalytics } from '@next/third-parties/google';
-import { FloatingChatButton } from '~/app/_components/FloatingChatButton';
-import { AgentChatModal } from '~/app/_components/layout/AgentChatModal';
+import { ZoeDrawer, ZoeFab } from '~/app/_components/layout/ZoeDrawer';
 import { CommandPalette } from '~/app/_components/layout/CommandPalette';
 import { ColorSchemeScript } from '~/app/_components/layout/ColorSchemeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
@@ -79,8 +78,8 @@ export default async function RootLayout({
                           )}
                         </Layout>
                         <ServiceWorkerRegistration />
-                        <FloatingChatButton />
-                        <AgentChatModal />
+                        <ZoeDrawer />
+                        <ZoeFab />
                         <CommandPalette />
                       </WorkspaceProvider>
                     </ColorSchemeProvider>

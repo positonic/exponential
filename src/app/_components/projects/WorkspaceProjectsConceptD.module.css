@@ -117,6 +117,12 @@
   color: var(--color-text-primary);
 }
 
+.actionBtn[data-active='true'] {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border-color: var(--brand-500);
+}
+
 .newBtn {
   display: inline-flex;
   align-items: center;
@@ -135,6 +141,12 @@
 
 .newBtn:hover {
   opacity: 0.88;
+}
+
+/* ── filter row ── */
+.filterRow {
+  padding: 12px 32px 0;
+  flex-shrink: 0;
 }
 
 /* ── table ── */
@@ -221,53 +233,6 @@
   font-size: 11px;
   color: var(--color-text-muted);
   white-space: nowrap;
-}
-
-/* ── Health segments ── */
-.healthBar {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-}
-
-.healthSeg {
-  width: 10px;
-  height: 14px;
-  border-radius: 2px;
-}
-
-/* ── Status chip ── */
-.statusChip {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* ── Priority chip ── */
-.priorityChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.priorityBars {
-  display: flex;
-  align-items: flex-end;
-  gap: 1.5px;
-}
-
-.priorityBar {
-  width: 3px;
-  border-radius: 1px;
 }
 
 /* ── ETA ── */
