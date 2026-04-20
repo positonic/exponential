@@ -173,7 +173,7 @@ function preprocessAgentHtml(html: string): string {
   // Pattern: colon immediately followed by a new action phrase (agent narration style)
   let processed = html.replace(/<p([^>]*)>([\s\S]{250,}?)<\/p>/gi, (_match, attrs: string, content: string) => {
     const split = content.replace(
-      /:(Now |Let |Great|Good|Perfect|However, |I |The |Then |First, |Next )/g,
+      /:(Now |Let |Great|Good|Perfect|Excellent|However, |I |The |Then |First, |Next )/g,
       (_: string, word: string) => `</p><p${attrs}>${word}`
     );
     return `<p${attrs}>${split}</p>`;
@@ -190,6 +190,17 @@ function preprocessAgentHtml(html: string): string {
   }
 
   return processed;
+}
+
+// Markdown equivalent of preprocessAgentHtml's paragraph splitting:
+// inserts `\n\n` at agent action boundaries so streamed narration renders
+// as separate paragraphs instead of one giant <Text>. Keep action-word
+// list in sync with preprocessAgentHtml above.
+function preprocessAgentMarkdown(content: string): string {
+  return content.replace(
+    /:(Now |Let |Great|Good|Perfect|Excellent|However, |I |The |Then |First, |Next )/g,
+    (_: string, word: string) => `:\n\n${word}`,
+  );
 }
 
 // Render message content with markdown/video support
@@ -234,12 +245,13 @@ function renderMessageContent(content: string, messageType: string) {
 
   // For AI messages, check if content looks like markdown and render accordingly
   if (messageType === 'ai' && (content.includes('###') || content.includes('**') || content.includes('- ') || content.includes('| ') || content.includes('```'))) {
+    const processed = preprocessAgentMarkdown(content);
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={MARKDOWN_COMPONENTS}
       >
-        {content}
+        {processed}
       </ReactMarkdown>
     );
   }
