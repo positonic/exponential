@@ -12,6 +12,7 @@ import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { db } from "~/server/db";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
+import { trimByTokenBudget } from "~/lib/trim-conversation";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
 import { PRODUCT_NAME } from "~/lib/brand";
@@ -94,6 +95,23 @@ export async function POST(req: Request) {
       .map(m => m.content)
       .join('\n');
     let finalMessages: CoreMessage[] = messages.filter(m => m.role !== 'system');
+
+    // Defensive token-budget trim: don't trust the client to keep history
+    // bounded. Anything older than the budget is dropped here; Mastra memory
+    // (resource+thread) is expected to surface relevant older turns via
+    // semanticRecall / lastMessages when the agent needs them.
+    const HISTORY_TOKEN_BUDGET = Number(
+      process.env.CHAT_HISTORY_TOKEN_BUDGET ?? "20000",
+    );
+    const trimmed = trimByTokenBudget(finalMessages, HISTORY_TOKEN_BUDGET);
+    if (trimmed.droppedCount > 0) {
+      console.log('✂️ [chat/stream] Trimmed conversation history', {
+        droppedCount: trimmed.droppedCount,
+        estimatedTokens: trimmed.estimatedTokens,
+        budgetTokens: HISTORY_TOKEN_BUDGET,
+      });
+    }
+    finalMessages = trimmed.messages;
 
     // Generate JWT for agent authentication (enables tools to callback to this app)
     const agentJWT = generateAgentJWT({

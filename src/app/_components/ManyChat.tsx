@@ -20,6 +20,7 @@ import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { trimByTokenBudget } from '~/lib/trim-conversation';
 
 // Module-level constants to avoid re-creation on every render
 const VIDEO_PATTERN = /\[Video ([a-zA-Z0-9_-]+)\]/g;
@@ -950,13 +951,20 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       // Add the current user message
       coreMessages.push({ role: 'user', content: messageToSend });
 
-      // Trim to avoid exceeding context window: keep system message + last 40 messages
-      const MAX_HISTORY_MESSAGES = 40;
-      if (coreMessages.length > MAX_HISTORY_MESSAGES + 1) {
-        const system = coreMessages[0]!;
-        const recent = coreMessages.slice(-MAX_HISTORY_MESSAGES);
-        coreMessages.splice(0, coreMessages.length, system, ...recent);
+      // Trim by estimated token budget rather than raw message count so a
+      // few verbose tool-result turns can't blow past the context window.
+      // Mastra memory on the server will surface older turns via semantic
+      // recall / lastMessages when the agent actually needs them.
+      const HISTORY_TOKEN_BUDGET = 20_000;
+      const trimmed = trimByTokenBudget(coreMessages, HISTORY_TOKEN_BUDGET);
+      if (trimmed.droppedCount > 0) {
+        console.log('✂️ [ManyChat] Trimmed conversation history', {
+          droppedCount: trimmed.droppedCount,
+          estimatedTokens: trimmed.estimatedTokens,
+          budgetTokens: HISTORY_TOKEN_BUDGET,
+        });
       }
+      coreMessages.splice(0, coreMessages.length, ...trimmed.messages);
 
       const streamPayload = {
         messages: coreMessages,
