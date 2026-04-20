@@ -8,7 +8,13 @@
 
 /* eslint-disable no-restricted-syntax */
 
+import { colorTokens } from "~/styles/colors";
+
 const POSTMARK_API_URL = "https://api.postmarkapp.com/email";
+
+// Email clients don't support CSS variables, so we inline the brand hex here.
+// Source of truth is `colorTokens.light.brand.primary` in `src/styles/colors.ts`.
+const EMAIL_BRAND_COLOR = colorTokens.light.brand.primary;
 
 interface SendEmailParams {
   to: string;
@@ -59,7 +65,7 @@ export async function sendMagicLinkEmail(
   email: string,
   url: string
 ): Promise<void> {
-  const brandColor = "#5850EC";
+  const brandColor = EMAIL_BRAND_COLOR;
   const appName = "Exponential";
 
   const htmlBody = `
@@ -341,7 +347,7 @@ export async function sendWelcomeWithMagicLinkEmail(
   email: string,
   magicLinkUrl: string
 ): Promise<void> {
-  const brandColor = "#5850EC";
+  const brandColor = EMAIL_BRAND_COLOR;
   const appName = "Exponential";
   const appUrl = process.env.NEXTAUTH_URL ?? "https://exponential.im";
 
@@ -371,7 +377,7 @@ export async function sendWelcomeEmail(
   name?: string | null,
   authProvider?: string
 ): Promise<void> {
-  const brandColor = "#5850EC";
+  const brandColor = EMAIL_BRAND_COLOR;
   const appName = "Exponential";
   const appUrl = process.env.NEXTAUTH_URL ?? "https://exponential.im";
   const signInUrl = `${appUrl}/signin`;
@@ -414,7 +420,7 @@ export async function sendTeamInvitationEmail(params: {
   inviteUrl: string;
 }): Promise<void> {
   const { to, teamName, inviterName, inviteUrl } = params;
-  const brandColor = "#5850EC";
+  const brandColor = EMAIL_BRAND_COLOR;
   const appName = "Exponential";
 
   const htmlBody = `
@@ -557,7 +563,7 @@ export async function sendAssignmentNotificationEmail(params: {
   workspaceSettingsUrl: string;
 }): Promise<void> {
   const { to, assigneeName, assignerName, actionName, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
-  const brandColor = "#5850EC";
+  const brandColor = EMAIL_BRAND_COLOR;
   const appName = "Exponential";
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
   const greeting = assigneeName ? `Hi ${assigneeName},` : "Hi there,";
@@ -661,7 +667,7 @@ export async function sendMentionNotificationEmail(params: {
   workspaceSettingsUrl: string;
 }): Promise<void> {
   const { to, mentionedName, authorName, actionName, commentPreview, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
-  const brandColor = "#5850EC";
+  const brandColor = EMAIL_BRAND_COLOR;
   const appName = "Exponential";
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
   const greeting = mentionedName ? `Hi ${mentionedName},` : "Hi there,";
