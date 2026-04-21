@@ -1,11 +1,14 @@
 "use client";
 
 import { Tabs, Text } from "@mantine/core";
+import { IconTimeline } from "@tabler/icons-react";
 import { clamp01 } from "../utils/okrDashboardUtils";
 
+export type OkrPeriodTab = "Annual" | "Q1" | "Q2" | "Q3" | "Q4" | "Timeline";
+
 interface PeriodTabsProps {
-  selectedPeriod: "Annual" | "Q1" | "Q2" | "Q3" | "Q4";
-  onPeriodChange: (period: "Annual" | "Q1" | "Q2" | "Q3" | "Q4") => void;
+  selectedPeriod: OkrPeriodTab;
+  onPeriodChange: (period: OkrPeriodTab) => void;
   counts?: Record<
     string,
     { objectives: number; keyResults: number; averageProgress: number }
@@ -71,10 +74,7 @@ export function PeriodTabs({
   counts,
   isLoading,
 }: PeriodTabsProps) {
-  const periods: Array<{
-    value: "Annual" | "Q1" | "Q2" | "Q3" | "Q4";
-    label: string;
-  }> = [
+  const periods: Array<{ value: OkrPeriodTab; label: string }> = [
     { value: "Q1", label: "Q1" },
     { value: "Q2", label: "Q2" },
     { value: "Q3", label: "Q3" },
@@ -87,7 +87,7 @@ export function PeriodTabs({
       value={selectedPeriod}
       onChange={(value) => {
         if (value) {
-          onPeriodChange(value as "Annual" | "Q1" | "Q2" | "Q3" | "Q4");
+          onPeriodChange(value as OkrPeriodTab);
         }
       }}
       variant="default"
@@ -139,6 +139,31 @@ export function PeriodTabs({
             </Tabs.Tab>
           );
         })}
+
+        <Tabs.Tab value="Timeline" aria-label="Timeline view">
+          <span className="inline-flex items-center gap-2">
+            <IconTimeline
+              size={16}
+              style={{
+                color:
+                  selectedPeriod === "Timeline"
+                    ? "var(--color-brand-primary)"
+                    : "var(--color-text-muted)",
+              }}
+            />
+            <Text
+              size="sm"
+              fw={selectedPeriod === "Timeline" ? 600 : 500}
+              className={
+                selectedPeriod === "Timeline"
+                  ? "text-text-primary"
+                  : "text-text-secondary"
+              }
+            >
+              Timeline
+            </Text>
+          </span>
+        </Tabs.Tab>
       </Tabs.List>
     </Tabs>
   );

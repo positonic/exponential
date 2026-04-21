@@ -27,7 +27,15 @@ import {
 } from "@tabler/icons-react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { PeriodTabs } from "./PeriodTabs";
-import { extractYearsFromPeriods } from "../utils/periodUtils";
+import { OkrTimeline } from "./OkrTimeline";
+import {
+  buildTimelineData,
+  computeTimelineAxis,
+} from "../utils/okrTimelineData";
+import {
+  extractYearsFromPeriods,
+  getCurrentQuarterType,
+} from "../utils/periodUtils";
 import { useOkrSearchParams } from "../hooks/useOkrSearchParams";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -97,10 +105,22 @@ export function OkrDashboard() {
 
   const utils = api.useUtils();
 
-  const effectivePeriod = useMemo(
-    () => `${selectedPeriod}-${selectedYear}`,
-    [selectedYear, selectedPeriod],
-  );
+  const isTimelineView = selectedPeriod === "Timeline";
+
+  // When the Timeline tab is active it's a view mode, not a period. Pick the
+  // quarter matching today's date (or Q1 of the selected year for past/future
+  // years) so the gantt axis has a concrete range of weeks to lay out.
+  const timelineTargetQuarter = useMemo(() => {
+    const now = new Date();
+    const thisYear = now.getFullYear().toString();
+    if (selectedYear === thisYear) return getCurrentQuarterType();
+    return "Q1" as const;
+  }, [selectedYear]);
+
+  const effectivePeriod = useMemo(() => {
+    if (isTimelineView) return `${timelineTargetQuarter}-${selectedYear}`;
+    return `${selectedPeriod}-${selectedYear}`;
+  }, [isTimelineView, timelineTargetQuarter, selectedYear, selectedPeriod]);
 
   useEffect(() => {
     setFormData((prev) => ({ ...prev, period: effectivePeriod }));
@@ -463,30 +483,62 @@ export function OkrDashboard() {
 
         {/* Objective list */}
         {visibleObjectives.length > 0 ? (
-          <div>
-            {visibleObjectives.map((obj, idx) => (
-              <div key={obj.id} id={`okr-obj-${obj.id}`}>
-                <ObjectiveCardV2
-                  objective={obj}
-                  code={`O${idx + 1}`}
-                  period={effectivePeriod}
-                  isExpanded={expandedObjectives.has(obj.id)}
-                  onToggleExpand={() => toggleExpand(obj.id)}
-                  onDelete={handleDeleteObjective}
-                  isDeleting={deleteObjective.isPending}
-                  onEditSuccess={() => {
-                    void utils.okr.getByObjective.invalidate();
-                    void utils.okr.getStats.invalidate();
-                    void utils.okr.getCountsByYear.invalidate();
+          isTimelineView ? (
+            (() => {
+              const axis = computeTimelineAxis(effectivePeriod);
+              const { objectives: timelineObjectives, users } =
+                buildTimelineData(visibleObjectives, effectivePeriod);
+              return (
+                <OkrTimeline
+                  objectives={timelineObjectives}
+                  getUser={(id) => users.get(id)}
+                  weekCount={axis?.weekCount}
+                  weekLabels={axis?.weekLabels}
+                  monthStarts={axis?.monthStarts}
+                  monthLabels={axis?.monthLabels}
+                  todayFrac={axis?.todayFrac}
+                  onObjectiveClick={(o) => {
+                    const source = visibleObjectives.find(
+                      (v) => String(v.id) === o.id,
+                    );
+                    if (source) handleViewObjective(source);
                   }}
-                  onAddKeyResult={handleAddKeyResultToObjective}
-                  onEditKeyResult={handleEditKeyResult}
-                  onViewObjective={() => handleViewObjective(obj)}
-                  onViewKeyResult={handleViewKeyResult}
+                  onKeyResultClick={(kr) => {
+                    const allKrs = visibleObjectives.flatMap(
+                      (v) => v.keyResults,
+                    );
+                    const source = allKrs.find((k) => k.id === kr.id);
+                    if (source) handleViewKeyResult(source);
+                  }}
                 />
-              </div>
-            ))}
-          </div>
+              );
+            })()
+          ) : (
+            <div>
+              {visibleObjectives.map((obj, idx) => (
+                <div key={obj.id} id={`okr-obj-${obj.id}`}>
+                  <ObjectiveCardV2
+                    objective={obj}
+                    code={`O${idx + 1}`}
+                    period={effectivePeriod}
+                    isExpanded={expandedObjectives.has(obj.id)}
+                    onToggleExpand={() => toggleExpand(obj.id)}
+                    onDelete={handleDeleteObjective}
+                    isDeleting={deleteObjective.isPending}
+                    onEditSuccess={() => {
+                      void utils.okr.getByObjective.invalidate();
+                      void utils.okr.getStats.invalidate();
+                      void utils.okr.getCountsByYear.invalidate();
+                    }}
+                    onAddKeyResult={handleAddKeyResultToObjective}
+                    onEditKeyResult={handleEditKeyResult}
+                    onViewObjective={() => handleViewObjective(obj)}
+                    onViewKeyResult={handleViewKeyResult}
+                  />
+                </div>
+              ))}
+            </div>
+          )
         ) : (
           <div className="rounded-lg border border-border-primary bg-surface-secondary px-6 py-12 text-center">
             <IconTargetArrow

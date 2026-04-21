@@ -11,11 +11,11 @@ export function useOkrSearchParams() {
   const [isPending, startTransition] = useTransition();
 
   const year = searchParams.get("year") ?? getCurrentYear();
-  const period = (searchParams.get("period") as "Annual" | "Q1" | "Q2" | "Q3" | "Q4") ??
+  const period = (searchParams.get("period") as "Annual" | "Q1" | "Q2" | "Q3" | "Q4" | "Timeline") ??
     getCurrentQuarterType().replace(/-(Annual)?/, '') as "Q1" | "Q2" | "Q3" | "Q4";
 
   const setParams = useCallback(
-    (newYear: string, newPeriod: "Annual" | "Q1" | "Q2" | "Q3" | "Q4") => {
+    (newYear: string, newPeriod: "Annual" | "Q1" | "Q2" | "Q3" | "Q4" | "Timeline") => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("year", newYear);
       params.set("period", newPeriod);
@@ -34,7 +34,7 @@ export function useOkrSearchParams() {
   );
 
   const setPeriod = useCallback(
-    (newPeriod: "Annual" | "Q1" | "Q2" | "Q3" | "Q4") => {
+    (newPeriod: "Annual" | "Q1" | "Q2" | "Q3" | "Q4" | "Timeline") => {
       setParams(year, newPeriod);
     },
     [year, setParams]
