@@ -1025,7 +1025,22 @@ export const workspaceRouter = createTRPCRouter({
         where: { token: input.token },
         include: {
           workspace: {
-            select: { id: true, name: true, slug: true, type: true },
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              type: true,
+              _count: { select: { members: true } },
+              members: {
+                take: 4,
+                orderBy: { joinedAt: "asc" },
+                select: {
+                  user: {
+                    select: { id: true, name: true, email: true, image: true },
+                  },
+                },
+              },
+            },
           },
           createdBy: {
             select: { name: true, email: true, image: true },
@@ -1040,8 +1055,15 @@ export const workspaceRouter = createTRPCRouter({
         });
       }
 
+      const { members, _count, ...workspaceRest } = invitation.workspace;
+
       return {
         ...invitation,
+        workspace: {
+          ...workspaceRest,
+          memberCount: _count.members,
+          memberPreview: members.map((m) => m.user),
+        },
         isExpired: invitation.expiresAt < new Date(),
         isLoggedIn: !!ctx.session?.user,
         isForCurrentUser: invitation.email === ctx.session?.user?.email,

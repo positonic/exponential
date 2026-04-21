@@ -695,3 +695,75 @@
 .blog-content blockquote p { margin-bottom: 0.25rem; }
 .blog-content strong { font-size: inherit; }
 .blog-content table { font-size: 1rem; line-height: 1.7; }
+
+/* ==========================================================================
+   Workspace invite landing page — scoped design tokens
+   Consumed by src/app/invite/[token]/invite-page.css. All hex lives here so
+   the feature CSS can be hex-free (pre-commit hook only allows hex in this
+   file, colors.ts, mantineTheme.ts, EmailService.ts).
+   ========================================================================== */
+.invite-root {
+  /* Backgrounds */
+  --color-bg-primary: #0B0F17;
+  --color-bg-secondary: #10151F;
+  --color-bg-elevated: #141B27;
+  --color-bg-hover: #1A2230;
+  --color-bg-overlay: rgba(5, 8, 13, 0.72);
+
+  /* Surfaces */
+  --color-surface-muted: #161D2A;
+  --color-surface-raised: #1C2433;
+
+  /* Borders */
+  --color-border-primary: #1F2A3C;
+  --color-border-subtle: #172030;
+  --color-border-strong: #2A3850;
+
+  /* Text */
+  --color-text-primary: #E6ECF5;
+  --color-text-secondary: #96A2B5;
+  --color-text-muted: #5E6A7E;
+  --color-text-faint: #3F4A5C;
+
+  /* Brand scale */
+  --brand-50: #EEF3FF;
+  --brand-200: #A8C5FF;
+  --brand-400: #4E89FF;
+  --brand-500: #1F5DE0;
+  --brand-600: #1A4EC4;
+  --brand-700: #153FA8;
+
+  /* Accents */
+  --accent-ritual: #6B8CFF;
+  --accent-knowledge: #5AC8E0;
+  --accent-meetings: #A78BFA;
+  --accent-crm: #4ADE8C;
+  --accent-okr: #F5B94A;
+  --accent-due: #F87171;
+
+  /* Avatar gradient presets */
+  --invite-avatar-a1: linear-gradient(135deg, #F59E7E, #C73E9A);
+  --invite-avatar-a2: linear-gradient(135deg, #8B7EE8, #5AC8E0);
+  --invite-avatar-a3: linear-gradient(135deg, #4ADE8C, #1F5DE0);
+  --invite-avatar-a4: linear-gradient(135deg, #F5B94A, #F87171);
+
+  /* Brand logo colors (Google / Microsoft — per provider brand guidelines) */
+  --google-blue: #4285F4;
+  --google-green: #34A853;
+  --google-yellow: #FBBC05;
+  --google-red: #EA4335;
+  --microsoft-red: #F25022;
+  --microsoft-green: #7FBA00;
+  --microsoft-blue: #00A4EF;
+  --microsoft-yellow: #FFB900;
+
+  /* Type */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Rhythm */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+}
