@@ -29,6 +29,8 @@ interface ActionsProps {
   searchQuery?: string;
   /** Filter state for filtering actions by status/priority */
   filters?: FilterState;
+  /** Externally controlled tag ids - when provided, hides the internal tag filter UI */
+  tagIds?: string[];
   /** Project sync info for showing Notion sync button */
   projectSyncInfo?: {
     taskManagementTool?: string | null;
@@ -39,7 +41,7 @@ interface ActionsProps {
   };
 }
 
-export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false, searchQuery, filters, projectSyncInfo }: ActionsProps) {
+export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false, searchQuery, filters, tagIds, projectSyncInfo }: ActionsProps) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const viewFromUrl = searchParams.get("view");
@@ -47,7 +49,10 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [isKanbanMode, setIsKanbanMode] = useState(viewFromUrl === "kanban" || defaultView === 'kanban');
   const [isSyncing, setIsSyncing] = useState(false);
   const [showNotionUnassigned, setShowNotionUnassigned] = useState(false);
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [internalSelectedTagIds, setInternalSelectedTagIds] = useState<string[]>([]);
+  const isTagFilterControlled = tagIds !== undefined;
+  const selectedTagIds = isTagFilterControlled ? tagIds : internalSelectedTagIds;
+  const setSelectedTagIds = setInternalSelectedTagIds;
   const utils = api.useUtils();
   const { actionIdFromUrl, setActionId, clearActionId } = useActionDeepLink();
   const detailedEnabled = useDetailedActionsEnabled(projectId);
@@ -851,8 +856,8 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         </Group>
       )}
 
-      {/* Tag filter - available on all non-project pages */}
-      {!projectId && tagOptions.length > 0 && (
+      {/* Tag filter - available on all non-project pages (hidden when controlled externally) */}
+      {!projectId && !isTagFilterControlled && tagOptions.length > 0 && (
         <Group gap="xs" mb="md" align="flex-end" justify="flex-end">
           <MultiSelect
             data={tagOptions}

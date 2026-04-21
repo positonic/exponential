@@ -542,9 +542,10 @@ const TimelineRail: React.FC<TimelineRailProps> = ({
 
 interface TodayViewProps {
   onBulkReschedule?: () => void;
+  tagIds?: string[];
 }
 
-export function TodayView({ onBulkReschedule }: TodayViewProps) {
+export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
   const router = useRouter();
   const { workspace, workspaceId } = useWorkspace();
   const utils = api.useUtils();
@@ -596,7 +597,10 @@ export function TodayView({ onBulkReschedule }: TodayViewProps) {
     today.setHours(0, 0, 0, 0);
     const tomorrow = addDays(today, 1);
 
-    const all = actionsQuery.data ?? [];
+    const rawAll = actionsQuery.data ?? [];
+    const all = tagIds && tagIds.length > 0
+      ? rawAll.filter((a) => a.tags?.some((at) => tagIds.includes(at.tagId.toString())))
+      : rawAll;
     const overall = new Map<string, ActionData>();
     for (const a of all) overall.set(a.id, a);
 
@@ -630,7 +634,7 @@ export function TodayView({ onBulkReschedule }: TodayViewProps) {
     }
 
     return { overdueActions: overdue, todayActions: todays, todayOverallMap: overall };
-  }, [actionsQuery.data]);
+  }, [actionsQuery.data, tagIds]);
 
   const hasOverdue = overdueActions.length > 0;
 

@@ -1,46 +1,17 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button, Group, Title, SegmentedControl, Modal, Text, Collapse } from "@mantine/core";
+import { Button, Divider, Group, MultiSelect, Title, SegmentedControl, Modal, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconCalendarEvent, IconCircleDot, IconFlag } from "@tabler/icons-react";
-import { PRIORITY_VALUES } from "~/types/priority";
+import { IconCalendarEvent, IconHash } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 import { TodayView } from "./today/TodayView";
 import { ScoreBreakdown } from "./scoring/ScoreBreakdown";
 import { StreakBadge } from "./scoring/StreakBadge";
 import { ToolbarActions } from "./toolbar";
-import { FilterBar } from "./filters";
-import { hasActiveFilters } from "~/types/filter";
-import type { FilterBarConfig, FilterState } from "~/types/filter";
 import { api } from "~/trpc/react";
-
-const ACTION_FILTER_CONFIG: FilterBarConfig = {
-  fields: [
-    {
-      key: "status",
-      label: "Status",
-      type: "multi-select",
-      icon: IconCircleDot,
-      badgeColor: "cyan",
-      options: [
-        { value: "ACTIVE", label: "Active" },
-        { value: "COMPLETED", label: "Completed" },
-        { value: "CANCELLED", label: "Cancelled" },
-      ],
-    },
-    {
-      key: "priority",
-      label: "Priority",
-      type: "multi-select",
-      icon: IconFlag,
-      badgeColor: "grape",
-      options: PRIORITY_VALUES.map((v) => ({ value: v, label: v })),
-    },
-  ],
-};
 
 export type DoFilter = "today" | "tomorrow" | "upcoming";
 
@@ -53,9 +24,18 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
   const searchParams = useSearchParams();
   const { data: preferences } = api.navigationPreference.getPreferences.useQuery();
   const [breakdownOpened, { open: openBreakdown, close: closeBreakdown }] = useDisclosure(false);
-  const [filters, setFilters] = useState<FilterState>({});
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+
+  const tagsQuery = api.tag.list.useQuery();
+  const tagOptions = useMemo(
+    () =>
+      tagsQuery.data?.allTags?.map((tag: { id: string; name: string }) => ({
+        value: tag.id.toString(),
+        label: tag.name,
+      })) ?? [],
+    [tagsQuery.data],
+  );
 
   // Fetch score data for inline display (only on "today" filter)
   const gamificationEnabled = preferences?.showGamification !== false;
@@ -144,23 +124,27 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
           {/* Right side: Filter selector + inline score */}
           <Group gap="md" wrap="nowrap" className="items-center">
             {showScore && (
-              <button
-                onClick={openBreakdown}
-                className="flex items-center gap-2 text-left transition-opacity hover:opacity-80"
-              >
-                <div>
-                  <Text className="text-text-muted text-xs leading-tight">Daily Score</Text>
-                  <Group gap={4} className="items-baseline">
-                    <Text className="text-2xl font-bold leading-tight" style={{ color: getScoreColor(score.totalScore) }}>
-                      {score.totalScore}
-                    </Text>
-                    <Text className="text-text-muted text-xs">/100</Text>
-                  </Group>
-                </div>
-                {streak && streak.currentStreak > 0 && (
-                  <StreakBadge streakCount={streak.currentStreak} streakType="daily_planning" />
-                )}
-              </button>
+              <>
+                <button
+                  onClick={openBreakdown}
+                  className="flex items-baseline gap-2 text-left transition-opacity hover:opacity-80"
+                >
+                  <Text className="text-text-muted text-xs font-medium uppercase tracking-wider">
+                    Daily Score
+                  </Text>
+                  <Text
+                    className="text-2xl font-semibold leading-none"
+                    style={{ color: getScoreColor(score.totalScore) }}
+                  >
+                    {score.totalScore}
+                  </Text>
+                  <Text className="text-text-muted text-sm">/100</Text>
+                  {streak && streak.currentStreak > 0 && (
+                    <StreakBadge streakCount={streak.currentStreak} streakType="daily_planning" />
+                  )}
+                </button>
+                <Divider orientation="vertical" className="border-border-primary" />
+              </>
             )}
             {filter === "today" && (
               <Button
@@ -187,9 +171,6 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
               searchValue={searchQuery}
               onSearchChange={setSearchQuery}
               searchPlaceholder="Search actions..."
-              hasFilter
-              hasActiveFilters={hasActiveFilters(ACTION_FILTER_CONFIG, filters)}
-              onToggleFilter={toggleFilterRow}
             />
           </Group>
         </div>
@@ -208,22 +189,43 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
         </Modal>
       )}
 
-      {/* Filter Row */}
-      <Collapse in={filterRowOpen || hasActiveFilters(ACTION_FILTER_CONFIG, filters)}>
-        <div className="mb-3">
-          <FilterBar
-            config={ACTION_FILTER_CONFIG}
-            filters={filters}
-            onFiltersChange={setFilters}
+      {/* Tag Filter Row */}
+      {tagOptions.length > 0 && (
+        <div className="mb-3 flex justify-end">
+          <MultiSelect
+            data={tagOptions}
+            value={selectedTagIds}
+            onChange={setSelectedTagIds}
+            placeholder="Filter by tags..."
+            leftSection={<IconHash size={16} />}
+            clearable
+            searchable
+            size="sm"
+            maxDropdownHeight={240}
+            styles={{
+              input: {
+                backgroundColor: "var(--color-surface-secondary)",
+                borderColor: "var(--color-border-primary)",
+                minWidth: 260,
+              },
+              dropdown: {
+                backgroundColor: "var(--color-surface-secondary)",
+                borderColor: "var(--color-border-primary)",
+              },
+            }}
           />
         </div>
-      </Collapse>
+      )}
 
       {/* Actions List */}
       {filter === "today" ? (
-        <TodayView />
+        <TodayView tagIds={selectedTagIds} />
       ) : (
-        <Actions viewName={getViewName(filter)} searchQuery={searchQuery} filters={filters} />
+        <Actions
+          viewName={getViewName(filter)}
+          searchQuery={searchQuery}
+          tagIds={selectedTagIds}
+        />
       )}
     </>
   );
