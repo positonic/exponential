@@ -24,7 +24,9 @@ import { signIn, signOut } from "next-auth/react";
 import { type FormEvent, useMemo, useState } from "react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
-import "./invite-page.css";
+import Image from "next/image";
+import Link from "next/link";
+import "~/styles/auth-surface.css";
 
 type InvitationData = NonNullable<
   RouterOutputs["workspace"]["getInvitationByToken"]
@@ -320,12 +322,18 @@ function InviteLandingPage({
   const isBusy = pendingProvider !== null;
 
   return (
-    <div className="invite-root">
+    <div className="auth-surface">
       <header className="auth-header">
-        <div className="auth-header__brand">
-          <div className="auth-header__brand-dot" aria-hidden="true" />
-          <span>{PRODUCT_NAME.toLowerCase()}.im</span>
-        </div>
+        <Link href="/" className="auth-header__brand">
+          <Image
+            src="/expo-logo-20.png"
+            alt={`${PRODUCT_NAME} logo`}
+            width={22}
+            height={22}
+            priority
+          />
+          <span>{PRODUCT_NAME}.im</span>
+        </Link>
         <div className="auth-header__right">
           <span className="auth-header__hint">
             Already have an account?{" "}
@@ -961,7 +969,7 @@ function SsoGlyph() {
   );
 }
 
-/* Brand logos — colors come from CSS variables declared under .invite-root
+/* Brand logos — colors come from CSS variables declared under .auth-surface
    in globals.css (per provider brand guidelines). Inline SVG reads CSS vars
    via the `fill` attribute, so no hex appears in this file. */
 function GoogleLogo() {

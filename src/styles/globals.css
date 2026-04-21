@@ -697,12 +697,12 @@
 .blog-content table { font-size: 1rem; line-height: 1.7; }
 
 /* ==========================================================================
-   Workspace invite landing page — scoped design tokens
-   Consumed by src/app/invite/[token]/invite-page.css. All hex lives here so
-   the feature CSS can be hex-free (pre-commit hook only allows hex in this
-   file, colors.ts, mantineTheme.ts, EmailService.ts).
+   Auth surface (/signin, /invite/[token]) — scoped design tokens
+   Consumed by src/styles/auth-surface.css. All hex lives here so the feature
+   CSS can be hex-free (pre-commit hook only allows hex in this file,
+   colors.ts, mantineTheme.ts, EmailService.ts).
    ========================================================================== */
-.invite-root {
+.auth-surface {
   /* Backgrounds */
   --color-bg-primary: #0B0F17;
   --color-bg-secondary: #10151F;
