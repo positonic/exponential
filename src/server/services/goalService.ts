@@ -422,7 +422,15 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
       },
       outcomes: true,
       keyResults: {
-        select: { id: true, title: true, status: true, currentValue: true, targetValue: true, unit: true },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          startValue: true,
+          currentValue: true,
+          targetValue: true,
+          unit: true,
+        },
       },
       childGoals: {
         select: { id: true, title: true, status: true, health: true },
