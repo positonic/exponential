@@ -5,6 +5,7 @@ import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { api } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
 import "~/styles/auth-surface.css";
 
@@ -15,6 +16,8 @@ export function SignInLandingPage() {
   const [email, setEmail] = useState("");
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
   const isBusy = pendingProvider !== null;
+
+  const { data: providers } = api.auth.getConfiguredProviders.useQuery();
 
   const startSignIn = async (provider: string) => {
     setPendingProvider(provider);
@@ -73,46 +76,52 @@ export function SignInLandingPage() {
             </p>
 
             <div className="providers">
-              <button
-                type="button"
-                className="provider"
-                onClick={() => void startSignIn("google")}
-                disabled={isBusy}
-              >
-                <span className="provider__logo" aria-hidden="true">
-                  <GoogleLogo />
-                </span>
-                <span className="provider__label">Sign in with Google</span>
-                <ChevGlyph />
-              </button>
+              {providers?.google && (
+                <button
+                  type="button"
+                  className="provider"
+                  onClick={() => void startSignIn("google")}
+                  disabled={isBusy}
+                >
+                  <span className="provider__logo" aria-hidden="true">
+                    <GoogleLogo />
+                  </span>
+                  <span className="provider__label">Sign in with Google</span>
+                  <ChevGlyph />
+                </button>
+              )}
 
-              <button
-                type="button"
-                className="provider"
-                onClick={() => void startSignIn("microsoft-entra-id")}
-                disabled={isBusy}
-              >
-                <span className="provider__logo" aria-hidden="true">
-                  <MicrosoftLogo />
-                </span>
-                <span className="provider__label">
-                  Sign in with Microsoft
-                </span>
-                <ChevGlyph />
-              </button>
+              {providers?.microsoft && (
+                <button
+                  type="button"
+                  className="provider"
+                  onClick={() => void startSignIn("microsoft-entra-id")}
+                  disabled={isBusy}
+                >
+                  <span className="provider__logo" aria-hidden="true">
+                    <MicrosoftLogo />
+                  </span>
+                  <span className="provider__label">
+                    Sign in with Microsoft
+                  </span>
+                  <ChevGlyph />
+                </button>
+              )}
 
-              <button
-                type="button"
-                className="provider"
-                onClick={() => void startSignIn("discord")}
-                disabled={isBusy}
-              >
-                <span className="provider__logo" aria-hidden="true">
-                  <DiscordLogo />
-                </span>
-                <span className="provider__label">Sign in with Discord</span>
-                <ChevGlyph />
-              </button>
+              {providers?.discord && (
+                <button
+                  type="button"
+                  className="provider"
+                  onClick={() => void startSignIn("discord")}
+                  disabled={isBusy}
+                >
+                  <span className="provider__logo" aria-hidden="true">
+                    <DiscordLogo />
+                  </span>
+                  <span className="provider__label">Sign in with Discord</span>
+                  <ChevGlyph />
+                </button>
+              )}
             </div>
 
             <div className="or-div">

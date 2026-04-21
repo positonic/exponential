@@ -69,6 +69,7 @@ import { crmApiRouter } from "./routers/crmApi";
 import { pluginConfigRouter } from "./routers/pluginConfig";
 import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
 import { productPluginRouter } from "~/plugins/product/server/routers";
+import { authRouter } from "./routers/auth";
 /**
  * This is the primary router for your server.
  *
@@ -141,6 +142,7 @@ export const appRouter = createTRPCRouter({
   goalUpdate: goalUpdateRouter,
   goalActivity: goalActivityRouter,
   crmApi: crmApiRouter,
+  auth: authRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,
