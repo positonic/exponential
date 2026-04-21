@@ -10,6 +10,94 @@ import { db } from "~/server/db";
 import { sendMagicLinkEmail, sendWelcomeEmail, sendWelcomeWithMagicLinkEmail } from "~/server/services/EmailService";
 
 /**
+ * Auto-accept any pending workspace and team invitations matching this user's
+ * email. Covers the case where an invitee signs up (or signs in) via a route
+ * other than the invite accept page — e.g. OAuth, direct magic link, or a
+ * magic link whose callbackUrl no longer points at /invite/<token>.
+ *
+ * Returns the workspaceId of the first accepted invite, if any (caller may
+ * want to set it as the user's default workspace).
+ */
+async function acceptPendingInvitationsForUser(
+  userId: string,
+  email: string
+): Promise<string | null> {
+  const now = new Date();
+  let firstAcceptedWorkspaceId: string | null = null;
+
+  try {
+    const pendingWorkspaceInvites = await db.workspaceInvitation.findMany({
+      where: { email, status: "pending", expiresAt: { gt: now } },
+      orderBy: { createdAt: "asc" },
+    });
+
+    for (const invitation of pendingWorkspaceInvites) {
+      try {
+        await db.$transaction([
+          db.workspaceInvitation.update({
+            where: { id: invitation.id },
+            data: { status: "accepted", acceptedAt: now },
+          }),
+          db.workspaceUser.upsert({
+            where: {
+              userId_workspaceId: {
+                userId,
+                workspaceId: invitation.workspaceId,
+              },
+            },
+            create: {
+              userId,
+              workspaceId: invitation.workspaceId,
+              role: invitation.role,
+            },
+            update: {},
+          }),
+        ]);
+        if (!firstAcceptedWorkspaceId) {
+          firstAcceptedWorkspaceId = invitation.workspaceId;
+        }
+      } catch (error) {
+        console.error(
+          `[Auth] Failed to auto-accept workspace invitation ${invitation.id}:`,
+          error
+        );
+      }
+    }
+
+    const pendingTeamInvites = await db.teamInvitation.findMany({
+      where: { email, status: "pending", expiresAt: { gt: now } },
+    });
+
+    for (const invitation of pendingTeamInvites) {
+      try {
+        await db.$transaction([
+          db.teamInvitation.update({
+            where: { id: invitation.id },
+            data: { status: "accepted", acceptedAt: now },
+          }),
+          db.teamUser.upsert({
+            where: {
+              userId_teamId: { userId, teamId: invitation.teamId },
+            },
+            create: { userId, teamId: invitation.teamId, role: invitation.role },
+            update: {},
+          }),
+        ]);
+      } catch (error) {
+        console.error(
+          `[Auth] Failed to auto-accept team invitation ${invitation.id}:`,
+          error
+        );
+      }
+    }
+  } catch (error) {
+    console.error("[Auth] Failed to process pending invitations:", error);
+  }
+
+  return firstAcceptedWorkspaceId;
+}
+
+/**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
  * object and keep type safety.
  *
@@ -201,6 +289,9 @@ export const authConfig = {
         data: { lastLogin: new Date() },
       });
 
+      // Auto-accept any pending invitations that arrived after the user signed up
+      await acceptPendingInvitationsForUser(existingUser.id, user.email);
+
       // If user exists and this is the same provider they used before, allow sign in
       if (existingUser && account?.provider) {
         const existingAccount = await db.account.findFirst({
@@ -249,33 +340,52 @@ export const authConfig = {
       });
 
       // Create personal workspace for new users
-      if (user.id) {
-        try {
-          const slug = `personal-${user.id}`;
-          const workspace = await db.workspace.create({
-            data: {
-              name: "Personal",
-              slug,
-              type: "personal",
-              ownerId: user.id,
-              members: {
-                create: {
-                  userId: user.id,
-                  role: "owner",
-                },
+      if (!user.id) return;
+
+      let personalWorkspaceId: string | null = null;
+
+      try {
+        const slug = `personal-${user.id}`;
+        const workspace = await db.workspace.create({
+          data: {
+            name: "Personal",
+            slug,
+            type: "personal",
+            ownerId: user.id,
+            members: {
+              create: {
+                userId: user.id,
+                role: "owner",
               },
             },
-          });
+          },
+        });
 
-          // Set as default workspace
-          await db.user.update({
-            where: { id: user.id },
-            data: { defaultWorkspaceId: workspace.id },
-          });
-        } catch (error) {
-          // Log error but don't block user creation
-          console.error("[Auth] Failed to create personal workspace:", error);
-        }
+        personalWorkspaceId = workspace.id;
+
+        // Set as default workspace
+        await db.user.update({
+          where: { id: user.id },
+          data: { defaultWorkspaceId: workspace.id },
+        });
+      } catch (error) {
+        // Log error but don't block user creation
+        console.error("[Auth] Failed to create personal workspace:", error);
+      }
+
+      if (!user.email) return;
+
+      // Prefer an invited workspace as the user's default so they land there
+      // instead of their empty Personal workspace after sign-up.
+      const firstAcceptedWorkspaceId = await acceptPendingInvitationsForUser(
+        user.id,
+        user.email
+      );
+      if (firstAcceptedWorkspaceId && firstAcceptedWorkspaceId !== personalWorkspaceId) {
+        await db.user.update({
+          where: { id: user.id },
+          data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
+        });
       }
     },
   },
