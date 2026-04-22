@@ -17,13 +17,11 @@ export default async function WorkspaceProjectPage({ params, searchParams }: Pag
 
   return (
     <HydrateClient>
-        <div className="container flex flex-col items-stretch justify-start gap-4 px-4 py-8">
-          <Suspense fallback={<div>Loading...</div>}>
-            <ProjectWrapper slug={slug} initialTab={tab} />
-          </Suspense>
-
-        </div>
-
+      <div className="mx-auto flex w-full max-w-[1440px] flex-col items-stretch justify-start px-8 pb-20 pt-7">
+        <Suspense fallback={<div>Loading...</div>}>
+          <ProjectWrapper slug={slug} initialTab={tab} />
+        </Suspense>
+      </div>
     </HydrateClient>
   );
 }

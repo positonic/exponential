@@ -91,6 +91,11 @@
   overflow-x: auto;
   padding-bottom: 12px;
   align-items: flex-start;
+  /* Bleed through the shell's horizontal padding so columns scroll edge-to-edge */
+  margin: 0 -32px;
+  padding-left: 32px;
+  padding-right: 32px;
+  scroll-padding-left: 32px;
 }
 
 .kboard::-webkit-scrollbar {
