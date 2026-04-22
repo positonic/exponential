@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import { Text, Badge, ActionIcon, Tooltip, Avatar, Collapse } from "@mantine/core";
 import {
   IconChevronRight,
@@ -7,8 +9,10 @@ import {
   IconPlus,
   IconTrash,
   IconMessageCircle,
+  IconBriefcase,
 } from "@tabler/icons-react";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import {
   clamp01,
   expectedProgress,
@@ -256,11 +260,17 @@ function OwnerStack({
 function KrLine({
   kr,
   code,
+  isExpanded,
+  onToggleExpand,
+  workspaceSlug,
   onEdit,
   onView,
 }: {
   kr: ObjectiveCardKeyResult;
   code: string;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  workspaceSlug: string | null | undefined;
   onEdit?: () => void;
   onView?: () => void;
 }) {
@@ -271,116 +281,184 @@ function KrLine({
   const latestCheckIn = kr.checkIns?.[0];
   const updated = relativeTimeLabel(latestCheckIn?.createdAt);
   const owner = kr.driUser ?? kr.user;
+  const projects = kr.projects ?? [];
+  const hasProjects = projects.length > 0;
+  const projectCount = projects.length;
 
   return (
-    <div
-      className="group grid grid-cols-[4px_1fr_auto_24px_26px_28px] items-center gap-3 border-t border-border-primary px-1 py-3 first:border-t-0"
-    >
-      {/* Status bar */}
+    <div className="border-t border-border-primary first:border-t-0">
       <div
-        className="h-8 w-1 self-stretch rounded-sm"
-        style={{ background: color, opacity: confidence === "idle" ? 0.4 : 1 }}
-      />
+        className={`group grid grid-cols-[4px_1fr_auto_24px_26px_28px] items-center gap-3 px-1 py-3 transition-colors ${
+          hasProjects ? "cursor-pointer hover:bg-surface-hover" : ""
+        }`}
+        role={hasProjects ? "button" : undefined}
+        tabIndex={hasProjects ? 0 : undefined}
+        aria-expanded={hasProjects ? isExpanded : undefined}
+        onClick={hasProjects ? onToggleExpand : undefined}
+        onKeyDown={
+          hasProjects
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onToggleExpand();
+                }
+              }
+            : undefined
+        }
+      >
+        {/* Status bar */}
+        <div
+          className="h-8 w-1 self-stretch rounded-sm"
+          style={{ background: color, opacity: confidence === "idle" ? 0.4 : 1 }}
+        />
 
-      {/* Title + meta */}
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span
-            className="flex-shrink-0 text-[11px] uppercase tracking-wider text-text-muted"
-            style={{ fontFamily: "var(--mantine-font-family-monospace, ui-monospace, monospace)" }}
-          >
-            {code}
-          </span>
-          <Text size="sm" className="truncate font-medium text-text-primary">
-            {kr.title}
-          </Text>
-          {onView && (
-            <Tooltip label="Discussion">
+        {/* Title + meta */}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <IconChevronRight
+              size={12}
+              className={`flex-shrink-0 text-text-muted transition-transform ${
+                isExpanded ? "rotate-90" : ""
+              } ${hasProjects ? "" : "invisible"}`}
+            />
+            <span
+              className="flex-shrink-0 text-[11px] uppercase tracking-wider text-text-muted"
+              style={{ fontFamily: "var(--mantine-font-family-monospace, ui-monospace, monospace)" }}
+            >
+              {code}
+            </span>
+            <Text size="sm" className="truncate font-medium text-text-primary">
+              {kr.title}
+            </Text>
+            {onView && (
+              <Tooltip label="Discussion">
+                <ActionIcon
+                  variant="subtle"
+                  size="xs"
+                  className="flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                  aria-label="View discussion"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onView();
+                  }}
+                >
+                  <IconMessageCircle size={13} />
+                </ActionIcon>
+              </Tooltip>
+            )}
+          </div>
+          <div className="mt-0.5 flex items-center gap-2 text-xs text-text-muted">
+            <span>Updated {updated}</span>
+            <span className="inline-block h-[3px] w-[3px] rounded-full bg-[color:var(--color-text-faint,currentColor)] opacity-60" />
+            <span>{Math.round(progress * 100)}% of target</span>
+          </div>
+        </div>
+
+        {/* Value + bar */}
+        <div className="flex w-[180px] flex-col items-end gap-1.5">
+          <div className="flex items-center gap-2">
+            {hasProjects && (
+              <Tooltip
+                label={`${projectCount} linked ${
+                  projectCount === 1 ? "project" : "projects"
+                }`}
+              >
+                <span className="inline-flex items-center gap-1 rounded-sm bg-surface-tertiary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-secondary">
+                  <IconBriefcase size={10} />
+                  {projectCount}
+                </span>
+              </Tooltip>
+            )}
+            <Text size="xs" className="font-medium tabular-nums text-text-primary">
+              {formatKrValue(kr)}{" "}
+              <span className="font-normal text-text-muted">/ {formatKrTarget(kr)}</span>
+            </Text>
+          </div>
+          <div className="relative h-1 w-[160px] overflow-visible rounded-sm bg-surface-tertiary">
+            <div
+              className="absolute left-0 top-0 h-full rounded-sm"
+              style={{
+                width: `${clamp01(progress) * 100}%`,
+                background: color,
+                opacity: confidence === "idle" ? 0.6 : 1,
+              }}
+            />
+            <div
+              className="absolute w-px bg-text-primary opacity-60"
+              style={{
+                left: `${clamp01(expected) * 100}%`,
+                top: "-2px",
+                bottom: "-2px",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Confidence dot */}
+        <div className="flex justify-center">
+          <Tooltip label={`Confidence: ${CONFIDENCE_PILL[confidence].label}`}>
+            <span
+              className="block h-2.5 w-2.5 rounded-full border border-border-primary"
+              style={{
+                background: color,
+                borderColor: color,
+                opacity: confidence === "idle" ? 0.4 : 1,
+              }}
+            />
+          </Tooltip>
+        </div>
+
+        {/* Owner avatar */}
+        <div className="flex justify-center">
+          <OwnerAvatar user={owner} size={24} />
+        </div>
+
+        {/* Edit button */}
+        <div className="flex justify-end">
+          {onEdit && (
+            <Tooltip label="Edit / check in">
               <ActionIcon
                 variant="subtle"
-                size="xs"
-                className="flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                aria-label="View discussion"
+                size="sm"
+                aria-label="Edit key result"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onView();
+                  onEdit();
                 }}
               >
-                <IconMessageCircle size={13} />
+                <IconPencil size={14} />
               </ActionIcon>
             </Tooltip>
           )}
         </div>
-        <div className="mt-0.5 flex items-center gap-2 text-xs text-text-muted">
-          <span>Updated {updated}</span>
-          <span className="inline-block h-[3px] w-[3px] rounded-full bg-[color:var(--color-text-faint,currentColor)] opacity-60" />
-          <span>{Math.round(progress * 100)}% of target</span>
-        </div>
       </div>
 
-      {/* Value + bar */}
-      <div className="flex w-[180px] flex-col items-end gap-1.5">
-        <Text size="xs" className="font-medium tabular-nums text-text-primary">
-          {formatKrValue(kr)}{" "}
-          <span className="font-normal text-text-muted">/ {formatKrTarget(kr)}</span>
-        </Text>
-        <div className="relative h-1 w-[160px] overflow-visible rounded-sm bg-surface-tertiary">
-          <div
-            className="absolute left-0 top-0 h-full rounded-sm"
-            style={{
-              width: `${clamp01(progress) * 100}%`,
-              background: color,
-              opacity: confidence === "idle" ? 0.6 : 1,
-            }}
-          />
-          <div
-            className="absolute w-px bg-text-primary opacity-60"
-            style={{
-              left: `${clamp01(expected) * 100}%`,
-              top: "-2px",
-              bottom: "-2px",
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Confidence dot */}
-      <div className="flex justify-center">
-        <Tooltip label={`Confidence: ${CONFIDENCE_PILL[confidence].label}`}>
-          <span
-            className="block h-2.5 w-2.5 rounded-full border border-border-primary"
-            style={{
-              background: color,
-              borderColor: color,
-              opacity: confidence === "idle" ? 0.4 : 1,
-            }}
-          />
-        </Tooltip>
-      </div>
-
-      {/* Owner avatar */}
-      <div className="flex justify-center">
-        <OwnerAvatar user={owner} size={24} />
-      </div>
-
-      {/* Edit button */}
-      <div className="flex justify-end">
-        {onEdit && (
-          <Tooltip label="Edit / check in">
-            <ActionIcon
-              variant="subtle"
-              size="sm"
-              aria-label="Edit key result"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit();
-              }}
+      {/* Linked projects panel */}
+      <Collapse in={isExpanded && hasProjects}>
+        <div className="space-y-1 pb-3 pl-7 pr-7 pt-1">
+          {projects.map(({ project }) => (
+            <Link
+              key={project.id}
+              href={
+                workspaceSlug
+                  ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
+                  : `/projects/${project.slug}-${project.id}`
+              }
+              className="group/project flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-hover"
+              onClick={(e) => e.stopPropagation()}
             >
-              <IconPencil size={14} />
-            </ActionIcon>
-          </Tooltip>
-        )}
-      </div>
+              <span className="h-px w-3 flex-shrink-0 bg-border-secondary" />
+              <IconBriefcase size={12} className="flex-shrink-0 text-text-muted" />
+              <span className="truncate text-xs text-text-secondary transition-colors group-hover/project:text-brand-primary">
+                {project.name}
+              </span>
+              <Badge size="xs" variant="light" color="gray">
+                {project.status}
+              </Badge>
+            </Link>
+          ))}
+        </div>
+      </Collapse>
     </div>
   );
 }
@@ -401,6 +479,17 @@ export function ObjectiveCardV2({
   const status = objectiveRollupStatus(objective.keyResults);
   const pill = CONFIDENCE_PILL[status];
   const owner = objective.driUser ?? objective.user;
+  const { workspaceSlug } = useWorkspace();
+
+  const [expandedKrs, setExpandedKrs] = useState<Set<string>>(new Set());
+  const toggleKr = (id: string) => {
+    setExpandedKrs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // Contributor stack: owner first, then KR DRIs, then KR creators — deduped.
   const contributors = [
@@ -559,6 +648,9 @@ export function ObjectiveCardV2({
                 key={kr.id}
                 kr={kr}
                 code={`KR${objNum}.${i + 1}`}
+                isExpanded={expandedKrs.has(kr.id)}
+                onToggleExpand={() => toggleKr(kr.id)}
+                workspaceSlug={workspaceSlug}
                 onEdit={onEditKeyResult ? () => onEditKeyResult(kr) : undefined}
                 onView={onViewKeyResult ? () => onViewKeyResult(kr) : undefined}
               />
