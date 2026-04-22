@@ -580,9 +580,10 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
     return () => window.removeEventListener("click", handler);
   }, []);
 
-  // Data fetching
+  // Data fetching — /today spans all workspaces the user belongs to, since the
+  // route is not workspace-scoped.
   const actionsQuery = api.action.getAll.useQuery(
-    { workspaceId: workspaceId ?? undefined },
+    {},
     { enabled: true },
   );
 
@@ -721,9 +722,9 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
   const updateMutation = api.action.update.useMutation({
     onMutate: async ({ id, status, scheduledStart, dueDate }) => {
       await utils.action.getAll.cancel();
-      const prev = utils.action.getAll.getData({ workspaceId: workspaceId ?? undefined });
+      const prev = utils.action.getAll.getData({});
       if (prev) {
-        utils.action.getAll.setData({ workspaceId: workspaceId ?? undefined }, (old) => {
+        utils.action.getAll.setData({}, (old) => {
           if (!old) return [];
           return old.map((a) => {
             if (a.id !== id) return a;
@@ -739,7 +740,7 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
       return { prev };
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.prev) utils.action.getAll.setData({ workspaceId: workspaceId ?? undefined }, ctx.prev);
+      if (ctx?.prev) utils.action.getAll.setData({}, ctx.prev);
       notifications.show({ title: "Update failed", message: "Could not update action.", color: "red" });
     },
     onSettled: () => {

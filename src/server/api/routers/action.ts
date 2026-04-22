@@ -27,19 +27,33 @@ export const actionRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
     const userId = ctx.session.user.id;
 
-    // Base condition: show tasks I created (with no assignees) OR assigned to me
+    // Base condition: show tasks I created (with no assignees) OR assigned to me.
+    // Workspace filter matches either the action's own workspaceId or its project's
+    // workspaceId so actions with no project (projectId=null) are still scoped correctly.
     const whereClause: any = {
-      OR: [
-        // Created by me AND no assignees
-        { createdById: userId, assignees: { none: {} } },
-        // Assigned to me via ActionAssignee
-        { assignees: { some: { userId: userId } } },
+      AND: [
+        {
+          OR: [
+            // Created by me AND no assignees
+            { createdById: userId, assignees: { none: {} } },
+            // Assigned to me via ActionAssignee
+            { assignees: { some: { userId: userId } } },
+          ],
+        },
+        ...(input?.workspaceId
+          ? [
+              {
+                OR: [
+                  { workspaceId: input.workspaceId },
+                  { project: { workspaceId: input.workspaceId } },
+                ],
+              },
+            ]
+          : []),
       ],
       status: {
         notIn: ["DELETED", "DRAFT"],
       },
-      // Filter by workspace via the action's project
-      ...(input?.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
     };
 
     // Add additional assignee filtering if specified (for filtering within user's tasks)
