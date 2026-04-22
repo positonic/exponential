@@ -129,7 +129,7 @@ async function loadAgentEmbeddings(): Promise<{ id: string; vector: number[] }[]
   const agentIds = Object.keys(data);
   // Extract instructions 
   const instructions = agentIds.map(id => data[id]!.instructions);
-  const embedRes = await openai.embeddings.create({ model: 'text-embedding-ada-002', input: instructions });
+  const embedRes = await openai.embeddings.create({ model: 'text-embedding-3-small', input: instructions });
   // Build embeddings array, asserting agentIds[i] is defined
   agentEmbeddingsCache = embedRes.data.map((e, i) => ({ id: agentIds[i]!, vector: e.embedding }));
   return agentEmbeddingsCache;
@@ -235,7 +235,7 @@ export const mastraRouter = createTRPCRouter({
       }
       const first = embeddings[0]!;
       // 2. embed the user message
-      const msgEmbRes = await openai.embeddings.create({ model: 'text-embedding-ada-002', input: [input.message] });
+      const msgEmbRes = await openai.embeddings.create({ model: 'text-embedding-3-small', input: [input.message] });
       if (!msgEmbRes.data || msgEmbRes.data.length === 0) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to embed user message' });
       }
