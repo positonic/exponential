@@ -3,7 +3,8 @@
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Avatar, Checkbox, Skeleton, Tooltip } from '@mantine/core';
+import { Avatar, Checkbox, Collapse, Skeleton, Tooltip } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import {
   IconTable,
   IconLayoutList,
@@ -14,6 +15,9 @@ import {
   IconSparkles,
   IconPlus,
   IconChevronRight,
+  IconCircleDot,
+  IconFlag,
+  IconUser,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -21,6 +25,11 @@ import { CreateProjectModal } from '~/app/_components/CreateProjectModal';
 import { CreateActionModal } from '~/app/_components/CreateActionModal';
 import { EditActionModal } from '~/app/_components/EditActionModal';
 import { calculateProjectHealth } from '~/app/_components/home/ProjectHealth';
+import { FilterBar } from '~/app/_components/filters';
+import { ProjectSortMenu } from '~/app/_components/toolbar';
+import { useProjectViewState, filterProjects } from './useProjectViewState';
+import { hasActiveFilters } from '~/types/filter';
+import type { FilterBarConfig, FilterMember } from '~/types/filter';
 import { getAvatarColor, getInitial } from '~/utils/avatarColors';
 import type { RouterOutputs } from '~/trpc/react';
 import styles from './WorkspaceProjectsTasksConceptD.module.css';
@@ -270,17 +279,78 @@ function TaskRow({ action, projectName, onRowClick, onCheckboxChange }: TaskRowP
   );
 }
 
+const PROJECT_FILTER_CONFIG: FilterBarConfig = {
+  fields: [
+    {
+      key: 'status',
+      label: 'Status',
+      type: 'multi-select',
+      icon: IconCircleDot,
+      badgeColor: 'cyan',
+      options: [
+        { value: 'ACTIVE', label: 'Active' },
+        { value: 'ON_HOLD', label: 'On Hold' },
+        { value: 'COMPLETED', label: 'Completed' },
+        { value: 'CANCELLED', label: 'Cancelled' },
+      ],
+    },
+    {
+      key: 'priority',
+      label: 'Priority',
+      type: 'multi-select',
+      icon: IconFlag,
+      badgeColor: 'grape',
+      options: [
+        { value: 'HIGH', label: 'High' },
+        { value: 'MEDIUM', label: 'Medium' },
+        { value: 'LOW', label: 'Low' },
+        { value: 'NONE', label: 'None' },
+      ],
+    },
+    {
+      key: 'driId',
+      label: 'DRI',
+      type: 'user',
+      icon: IconUser,
+      badgeColor: 'blue',
+    },
+  ],
+};
+
 export function WorkspaceProjectsTasksConceptD() {
   const { workspace, workspaceId } = useWorkspace();
   const pathname = usePathname();
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const [searchQuery, setSearchQuery] = useState('');
+  const {
+    filters,
+    setFilters,
+    searchQuery,
+    setSearchQuery,
+    sortState,
+    setSortField,
+    clearSort,
+    sortProjects,
+    viewParamsQueryString,
+  } = useProjectViewState();
+  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [editingAction, setEditingAction] = useState<ActionItem | null>(null);
 
   const prefix = workspace?.slug ? `/w/${workspace.slug}` : '';
+
+  const workspaceMembers: FilterMember[] = useMemo(() => {
+    if (!workspace?.members) return [];
+    return workspace.members.map((m) => ({
+      id: m.user.id,
+      name: m.user.name ?? null,
+      email: m.user.email ?? null,
+      image: m.user.image ?? null,
+    }));
+  }, [workspace?.members]);
+
+  const filtersActive = hasActiveFilters(PROJECT_FILTER_CONFIG, filters);
 
   const activeTab: ViewTabValue = useMemo(() => {
     if (pathname.includes('/projects-tasks')) return 'projects-tasks';
@@ -315,12 +385,17 @@ export function WorkspaceProjectsTasksConceptD() {
 
   const filteredProjects = useMemo(() => {
     const all = data?.projects ?? [];
-    if (!searchQuery.trim()) return all;
-    const q = searchQuery.toLowerCase();
-    return all.filter(
-      (p) => p.name.toLowerCase().includes(q) || p.actions.some((a) => a.name.toLowerCase().includes(q)),
-    );
-  }, [data?.projects, searchQuery]);
+    const filtered = filterProjects(all, filters, '');
+    const q = searchQuery.trim().toLowerCase();
+    const searchFiltered = q
+      ? filtered.filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            p.actions.some((a) => a.name.toLowerCase().includes(q)),
+        )
+      : filtered;
+    return sortProjects(searchFiltered);
+  }, [data?.projects, filters, searchQuery, sortProjects]);
 
   const totalActive = filteredProjects.filter((p) => p.status === 'ACTIVE').length;
   const totalOnHold = filteredProjects.filter((p) => p.status === 'ON_HOLD').length;
@@ -331,7 +406,12 @@ export function WorkspaceProjectsTasksConceptD() {
       <div className={styles.topBar}>
         <nav className={styles.viewTabs}>
           {VIEW_TABS.map(({ value, label, icon: Icon, path }) => (
-            <Link key={value} href={`${prefix}${path}`} className={styles.viewTab} data-active={activeTab === value ? 'true' : 'false'}>
+            <Link
+              key={value}
+              href={`${prefix}${path}${viewParamsQueryString ? `?${viewParamsQueryString}` : ''}`}
+              className={styles.viewTab}
+              data-active={activeTab === value ? 'true' : 'false'}
+            >
               <Icon size={13} stroke={1.75} />
               {label}
             </Link>
@@ -351,14 +431,30 @@ export function WorkspaceProjectsTasksConceptD() {
               className={styles.searchInput}
             />
           </div>
-          <button className={styles.actionBtn} type="button">
+          <button
+            className={styles.actionBtn}
+            type="button"
+            onClick={toggleFilterRow}
+            data-active={filtersActive ? 'true' : 'false'}
+          >
             <IconFilter size={13} stroke={1.75} />
             Filter
           </button>
-          <button className={styles.actionBtn} type="button">
-            <IconArrowsSort size={13} stroke={1.75} />
-            Sort
-          </button>
+          <ProjectSortMenu
+            sortState={sortState}
+            onSortChange={setSortField}
+            onClearSort={clearSort}
+            trigger={
+              <button
+                type="button"
+                className={styles.actionBtn}
+                data-active={sortState ? 'true' : 'false'}
+              >
+                <IconArrowsSort size={13} stroke={1.75} />
+                Sort
+              </button>
+            }
+          />
           <button
             className={`${styles.actionBtn} ${includeCompleted ? styles.actionBtnActive : ''}`}
             type="button"
@@ -378,6 +474,17 @@ export function WorkspaceProjectsTasksConceptD() {
           </CreateProjectModal>
         </div>
       </div>
+
+      <Collapse in={filterRowOpen || filtersActive}>
+        <div className={styles.filterRow}>
+          <FilterBar
+            config={PROJECT_FILTER_CONFIG}
+            filters={filters}
+            onFiltersChange={setFilters}
+            members={workspaceMembers}
+          />
+        </div>
+      </Collapse>
 
       {/* Stats row */}
       <div style={{ padding: '8px 32px', borderBottom: '1px solid var(--color-border-primary)', flexShrink: 0 }}>

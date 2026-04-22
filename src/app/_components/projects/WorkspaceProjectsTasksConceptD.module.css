@@ -137,10 +137,17 @@
   color: var(--color-text-primary);
 }
 
-.actionBtnActive {
+.actionBtnActive,
+.actionBtn[data-active='true'] {
   background: var(--color-brand-subtle);
   color: var(--brand-400);
   border-color: var(--brand-500);
+}
+
+/* ── filter row ── */
+.filterRow {
+  padding: 12px 32px 0;
+  flex-shrink: 0;
 }
 
 .newBtn {

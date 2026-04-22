@@ -3,8 +3,8 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Skeleton } from '@mantine/core';
-import { useHotkeys } from '@mantine/hooks';
+import { Collapse, Skeleton } from '@mantine/core';
+import { useDisclosure, useHotkeys } from '@mantine/hooks';
 import {
   IconTable,
   IconLayoutList,
@@ -14,6 +14,9 @@ import {
   IconArrowsSort,
   IconSparkles,
   IconPlus,
+  IconCircleDot,
+  IconFlag,
+  IconUser,
 } from '@tabler/icons-react';
 import {
   addDays,
@@ -31,6 +34,11 @@ import {
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { CreateProjectModal } from '~/app/_components/CreateProjectModal';
+import { FilterBar } from '~/app/_components/filters';
+import { ProjectSortMenu } from '~/app/_components/toolbar';
+import { useProjectViewState, filterProjects } from './useProjectViewState';
+import { hasActiveFilters } from '~/types/filter';
+import type { FilterBarConfig, FilterMember } from '~/types/filter';
 import styles from './WorkspaceProjectsTimelineConceptD.module.css';
 
 const VIEW_TABS = [
@@ -49,11 +57,50 @@ interface TimelineProject {
   slug: string;
   status: string;
   priority: string;
+  driId: string | null;
   createdAt: Date;
   startDate: Date | null;
   endDate: Date | null;
   workspaceSlug?: string;
 }
+
+const PROJECT_FILTER_CONFIG: FilterBarConfig = {
+  fields: [
+    {
+      key: 'status',
+      label: 'Status',
+      type: 'multi-select',
+      icon: IconCircleDot,
+      badgeColor: 'cyan',
+      options: [
+        { value: 'ACTIVE', label: 'Active' },
+        { value: 'ON_HOLD', label: 'On Hold' },
+        { value: 'COMPLETED', label: 'Completed' },
+        { value: 'CANCELLED', label: 'Cancelled' },
+      ],
+    },
+    {
+      key: 'priority',
+      label: 'Priority',
+      type: 'multi-select',
+      icon: IconFlag,
+      badgeColor: 'grape',
+      options: [
+        { value: 'HIGH', label: 'High' },
+        { value: 'MEDIUM', label: 'Medium' },
+        { value: 'LOW', label: 'Low' },
+        { value: 'NONE', label: 'None' },
+      ],
+    },
+    {
+      key: 'driId',
+      label: 'DRI',
+      type: 'user',
+      icon: IconUser,
+      badgeColor: 'blue',
+    },
+  ],
+};
 
 interface TimelineProjectRange extends TimelineProject {
   rangeStart: Date;
@@ -171,11 +218,34 @@ export function WorkspaceProjectsTimelineConceptD() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const dragMovedRef = useRef(false);
 
-  const [searchQuery, setSearchQuery] = useState('');
+  const {
+    filters,
+    setFilters,
+    searchQuery,
+    setSearchQuery,
+    sortState,
+    setSortField,
+    clearSort,
+    sortProjects,
+    viewParamsQueryString,
+  } = useProjectViewState();
+  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
   const [zoom, setZoom] = useState<TimelineZoom>('quarter');
   const [dragState, setDragState] = useState<DragState | null>(null);
 
   const prefix = workspace?.slug ? `/w/${workspace.slug}` : '';
+
+  const workspaceMembers: FilterMember[] = useMemo(() => {
+    if (!workspace?.members) return [];
+    return workspace.members.map((m) => ({
+      id: m.user.id,
+      name: m.user.name ?? null,
+      email: m.user.email ?? null,
+      image: m.user.image ?? null,
+    }));
+  }, [workspace?.members]);
+
+  const filtersActive = hasActiveFilters(PROJECT_FILTER_CONFIG, filters);
 
   const activeTab: ViewTabValue = useMemo(() => {
     if (pathname.includes('/projects-tasks')) return 'projects-tasks';
@@ -218,6 +288,7 @@ export function WorkspaceProjectsTimelineConceptD() {
         slug: p.slug,
         status: p.status,
         priority: p.priority,
+        driId: p.driId ?? null,
         createdAt: p.createdAt,
         startDate: p.startDate ?? null,
         endDate: p.endDate ?? null,
@@ -231,10 +302,9 @@ export function WorkspaceProjectsTimelineConceptD() {
   );
 
   const filteredProjects = useMemo(() => {
-    if (!searchQuery.trim()) return timelineProjects;
-    const q = searchQuery.toLowerCase();
-    return timelineProjects.filter((p) => p.name.toLowerCase().includes(q));
-  }, [timelineProjects, searchQuery]);
+    const filtered = filterProjects(timelineProjects, filters, searchQuery);
+    return sortProjects(filtered);
+  }, [timelineProjects, filters, searchQuery, sortProjects]);
 
   const today = startOfDay(new Date());
 
@@ -336,7 +406,12 @@ export function WorkspaceProjectsTimelineConceptD() {
       <div className={styles.topBar}>
         <nav className={styles.viewTabs}>
           {VIEW_TABS.map(({ value, label, icon: Icon, path }) => (
-            <Link key={value} href={`${prefix}${path}`} className={styles.viewTab} data-active={activeTab === value ? 'true' : 'false'}>
+            <Link
+              key={value}
+              href={`${prefix}${path}${viewParamsQueryString ? `?${viewParamsQueryString}` : ''}`}
+              className={styles.viewTab}
+              data-active={activeTab === value ? 'true' : 'false'}
+            >
               <Icon size={13} stroke={1.75} />
               {label}
             </Link>
@@ -356,14 +431,30 @@ export function WorkspaceProjectsTimelineConceptD() {
               className={styles.searchInput}
             />
           </div>
-          <button className={styles.actionBtn} type="button">
+          <button
+            className={styles.actionBtn}
+            type="button"
+            onClick={toggleFilterRow}
+            data-active={filtersActive ? 'true' : 'false'}
+          >
             <IconFilter size={13} stroke={1.75} />
             Filter
           </button>
-          <button className={styles.actionBtn} type="button">
-            <IconArrowsSort size={13} stroke={1.75} />
-            Sort
-          </button>
+          <ProjectSortMenu
+            sortState={sortState}
+            onSortChange={setSortField}
+            onClearSort={clearSort}
+            trigger={
+              <button
+                type="button"
+                className={styles.actionBtn}
+                data-active={sortState ? 'true' : 'false'}
+              >
+                <IconArrowsSort size={13} stroke={1.75} />
+                Sort
+              </button>
+            }
+          />
           <button className={styles.actionBtn} type="button">
             <IconSparkles size={13} stroke={1.75} />
             Ask Zoe
@@ -376,6 +467,17 @@ export function WorkspaceProjectsTimelineConceptD() {
           </CreateProjectModal>
         </div>
       </div>
+
+      <Collapse in={filterRowOpen || filtersActive}>
+        <div className={styles.filterRow}>
+          <FilterBar
+            config={PROJECT_FILTER_CONFIG}
+            filters={filters}
+            onFiltersChange={setFilters}
+            members={workspaceMembers}
+          />
+        </div>
+      </Collapse>
 
       {/* Sub-header: info + zoom controls */}
       <div className={styles.subHeader}>

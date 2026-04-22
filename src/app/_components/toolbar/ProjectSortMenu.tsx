@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ActionIcon, Popover, TextInput, UnstyledButton, Text } from "@mantine/core";
 import {
   IconArrowsSort,
@@ -39,9 +39,11 @@ interface ProjectSortMenuProps {
   sortState: ProjectSortState | null;
   onSortChange: (field: string) => void;
   onClearSort: () => void;
+  /** Optional custom trigger element. Falls back to a subtle icon-only ActionIcon. */
+  trigger?: ReactNode;
 }
 
-export function ProjectSortMenu({ sortState, onSortChange, onClearSort }: ProjectSortMenuProps) {
+export function ProjectSortMenu({ sortState, onSortChange, onClearSort, trigger }: ProjectSortMenuProps) {
   const [opened, setOpened] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
 
@@ -68,20 +70,24 @@ export function ProjectSortMenu({ sortState, onSortChange, onClearSort }: Projec
       withinPortal
     >
       <Popover.Target>
-        <div className="relative">
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="md"
-            onClick={() => setOpened((o) => !o)}
-            aria-label="Sort projects"
-          >
-            <IconArrowsSort size={18} />
-          </ActionIcon>
-          {sortState && (
-            <div className="bg-brand-primary absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" />
-          )}
-        </div>
+        {trigger ? (
+          <div onClick={() => setOpened((o) => !o)}>{trigger}</div>
+        ) : (
+          <div className="relative">
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="md"
+              onClick={() => setOpened((o) => !o)}
+              aria-label="Sort projects"
+            >
+              <IconArrowsSort size={18} />
+            </ActionIcon>
+            {sortState && (
+              <div className="bg-brand-primary absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" />
+            )}
+          </div>
+        )}
       </Popover.Target>
 
       <Popover.Dropdown className="bg-surface-primary border-border-primary p-0">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useMemo, useRef, useCallback, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -26,6 +26,7 @@ import {
   IconTimeline,
   IconSearch,
   IconFilter,
+  IconArrowsSort,
   IconSparkles,
   IconPlus,
   IconBrandNotion,
@@ -44,9 +45,10 @@ import {
   HealthIndicatorIcons,
 } from '~/app/_components/home/ProjectHealth';
 import { FilterBar } from '~/app/_components/filters';
-import { ProjectSortMenu, useProjectSort } from '~/app/_components/toolbar';
+import { ProjectSortMenu } from '~/app/_components/toolbar';
+import { useProjectViewState, filterProjects } from './useProjectViewState';
 import { hasActiveFilters } from '~/types/filter';
-import type { FilterBarConfig, FilterState, FilterMember } from '~/types/filter';
+import type { FilterBarConfig, FilterMember } from '~/types/filter';
 import { slugify } from '~/utils/slugify';
 import { getAvatarColor, getInitial } from '~/utils/avatarColors';
 import type { RouterOutputs } from '~/trpc/react';
@@ -432,11 +434,19 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
   const { workspace, workspaceId } = useWorkspace();
   const pathname = usePathname();
   const searchRef = useRef<HTMLInputElement>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<FilterState>({});
+  const {
+    filters,
+    setFilters,
+    searchQuery,
+    setSearchQuery,
+    sortState,
+    setSortField,
+    clearSort,
+    sortProjects,
+    viewParamsQueryString,
+  } = useProjectViewState();
   const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
   const [notionModalOpened, { open: openNotionModal, close: closeNotionModal }] = useDisclosure(false);
-  const { sortState, setSortField, clearSort, sortProjects } = useProjectSort();
 
   const activeTab: ViewTabValue = useMemo(() => {
     if (pathname.includes('/projects-tasks')) return 'projects-tasks';
@@ -480,32 +490,10 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
     }));
   }, [workspace?.members]);
 
-  const filteredProjects = useMemo(() => {
-    const all = projectsData ?? [];
-    return all.filter((project) => {
-      const statusFilter = filters.status as string[] | undefined;
-      if (statusFilter && statusFilter.length > 0) {
-        if (!statusFilter.includes(project.status)) return false;
-      }
-
-      const priorityFilter = filters.priority as string[] | undefined;
-      if (priorityFilter && priorityFilter.length > 0) {
-        if (!priorityFilter.includes(project.priority)) return false;
-      }
-
-      const driFilter = filters.driId as string[] | undefined;
-      if (driFilter && driFilter.length > 0) {
-        if (!project.driId || !driFilter.includes(project.driId)) return false;
-      }
-
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        if (!project.name.toLowerCase().includes(q)) return false;
-      }
-
-      return true;
-    });
-  }, [projectsData, filters, searchQuery]);
+  const filteredProjects = useMemo(
+    () => filterProjects(projectsData ?? [], filters, searchQuery),
+    [projectsData, filters, searchQuery],
+  );
 
   const sortedProjects = useMemo(
     () => sortProjects(filteredProjects),
@@ -522,7 +510,7 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
           {VIEW_TABS.map(({ value, label, icon: Icon, path }) => (
             <Link
               key={value}
-              href={`${linkPrefix}${path}`}
+              href={`${linkPrefix}${path}${viewParamsQueryString ? `?${viewParamsQueryString}` : ''}`}
               className={styles.viewTab}
               data-active={activeTab === value ? 'true' : 'false'}
             >
@@ -560,6 +548,16 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
             sortState={sortState}
             onSortChange={setSortField}
             onClearSort={clearSort}
+            trigger={
+              <button
+                type="button"
+                className={styles.actionBtn}
+                data-active={sortState ? 'true' : 'false'}
+              >
+                <IconArrowsSort size={13} stroke={1.75} />
+                Sort
+              </button>
+            }
           />
 
           <button className={styles.actionBtn} type="button">
