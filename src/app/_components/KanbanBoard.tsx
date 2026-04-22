@@ -12,13 +12,15 @@ import {
 } from "@dnd-kit/core";
 import type { DragEndEvent, DragStartEvent, DragOverEvent } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { ScrollArea, Group, Title, Paper } from "@mantine/core";
+import { Title, Paper } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { KanbanColumn } from "./KanbanColumn";
 import { TaskCard } from "./TaskCard";
+import styles from "./ProjectTasks.module.css";
 
 type ActionStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
+type ColumnAccent = "slate" | "brand" | "amber" | "violet" | "green" | "red";
 
 interface Action {
   id: string;
@@ -50,13 +52,13 @@ interface KanbanBoardProps {
   onActionOpen?: (id: string) => void;
 }
 
-const KANBAN_COLUMNS: { id: ActionStatus; title: string; color: string }[] = [
-  { id: "BACKLOG", title: "Backlog", color: "gray" },
-  { id: "TODO", title: "Todo", color: "blue" },
-  { id: "IN_PROGRESS", title: "In Progress", color: "yellow" },
-  { id: "IN_REVIEW", title: "In Review", color: "orange" },
-  { id: "DONE", title: "Done", color: "green" },
-  { id: "CANCELLED", title: "Cancelled", color: "red" },
+const KANBAN_COLUMNS: { id: ActionStatus; title: string; accent: ColumnAccent }[] = [
+  { id: "BACKLOG", title: "Backlog", accent: "slate" },
+  { id: "TODO", title: "Todo", accent: "brand" },
+  { id: "IN_PROGRESS", title: "In Progress", accent: "amber" },
+  { id: "IN_REVIEW", title: "In Review", accent: "violet" },
+  { id: "DONE", title: "Done", accent: "green" },
+  { id: "CANCELLED", title: "Cancelled", accent: "red" },
 ];
 
 // Priority order mapping (matching ActionList.tsx for consistency)
@@ -351,27 +353,19 @@ export function KanbanBoard({ projectId, actions, onActionOpen }: KanbanBoardPro
           },
         }}
       >
-        <ScrollArea>
-          <Group 
-            gap="md" 
-            align="flex-start" 
-            wrap="nowrap" 
-            className="min-w-fit pb-4"
-            style={{ minWidth: 'max-content' }}
-          >
-            {KANBAN_COLUMNS.map((column) => (
-              <KanbanColumn
-                key={column.id}
-                id={column.id}
-                title={column.title}
-                color={column.color}
-                tasks={actionsByStatus[column.id] || []}
-                dragOverTaskId={dragOverTaskId}
-                onActionOpen={onActionOpen}
-              />
-            ))}
-          </Group>
-        </ScrollArea>
+        <div className={styles.kboard}>
+          {KANBAN_COLUMNS.map((column) => (
+            <KanbanColumn
+              key={column.id}
+              id={column.id}
+              title={column.title}
+              accent={column.accent}
+              tasks={actionsByStatus[column.id] || []}
+              dragOverTaskId={dragOverTaskId}
+              onActionOpen={onActionOpen}
+            />
+          ))}
+        </div>
 
         <DragOverlay>
           {activeTask && (

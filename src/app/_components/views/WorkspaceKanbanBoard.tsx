@@ -79,6 +79,26 @@ const STATUS_COLUMNS: { id: ActionStatus; title: string; color: string }[] = [
   { id: "CANCELLED", title: "Cancelled", color: "red" },
 ];
 
+type ColumnAccent = "slate" | "brand" | "amber" | "violet" | "green" | "red";
+
+function mapColorToAccent(color: string): ColumnAccent {
+  switch (color) {
+    case "blue":
+      return "brand";
+    case "yellow":
+      return "amber";
+    case "orange":
+      return "violet";
+    case "green":
+      return "green";
+    case "red":
+      return "red";
+    case "gray":
+    default:
+      return "slate";
+  }
+}
+
 // Priority order mapping
 const priorityOrder: Record<string, number> = {
   '1st Priority': 1, '2nd Priority': 2, '3rd Priority': 3, '4th Priority': 4,
@@ -403,7 +423,7 @@ export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" 
                 key={column.id}
                 id={column.id}
                 title={column.title}
-                color={column.color}
+                accent={mapColorToAccent(column.color)}
                 tasks={actionsByGroup[column.id] ?? []}
                 dragOverTaskId={dragOverTaskId}
               />

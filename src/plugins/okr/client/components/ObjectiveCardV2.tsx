@@ -288,23 +288,17 @@ function KrLine({
   return (
     <div className="border-t border-border-primary first:border-t-0">
       <div
-        className={`group grid grid-cols-[4px_1fr_auto_24px_26px_28px] items-center gap-3 px-1 py-3 transition-colors ${
-          hasProjects ? "cursor-pointer hover:bg-surface-hover" : ""
-        }`}
-        role={hasProjects ? "button" : undefined}
-        tabIndex={hasProjects ? 0 : undefined}
-        aria-expanded={hasProjects ? isExpanded : undefined}
-        onClick={hasProjects ? onToggleExpand : undefined}
-        onKeyDown={
-          hasProjects
-            ? (e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onToggleExpand();
-                }
-              }
-            : undefined
-        }
+        className="group grid cursor-pointer grid-cols-[4px_1fr_auto_24px_26px_28px] items-center gap-3 px-1 py-3 transition-colors hover:bg-surface-hover"
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
+        onClick={onToggleExpand}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggleExpand();
+          }
+        }}
       >
         {/* Status bar */}
         <div
@@ -319,7 +313,7 @@ function KrLine({
               size={12}
               className={`flex-shrink-0 text-text-muted transition-transform ${
                 isExpanded ? "rotate-90" : ""
-              } ${hasProjects ? "" : "invisible"}`}
+              }`}
             />
             <span
               className="flex-shrink-0 text-[11px] uppercase tracking-wider text-text-muted"
@@ -434,29 +428,37 @@ function KrLine({
       </div>
 
       {/* Linked projects panel */}
-      <Collapse in={isExpanded && hasProjects}>
+      <Collapse in={isExpanded}>
         <div className="space-y-1 pb-3 pl-7 pr-7 pt-1">
-          {projects.map(({ project }) => (
-            <Link
-              key={project.id}
-              href={
-                workspaceSlug
-                  ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
-                  : `/projects/${project.slug}-${project.id}`
-              }
-              className="group/project flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-hover"
-              onClick={(e) => e.stopPropagation()}
-            >
+          {hasProjects ? (
+            projects.map(({ project }) => (
+              <Link
+                key={project.id}
+                href={
+                  workspaceSlug
+                    ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
+                    : `/projects/${project.slug}-${project.id}`
+                }
+                className="group/project flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-hover"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="h-px w-3 flex-shrink-0 bg-border-secondary" />
+                <IconBriefcase size={12} className="flex-shrink-0 text-text-muted" />
+                <span className="truncate text-xs text-text-secondary transition-colors group-hover/project:text-brand-primary">
+                  {project.name}
+                </span>
+                <Badge size="xs" variant="light" color="gray">
+                  {project.status}
+                </Badge>
+              </Link>
+            ))
+          ) : (
+            <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-text-muted">
               <span className="h-px w-3 flex-shrink-0 bg-border-secondary" />
-              <IconBriefcase size={12} className="flex-shrink-0 text-text-muted" />
-              <span className="truncate text-xs text-text-secondary transition-colors group-hover/project:text-brand-primary">
-                {project.name}
-              </span>
-              <Badge size="xs" variant="light" color="gray">
-                {project.status}
-              </Badge>
-            </Link>
-          ))}
+              <IconBriefcase size={12} className="flex-shrink-0" />
+              <span>No linked projects</span>
+            </div>
+          )}
         </div>
       </Collapse>
     </div>

@@ -443,19 +443,23 @@ export function ProjectContent({
 
       {/* Main Content */}
       <div className="w-full">
-        <Tabs value={activeTab} onChange={handleTabChange}>
+        <Tabs
+          value={activeTab}
+          onChange={handleTabChange}
+          classNames={{ list: overviewStyles.tabsList, tab: overviewStyles.tab }}
+        >
           <Stack gap="xl" align="stretch" justify="flex-start">
             {/* Tabs Navigation */}
             <Tabs.List>
               <Tabs.Tab
                 value="overview"
-                leftSection={<IconHome size={16} />}
+                leftSection={<IconHome size={14} />}
               >
                 Overview
               </Tabs.Tab>
               <Tabs.Tab
                 value="tasks"
-                leftSection={<IconLayoutKanban size={16} />}
+                leftSection={<IconLayoutKanban size={14} />}
                 rightSection={
                   totalActions > 0 ? (
                     <span
@@ -472,22 +476,22 @@ export function ProjectContent({
               </Tabs.Tab>
               <Tabs.Tab
                 value="goals"
-                leftSection={<IconTargetArrow size={16} />}
+                leftSection={<IconTargetArrow size={14} />}
               >
                 Goals
               </Tabs.Tab>
               <Tabs.Tab
                 value="outcomes"
-                leftSection={<IconActivity size={16} />}
+                leftSection={<IconActivity size={14} />}
               >
                 Outcomes
               </Tabs.Tab>
-              <Tabs.Tab value="timeline" leftSection={<IconClock size={16} />}>
+              <Tabs.Tab value="timeline" leftSection={<IconClock size={14} />}>
                 Timeline
               </Tabs.Tab>
               {/* <Tabs.Tab
                 value="plan"
-                leftSection={<IconClipboardList size={16} />}
+                leftSection={<IconClipboardList size={14} />}
               >
                 Plan
               </Tabs.Tab> */}
@@ -497,13 +501,13 @@ export function ProjectContent({
                 <>
                   <Tabs.Tab 
                     value="weekly-team-review" 
-                    leftSection={<IconUsers size={16} />}
+                    leftSection={<IconUsers size={14} />}
                   >
                     Weekly Team Review
                   </Tabs.Tab>
                   <Tabs.Tab 
                     value="weekly-outcomes" 
-                    leftSection={<IconCalendarWeek size={16} />}
+                    leftSection={<IconCalendarWeek size={14} />}
                   >
                     Weekly Outcomes
                   </Tabs.Tab>
@@ -512,19 +516,19 @@ export function ProjectContent({
               
               <Tabs.Tab
                 value="workflows"
-                leftSection={<IconGitBranch size={16} />}
+                leftSection={<IconGitBranch size={14} />}
               >
                 Workflows
               </Tabs.Tab>
               <Tabs.Tab
                 value="transcriptions"
-                leftSection={<IconMicrophone size={16} />}
+                leftSection={<IconMicrophone size={14} />}
               >
                 Transcriptions
               </Tabs.Tab>
               <Tabs.Tab
                 value="integrations"
-                leftSection={<IconPlug size={16} />}
+                leftSection={<IconPlug size={14} />}
               >
                 Integrations
               </Tabs.Tab>

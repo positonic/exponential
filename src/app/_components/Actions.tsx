@@ -4,8 +4,9 @@ import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
-import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag } from "@tabler/icons-react";
+import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag, IconFilter, IconArchive } from "@tabler/icons-react";
 import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge, MultiSelect } from "@mantine/core";
+import tasksStyles from "./ProjectTasks.module.css";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
@@ -750,33 +751,30 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
   return (
     <div className="w-full  mx-auto">
-      {/* View Toggle Buttons */}
+      {/* View Toggle Toolbar */}
       {projectId && (
-        <Group gap="xs" mb="md" justify="space-between">
-          <Group gap="xs">
-            {/* List/Kanban toggle - only show for projects */}
-            <Button
-              variant={!isKanbanMode ? "filled" : "subtle"}
-              size="sm"
-              onClick={() => setViewMode(false)}
-              styles={{ root: { color: 'var(--color-text-primary)' } }}
-            >
-              <Group gap="xs">
-                <IconList size={16} />
-                List
-              </Group>
-            </Button>
-            <Button
-              variant={isKanbanMode ? "filled" : "subtle"}
-              size="sm"
-              onClick={() => setViewMode(true)}
-              styles={{ root: { color: 'var(--color-text-primary)' } }}
-            >
-              <Group gap="xs">
-                <IconLayoutKanban size={16} />
-                Kanban
-              </Group>
-            </Button>
+        <div className={tasksStyles.toolbar} style={{ marginBottom: 14 }}>
+          <Group gap="xs" align="center">
+            <div className={tasksStyles.viewSeg} role="tablist" aria-label="Task view">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!isKanbanMode}
+                className={!isKanbanMode ? tasksStyles.segOn : ""}
+                onClick={() => setViewMode(false)}
+              >
+                <IconList size={13} /> List
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isKanbanMode}
+                className={isKanbanMode ? tasksStyles.segOn : ""}
+                onClick={() => setViewMode(true)}
+              >
+                <IconLayoutKanban size={13} /> Kanban
+              </button>
+            </div>
 
             {/* Alignment toggle */}
             {displayAlignment && (
@@ -793,34 +791,46 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
             )}
           </Group>
 
-          {/* Notion Sync Button - only show when project has Notion integration */}
-          {hasNotionSync && (
-            <Group gap="xs">
-              <Tooltip label="Sync with Notion" position="left">
-                <ActionIcon
-                  variant="light"
-                  color="gray"
-                  size="lg"
-                  onClick={handleNotionSync}
-                  loading={isSyncing}
-                >
-                  <IconBrandNotion size={20} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="Refresh from Notion" position="left">
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  size="lg"
-                  onClick={handleNotionSync}
-                  loading={isSyncing}
-                >
-                  <IconRefresh size={18} />
-                </ActionIcon>
-              </Tooltip>
-            </Group>
-          )}
-        </Group>
+          <div className={tasksStyles.toolbarRight}>
+            <Tooltip label="Filter" position="bottom">
+              <button type="button" className={tasksStyles.iconGhost} aria-label="Filter">
+                <IconFilter size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Archive" position="bottom">
+              <button type="button" className={tasksStyles.iconGhost} aria-label="Archive">
+                <IconArchive size={14} />
+              </button>
+            </Tooltip>
+
+            {hasNotionSync && (
+              <>
+                <Tooltip label="Sync with Notion" position="bottom">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="md"
+                    onClick={handleNotionSync}
+                    loading={isSyncing}
+                  >
+                    <IconBrandNotion size={16} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Refresh from Notion" position="bottom">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="md"
+                    onClick={handleNotionSync}
+                    loading={isSyncing}
+                  >
+                    <IconRefresh size={16} />
+                  </ActionIcon>
+                </Tooltip>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Filter for Notion imports without project - only show on non-project pages */}

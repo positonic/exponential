@@ -2,9 +2,12 @@
 
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { Paper, Stack, Text, Badge, Group } from "@mantine/core";
+import { IconDots, IconPlus } from "@tabler/icons-react";
 import { TaskCard } from "./TaskCard";
+import styles from "./ProjectTasks.module.css";
+
 type ActionStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
+type ColumnAccent = "slate" | "brand" | "amber" | "violet" | "green" | "red";
 
 interface Task {
   id: string;
@@ -39,70 +42,73 @@ interface Task {
 interface KanbanColumnProps {
   id: string;
   title: string;
-  color: string;
+  accent: ColumnAccent;
   tasks: Task[];
   dragOverTaskId?: string | null;
   onActionOpen?: (id: string) => void;
 }
 
-export function KanbanColumn({ id, title, color, tasks, dragOverTaskId, onActionOpen }: KanbanColumnProps) {
-  const { setNodeRef, isOver } = useDroppable({
-    id,
-  });
+const ACCENT_CLASS: Record<ColumnAccent, string> = {
+  slate: styles.kcolSlate!,
+  brand: styles.kcolBrand!,
+  amber: styles.kcolAmber!,
+  violet: styles.kcolViolet!,
+  green: styles.kcolGreen!,
+  red: styles.kcolRed!,
+};
 
-  const taskIds = tasks.map(task => task.id);
+export function KanbanColumn({ id, title, accent, tasks, dragOverTaskId, onActionOpen }: KanbanColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+
+  const taskIds = tasks.map((task) => task.id);
+  const classes = [styles.kcol, ACCENT_CLASS[accent], isOver ? styles.kcolOver : ""]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <Paper
+    <div
       ref={setNodeRef}
-      className={`min-w-80 w-80 transition-all duration-200 ${
-        isOver ? 'ring-2 ring-blue-400 ring-opacity-50 bg-surface-hover' : ''
-      }`}
-      p="md"
-      radius="md"
-      withBorder
+      className={classes}
       role="region"
-      aria-label={`${title} column with ${tasks.length} task${tasks.length !== 1 ? 's' : ''}`}
+      aria-label={`${title} column with ${tasks.length} task${tasks.length !== 1 ? "s" : ""}`}
     >
-      <Group justify="space-between" mb="sm">
-        <Text fw={600} size="sm">
-          {title}
-        </Text>
-        <Group gap="xs">
-          <Badge
-            size="xs"
-            variant="light"
-            color={color}
-          >
-            {tasks.length}
-          </Badge>
-        </Group>
-      </Group>
+      <div className={styles.kcolHead}>
+        <div className={styles.kcolHeadLeft}>
+          <span className={styles.kcolDot} aria-hidden="true" />
+          <span className={styles.kcolLabel}>{title}</span>
+          <span className={styles.kcolCount}>{tasks.length}</span>
+        </div>
+        <div className={styles.kcolHeadRight}>
+          <button type="button" className={styles.kcolAdd} aria-label={`Add task to ${title}`}>
+            <IconPlus size={12} />
+          </button>
+          <button type="button" className={styles.kcolMore} aria-label={`${title} column options`}>
+            <IconDots size={13} />
+          </button>
+        </div>
+      </div>
 
       <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
-        <Stack gap="sm">
-          {tasks.map((task, _index) => (
+        <div className={styles.kcolBody}>
+          {tasks.map((task) => (
             <div key={task.id}>
-              {/* Show insertion indicator when dragging over this task */}
               {dragOverTaskId === task.id && (
-                <div className="h-1 bg-blue-400 rounded-full mb-2 opacity-75" />
+                <div className={styles.kcolDropIndicator} aria-hidden="true" />
               )}
               <TaskCard task={task} onActionOpen={onActionOpen} />
             </div>
           ))}
           {tasks.length === 0 && (
-            <div 
-              className="h-20 border-2 border-dashed border-border-secondary rounded-md flex items-center justify-center"
+            <div
+              className={styles.kcolEmpty}
               role="region"
               aria-label={`Empty ${title.toLowerCase()} column. Drop tasks here to change their status.`}
             >
-              <Text size="sm" c="dimmed">
-                Drop tasks here
-              </Text>
+              Drop tasks here
             </div>
           )}
-        </Stack>
+        </div>
       </SortableContext>
-    </Paper>
+    </div>
   );
 }

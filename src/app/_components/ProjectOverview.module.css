@@ -156,6 +156,48 @@
   color: var(--brand-400);
 }
 
+/* ── Tabs (Mantine Tabs override via classNames) ──────── */
+
+.tabsList {
+  border-bottom: 1px solid var(--color-border-subtle);
+  gap: 0;
+}
+
+.tab {
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.002em;
+  border-radius: 4px 4px 0 0;
+  border: 0;
+  position: relative;
+  transition: color 120ms;
+}
+
+.tab:hover {
+  color: var(--color-text-primary);
+  background: transparent;
+}
+
+.tab[data-active] {
+  color: var(--color-text-primary);
+  background: transparent;
+  border: 0;
+}
+
+.tab[data-active]::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--brand-400);
+  border-radius: 1px 1px 0 0;
+}
+
 /* ── Tabs count pill ──────────────────────────────────── */
 
 .tabCount {

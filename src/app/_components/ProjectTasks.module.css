@@ -1,0 +1,447 @@
+/* Project Detail — Tasks tab (Kanban + List + Toolbar)
+   All colors reference CSS variables from globals.css.
+   Alpha-only rgba() values (shadows, tints, glows) are allowed. */
+
+/* ── Tasks view shell ─────────────────────────────────── */
+
+.tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toolbarRight {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* ── Segmented List / Kanban toggle ────────────────────── */
+
+.viewSeg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 7px;
+}
+
+.viewSeg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+  font-family: inherit;
+}
+
+.viewSeg button:hover {
+  color: var(--color-text-primary);
+}
+
+.viewSeg .segOn {
+  background: var(--brand-500);
+  color: var(--color-text-inverse);
+  box-shadow: 0 1px 2px rgba(31, 93, 224, 0.35);
+}
+
+.viewSeg .segOn svg {
+  color: var(--color-text-inverse);
+}
+
+/* Ghost icon buttons (filter / archive / refresh) */
+.iconGhost {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+
+.iconGhost:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* ── Kanban board ─────────────────────────────────────── */
+
+.kboard {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  align-items: flex-start;
+}
+
+.kboard::-webkit-scrollbar {
+  height: 8px;
+}
+
+.kboard::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 4px;
+}
+
+.kboard::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Per-column accent tokens (slate default, overridden by accent modifier) */
+.kcol {
+  --col-accent: var(--color-text-muted);
+  --col-tint: rgba(148, 163, 184, 0.10);
+  --col-glow: rgba(148, 163, 184, 0.18);
+
+  flex: 0 0 296px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 480px;
+  overflow: hidden;
+  position: relative;
+  transition: background 120ms, border-color 120ms;
+}
+
+.kcol::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--col-accent);
+  opacity: 0.9;
+}
+
+.kcolOver {
+  background: var(--color-bg-elevated);
+  border-color: var(--col-accent);
+}
+
+/* Accent variants */
+.kcolSlate {
+  --col-accent: var(--accent-neutral);
+  --col-tint: rgba(111, 127, 152, 0.10);
+  --col-glow: rgba(111, 127, 152, 0.20);
+}
+.kcolBrand {
+  --col-accent: var(--brand-400);
+  --col-tint: rgba(78, 137, 255, 0.10);
+  --col-glow: rgba(78, 137, 255, 0.22);
+}
+.kcolAmber {
+  --col-accent: var(--accent-okr);
+  --col-tint: rgba(245, 185, 74, 0.10);
+  --col-glow: rgba(245, 185, 74, 0.22);
+}
+.kcolViolet {
+  --col-accent: var(--accent-meetings);
+  --col-tint: rgba(167, 139, 250, 0.10);
+  --col-glow: rgba(167, 139, 250, 0.22);
+}
+.kcolGreen {
+  --col-accent: var(--accent-crm);
+  --col-tint: rgba(74, 222, 140, 0.10);
+  --col-glow: rgba(74, 222, 140, 0.22);
+}
+.kcolRed {
+  --col-accent: var(--accent-due);
+  --col-tint: rgba(248, 113, 113, 0.10);
+  --col-glow: rgba(248, 113, 113, 0.22);
+}
+
+.kcolHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px 10px;
+  background: linear-gradient(180deg, var(--col-tint), transparent);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.kcolHeadLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kcolHeadRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.kcolDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--col-accent);
+  box-shadow: 0 0 0 3px var(--col-glow);
+}
+
+.kcolLabel {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: 0.005em;
+}
+
+.kcolCount {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.kcolAdd,
+.kcolMore {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+
+.kcolAdd:hover,
+.kcolMore:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.kcolBody {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 80px;
+}
+
+.kcolEmpty {
+  margin: 8px;
+  padding: 36px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-text-faint);
+  border: 1.5px dashed var(--color-border-subtle);
+  border-radius: 8px;
+}
+
+/* Drop indicator between cards */
+.kcolDropIndicator {
+  height: 3px;
+  background: var(--col-accent);
+  border-radius: 2px;
+  margin: 0 2px 4px;
+  opacity: 0.75;
+}
+
+/* ── Kanban card ──────────────────────────────────────── */
+
+.kcard {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-left: 2px solid var(--col-accent);
+  border-radius: 7px;
+  padding: 10px 11px 11px;
+  cursor: grab;
+  transition:
+    border-color 120ms,
+    transform 120ms,
+    box-shadow 120ms,
+    background 120ms,
+    opacity 120ms;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kcard:active {
+  cursor: grabbing;
+}
+
+.kcard:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-strong);
+  border-left-color: var(--col-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.kcardDragging {
+  opacity: 0.5;
+}
+
+.kcardOverlay {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transform: rotate(1deg);
+}
+
+.kcardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.kcardTitle {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  line-height: 1.35;
+  letter-spacing: -0.001em;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.kcardMenu {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-faint);
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms, color 120ms, background 120ms;
+  flex-shrink: 0;
+}
+
+.kcard:hover .kcardMenu {
+  opacity: 1;
+}
+
+.kcardMenu:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.kcardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.kcardMetaRight {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Badges: type + priority ──────────────────────────── */
+
+.typeBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(78, 137, 255, 0.10);
+  color: var(--brand-200);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid rgba(78, 137, 255, 0.18);
+  white-space: nowrap;
+}
+
+.pri {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.priCritical {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--accent-due);
+  border-color: rgba(248, 113, 113, 0.22);
+}
+.priHigh {
+  background: rgba(251, 146, 60, 0.12);
+  color: var(--accent-high);
+  border-color: rgba(251, 146, 60, 0.22);
+}
+.priMedium {
+  background: rgba(245, 185, 74, 0.12);
+  color: var(--accent-okr);
+  border-color: rgba(245, 185, 74, 0.22);
+}
+.priLow {
+  background: rgba(148, 163, 184, 0.10);
+  color: var(--accent-low);
+  border-color: rgba(148, 163, 184, 0.20);
+}
+.priQuick {
+  background: rgba(90, 200, 224, 0.12);
+  color: var(--accent-quick);
+  border-color: rgba(90, 200, 224, 0.22);
+}
+.priScheduled {
+  background: rgba(78, 137, 255, 0.10);
+  color: var(--brand-200);
+  border-color: rgba(78, 137, 255, 0.20);
+}
+
+/* ── Due date tag on card ─────────────────────────────── */
+
+.dueTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--color-border-subtle);
+}
+
+.dueTagOverdue {
+  background: rgba(248, 113, 113, 0.10);
+  color: var(--accent-due);
+  border-color: rgba(248, 113, 113, 0.22);
+}
