@@ -19,6 +19,7 @@ import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getProjectAccess, hasProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
+import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -92,17 +93,26 @@ function estimateCost(
   return Math.round((inputCost + outputCost) * 100_000) / 100_000;
 }
 
+type AgentEmbedding = { id: string; vector: number[] };
+
 // Utility to cache agent instruction embeddings
-let agentEmbeddingsCache: { id: string; vector: number[] }[] | null = null;
+let agentEmbeddingsCache: AgentEmbedding[] | null = null;
+
 /**
  * Load and cache embeddings for each agent's instructions.
+ *
+ * Defensive by design: pre-filters agents with missing/too-short
+ * instructions so one broken agent can't fail the whole batch embedding
+ * call. Anything filtered is logged with structured context so misconfig
+ * surfaces in observability.
+ *
  * Always returns an array (never null).
  */
-async function loadAgentEmbeddings(): Promise<{ id: string; vector: number[] }[]> {
+async function loadAgentEmbeddings(): Promise<AgentEmbedding[]> {
   if (agentEmbeddingsCache) return agentEmbeddingsCache;
 
   // Use direct fetch instead of mastraClient
-  let data: Record<string, { instructions: string; [key: string]: any }>;
+  let data: Record<string, { instructions: unknown }>;
   try {
     const response = await fetch(`${MASTRA_API_URL}/api/agents`, {
       headers: mastraAuthHeaders(),
@@ -110,9 +120,9 @@ async function loadAgentEmbeddings(): Promise<{ id: string; vector: number[] }[]
     if (!response.ok) {
       throw new Error(`Mastra API returned status ${response.status}`);
     }
-    data = await response.json();
+    data = await response.json() as Record<string, { instructions: unknown }>;
   } catch (error) {
-    console.error("Failed to fetch Mastra agents using direct fetch:", error);
+    console.error("[chooseAgent] Failed to fetch Mastra agents:", error);
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
       message: "Unable to fetch Mastra agents for embedding",
@@ -120,19 +130,43 @@ async function loadAgentEmbeddings(): Promise<{ id: string; vector: number[] }[]
   }
 
   if (!data || Object.keys(data).length === 0) {
-    // Handle case where no agents are returned
-    console.warn("No agents returned from Mastra API");
+    console.warn("[chooseAgent] No agents returned from Mastra API");
     agentEmbeddingsCache = [];
     return agentEmbeddingsCache;
   }
 
-  const agentIds = Object.keys(data);
-  // Extract instructions 
-  const instructions = agentIds.map(id => data[id]!.instructions);
-  const embedRes = await openai.embeddings.create({ model: 'text-embedding-3-small', input: instructions });
-  // Build embeddings array, asserting agentIds[i] is defined
-  agentEmbeddingsCache = embedRes.data.map((e, i) => ({ id: agentIds[i]!, vector: e.embedding }));
-  return agentEmbeddingsCache;
+  const { valid, skipped, truncated } = filterAgentInstructions(
+    Object.entries(data).map(([id, agent]) => ({ id, instructions: agent?.instructions })),
+  );
+
+  for (const t of truncated) {
+    console.warn(`[chooseAgent] Truncated ${t.id} instructions from ${t.originalLength} → ${t.truncatedLength} chars for embedding`);
+  }
+  if (skipped.length > 0) {
+    console.error('[chooseAgent] Skipping agents with malformed instructions:', skipped);
+  }
+
+  if (valid.length === 0) {
+    console.error('[chooseAgent] No valid agents to embed — chooseAgent will always fall through');
+    agentEmbeddingsCache = [];
+    return agentEmbeddingsCache;
+  }
+
+  try {
+    const embedRes = await openai.embeddings.create({
+      model: 'text-embedding-3-small',
+      input: valid.map(v => v.instructions),
+    });
+    agentEmbeddingsCache = embedRes.data.map((e, i) => ({ id: valid[i]!.id, vector: e.embedding }));
+    console.info(`[chooseAgent] Embedded ${valid.length} agents (skipped ${skipped.length})`);
+    return agentEmbeddingsCache;
+  } catch (error) {
+    console.error('[chooseAgent] Batch embedding call failed:', error);
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Failed to embed agent instructions',
+    });
+  }
 }
 
 // Define the expected structure of an agent from the Mastra API
@@ -234,8 +268,19 @@ export const mastraRouter = createTRPCRouter({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No agent embeddings available' });
       }
       const first = embeddings[0]!;
-      // 2. embed the user message
-      const msgEmbRes = await openai.embeddings.create({ model: 'text-embedding-3-small', input: [input.message] });
+
+      // 2. embed the user message. Reject empty input up front — OpenAI's
+      // embeddings endpoint returns a confusing "$.input is invalid" 400
+      // on empty strings, which is exactly how the cachedSystemPrompt
+      // regression surfaced historically.
+      const trimmed = input.message.trim();
+      if (trimmed.length === 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Message is empty' });
+      }
+      const msgEmbRes = await openai.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: trimmed,
+      });
       if (!msgEmbRes.data || msgEmbRes.data.length === 0) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to embed user message' });
       }
