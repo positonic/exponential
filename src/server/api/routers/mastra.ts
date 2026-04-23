@@ -17,6 +17,7 @@ import { userEmailService } from "~/server/services/UserEmailService";
 import { slugify } from "~/utils/slugify";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getProjectAccess, hasProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
@@ -2928,20 +2929,64 @@ export const mastraRouter = createTRPCRouter({
     .input(z.object({
       workspaceId: z.string().optional(),
       period: z.string().optional(),
+      includePairedPeriod: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
+      // When workspaceId is provided, validate membership and return all
+      // workspace goals (not just the caller's). This mirrors okr.getByObjective
+      // so the agent sees the same goals the dashboard shows. Without this,
+      // goals created by teammates are invisible to the agent.
+      const isWorkspaceScoped = !!input.workspaceId;
+      if (isWorkspaceScoped) {
+        const membership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId!);
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+      }
+
+      // Period filter with optional pairing to the parent Annual period, so
+      // quarter views also surface annual-level goals/KRs.
+      const periods: string[] | null = input.period
+        ? input.includePairedPeriod
+          ? (() => {
+              const match = input.period.match(/^(Q[1-4]|H[12])-(\d{4})$/);
+              return match ? [input.period, `Annual-${match[2]}`] : [input.period];
+            })()
+          : [input.period]
+        : null;
+
+      const krPeriodFilter = periods
+        ? periods.length === 1
+          ? { period: periods[0]! }
+          : { period: { in: periods } }
+        : {};
+
+      const goalPeriodFilter = periods
+        ? {
+            OR: [
+              periods.length === 1 ? { period: periods[0]! } : { period: { in: periods } },
+              { period: null },
+            ],
+          }
+        : {};
+
       const goals = await ctx.db.goal.findMany({
         where: {
-          userId,
-          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
-          ...(input.period ? { period: input.period } : {}),
+          ...(isWorkspaceScoped ? { workspaceId: input.workspaceId } : { userId }),
+          ...goalPeriodFilter,
         },
         include: {
           lifeDomain: true,
           keyResults: {
-            where: { userId },
+            where: {
+              ...krPeriodFilter,
+              ...(isWorkspaceScoped ? {} : { userId }),
+            },
             include: {
               checkIns: {
                 orderBy: { createdAt: "desc" as const },
