@@ -9,6 +9,7 @@ import { useActionDeepLink } from "~/hooks/useActionDeepLink";
 import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
 import { EditActionModal } from "../EditActionModal";
 import { CreateActionModal } from "../CreateActionModal";
+import { HTMLContent } from "../HTMLContent";
 import type { Priority } from "~/types/action";
 import "./TodayView.css";
 
@@ -320,7 +321,9 @@ const ActionRow: React.FC<ActionRowProps> = ({
         aria-label={`Mark ${action.name} as complete`}
       />
       <div className="today-body">
-        <div className="today-title">{action.name}</div>
+        <div className="today-title">
+          <HTMLContent html={action.name} compactUrls />
+        </div>
         <div className="today-meta">
           {showOverdueChip ? (
             <span className="today-chip today-chip--overdue">

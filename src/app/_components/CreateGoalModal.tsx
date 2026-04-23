@@ -535,7 +535,26 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
             mt="md"
           />
 
-          <Accordion variant="separated" mt="md">
+          <Accordion
+            variant="separated"
+            mt="md"
+            styles={{
+              item: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+              control: {
+                color: 'var(--color-text-primary)',
+                backgroundColor: 'var(--color-surface-secondary)',
+              },
+              panel: {
+                backgroundColor: 'var(--color-surface-secondary)',
+              },
+              chevron: {
+                color: 'var(--color-text-secondary)',
+              },
+            }}
+          >
             <Accordion.Item value="details">
               <Accordion.Control>More details</Accordion.Control>
               <Accordion.Panel>
