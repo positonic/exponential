@@ -4,8 +4,11 @@ import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
-import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag, IconFilter, IconArchive } from "@tabler/icons-react";
-import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge, MultiSelect } from "@mantine/core";
+import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag, IconFilter, IconArchive, IconSearch, IconCircleDot, IconFlag } from "@tabler/icons-react";
+import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge, MultiSelect, Collapse } from "@mantine/core";
+import { FilterBar } from "./filters";
+import { hasActiveFilters } from "~/types/filter";
+import type { FilterBarConfig } from "~/types/filter";
 import tasksStyles from "./ProjectTasks.module.css";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
@@ -20,6 +23,41 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
 import type { FilterState } from "~/types/filter";
+
+const ACTION_FILTER_CONFIG: FilterBarConfig = {
+  fields: [
+    {
+      key: "status",
+      label: "Status",
+      type: "multi-select",
+      icon: IconCircleDot,
+      badgeColor: "cyan",
+      options: [
+        { value: "ACTIVE", label: "Active" },
+        { value: "COMPLETED", label: "Completed" },
+      ],
+    },
+    {
+      key: "priority",
+      label: "Priority",
+      type: "multi-select",
+      icon: IconFlag,
+      badgeColor: "grape",
+      options: [
+        { value: "1st Priority", label: "1st Priority" },
+        { value: "2nd Priority", label: "2nd Priority" },
+        { value: "3rd Priority", label: "3rd Priority" },
+        { value: "4th Priority", label: "4th Priority" },
+        { value: "5th Priority", label: "5th Priority" },
+        { value: "Quick", label: "Quick" },
+        { value: "Scheduled", label: "Scheduled" },
+        { value: "Errand", label: "Errand" },
+        { value: "Remember", label: "Remember" },
+        { value: "Watch", label: "Watch" },
+      ],
+    },
+  ],
+};
 
 interface ActionsProps {
   viewName: string;
@@ -51,6 +89,12 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [isSyncing, setIsSyncing] = useState(false);
   const [showNotionUnassigned, setShowNotionUnassigned] = useState(false);
   const [internalSelectedTagIds, setInternalSelectedTagIds] = useState<string[]>([]);
+  const [internalSearch, setInternalSearch] = useState("");
+  const [internalFilters, setInternalFilters] = useState<FilterState>({});
+  const [filterRowOpen, setFilterRowOpen] = useState(false);
+  const appliedSearchQuery = searchQuery ?? internalSearch;
+  const appliedFilters = filters ?? internalFilters;
+  const filtersActive = hasActiveFilters(ACTION_FILTER_CONFIG, appliedFilters);
   const isTagFilterControlled = tagIds !== undefined;
   const selectedTagIds = isTagFilterControlled ? tagIds : internalSelectedTagIds;
   const setSelectedTagIds = setInternalSelectedTagIds;
@@ -189,23 +233,23 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const filteredActions = useMemo(() => {
     let result = actions ?? [];
 
-    const statusFilter = filters?.status as string[] | undefined;
+    const statusFilter = appliedFilters?.status as string[] | undefined;
     if (statusFilter?.length) {
       result = result.filter((a) => statusFilter.includes(a.status));
     }
 
-    const priorityFilter = filters?.priority as string[] | undefined;
+    const priorityFilter = appliedFilters?.priority as string[] | undefined;
     if (priorityFilter?.length) {
       result = result.filter((a) => priorityFilter.includes(a.priority));
     }
 
-    if (searchQuery?.trim()) {
-      const q = searchQuery.toLowerCase();
+    if (appliedSearchQuery?.trim()) {
+      const q = appliedSearchQuery.toLowerCase();
       result = result.filter((a) => a.name.toLowerCase().includes(q));
     }
 
     return result;
-  }, [actions, filters, searchQuery]);
+  }, [actions, appliedFilters, appliedSearchQuery]);
 
   // Count of unassigned Notion imports for today (for badge)
   const notionUnassignedCount = notionUnassignedTodayData.length;
@@ -792,11 +836,32 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           </Group>
 
           <div className={tasksStyles.toolbarRight}>
-            <Tooltip label="Filter" position="bottom">
-              <button type="button" className={tasksStyles.iconGhost} aria-label="Filter">
-                <IconFilter size={14} />
-              </button>
-            </Tooltip>
+            <div className={tasksStyles.searchWrap}>
+              <IconSearch
+                className={tasksStyles.searchIcon}
+                size={13}
+                stroke={1.75}
+              />
+              <input
+                type="text"
+                placeholder="Search tasks"
+                value={internalSearch}
+                onChange={(e) => setInternalSearch(e.target.value)}
+                className={tasksStyles.searchInput}
+              />
+            </div>
+
+            <button
+              type="button"
+              className={tasksStyles.actionBtn}
+              onClick={() => setFilterRowOpen((o) => !o)}
+              data-active={filtersActive ? "true" : "false"}
+              aria-label="Toggle filters"
+            >
+              <IconFilter size={13} stroke={1.75} />
+              Filter
+            </button>
+
             <Tooltip label="Archive" position="bottom">
               <button type="button" className={tasksStyles.iconGhost} aria-label="Archive">
                 <IconArchive size={14} />
@@ -831,6 +896,18 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
             )}
           </div>
         </div>
+      )}
+
+      {projectId && (
+        <Collapse in={filterRowOpen || filtersActive}>
+          <div className={tasksStyles.filterRow}>
+            <FilterBar
+              config={ACTION_FILTER_CONFIG}
+              filters={internalFilters}
+              onFiltersChange={setInternalFilters}
+            />
+          </div>
+        </Collapse>
       )}
 
       {/* Filter for Notion imports without project - only show on non-project pages */}

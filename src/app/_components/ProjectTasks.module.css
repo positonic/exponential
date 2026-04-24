@@ -64,6 +64,77 @@
   color: var(--color-text-inverse);
 }
 
+/* Search input + action button styling — matches WorkspaceProjectsConceptD */
+.searchWrap {
+  position: relative;
+}
+
+.searchInput {
+  height: 28px;
+  padding: 0 10px 0 28px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  outline: none;
+  width: 180px;
+  transition: border-color 120ms, width 120ms;
+  font-family: inherit;
+}
+
+.searchInput:focus {
+  border-color: var(--brand-500);
+  width: 220px;
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-primary);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 100ms, color 100ms, border-color 100ms;
+  font-family: inherit;
+}
+
+.actionBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.actionBtn[data-active='true'] {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border-color: var(--brand-500);
+}
+
+.filterRow {
+  margin-top: 10px;
+  margin-bottom: 4px;
+}
+
 /* Ghost icon buttons (filter / archive / refresh) */
 .iconGhost {
   width: 30px;
