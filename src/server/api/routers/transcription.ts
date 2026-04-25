@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   createTRPCRouter,
-  publicProcedure,
   protectedProcedure,
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
@@ -9,60 +8,22 @@ import { TRPCError } from "@trpc/server";
 import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
+import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
 
-// Middleware to check API key
-const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
-  const apiKey = ctx.headers.get("x-api-key");
-
-  if (!apiKey) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "API key is required",
-    });
-  }
-
-  // Find the verification token and associated user
-  const verificationToken = await ctx.db.verificationToken.findFirst({
-    where: {
-      token: apiKey,
-    },
-  });
-
-  if (!verificationToken) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "Invalid or expired API key",
-    });
-  }
-
-  // Type-safe error handling
-  const userId = verificationToken.userId;
-  if (!userId) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "No user associated with this API key",
-    });
-  }
-
-  // Add the user id to the context
-  return next({
-    ctx: {
-      ...ctx,
-      userId, // Now type-safe
-    },
-  });
-});
-
 export const transcriptionRouter = createTRPCRouter({
   startSession: apiKeyMiddleware
-    .input(z.object({ projectId: z.string().nullable() }))
+    .input(z.object({
+      projectId: z.string().nullable(),
+      workspaceId: z.string().nullable().optional(),
+      title: z.string().nullable().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       // Type-safe userId access
       const userId = ctx.userId;
-      const { projectId } = input;
+      const { projectId, workspaceId, title } = input;
 
       // Create record in database using ctx.db
       const session = await ctx.db.transcriptionSession.create({
@@ -71,6 +32,8 @@ export const transcriptionRouter = createTRPCRouter({
           transcription: "",
           userId,
           projectId, // Save projectId
+          workspaceId: workspaceId ?? null,
+          title: title ?? null,
         },
       });
 
@@ -166,6 +129,19 @@ export const transcriptionRouter = createTRPCRouter({
               createdAt: "desc",
             },
           },
+          workspace: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          sourceIntegration: {
+            select: {
+              id: true,
+              provider: true,
+              name: true,
+            },
+          },
         },
       });
 
@@ -176,7 +152,21 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (session.userId !== ctx.session.user.id) {
+      // Allow access if user is the owner OR a member of the recording's workspace
+      let hasAccess = session.userId === ctx.session.user.id;
+      if (!hasAccess && session.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findUnique({
+          where: {
+            userId_workspaceId: {
+              userId: ctx.session.user.id,
+              workspaceId: session.workspaceId,
+            },
+          },
+        });
+        hasAccess = !!membership;
+      }
+
+      if (!hasAccess) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Not authorized to view this session",
@@ -194,14 +184,164 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+      });
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      // Allow access if user is the owner OR a member of the recording's workspace
+      let hasAccess = existing.userId === ctx.session.user.id;
+      if (!hasAccess && existing.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findUnique({
+          where: {
+            userId_workspaceId: {
+              userId: ctx.session.user.id,
+              workspaceId: existing.workspaceId,
+            },
+          },
+        });
+        hasAccess = !!membership;
+      }
+      if (!hasAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this transcription",
+        });
+      }
+
       const session = await ctx.db.transcriptionSession.update({
-        where: {
-          id: input.id,
-          userId: ctx.session.user.id,
-        },
+        where: { id: input.id },
         data: {
           transcription: input.transcription,
           updatedAt: new Date(),
+        },
+      });
+      return session;
+    }),
+
+  updateDetails: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        description: z.string().optional(),
+        notes: z.string().optional(),
+        summary: z.string().optional(),
+        transcription: z.string().optional(),
+        workspaceId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify the transcription belongs to the user
+      const existing = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      // Allow access if user is the owner OR a member of the recording's workspace
+      let hasAccess = existing.userId === ctx.session.user.id;
+      if (!hasAccess && existing.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findUnique({
+          where: {
+            userId_workspaceId: {
+              userId: ctx.session.user.id,
+              workspaceId: existing.workspaceId,
+            },
+          },
+        });
+        hasAccess = !!membership;
+      }
+      if (!hasAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this transcription",
+        });
+      }
+
+      const updateData: {
+        description?: string;
+        notes?: string;
+        summary?: string;
+        transcription?: string;
+        workspaceId?: string | null;
+        updatedAt: Date;
+      } = {
+        updatedAt: new Date(),
+      };
+
+      if (input.description !== undefined) {
+        updateData.description = input.description;
+      }
+      if (input.notes !== undefined) {
+        updateData.notes = input.notes;
+      }
+      if (input.summary !== undefined) {
+        updateData.summary = input.summary;
+      }
+      if (input.transcription !== undefined) {
+        updateData.transcription = input.transcription;
+      }
+      if (input.workspaceId !== undefined) {
+        if (input.workspaceId !== null) {
+          const member = await ctx.db.workspaceUser.findUnique({
+            where: {
+              userId_workspaceId: {
+                userId: ctx.session.user.id,
+                workspaceId: input.workspaceId,
+              },
+            },
+          });
+          if (!member) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "You are not a member of this workspace",
+            });
+          }
+        }
+        updateData.workspaceId = input.workspaceId;
+      }
+
+      const session = await ctx.db.transcriptionSession.update({
+        where: { id: input.id },
+        data: updateData,
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              taskManagementTool: true,
+              taskManagementConfig: true,
+            },
+          },
+          screenshots: true,
+          sourceIntegration: {
+            select: {
+              id: true,
+              provider: true,
+              name: true,
+            },
+          },
+          actions: {
+            where: { status: { not: "DRAFT" } },
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              status: true,
+              priority: true,
+              dueDate: true,
+            },
+          },
         },
       });
       return session;
@@ -225,7 +365,20 @@ export const transcriptionRouter = createTRPCRouter({
           message: "Session not found",
         });
       }
-      if (session.userId !== ctx.session.user.id) {
+      // Allow access if user is the owner OR a member of the recording's workspace
+      let hasAccess = session.userId === ctx.session.user.id;
+      if (!hasAccess && session.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findUnique({
+          where: {
+            userId_workspaceId: {
+              userId: ctx.session.user.id,
+              workspaceId: session.workspaceId,
+            },
+          },
+        });
+        hasAccess = !!membership;
+      }
+      if (!hasAccess) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Not authorized to update this session",
@@ -239,11 +392,91 @@ export const transcriptionRouter = createTRPCRouter({
       return updated;
     }),
 
+  createManualTranscription: protectedProcedure
+    .input(
+      z.object({
+        title: z.string().min(1, "Title is required"),
+        description: z.string().optional(),
+        transcription: z.string().min(1, "Transcription text is required"),
+        meetingDate: z.date().optional(),
+        notes: z.string().optional(),
+        projectId: z.string().optional(),
+        workspaceId: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.create({
+        data: {
+          sessionId: `manual_${Date.now()}`,
+          title: input.title,
+          description: input.description ?? null,
+          transcription: input.transcription,
+          meetingDate: input.meetingDate ?? null,
+          notes: input.notes ?? null,
+          projectId: input.projectId ?? null,
+          workspaceId: input.workspaceId ?? null,
+          userId: ctx.session.user.id,
+        },
+        include: {
+          sourceIntegration: {
+            select: {
+              id: true,
+              provider: true,
+              name: true,
+            },
+          },
+          actions: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              status: true,
+              priority: true,
+              dueDate: true,
+            },
+          },
+        },
+      });
+
+      return session;
+    }),
+
+  // Get transcriptions for a specific project (used by ManyChat agent context)
+  getProjectTranscriptions: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.transcriptionSession.findMany({
+        where: {
+          projectId: input.projectId,
+          userId: ctx.session.user.id,
+          archivedAt: null,
+        },
+        orderBy: { processedAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          title: true,
+          summary: true,
+          processedAt: true,
+          meetingDate: true,
+          actions: {
+            where: { status: { not: "DRAFT" } },
+            select: {
+              id: true,
+              name: true,
+              status: true,
+            },
+          },
+        },
+      });
+    }),
+
   getAllTranscriptions: protectedProcedure
     .input(
       z
         .object({
           includeArchived: z.boolean().optional().default(false),
+          workspaceId: z.string().optional(),
         })
         .optional(),
     )
@@ -257,11 +490,18 @@ export const transcriptionRouter = createTRPCRouter({
         whereClause.archivedAt = null;
       }
 
+      // Filter by workspace if provided - include meetings with direct workspaceId
+      // OR meetings whose project belongs to the workspace
+      if (input?.workspaceId) {
+        whereClause.OR = [
+          { workspaceId: input.workspaceId },
+          { project: { workspaceId: input.workspaceId } },
+        ];
+      }
+
       return ctx.db.transcriptionSession.findMany({
         where: whereClause,
-        orderBy: {
-          createdAt: "desc",
-        },
+        orderBy: { createdAt: "desc" },
         include: {
           project: {
             select: {
@@ -280,6 +520,7 @@ export const transcriptionRouter = createTRPCRouter({
             },
           },
           actions: {
+            where: { status: { not: "DRAFT" } },
             select: {
               id: true,
               name: true,
@@ -299,6 +540,16 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Get the project's workspace if a project is being assigned
+      let workspaceId: string | null = null;
+      if (input.projectId) {
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { workspaceId: true },
+        });
+        workspaceId = project?.workspaceId ?? null;
+      }
+
       // Update the transcription session
       const session = await ctx.db.transcriptionSession.update({
         where: {
@@ -306,6 +557,7 @@ export const transcriptionRouter = createTRPCRouter({
         },
         data: {
           projectId: input.projectId,
+          workspaceId,
           updatedAt: new Date(),
         },
       });
@@ -331,6 +583,16 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Get the project's workspace if a project is being assigned
+      let workspaceId: string | null = null;
+      if (input.projectId) {
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { workspaceId: true },
+        });
+        workspaceId = project?.workspaceId ?? null;
+      }
+
       // Update all transcription sessions
       const result = await ctx.db.transcriptionSession.updateMany({
         where: {
@@ -341,6 +603,7 @@ export const transcriptionRouter = createTRPCRouter({
         },
         data: {
           projectId: input.projectId,
+          workspaceId,
           updatedAt: new Date(),
         },
       });
@@ -360,8 +623,51 @@ export const transcriptionRouter = createTRPCRouter({
       return { count: result.count };
     }),
 
+  assignWorkspace: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        workspaceId: z.string().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify ownership
+      const existing = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+        select: {
+          userId: true,
+          projectId: true,
+          project: { select: { workspaceId: true } },
+        },
+      });
+
+      if (!existing || existing.userId !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized" });
+      }
+
+      // Clear project if it doesn't belong to the new workspace
+      let projectId = existing.projectId;
+      if (input.workspaceId) {
+        if (existing.project?.workspaceId !== input.workspaceId) {
+          projectId = null;
+        }
+      } else {
+        // Clearing workspace also clears project
+        projectId = null;
+      }
+
+      return ctx.db.transcriptionSession.update({
+        where: { id: input.transcriptionId },
+        data: {
+          workspaceId: input.workspaceId,
+          projectId,
+          updatedAt: new Date(),
+        },
+      });
+    }),
+
   // Add to your transcriptionRouter
-  saveScreenshot: protectedProcedure
+  saveScreenshot: apiKeyMiddleware
     .input(
       z.object({
         sessionId: z.string(),
@@ -424,9 +730,10 @@ export const transcriptionRouter = createTRPCRouter({
               include: {
                 credentials: {
                   where: {
-                    keyType: "API_KEY",
+                    keyType: {
+                      in: ["API_KEY", "EMAIL"],
+                    },
                   },
-                  take: 1,
                 },
               },
             },
@@ -448,7 +755,7 @@ export const transcriptionRouter = createTRPCRouter({
             credentials: workflow.integration.credentials,
           }));
       } else {
-        // Fallback to all user integrations for backward compatibility
+        // Fallback to all user integrations for backend compatibility
         return FirefliesSyncService.getUserFirefliesIntegrations(
           ctx.session.user.id,
         );
@@ -464,10 +771,12 @@ export const transcriptionRouter = createTRPCRouter({
       );
 
       if (!integration) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Fireflies integration not found",
-        });
+        return {
+          integrationName: null,
+          lastSyncAt: null,
+          estimatedNewCount: 0,
+          isAvailable: false,
+        };
       }
 
       const estimatedNewCount =
@@ -480,6 +789,7 @@ export const transcriptionRouter = createTRPCRouter({
         integrationName: integration.name,
         lastSyncAt: integration.lastSyncAt,
         estimatedNewCount,
+        isAvailable: true,
       };
     }),
 
@@ -497,10 +807,28 @@ export const transcriptionRouter = createTRPCRouter({
         input.syncSinceDays,
       );
 
+      // Log the manual sync event
+      await ctx.db.webhookLog.create({
+        data: {
+          provider: "fireflies",
+          eventType: "manual_sync",
+          status: result.success ? "success" : "failed",
+          errorMessage: result.error,
+          userId: ctx.session.user.id,
+          metadata: {
+            integrationId: input.integrationId,
+            syncSinceDays: input.syncSinceDays,
+            newTranscripts: result.newTranscripts,
+            updatedTranscripts: result.updatedTranscripts,
+            skippedTranscripts: result.skippedTranscripts,
+          },
+        },
+      });
+
       if (!result.success) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: result.error || "Failed to sync from Fireflies",
+          message: result.error ?? "Failed to sync from Fireflies",
         });
       }
 
@@ -663,6 +991,145 @@ export const transcriptionRouter = createTRPCRouter({
       return result;
     }),
 
+  generateDraftActions: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await TranscriptionProcessingService.generateDraftActions(
+        input.transcriptionId,
+        ctx.session.user.id,
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            result.errors.join(", ") || "Failed to generate draft actions",
+        });
+      }
+
+      return result;
+    }),
+
+  publishDraftActions: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const transcription = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+      });
+
+      if (!transcription) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (transcription.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this transcription",
+        });
+      }
+
+      const draftActions = await ctx.db.action.findMany({
+        where: {
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+        select: { id: true },
+      });
+
+      if (draftActions.length === 0) {
+        return { publishedCount: 0 };
+      }
+
+      const result = await ctx.db.action.updateMany({
+        where: {
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          status: "ACTIVE",
+        },
+      });
+
+      await ctx.db.transcriptionSession.update({
+        where: { id: input.transcriptionId },
+        data: {
+          processedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      return { publishedCount: result.count };
+    }),
+
+  publishSelectedDraftActions: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        actionIds: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const transcription = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+      });
+
+      if (!transcription) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (transcription.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this transcription",
+        });
+      }
+
+      if (input.actionIds.length === 0) {
+        return { publishedCount: 0 };
+      }
+
+      const result = await ctx.db.action.updateMany({
+        where: {
+          id: { in: input.actionIds },
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          status: "ACTIVE",
+        },
+      });
+
+      // Check if any drafts remain; if not, mark transcription as processed
+      const remainingDrafts = await ctx.db.action.count({
+        where: {
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+      });
+
+      if (remainingDrafts === 0) {
+        await ctx.db.transcriptionSession.update({
+          where: { id: input.transcriptionId },
+          data: {
+            processedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      return { publishedCount: result.count };
+    }),
+
   sendSlackNotification: protectedProcedure
     .input(z.object({ transcriptionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -792,5 +1259,117 @@ export const transcriptionRouter = createTRPCRouter({
       });
 
       return { count: result.count };
+    }),
+
+  toggleActionGeneration: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Get the transcription with its actions
+      const transcription = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+        include: {
+          actions: { select: { id: true } },
+        },
+      });
+
+      if (!transcription) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (transcription.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to modify this transcription",
+        });
+      }
+
+      // Check if transcription has a project assigned
+      if (!transcription.projectId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Transcription must be assigned to a project before generating actions",
+        });
+      }
+
+      // If actions have already been generated (active or draft), delete them
+      if ((transcription.processedAt ?? transcription.actionsSavedAt) && transcription.actions.length > 0) {
+        // Delete all actions linked to this transcription
+        const deletedCount = await ctx.db.action.deleteMany({
+          where: { transcriptionSessionId: input.transcriptionId },
+        });
+
+        // Clear processing flags
+        await ctx.db.transcriptionSession.update({
+          where: { id: input.transcriptionId },
+          data: { processedAt: null, actionsSavedAt: null },
+        });
+
+        return {
+          action: "deleted" as const,
+          actionsDeleted: deletedCount.count,
+        };
+      }
+
+      // Generate draft actions (requires human review before publishing)
+      const result = await TranscriptionProcessingService.generateDraftActions(
+        input.transcriptionId,
+        ctx.session.user.id,
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.errors.join(", ") || "Failed to generate draft actions",
+        });
+      }
+
+      return {
+        action: "generated" as const,
+        actionsCreated: result.actionsCreated,
+      };
+    }),
+
+  // Get webhook activity logs for the Activity tab
+  getWebhookLogs: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+          status: z.string().optional(),
+          limit: z.number().min(1).max(100).default(50),
+          cursor: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const logs = await ctx.db.webhookLog.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(input?.status ? { status: input.status } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take: (input?.limit ?? 50) + 1,
+        ...(input?.cursor
+          ? {
+              cursor: { id: input.cursor },
+              skip: 1,
+            }
+          : {}),
+      });
+
+      let nextCursor: string | undefined;
+      if (logs.length > (input?.limit ?? 50)) {
+        const nextItem = logs.pop();
+        nextCursor = nextItem?.id;
+      }
+
+      return {
+        logs,
+        nextCursor,
+      };
     }),
 });

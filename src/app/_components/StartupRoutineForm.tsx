@@ -28,7 +28,6 @@ import { api } from "~/trpc/react";
 import { WindDownRoutineForm } from './WindDownRoutineForm';
 // Import section components
 import { JournalSection } from './sections/JournalSection';
-import { OutcomeSection } from './sections/OutcomeSection';
 import { ExerciseSection } from './sections/ExerciseSection';
 import { NotToDoSection } from './sections/NotToDoSection';
 import { ConfigurationSection } from './sections/ConfigurationSection';
@@ -78,7 +77,7 @@ export function StartupRoutineForm() {
   const [doQuestions, setDoQuestions] = useState(false);
   
   // New state for outcome input
-  const [newOutcome, setNewOutcome] = useState("");
+  const [_newOutcome, setNewOutcome] = useState("");
   
   // Get TRPC utils for invalidating queries
   const utils = api.useUtils();
@@ -191,7 +190,7 @@ export function StartupRoutineForm() {
   });
   
   // Outcome creation mutation
-  const createOutcome = api.outcome.createOutcome.useMutation({
+  const _createOutcome = api.outcome.createOutcome.useMutation({
     onSuccess: () => {
       setNewOutcome("");
       notifications.show({
@@ -410,15 +409,6 @@ export function StartupRoutineForm() {
     }
   };
 
-  // Handler for adding outcomes
-  const handleAddOutcome = useCallback(() => {
-    if (!newOutcome.trim()) return;
-    createOutcome.mutate({
-      description: newOutcome,
-      dueDate: new Date(),
-    });
-  }, [newOutcome, createOutcome]);
-
   // Add the exercise creation mutation
   const createUserExercise = api.exercise.createUserExercise.useMutation({
     onSuccess: () => {
@@ -478,15 +468,15 @@ export function StartupRoutineForm() {
             </Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Paper shadow="sm" p="lg" radius="md" className="bg-[#262626] border border-blue-900/30">
+            <Paper shadow="sm" p="lg" radius="md" className="bg-surface-secondary border border-blue-900/30">
               <Stack gap="md">
-                {/* What would make today great */}
-                <OutcomeSection 
+                {/* What would make today great - temporarily hidden */}
+                {/* <OutcomeSection
                   newOutcome={newOutcome}
                   setNewOutcome={setNewOutcome}
                   addOutcome={handleAddOutcome}
                   isLoading={createOutcome.isPending}
-                />
+                /> */}
 
                 {/* Exercise Section */}
                 <ExerciseSection

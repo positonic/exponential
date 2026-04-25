@@ -13,11 +13,14 @@ import {
   Accordion,
   Button,
   Checkbox,
-  List,
 } from "@mantine/core";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
+import { FirefliesSummaryAccordionItems } from "./FirefliesSummaryRenderer";
+import { parseFirefliesSummary, isEmptyFirefliesSummary } from "~/lib/fireflies-summary";
 import { notifications } from "@mantine/notifications";
 import { HTMLContent } from "./HTMLContent";
+import Link from "next/link";
+import { IconExternalLink, IconLink } from "@tabler/icons-react";
 
 interface TranscriptionDetailsDrawerProps {
   opened: boolean;
@@ -109,6 +112,32 @@ export function TranscriptionDetailsDrawer({
     }
   };
 
+  const handleCopyLink = async () => {
+    if (!transcription) return;
+
+    const baseUrl = window.location.origin;
+    const link = `${baseUrl}/recording/${transcription.id}`;
+
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(link);
+        notifications.show({
+          title: "Link copied",
+          message: "Transcription link copied to clipboard",
+          color: "green",
+        });
+      } else {
+        window.prompt("Copy this link:", link);
+      }
+    } catch {
+      notifications.show({
+        title: "Copy failed",
+        message: "Unable to copy link to clipboard",
+        color: "red",
+      });
+    }
+  };
+
   if (!transcription) return null;
 
   return (
@@ -143,6 +172,26 @@ export function TranscriptionDetailsDrawer({
                   <strong>Description:</strong> {transcription.description}
                 </Text>
               )}
+
+              <Group gap="sm">
+                <Button
+                  size="xs"
+                  variant="light"
+                  component={Link}
+                  href={`/recording/${transcription.id}`}
+                  leftSection={<IconExternalLink size={14} />}
+                >
+                  Open Page
+                </Button>
+                <Button
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconLink size={14} />}
+                  onClick={() => void handleCopyLink()}
+                >
+                  Copy Link
+                </Button>
+              </Group>
             </Stack>
           </Paper>
 
@@ -239,7 +288,7 @@ export function TranscriptionDetailsDrawer({
                             />
                             <Stack gap={4} style={{ flex: 1 }}>
                               <Text size="sm" fw={500}>
-                                <HTMLContent html={action.name} />
+                                <HTMLContent html={action.name} compactUrls />
                               </Text>
                               {action.description && (
                                 <Text size="xs" c="dimmed">
@@ -277,14 +326,7 @@ export function TranscriptionDetailsDrawer({
 
             {/* Summary Sections */}
             {transcription.summary && (() => {
-              let summaryData;
-              try {
-                summaryData = typeof transcription.summary === "string" 
-                  ? JSON.parse(transcription.summary) 
-                  : transcription.summary;
-              } catch {
-                summaryData = null;
-              }
+              const summaryData = parseFirefliesSummary(transcription.summary);
 
               if (!summaryData) {
                 return (
@@ -301,180 +343,9 @@ export function TranscriptionDetailsDrawer({
                 );
               }
 
-              return (
-                <>
-                  {/* Keywords */}
-                  {summaryData.keywords && summaryData.keywords.length > 0 && (
-                    <Accordion.Item value="keywords">
-                      <Accordion.Control>
-                        <Title order={5}>Keywords</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <Group gap="xs">
-                          {summaryData.keywords.map((keyword: string, index: number) => (
-                            <Badge key={index} variant="light" size="sm">
-                              {keyword}
-                            </Badge>
-                          ))}
-                        </Group>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
+              if (isEmptyFirefliesSummary(summaryData)) return null;
 
-                  {/* Action Items */}
-                  {summaryData.action_items && (
-                    <Accordion.Item value="summary-actions">
-                      <Accordion.Control>
-                        <Title order={5}>Action Items (From Summary)</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <Text size="sm" style={{ whiteSpace: "pre-wrap", fontFamily: 'monospace' }}>
-                          {summaryData.action_items}
-                        </Text>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
-
-                  {/* Overview */}
-                  {summaryData.overview && (
-                    <Accordion.Item value="overview">
-                      <Accordion.Control>
-                        <Title order={5}>Overview</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                          {summaryData.overview}
-                        </Text>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
-
-                  {/* Short Summary */}
-                  {summaryData.short_summary && (
-                    <Accordion.Item value="short-summary">
-                      <Accordion.Control>
-                        <Title order={5}>Short Summary</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                          {summaryData.short_summary}
-                        </Text>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
-
-                  {/* Gist */}
-                  {summaryData.gist && (
-                    <Accordion.Item value="gist">
-                      <Accordion.Control>
-                        <Title order={5}>Gist</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                          {summaryData.gist}
-                        </Text>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
-
-                  {/* Bullet Gist */}
-                  {summaryData.bullet_gist && (
-                    <Accordion.Item value="bullet-gist">
-                      <Accordion.Control>
-                        <Title order={5}>Key Points</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                          {summaryData.bullet_gist}
-                        </Text>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
-
-                  {/* Shorthand Bullet */}
-                  {summaryData.shorthand_bullet && (
-                    <Accordion.Item value="shorthand-bullet">
-                      <Accordion.Control>
-                        <Title order={5}>Detailed Breakdown</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                          {summaryData.shorthand_bullet}
-                        </Text>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
-
-                  {/* Outline */}
-                  {summaryData.outline && (
-                    <Accordion.Item value="outline">
-                      <Accordion.Control>
-                        <Title order={5}>Outline</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                          {summaryData.outline}
-                        </Text>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
-
-                  {/* Meeting Type */}
-                  {summaryData.meeting_type && (
-                    <Accordion.Item value="meeting-type">
-                      <Accordion.Control>
-                        <Title order={5}>Meeting Type</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <Badge variant="filled" color="cyan">
-                          {summaryData.meeting_type}
-                        </Badge>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
-
-                  {/* Topics Discussed */}
-                  {summaryData.topics_discussed && summaryData.topics_discussed.length > 0 && (
-                    <Accordion.Item value="topics">
-                      <Accordion.Control>
-                        <Title order={5}>Topics Discussed</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <List>
-                          {summaryData.topics_discussed.map((topic: string, index: number) => (
-                            <List.Item key={index}>{topic}</List.Item>
-                          ))}
-                        </List>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
-
-                  {/* Transcript Chapters */}
-                  {summaryData.transcript_chapters && summaryData.transcript_chapters.length > 0 && (
-                    <Accordion.Item value="chapters">
-                      <Accordion.Control>
-                        <Title order={5}>Transcript Chapters</Title>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <Stack gap="sm">
-                          {summaryData.transcript_chapters.map((chapter: any, index: number) => (
-                            <Paper key={index} p="sm" radius="xs" className="bg-surface-tertiary">
-                              <Text size="sm" fw={500}>
-                                {chapter.title || `Chapter ${index + 1}`}
-                              </Text>
-                              {chapter.summary && (
-                                <Text size="xs" c="dimmed" mt="xs">
-                                  {chapter.summary}
-                                </Text>
-                              )}
-                            </Paper>
-                          ))}
-                        </Stack>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  )}
-                </>
-              );
+              return <FirefliesSummaryAccordionItems summary={summaryData} />;
             })()}
 
             {/* Screenshots Section */}

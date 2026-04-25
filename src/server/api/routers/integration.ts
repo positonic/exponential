@@ -7,11 +7,18 @@ import {
 import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
+import { encryptCredential, getDecryptedKey } from "~/server/utils/credentialHelper";
+import {
+  testZulipConnection,
+  fetchZulipUsers,
+  fetchZulipStreams,
+} from "~/server/services/notifications/ZulipNotificationService";
+import { UserEmailService, detectProviderSettings, userEmailService } from "~/server/services/UserEmailService";
 
 // Test Fireflies API connection
 export async function testFirefliesConnection(
   apiKey: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; email?: string }> {
   try {
     const response = await fetch("https://api.fireflies.ai/graphql", {
       method: "POST",
@@ -48,7 +55,7 @@ export async function testFirefliesConnection(
       };
     }
 
-    return { success: true };
+    return { success: true, email: data.data.user.email };
   } catch (error) {
     console.error("Fireflies connection test error:", error);
     return {
@@ -119,10 +126,12 @@ async function fetchNotionDatabases(
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error(`[Notion] Database search failed: HTTP ${response.status}`, errorText);
       return { success: false, error: `HTTP ${response.status}: ${errorText}` };
     }
 
     const data = await response.json();
+    console.log(`[Notion] Database search returned ${data.results?.length ?? 0} results`);
 
     // Fetch properties for each database
     const databasesWithProperties = await Promise.all(
@@ -153,10 +162,13 @@ async function fetchNotionDatabases(
           const dbData = await dbResponse.json();
 
           // Transform properties to a simpler format
+          // Skip dangerous keys to avoid prototype pollution errors in tRPC serialization
+          const BLOCKED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
           const properties: Record<string, any> = {};
           if (dbData.properties) {
             Object.entries(dbData.properties).forEach(
               ([key, prop]: [string, any]) => {
+                if (BLOCKED_KEYS.has(key)) return;
                 properties[key] = {
                   id: prop.id,
                   name: prop.name,
@@ -418,6 +430,188 @@ export const integrationRouter = createTRPCRouter({
       }));
     }),
 
+  // Get databases for a specific Notion integration
+  getNotionDatabases: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          id: input.integrationId,
+          provider: "notion",
+          userId: ctx.session.user.id,
+        },
+        include: {
+          credentials: {
+            select: { key: true, keyType: true, isEncrypted: true },
+          },
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Notion integration not found",
+        });
+      }
+
+      const tokenCredential = integration.credentials.find(
+        (c) =>
+          c.keyType === "access_token" ||
+          c.keyType === "ACCESS_TOKEN" ||
+          c.keyType === "API_KEY",
+      );
+
+      if (!tokenCredential) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No access token found for this Notion integration",
+        });
+      }
+
+      const accessToken = getDecryptedKey(tokenCredential);
+      if (!accessToken) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to decrypt Notion access token",
+        });
+      }
+
+      const result = await fetchNotionDatabases(accessToken);
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Failed to fetch Notion databases",
+        });
+      }
+
+      return result.databases ?? [];
+    }),
+
+  // Get a single Notion database schema with property options (for status mapping UI)
+  getNotionDatabaseSchema: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+        databaseId: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          id: input.integrationId,
+          provider: "notion",
+          userId: ctx.session.user.id,
+        },
+        include: {
+          credentials: {
+            select: { key: true, keyType: true, isEncrypted: true },
+          },
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Notion integration not found",
+        });
+      }
+
+      const tokenCredential = integration.credentials.find(
+        (c) =>
+          c.keyType === "access_token" ||
+          c.keyType === "ACCESS_TOKEN" ||
+          c.keyType === "API_KEY",
+      );
+
+      if (!tokenCredential) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No access token found for this Notion integration",
+        });
+      }
+
+      const accessToken = getDecryptedKey(tokenCredential);
+      if (!accessToken) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to decrypt Notion access token",
+        });
+      }
+
+      const { NotionIntegrationAdapter } = await import(
+        "~/server/services/sync/NotionIntegrationAdapter"
+      );
+      const adapter = new NotionIntegrationAdapter(accessToken);
+      return adapter.getDatabaseSchema(input.databaseId);
+    }),
+
+  // List Notion connections with workspace metadata (name, icon, etc.)
+  listNotionConnections: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const integrations = await ctx.db.integration.findMany({
+        where: {
+          provider: "notion",
+          userId: ctx.session.user.id,
+          ...(input?.workspaceId
+            ? { workspaceId: input.workspaceId }
+            : {}),
+        },
+        include: {
+          credentials: {
+            where: { keyType: "notion_metadata" },
+            select: { key: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      return integrations.map((integration) => {
+        let notionWorkspaceName: string | null = null;
+        let notionWorkspaceIcon: string | null = null;
+        let notionWorkspaceId: string | null = null;
+
+        const metadataCredential = integration.credentials[0];
+        if (metadataCredential) {
+          try {
+            const metadata = JSON.parse(metadataCredential.key) as Record<
+              string,
+              unknown
+            >;
+            notionWorkspaceName =
+              (metadata.workspaceName as string) ?? null;
+            notionWorkspaceIcon =
+              (metadata.workspaceIcon as string) ?? null;
+            notionWorkspaceId =
+              (metadata.workspaceId as string) ?? null;
+          } catch {
+            // Metadata parsing failed, leave as null
+          }
+        }
+
+        return {
+          id: integration.id,
+          name: integration.name,
+          status: integration.status,
+          workspaceId: integration.workspaceId,
+          notionWorkspaceName,
+          notionWorkspaceIcon,
+          notionWorkspaceId,
+        };
+      });
+    }),
+
   // Create a new integration
   createIntegration: protectedProcedure
     .input(
@@ -459,6 +653,7 @@ export const integrationRouter = createTRPCRouter({
       }
 
       // Test connection for Fireflies
+      let firefliesEmail: string | undefined;
       if (input.provider === "fireflies") {
         const testResult = await testFirefliesConnection(input.apiKey);
         if (!testResult.success) {
@@ -467,6 +662,7 @@ export const integrationRouter = createTRPCRouter({
             message: `Fireflies connection failed: ${testResult.error}`,
           });
         }
+        firefliesEmail = testResult.email;
       }
 
       // Test connection for Monday.com
@@ -494,15 +690,28 @@ export const integrationRouter = createTRPCRouter({
           },
         });
 
-        // Create the credential
+        // Create the credential with encryption
+        const encryptedApiKey = encryptCredential(input.apiKey);
         await ctx.db.integrationCredential.create({
           data: {
-            key: input.apiKey,
+            key: encryptedApiKey.key,
             keyType: "API_KEY",
-            isEncrypted: false, // We'll implement encryption later
+            isEncrypted: encryptedApiKey.isEncrypted,
             integrationId: integration.id,
           },
         });
+
+        // Store Fireflies email as a credential (unencrypted since it's not sensitive)
+        if (firefliesEmail) {
+          await ctx.db.integrationCredential.create({
+            data: {
+              key: firefliesEmail,
+              keyType: "EMAIL",
+              isEncrypted: false,
+              integrationId: integration.id,
+            },
+          });
+        }
 
         return {
           integration: {
@@ -629,21 +838,24 @@ export const integrationRouter = createTRPCRouter({
           },
         });
 
-        // Create the credentials
+        // Create the credentials with encryption for sensitive values
+        const encryptedBotToken = encryptCredential(input.botToken);
+        const encryptedSigningSecret = encryptCredential(input.signingSecret);
         const credentials = [
           {
-            key: input.botToken,
+            key: encryptedBotToken.key,
             keyType: "BOT_TOKEN",
-            isEncrypted: false,
+            isEncrypted: encryptedBotToken.isEncrypted,
             integrationId: integration.id,
           },
           {
-            key: input.signingSecret,
+            key: encryptedSigningSecret.key,
             keyType: "SIGNING_SECRET",
-            isEncrypted: false,
+            isEncrypted: encryptedSigningSecret.isEncrypted,
             integrationId: integration.id,
           },
           {
+            // Team ID is not sensitive - store in plaintext
             key: slackTeamId,
             keyType: "TEAM_ID",
             isEncrypted: false,
@@ -651,7 +863,7 @@ export const integrationRouter = createTRPCRouter({
           },
         ];
 
-        // Add APP_ID if provided
+        // Add APP_ID if provided (not sensitive - store in plaintext)
         if (input.appId) {
           credentials.push({
             key: input.appId,
@@ -662,10 +874,11 @@ export const integrationRouter = createTRPCRouter({
         }
 
         if (input.userToken) {
+          const encryptedUserToken = encryptCredential(input.userToken);
           credentials.push({
-            key: input.userToken,
+            key: encryptedUserToken.key,
             keyType: "USER_TOKEN",
-            isEncrypted: false,
+            isEncrypted: encryptedUserToken.isEncrypted,
             integrationId: integration.id,
           });
         }
@@ -770,30 +983,34 @@ export const integrationRouter = createTRPCRouter({
           },
         });
 
-        // Create the credentials
+        // Create the credentials with encryption for sensitive values
+        const encryptedAccessToken = encryptCredential(input.accessToken);
+        const encryptedWebhookVerifyToken = encryptCredential(input.webhookVerifyToken);
         const credentials = [
           {
-            key: input.accessToken,
+            key: encryptedAccessToken.key,
             keyType: "ACCESS_TOKEN",
-            isEncrypted: false,
+            isEncrypted: encryptedAccessToken.isEncrypted,
             integrationId: integration.id,
           },
           {
+            // Phone Number ID is an identifier, not a secret
             key: input.phoneNumberId,
             keyType: "PHONE_NUMBER_ID",
             isEncrypted: false,
             integrationId: integration.id,
           },
           {
+            // Business Account ID is an identifier, not a secret
             key: input.businessAccountId,
             keyType: "BUSINESS_ACCOUNT_ID",
             isEncrypted: false,
             integrationId: integration.id,
           },
           {
-            key: input.webhookVerifyToken,
+            key: encryptedWebhookVerifyToken.key,
             keyType: "WEBHOOK_VERIFY_TOKEN",
-            isEncrypted: false,
+            isEncrypted: encryptedWebhookVerifyToken.isEncrypted,
             integrationId: integration.id,
           },
         ];
@@ -1781,7 +1998,15 @@ export const integrationRouter = createTRPCRouter({
           });
         }
 
-        const result = await testFirefliesConnection(apiKeyCredential.key);
+        const apiKey = getDecryptedKey(apiKeyCredential);
+        if (!apiKey) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to decrypt API key",
+          });
+        }
+
+        const result = await testFirefliesConnection(apiKey);
         return {
           success: result.success,
           error: result.error,
@@ -1800,7 +2025,15 @@ export const integrationRouter = createTRPCRouter({
           });
         }
 
-        const result = await testSlackConnection(botTokenCredential.key);
+        const botToken = getDecryptedKey(botTokenCredential);
+        if (!botToken) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to decrypt Slack bot token",
+          });
+        }
+
+        const result = await testSlackConnection(botToken);
         return {
           success: result.success,
           error: result.error,
@@ -1820,7 +2053,15 @@ export const integrationRouter = createTRPCRouter({
           });
         }
 
-        const result = await testNotionConnection(accessTokenCredential.key);
+        const notionAccessToken = getDecryptedKey(accessTokenCredential);
+        if (!notionAccessToken) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to decrypt Notion access token",
+          });
+        }
+
+        const result = await testNotionConnection(notionAccessToken);
         if (!result.success) {
           return {
             success: result.success,
@@ -1886,6 +2127,150 @@ export const integrationRouter = createTRPCRouter({
         error: "Connection testing not implemented for this provider",
         provider: integration.provider,
       };
+    }),
+
+  // Get pages from a Notion database
+  getNotionDatabasePages: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+        databaseId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Get user's team memberships
+      const userTeams = await ctx.db.teamUser.findMany({
+        where: {
+          userId: ctx.session.user.id,
+        },
+        select: {
+          teamId: true,
+        },
+      });
+
+      const teamIds = userTeams.map((membership) => membership.teamId);
+
+      // Get the integration and its credentials
+      const integration = await ctx.db.integration.findUnique({
+        where: {
+          id: input.integrationId,
+          provider: "notion",
+          OR: [
+            { userId: ctx.session.user.id }, // Personal integration
+            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
+          ],
+        },
+        include: {
+          credentials: true,
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Notion integration not found or access denied",
+        });
+      }
+
+      // Get access token
+      const accessTokenCredential = integration.credentials.find(
+        (c) => c.keyType === "access_token" || c.keyType === "ACCESS_TOKEN",
+      );
+
+      if (!accessTokenCredential) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No access token found for this Notion integration",
+        });
+      }
+
+      // Query Notion database
+      try {
+        const response = await fetch(
+          `https://api.notion.com/v1/databases/${input.databaseId}/query`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessTokenCredential.key}`,
+              "Notion-Version": "2022-06-28",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              sorts: [
+                {
+                  property: "last_edited_time",
+                  direction: "descending",
+                },
+              ],
+              page_size: 100,
+            }),
+          },
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("Notion database query error:", errorText);
+          return {
+            success: false,
+            error: `Failed to fetch pages: ${response.status}`,
+            pages: [],
+          };
+        }
+
+        const data = await response.json();
+
+        // Extract and simplify page data
+        const pages = data.results.map((page: any) => {
+          const properties = page.properties;
+
+          // Extract title (look for title property type)
+          const titleProperty = Object.values(properties).find(
+            (p: any) => p.type === "title",
+          ) as any;
+          const title = titleProperty?.title
+            ?.map((t: any) => t.plain_text ?? "")
+            .join("")
+            .trim() || "Untitled";
+
+          // Extract status
+          const statusProperty = Object.values(properties).find(
+            (p: any) => p.type === "status" || p.type === "select",
+          ) as any;
+          const status = statusProperty?.status?.name ?? statusProperty?.select?.name;
+
+          // Extract due date
+          const dateProperty = Object.values(properties).find(
+            (p: any) => p.type === "date",
+          ) as any;
+          const dueDate = dateProperty?.date?.start;
+
+          return {
+            id: page.id,
+            title,
+            url: page.url,
+            status,
+            dueDate,
+            properties: page.properties,
+            created_time: page.created_time,
+            last_edited_time: page.last_edited_time,
+          };
+        });
+
+        return {
+          success: true,
+          pages,
+        };
+      } catch (error) {
+        console.error("Notion database query error:", error);
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to fetch database pages",
+          pages: [],
+        };
+      }
     }),
 
   // Refresh Slack integration (fetch latest team info and update database)
@@ -2813,5 +3198,454 @@ export const integrationRouter = createTRPCRouter({
       });
 
       return integration;
+    }),
+
+  // ==================== EMAIL INTEGRATION ====================
+
+  createEmailIntegration: protectedProcedure
+    .input(
+      z.object({
+        name: z.string().min(1),
+        emailAddress: z.string().email(),
+        appPassword: z.string().min(1),
+        emailProvider: z.enum(["gmail", "outlook", "custom"]).default("gmail"),
+        imapHost: z.string().optional(),
+        smtpHost: z.string().optional(),
+        description: z.string().optional(),
+        allowTeamMemberAccess: z.boolean().optional().default(false),
+        workspaceId: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify workspace membership if workspace-scoped
+      if (input.workspaceId) {
+        const membership = await ctx.db.workspaceUser.findFirst({
+          where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+        });
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace.",
+          });
+        }
+      }
+
+      // Detect IMAP/SMTP settings from email domain or use provider defaults
+      const detected = detectProviderSettings(input.emailAddress);
+      const imapHost = input.imapHost ?? detected?.imapHost ?? "imap.gmail.com";
+      const smtpHost = input.smtpHost ?? detected?.smtpHost ?? "smtp.gmail.com";
+      const imapPort = detected?.imapPort ?? 993;
+
+      // Test IMAP connection before saving
+      const testResult = await UserEmailService.testConnection({
+        emailAddress: input.emailAddress,
+        appPassword: input.appPassword,
+        imapHost,
+        imapPort,
+      });
+
+      if (!testResult.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Email connection failed: ${testResult.error}. Please check your email address and app password.`,
+        });
+      }
+
+      // Delete existing email integration for this user+workspace scope only
+      // (null = user default, string = workspace-specific)
+      await ctx.db.integration.deleteMany({
+        where: {
+          userId: ctx.session.user.id,
+          provider: "email",
+          workspaceId: input.workspaceId ?? null,
+        },
+      });
+
+      // Create the integration
+      const integration = await ctx.db.integration.create({
+        data: {
+          name: input.name,
+          type: "API_KEY",
+          provider: "email",
+          description: input.description ?? `Email integration (${input.emailProvider})`,
+          userId: ctx.session.user.id,
+          workspaceId: input.workspaceId ?? null,
+          allowTeamMemberAccess: input.allowTeamMemberAccess,
+          status: "ACTIVE",
+        },
+      });
+
+      // Create credentials (email address unencrypted, app password encrypted)
+      const encryptedPassword = encryptCredential(input.appPassword);
+      await ctx.db.integrationCredential.createMany({
+        data: [
+          {
+            key: input.emailAddress,
+            keyType: "email_address",
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+          {
+            key: encryptedPassword.key,
+            keyType: "app_password",
+            isEncrypted: encryptedPassword.isEncrypted,
+            integrationId: integration.id,
+          },
+          {
+            key: imapHost,
+            keyType: "imap_host",
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+          {
+            key: smtpHost,
+            keyType: "smtp_host",
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+        ],
+      });
+
+      return {
+        integration: {
+          id: integration.id,
+          name: integration.name,
+          provider: integration.provider,
+          status: integration.status,
+          email: input.emailAddress,
+        },
+      };
+    }),
+
+  // Get configured email status for a workspace (with user default fallback info)
+  getWorkspaceEmailStatus: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      return await userEmailService.getConfiguredEmail(
+        ctx.session.user.id,
+        input.workspaceId
+      );
+    }),
+
+  // Remove workspace-specific email integration (reverts to user default)
+  removeWorkspaceEmail: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace.",
+        });
+      }
+
+      await ctx.db.integration.deleteMany({
+        where: {
+          userId: ctx.session.user.id,
+          provider: "email",
+          workspaceId: input.workspaceId,
+        },
+      });
+      return { success: true };
+    }),
+
+  // ==================== ZULIP INTEGRATION ====================
+
+  createZulipIntegration: protectedProcedure
+    .input(
+      z.object({
+        serverUrl: z.string().url(),
+        botEmail: z.string().email(),
+        apiToken: z.string().min(1),
+        defaultStream: z.string().optional(),
+        defaultTopic: z.string().optional(),
+        workspaceId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify workspace membership
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace.",
+        });
+      }
+
+      // Test connection before saving
+      const testResult = await testZulipConnection(
+        input.serverUrl,
+        input.botEmail,
+        input.apiToken,
+      );
+      if (!testResult.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Zulip connection failed: ${testResult.error}`,
+        });
+      }
+
+      // Delete any existing Zulip integration for this workspace
+      await ctx.db.integration.deleteMany({
+        where: {
+          provider: "zulip",
+          workspaceId: input.workspaceId,
+        },
+      });
+
+      // Create integration
+      const integration = await ctx.db.integration.create({
+        data: {
+          name: `Zulip (${testResult.botInfo?.full_name ?? input.botEmail})`,
+          type: "API_KEY",
+          provider: "zulip",
+          description: `Zulip integration for ${input.serverUrl}`,
+          userId: ctx.session.user.id,
+          workspaceId: input.workspaceId,
+          status: "ACTIVE",
+        },
+      });
+
+      // Store credentials
+      const encryptedToken = encryptCredential(input.apiToken);
+      const credentialData = [
+        {
+          key: input.serverUrl.replace(/\/+$/, ""),
+          keyType: "SERVER_URL",
+          isEncrypted: false,
+          integrationId: integration.id,
+        },
+        {
+          key: input.botEmail,
+          keyType: "BOT_EMAIL",
+          isEncrypted: false,
+          integrationId: integration.id,
+        },
+        {
+          key: encryptedToken.key,
+          keyType: "API_TOKEN",
+          isEncrypted: encryptedToken.isEncrypted,
+          integrationId: integration.id,
+        },
+      ];
+
+      if (input.defaultStream) {
+        credentialData.push({
+          key: input.defaultStream,
+          keyType: "DEFAULT_STREAM",
+          isEncrypted: false,
+          integrationId: integration.id,
+        });
+      }
+
+      if (input.defaultTopic) {
+        credentialData.push({
+          key: input.defaultTopic,
+          keyType: "DEFAULT_TOPIC",
+          isEncrypted: false,
+          integrationId: integration.id,
+        });
+      }
+
+      await ctx.db.integrationCredential.createMany({ data: credentialData });
+
+      return {
+        id: integration.id,
+        name: integration.name,
+        serverUrl: input.serverUrl,
+        botEmail: input.botEmail,
+        botName: testResult.botInfo?.full_name,
+        defaultStream: input.defaultStream,
+        defaultTopic: input.defaultTopic,
+      };
+    }),
+
+  getWorkspaceZulipStatus: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          provider: "zulip",
+          status: "ACTIVE",
+        },
+        include: {
+          credentials: {
+            where: { keyType: { in: ["SERVER_URL", "BOT_EMAIL", "DEFAULT_STREAM", "DEFAULT_TOPIC"] } },
+          },
+        },
+      });
+
+      if (!integration) {
+        return { configured: false as const };
+      }
+
+      const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
+      const botEmail = integration.credentials.find((c) => c.keyType === "BOT_EMAIL")?.key;
+      const defaultStream = integration.credentials.find((c) => c.keyType === "DEFAULT_STREAM")?.key;
+      const defaultTopic = integration.credentials.find((c) => c.keyType === "DEFAULT_TOPIC")?.key;
+
+      return {
+        configured: true as const,
+        integrationId: integration.id,
+        serverUrl,
+        botEmail,
+        defaultStream,
+        defaultTopic,
+      };
+    }),
+
+  removeWorkspaceZulip: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace.",
+        });
+      }
+
+      await ctx.db.integration.deleteMany({
+        where: {
+          provider: "zulip",
+          workspaceId: input.workspaceId,
+        },
+      });
+      return { success: true };
+    }),
+
+  getZulipStreams: protectedProcedure
+    .input(z.object({ integrationId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findUnique({
+        where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
+        include: { credentials: true },
+      });
+      if (!integration) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
+      const botEmail = integration.credentials.find((c) => c.keyType === "BOT_EMAIL")?.key;
+      const apiTokenCred = integration.credentials.find((c) => c.keyType === "API_TOKEN");
+
+      if (!serverUrl || !botEmail || !apiTokenCred) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Missing Zulip credentials" });
+      }
+
+      const apiToken = getDecryptedKey(apiTokenCred);
+      if (!apiToken) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Failed to decrypt API token" });
+      }
+
+      return fetchZulipStreams(serverUrl, botEmail, apiToken);
+    }),
+
+  getZulipUsers: protectedProcedure
+    .input(z.object({ integrationId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findUnique({
+        where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
+        include: { credentials: true },
+      });
+      if (!integration) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
+      const botEmail = integration.credentials.find((c) => c.keyType === "BOT_EMAIL")?.key;
+      const apiTokenCred = integration.credentials.find((c) => c.keyType === "API_TOKEN");
+
+      if (!serverUrl || !botEmail || !apiTokenCred) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Missing Zulip credentials" });
+      }
+
+      const apiToken = getDecryptedKey(apiTokenCred);
+      if (!apiToken) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Failed to decrypt API token" });
+      }
+
+      return fetchZulipUsers(serverUrl, botEmail, apiToken);
+    }),
+
+  getZulipUserMappings: protectedProcedure
+    .input(z.object({ integrationId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.integrationUserMapping.findMany({
+        where: { integrationId: input.integrationId },
+        include: {
+          user: { select: { id: true, name: true, email: true, image: true } },
+        },
+      });
+    }),
+
+  mapZulipUser: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+        userId: z.string(),
+        zulipEmail: z.string().email(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify the integration exists and user has access
+      const integration = await ctx.db.integration.findUnique({
+        where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
+        select: { workspaceId: true },
+      });
+      if (!integration?.workspaceId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
+      }
+
+      // Upsert user mapping
+      return ctx.db.integrationUserMapping.upsert({
+        where: {
+          integrationId_externalUserId: {
+            integrationId: input.integrationId,
+            externalUserId: input.zulipEmail,
+          },
+        },
+        update: { userId: input.userId },
+        create: {
+          integrationId: input.integrationId,
+          userId: input.userId,
+          externalUserId: input.zulipEmail,
+        },
+      });
+    }),
+
+  unmapZulipUser: protectedProcedure
+    .input(
+      z.object({
+        integrationId: z.string(),
+        userId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.integrationUserMapping.deleteMany({
+        where: {
+          integrationId: input.integrationId,
+          userId: input.userId,
+        },
+      });
+      return { success: true };
     }),
 });

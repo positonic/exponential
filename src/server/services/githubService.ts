@@ -160,6 +160,95 @@ export async function createIssue(
 /**
  * Creates a milestone in the specified repository
  */
+// Commit types
+export interface GitHubCommit {
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
+  url: string;
+  avatarUrl: string | null;
+}
+
+export interface CommitListResult {
+  commits: GitHubCommit[];
+  hasNextPage: boolean;
+  page: number;
+}
+
+export interface GitHubRelease {
+  id: number;
+  tagName: string;
+  name: string;
+  body: string;
+  htmlUrl: string;
+  publishedAt: string;
+  author: string | null;
+  avatarUrl: string | null;
+}
+
+export async function listReleases(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  options?: { page?: number; perPage?: number },
+): Promise<GitHubRelease[]> {
+  const { repoOwner, repoName } = parseRepoInfo(owner, repo);
+  const response = await octokit.repos.listReleases({
+    owner: repoOwner,
+    repo: repoName,
+    per_page: options?.perPage ?? 30,
+    page: options?.page ?? 1,
+  });
+
+  return response.data
+    .filter((r) => !r.draft)
+    .map((r) => ({
+      id: r.id,
+      tagName: r.tag_name,
+      name: r.name ?? r.tag_name,
+      body: r.body ?? "",
+      htmlUrl: r.html_url,
+      publishedAt: r.published_at ?? r.created_at,
+      author: r.author?.login ?? null,
+      avatarUrl: r.author?.avatar_url ?? null,
+    }));
+}
+
+export async function listCommits(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  options?: { branch?: string; page?: number; perPage?: number },
+): Promise<CommitListResult> {
+  const { repoOwner, repoName } = parseRepoInfo(owner, repo);
+  const page = options?.page ?? 1;
+  const perPage = options?.perPage ?? 100;
+
+  const response = await octokit.repos.listCommits({
+    owner: repoOwner,
+    repo: repoName,
+    sha: options?.branch ?? "main",
+    per_page: perPage,
+    page,
+  });
+
+  const commits: GitHubCommit[] = response.data.map((c) => ({
+    sha: c.sha.slice(0, 7),
+    message: c.commit.message.split("\n")[0] ?? c.commit.message,
+    author: c.commit.author?.name ?? c.author?.login ?? "unknown",
+    date: c.commit.author?.date ?? "",
+    url: c.html_url,
+    avatarUrl: c.author?.avatar_url ?? null,
+  }));
+
+  return {
+    commits,
+    hasNextPage: response.data.length === perPage,
+    page,
+  };
+}
+
 export async function createMilestone(
   octokit: Octokit,
   input: MilestoneInput,

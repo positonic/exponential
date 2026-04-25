@@ -282,6 +282,7 @@ export interface WorkflowWithCredentials {
       id: string;
       keyType: string;
       key: string;
+      isEncrypted: boolean;
     }>;
   };
 }

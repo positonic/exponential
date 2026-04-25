@@ -1,5 +1,6 @@
 import { db } from '~/server/db';
 import type { Integration, IntegrationCredential } from '@prisma/client';
+import { encryptCredential } from '~/server/utils/credentialHelper';
 
 interface NotionIntegration extends Integration {
   credentials: IntegrationCredential[];
@@ -71,6 +72,7 @@ class NotionIntegrationService {
     owner: any;
     duplicatedTemplateId?: string;
     projectId?: string;
+    appWorkspaceId?: string;
   }) {
     const {
       accessToken,
@@ -81,7 +83,8 @@ class NotionIntegrationService {
       botId,
       owner,
       duplicatedTemplateId,
-      projectId
+      projectId,
+      appWorkspaceId,
     } = oauthData;
 
     // Create the main integration record
@@ -93,17 +96,19 @@ class NotionIntegrationService {
         status: 'ACTIVE',
         description: `Notion workspace integration for ${workspaceName}`,
         userId,
+        ...(appWorkspaceId ? { workspaceId: appWorkspaceId } : {}),
         lastSyncAt: new Date(),
       },
     });
 
     // Store access token as encrypted credential
+    const encryptedToken = encryptCredential(accessToken);
     await db.integrationCredential.create({
       data: {
         integrationId: integration.id,
-        key: accessToken,
+        key: encryptedToken.key,
         keyType: 'access_token',
-        isEncrypted: true,
+        isEncrypted: encryptedToken.isEncrypted,
       },
     });
 
@@ -351,7 +356,6 @@ class NotionIntegrationService {
       ]);
 
       const totalItems = databases.length + pages.length;
-      const _itemsProcessed = 0; // Currently unused - for future progress tracking
 
       // Update workflow run with final status
       await db.workflowRun.update({

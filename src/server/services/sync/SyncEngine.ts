@@ -5,7 +5,7 @@
  * that implements the IIntegrationService interface.
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, ActionStatus } from '@prisma/client';
 import type {
   IIntegrationService,
   SyncResult,
@@ -13,10 +13,10 @@ import type {
   PushConfig,
   BiSyncConfig,
   ConflictRecord,
-  SyncError,
   ExternalItem,
   ActionWithSyncAndProject,
   ItemFilter,
+  SyncConfig,
 } from './types';
 
 interface SyncContext {
@@ -274,6 +274,84 @@ export class SyncEngine {
   }
 
   // ============================================================================
+  // Status Resolution Helpers
+  // ============================================================================
+
+  /** Default mapping from common Notion status names to kanban columns */
+  private static readonly DEFAULT_KANBAN_MAP: Record<string, ActionStatus> = {
+    'done': 'DONE',
+    'completed': 'DONE',
+    'complete': 'DONE',
+    'finished': 'DONE',
+    'in progress': 'IN_PROGRESS',
+    'in-progress': 'IN_PROGRESS',
+    'doing': 'IN_PROGRESS',
+    'active': 'IN_PROGRESS',
+    'in review': 'IN_REVIEW',
+    'in-review': 'IN_REVIEW',
+    'review': 'IN_REVIEW',
+    'todo': 'TODO',
+    'to do': 'TODO',
+    'to-do': 'TODO',
+    'open': 'TODO',
+    'new': 'TODO',
+    'not started': 'BACKLOG',
+    'backlog': 'BACKLOG',
+    'icebox': 'BACKLOG',
+    'cancelled': 'CANCELLED',
+    'canceled': 'CANCELLED',
+    'archived': 'CANCELLED',
+  };
+
+  /**
+   * Resolve kanbanStatus from a raw external status value using configured mappings
+   * with fallback to fuzzy auto-detection.
+   */
+  private resolveKanbanStatus(
+    rawStatus: string | undefined,
+    config: SyncConfig
+  ): ActionStatus {
+    if (!rawStatus) return 'TODO';
+
+    // First try configured statusMappings
+    const mapped = config.statusMappings?.toLocal[rawStatus];
+    if (mapped) return mapped as ActionStatus;
+
+    // Fallback: fuzzy match on lowercased value
+    const lower = rawStatus.toLowerCase().trim();
+    return SyncEngine.DEFAULT_KANBAN_MAP[lower] ?? 'TODO';
+  }
+
+  /**
+   * Derive the legacy status field from kanbanStatus for backwards compatibility.
+   */
+  private deriveLegacyStatus(kanbanStatus: ActionStatus): string {
+    switch (kanbanStatus) {
+      case 'DONE': return 'COMPLETED';
+      case 'CANCELLED': return 'CANCELLED';
+      default: return 'ACTIVE';
+    }
+  }
+
+  /**
+   * Compute the next kanbanOrder for a given column in a project.
+   */
+  private async nextKanbanOrder(
+    projectId: string | undefined,
+    kanbanStatus: ActionStatus
+  ): Promise<number> {
+    if (!projectId) return 1;
+
+    const lastAction = await this.ctx.db.action.findFirst({
+      where: { projectId, kanbanStatus },
+      orderBy: { kanbanOrder: 'desc' },
+      select: { kanbanOrder: true },
+    });
+
+    return (lastAction?.kanbanOrder ?? 0) + 1;
+  }
+
+  // ============================================================================
   // Private Helper Methods
   // ============================================================================
 
@@ -300,18 +378,30 @@ export class SyncEngine {
 
     if (existingSync) {
       if (existingSync.action) {
+        // Resolve kanban status from raw Notion value
+        const kanbanStatus = this.resolveKanbanStatus(item.status, config);
+        const legacyStatus = this.deriveLegacyStatus(kanbanStatus);
+
         // Update existing action if changed
-        const needsUpdate = this.actionNeedsUpdate(existingSync.action, parsed);
+        const needsUpdate = this.actionNeedsUpdate(existingSync.action, parsed) ||
+          existingSync.action.kanbanStatus !== kanbanStatus;
 
         if (needsUpdate) {
+          const currentKanban = existingSync.action.kanbanStatus;
+          const completedAt = kanbanStatus === 'DONE'
+            ? (currentKanban === 'DONE' ? undefined : new Date())
+            : (currentKanban === 'DONE' ? null : undefined);
+
           await this.ctx.db.action.update({
             where: { id: existingSync.action.id },
             data: {
               name: parsed.name,
               description: parsed.description,
-              status: parsed.status,
+              status: legacyStatus,
               priority: parsed.priority,
               dueDate: parsed.dueDate,
+              kanbanStatus,
+              ...(completedAt !== undefined ? { completedAt } : {}),
             },
           });
 
@@ -350,15 +440,34 @@ export class SyncEngine {
   ): Promise<void> {
     const parsed = this.service.parseToAction(item, config.propertyMappings);
 
+    // Resolve kanban status from the raw Notion status value
+    const kanbanStatus = this.resolveKanbanStatus(item.status, config);
+    const legacyStatus = this.deriveLegacyStatus(kanbanStatus);
+    const kanbanOrder = await this.nextKanbanOrder(config.projectId, kanbanStatus);
+
+    // Inherit workspaceId from the target project
+    let syncWorkspaceId: string | null = null;
+    if (config.projectId) {
+      const proj = await this.ctx.db.project.findUnique({
+        where: { id: config.projectId },
+        select: { workspaceId: true },
+      });
+      syncWorkspaceId = proj?.workspaceId ?? null;
+    }
+
     const newAction = await this.ctx.db.action.create({
       data: {
         name: parsed.name,
         description: parsed.description,
-        status: parsed.status,
+        status: legacyStatus,
         priority: parsed.priority ?? 'Quick',
         dueDate: parsed.dueDate,
         createdById: this.ctx.userId,
         projectId: config.projectId,
+        workspaceId: syncWorkspaceId,
+        kanbanStatus,
+        kanbanOrder,
+        ...(kanbanStatus === 'DONE' ? { completedAt: new Date() } : {}),
       },
     });
 
@@ -385,14 +494,30 @@ export class SyncEngine {
   ): Promise<void> {
     const parsed = this.service.parseToAction(item, config.propertyMappings);
 
+    // Resolve kanban status from the raw Notion status value
+    const kanbanStatus = this.resolveKanbanStatus(item.status, config);
+    const legacyStatus = this.deriveLegacyStatus(kanbanStatus);
+
+    // Get current action to check for status transitions
+    const currentAction = await this.ctx.db.action.findUnique({
+      where: { id: actionId },
+      select: { kanbanStatus: true },
+    });
+
+    const completedAt = kanbanStatus === 'DONE'
+      ? (currentAction?.kanbanStatus === 'DONE' ? undefined : new Date())
+      : (currentAction?.kanbanStatus === 'DONE' ? null : undefined);
+
     await this.ctx.db.action.update({
       where: { id: actionId },
       data: {
         name: parsed.name,
         description: parsed.description,
-        status: parsed.status,
+        status: legacyStatus,
         priority: parsed.priority,
         dueDate: parsed.dueDate,
+        kanbanStatus,
+        ...(completedAt !== undefined ? { completedAt } : {}),
       },
     });
 
@@ -738,7 +863,7 @@ export class SyncEngine {
    * Check if local action needs update from parsed external data
    */
   private actionNeedsUpdate(
-    action: { name: string; status: string; description?: string | null; priority?: string | null; dueDate?: Date | null },
+    action: { name: string; status: string; kanbanStatus?: string | null; description?: string | null; priority?: string | null; dueDate?: Date | null },
     parsed: { name: string; status: string; description?: string; priority?: string; dueDate?: Date }
   ): boolean {
     return (

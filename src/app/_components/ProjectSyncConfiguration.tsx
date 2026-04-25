@@ -5,6 +5,7 @@ import { useState } from "react";
 import { IconUpload, IconDownload, IconChevronDown, IconChevronUp, IconLayoutKanban, IconList } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface ProjectSyncConfigurationProps {
   project: {
@@ -554,8 +555,8 @@ export function ProjectSyncConfiguration({
                   <>
                     {/* Source of truth toggle - only for Notion */}
                     {project.taskManagementTool === 'notion' && (
-                      <Tooltip label={exponentialIsSourceOfTruth ? 
-                        "Exponential is the source of truth. Push will overwrite Notion completely." : 
+                      <Tooltip label={exponentialIsSourceOfTruth ?
+                        `${PRODUCT_NAME} is the source of truth. Push will overwrite Notion completely.` :
                         "Notion is the source of truth. Push will only add/update tasks."}>
                         <Switch
                           size="sm"
@@ -563,7 +564,7 @@ export function ProjectSyncConfiguration({
                           onChange={(event) => setExponentialIsSourceOfTruth(event.currentTarget.checked)}
                           label={
                             <Text size="xs" c="dimmed">
-                              {exponentialIsSourceOfTruth ? "Exponential → Notion" : "Notion ← Exponential"}
+                              {exponentialIsSourceOfTruth ? `${PRODUCT_NAME} → Notion` : `Notion ← ${PRODUCT_NAME}`}
                             </Text>
                           }
                         />

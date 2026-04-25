@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Actions Page Redesign - Improved Filter Layout</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Comic Sans MS', 'Chalkboard SE', 'Comic Neue', cursive;
+      background: #f5f5f5;
+      padding: 20px;
+      color: #333;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 24px;
+      border: 2px solid #333;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+      color: #000;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 24px;
+    }
+
+    /* Component tag badge */
+    .badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      z-index: 10;
+      color: white;
+    }
+
+    .badge-reuse {
+      background: #4CAF50;
+    }
+
+    .badge-new {
+      background: #FF9800;
+    }
+
+    /* View Switcher */
+    .view-switcher {
+      position: relative;
+      margin-bottom: 20px;
+      padding: 12px;
+      background: #fff;
+      border: 2px solid #999;
+    }
+
+    .view-tabs {
+      display: flex;
+      gap: 8px;
+    }
+
+    .view-tab {
+      padding: 6px 16px;
+      background: #e0e0e0;
+      border: 2px solid #666;
+      border-radius: 20px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .view-tab.active {
+      background: #339af0;
+      color: white;
+      border-color: #228be6;
+    }
+
+    /* Header Section */
+    .header-section {
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding: 16px;
+      background: #fff;
+      border: 2px solid #999;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .page-title {
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    .filter-badge {
+      padding: 2px 8px;
+      background: #339af0;
+      color: white;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    .header-right {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      background: #f0f0f0;
+      border: 2px solid #666;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .icon-btn.active {
+      background: #339af0;
+      color: white;
+    }
+
+    .group-by-select {
+      padding: 6px 12px;
+      border: 2px solid #666;
+      border-radius: 4px;
+      background: #fff;
+      min-width: 120px;
+    }
+
+    .view-toggle {
+      display: flex;
+      border: 2px solid #666;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .view-toggle button {
+      padding: 6px 12px;
+      border: none;
+      background: #f0f0f0;
+      border-right: 2px solid #666;
+      cursor: pointer;
+    }
+
+    .view-toggle button:last-child {
+      border-right: none;
+    }
+
+    .view-toggle button.active {
+      background: #339af0;
+      color: white;
+    }
+
+    /* NEW: Improved Filter Panel */
+    .filter-panel {
+      position: relative;
+      margin-bottom: 20px;
+      padding: 20px;
+      background: #f8f9fa;
+      border: 2px solid #999;
+    }
+
+    .filter-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .filter-title {
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    .filter-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .filter-btn {
+      padding: 4px 12px;
+      border: 2px solid #666;
+      border-radius: 4px;
+      background: #fff;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .filter-btn.primary {
+      background: #339af0;
+      color: white;
+      border-color: #228be6;
+    }
+
+    /* NEW: Filter Grid Layout */
+    .filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .filter-item {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .filter-label {
+      font-size: 12px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    .filter-select {
+      padding: 8px 12px;
+      border: 2px solid #666;
+      border-radius: 4px;
+      background: #fff;
+      min-height: 36px;
+      font-size: 13px;
+    }
+
+    .filter-select.multi {
+      min-height: 36px;
+    }
+
+    /* NEW: Filter Tags Display */
+    .filter-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed #999;
+    }
+
+    .filter-tag {
+      padding: 4px 8px;
+      background: #339af0;
+      color: white;
+      border-radius: 12px;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .filter-tag .remove {
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .checkbox-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0;
+    }
+
+    .checkbox {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #666;
+      background: #fff;
+    }
+
+    /* Kanban Board */
+    .kanban-board {
+      position: relative;
+      display: flex;
+      gap: 16px;
+      overflow-x: auto;
+      padding-bottom: 20px;
+    }
+
+    .kanban-column {
+      position: relative;
+      min-width: 280px;
+      flex-shrink: 0;
+      background: #fff;
+      border: 2px solid #999;
+      border-radius: 4px;
+      padding: 12px;
+    }
+
+    .column-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #ccc;
+    }
+
+    .column-title {
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    .column-count {
+      padding: 2px 8px;
+      background: #e0e0e0;
+      border-radius: 12px;
+      font-size: 11px;
+    }
+
+    .task-card {
+      position: relative;
+      margin-bottom: 8px;
+      padding: 12px;
+      background: #fff;
+      border: 2px solid #666;
+      border-radius: 4px;
+    }
+
+    .task-title {
+      font-size: 13px;
+      font-weight: bold;
+      margin-bottom: 6px;
+    }
+
+    .task-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 10px;
+    }
+
+    .task-tag {
+      padding: 2px 6px;
+      background: #e0e0e0;
+      border: 1px solid #999;
+      border-radius: 2px;
+    }
+
+    .drop-zone {
+      padding: 24px;
+      border: 2px dashed #999;
+      border-radius: 4px;
+      text-align: center;
+      color: #999;
+      font-size: 12px;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .filter-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .header-section {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Actions Page - Improved Filter Layout</h1>
+    <p class="subtitle">Wireframe showing redesigned filter section with better organization, visual hierarchy, and mobile responsiveness</p>
+
+    <!-- REUSABLE: ViewSwitcher from src/app/_components/views/ViewSwitcher.tsx -->
+    <div class="view-switcher">
+      <span class="badge badge-reuse" title="src/app/_components/views/ViewSwitcher.tsx">[REUSE] ViewSwitcher</span>
+      <div class="view-tabs">
+        <div class="view-tab active">All Items</div>
+        <div class="view-tab">Sprint 1</div>
+      </div>
+    </div>
+
+    <!-- Header Section -->
+    <div class="header-section">
+      <span class="badge badge-reuse" title="Partial reuse from ViewBoard.tsx">[REUSE] Header Group</span>
+      <div class="header-left">
+        <div class="page-title">All Items</div>
+        <div class="filter-badge">Filtered</div>
+      </div>
+      <div class="header-right">
+        <!-- REUSABLE: ActionIcon from @mantine/core -->
+        <div class="icon-btn active" title="Toggle filters">
+          <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core ActionIcon">[REUSE] ActionIcon</span>
+          🔍
+        </div>
+        <!-- REUSABLE: Select from @mantine/core -->
+        <select class="group-by-select">
+          <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core Select">[REUSE] Select</span>
+          <option>Status</option>
+          <option>Project</option>
+          <option>Priority</option>
+          <option>List</option>
+        </select>
+        <!-- REUSABLE: SegmentedControl from @mantine/core -->
+        <div class="view-toggle">
+          <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core SegmentedControl">[REUSE] SegmentedControl</span>
+          <button class="active">📊</button>
+          <button>📋</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEW: Improved Filter Panel -->
+    <div class="filter-panel">
+      <span class="badge badge-new" title="New component - improved layout">[NEW] FilterPanel</span>
+      
+      <div class="filter-header">
+        <div class="filter-title">Filters</div>
+        <div class="filter-actions">
+          <!-- REUSABLE: Button from @mantine/core -->
+          <button class="filter-btn primary">
+            <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core Button">[REUSE] Button</span>
+            💾 Save as View
+          </button>
+          <button class="filter-btn">
+            <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core ActionIcon">[REUSE] ActionIcon</span>
+            ✕ Clear
+          </button>
+        </div>
+      </div>
+
+      <!-- NEW: Grid Layout for Better Organization -->
+      <div class="filter-grid">
+        <div class="filter-item">
+          <span class="badge badge-new" style="top: -8px; left: -8px;" title="New filter item wrapper">[NEW] FilterItem</span>
+          <label class="filter-label">Projects</label>
+          <!-- REUSABLE: MultiSelect from @mantine/core -->
+          <div class="filter-select multi">
+            <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core MultiSelect">[REUSE] MultiSelect</span>
+            All projects ▼
+          </div>
+        </div>
+
+        <div class="filter-item">
+          <label class="filter-label">Status</label>
+          <!-- REUSABLE: MultiSelect from @mantine/core -->
+          <div class="filter-select multi">
+            <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core MultiSelect">[REUSE] MultiSelect</span>
+            All statuses ▼
+          </div>
+        </div>
+
+        <div class="filter-item">
+          <label class="filter-label">Priority</label>
+          <!-- REUSABLE: MultiSelect from @mantine/core -->
+          <div class="filter-select multi">
+            <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core MultiSelect">[REUSE] MultiSelect</span>
+            All priorities ▼
+          </div>
+        </div>
+
+        <div class="filter-item">
+          <label class="filter-label">Lists / Sprints</label>
+          <div style="display: flex; gap: 4px;">
+            <!-- REUSABLE: MultiSelect from @mantine/core -->
+            <div class="filter-select multi" style="flex: 1;">
+              <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core MultiSelect">[REUSE] MultiSelect</span>
+              All lists ▼
+            </div>
+            <!-- REUSABLE: ActionIcon from @mantine/core -->
+            <button class="icon-btn" title="Create new list">
+              <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core ActionIcon">[REUSE] ActionIcon</span>
+              ➕
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-item">
+          <label class="filter-label">Tags</label>
+          <!-- REUSABLE: MultiSelect from @mantine/core -->
+          <div class="filter-select multi">
+            <span class="badge badge-reuse" style="top: -8px; right: -8px;" title="@mantine/core MultiSelect">[REUSE] MultiSelect</span>
+            All tags ▼
+          </div>
+        </div>
+
+        <div class="filter-item" style="display: flex; align-items: flex-end;">
+          <!-- REUSABLE: Checkbox from @mantine/core -->
+          <div class="checkbox-wrapper">
+            <span class="badge badge-reuse" style="top: -8px; left: -8px;" title="@mantine/core Checkbox">[REUSE] Checkbox</span>
+            <div class="checkbox"></div>
+            <label class="filter-label" style="margin: 0;">Include completed</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- NEW: Active Filter Tags (Better Visual Feedback) -->
+      <div class="filter-tags">
+        <span class="badge badge-new" style="top: -8px; left: -8px;" title="New active filters display">[NEW] ActiveFilters</span>
+        <div class="filter-tag">
+          Project: ACTING <span class="remove">✕</span>
+        </div>
+        <div class="filter-tag">
+          Priority: 2nd Priority <span class="remove">✕</span>
+        </div>
+        <div class="filter-tag">
+          List: Sprint 1 <span class="remove">✕</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- REUSABLE: Kanban Board -->
+    <div class="kanban-board">
+      <span class="badge badge-reuse" title="src/app/_components/views/WorkspaceKanbanBoard.tsx">[REUSE] WorkspaceKanbanBoard</span>
+      
+      <!-- Column 1: Backlog -->
+      <div class="kanban-column">
+        <span class="badge badge-reuse" title="src/app/_components/KanbanColumn.tsx">[REUSE] KanbanColumn</span>
+        <div class="column-header">
+          <div class="column-title">Backlog</div>
+          <div class="column-count">0</div>
+        </div>
+        <div class="drop-zone">Drop tasks here</div>
+      </div>
+
+      <!-- Column 2: To Do -->
+      <div class="kanban-column">
+        <div class="column-header">
+          <div class="column-title">To Do</div>
+          <div class="column-count">24</div>
+        </div>
+        
+        <!-- REUSABLE: Task Card -->
+        <div class="task-card">
+          <span class="badge badge-reuse" title="src/app/_components/TaskCard.tsx">[REUSE] TaskCard</span>
+          <div class="task-title">Find an acting buddy.</div>
+          <div class="task-meta">
+            <div class="task-tag">ACTING</div>
+            <div class="task-tag">2ND PRIORITY</div>
+          </div>
+        </div>
+
+        <div class="task-card">
+          <div class="task-title">Send Phase 1 outreach message to Mastra.ai developer...</div>
+          <div class="task-meta">
+            <div class="task-tag">INTELLIGENCE AT THE FRONTIER</div>
+            <div class="task-tag">QUICK</div>
+            <div class="task-tag">FEB 10</div>
+          </div>
+        </div>
+
+        <div class="task-card">
+          <div class="task-title">Create sponsor tracking spreadsheet...</div>
+          <div class="task-meta">
+            <div class="task-tag">SPONSOR PIPELINE - Q1 2026</div>
+            <div class="task-tag">QUICK</div>
+            <div class="task-tag">FEB 13</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Column 3: In Progress -->
+      <div class="kanban-column">
+        <div class="column-header">
+          <div class="column-title">In Progress</div>
+          <div class="column-count">0</div>
+        </div>
+        <div class="drop-zone">Drop tasks here</div>
+      </div>
+
+      <!-- Column 4: In Review -->
+      <div class="kanban-column">
+        <div class="column-header">
+          <div class="column-title">In Review</div>
+          <div class="column-count">0</div>
+        </div>
+        <div class="drop-zone">Drop tasks here</div>
+      </div>
+    </div>
+
+    <div style="margin-top: 32px; padding: 20px; background: #f0f4ff; border: 2px solid #339af0; border-radius: 4px;">
+      <h2 style="font-size: 16px; margin-bottom: 12px; color: #000;">Key Improvements in This Redesign:</h2>
+      <ul style="margin-left: 20px; line-height: 1.8; font-size: 13px;">
+        <li><strong>Grid Layout</strong>: Filters organized in responsive grid (3-4 columns on desktop, 1 column on mobile)</li>
+        <li><strong>Clear Labels</strong>: Each filter has a visible label above it for better scannability</li>
+        <li><strong>Visual Hierarchy</strong>: Filter panel is clearly separated with distinct background color</li>
+        <li><strong>Active Filter Display</strong>: Selected filters shown as removable tags below the grid</li>
+        <li><strong>Better Spacing</strong>: 16px gap between filters instead of cramped layout</li>
+        <li><strong>Grouped Actions</strong>: "Save as View" and "Clear" buttons grouped in header</li>
+        <li><strong>Improved List Filter</strong>: "+" button properly integrated next to the list dropdown</li>
+        <li><strong>Mobile-Friendly</strong>: Filters stack vertically on small screens automatically</li>
+        <li><strong>Accessibility</strong>: Proper labels and semantic structure for screen readers</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

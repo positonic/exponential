@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -12,19 +12,22 @@ import {
 } from "@dnd-kit/core";
 import type { DragEndEvent, DragStartEvent, DragOverEvent } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { ScrollArea, Group, Title, Paper } from "@mantine/core";
+import { Title, Paper } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { KanbanColumn } from "./KanbanColumn";
 import { TaskCard } from "./TaskCard";
+import styles from "./ProjectTasks.module.css";
 
 type ActionStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
+type ColumnAccent = "slate" | "brand" | "amber" | "violet" | "green" | "red";
 
 interface Action {
   id: string;
   name: string;
   description?: string | null;
   dueDate?: Date | null;
+  scheduledStart?: Date | null;
   kanbanStatus?: ActionStatus | null;
   priority: string;
   projectId?: string | null;
@@ -46,45 +49,47 @@ interface Action {
 interface KanbanBoardProps {
   projectId?: string;
   actions: Action[];
+  onActionOpen?: (id: string) => void;
 }
 
-const KANBAN_COLUMNS: { id: ActionStatus; title: string; color: string }[] = [
-  { id: "BACKLOG", title: "Backlog", color: "gray" },
-  { id: "TODO", title: "Todo", color: "blue" },
-  { id: "IN_PROGRESS", title: "In Progress", color: "yellow" },
-  { id: "IN_REVIEW", title: "In Review", color: "orange" },
-  { id: "DONE", title: "Done", color: "green" },
-  { id: "CANCELLED", title: "Cancelled", color: "red" },
+const KANBAN_COLUMNS: { id: ActionStatus; title: string; accent: ColumnAccent }[] = [
+  { id: "BACKLOG", title: "Backlog", accent: "slate" },
+  { id: "TODO", title: "Todo", accent: "brand" },
+  { id: "IN_PROGRESS", title: "In Progress", accent: "amber" },
+  { id: "IN_REVIEW", title: "In Review", accent: "violet" },
+  { id: "DONE", title: "Done", accent: "green" },
+  { id: "CANCELLED", title: "Cancelled", accent: "red" },
 ];
 
-export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
+// Priority order mapping (matching ActionList.tsx for consistency)
+const priorityOrder: Record<string, number> = {
+  '1st Priority': 1, '2nd Priority': 2, '3rd Priority': 3, '4th Priority': 4,
+  '5th Priority': 5, 'Quick': 6, 'Scheduled': 7, 'Errand': 8,
+  'Remember': 9, 'Watch': 10
+};
+
+export function KanbanBoard({ projectId, actions, onActionOpen }: KanbanBoardProps) {
   const [activeTask, setActiveTask] = useState<Action | null>(null);
   const [optimisticUpdates, setOptimisticUpdates] = useState<Record<string, ActionStatus>>({});
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
 
   const utils = api.useUtils();
 
-  // Mutation for initializing kanban orders for existing tasks
-  const initializeOrdersMutation = api.action.initializeKanbanOrders.useMutation({
-    onSuccess: () => {
-      if (projectId) {
-        void utils.action.getProjectActions.invalidate({ projectId });
-      }
-    },
-  });
-
   // Mutation for updating kanban status with ordering
   const updateKanbanStatusMutation = api.action.updateKanbanStatusWithOrder.useMutation({
     onMutate: async ({ actionId, kanbanStatus }) => {
       // Cancel outgoing refetches
       await utils.action.getProjectActions.cancel({ projectId: projectId! });
-      
+
       // Snapshot the previous value
       const previousActions = utils.action.getProjectActions.getData({ projectId: projectId! });
-      
-      // Optimistically update the action
-      setOptimisticUpdates(prev => ({ ...prev, [actionId]: kanbanStatus }));
-      
+
+      // Only set if not already set by handleDragEnd (avoid duplicate render)
+      setOptimisticUpdates(prev => {
+        if (prev[actionId] === kanbanStatus) return prev;
+        return { ...prev, [actionId]: kanbanStatus };
+      });
+
       return { previousActions, actionId, originalStatus: previousActions?.find((a: any) => a.id === actionId)?.kanbanStatus };
     },
     onSuccess: (_, { actionId: _actionId }) => {
@@ -127,20 +132,6 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
     },
   });
 
-  // Check if we need to initialize orders for existing tasks
-  useEffect(() => {
-    if (projectId && actions.length > 0) {
-      const tasksWithoutOrder = actions.filter(action => 
-        action.projectId && action.kanbanOrder === null
-      );
-      
-      if (tasksWithoutOrder.length > 0 && !initializeOrdersMutation.isPending) {
-        console.log(`Initializing kanban orders for ${tasksWithoutOrder.length} existing tasks`);
-        initializeOrdersMutation.mutate({ projectId });
-      }
-    }
-  }, [projectId, actions, initializeOrdersMutation]);
-
   // Apply optimistic updates to actions
   const actionsWithOptimisticUpdates = useMemo(() => {
     return actions.map(action => ({
@@ -150,25 +141,45 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
   }, [actions, optimisticUpdates]);
 
   // Filter actions that have kanban status or assign default status
-  const kanbanActions = actionsWithOptimisticUpdates.filter(action => 
+  const kanbanActions = actionsWithOptimisticUpdates.filter(action =>
     action.projectId && (action.kanbanStatus || action.kanbanStatus === null)
   );
 
-  // Group actions by status and sort by kanbanOrder
+  // Group actions by status and sort by priority (with manual kanbanOrder override)
   const actionsByStatus = useMemo(() => {
     return KANBAN_COLUMNS.reduce((acc, column) => {
       const columnActions = kanbanActions.filter(
-        action => action.kanbanStatus === column.id || 
+        action => action.kanbanStatus === column.id ||
         (column.id === "TODO" && !action.kanbanStatus) // Default to TODO if no status
       );
-      
-      // Sort by kanbanOrder, with nulls at the end
+
+      // Sort by kanbanOrder (manual positioning), then scheduledStart, then priority, then ID
       acc[column.id] = columnActions.sort((a, b) => {
-        const orderA = a.kanbanOrder ?? Number.MAX_SAFE_INTEGER;
-        const orderB = b.kanbanOrder ?? Number.MAX_SAFE_INTEGER;
-        return orderA - orderB;
+        const aOrder = a.kanbanOrder;
+        const bOrder = b.kanbanOrder;
+
+        // 1. Manual positioning takes precedence (if BOTH have kanbanOrder)
+        if (aOrder != null && bOrder != null) {
+          return aOrder - bOrder;
+        }
+        if (aOrder != null) return -1;
+        if (bOrder != null) return 1;
+
+        // 2. Sort by scheduledStart (ascending - earliest first, null/undefined at end)
+        const aScheduledStart = a.scheduledStart ? new Date(a.scheduledStart).getTime() : Infinity;
+        const bScheduledStart = b.scheduledStart ? new Date(b.scheduledStart).getTime() : Infinity;
+        if (aScheduledStart !== bScheduledStart) {
+          return aScheduledStart - bScheduledStart;
+        }
+
+        // 3. Sort by priority (1st Priority first)
+        const priorityDiff = (priorityOrder[a.priority] ?? 999) - (priorityOrder[b.priority] ?? 999);
+        if (priorityDiff !== 0) return priorityDiff;
+
+        // 4. Tiebreaker: by ID
+        return a.id.localeCompare(b.id);
       });
-      
+
       return acc;
     }, {} as Record<ActionStatus, Action[]>);
   }, [kanbanActions]);
@@ -210,57 +221,68 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    setActiveTask(null);
     setDragOverTaskId(null);
 
-    if (!over) return;
+    if (!over) {
+      setActiveTask(null);
+      return;
+    }
 
     const taskId = active.id as string;
     const overId = over.id as string;
 
     // Find the task being moved
     const task = kanbanActions.find(action => action.id === taskId);
-    if (!task) return;
+    if (!task) {
+      setActiveTask(null);
+      return;
+    }
 
     // Prevent concurrent updates for the same task
-    if (updateKanbanStatusMutation.isPending) return;
-
-    // Determine if we're dropping on a column or on another task
-    const isColumn = KANBAN_COLUMNS.some(col => col.id === overId);
-    
-    if (isColumn) {
-      // Dropped on a column
-      const newStatus = overId as ActionStatus;
-      const currentStatus = optimisticUpdates[taskId] ?? task.kanbanStatus ?? "TODO";
-      
-      // If status hasn't changed, do nothing
-      if (currentStatus === newStatus) return;
-
-      // Update the task status (API will handle ordering)
-      updateKanbanStatusMutation.mutate({
-        actionId: taskId,
-        kanbanStatus: newStatus,
-      });
-    } else {
-      // Dropped on another task - need to insert at that position
-      const targetTask = kanbanActions.find(action => action.id === overId);
-      if (!targetTask) return;
-
-      const newStatus = targetTask.kanbanStatus ?? "TODO";
-      
-      // Find the position of the target task in its column
-      const columnTasks = actionsByStatus[newStatus] ?? [];
-      const targetPosition = columnTasks.findIndex(task => task.id === overId);
-      
-      if (targetPosition === -1) return;
-
-      // Use the insertion-based ordering approach
-      updateKanbanStatusMutation.mutate({
-        actionId: taskId,
-        kanbanStatus: newStatus,
-        droppedOnTaskId: overId,
-      });
+    if (updateKanbanStatusMutation.isPending) {
+      setActiveTask(null);
+      return;
     }
+
+    // Determine the new status and whether we're dropping on a column or task
+    const isColumn = KANBAN_COLUMNS.some(col => col.id === overId);
+    let newStatus: ActionStatus;
+    let droppedOnTaskId: string | undefined;
+
+    if (isColumn) {
+      newStatus = overId as ActionStatus;
+    } else {
+      // Dropped on another task - use that task's status
+      const targetTask = kanbanActions.find(action => action.id === overId);
+      if (!targetTask) {
+        setActiveTask(null);
+        return;
+      }
+      newStatus = targetTask.kanbanStatus ?? "TODO";
+      droppedOnTaskId = overId;
+    }
+
+    const currentStatus = optimisticUpdates[taskId] ?? task.kanbanStatus ?? "TODO";
+
+    // If status hasn't changed and not reordering within column, do nothing
+    if (currentStatus === newStatus && !droppedOnTaskId) {
+      setActiveTask(null);
+      return;
+    }
+
+    // CRITICAL: Apply optimistic update BEFORE clearing activeTask
+    // This ensures the card is in its new position when DragOverlay disappears
+    setOptimisticUpdates(prev => ({ ...prev, [taskId]: newStatus }));
+
+    // NOW clear activeTask (DragOverlay disappears, but card is already in new position)
+    setActiveTask(null);
+
+    // Fire the mutation
+    updateKanbanStatusMutation.mutate({
+      actionId: taskId,
+      kanbanStatus: newStatus,
+      ...(droppedOnTaskId ? { droppedOnTaskId } : {}),
+    });
   };
 
   const handleDragCancel = () => {
@@ -331,26 +353,19 @@ export function KanbanBoard({ projectId, actions }: KanbanBoardProps) {
           },
         }}
       >
-        <ScrollArea>
-          <Group 
-            gap="md" 
-            align="flex-start" 
-            wrap="nowrap" 
-            className="min-w-fit pb-4"
-            style={{ minWidth: 'max-content' }}
-          >
-            {KANBAN_COLUMNS.map((column) => (
-              <KanbanColumn
-                key={column.id}
-                id={column.id}
-                title={column.title}
-                color={column.color}
-                tasks={actionsByStatus[column.id] || []}
-                dragOverTaskId={dragOverTaskId}
-              />
-            ))}
-          </Group>
-        </ScrollArea>
+        <div className={styles.kboard}>
+          {KANBAN_COLUMNS.map((column) => (
+            <KanbanColumn
+              key={column.id}
+              id={column.id}
+              title={column.title}
+              accent={column.accent}
+              tasks={actionsByStatus[column.id] || []}
+              dragOverTaskId={dragOverTaskId}
+              onActionOpen={onActionOpen}
+            />
+          ))}
+        </div>
 
         <DragOverlay>
           {activeTask && (

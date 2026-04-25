@@ -4,10 +4,12 @@ import { createAddVideoTool } from './addVideoTool';
 import { gmTool } from './gmTool';
 import { createActionTools } from "~/server/tools/actionTools";
 import { createGithubTools } from "~/server/tools/githubTools";
+import { createProjectTools } from "~/server/tools/projectTools";
 
 export const getTools = (ctx: any) => {
   const actionTools = createActionTools(ctx);
   const githubTools = createGithubTools(ctx);
+  const projectTools = createProjectTools(ctx);
   return [
     adderTool,
     gmTool(),
@@ -22,6 +24,7 @@ export const getTools = (ctx: any) => {
     githubTools.createMilestoneTool,
     githubTools.createEpicTool,
     githubTools.addToProjectTool,
-    githubTools.updateProjectItemStatusTool
+    githubTools.updateProjectItemStatusTool,
+    projectTools.getProjectContextTool,
   ]
 }

@@ -1,7 +1,9 @@
 import { db } from '~/server/db';
 import { type Prisma } from '@prisma/client';
 import { WhatsAppNotificationService } from './WhatsAppNotificationService';
+import { ZulipNotificationService } from './ZulipNotificationService';
 import { NotificationTemplates } from './NotificationTemplates';
+import { sendPushToUser } from './WebPushService';
 import { addDays, setHours, setMinutes, startOfDay, startOfWeek } from 'date-fns';
 import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 
@@ -131,35 +133,82 @@ export class NotificationScheduler {
         },
       });
 
-      // Determine phone number
+      let delivered = false;
+
+      // Send via push notification (fire-and-forget, works if user has subscriptions)
+      try {
+        const pushResult = await sendPushToUser(
+          notification.userId,
+          {
+            title: notification.title,
+            body: notification.message,
+            tag: notification.type ?? 'scheduled',
+            url: '/',
+          },
+          db,
+        );
+        if (pushResult.sent > 0) {
+          delivered = true;
+          console.log(`📱 Push sent for notification ${notification.id} to ${pushResult.sent} device(s)`);
+        }
+      } catch (pushError) {
+        console.error(`[Push] Failed for notification ${notification.id}:`, pushError);
+      }
+
+      // Also send via WhatsApp if configured
       let phoneNumber = notification.recipientPhone;
-      
+
       if (!phoneNumber && notification.integration?.whatsappConfig) {
-        // Try to get phone number from user mapping
         const mapping = await db.integrationUserMapping.findFirst({
           where: {
             userId: notification.userId,
             integrationId: notification.integrationId!,
           },
         });
-        
+
         phoneNumber = mapping?.externalUserId;
       }
 
-      if (!phoneNumber) {
-        throw new Error('No phone number found for notification');
+      if (phoneNumber) {
+        const whatsappService = WhatsAppNotificationService.getInstance();
+        await whatsappService.sendNotification({
+          title: notification.title,
+          message: notification.message,
+          metadata: {
+            integrationId: notification.integration.whatsappConfig.id,
+            phoneNumber: phoneNumber,
+          }
+        });
+        delivered = true;
+        console.log(`💬 WhatsApp sent for notification ${notification.id} to ${phoneNumber}`);
       }
 
-      // Send via WhatsApp
-      const whatsappService = WhatsAppNotificationService.getInstance();
-      await whatsappService.sendNotification({
-        title: notification.title,
-        message: notification.message,
-        metadata: {
-          integrationId: notification.integration.whatsappConfig.id,
-          phoneNumber: phoneNumber,
+      // Also send via Zulip if configured
+      if (notification.integration?.provider === 'zulip') {
+        try {
+          const zulipService = new ZulipNotificationService({
+            userId: notification.userId,
+            integrationId: notification.integrationId!,
+          });
+          const zulipResult = await zulipService.sendNotificationToUser(
+            notification.userId,
+            {
+              title: notification.title,
+              message: notification.message,
+            },
+          );
+          if (zulipResult.success) {
+            delivered = true;
+            console.log(`💬 Zulip sent for notification ${notification.id}`);
+          }
+        } catch (zulipError) {
+          console.error(`[Zulip] Failed for notification ${notification.id}:`, zulipError);
         }
-      });
+      }
+
+      if (!delivered) {
+        throw new Error('No delivery channel available (no push subscriptions or phone number)');
+      }
 
       // Mark as sent
       await db.scheduledNotification.update({
@@ -169,11 +218,9 @@ export class NotificationScheduler {
           sentAt: new Date(),
         },
       });
-
-      console.log(`✅ Sent notification ${notification.id} to ${phoneNumber}`);
     } catch (error) {
       console.error(`Failed to send notification ${notification.id}:`, error);
-      
+
       // Update error status
       await db.scheduledNotification.update({
         where: { id: notification.id },

@@ -138,6 +138,31 @@ export class NotionService {
     }
   }
 
+  /**
+   * Get database with raw Notion properties (including select/status options).
+   * Used by the sync adapter to expose property options for status mapping UI.
+   */
+  async getRawDatabaseById(databaseId: string): Promise<{
+    id: string;
+    title: string;
+    properties: Record<string, any>;
+  }> {
+    try {
+      const response = await this.client.databases.retrieve({
+        database_id: databaseId,
+      });
+
+      return {
+        id: response.id,
+        title: (response as any).title?.[0]?.plain_text || 'Untitled Database',
+        properties: (response as any).properties ?? {},
+      };
+    } catch (error) {
+      console.error('Failed to fetch Notion database:', error);
+      throw new Error('Failed to fetch database from Notion');
+    }
+  }
+
   private stripHtml(html: string): string {
     // Simple HTML tag removal - replace with plain text content
     return html.replace(/<[^>]*>/g, '').trim();
@@ -349,6 +374,7 @@ export class NotionService {
     dueDate?: Date;
     lastModified: Date;
     assigneeNotionUserId?: string;
+    creatorNotionUserId?: string;
   } {
     try {
       // Get title from title property (could be Name, Title, Task, etc.)
@@ -459,6 +485,9 @@ export class NotionService {
         assigneeNotionUserId = assigneeProperty.people[0].id;
       }
 
+      // Extract creator from page metadata (Notion's created_by field)
+      const creatorNotionUserId = page.created_by?.id;
+
       return {
         notionId: page.id,
         name,
@@ -468,6 +497,7 @@ export class NotionService {
         dueDate,
         lastModified: new Date(page.last_edited_time),
         assigneeNotionUserId,
+        creatorNotionUserId,
       };
     } catch (error) {
       console.error('Failed to parse Notion page:', error);

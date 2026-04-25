@@ -1,0 +1,297 @@
+/* ============================================================
+   OkrTimeline — scoped styles
+   All classes prefixed .okrt- — safe to drop in.
+   Reads design-system CSS variables from globals.css.
+============================================================ */
+
+.okrt {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 12px;
+  padding: 18px 0 14px;
+  color: var(--color-text-primary);
+  font-family: inherit;
+}
+
+/* Avatar */
+.okrt-avatar {
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: var(--color-text-inverse);
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+
+/* Owner stack */
+.okrt-owners {
+  display: inline-flex;
+  align-items: center;
+}
+.okrt-owners .okrt-avatar + .okrt-avatar {
+  margin-left: -6px;
+  box-shadow: 0 0 0 1.5px var(--color-bg-elevated);
+}
+.okrt-owners__more {
+  margin-left: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1.5px var(--color-bg-elevated);
+}
+
+/* ===== Header ===== */
+.okrt-head {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  padding: 0 18px 12px;
+  gap: 18px;
+  border-bottom: 1px solid var(--color-border-primary);
+  align-items: end;
+}
+.okrt-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.okrt-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.okrt-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.okrt-dot--ok {
+  background: var(--accent-crm);
+}
+.okrt-dot--warn {
+  background: var(--accent-okr);
+}
+.okrt-dot--bad {
+  background: var(--accent-due);
+}
+.okrt-dot--pace {
+  background: var(--color-text-primary);
+  box-shadow: 0 0 0 2px var(--color-bg-elevated);
+}
+.okrt-weeks {
+  display: grid;
+  position: relative;
+  /* columns applied inline — must equal weekCount */
+}
+.okrt-week {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
+  padding-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--color-border-primary);
+}
+.okrt-week:first-child {
+  border-left: 0;
+}
+.okrt-week--month {
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* ===== Row ===== */
+.okrt-row {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 18px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--color-border-primary);
+  align-items: center;
+}
+.okrt-row:first-of-type {
+  border-top: 0;
+}
+.okrt-row--obj {
+  background: var(--color-bg-elevated);
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+/* ===== Label column ===== */
+.okrt-label {
+  min-width: 0;
+}
+.okrt-label--kr {
+  padding-left: 18px;
+}
+.okrt-label__code {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brand-400);
+  font-weight: 700;
+  margin-bottom: 3px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.okrt-label__title {
+  font-size: 13.5px;
+  color: var(--color-text-primary);
+  font-weight: 500;
+  line-height: 1.35;
+  text-wrap: pretty;
+}
+.okrt-row--obj .okrt-label__title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.okrt-label__kr-code {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  margin-right: 6px;
+}
+.okrt-label__meta {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ===== Track ===== */
+.okrt-track {
+  position: relative;
+  height: 22px;
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-muted) 1px,
+    transparent 1px
+  );
+  background-size: calc(100% / 13) 100%;
+  border-radius: 3px;
+}
+.okrt-row--obj .okrt-track {
+  height: 28px;
+}
+
+.okrt-track__bar {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-radius: 4px;
+  background: var(--color-surface-muted);
+  overflow: hidden;
+}
+.okrt-row--obj .okrt-track__bar {
+  top: 6px;
+  bottom: 6px;
+}
+
+.okrt-track__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-inverse);
+  font-variant-numeric: tabular-nums;
+}
+.okrt-track--ok .okrt-track__fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-crm) 55%, transparent),
+    var(--accent-crm)
+  );
+}
+.okrt-track--warn .okrt-track__fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-okr) 50%, transparent),
+    var(--accent-okr)
+  );
+  color: var(--color-text-primary);
+}
+.okrt-track--bad .okrt-track__fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-due) 55%, transparent),
+    var(--accent-due)
+  );
+}
+.okrt-track--idle .okrt-track__fill {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-surface-muted),
+    var(--color-surface-muted) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border-strong);
+}
+
+/* Today marker */
+.okrt-today {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--brand-400);
+  z-index: 2;
+}
+.okrt-today::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand-400);
+}
+.okrt-today::after {
+  content: "TODAY";
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: var(--brand-400);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Pace dot (current value within a bar) */
+.okrt-track__pace {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-primary);
+  z-index: 3;
+  box-shadow: 0 0 0 2px var(--color-bg-elevated);
+}

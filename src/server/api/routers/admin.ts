@@ -1,0 +1,410 @@
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { feedbackDigestService } from "~/server/services/notifications/FeedbackDigestService";
+
+/**
+ * Admin procedure - extends protectedProcedure with isAdmin check
+ */
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (!ctx.session.user.isAdmin) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Admin access required",
+    });
+  }
+  return next();
+});
+
+export const adminRouter = createTRPCRouter({
+  /**
+   * Get all AI interactions (admin only - no user filter)
+   */
+  getAllAiInteractions: adminProcedure
+    .input(
+      z.object({
+        limit: z.number().min(1).max(100).default(20),
+        cursor: z.string().nullish(),
+        platform: z.string().optional(),
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const where: {
+        platform?: string;
+        createdAt?: { gte?: Date; lte?: Date };
+      } = {};
+
+      if (input.platform) {
+        where.platform = input.platform;
+      }
+      if (input.startDate ?? input.endDate) {
+        where.createdAt = {};
+        if (input.startDate) where.createdAt.gte = input.startDate;
+        if (input.endDate) where.createdAt.lte = input.endDate;
+      }
+
+      const interactions = await ctx.db.aiInteractionHistory.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: input.limit + 1,
+        cursor: input.cursor ? { id: input.cursor } : undefined,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          feedback: {
+            select: {
+              id: true,
+              rating: true,
+            },
+            take: 1,
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      });
+
+      let nextCursor: typeof input.cursor | undefined = undefined;
+      if (interactions.length > input.limit) {
+        const nextItem = interactions.pop();
+        nextCursor = nextItem?.id;
+      }
+
+      return {
+        interactions,
+        nextCursor,
+      };
+    }),
+
+  /**
+   * Get admin dashboard stats
+   */
+  getStats: adminProcedure.query(async ({ ctx }) => {
+    const [
+      totalUsers,
+      totalInteractions,
+      totalProjects,
+      recentInteractions,
+    ] = await Promise.all([
+      ctx.db.user.count(),
+      ctx.db.aiInteractionHistory.count(),
+      ctx.db.project.count(),
+      ctx.db.aiInteractionHistory.count({
+        where: {
+          createdAt: {
+            gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+          },
+        },
+      }),
+    ]);
+
+    return {
+      totalUsers,
+      totalInteractions,
+      totalProjects,
+      recentInteractions,
+    };
+  }),
+
+  /**
+   * Get all users with engagement stats (admin only)
+   */
+  getAllUsers: adminProcedure
+    .input(
+      z.object({
+        limit: z.number().min(1).max(100).default(20),
+        cursor: z.string().nullish(),
+        search: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const where: {
+        OR?: Array<{ name?: { contains: string; mode: "insensitive" }; email?: { contains: string; mode: "insensitive" } }>;
+      } = {};
+
+      if (input.search) {
+        where.OR = [
+          { name: { contains: input.search, mode: "insensitive" } },
+          { email: { contains: input.search, mode: "insensitive" } },
+        ];
+      }
+
+      const users = await ctx.db.user.findMany({
+        where,
+        orderBy: { lastLogin: { sort: "desc", nulls: "last" } },
+        take: input.limit + 1,
+        cursor: input.cursor ? { id: input.cursor } : undefined,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+          lastLogin: true,
+          isAdmin: true,
+          onboardingCompletedAt: true,
+          onboardingStep: true,
+          _count: {
+            select: {
+              actions: true,
+              projects: true,
+            },
+          },
+        },
+      });
+
+      let nextCursor: typeof input.cursor | undefined = undefined;
+      if (users.length > input.limit) {
+        const nextItem = users.pop();
+        nextCursor = nextItem?.id;
+      }
+
+      // Compute lifecycle status for each user
+      const getUserStatus = (user: {
+        onboardingCompletedAt: Date | null;
+        onboardingStep: number;
+      }): "registered" | "onboarding" | "active" => {
+        if (!user.onboardingCompletedAt) {
+          return user.onboardingStep === 1 ? "registered" : "onboarding";
+        }
+        return "active";
+      };
+
+      return {
+        users: users.map((user) => ({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          image: user.image,
+          lastLogin: user.lastLogin,
+          isAdmin: user.isAdmin,
+          status: getUserStatus(user),
+          actionCount: user._count.actions,
+          projectCount: user._count.projects,
+          hasActions: user._count.actions > 0,
+          hasProjects: user._count.projects > 0,
+        })),
+        nextCursor,
+      };
+    }),
+
+  /**
+   * Get token usage totals grouped by user (admin only)
+   */
+  getTokenUsageSummaryByUser: adminProcedure
+    .input(
+      z.object({
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const where: Record<string, unknown> = { tokenUsage: { not: null } };
+      if (input?.startDate ?? input?.endDate) {
+        where.createdAt = {
+          ...(input?.startDate ? { gte: input.startDate } : {}),
+          ...(input?.endDate ? { lte: input.endDate } : {}),
+        };
+      }
+
+      const rows = await ctx.db.aiInteractionHistory.findMany({
+        where,
+        select: {
+          systemUserId: true,
+          tokenUsage: true,
+          user: { select: { name: true, email: true } },
+        },
+      });
+
+      const buckets = new Map<
+        string,
+        { userId: string; name: string | null; email: string | null; interactions: number; prompt: number; completion: number; total: number; cost: number }
+      >();
+
+      for (const row of rows) {
+        const key = row.systemUserId ?? 'unknown';
+        if (!buckets.has(key)) {
+          buckets.set(key, {
+            userId: key,
+            name: row.user?.name ?? null,
+            email: row.user?.email ?? null,
+            interactions: 0,
+            prompt: 0,
+            completion: 0,
+            total: 0,
+            cost: 0,
+          });
+        }
+        const bucket = buckets.get(key)!;
+        bucket.interactions += 1;
+        const usage = row.tokenUsage as { prompt?: number; completion?: number; total?: number; cost?: number } | null;
+        if (usage) {
+          bucket.prompt += usage.prompt ?? 0;
+          bucket.completion += usage.completion ?? 0;
+          bucket.total += usage.total ?? 0;
+          bucket.cost += usage.cost ?? 0;
+        }
+      }
+
+      return Array.from(buckets.values()).sort((a, b) => b.total - a.total);
+    }),
+
+  /**
+   * Top conversations by aggregate cost (admin only).
+   *
+   * Returns the N most expensive conversations in the window, grouping each
+   * conversation's requests together. Use this to spot pathological chats
+   * and drill in via `getConversationHistory`.
+   */
+  getTopExpensiveConversations: adminProcedure
+    .input(
+      z.object({
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+        limit: z.number().min(1).max(50).default(10),
+      }).optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const where: Record<string, unknown> = { tokenUsage: { not: null } };
+      if (input?.startDate ?? input?.endDate) {
+        where.createdAt = {
+          ...(input?.startDate ? { gte: input.startDate } : {}),
+          ...(input?.endDate ? { lte: input.endDate } : {}),
+        };
+      }
+
+      const rows = await ctx.db.aiInteractionHistory.findMany({
+        where,
+        select: {
+          conversationId: true,
+          workspaceId: true,
+          systemUserId: true,
+          agentId: true,
+          tokenUsage: true,
+          createdAt: true,
+          user: { select: { name: true, email: true } },
+        },
+      });
+
+      const buckets = new Map<
+        string,
+        {
+          conversationId: string;
+          workspaceId: string | null;
+          userId: string | null;
+          userName: string | null;
+          userEmail: string | null;
+          agentId: string | null;
+          requests: number;
+          prompt: number;
+          completion: number;
+          cacheRead: number;
+          cacheCreation: number;
+          cost: number;
+          firstSeen: Date;
+          lastSeen: Date;
+        }
+      >();
+
+      for (const row of rows) {
+        const convId = row.conversationId ?? 'unknown';
+        if (!buckets.has(convId)) {
+          buckets.set(convId, {
+            conversationId: convId,
+            workspaceId: row.workspaceId ?? null,
+            userId: row.systemUserId ?? null,
+            userName: row.user?.name ?? null,
+            userEmail: row.user?.email ?? null,
+            agentId: row.agentId ?? null,
+            requests: 0,
+            prompt: 0,
+            completion: 0,
+            cacheRead: 0,
+            cacheCreation: 0,
+            cost: 0,
+            firstSeen: row.createdAt,
+            lastSeen: row.createdAt,
+          });
+        }
+        const bucket = buckets.get(convId)!;
+        bucket.requests += 1;
+        if (row.createdAt < bucket.firstSeen) bucket.firstSeen = row.createdAt;
+        if (row.createdAt > bucket.lastSeen) bucket.lastSeen = row.createdAt;
+
+        // tokenUsage is written via JSON.stringify, so Prisma returns it as a string.
+        interface UsageShape {
+          prompt?: number;
+          completion?: number;
+          cost?: number;
+          cacheReadInput?: number;
+          cacheCreationInput?: number;
+        }
+        const raw: unknown = row.tokenUsage;
+        let usage: UsageShape | null = null;
+        if (typeof raw === 'string') {
+          try {
+            usage = JSON.parse(raw) as UsageShape;
+          } catch {
+            usage = null;
+          }
+        } else if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+          usage = raw as UsageShape;
+        }
+        if (usage) {
+          bucket.prompt += usage.prompt ?? 0;
+          bucket.completion += usage.completion ?? 0;
+          bucket.cacheRead += usage.cacheReadInput ?? 0;
+          bucket.cacheCreation += usage.cacheCreationInput ?? 0;
+          bucket.cost += usage.cost ?? 0;
+        }
+      }
+
+      return Array.from(buckets.values())
+        .sort((a, b) => b.cost - a.cost)
+        .slice(0, input?.limit ?? 10);
+    }),
+
+  /**
+   * Get platform breakdown for AI interactions
+   */
+  getPlatformStats: adminProcedure.query(async ({ ctx }) => {
+    const platforms = await ctx.db.aiInteractionHistory.groupBy({
+      by: ["platform"],
+      _count: { platform: true },
+    });
+
+    return platforms.map((p) => ({
+      platform: p.platform,
+      count: p._count.platform,
+    }));
+  }),
+
+  /**
+   * Generate and preview the feedback digest (without sending)
+   */
+  previewFeedbackDigest: adminProcedure.query(async () => {
+    const digest = await feedbackDigestService.generateDailyDigest();
+    return digest;
+  }),
+
+  /**
+   * Send the feedback digest to all admin users via Slack
+   */
+  sendFeedbackDigest: adminProcedure.mutation(async () => {
+    const result = await feedbackDigestService.sendDigestToAdmins();
+
+    if (!result.success && result.errors.length > 0) {
+      console.error("[Admin] Feedback digest errors:", result.errors);
+    }
+
+    return {
+      success: result.success,
+      sentTo: result.sentTo,
+      errors: result.errors,
+    };
+  }),
+});

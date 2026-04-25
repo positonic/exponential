@@ -1,9 +1,13 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-
-// Zod schemas for validation
-const UsageTypeSchema = z.enum(["work", "personal"]);
+import { uploadToBlob } from "~/lib/blob";
+import { slugify } from "~/utils/slugify";
+import {
+  ONBOARDING_PROJECT_NAME,
+  ONBOARDING_PROJECT_DESCRIPTION,
+  ONBOARDING_ACTIONS,
+} from "~/server/services/onboarding/onboardingProjectTemplate";
 
 export const onboardingRouter = createTRPCRouter({
   /**
@@ -13,11 +17,22 @@ export const onboardingRouter = createTRPCRouter({
     const user = await ctx.db.user.findUnique({
       where: { id: ctx.session.user.id },
       select: {
-        usageType: true,
-        userRole: true,
+        name: true,
+        email: true,
+        image: true,
+        emailMarketingOptIn: true,
+        workRole: true,
+        workFunction: true,
+        usagePurposes: true,
         selectedTools: true,
         onboardingCompletedAt: true,
         onboardingStep: true,
+        // New fields for enhanced onboarding
+        attributionSource: true,
+        workHoursEnabled: true,
+        workDaysJson: true,
+        workHoursStart: true,
+        workHoursEnd: true,
       },
     });
 
@@ -29,68 +44,117 @@ export const onboardingRouter = createTRPCRouter({
     }
 
     return {
-      usageType: user.usageType,
-      userRole: user.userRole,
+      name: user.name,
+      email: user.email,
+      image: user.image,
+      emailMarketingOptIn: user.emailMarketingOptIn,
+      workRole: user.workRole,
+      workFunction: user.workFunction,
+      usagePurposes: user.usagePurposes,
       selectedTools: user.selectedTools,
       onboardingCompletedAt: user.onboardingCompletedAt,
       onboardingStep: user.onboardingStep,
       isCompleted: !!user.onboardingCompletedAt,
+      // New fields for enhanced onboarding
+      attributionSource: user.attributionSource,
+      workHoursEnabled: user.workHoursEnabled,
+      workDaysJson: user.workDaysJson,
+      workHoursStart: user.workHoursStart,
+      workHoursEnd: user.workHoursEnd,
     };
   }),
 
   /**
-   * Update user's usage type (work/personal) and advance to step 2
+   * Update user's profile (name, email opt-in, attribution) and advance to step 2
    */
-  updateUsageType: protectedProcedure
+  updateProfile: protectedProcedure
     .input(
       z.object({
-        usageType: UsageTypeSchema,
+        name: z.string().min(1).max(100),
+        emailMarketingOptIn: z.boolean(),
+        attributionSource: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { usageType } = input;
+      const { name, emailMarketingOptIn, attributionSource } = input;
       const userId = ctx.session.user.id;
-
-      // Determine next step - skip role if personal, go to step 3
-      const nextStep = usageType === "work" ? 2 : 3;
 
       const updatedUser = await ctx.db.user.update({
         where: { id: userId },
         data: {
-          usageType,
-          onboardingStep: nextStep,
+          name,
+          emailMarketingOptIn,
+          attributionSource,
+          onboardingStep: 2,
         },
         select: {
-          usageType: true,
+          name: true,
+          emailMarketingOptIn: true,
+          attributionSource: true,
           onboardingStep: true,
         },
       });
 
       return {
         success: true,
-        usageType: updatedUser.usageType,
+        name: updatedUser.name,
+        emailMarketingOptIn: updatedUser.emailMarketingOptIn,
+        attributionSource: updatedUser.attributionSource,
         nextStep: updatedUser.onboardingStep,
       };
     }),
 
   /**
-   * Update user's role (only for work usage type) and advance to step 3
+   * Upload profile image and save URL to user record
    */
-  updateRole: protectedProcedure
+  uploadProfileImage: protectedProcedure
     .input(
       z.object({
-        userRole: z.string().min(1).max(100).optional(),
+        base64Data: z.string(),
+        contentType: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { userRole } = input;
+      const { base64Data } = input;
       const userId = ctx.session.user.id;
 
-      // Verify user is on the correct step and has work usage type
+      // Upload to Vercel Blob
+      const filename = `profile-images/${userId}.png`;
+      const blob = await uploadToBlob(base64Data, filename);
+
+      // Update user's image field
+      await ctx.db.user.update({
+        where: { id: userId },
+        data: {
+          image: blob.url,
+        },
+      });
+
+      return {
+        success: true,
+        imageUrl: blob.url,
+      };
+    }),
+
+  /**
+   * Update user's work profile (role, function, usage purposes) and advance to step 3
+   */
+  updateWorkProfile: protectedProcedure
+    .input(
+      z.object({
+        workRole: z.string().optional(),
+        workFunction: z.array(z.string()),
+        usagePurposes: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { workRole, workFunction, usagePurposes } = input;
+      const userId = ctx.session.user.id;
+
+      // Verify user is on step 2
       const currentUser = await ctx.db.user.findUnique({
         where: { id: userId },
         select: {
-          usageType: true,
           onboardingStep: true,
         },
       });
@@ -102,35 +166,34 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      if (currentUser.usageType !== "work") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Role selection is only available for work usage type",
-        });
-      }
-
       if (currentUser.onboardingStep !== 2) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Must complete usage type selection first",
+          message: "Must complete profile setup first",
         });
       }
 
       const updatedUser = await ctx.db.user.update({
         where: { id: userId },
         data: {
-          userRole,
+          workRole,
+          workFunction,
+          usagePurposes,
           onboardingStep: 3,
         },
         select: {
-          userRole: true,
+          workRole: true,
+          workFunction: true,
+          usagePurposes: true,
           onboardingStep: true,
         },
       });
 
       return {
         success: true,
-        userRole: updatedUser.userRole,
+        workRole: updatedUser.workRole,
+        workFunction: updatedUser.workFunction,
+        usagePurposes: updatedUser.usagePurposes,
         nextStep: updatedUser.onboardingStep,
       };
     }),
@@ -141,14 +204,14 @@ export const onboardingRouter = createTRPCRouter({
   updateTools: protectedProcedure
     .input(
       z.object({
-        selectedTools: z.array(z.string()).max(20), // Allow up to 20 tools
+        selectedTools: z.array(z.string()).max(20),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { selectedTools } = input;
       const userId = ctx.session.user.id;
 
-      // Verify user is on the correct step
+      // Verify user is on step 3
       const currentUser = await ctx.db.user.findUnique({
         where: { id: userId },
         select: {
@@ -163,10 +226,10 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      if (currentUser.onboardingStep !== 3) {
+      if (currentUser.onboardingStep < 2) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Must complete previous onboarding steps first",
+          message: "Must complete profile setup first",
         });
       }
 
@@ -174,7 +237,7 @@ export const onboardingRouter = createTRPCRouter({
         where: { id: userId },
         data: {
           selectedTools,
-          onboardingStep: 4,
+          onboardingStep: 5,
         },
         select: {
           selectedTools: true,
@@ -190,6 +253,49 @@ export const onboardingRouter = createTRPCRouter({
     }),
 
   /**
+   * Update user's work hours settings
+   */
+  updateWorkHours: protectedProcedure
+    .input(
+      z.object({
+        workHoursEnabled: z.boolean(),
+        workDays: z.array(z.string()), // ["monday", "tuesday", ...]
+        workHoursStart: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Invalid HH:MM (00:00-23:59)'), // "09:00"
+        workHoursEnd: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Invalid HH:MM (00:00-23:59)'), // "17:00"
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { workHoursEnabled, workDays, workHoursStart, workHoursEnd } = input;
+      const userId = ctx.session.user.id;
+
+      const updatedUser = await ctx.db.user.update({
+        where: { id: userId },
+        data: {
+          workHoursEnabled,
+          workDaysJson: JSON.stringify(workDays),
+          workHoursStart,
+          workHoursEnd,
+          // Advance to step 6 (ready for project creation) in the new onboarding flow
+          onboardingStep: 6,
+        },
+        select: {
+          workHoursEnabled: true,
+          workDaysJson: true,
+          workHoursStart: true,
+          workHoursEnd: true,
+        },
+      });
+
+      return {
+        success: true,
+        workHoursEnabled: updatedUser.workHoursEnabled,
+        workDays: updatedUser.workDaysJson ? JSON.parse(updatedUser.workDaysJson) as string[] : [],
+        workHoursStart: updatedUser.workHoursStart,
+        workHoursEnd: updatedUser.workHoursEnd,
+      };
+    }),
+
+  /**
    * Complete onboarding by creating first project and marking as completed
    */
   completeOnboarding: protectedProcedure
@@ -199,13 +305,18 @@ export const onboardingRouter = createTRPCRouter({
         projectDescription: z.string().max(500).optional(),
         projectPriority: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
         template: z.enum(["personal", "work", "learning", "scratch"]).optional(),
+        tasks: z.array(z.object({
+          name: z.string().min(1).max(200),
+          dueDate: z.date().optional(),
+          durationMinutes: z.number().min(5).max(480).optional(), // 5 min to 8 hours
+        })).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { projectName, projectDescription, projectPriority, template } = input;
+      const { projectName, projectDescription, projectPriority, template, tasks } = input;
       const userId = ctx.session.user.id;
 
-      // Verify user is on the final step
+      // Verify user is on step 4 or 5
       const currentUser = await ctx.db.user.findUnique({
         where: { id: userId },
         select: {
@@ -221,7 +332,7 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      if (currentUser.onboardingStep !== 4) {
+      if (currentUser.onboardingStep < 5) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Must complete previous onboarding steps first",
@@ -235,37 +346,144 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
-      // Use a transaction to create project and complete onboarding atomically
+      // Use a transaction to create project, tasks, and complete onboarding atomically
       const result = await ctx.db.$transaction(async (tx) => {
+        // Generate a unique slug
+        const baseSlug = slugify(projectName);
+        let slug = baseSlug;
+        let counter = 1;
+
+        // Check if slug exists and increment counter until we find a unique one
+        while (await tx.project.findFirst({ where: { slug } })) {
+          slug = `${baseSlug}_${counter}`;
+          counter++;
+        }
+
         // Create the first project
         const project = await tx.project.create({
           data: {
             name: projectName,
-            description: projectDescription || `My first project - created during onboarding${template ? ` using ${template} template` : ""}`,
+            description: projectDescription ?? `My first project - created during onboarding${template ? ` using ${template} template` : ""}`,
             priority: projectPriority,
             status: "ACTIVE",
             createdById: userId,
-            slug: projectName.toLowerCase().split(" ").join("-")
+            slug,
           },
         });
 
-        // Mark onboarding as completed
+        // Create tasks (Actions) if provided
+        let createdTasks: { id: string; name: string; dueDate: Date | null; duration: number | null }[] = [];
+        if (tasks && tasks.length > 0) {
+          createdTasks = await Promise.all(
+            tasks.map((task) =>
+              tx.action.create({
+                data: {
+                  name: task.name,
+                  projectId: project.id,
+                  createdById: userId,
+                  priority: "MEDIUM",
+                  dueDate: task.dueDate,
+                  duration: task.durationMinutes,
+                  status: "ACTIVE",
+                },
+                select: {
+                  id: true,
+                  name: true,
+                  dueDate: true,
+                  duration: true,
+                },
+              })
+            )
+          );
+        }
+
+        // Create the onboarding project (see ONBOARDING_PROJECT_NAME) in the user's personal workspace
+        const userWithWorkspace = await tx.user.findUnique({
+          where: { id: userId },
+          select: { defaultWorkspaceId: true },
+        });
+
+        const onboardingSlug = `learn-exponential-${userId.slice(-8)}`;
+        const onboardingProject = await tx.project.create({
+          data: {
+            name: ONBOARDING_PROJECT_NAME,
+            description: ONBOARDING_PROJECT_DESCRIPTION,
+            priority: "MEDIUM",
+            status: "ACTIVE",
+            type: "onboarding",
+            createdById: userId,
+            workspaceId: userWithWorkspace?.defaultWorkspaceId ?? null,
+            slug: onboardingSlug,
+          },
+        });
+
+        // Create onboarding actions
+        const onboardingActions = await Promise.all(
+          ONBOARDING_ACTIONS.map((template) =>
+            tx.action.create({
+              data: {
+                name: template.name,
+                description: template.description,
+                projectId: onboardingProject.id,
+                createdById: userId,
+                priority: "MEDIUM",
+                status: "ACTIVE",
+                source: "onboarding",
+                workspaceId: userWithWorkspace?.defaultWorkspaceId ?? null,
+              },
+            }),
+          ),
+        );
+
+        // Auto-complete "Create your first project" (user just did it in step 6)
+        const projectAction = onboardingActions.find(
+          (a) => a.name === "Create your first project",
+        );
+        if (projectAction) {
+          await tx.action.update({
+            where: { id: projectAction.id },
+            data: { status: "COMPLETED", completedAt: new Date() },
+          });
+        }
+
+        // Auto-complete "Add actions to a project" if user added tasks
+        if (tasks && tasks.length > 0) {
+          const actionsStep = onboardingActions.find(
+            (a) => a.name === "Add actions to a project",
+          );
+          if (actionsStep) {
+            await tx.action.update({
+              where: { id: actionsStep.id },
+              data: { status: "COMPLETED", completedAt: new Date() },
+            });
+          }
+        }
+
+        // Calculate initial progress
+        const autoCompletedCount = 1 + (tasks && tasks.length > 0 ? 1 : 0);
+        const initialProgress = (autoCompletedCount / ONBOARDING_ACTIONS.length) * 100;
+        await tx.project.update({
+          where: { id: onboardingProject.id },
+          data: { progress: initialProgress },
+        });
+
+        // Mark onboarding as completed and store onboarding project reference
         const updatedUser = await tx.user.update({
           where: { id: userId },
           data: {
             onboardingCompletedAt: new Date(),
-            // Keep onboardingStep at 4 for potential future reference
+            projectSetupCompletedAt: new Date(),
+            onboardingProjectId: onboardingProject.id,
           },
           select: {
             onboardingCompletedAt: true,
-            usageType: true,
-            userRole: true,
             selectedTools: true,
           },
         });
 
         return {
           project,
+          tasks: createdTasks,
           user: updatedUser,
         };
       });
@@ -277,10 +495,9 @@ export const onboardingRouter = createTRPCRouter({
           name: result.project.name,
           description: result.project.description,
         },
+        tasks: result.tasks,
         completedAt: result.user.onboardingCompletedAt,
         userData: {
-          usageType: result.user.usageType,
-          userRole: result.user.userRole,
           selectedTools: result.user.selectedTools,
         },
       };

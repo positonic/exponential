@@ -9,7 +9,7 @@
 - **Database Queries**: Updated to search for `api-key:` prefix instead of `api-token:`
 - **Error Messages**: Updated all error messages to reference "API key" instead of "token"
 
-### **2. Frontend UI Updates** (`src/app/(sidemenu)/tokens/page.tsx`)
+### **2. Frontend UI Updates** (`src/app/(sidemenu)/settings/api-keys/page.tsx`)
 
 - **Page Title**: "API Tokens" → "API Keys"
 - **Form Labels**: "Token Name" → "API Key Name"
@@ -41,7 +41,7 @@ a1b2c3d4e5f6789012345678901234567890abcd
 ## **📋 Next Steps**
 
 1. **Test API Key Generation**:
-   - Visit `/tokens` in your app
+   - Visit `/settings/api-keys` in your app
    - Create a new API key (name it "Fireflies Webhook")
    - Verify it's exactly 32 characters
    - Copy the API key

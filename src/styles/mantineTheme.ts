@@ -1,21 +1,36 @@
 /* eslint-disable no-restricted-syntax */
-import { createTheme, type MantineColorsTuple } from '@mantine/core';
+import {
+  createTheme,
+  type MantineColorsTuple,
+  type MantineThemeOverride,
+} from '@mantine/core';
 
-// Create Mantine color tuples for brand colors
-const brandColors: MantineColorsTuple = [
-  '#e6f7ff', // 0 - lightest
-  '#bae7ff',
-  '#91d5ff',
-  '#69c0ff',
-  '#40a9ff',
-  '#1890ff', // 5 - main
-  '#096dd9',
-  '#0050b3',
-  '#003a8c',
-  '#002766', // 9 - darkest
+// Default Mantine color tuple for the built-in brand (Exponential blue).
+const DEFAULT_BRAND_COLORS: MantineColorsTuple = [
+  '#EEF3FF', // 0 - lightest
+  '#D4E2FF',
+  '#A8C5FF',
+  '#7BA7FF',
+  '#4E89FF',
+  '#1F5DE0', // 5 - main
+  '#1A4EC4',
+  '#153FA8',
+  '#10308C',
+  '#0A2070', // 9 - darkest
 ];
 
+export interface BrandConfig {
+  /** 10-stop Mantine color tuple used as the theme's primary color. */
+  brandColors: MantineColorsTuple;
+}
+
+const DEFAULT_BRAND: BrandConfig = {
+  brandColors: DEFAULT_BRAND_COLORS,
+};
+
 // Component styles that apply to both light and dark themes
+// NOTE: Mantine v7's styles prop only supports flat CSS properties (inline styles).
+// CSS selectors (&:hover, &[data-*], etc.) are defined in globals.css instead.
 const componentStyles = {
   // Paper component (used by Modal, Popover, etc.)
   Paper: {
@@ -27,7 +42,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   // Modal specific styles
   Modal: {
     defaultProps: {
@@ -39,14 +54,14 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           borderBottom: '1px solid var(--color-border-primary)',
         },
+        body: {
+          backgroundColor: 'var(--color-bg-elevated)',
+        },
         title: {
           color: 'var(--color-text-primary)',
         },
         close: {
           color: 'var(--color-text-secondary)',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
         overlay: {
           backgroundColor: 'var(--color-bg-overlay)',
@@ -54,7 +69,34 @@ const componentStyles = {
       },
     },
   },
-  
+
+  // Drawer specific styles
+  Drawer: {
+    defaultProps: {
+      styles: {
+        content: {
+          backgroundColor: 'var(--color-bg-elevated)',
+        },
+        header: {
+          backgroundColor: 'var(--color-bg-elevated)',
+          borderBottom: '1px solid var(--color-border-primary)',
+        },
+        title: {
+          color: 'var(--color-text-primary)',
+        },
+        close: {
+          color: 'var(--color-text-secondary)',
+        },
+        body: {
+          backgroundColor: 'var(--color-bg-elevated)',
+        },
+        overlay: {
+          backgroundColor: 'var(--color-bg-overlay)',
+        },
+      },
+    },
+  },
+
   // Popover styles
   Popover: {
     defaultProps: {
@@ -67,7 +109,21 @@ const componentStyles = {
       },
     },
   },
-  
+
+  // Tooltip styles
+  Tooltip: {
+    defaultProps: {
+      styles: {
+        tooltip: {
+          backgroundColor: 'var(--color-bg-elevated)',
+          color: 'var(--color-text-primary)',
+          border: '1px solid var(--color-border-primary)',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+        },
+      },
+    },
+  },
+
   // Select component
   Select: {
     defaultProps: {
@@ -76,26 +132,13 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
           borderColor: 'var(--color-border-primary)',
-          '&:focus': {
-            borderColor: 'var(--color-border-focus)',
-          },
-          '&::placeholder': {
-            color: 'var(--color-text-muted)',
-          },
         },
         dropdown: {
           backgroundColor: 'var(--color-bg-elevated)',
           borderColor: 'var(--color-border-primary)',
         },
-        item: {
+        option: {
           color: 'var(--color-text-primary)',
-          '&[data-selected]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
-          '&[data-hovered]': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
         label: {
           color: 'var(--color-text-primary)',
@@ -103,7 +146,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   // TextInput and Textarea
   TextInput: {
     defaultProps: {
@@ -112,12 +155,6 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
           borderColor: 'var(--color-border-primary)',
-          '&:focus': {
-            borderColor: 'var(--color-border-focus)',
-          },
-          '&::placeholder': {
-            color: 'var(--color-text-muted)',
-          },
         },
         label: {
           color: 'var(--color-text-primary)',
@@ -125,7 +162,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   Textarea: {
     defaultProps: {
       styles: {
@@ -133,12 +170,6 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
           borderColor: 'var(--color-border-primary)',
-          '&:focus': {
-            borderColor: 'var(--color-border-focus)',
-          },
-          '&::placeholder': {
-            color: 'var(--color-text-muted)',
-          },
         },
         label: {
           color: 'var(--color-text-primary)',
@@ -146,38 +177,7 @@ const componentStyles = {
       },
     },
   },
-  
-  // Button component
-  Button: {
-    defaultProps: {
-      styles: {
-        root: {
-          '&[dataVariant="filled"]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-            '&:hover': {
-              backgroundColor: 'var(--color-brand-primary-hover)',
-            },
-          },
-          '&[dataVariant="subtle"]': {
-            color: 'var(--color-text-secondary)',
-            '&:hover': {
-              backgroundColor: 'var(--color-surface-hover)',
-            },
-          },
-          '&[dataVariant="default"]': {
-            backgroundColor: 'var(--color-surface-secondary)',
-            color: 'var(--color-text-primary)',
-            borderColor: 'var(--color-border-primary)',
-            '&:hover': {
-              backgroundColor: 'var(--color-surface-hover)',
-            },
-          },
-        },
-      },
-    },
-  },
-  
+
   // DateInput and DatePicker components
   DateInput: {
     defaultProps: {
@@ -195,12 +195,6 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
           borderColor: 'var(--color-border-primary)',
-          '&:focus': {
-            borderColor: 'var(--color-border-focus)',
-          },
-          '&::placeholder': {
-            color: 'var(--color-text-muted)',
-          },
         },
         label: {
           color: 'var(--color-text-primary)',
@@ -214,15 +208,9 @@ const componentStyles = {
         },
         calendarHeaderControl: {
           color: 'var(--color-text-primary)',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
         calendarHeaderLevel: {
           color: 'var(--color-text-primary)',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
         month: {
           backgroundColor: 'var(--color-bg-primary)',
@@ -233,13 +221,6 @@ const componentStyles = {
         monthsListCell: {
           color: 'var(--color-text-primary)',
           border: '1px solid transparent',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
-          '&[data-selected]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
         },
         yearsList: {
           backgroundColor: 'var(--color-bg-primary)',
@@ -247,13 +228,6 @@ const componentStyles = {
         yearsListCell: {
           color: 'var(--color-text-primary)',
           border: '1px solid transparent',
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
-          '&[data-selected]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
         },
         weekday: {
           color: 'var(--color-text-muted)',
@@ -262,30 +236,11 @@ const componentStyles = {
           color: 'var(--color-text-primary)',
           backgroundColor: 'transparent',
           border: '1px solid transparent',
-          '&[data-selected]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
-          '&[data-in-range]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            opacity: 0.2,
-          },
-          '&[data-outside]': {
-            color: 'var(--color-text-disabled)',
-          },
-          '&[data-today]': {
-            backgroundColor: 'var(--color-brand-success)',
-            color: 'var(--color-text-inverse)',
-            fontWeight: 600,
-          },
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
       },
     },
   },
-  
+
   DatePicker: {
     styles: {
       calendar: {
@@ -297,46 +252,26 @@ const componentStyles = {
       },
       calendarHeaderControl: {
         color: 'var(--color-text-primary)',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
       calendarHeaderLevel: {
         color: 'var(--color-text-primary)',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
       month: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       monthsList: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       monthsListCell: {
         color: 'var(--color-text-primary)',
         border: '1px solid transparent',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
       },
       yearsList: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       yearsListCell: {
         color: 'var(--color-text-primary)',
         border: '1px solid transparent',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
       },
       weekday: {
         color: 'var(--color-text-muted)',
@@ -345,80 +280,41 @@ const componentStyles = {
         color: 'var(--color-text-primary)',
         backgroundColor: 'transparent',
         border: '1px solid transparent',
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
-        '&[data-in-range]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          opacity: 0.2,
-        },
-        '&[data-outside]': {
-          color: 'var(--color-text-disabled)',
-        },
-        '&[data-today]': {
-          backgroundColor: 'var(--color-brand-error)',
-          color: 'var(--color-text-inverse)',
-          fontWeight: 600,
-        },
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
     },
   },
-  
+
   Calendar: {
     styles: {
       calendar: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       calendarHeader: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
         color: 'var(--color-text-primary)',
       },
       calendarHeaderControl: {
         color: 'var(--color-text-primary)',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
       calendarHeaderLevel: {
         color: 'var(--color-text-primary)',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
       month: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       monthsList: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       monthsListCell: {
         color: 'var(--color-text-primary)',
         border: '1px solid transparent',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
       },
       yearsList: {
-        backgroundColor: 'var(--color-bg-primary)',
+        backgroundColor: 'transparent',
       },
       yearsListCell: {
         color: 'var(--color-text-primary)',
         border: '1px solid transparent',
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
       },
       weekday: {
         color: 'var(--color-text-muted)',
@@ -427,29 +323,10 @@ const componentStyles = {
         color: 'var(--color-text-primary)',
         backgroundColor: 'transparent',
         border: '1px solid transparent',
-        '&[data-selected]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          color: 'var(--color-text-inverse)',
-        },
-        '&[data-in-range]': {
-          backgroundColor: 'var(--color-brand-primary)',
-          opacity: 0.2,
-        },
-        '&[data-outside]': {
-          color: 'var(--color-text-disabled)',
-        },
-        '&[data-today]': {
-          backgroundColor: 'var(--color-brand-error)',
-          color: 'var(--color-text-inverse)',
-          fontWeight: 600,
-        },
-        '&:hover': {
-          backgroundColor: 'var(--color-surface-hover)',
-        },
       },
     },
   },
-  
+
   // Table component
   Table: {
     defaultProps: {
@@ -484,7 +361,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   // Card component
   Card: {
     defaultProps: {
@@ -494,25 +371,21 @@ const componentStyles = {
       },
     },
   },
-  
+
   // Tabs component
   Tabs: {
     defaultProps: {
       styles: {
+        list: {
+          scrollbarWidth: 'none',
+        },
         tab: {
           color: 'var(--color-text-secondary)',
-          '&[data-active]': {
-            borderColor: 'var(--color-brand-primary)',
-            color: 'var(--color-brand-primary)',
-          },
-          '&:hover': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
       },
     },
   },
-  
+
   // MultiSelect component
   MultiSelect: {
     defaultProps: {
@@ -521,21 +394,11 @@ const componentStyles = {
           backgroundColor: 'var(--color-bg-secondary)',
           color: 'var(--color-text-primary)',
           borderColor: 'var(--color-border-primary)',
-          '&:focus': {
-            borderColor: 'var(--color-border-focus)',
-          },
         },
         pill: {
           backgroundColor: 'var(--color-surface-secondary)',
           color: 'var(--color-text-primary)',
           border: '1px solid var(--color-border-primary)',
-          '& .mantine-MultiSelect-defaultValueRemove': {
-            color: 'var(--color-text-secondary)',
-            '&:hover': {
-              color: 'var(--color-text-primary)',
-              backgroundColor: 'var(--color-surface-hover)',
-            },
-          },
         },
         dropdown: {
           backgroundColor: 'var(--color-bg-elevated)',
@@ -543,18 +406,11 @@ const componentStyles = {
         },
         option: {
           color: 'var(--color-text-primary)',
-          '&[data-selected]': {
-            backgroundColor: 'var(--color-brand-primary)',
-            color: 'var(--color-text-inverse)',
-          },
-          '&[data-hovered]': {
-            backgroundColor: 'var(--color-surface-hover)',
-          },
         },
       },
     },
   },
-  
+
   // Title component
   Title: {
     defaultProps: {
@@ -565,7 +421,7 @@ const componentStyles = {
       },
     },
   },
-  
+
   // Text component
   Text: {
     defaultProps: {
@@ -578,18 +434,31 @@ const componentStyles = {
   },
 };
 
-// Create theme
-export const mantineTheme = createTheme({
-  colors: {
-    brand: brandColors,
-  },
-  primaryColor: 'brand',
-  primaryShade: 5,
-  components: componentStyles,
-  
-  // Other theme settings
-  respectReducedMotion: true,
-  cursorType: 'pointer',
-  defaultRadius: 'sm',
-  focusRing: 'auto',
-});
+/**
+ * Build a Mantine theme, optionally overriding the brand color tuple.
+ * Call with no arguments to get the default Exponential theme.
+ * Pass `{ brandColors: [...] }` to re-skin for a different brand (white-label).
+ */
+export function createAppTheme(
+  overrides: Partial<BrandConfig> = {},
+): MantineThemeOverride {
+  const brandColors = overrides.brandColors ?? DEFAULT_BRAND.brandColors;
+
+  return createTheme({
+    colors: {
+      brand: brandColors,
+    },
+    primaryColor: 'brand',
+    primaryShade: 5,
+    components: componentStyles,
+
+    // Other theme settings
+    respectReducedMotion: true,
+    cursorType: 'pointer',
+    defaultRadius: 'sm',
+    focusRing: 'auto',
+  });
+}
+
+// Default theme instance — preserves the existing import surface.
+export const mantineTheme = createAppTheme();

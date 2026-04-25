@@ -15,6 +15,12 @@ export function ColorSchemeScript() {
       if (colorScheme === 'dark') {
         document.documentElement.classList.add('dark');
       }
+
+      // Apply dark theme variant (navy is default, no attribute needed)
+      var darkTheme = localStorage.getItem('dark-theme') || 'navy';
+      if (darkTheme !== 'navy') {
+        document.documentElement.setAttribute('data-dark-theme', darkTheme);
+      }
     } catch (e) {
       // Default to dark if there's an error
       document.documentElement.setAttribute('data-mantine-color-scheme', 'dark');

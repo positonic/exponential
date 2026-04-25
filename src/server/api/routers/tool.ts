@@ -14,6 +14,8 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { createReadStream } from "fs";
+import { SECURITY_POLICY } from "~/lib/security-policy";
+import { sanitizeAIOutput } from "~/lib/sanitize-output";
 
 const adderSchema = z.object({
     a: z.number(),
@@ -42,13 +44,13 @@ const today = new Date().toISOString().split('T')[0];
 export const toolRouter = createTRPCRouter({
   chat: protectedProcedure
     .input(z.object({
-      message: z.string(),
+      message: z.string().max(50000),
       history: z.array(z.object({
         type: z.enum(['system', 'human', 'ai', 'tool']),
-        content: z.string(),
+        content: z.string().max(100000),
         name: z.string().optional(),
         tool_call_id: z.string().optional()
-      }))
+      })).max(200)
     }))
     .mutation(async ({ ctx, input }) => {
         try {
@@ -58,15 +60,16 @@ export const toolRouter = createTRPCRouter({
               select: { id: true, name: true }
             });
 
-            // Convert projects to a more structured format
+            // Convert projects to a more structured format, wrapped in delimiters for prompt safety
             const projectsJson = JSON.stringify(projects);
 
-            const model = new ChatOpenAI({ 
+            const model = new ChatOpenAI({
                 modelName: process.env.LLM_MODEL,
                 modelKwargs: { "tool_choice": "auto" }
             });
 
             const systemMessage = new SystemMessage(
+                SECURITY_POLICY + "\n\n" +
                 "Tools are equivalent to actions in this system. You have access to the following tools:\n" +
                 "- adder: Adds two numbers together. Use this when asked to perform addition.\n" +
                 "- video_search: Search through video transcripts semantically. Use this when asked about video content or to find specific topics in videos.\n" +
@@ -75,7 +78,7 @@ export const toolRouter = createTRPCRouter({
                 `  * For all tasks including completed: { "query_type": "today", "include_completed": true }\n` +
                 `  * For specific date: { "query_type": "date", "date": "${today}" }\n` +
                 `  * For all tasks: { "query_type": "all" }\n` +
-                `Available projects: ${projectsJson}\n` +
+                `<user_data type="projects">\n${projectsJson}\n</user_data>\n` +
                 "- create_action: Creates a new action item. MUST include create: true flag. Example:\n" +
                 "  { \"create\": true, \"name\": \"Task name\", \"description\": \"Task description\", \"projectId\": \"project-id\" }\n" +
                 "  If a user mentions a project by name, try to match it to one of the available projects above and pass the projectId to the create_action tool.\n" +
@@ -84,13 +87,13 @@ export const toolRouter = createTRPCRouter({
                 "  - name: The activity in past tense\n" +
                 "  - description: Details about the activity\n" +
                 "  - dueDate: Today's date (unless a specific date is mentioned)\n" +
-                "  - projectId: For exercise activities, use the exercise project ID \"cm7q7bjf80000zu1r77bdcqdj\"\n" +
+                "  - projectId: For exercise activities, look up the exercise/fitness project from the available projects list above and use its ID\n" +
                 `  Examples:\n` +
                 `  For "I went for a run for 2.3 hours" use:\n` +
-                `  { \"create\": true, \"name\": \"Completed a 2.3 hour run\", \"description\": \"Went for a run that lasted 2.3 hours\", \"status\": \"COMPLETED\", \"dueDate\": \"${today}\", \"projectId\": \"cm7q7bjf80000zu1r77bdcqdj\"}\n` +
+                `  { \"create\": true, \"name\": \"Completed a 2.3 hour run\", \"description\": \"Went for a run that lasted 2.3 hours\", \"status\": \"COMPLETED\", \"dueDate\": \"${today}\", \"projectId\": \"<exercise-project-id-from-available-projects>\"}\n` +
                 `  For "I called my mom for 12 mins" use:\n` +
                 `  { \"create\": true, \"name\": \"Called mom for 12 minutes\", \"description\": \"Had a phone call with mom that lasted 12 minutes\", \"status\": \"COMPLETED\", \"dueDate\": \"${today}\" }\n` +
-                "  Note: Always create the action even if no project is specified. The projectId is optional.\n" +
+                "  Note: Always create the action even if no project is specified. The projectId is optional. Match project names from the available projects list when relevant.\n" +
                 "- add_video: Adds a YouTube video to the database. Use this when users want to analyze or process a video.\n" +
                 "- read_action: Retrieves an action's details by ID. Only use this when you have a specific action ID.\n" +
                 "- update_status_action: Updates the status of an existing action. Favoured over create_action for existing actions\n" +
@@ -114,14 +117,17 @@ export const toolRouter = createTRPCRouter({
             
             const llmWithTools = model.bindTools(tools);
 
-            const messages = [systemMessage, ...input.history.map(msg => {
-                switch (msg.type) {
-                    case 'system': return new SystemMessage(msg.content);
-                    case 'human': return new HumanMessage(msg.content);
-                    case 'ai': return new AIMessage(msg.content);
-                    case 'tool': return new ToolMessage(msg.content, msg.tool_call_id ?? '');
-                }
-            })];
+            // SECURITY: Strip system messages from client history — system prompts are server-only
+            const messages = [systemMessage, ...input.history
+                .filter(msg => msg.type !== 'system')
+                .map(msg => {
+                    switch (msg.type) {
+                        case 'human': return new HumanMessage(msg.content);
+                        case 'ai': return new AIMessage(msg.content);
+                        case 'tool': return new ToolMessage(msg.content, msg.tool_call_id ?? '');
+                        default: return new HumanMessage(msg.content);
+                    }
+                })];
 
             messages.push(new HumanMessage(input.message));
 
@@ -133,7 +139,8 @@ export const toolRouter = createTRPCRouter({
             
             if(!response.tool_calls || response.tool_calls.length === 0) {
                 console.log('=== No tool calls made');
-                return { response: response.content };
+                const { text: safeContent } = sanitizeAIOutput(typeof response.content === 'string' ? response.content : JSON.stringify(response.content));
+                return { response: safeContent };
             }
             
             // Handle tool calls
@@ -201,9 +208,11 @@ export const toolRouter = createTRPCRouter({
                             throw new Error(`Unknown tool: ${toolCall.name}`);
                     }
                     
-                    // Add tool result to messages
+                    // Add tool result to messages, wrapped in delimiters to prevent injection
+                    const resultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
+                    const wrappedResult = `<tool_output name="${toolCall.name}">\n${resultStr}\n</tool_output>`;
                     messages.push(new AIMessage({ content: "", tool_calls: [toolCall] }));
-                    messages.push(new ToolMessage(toolResult, toolCall.id ?? ''));
+                    messages.push(new ToolMessage(wrappedResult, toolCall.id ?? ''));
                     
                     return toolResult;
                 } catch (error) {
@@ -222,7 +231,8 @@ export const toolRouter = createTRPCRouter({
                 response = await llmWithTools.invoke(messages);
             }
             
-            return { response: response.content };
+            const { text: safeFinalContent } = sanitizeAIOutput(typeof response.content === 'string' ? response.content : JSON.stringify(response.content));
+            return { response: safeFinalContent };
         } catch (error) {
             console.error('Error:', error);
             throw new Error(`AI chat error: ${error instanceof Error ? error.message : String(error)}`);

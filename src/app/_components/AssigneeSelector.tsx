@@ -14,23 +14,20 @@ import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/
 
 interface AssigneeSelectorProps {
   selectedAssigneeIds: string[];
-  projectId?: string;
   actionId?: string;
   onAssigneeClick: () => void;
 }
 
 export function AssigneeSelector({
   selectedAssigneeIds,
-  projectId,
   actionId,
   onAssigneeClick,
 }: AssigneeSelectorProps) {
-  // Get assignable users for the project/action
+  // Get assignable users (all users from teams the current user belongs to)
   const { data: assignableData } = api.action.getAssignableUsers.useQuery(
     { actionId: actionId || "temp" },
-    { 
-      enabled: !!actionId && !!projectId,
-      // For creation flow, we'll handle this differently
+    {
+      enabled: !!actionId,
     }
   );
 

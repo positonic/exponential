@@ -33,14 +33,21 @@ export const colorTokens = {
       focus: '#339af0',
     },
     brand: {
-      primary: '#339af0',
-      primaryHover: '#228be6',
-      primaryActive: '#1c7ed6',
+      primary: '#1F5DE0',
+      primaryHover: '#3D75FF',
+      primaryActive: '#1A4EC4',
       secondary: '#868e96',
       success: '#40c057',
       warning: '#fab005',
       error: '#fa5252',
       info: '#339af0',
+    },
+    accent: {
+      ritual: '#6B8CFF',
+      meetings: '#A78BFA',
+      crm: '#4ADE8C',
+      okr: '#F5B94A',
+      due: '#F87171',
     },
     avatar: {
       red: '#FF6B6B',
@@ -94,14 +101,21 @@ export const colorTokens = {
       focus: '#339af0',
     },
     brand: {
-      primary: '#339af0',
-      primaryHover: '#4dabf7',
-      primaryActive: '#228be6',
+      primary: '#1F5DE0',
+      primaryHover: '#3D75FF',
+      primaryActive: '#1A4EC4',
       secondary: '#adb5bd',
       success: '#51cf66',
       warning: '#ffd43b',
       error: '#ff6b6b',
       info: '#4dabf7',
+    },
+    accent: {
+      ritual: '#6B8CFF',
+      meetings: '#A78BFA',
+      crm: '#4ADE8C',
+      okr: '#F5B94A',
+      due: '#F87171',
     },
     avatar: {
       red: '#FF6B6B',
@@ -235,10 +249,11 @@ export function getColorValue(
 }
 
 // Type-safe color token paths
-export type ColorTokenPath = 
+export type ColorTokenPath =
   | `background.${keyof typeof colorTokens.light.background}`
   | `surface.${keyof typeof colorTokens.light.surface}`
   | `text.${keyof typeof colorTokens.light.text}`
   | `border.${keyof typeof colorTokens.light.border}`
   | `brand.${keyof typeof colorTokens.light.brand}`
+  | `accent.${keyof typeof colorTokens.light.accent}`
   | `avatar.${keyof typeof colorTokens.light.avatar}`;

@@ -7,12 +7,20 @@ import { type RouterOutputs } from "~/trpc/react";
 
 type Outcome = RouterOutputs["outcome"]["getMyOutcomes"][0];
 
+// Minimal outcome type for currentOutcomes - allows passing partial outcome data
+interface OutcomeBasic {
+  id: string;
+  description?: string;
+  type?: string | null;
+  dueDate?: Date | null;
+}
+
 interface OutcomeMultiSelectProps {
   projectId: string;
   projectName: string;
   projectStatus: "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED";
   projectPriority: "HIGH" | "MEDIUM" | "LOW" | "NONE";
-  currentOutcomes?: Outcome[];
+  currentOutcomes?: OutcomeBasic[];
   searchValue: string;
   onSearchChange: (value: string) => void;
   allOutcomes?: Outcome[];
@@ -20,6 +28,7 @@ interface OutcomeMultiSelectProps {
   isSharedView?: boolean;
   sharedViewUserId?: string;
   sharedViewTeamId?: string;
+  onOutcomesChanged?: (updatedOutcomes?: OutcomeBasic[]) => void;
 }
 
 export function OutcomeMultiSelect({
@@ -35,6 +44,7 @@ export function OutcomeMultiSelect({
   isSharedView = false,
   sharedViewUserId,
   sharedViewTeamId,
+  onOutcomesChanged,
 }: OutcomeMultiSelectProps) {
   const utils = api.useUtils();
   
@@ -134,6 +144,10 @@ export function OutcomeMultiSelect({
         description,
         type: 'weekly',
         dueDate: null,
+        whyThisOutcome: null,
+        userId: null,
+        projectId: null,
+        workspaceId: null,
         goals: [],
         projects: []
       };
@@ -223,6 +237,7 @@ export function OutcomeMultiSelect({
         
         // Now update the project with the real outcome IDs
         const outcomeIds = [...currentOutcomeIds, newOutcome.id];
+        const outcomesForCallback = [...currentOutcomes, { id: newOutcome.id, description: newOutcome.description, type: newOutcome.type, dueDate: newOutcome.dueDate }];
         updateProject.mutate({
           id: projectId,
           name: projectName,
@@ -237,6 +252,7 @@ export function OutcomeMultiSelect({
               message: `${newOutcome.description} has been added to ${projectName}`,
               color: 'green',
             });
+            onOutcomesChanged?.(outcomesForCallback);
           },
           onSettled: () => {
             // Use smart invalidation based on view context
@@ -269,7 +285,7 @@ export function OutcomeMultiSelect({
     if (!allOutcomeData.find(o => o.value === outcome.id)) {
       allOutcomeData.push({
         value: outcome.id,
-        label: outcome.description
+        label: outcome.description ?? 'Untitled outcome'
       });
     }
   });
@@ -309,12 +325,25 @@ export function OutcomeMultiSelect({
             // Don't update the project yet, wait for the mutation to succeed
           } else {
             // Update project with selected outcomes
+            // Build the updated outcomes list for the callback
+            const updatedOutcomes = values.map(id => {
+              const existing = currentOutcomes.find(o => o.id === id);
+              if (existing) return existing;
+              const fromAll = allOutcomes.find(o => o.id === id);
+              if (fromAll) return { id: fromAll.id, description: fromAll.description, type: fromAll.type, dueDate: fromAll.dueDate };
+              return { id, description: 'Unknown outcome' };
+            });
+
             updateProject.mutate({
               id: projectId,
               name: projectName,
               status: projectStatus,
               priority: projectPriority,
               outcomeIds: values,
+            }, {
+              onSuccess: () => {
+                onOutcomesChanged?.(updatedOutcomes);
+              },
             });
           }
         }}
@@ -328,19 +357,6 @@ export function OutcomeMultiSelect({
         styles={{
           input: {
             backgroundColor: 'transparent',
-          },
-          option: {
-            // Special style for create option
-            '&[value^="create-"]': {
-              fontWeight: 600,
-              borderTop: '1px solid var(--color-border-primary)',
-              marginTop: '4px',
-              paddingTop: '8px',
-              backgroundColor: 'var(--color-surface-hover)',
-              '&:hover': {
-                backgroundColor: 'var(--color-brand-surface)',
-              },
-            },
           },
         }}
       />

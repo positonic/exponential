@@ -36,13 +36,13 @@ export default function ProjectDetails({ project }: { project: Project }) {
   return (
     <Stack gap="xs">
       <Group gap="xs" align="center">
-        <IconFileText size={16} color="var(--mantine-color-gray-4)" />
-        <Text size="sm" fw={600} c="gray.4">
+        <IconFileText size={16} className="text-brand-primary" />
+        <Text size="sm" fw={600} className="text-brand-primary">
           PROJECT DETAILS
         </Text>
       </Group>
       
-      <Card withBorder p="lg" radius="lg" className="bg-gray-800/50 border-gray-600/50">
+      <Card withBorder p="lg" radius="lg" className="bg-surface-secondary border-border-primary">
         <Stack gap="lg">
           <Group justify="space-between" align="flex-start">
             <Text size="lg" fw={600} c="bright">
@@ -64,8 +64,8 @@ export default function ProjectDetails({ project }: { project: Project }) {
             {/* Description */}
             <div>
               <Group gap="xs" mb="xs">
-                <IconFileText size={14} color="var(--mantine-color-gray-5)" />
-                <Text size="sm" fw={500} c="gray.3">
+                <IconFileText size={14} className="text-text-secondary" />
+                <Text size="sm" fw={500} className="text-text-secondary">
                   Description
                 </Text>
               </Group>
@@ -78,8 +78,8 @@ export default function ProjectDetails({ project }: { project: Project }) {
             <Group grow>
               <div>
                 <Group gap="xs" mb="xs">
-                  <IconTrendingUp size={14} color="var(--mantine-color-gray-5)" />
-                  <Text size="sm" fw={500} c="gray.3">
+                  <IconTrendingUp size={14} className="text-text-secondary" />
+                  <Text size="sm" fw={500} className="text-text-secondary">
                     Status
                   </Text>
                 </Group>
@@ -95,8 +95,8 @@ export default function ProjectDetails({ project }: { project: Project }) {
 
               <div>
                 <Group gap="xs" mb="xs">
-                  <IconFlag size={14} color="var(--mantine-color-gray-5)" />
-                  <Text size="sm" fw={500} c="gray.3">
+                  <IconFlag size={14} className="text-text-secondary" />
+                  <Text size="sm" fw={500} className="text-text-secondary">
                     Priority
                   </Text>
                 </Group>

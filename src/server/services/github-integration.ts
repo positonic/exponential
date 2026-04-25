@@ -1,10 +1,10 @@
 import { db } from "~/server/db";
-// import { decrypt } from '~/lib/crypto';
 import type {
   Integration,
   IntegrationCredential,
   Workflow,
 } from "@prisma/client";
+import { encryptCredential } from "~/server/utils/credentialHelper";
 
 interface GitHubIssue {
   id: number;
@@ -105,12 +105,13 @@ class GitHubIntegrationService {
     });
 
     // Store access token as encrypted credential
+    const encryptedToken = encryptCredential(accessToken);
     await db.integrationCredential.create({
       data: {
         integrationId: integration.id,
-        key: accessToken, // This will be encrypted by the crypto utility
+        key: encryptedToken.key,
         keyType: "access_token",
-        isEncrypted: false,
+        isEncrypted: encryptedToken.isEncrypted,
       },
     });
 
@@ -158,12 +159,10 @@ class GitHubIntegrationService {
     },
   ) {
     const {
-      accessToken: _accessToken,
       scopes,
       githubUser,
       selectedRepository,
       installationId,
-      projectId: _projectId,
     } = oauthData;
 
     // Create the main integration record with project-specific naming
@@ -423,6 +422,16 @@ class GitHubIntegrationService {
       .filter(Boolean)
       .join("\n");
 
+    // Inherit workspaceId from the target project
+    let ghWorkspaceId: string | null = null;
+    if (projectId) {
+      const proj = await db.project.findUnique({
+        where: { id: projectId },
+        select: { workspaceId: true },
+      });
+      ghWorkspaceId = proj?.workspaceId ?? null;
+    }
+
     return db.action.create({
       data: {
         name: `[${repositoryFullName}#${issue.number}] ${issue.title}`,
@@ -431,6 +440,7 @@ class GitHubIntegrationService {
         priority,
         projectId,
         createdById: userId,
+        workspaceId: ghWorkspaceId,
       },
     });
   }

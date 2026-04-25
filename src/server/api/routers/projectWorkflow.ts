@@ -4,6 +4,9 @@ import { TRPCError } from "@trpc/server";
 import { notionSyncService } from "~/server/services/notion-sync";
 import { mondaySyncService } from "~/server/services/monday-sync";
 import { MondayService } from "~/server/services/MondayService";
+import { encryptCredential } from "~/server/utils/credentialHelper";
+import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 // Define the workflow template structure (hardcoded templates)
 const WORKFLOW_TEMPLATES = {
@@ -240,7 +243,7 @@ function getIntegrationInstructions(provider: string) {
         oauth: true,
         authUrl: "/api/auth/notion/authorize",
         instructions:
-          "Connect with Notion using OAuth for secure authentication. Click the button below to authorize Exponential to access your Notion workspace.",
+          `Connect with Notion using OAuth for secure authentication. Click the button below to authorize ${PRODUCT_NAME} to access your Notion workspace.`,
       };
     case "monday":
       return {
@@ -254,14 +257,14 @@ function getIntegrationInstructions(provider: string) {
         oauth: true,
         authUrl: "/api/auth/github/authorize",
         instructions:
-          "Connect with GitHub using OAuth for secure authentication. Click the button below to authorize Exponential to access your GitHub repositories.",
+          `Connect with GitHub using OAuth for secure authentication. Click the button below to authorize ${PRODUCT_NAME} to access your GitHub repositories.`,
       };
     case "slack":
       return {
         oauth: true,
         authUrl: "/api/auth/slack/authorize",
         instructions:
-          "Connect with Slack using OAuth for secure authentication. Click the button below to authorize Exponential to access your Slack workspace.",
+          `Connect with Slack using OAuth for secure authentication. Click the button below to authorize ${PRODUCT_NAME} to access your Slack workspace.`,
       };
     default:
       return {
@@ -308,25 +311,18 @@ export const projectWorkflowRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      // Verify project access
-      const project = await ctx.db.project.findUnique({
-        where: {
-          id: input.projectId,
-          createdById: ctx.session.user.id,
-        },
-      });
-
-      if (!project) {
+      // Verify project access using centralized access control
+      const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!hasProjectAccess(projectAccess)) {
         throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found or access denied",
+          code: "FORBIDDEN",
+          message: "You do not have access to this project",
         });
       }
 
       const workflows = await ctx.db.workflow.findMany({
         where: {
           projectId: input.projectId,
-          userId: ctx.session.user.id,
         },
         include: {
           runs: {
@@ -445,12 +441,13 @@ export const projectWorkflowRouter = createTRPCRouter({
         },
       });
 
-      // Create the credential
+      // Create the credential with encryption
+      const encryptedApiKey = encryptCredential(apiKey);
       await ctx.db.integrationCredential.create({
         data: {
-          key: apiKey,
+          key: encryptedApiKey.key,
           keyType: "API_KEY",
-          isEncrypted: false,
+          isEncrypted: encryptedApiKey.isEncrypted,
           integrationId: integration.id,
         },
       });
@@ -478,18 +475,12 @@ export const projectWorkflowRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify project access
-      const project = await ctx.db.project.findUnique({
-        where: {
-          id: input.projectId,
-          createdById: ctx.session.user.id,
-        },
-      });
-
-      if (!project) {
+      // Verify project access using centralized access control
+      const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!hasProjectAccess(projectAccess)) {
         throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found or access denied",
+          code: "FORBIDDEN",
+          message: "You do not have access to this project",
         });
       }
 

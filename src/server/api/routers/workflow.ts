@@ -8,6 +8,8 @@ import {
   type WorkflowWithCredentials,
   type WorkflowConfig,
 } from "~/server/services/sync";
+import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
+import { getDecryptedKey } from "~/server/utils/credentialHelper";
 
 // Helper function for Notion pull sync
 async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletionBehavior?: string, projectId?: string) {
@@ -16,9 +18,10 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
     propertyMappings?: Record<string, string>;
     projectColumn?: string; // Dynamic column name for project relation
   };
-  const accessToken = workflow.integration.credentials.find(
-    (c: any) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
-  )?.key;
+  const credential = workflow.integration.credentials.find(
+    (c: any) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
+  );
+  const accessToken = credential ? getDecryptedKey(credential) : null;
 
   if (!accessToken) {
     throw new Error('No access token found for Notion integration');
@@ -77,15 +80,21 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
       const task = notionService.parseNotionPageToAction(page, config.propertyMappings);
 
       // Resolve assignee using the user mapping
-      const assignedToId = task.assigneeNotionUserId
+      const assigneeUserId = task.assigneeNotionUserId
         ? userMappingLookup.get(task.assigneeNotionUserId)
         : undefined;
 
-      console.log('[PULL SYNC] Assignee resolution:', {
+      // Resolve creator using the user mapping (fall back to importing user)
+      const creatorUserId = task.creatorNotionUserId
+        ? userMappingLookup.get(task.creatorNotionUserId) ?? ctx.session.user.id
+        : ctx.session.user.id;
+
+      console.log('[PULL SYNC] User resolution:', {
         taskName: task.name,
-        notionUserId: task.assigneeNotionUserId,
-        resolvedLocalUserId: assignedToId,
-        mappingExists: task.assigneeNotionUserId ? userMappingLookup.has(task.assigneeNotionUserId) : false,
+        assigneeNotionUserId: task.assigneeNotionUserId,
+        resolvedAssigneeId: assigneeUserId,
+        creatorNotionUserId: task.creatorNotionUserId,
+        resolvedCreatorId: creatorUserId,
       });
 
       // Check if we already have an ActionSync record for this Notion page
@@ -110,7 +119,6 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             existingAction.status !== task.status ||
             existingAction.description !== task.description ||
             existingAction.priority !== task.priority ||
-            existingAction.assignedToId !== assignedToId ||
             existingAction.projectId !== projectId || // Also update if projectId changed
             (existingAction.dueDate?.getTime() !== task.dueDate?.getTime());
 
@@ -133,18 +141,17 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
                 status: task.status,
                 priority: task.priority,
                 dueDate: task.dueDate,
-                assignedToId: assignedToId ?? existingAction.assignedToId,
                 projectId: projectId ?? existingAction.projectId, // Update projectId if provided
               },
             });
 
-            // Also update the assignees relationship (many-to-many)
-            if (assignedToId) {
+            // Update the assignees relationship (many-to-many) - this is now the only assignment mechanism
+            if (assigneeUserId) {
               // Check if this assignee already exists
               const existingAssignee = await ctx.db.actionAssignee.findFirst({
                 where: {
                   actionId: existingAction.id,
-                  userId: assignedToId,
+                  userId: assigneeUserId,
                 },
               });
 
@@ -152,10 +159,10 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
                 await ctx.db.actionAssignee.create({
                   data: {
                     actionId: existingAction.id,
-                    userId: assignedToId,
+                    userId: assigneeUserId,
                   },
                 });
-                console.log('[PULL SYNC] Added assignee:', assignedToId, 'to action:', existingAction.id);
+                console.log('[PULL SYNC] Added assignee:', assigneeUserId, 'to action:', existingAction.id);
               }
             }
 
@@ -190,7 +197,18 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
       }
 
       if (shouldCreateNew) {
+        // Inherit workspaceId from the target project
+        let notionPullWsId: string | null = null;
+        if (projectId) {
+          const proj = await ctx.db.project.findUnique({
+            where: { id: projectId },
+            select: { workspaceId: true },
+          });
+          notionPullWsId = proj?.workspaceId ?? null;
+        }
+
         // Create new action and ActionSync record
+        // Use mapped creator (or fall back to importing user)
         const newAction = await ctx.db.action.create({
           data: {
             name: task.name,
@@ -198,21 +216,21 @@ async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletio
             status: task.status,
             priority: task.priority || 'Quick',
             dueDate: task.dueDate,
-            createdById: ctx.session.user.id,
-            projectId: projectId || undefined, // Use the provided projectId
-            assignedToId,
+            createdById: creatorUserId,
+            projectId: projectId || undefined,
+            workspaceId: notionPullWsId,
           },
         });
 
-        // Create ActionAssignee record for many-to-many relationship
-        if (assignedToId) {
+        // Create ActionAssignee record for assignee (this is now the only assignment mechanism)
+        if (assigneeUserId) {
           await ctx.db.actionAssignee.create({
             data: {
               actionId: newAction.id,
-              userId: assignedToId,
+              userId: assigneeUserId,
             },
           });
-          console.log('[PULL SYNC] Created action with assignee:', assignedToId);
+          console.log('[PULL SYNC] Created action with assignee:', assigneeUserId);
         }
 
         // Create ActionSync record
@@ -315,10 +333,11 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
     source?: 'fireflies' | 'internal' | 'all';
     projectColumn?: string; // Dynamic column name for project relation
   };
-  
-  const accessToken = workflow.integration.credentials.find(
-    (c: any) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
-  )?.key;
+
+  const credential = workflow.integration.credentials.find(
+    (c: any) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
+  );
+  const accessToken = credential ? getDecryptedKey(credential) : null;
 
   if (!accessToken) {
     throw new Error('No access token found for Notion integration');
@@ -597,11 +616,21 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
       
       // Create ActionSync record with failed status
       try {
-        await ctx.db.actionSync.create({
-          data: {
+        await ctx.db.actionSync.upsert({
+          where: {
+            actionId_provider: {
+              actionId: action.id,
+              provider: 'notion',
+            },
+          },
+          update: {
+            status: 'failed',
+            externalId: `failed-${Date.now()}`,
+          },
+          create: {
             actionId: action.id,
             provider: 'notion',
-            externalId: `failed-${Date.now()}`, // Temporary ID for failed syncs
+            externalId: `failed-${Date.now()}`,
             status: 'failed',
           },
         });
@@ -832,6 +861,108 @@ export const workflowRouter = createTRPCRouter({
       return workflow;
     }),
 
+  // Create or update a workflow from the Notion setup wizard
+  createFromWizard: protectedProcedure
+    .input(z.object({
+      projectId: z.string(),
+      integrationId: z.string(),
+      databaseId: z.string(),
+      databaseName: z.string().optional(),
+      notionWorkspaceName: z.string().optional(),
+      syncDirection: z.enum(['pull', 'push', 'bidirectional']),
+      syncFrequency: z.enum(['manual', 'hourly', 'daily']),
+      statusProperty: z.string().optional(),
+      statusMappings: z.object({
+        toLocal: z.record(z.string()),
+        toExternal: z.record(z.string()),
+      }).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify the integration belongs to the user
+      const integration = await ctx.db.integration.findUnique({
+        where: {
+          id: input.integrationId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!integration) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Integration not found or access denied',
+        });
+      }
+
+      // Check for existing workflow for this project+provider (upsert pattern)
+      const existingWorkflow = await ctx.db.workflow.findFirst({
+        where: {
+          projectId: input.projectId,
+          provider: 'notion',
+          userId: ctx.session.user.id,
+        },
+      });
+
+      const workflowConfig: Record<string, string | boolean | Record<string, string | Record<string, string>>> = {
+        databaseId: input.databaseId,
+        useNewSyncEngine: true,
+        ...(input.statusProperty ? { propertyMappings: { status: input.statusProperty } } : {}),
+        ...(input.statusMappings ? { statusMappings: input.statusMappings } : {}),
+      };
+
+      let workflow;
+      if (existingWorkflow) {
+        workflow = await ctx.db.workflow.update({
+          where: { id: existingWorkflow.id },
+          data: {
+            syncDirection: input.syncDirection,
+            syncFrequency: input.syncFrequency,
+            config: workflowConfig,
+            integrationId: input.integrationId,
+          },
+        });
+      } else {
+        workflow = await ctx.db.workflow.create({
+          data: {
+            name: `Notion Sync - ${integration.name}`,
+            type: 'notion_sync',
+            provider: 'notion',
+            syncDirection: input.syncDirection,
+            syncFrequency: input.syncFrequency,
+            config: workflowConfig,
+            integrationId: input.integrationId,
+            userId: ctx.session.user.id,
+            projectId: input.projectId,
+            status: 'ACTIVE',
+          },
+        });
+      }
+
+      // Update project with workflow reference
+      await ctx.db.project.update({
+        where: {
+          id: input.projectId,
+          createdById: ctx.session.user.id,
+        },
+        data: {
+          taskManagementTool: 'notion',
+          taskManagementConfig: {
+            workflowId: workflow.id,
+            integrationId: input.integrationId,
+            databaseId: input.databaseId,
+            databaseName: input.databaseName,
+            notionWorkspaceName: input.notionWorkspaceName,
+            syncDirection: input.syncDirection,
+            syncFrequency: input.syncFrequency,
+            syncStrategy: input.syncDirection === 'pull' ? 'notion_canonical' : 'manual',
+            ...(input.statusProperty ? { statusProperty: input.statusProperty } : {}),
+            ...(input.statusMappings ? { statusMappings: input.statusMappings } : {}),
+          },
+        },
+      });
+
+      return workflow;
+    }),
+
   // List user's workflows
   list: protectedProcedure
     .query(async ({ ctx }) => {
@@ -889,7 +1020,6 @@ export const workflowRouter = createTRPCRouter({
       const workflow = await ctx.db.workflow.findUnique({
         where: {
           id: input.id,
-          userId: ctx.session.user.id,
         },
         include: {
           integration: {
@@ -910,8 +1040,19 @@ export const workflowRouter = createTRPCRouter({
       if (!workflow) {
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: 'Workflow not found or access denied',
+          message: 'Workflow not found',
         });
+      }
+
+      // Verify user has access to the workflow's project
+      if (workflow.projectId) {
+        const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, workflow.projectId);
+        if (!hasProjectAccess(projectAccess)) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You do not have access to this project',
+          });
+        }
       }
 
       return workflow;
@@ -930,7 +1071,6 @@ export const workflowRouter = createTRPCRouter({
       const workflow = await ctx.db.workflow.findUnique({
         where: {
           id: input.id,
-          userId: ctx.session.user.id,
         },
         include: {
           integration: {
@@ -944,8 +1084,19 @@ export const workflowRouter = createTRPCRouter({
       if (!workflow) {
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: 'Workflow not found or access denied',
+          message: 'Workflow not found',
         });
+      }
+
+      // Verify user has access to the workflow's project
+      if (workflow.projectId) {
+        const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, workflow.projectId);
+        if (!hasProjectAccess(projectAccess)) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You do not have access to this project',
+          });
+        }
       }
 
       if (workflow.status !== 'ACTIVE') {
@@ -964,9 +1115,8 @@ export const workflowRouter = createTRPCRouter({
       });
 
       try {
-        // Check for new sync engine feature flag
-        const workflowConfig = workflow.config as WorkflowConfig;
-        if (workflowConfig.useNewSyncEngine && workflow.provider === 'notion') {
+        // Use new sync engine for all Notion workflows (legacy path doesn't set kanbanStatus)
+        if (workflow.provider === 'notion') {
           // Use new provider-agnostic sync engine
           const typedWorkflow: WorkflowWithCredentials = {
             id: workflow.id,
@@ -984,10 +1134,47 @@ export const workflowRouter = createTRPCRouter({
           });
         }
 
+        // Resolve effective sync direction: project config takes precedence over workflow record
+        // This handles cases where the user updated the direction in the config modal
+        // but the workflow DB record wasn't updated (legacy data)
+        let effectiveSyncDirection = workflow.syncDirection;
+        console.log('[WORKFLOW RUN] Starting:', {
+          workflowId: workflow.id,
+          provider: workflow.provider,
+          dbSyncDirection: workflow.syncDirection,
+          inputProjectId: input.projectId,
+          configKeys: Object.keys(workflow.config as any || {}),
+        });
+        if (input.projectId) {
+          const projectForDirection = await ctx.db.project.findUnique({
+            where: { id: input.projectId },
+            select: { taskManagementConfig: true, taskManagementTool: true },
+          });
+          const projConfig = projectForDirection?.taskManagementConfig as { syncDirection?: string; workflowId?: string; boardId?: string } | null;
+          console.log('[WORKFLOW RUN] Project config:', {
+            taskManagementTool: projectForDirection?.taskManagementTool,
+            projSyncDirection: projConfig?.syncDirection,
+            projWorkflowId: projConfig?.workflowId,
+            projBoardId: projConfig?.boardId,
+          });
+          if (projConfig?.syncDirection) {
+            effectiveSyncDirection = projConfig.syncDirection;
+            // Also update the workflow record to stay in sync
+            if (effectiveSyncDirection !== workflow.syncDirection) {
+              console.log('[WORKFLOW RUN] Updating workflow syncDirection:', workflow.syncDirection, '->', effectiveSyncDirection);
+              await ctx.db.workflow.update({
+                where: { id: workflow.id },
+                data: { syncDirection: effectiveSyncDirection },
+              });
+            }
+          }
+        }
+        console.log('[WORKFLOW RUN] Effective direction:', effectiveSyncDirection, '| Route check:', `${workflow.provider}/${effectiveSyncDirection}`);
+
         // Legacy sync implementation (existing code)
         // Execute the workflow based on type
         // Only treat as pull if syncDirection is pull AND no overwriteMode is specified
-        if (workflow.provider === 'notion' && workflow.syncDirection === 'pull' && !input.overwriteMode) {
+        if (workflow.provider === 'notion' && effectiveSyncDirection === 'pull' && !input.overwriteMode) {
           // Use the helper function with project context
           const result = await runNotionPullSync(
             ctx, 
@@ -1010,8 +1197,222 @@ export const workflowRouter = createTRPCRouter({
             itemsCreated: result.itemsCreated,
             itemsUpdated: result.itemsUpdated,
             itemsSkipped: result.itemsSkipped,
+            debug: { route: 'notion/pull' },
           };
-        } else if (workflow.provider === 'monday' && workflow.syncDirection === 'push') {
+        } else if (workflow.provider === 'monday' && effectiveSyncDirection === 'pull') {
+          // Monday.com workflow - pull items from Monday.com board as source of truth
+          const config = workflow.config as {
+            boardId: string;
+            columnMappings?: Record<string, string>;
+          };
+
+          const apiKeyCredential = workflow.integration.credentials.find(
+            c => c.keyType.toUpperCase() === 'API_KEY'
+          );
+          const apiKey = apiKeyCredential ? getDecryptedKey(apiKeyCredential) : null;
+
+          console.log('[MONDAY PULL] Config:', { boardId: config.boardId, hasApiKey: !!apiKey, credentialCount: workflow.integration.credentials.length });
+          if (!apiKey) throw new Error('No API key found for Monday.com integration');
+          if (!config.boardId) throw new Error('No board ID configured for workflow');
+
+          const mondayService = new MondayService(apiKey);
+
+          // Test connection
+          const connectionTest = await mondayService.testConnection();
+          console.log('[MONDAY PULL] Connection test:', connectionTest);
+          if (!connectionTest.success) {
+            throw new Error(`Monday.com connection failed: ${connectionTest.error}`);
+          }
+
+          // Fetch all items from the board
+          const boardItems = await mondayService.getBoardItems(config.boardId);
+          console.log('[MONDAY PULL] Board items fetched:', boardItems.length);
+          if (boardItems.length > 0) {
+            console.log('[MONDAY PULL] Sample item:', JSON.stringify(boardItems[0], null, 2).slice(0, 500));
+          }
+
+          // Inherit workspaceId from target project
+          let mondayPullWsId: string | null = null;
+          if (input.projectId) {
+            const proj = await ctx.db.project.findUnique({
+              where: { id: input.projectId },
+              select: { workspaceId: true },
+            });
+            mondayPullWsId = proj?.workspaceId ?? null;
+          }
+
+          let itemsCreated = 0;
+          let itemsUpdated = 0;
+          let itemsSkipped = 0;
+
+          for (const item of boardItems) {
+            try {
+              const task = MondayService.parseItemToAction(item);
+              console.log('[MONDAY PULL] Processing:', { name: task.name, status: task.status, mondayId: task.mondayId });
+
+              // Check if we already have an ActionSync record for this Monday item
+              const existingSync = await ctx.db.actionSync.findFirst({
+                where: {
+                  provider: 'monday',
+                  externalId: task.mondayId,
+                },
+                include: { action: true },
+              });
+
+              if (existingSync?.action) {
+                // Update existing action if changed
+                const existing = existingSync.action;
+                const needsUpdate =
+                  existing.name !== task.name ||
+                  existing.status !== task.status ||
+                  existing.description !== task.description ||
+                  existing.priority !== task.priority ||
+                  existing.projectId !== input.projectId ||
+                  (existing.dueDate?.getTime() !== task.dueDate?.getTime());
+
+                if (needsUpdate) {
+                  await ctx.db.action.update({
+                    where: { id: existing.id },
+                    data: {
+                      name: task.name,
+                      description: task.description || undefined,
+                      status: task.status,
+                      priority: task.priority,
+                      dueDate: task.dueDate,
+                      projectId: input.projectId ?? existing.projectId,
+                    },
+                  });
+                  await ctx.db.actionSync.update({
+                    where: { id: existingSync.id },
+                    data: { status: 'synced', updatedAt: new Date() },
+                  });
+                  itemsUpdated++;
+                } else {
+                  itemsSkipped++;
+                }
+              } else if (existingSync && !existingSync.action) {
+                // Orphaned sync record — recreate
+                await ctx.db.actionSync.delete({ where: { id: existingSync.id } });
+                const newAction = await ctx.db.action.create({
+                  data: {
+                    name: task.name,
+                    description: task.description || undefined,
+                    status: task.status,
+                    priority: task.priority,
+                    dueDate: task.dueDate,
+                    createdById: ctx.session.user.id,
+                    projectId: input.projectId || undefined,
+                    workspaceId: mondayPullWsId,
+                  },
+                });
+                await ctx.db.actionSync.create({
+                  data: {
+                    actionId: newAction.id,
+                    provider: 'monday',
+                    externalId: task.mondayId,
+                    status: 'synced',
+                  },
+                });
+                itemsCreated++;
+              } else {
+                // New item — create action
+                const newAction = await ctx.db.action.create({
+                  data: {
+                    name: task.name,
+                    description: task.description || undefined,
+                    status: task.status,
+                    priority: task.priority,
+                    dueDate: task.dueDate,
+                    createdById: ctx.session.user.id,
+                    projectId: input.projectId || undefined,
+                    workspaceId: mondayPullWsId,
+                  },
+                });
+                await ctx.db.actionSync.create({
+                  data: {
+                    actionId: newAction.id,
+                    provider: 'monday',
+                    externalId: task.mondayId,
+                    status: 'synced',
+                  },
+                });
+                itemsCreated++;
+              }
+            } catch (taskError) {
+              console.error(`Error processing Monday item ${item.id}:`, taskError);
+              itemsSkipped++;
+            }
+          }
+
+          // Handle deletions — mark local actions as DELETED if removed from Monday board
+          if (input.projectId) {
+            const localSyncs = await ctx.db.actionSync.findMany({
+              where: {
+                provider: 'monday',
+                action: {
+                  createdById: ctx.session.user.id,
+                  projectId: input.projectId,
+                  status: { not: 'DELETED' },
+                },
+              },
+              include: { action: true },
+            });
+
+            const mondayItemIds = boardItems.map(i => i.id);
+
+            for (const syncRecord of localSyncs) {
+              if (!mondayItemIds.includes(syncRecord.externalId)) {
+                await ctx.db.action.update({
+                  where: { id: syncRecord.actionId },
+                  data: { status: 'DELETED' },
+                });
+                await ctx.db.actionSync.update({
+                  where: { id: syncRecord.id },
+                  data: { status: 'deleted_remotely' },
+                });
+                itemsUpdated++;
+              }
+            }
+          }
+
+          // Update run record
+          await ctx.db.workflowRun.update({
+            where: { id: run.id },
+            data: {
+              status: 'COMPLETED',
+              completedAt: new Date(),
+              itemsProcessed: boardItems.length,
+              itemsCreated,
+              itemsUpdated,
+              itemsSkipped,
+              metadata: {
+                boardId: config.boardId,
+                syncDirection: 'pull',
+                totalBoardItems: boardItems.length,
+              },
+            },
+          });
+
+          await ctx.db.workflow.update({
+            where: { id: workflow.id },
+            data: { lastRunAt: new Date() },
+          });
+
+          return {
+            success: true,
+            runId: run.id,
+            itemsProcessed: boardItems.length,
+            itemsCreated,
+            itemsUpdated,
+            itemsSkipped,
+            debug: {
+              route: 'monday/pull',
+              boardId: config.boardId,
+              boardItemCount: boardItems.length,
+              connectionUser: connectionTest.user?.name,
+            },
+          };
+        } else if (workflow.provider === 'monday' && effectiveSyncDirection === 'push') {
           // Monday.com workflow - push actions to Monday.com board
           const config = workflow.config as { 
             boardId: string; 
@@ -1019,9 +1420,10 @@ export const workflowRouter = createTRPCRouter({
             source?: 'fireflies' | 'internal' | 'all';
           };
           
-          const apiKey = workflow.integration.credentials.find(
-            c => c.keyType === 'API_KEY'
-          )?.key;
+          const apiKeyCredential = workflow.integration.credentials.find(
+            c => c.keyType.toUpperCase() === 'API_KEY'
+          );
+          const apiKey = apiKeyCredential ? getDecryptedKey(apiKeyCredential) : null;
 
           if (!apiKey) {
             throw new Error('No API key found for Monday.com integration');
@@ -1261,8 +1663,24 @@ export const workflowRouter = createTRPCRouter({
             itemsAlreadySynced,
             itemsFailedToSync,
             skippedReasons,
+            debug: { route: 'monday/push' },
           };
-        } else if (workflow.provider === 'notion' && workflow.syncDirection === 'push') {
+        } else if (workflow.provider === 'notion' && effectiveSyncDirection === 'push') {
+          // Check project syncStrategy before allowing push
+          if (input.projectId) {
+            const projectForStrategy = await ctx.db.project.findUnique({
+              where: { id: input.projectId },
+              select: { taskManagementConfig: true },
+            });
+            const projStrategy = (projectForStrategy?.taskManagementConfig as { syncStrategy?: string } | null)?.syncStrategy;
+            if (projStrategy === 'notion_canonical') {
+              throw new TRPCError({
+                code: 'FORBIDDEN',
+                message: 'Push sync is not allowed when sync strategy is set to "Notion Canonical" (pull-only). Change the sync strategy in project settings to enable pushing.',
+              });
+            }
+          }
+
           // Notion workflow - push actions to Notion database using robust implementation
           const result = await runNotionPushSync(
             ctx, 
@@ -1289,11 +1707,14 @@ export const workflowRouter = createTRPCRouter({
             itemsAlreadySynced: result.itemsAlreadySynced,
             itemsFailedToSync: result.itemsFailedToSync,
             skippedReasons: result.skippedReasons,
+            debug: { route: 'notion/push' },
           };
         } else {
-          throw new Error(`Workflow type not implemented: ${workflow.provider}/${workflow.syncDirection}`);
+          throw new Error(`Workflow type not implemented: ${workflow.provider}/${effectiveSyncDirection}`);
         }
       } catch (error) {
+        console.error('[WORKFLOW RUN] Error:', error instanceof Error ? error.message : error);
+        console.error('[WORKFLOW RUN] Stack:', error instanceof Error ? error.stack : 'no stack');
         // Update the run with failure
         await ctx.db.workflowRun.update({
           where: { id: run.id },
@@ -1510,18 +1931,26 @@ export const workflowRouter = createTRPCRouter({
       actionIds: z.array(z.string()).optional(), // Optional specific action IDs to sync
     }))
     .mutation(async ({ ctx, input }) => {
+      // Verify project access using centralized access control
+      const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!hasProjectAccess(projectAccess)) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You do not have access to this project',
+        });
+      }
+
       // Get the project with its task management configuration
       const project = await ctx.db.project.findUnique({
         where: {
           id: input.projectId,
-          createdById: ctx.session.user.id,
         },
       });
 
       if (!project) {
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: 'Project not found or access denied',
+          message: 'Project not found',
         });
       }
 
@@ -1542,10 +1971,10 @@ export const workflowRouter = createTRPCRouter({
 
       const syncStrategy = config.syncStrategy || 'manual';
 
-      // Get available workflows with integration credentials
+      // Get available workflows with integration credentials for this project
       const workflows = await ctx.db.workflow.findMany({
         where: {
-          userId: ctx.session.user.id,
+          projectId: input.projectId,
           provider: project.taskManagementTool,
           status: 'ACTIVE',
         },
@@ -1603,11 +2032,12 @@ export const workflowRouter = createTRPCRouter({
         }
       }
 
-      // Step 2: Push sync
-      const pushWorkflow = workflows.find(w => 
+      // Step 2: Push sync (only for strategies that allow pushing)
+      const shouldPush = syncStrategy === 'auto_pull_then_push';
+      const pushWorkflow = shouldPush ? workflows.find(w =>
         (config.workflowId && w.id === config.workflowId) ||
         (w.syncDirection === 'push' || w.syncDirection === 'bidirectional')
-      );
+      ) : null;
 
       if (pushWorkflow) {
         // Verify the workflow has an integration with credentials
@@ -1670,7 +2100,6 @@ export const workflowRouter = createTRPCRouter({
       const workflow = await ctx.db.workflow.findFirst({
         where: {
           id: input.workflowId,
-          userId: ctx.session.user.id,
           provider: 'notion',
           status: 'ACTIVE',
         },
@@ -1690,6 +2119,17 @@ export const workflowRouter = createTRPCRouter({
         });
       }
 
+      // Verify user has access to the workflow's project
+      if (workflow.projectId) {
+        const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, workflow.projectId);
+        if (!hasProjectAccess(projectAccess)) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You do not have access to this project',
+          });
+        }
+      }
+
       const config = workflow.config as { 
         projectsDatabaseId?: string;
       };
@@ -1702,9 +2142,10 @@ export const workflowRouter = createTRPCRouter({
       }
 
       // Get access token
-      const accessToken = workflow.integration.credentials.find(
-        (c: any) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
-      )?.key;
+      const credential = workflow.integration.credentials.find(
+        (c: any) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
+      );
+      const accessToken = credential ? getDecryptedKey(credential) : null;
 
       if (!accessToken) {
         throw new TRPCError({
@@ -1753,9 +2194,10 @@ export const workflowRouter = createTRPCRouter({
         });
       }
 
-      const accessToken = integration.credentials.find(
-        (c) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
-      )?.key;
+      const integrationCredential = integration.credentials.find(
+        (c) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
+      );
+      const accessToken = integrationCredential ? getDecryptedKey(integrationCredential) : null;
 
       if (!accessToken) {
         throw new TRPCError({
@@ -1886,13 +2328,13 @@ export const workflowRouter = createTRPCRouter({
   getUnlinkedNotionProjects: protectedProcedure
     .input(z.object({
       workflowId: z.string(),
+      workspaceId: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
       // Find the workflow
       const workflow = await ctx.db.workflow.findFirst({
         where: {
           id: input.workflowId,
-          userId: ctx.session.user.id,
           provider: 'notion',
           status: 'ACTIVE',
         },
@@ -1912,6 +2354,17 @@ export const workflowRouter = createTRPCRouter({
         });
       }
 
+      // Verify user has access to the workflow's project
+      if (workflow.projectId) {
+        const projectAccess = await getProjectAccess(ctx.db, ctx.session.user.id, workflow.projectId);
+        if (!hasProjectAccess(projectAccess)) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You do not have access to this project',
+          });
+        }
+      }
+
       const config = workflow.config as {
         projectsDatabaseId?: string;
       };
@@ -1921,9 +2374,10 @@ export const workflowRouter = createTRPCRouter({
       }
 
       // Get access token
-      const accessToken = workflow.integration.credentials.find(
-        (c: { keyType: string }) => c.keyType === 'ACCESS_TOKEN' || c.keyType === 'API_KEY'
-      )?.key;
+      const unlinkedCredential = workflow.integration.credentials.find(
+        (c: { keyType: string }) => c.keyType.toUpperCase() === 'ACCESS_TOKEN' || c.keyType.toUpperCase() === 'API_KEY'
+      );
+      const accessToken = unlinkedCredential ? getDecryptedKey(unlinkedCredential) : null;
 
       if (!accessToken) {
         throw new TRPCError({
@@ -1938,10 +2392,12 @@ export const workflowRouter = createTRPCRouter({
         const notionProjects = await notionService.getProjectsFromDatabase(config.projectsDatabaseId);
 
         // Get all local projects that are linked to Notion
+        // Filter by workspaceId if provided to show only workspace-relevant suggestions
         const linkedProjects = await ctx.db.project.findMany({
           where: {
             createdById: ctx.session.user.id,
             notionProjectId: { not: null },
+            ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
           },
           select: {
             notionProjectId: true,

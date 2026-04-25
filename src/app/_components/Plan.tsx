@@ -15,7 +15,7 @@ interface Goal {
   title: string;
   description: string | null;
   dueDate: Date | null;
-  lifeDomainId: number;
+  lifeDomainId: number | null;
   userId: string;
 }
 
@@ -116,7 +116,7 @@ export function Plan({ projectId }: PlanProps) {
                   <Title order={3}>Tasks</Title>
                   {weekActions.map((action) => (
                     <div key={action.id}>
-                      <Text fw={500}><HTMLContent html={action.name} /></Text>
+                      <Text fw={500}><HTMLContent html={action.name} compactUrls /></Text>
                       {action.description && <Text c="dimmed">{action.description}</Text>}
                     </div>
                   ))}

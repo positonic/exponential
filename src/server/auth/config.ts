@@ -2,9 +2,100 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { type DefaultSession, type NextAuthConfig } from "next-auth";
 import DiscordProvider from "next-auth/providers/discord";
 import GoogleProvider from "next-auth/providers/google";
+import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import NotionProvider from "next-auth/providers/notion";
+import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
+import { sendMagicLinkEmail, sendWelcomeEmail, sendWelcomeWithMagicLinkEmail } from "~/server/services/EmailService";
+
+/**
+ * Auto-accept any pending workspace and team invitations matching this user's
+ * email. Covers the case where an invitee signs up (or signs in) via a route
+ * other than the invite accept page — e.g. OAuth, direct magic link, or a
+ * magic link whose callbackUrl no longer points at /invite/<token>.
+ *
+ * Returns the workspaceId of the first accepted invite, if any (caller may
+ * want to set it as the user's default workspace).
+ */
+async function acceptPendingInvitationsForUser(
+  userId: string,
+  email: string
+): Promise<string | null> {
+  const now = new Date();
+  let firstAcceptedWorkspaceId: string | null = null;
+
+  try {
+    const pendingWorkspaceInvites = await db.workspaceInvitation.findMany({
+      where: { email, status: "pending", expiresAt: { gt: now } },
+      orderBy: { createdAt: "asc" },
+    });
+
+    for (const invitation of pendingWorkspaceInvites) {
+      try {
+        await db.$transaction([
+          db.workspaceInvitation.update({
+            where: { id: invitation.id },
+            data: { status: "accepted", acceptedAt: now },
+          }),
+          db.workspaceUser.upsert({
+            where: {
+              userId_workspaceId: {
+                userId,
+                workspaceId: invitation.workspaceId,
+              },
+            },
+            create: {
+              userId,
+              workspaceId: invitation.workspaceId,
+              role: invitation.role,
+            },
+            update: {},
+          }),
+        ]);
+        if (!firstAcceptedWorkspaceId) {
+          firstAcceptedWorkspaceId = invitation.workspaceId;
+        }
+      } catch (error) {
+        console.error(
+          `[Auth] Failed to auto-accept workspace invitation ${invitation.id}:`,
+          error
+        );
+      }
+    }
+
+    const pendingTeamInvites = await db.teamInvitation.findMany({
+      where: { email, status: "pending", expiresAt: { gt: now } },
+    });
+
+    for (const invitation of pendingTeamInvites) {
+      try {
+        await db.$transaction([
+          db.teamInvitation.update({
+            where: { id: invitation.id },
+            data: { status: "accepted", acceptedAt: now },
+          }),
+          db.teamUser.upsert({
+            where: {
+              userId_teamId: { userId, teamId: invitation.teamId },
+            },
+            create: { userId, teamId: invitation.teamId, role: invitation.role },
+            update: {},
+          }),
+        ]);
+      } catch (error) {
+        console.error(
+          `[Auth] Failed to auto-accept team invitation ${invitation.id}:`,
+          error
+        );
+      }
+    }
+  } catch (error) {
+    console.error("[Auth] Failed to process pending invitations:", error);
+  }
+
+  return firstAcceptedWorkspaceId;
+}
 
 /**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
@@ -16,8 +107,7 @@ declare module "next-auth" {
   interface Session extends DefaultSession {
     user: {
       id: string;
-      // ...other properties
-      // role: UserRole;
+      isAdmin: boolean;
     } & DefaultSession["user"];
   }
 }
@@ -30,7 +120,8 @@ declare module "next-auth" {
 export const authConfig = {
   pages: {
     signIn: '/signin',
-    error: '/signin', // Custom error page
+    error: '/signin',
+    verifyRequest: '/auth/verify-request',
   },
   providers: [
     DiscordProvider({
@@ -48,7 +139,35 @@ export const authConfig = {
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       allowDangerousEmailAccountLinking: true,
+      authorization: {
+        params: {
+          access_type: "offline",
+          prompt: "consent",
+          scope: [
+            "openid",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
+          ].join(" "),
+        },
+      },
     }),
+    ...(process.env.MICROSOFT_ENTRA_ID_CLIENT_ID
+      ? [
+          MicrosoftEntraID({
+            clientId: process.env.MICROSOFT_ENTRA_ID_CLIENT_ID,
+            clientSecret: process.env.MICROSOFT_ENTRA_ID_CLIENT_SECRET!,
+            issuer: process.env.MICROSOFT_ENTRA_ID_TENANT_ID
+              ? `https://login.microsoftonline.com/${process.env.MICROSOFT_ENTRA_ID_TENANT_ID}/v2.0`
+              : undefined,
+            allowDangerousEmailAccountLinking: true,
+            authorization: {
+              params: {
+                scope: "openid profile email User.Read",
+              },
+            },
+          }),
+        ]
+      : []),
     NotionProvider({
       clientId: process.env.NOTION_CLIENT_ID!,
       clientSecret: process.env.NOTION_CLIENT_SECRET!,
@@ -62,6 +181,38 @@ export const authConfig = {
         redirectUri: process.env.NOTION_REDIRECT_URI!,
       }
     }),
+    Postmark({
+      apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN ?? "",
+      from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
+      sendVerificationRequest: async ({ identifier, url }) => {
+        if (!process.env.AUTH_POSTMARK_KEY && !process.env.POSTMARK_SERVER_TOKEN) {
+          throw new Error(
+            'Postmark API key is not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable.'
+          );
+        }
+        try {
+          // Check if user exists to determine which email to send
+          const existingUser = await db.user.findUnique({
+            where: { email: identifier },
+            select: { id: true },
+          });
+
+          if (existingUser) {
+            // Returning user - send simple magic link email
+            await sendMagicLinkEmail(identifier, url);
+          } else {
+            // New user - send welcome email with magic link embedded
+            await sendWelcomeWithMagicLinkEmail(identifier, url);
+          }
+        } catch (error) {
+          console.error(
+            `[Auth] Failed to send verification email to ${identifier} (url: ${url}):`,
+            error
+          );
+          throw error;
+        }
+      },
+    }),
   ],
   adapter: PrismaAdapter(db),
   session: {
@@ -69,22 +220,33 @@ export const authConfig = {
   },
   callbacks: {
     session: ({ session, user, token }) => {
-      const tokenId = typeof token.id === 'string' ? token.id : 
-                     typeof token.sub === 'string' ? token.sub : '';
-      
+      const tokenId =
+        typeof token.id === "string"
+          ? token.id
+          : typeof token.sub === "string"
+            ? token.sub
+            : "";
+
       return {
         ...session,
         token,
         user: {
           ...session.user,
-          id: user?.id ?? tokenId
-        }
+          id: user?.id ?? tokenId,
+          isAdmin: (token.isAdmin as boolean) ?? false,
+        },
       };
     },
-    jwt: ({ token, account, user }) => {
+    jwt: async ({ token, account, user }) => {
       if (user) {
         token.sub = user.id;
         token.email = user.email;
+        // Fetch isAdmin from DB
+        const dbUser = await db.user.findUnique({
+          where: { id: user.id },
+          select: { isAdmin: true },
+        });
+        token.isAdmin = dbUser?.isAdmin ?? false;
       }
       if (account) {
         token.accessToken = account.access_token;
@@ -106,12 +268,29 @@ export const authConfig = {
           projects: { take: 1 },
           actions: { take: 1 },
         },
-      }); 
+      });
 
       // If no user exists, allow sign in (new user - will need onboarding)
       if (!existingUser) {
+        // Send welcome email to new OAuth users only (magic link users already got theirs)
+        // The 'postmark' provider is used for magic link auth
+        if (account?.provider && account.provider !== "postmark") {
+          // Pass provider as-is to handle all configured OAuth providers (google, discord, notion, etc.)
+          sendWelcomeEmail(user.email, user.name, account.provider).catch((error) => {
+            console.error("[Auth] Failed to send welcome email:", error);
+          });
+        }
         return true;
       }
+
+      // Update lastLogin timestamp for existing users
+      await db.user.update({
+        where: { id: existingUser.id },
+        data: { lastLogin: new Date() },
+      });
+
+      // Auto-accept any pending invitations that arrived after the user signed up
+      await acceptPendingInvitationsForUser(existingUser.id, user.email);
 
       // If user exists and this is the same provider they used before, allow sign in
       if (existingUser && account?.provider) {
@@ -149,6 +328,64 @@ export const authConfig = {
       } catch (error) {
         console.error("Error in redirect callback:", error);
         return "/home"; // Fallback to home
+      }
+    },
+  },
+  events: {
+    createUser: async ({ user }) => {
+      // Set lastLogin for newly created users
+      await db.user.update({
+        where: { id: user.id },
+        data: { lastLogin: new Date() },
+      });
+
+      // Create personal workspace for new users
+      if (!user.id) return;
+
+      let personalWorkspaceId: string | null = null;
+
+      try {
+        const slug = `personal-${user.id}`;
+        const workspace = await db.workspace.create({
+          data: {
+            name: "Personal",
+            slug,
+            type: "personal",
+            ownerId: user.id,
+            members: {
+              create: {
+                userId: user.id,
+                role: "owner",
+              },
+            },
+          },
+        });
+
+        personalWorkspaceId = workspace.id;
+
+        // Set as default workspace
+        await db.user.update({
+          where: { id: user.id },
+          data: { defaultWorkspaceId: workspace.id },
+        });
+      } catch (error) {
+        // Log error but don't block user creation
+        console.error("[Auth] Failed to create personal workspace:", error);
+      }
+
+      if (!user.email) return;
+
+      // Prefer an invited workspace as the user's default so they land there
+      // instead of their empty Personal workspace after sign-up.
+      const firstAcceptedWorkspaceId = await acceptPendingInvitationsForUser(
+        user.id,
+        user.email
+      );
+      if (firstAcceptedWorkspaceId && firstAcceptedWorkspaceId !== personalWorkspaceId) {
+        await db.user.update({
+          where: { id: user.id },
+          data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
+        });
       }
     },
   },

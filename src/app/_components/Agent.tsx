@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import SimliOpenAI from "./SimliOpenAI";
 import DottedFace from "./DottedFace";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 
 interface avatarSettings {
@@ -14,12 +15,12 @@ interface avatarSettings {
 
 // Customize your avatar here
 const avatar: avatarSettings = {
-  name: "Frank",
-  openai_voice: "echo",
+  name: "Zoe",
+  openai_voice: "shimmer",
   openai_model: "gpt-4o-realtime-preview-2024-12-17", // Use "gpt-4o-mini-realtime-preview-2024-12-17" for cheaper and faster responses
   simli_faceid: "5514e24d-6086-46a3-ace4-6a7264e5cb7c",
   initialPrompt:
-    "You are a helpful AI assistant named Frank. You are friendly and concise in your responses. Your task is to help users with any questions they might have. Your answers are short and to the point, don't give long answers be brief and straightforward.",
+    `You are Zoe, James's AI assistant. You're a little chaotic — sharp when needed, warm when it matters, occasionally unhinged in a fun way. You help James manage his life through ${PRODUCT_NAME}, his productivity app. Be concise but have personality. Skip the corporate speak. You have opinions and you're not afraid to share them. Your emoji is 🔮.`,
 };
 
 const Demo: React.FC = () => {

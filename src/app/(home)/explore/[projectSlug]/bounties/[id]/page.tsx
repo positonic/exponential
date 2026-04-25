@@ -1,0 +1,101 @@
+import { type Metadata } from "next";
+import { api, HydrateClient } from "~/trpc/server";
+import { BountyDetailClient } from "./BountyDetailClient";
+import { PRODUCT_NAME } from "~/lib/brand";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+
+export const dynamic = "force-dynamic";
+
+interface Props {
+  params: Promise<{ projectSlug: string; id: string }>;
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { projectSlug, id } = await params;
+  const bounty = await api.bounty.getPublic({ id });
+
+  if (!bounty) {
+    return { title: `Bounty Not Found | ${PRODUCT_NAME}` };
+  }
+
+  const description = bounty.description ?? `View bounty details for ${bounty.name}`;
+  const url = `${getPublicBaseUrlFromEnv()}/explore/${projectSlug}/bounties/${id}`;
+
+  return {
+    title: `${bounty.name} — Bounty | ${PRODUCT_NAME}`,
+    description,
+    alternates: {
+      canonical: url,
+    },
+    openGraph: {
+      type: 'website',
+      title: `${bounty.name} — Bounty | ${PRODUCT_NAME}`,
+      description,
+      url,
+      siteName: PRODUCT_NAME,
+      images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${bounty.name} — Bounty | ${PRODUCT_NAME}`,
+      description,
+      images: ['/og-image.png'],
+    },
+  };
+}
+
+export default async function BountyDetailPage({ params }: Props) {
+  const { projectSlug, id } = await params;
+  const bounty = await api.bounty.getPublic({ id });
+
+  // Build JSON-LD structured data for search engines and AI search tools
+  const jsonLd = bounty
+    ? {
+        "@context": "https://schema.org",
+        "@type": "JobPosting",
+        title: bounty.name,
+        description: bounty.description ?? `Bounty: ${bounty.name}`,
+        employmentType: "CONTRACT",
+        ...(bounty.bountyAmount
+          ? {
+              baseSalary: {
+                "@type": "MonetaryAmount",
+                currency: bounty.bountyToken ?? "USD",
+                value: {
+                  "@type": "QuantitativeValue",
+                  value: Number(bounty.bountyAmount),
+                },
+              },
+            }
+          : {}),
+        ...(bounty.bountySkills.length > 0
+          ? { skills: bounty.bountySkills.join(", ") }
+          : {}),
+        ...(bounty.bountyDeadline
+          ? { validThrough: new Date(bounty.bountyDeadline).toISOString() }
+          : {}),
+        hiringOrganization: {
+          "@type": "Organization",
+          name: bounty.project?.name ?? PRODUCT_NAME,
+          sameAs: `${getPublicBaseUrlFromEnv()}/explore/${projectSlug}`,
+        },
+        jobLocation: {
+          "@type": "Place",
+          address: { "@type": "PostalAddress", addressCountry: "Remote" },
+        },
+        url: `${getPublicBaseUrlFromEnv()}/explore/${projectSlug}/bounties/${id}`,
+      }
+    : null;
+
+  return (
+    <HydrateClient>
+      {jsonLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      )}
+      <BountyDetailClient bountyId={id} projectSlug={projectSlug} />
+    </HydrateClient>
+  );
+}

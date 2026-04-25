@@ -10,6 +10,7 @@ import {
   Card,
   Stack,
   ThemeIcon,
+  Tooltip,
 } from "@mantine/core";
 import {
   IconMicrophone,
@@ -164,7 +165,12 @@ export function ProjectFirefliesSyncPanel({
               Sync Recent Meetings to Project
             </Text>
 
-            {integrations.map((integration) => (
+            {integrations.map((integration) => {
+              // Extract email from credentials if available
+              const emailCredential = integration.credentials?.find((c: { keyType: string }) => c.keyType === 'EMAIL');
+              const email = emailCredential?.key;
+
+              return (
               <Card key={integration.id} withBorder padding="sm" radius="sm">
                 <Group justify="space-between" align="center">
                   <Group gap="sm">
@@ -172,9 +178,17 @@ export function ProjectFirefliesSyncPanel({
                       <IconMicrophone size={16} />
                     </ThemeIcon>
                     <div>
-                      <Text size="sm" fw={500}>
-                        {integration.name}
-                      </Text>
+                      {email ? (
+                        <Tooltip label={email} position="top" withArrow>
+                          <Text size="sm" fw={500} style={{ cursor: 'help' }}>
+                            {integration.name}
+                          </Text>
+                        </Tooltip>
+                      ) : (
+                        <Text size="sm" fw={500}>
+                          {integration.name}
+                        </Text>
+                      )}
                       <Text size="xs" c="dimmed">
                         Fireflies Integration
                       </Text>
@@ -206,7 +220,8 @@ export function ProjectFirefliesSyncPanel({
                   </Alert>
                 )}
               </Card>
-            ))}
+              );
+            })}
 
             <Text size="xs" c="dimmed">
               New transcriptions will be automatically associated with this

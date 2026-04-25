@@ -17,8 +17,8 @@ export async function middleware(request: NextRequest) {
   // Define protected routes that require authentication
   const protectedRoutes = [
     '/home',
-    '/inbox', 
-    '/today',
+    '/act', 
+    '/plan',
     '/projects',
     '/goals',
     '/outcomes',
@@ -27,17 +27,12 @@ export async function middleware(request: NextRequest) {
     '/journal',
     '/meetings',
     '/videos',
-    '/tokens',
+    '/settings',  // All settings pages require auth
     '/days',
     '/recordings',
     '/multi-agent',
     '/agent',
     '/actions',
-    '/docs',
-    '/features',
-    '/roadmap',
-    '/privacy',
-    '/terms'
   ];
 
   // Skip authentication check for certain paths

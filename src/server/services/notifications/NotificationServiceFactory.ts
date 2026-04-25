@@ -1,9 +1,10 @@
 import { type NotificationService, type NotificationConfig } from './NotificationService';
 import { SlackNotificationService } from './SlackNotificationService';
 import { WhatsAppNotificationService } from './WhatsAppNotificationService';
+import { ZulipNotificationService } from './ZulipNotificationService';
 import { db } from '~/server/db';
 
-export type NotificationServiceType = 'slack' | 'email' | 'discord' | 'whatsapp';
+export type NotificationServiceType = 'slack' | 'email' | 'discord' | 'whatsapp' | 'zulip';
 
 export class NotificationServiceFactory {
   /**
@@ -18,7 +19,7 @@ export class NotificationServiceFactory {
         userId,
         status: 'ACTIVE',
         provider: {
-          in: ['slack', 'discord', 'email', 'whatsapp']
+          in: ['slack', 'discord', 'email', 'whatsapp', 'zulip']
         }
       },
       include: {
@@ -58,6 +59,8 @@ export class NotificationServiceFactory {
         return new SlackNotificationService(config);
       case 'whatsapp':
         return new WhatsAppNotificationService(config);
+      case 'zulip':
+        return new ZulipNotificationService(config);
       case 'email':
         // TODO: Implement EmailNotificationService
         return null;
@@ -83,7 +86,7 @@ export class NotificationServiceFactory {
         userId,
         status: 'ACTIVE',
         provider: {
-          in: ['slack', 'discord', 'email', 'whatsapp']
+          in: ['slack', 'discord', 'email', 'whatsapp', 'zulip']
         }
       }
     });
@@ -101,6 +104,12 @@ export class NotificationServiceFactory {
         type: 'whatsapp',
         name: 'WhatsApp',
         available: availableIntegrations.includes('whatsapp'),
+        requiresIntegration: true,
+      },
+      {
+        type: 'zulip',
+        name: 'Zulip',
+        available: availableIntegrations.includes('zulip'),
         requiresIntegration: true,
       },
       {

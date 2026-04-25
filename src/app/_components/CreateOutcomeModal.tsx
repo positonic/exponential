@@ -1,10 +1,13 @@
 "use client";
 
-import { Modal, Button, Group, TextInput, Select } from '@mantine/core';
+import { Modal, Button, Group, TextInput, Select, Textarea } from '@mantine/core';
+import { IconPlus } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { DateInput } from '@mantine/dates';
+import { CreateGoalModal } from './CreateGoalModal';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 interface CreateOutcomeModalProps {
   children?: React.ReactNode;
@@ -14,22 +17,38 @@ interface CreateOutcomeModalProps {
     description: string;
     dueDate: Date | null;
     type: OutcomeType;
+    whyThisOutcome?: string | null;
     projectId?: string;
+    goalId?: number;
+    workspaceId?: string | null;
   };
   trigger?: React.ReactNode; // For clicking on existing outcomes
+  onSuccess?: (outcomeId: string, outcomeData?: { id: string; description: string; type: string | null }) => void; // Callback when outcome is created/updated
 }
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
-export function CreateOutcomeModal({ children, projectId, outcome, trigger }: CreateOutcomeModalProps) {
+export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSuccess }: CreateOutcomeModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [description, setDescription] = useState(outcome?.description ?? "");
   const [dueDate, setDueDate] = useState<Date | null>(outcome?.dueDate ?? null);
   const [type, setType] = useState<OutcomeType>(outcome?.type ?? "daily");
+  const [whyThisOutcome, setWhyThisOutcome] = useState(outcome?.whyThisOutcome ?? "");
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(projectId ?? outcome?.projectId);
+  const [selectedGoalId, setSelectedGoalId] = useState<number | undefined>(outcome?.goalId);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    outcome?.workspaceId ?? null
+  );
 
   const utils = api.useUtils();
-  const { data: projects } = api.project.getAll.useQuery();
+  const { workspaceId: currentWorkspaceId } = useWorkspace();
+
+  const { data: projects } = api.project.getAll.useQuery(
+    { workspaceId: currentWorkspaceId ?? undefined },
+    { enabled: !!currentWorkspaceId },
+  );
+  const { data: goals } = api.goal.getAllMyGoals.useQuery();
+  const { data: workspaces } = api.workspace.list.useQuery();
 
   const createOutcome = api.outcome.createOutcome.useMutation({
     onMutate: async (newOutcome) => {
@@ -57,10 +76,12 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
         dueDate: newOutcome.dueDate ?? null,
         type: newOutcome.type!,
         userId: "",
-        projects: selectedProjectId && projects 
+        projects: selectedProjectId && projects
           ? [projects.find(p => p.id === selectedProjectId)].filter(Boolean)
           : [],
-        goals: [],
+        goals: selectedGoalId && goals
+          ? [goals.find(g => g.id === selectedGoalId)].filter(Boolean)
+          : [],
         assignees: []
       };
       console.log('🟡 Created optimistic outcome:', optimisticOutcome);
@@ -92,7 +113,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
 
     onSuccess: async (newOutcome) => {
       console.log('🟢 Mutation succeeded:', newOutcome);
-      
+
       // Immediately update the cache with the new data
       if (selectedProjectId) {
         console.log('🟢 Invalidating project outcomes for:', selectedProjectId);
@@ -100,7 +121,14 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       }
       console.log('🟢 Invalidating all outcomes');
       await utils.outcome.getMyOutcomes.invalidate();
-      
+
+      // Call onSuccess callback if provided with full outcome data
+      onSuccess?.(newOutcome.id, {
+        id: newOutcome.id,
+        description: newOutcome.description,
+        type: newOutcome.type,
+      });
+
       // Reset form and close modal
       setDescription("");
       setDueDate(null);
@@ -134,12 +162,15 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       return previousData;
     },
 
-    onSuccess: async (_updatedOutcome) => {
+    onSuccess: async (updatedOutcome) => {
       // Invalidate and refetch immediately
       await Promise.all([
         utils.outcome.getMyOutcomes.invalidate(),
         selectedProjectId ? utils.outcome.getProjectOutcomes.invalidate({ projectId: selectedProjectId }) : Promise.resolve()
       ]);
+
+      // Call onSuccess callback if provided
+      onSuccess?.(updatedOutcome.id);
 
       // Reset form and close modal
       resetForm();
@@ -155,21 +186,14 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
     }
   });
 
-  const outcomeTypes = [
-    { value: 'daily', label: 'Daily' },
-    { value: 'weekly', label: 'Weekly' },
-    { value: 'monthly', label: 'Monthly' },
-    { value: 'quarterly', label: 'Quarterly' },
-    { value: 'annual', label: 'Annual' },
-    { value: 'life', label: 'Life' },
-    { value: 'problem', label: 'Problem' }
-  ] as const;
-
   const resetForm = () => {
     setDescription("");
     setDueDate(null);
     setType("daily");
+    setWhyThisOutcome("");
     setSelectedProjectId(undefined);
+    setSelectedGoalId(undefined);
+    setSelectedWorkspaceId(null);
   };
 
   // Update the form when the outcome prop changes
@@ -178,9 +202,19 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       setDescription(outcome.description);
       setDueDate(outcome.dueDate);
       setType(outcome.type);
+      setWhyThisOutcome(outcome.whyThisOutcome ?? "");
       setSelectedProjectId(outcome.projectId);
+      setSelectedGoalId(outcome.goalId);
+      setSelectedWorkspaceId(outcome.workspaceId ?? null);
     }
   }, [outcome]);
+
+  // Auto-set workspace when creating (not editing)
+  useEffect(() => {
+    if (!outcome && currentWorkspaceId && selectedWorkspaceId === null) {
+      setSelectedWorkspaceId(currentWorkspaceId);
+    }
+  }, [outcome, currentWorkspaceId, selectedWorkspaceId]);
 
   // Add this useEffect to update selectedProjectId when projectId prop changes
   useEffect(() => {
@@ -197,7 +231,10 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
       description,
       dueDate: dueDate ?? undefined,
       type,
+      whyThisOutcome: whyThisOutcome || undefined,
       projectId: selectedProjectId,
+      goalId: selectedGoalId,
+      workspaceId: selectedWorkspaceId ?? undefined,
     };
 
     if (outcome?.id) {
@@ -228,7 +265,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
         padding="lg"
         styles={{
           header: { display: 'none' },
-          body: { padding: 0 },
+          body: { padding: 0, backgroundColor: 'var(--color-bg-elevated)' },
           content: {
             backgroundColor: 'var(--color-bg-elevated)',
             color: 'var(--color-text-primary)',
@@ -257,12 +294,34 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
             }}
           />
 
+          <Textarea
+            label="Why this outcome?"
+            placeholder="What makes this outcome meaningful? How does achieving it move you forward?"
+            value={whyThisOutcome}
+            onChange={(e) => setWhyThisOutcome(e.target.value)}
+            mt="md"
+            minRows={2}
+            autosize
+            styles={{
+              input: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+              label: {
+                color: 'var(--color-text-primary)',
+              },
+            }}
+          />
+
           <Select
-            label="Outcome Type"
-            data={outcomeTypes}
-            value={type}
-            onChange={(value) => setType((value ?? "daily") as OutcomeType)}
-            required
+            label="Which vision goal is this outcome for? (optional)"
+            placeholder="Search goals..."
+            searchable
+            clearable
+            data={goals?.map(g => ({ value: String(g.id), label: g.title })) ?? []}
+            value={selectedGoalId ? String(selectedGoalId) : null}
+            onChange={(value) => setSelectedGoalId(value ? Number(value) : undefined)}
             mt="md"
             styles={{
               input: {
@@ -280,12 +339,25 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
               },
             }}
           />
+          <CreateGoalModal onSuccess={(id) => setSelectedGoalId(id)}>
+            <Button
+              variant="subtle"
+              size="xs"
+              leftSection={<IconPlus size={14} />}
+              mt={4}
+              className="text-text-secondary hover:text-text-primary"
+            >
+              Create goal
+            </Button>
+          </CreateGoalModal>
 
           <Select
-            label="Project (optional)"
-            placeholder="Select a project"
+            label="How will you achieve this? (optional)"
+            placeholder="Search projects..."
+            searchable
+            clearable
             data={projects?.map(p => ({ value: p.id, label: p.name })) ?? []}
-            value={selectedProjectId}
+            value={selectedProjectId ?? null}
             onChange={(value) => setSelectedProjectId(value ?? undefined)}
             mt="md"
             styles={{
@@ -321,7 +393,7 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
               label: {
                 color: 'var(--color-text-primary)',
               },
-              
+
               calendarHeader: {
                 backgroundColor: 'var(--color-surface-secondary)',
                 color: 'var(--color-text-primary)',
@@ -340,6 +412,35 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger }: Cr
               },
             }}
           />
+
+          {outcome && workspaces && workspaces.length > 0 && (
+            <Select
+              label="Workspace"
+              description="Move this outcome to a different workspace"
+              data={[
+                { value: '', label: 'No Workspace (Personal)' },
+                ...workspaces.map(ws => ({ value: ws.id, label: ws.name }))
+              ]}
+              value={selectedWorkspaceId ?? ''}
+              onChange={(value) => setSelectedWorkspaceId(value === '' ? null : value)}
+              mt="md"
+              styles={{
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+                label: {
+                  color: 'var(--color-text-primary)',
+                },
+                dropdown: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  borderColor: 'var(--color-border-primary)',
+                  color: 'var(--color-text-primary)',
+                },
+              }}
+            />
+          )}
 
           <Group justify="flex-end" mt="xl">
             <Button variant="subtle" color="gray" onClick={close}>

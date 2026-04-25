@@ -4,6 +4,7 @@ export interface ParsedActionItem {
   dueDate?: Date;
   priority?: string;
   context?: string;
+  screenshotRefs?: number[];
 }
 
 export interface ActionProcessorResult {
@@ -23,6 +24,7 @@ export interface ActionProcessorConfig {
   projectId?: string;
   integrationId?: string;
   transcriptionId?: string;
+  actionStatus?: "ACTIVE" | "DRAFT";
   additionalConfig?: Record<string, any>;
 }
 

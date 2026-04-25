@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { useSession } from 'next-auth/react';
 import { api } from "~/trpc/react";
 import { 
   Paper, 
@@ -34,6 +35,12 @@ interface ChatProps {
 }
 
 export default function Chat({ initialMessages, githubSettings, buttons }: ChatProps) {
+  const conversationId = useMemo(() => `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`, []);
+  const { data: session } = useSession();
+  const sessionUser = session?.user;
+  const userInitials = sessionUser?.name
+    ? sessionUser.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+    : 'U';
   const [messages, setMessages] = useState<Message[]>(
     initialMessages ?? [
       {
@@ -51,21 +58,13 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
     ]
   );
   const [input, setInput] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const viewport = useRef<HTMLDivElement>(null);
 
   const utils = api.useUtils();
-  const chat = api.tools.chat.useMutation({
-    onSuccess: async () => {
-      // Invalidate all action-related queries to refresh counts
-      await Promise.all([
-        utils.action.getAll.invalidate(),
-        utils.action.getToday.invalidate()
-      ]);
-    }
-  });
   const transcribeAudio = api.tools.transcribe.useMutation();
 //const transcribeAudio = api.tools.transcribeFox.useMutation(); 
   // Scroll to bottom when messages change
@@ -137,30 +136,82 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || isStreaming) return;
 
     const userMessage: Message = { type: 'human', content: input };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
+    setIsStreaming(true);
+
+    // Add empty AI message that will be filled by streaming
+    setMessages(prev => [...prev, { type: 'ai', content: '' }]);
 
     try {
-      const response = await chat.mutateAsync({
-        message: input,
-        history: messages
+      // Convert messages to Mastra format
+      const mastraMessages = messages.map(msg => ({
+        role: msg.type === 'human' ? 'user' : msg.type === 'ai' ? 'assistant' : 'system',
+        content: msg.content,
+      }));
+      mastraMessages.push({ role: 'user', content: input });
+
+      const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: mastraMessages,
+          agentId: 'projectManagerAgent',
+          conversationId,
+        }),
       });
 
-      setMessages(prev => [...prev, { 
-        type: 'ai', 
-        content: typeof response.response === 'string' 
-          ? response.response 
-          : JSON.stringify(response.response)
-      }]);
+      if (!response.ok) {
+        throw new Error('Stream request failed');
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+
+          setMessages(prev => {
+            const updated = [...prev];
+            const lastMessage = updated[updated.length - 1];
+            if (lastMessage && lastMessage.type === 'ai') {
+              updated[updated.length - 1] = {
+                ...lastMessage,
+                content: lastMessage.content + chunk,
+              };
+            }
+            return updated;
+          });
+        }
+      }
+
+      // Invalidate queries after successful response
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.action.getToday.invalidate()
+      ]);
     } catch (error) {
       console.error('Chat error:', error);
-      setMessages(prev => [...prev, { 
-        type: 'ai', 
-        content: 'Sorry, I encountered an error processing your request.' 
-      }]);
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMessage = updated[updated.length - 1];
+        if (lastMessage && lastMessage.type === 'ai' && lastMessage.content === '') {
+          updated[updated.length - 1] = {
+            type: 'ai',
+            content: 'Sorry, I encountered an error processing your request.',
+          };
+        }
+        return updated;
+      });
+    } finally {
+      setIsStreaming(false);
     }
   };
 
@@ -230,7 +281,7 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
                     p="sm"
                     radius="lg"
                     style={{
-                      maxWidth: '70%',
+                      maxWidth: '85%',
                       backgroundColor: message.type === 'human' ? 'var(--color-brand-primary)' : 'var(--color-surface-secondary)',  // Theme-aware backgrounds
                     }}
                   >
@@ -245,12 +296,15 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
                     </Text>
                   </Paper>
                   {message.type === 'human' && (
-                    <Avatar 
-                      size="md" 
-                      radius="xl" 
-                      src={null}
-                      alt="User"
-                    />
+                    <Avatar
+                      size="md"
+                      radius="xl"
+                      src={sessionUser?.image ?? null}
+                      alt={sessionUser?.name ?? 'User'}
+                      className="bg-brand-primary text-white"
+                    >
+                      {!sessionUser?.image && userInitials}
+                    </Avatar>
                   )}
                 </Group>
               </Box>
@@ -262,7 +316,8 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
               <TextInput
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your message..."
+                placeholder={isStreaming ? "Waiting for response..." : "Type your message..."}
+                disabled={isStreaming}
                 style={{ flex: 1 }}
                 radius="sm"
                 size="lg"
@@ -291,11 +346,13 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
                         <IconMicrophone size={16} />
                       )}
                     </ActionIcon>
-                    <Button 
-                      type="submit" 
+                    <Button
+                      type="submit"
                       radius="sm"
                       size="sm"
                       variant="filled"
+                      disabled={isStreaming}
+                      loading={isStreaming}
                     >
                       <IconSend size={16} />
                     </Button>

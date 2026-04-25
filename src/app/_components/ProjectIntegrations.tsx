@@ -32,12 +32,18 @@ import {
   IconBrandSlack,
   IconRefresh,
   IconFolder,
+  IconDatabase,
+  IconArrowsLeftRight,
+  IconClock,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useDisclosure } from "@mantine/hooks";
 import { useForm } from "@mantine/form";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { NotionSetupWizard } from "./integrations/NotionSetupWizard";
 
 interface ProjectIntegrationsProps {
   project: {
@@ -91,11 +97,27 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const [expandedIntegrations, setExpandedIntegrations] = useState<Set<string>>(new Set());
   const [newIntegrationModalOpened, { open: openNewIntegrationModal, close: closeNewIntegrationModal }] = useDisclosure(false);
   const [configureProjectModalOpened, { open: openConfigureProjectModal, close: closeConfigureProjectModal }] = useDisclosure(false);
+  const [notionWizardOpened, { open: openNotionWizard, close: closeNotionWizard }] = useDisclosure(false);
+  const [notionWizardEditMode, setNotionWizardEditMode] = useState(false);
   const [selectedSlackIntegration, setSelectedSlackIntegration] = useState<string>('');
   const [selectedSlackChannel, setSelectedSlackChannel] = useState<string>('');
   const [slackConfigExpanded, setSlackConfigExpanded] = useState(false);
   const [selectedNotionProjectId, setSelectedNotionProjectId] = useState<string>(project.notionProjectId ?? '');
   const [selectedSyncStrategy, setSelectedSyncStrategy] = useState<string>(project.taskManagementConfig?.syncStrategy ?? 'manual');
+  const [mondayConfigOpened, { open: openMondayConfig, close: closeMondayConfig }] = useDisclosure(false);
+  const [mondayBoardId, setMondayBoardId] = useState<string>(project.taskManagementConfig?.boardId ?? '');
+  const [mondaySyncDirection, setMondaySyncDirection] = useState<string>(project.taskManagementConfig?.syncDirection ?? 'pull');
+  const [mondaySyncFrequency, setMondaySyncFrequency] = useState<string>(project.taskManagementConfig?.syncFrequency ?? 'manual');
+  const searchParams = useSearchParams();
+
+  // Auto-open Notion wizard after OAuth redirect
+  useEffect(() => {
+    const successParam = searchParams.get('success');
+    if (successParam?.toLowerCase().includes('notion')) {
+      setNotionWizardEditMode(false);
+      openNotionWizard();
+    }
+  }, [searchParams, openNotionWizard]);
 
   // Get available workflows for this project
   const { data: workflows = [] } = api.workflow.list.useQuery();
@@ -178,18 +200,21 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
 
   // Sync workflow mutation
   const runWorkflow = api.workflow.run.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
+      const debugInfo = data.debug ? ` | Route: ${data.debug.route} | Board: ${data.debug.boardId ?? 'n/a'} | Items fetched: ${data.debug.boardItemCount ?? 'n/a'}` : '';
       notifications.show({
         title: 'Sync Complete',
-        message: `Successfully synced ${data.itemsCreated} new tasks and updated ${data.itemsUpdated} existing tasks.`,
-        color: 'green',
+        message: `Synced ${data.itemsCreated} new, updated ${data.itemsUpdated}, skipped ${data.itemsSkipped ?? 0}. Processed ${data.itemsProcessed ?? '?'} items.${debugInfo}`,
+        color: data.itemsCreated > 0 || data.itemsUpdated > 0 ? 'green' : 'yellow',
+        autoClose: 10000,
       });
     },
     onError: (error) => {
       notifications.show({
         title: 'Sync Failed',
-        message: error.message || 'Failed to sync with Notion',
+        message: error.message || 'Failed to sync',
         color: 'red',
+        autoClose: 10000,
       });
     },
   });
@@ -251,9 +276,13 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
       ? selectedSlackChannel 
       : `#${selectedSlackChannel}`;
 
+    // Look up the Slack channel ID from the available channels list
+    const channelId = availableChannels.find(c => c.name === selectedSlackChannel)?.id;
+
     configureSlackChannelMutation.mutate({
       integrationId: selectedSlackIntegration,
       channel: channelName,
+      channelId,
       projectId: project.id,
     });
   };
@@ -265,7 +294,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   };
 
   // Notion sync handler
-  const handleSyncNotion = () => {
+  const handleSync = () => {
     const workflowId = project.taskManagementConfig?.workflowId;
     if (!workflowId) {
       notifications.show({
@@ -299,6 +328,88 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
       notionProjectId: selectedNotionProjectId,
     });
     closeConfigureProjectModal();
+  };
+
+  // Update workflow mutation (for syncing workflow record with config changes)
+  const updateWorkflow = api.workflow.update.useMutation({
+    onError: (error) => {
+      console.error('Failed to update workflow:', error);
+    },
+  });
+
+  // Delete workflow mutation
+  const deleteWorkflow = api.workflow.delete.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Workflow Deleted',
+        message: 'Workflow has been removed.',
+        color: 'green',
+      });
+      void utils.workflow.list.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to delete workflow',
+        color: 'red',
+      });
+    },
+  });
+
+  // Remove integration from project
+  const handleRemoveIntegration = async () => {
+    await updateTaskManagement.mutateAsync({
+      id: project.id,
+      taskManagementTool: 'internal',
+      taskManagementConfig: {},
+    });
+  };
+
+  // Save Monday.com configuration handler
+  const handleSaveMondayConfig = async () => {
+    if (!mondayBoardId.trim()) {
+      notifications.show({
+        title: 'Error',
+        message: 'Please enter a board ID',
+        color: 'red',
+      });
+      return;
+    }
+
+    const workflowId = project.taskManagementConfig?.workflowId;
+
+    if (!workflowId) {
+      notifications.show({
+        title: 'Error',
+        message: 'No workflow linked to this project. Please remove and re-add the Monday.com integration via "Add to Project".',
+        color: 'red',
+      });
+      return;
+    }
+
+    // Update the project's taskManagementConfig
+    await updateTaskManagement.mutateAsync({
+      id: project.id,
+      taskManagementTool: 'monday',
+      taskManagementConfig: {
+        ...project.taskManagementConfig,
+        boardId: mondayBoardId.trim(),
+        syncDirection: mondaySyncDirection,
+        syncFrequency: mondaySyncFrequency,
+      },
+    });
+
+    // Also update the actual workflow record so workflow.run reads the correct config
+    await updateWorkflow.mutateAsync({
+      id: workflowId,
+      syncDirection: mondaySyncDirection as 'push' | 'pull' | 'bidirectional',
+      syncFrequency: mondaySyncFrequency as 'manual' | 'hourly' | 'daily' | 'weekly',
+      config: {
+        boardId: mondayBoardId.trim(),
+      },
+    });
+
+    closeMondayConfig();
   };
 
   // Get configured integrations for this project
@@ -352,12 +463,15 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
         },
       });
     } else if (values.type === 'monday') {
+      const boardId = (workflow.config && typeof workflow.config === 'object' && 'boardId' in workflow.config && typeof workflow.config.boardId === 'string') ? workflow.config.boardId : '';
       await updateTaskManagement.mutateAsync({
         id: project.id,
         taskManagementTool: 'monday',
         taskManagementConfig: {
           workflowId: values.workflowId,
-          boardId: (workflow.config && typeof workflow.config === 'object' && 'boardId' in workflow.config && typeof workflow.config.boardId === 'string') ? workflow.config.boardId : '',
+          boardId,
+          syncDirection: 'pull',
+          syncFrequency: 'manual',
         },
       });
     }
@@ -419,40 +533,105 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                       </ActionIcon>
                     </Group>
 
+                    {/* Configuration Summary */}
+                    {integration.config && (
+                      <Paper p="sm" radius="sm" className="bg-surface-secondary">
+                        <Group gap="lg" wrap="wrap">
+                          {(integration.config.databaseName ?? integration.config.databaseId) && (
+                            <Group gap="xs">
+                              <IconDatabase size={14} className="text-text-muted" />
+                              <Text size="sm">
+                                {integration.config.databaseName ?? integration.config.databaseId}
+                              </Text>
+                            </Group>
+                          )}
+                          {integration.config.syncDirection && (
+                            <Group gap="xs">
+                              <IconArrowsLeftRight size={14} className="text-text-muted" />
+                              <Text size="sm">
+                                {integration.config.syncDirection === 'pull'
+                                  ? `Pull from ${integration.id === 'notion' ? 'Notion' : 'Monday.com'}`
+                                  : integration.config.syncDirection === 'push'
+                                    ? `Push to ${integration.id === 'notion' ? 'Notion' : 'Monday.com'}`
+                                    : 'Bidirectional'}
+                              </Text>
+                            </Group>
+                          )}
+                          {integration.config.syncFrequency && (
+                            <Group gap="xs">
+                              <IconClock size={14} className="text-text-muted" />
+                              <Text size="sm" tt="capitalize">
+                                {integration.config.syncFrequency}
+                              </Text>
+                            </Group>
+                          )}
+                          {integration.id === 'notion' && integration.config.notionWorkspaceName && (
+                            <Group gap="xs">
+                              <IconBrandNotion size={14} className="text-text-muted" />
+                              <Text size="sm">
+                                {integration.config.notionWorkspaceName}
+                              </Text>
+                            </Group>
+                          )}
+                        </Group>
+                      </Paper>
+                    )}
+
                     {/* Action Buttons Row */}
                     <Group gap="xs">
                       <Button
                         size="sm"
                         variant="filled"
                         leftSection={<IconRefresh size={14} />}
-                        onClick={handleSyncNotion}
+                        onClick={handleSync}
                         loading={runWorkflow.isPending}
                       >
                         Sync
                       </Button>
-                      <Button
-                        component={Link}
-                        href={integration.href}
-                        size="sm"
-                        variant="light"
-                        leftSection={<IconSettings size={14} />}
-                      >
-                        Configure Notion
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="light"
-                        leftSection={<IconFolder size={14} />}
-                        onClick={openConfigureProjectModal}
-                      >
-                        Configure Project
-                      </Button>
+                      {integration.id === 'monday' && (
+                        <Button
+                          size="sm"
+                          variant="light"
+                          leftSection={<IconSettings size={14} />}
+                          onClick={() => {
+                            setMondayBoardId(integration.config?.boardId ?? '');
+                            setMondaySyncDirection(integration.config?.syncDirection ?? 'push');
+                            setMondaySyncFrequency(integration.config?.syncFrequency ?? 'manual');
+                            openMondayConfig();
+                          }}
+                        >
+                          Configure
+                        </Button>
+                      )}
+                      {integration.id === 'notion' && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="light"
+                            leftSection={<IconSettings size={14} />}
+                            onClick={() => {
+                              setNotionWizardEditMode(true);
+                              openNotionWizard();
+                            }}
+                          >
+                            Configure Notion
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="light"
+                            leftSection={<IconFolder size={14} />}
+                            onClick={openConfigureProjectModal}
+                          >
+                            Configure Project
+                          </Button>
+                        </>
+                      )}
                     </Group>
 
                     {/* Expandable Details */}
                     <Collapse in={isExpanded}>
                       <Stack gap="md" pt="sm">
-                        <Alert 
+                        <Alert
                           icon={<IconCheck size={16} />}
                           title="Integration Active"
                           color="green"
@@ -461,14 +640,14 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                           This integration is configured and ready to sync data.
                         </Alert>
 
-                        {/* Configuration Details */}
+                        {/* Advanced Configuration Details */}
                         {integration.config && (
-                          <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800/50">
-                            <Text size="sm" fw={500} mb="xs">Current Configuration:</Text>
+                          <Paper p="sm" radius="sm" className="bg-surface-secondary">
+                            <Text size="sm" fw={500} mb="xs">Advanced Details:</Text>
                             <Stack gap="xs">
                               {integration.config.workflowId && (
                                 <Text size="xs" c="dimmed">
-                                  Workflow: {workflows.find(w => w.id === integration.config.workflowId)?.name || 'Unknown'}
+                                  Workflow: {workflows.find(w => w.id === integration.config.workflowId)?.name ?? 'Unknown'}
                                 </Text>
                               )}
                               {integration.config.databaseId && (
@@ -549,11 +728,17 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                           </Button>
                         ) : (
                           <Button
-                            component={Link}
-                            href={integration.href}
                             size="sm"
                             variant="light"
                             leftSection={<IconExternalLink size={14} />}
+                            onClick={() => {
+                              if (integration.id === 'notion') {
+                                setNotionWizardEditMode(false);
+                                openNotionWizard();
+                              } else {
+                                window.location.href = integration.href;
+                              }
+                            }}
                           >
                             Setup Integration
                           </Button>
@@ -572,20 +757,26 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                     {/* Expandable Details */}
                     <Collapse in={isExpanded}>
                       <Stack gap="md" pt="sm">
-                        {!hasActiveIntegration || !hasWorkflows ? (
-                          <Alert 
+                        {!hasActiveIntegration ? (
+                          <Alert
                             icon={<IconAlertCircle size={16} />}
                             title="Setup Required"
                             color="orange"
                             variant="light"
                           >
-                            {!hasActiveIntegration 
-                              ? `Create a ${integration.title} integration first, then add it to this project.`
-                              : `No workflows found for ${integration.title}. Create a workflow first.`
-                            }
+                            {`Connect your ${integration.title.replace(' Sync', '').replace(' Integration', '')} account first, then configure sync for this project.`}
+                          </Alert>
+                        ) : !hasWorkflows ? (
+                          <Alert
+                            icon={<IconCheck size={16} />}
+                            title="Account Connected"
+                            color="blue"
+                            variant="light"
+                          >
+                            {`Your ${integration.title.replace(' Sync', '').replace(' Integration', '')} account is connected. Click "Setup Integration" to select a database and configure sync.`}
                           </Alert>
                         ) : (
-                          <Alert 
+                          <Alert
                             icon={<IconCheck size={16} />}
                             title="Ready to Add"
                             color="blue"
@@ -626,16 +817,75 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
               variant="light"
             >
               <Text size="sm">
-                This project already has a task sync integration configured. To avoid conflicts, 
-                only one task management sync (Notion OR Monday.com) is supported per project.
-              </Text>
-              <Text size="sm" mt="xs">
-                To switch to a different task sync integration, you&apos;ll need to remove the current one first 
-                by changing the task management tool to &quot;Internal&quot; in the integration settings.
+                This project already has a task sync integration configured. 
+                Remove it below to switch to a different one.
               </Text>
             </Alert>
           </Stack>
         ) : null}
+
+        {/* Linked Workflows List */}
+        {workflows.filter(w => w.project?.id === project.id).length > 0 && (
+          <Stack gap="sm">
+            <Text size="sm" fw={500} c="dimmed">Linked Workflows</Text>
+            {workflows.filter(w => w.project?.id === project.id).map((w) => (
+              <Card key={w.id} shadow="sm" padding="sm" radius="md" withBorder>
+                <Group justify="space-between" align="center">
+                  <Stack gap={2}>
+                    <Group gap="xs">
+                      <Text size="sm" fw={500}>{w.name}</Text>
+                      <Badge size="xs" variant="light" color={w.integration?.status === 'ACTIVE' ? 'green' : 'red'}>
+                        {w.integration?.status ?? 'Unknown'}
+                      </Badge>
+                    </Group>
+                    <Group gap="xs">
+                      <Text size="xs" c="dimmed">Provider: {w.integration?.provider ?? w.provider}</Text>
+                      <Text size="xs" c="dimmed">·</Text>
+                      <Text size="xs" c="dimmed">Direction: {(w as any).syncDirection ?? 'push'}</Text>
+                    </Group>
+                    {w.runs?.[0] && (
+                      <Text size="xs" c="dimmed">
+                        Last run: {w.runs[0].status} — {w.runs[0].itemsCreated ?? 0} created, {w.runs[0].itemsUpdated ?? 0} updated
+                        {w.runs[0].errorMessage && ` — Error: ${w.runs[0].errorMessage}`}
+                      </Text>
+                    )}
+                  </Stack>
+                  <ActionIcon
+                    variant="subtle"
+                    color="red"
+                    onClick={() => {
+                      if (confirm('Delete this workflow? This cannot be undone.')) {
+                        deleteWorkflow.mutate({ id: w.id });
+                      }
+                    }}
+                    loading={deleteWorkflow.isPending}
+                    aria-label="Delete workflow"
+                  >
+                    <IconTrash size={16} />
+                  </ActionIcon>
+                </Group>
+              </Card>
+            ))}
+          </Stack>
+        )}
+
+        {/* Remove Integration Button */}
+        {configuredIntegrations.length > 0 && (
+          <Button
+            variant="subtle"
+            color="red"
+            size="sm"
+            leftSection={<IconTrash size={14} />}
+            onClick={() => {
+              if (confirm('Remove the task sync integration from this project? Workflows will not be deleted.')) {
+                void handleRemoveIntegration();
+              }
+            }}
+            loading={updateTaskManagement.isPending}
+          >
+            Remove Task Sync Integration
+          </Button>
+        )}
 
         {/* Slack Notifications Section */}
         {slackIntegrations.length > 0 && (
@@ -914,6 +1164,70 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
             </Group>
           </Stack>
         </form>
+      </Modal>
+
+      {/* Notion Setup Wizard */}
+      <NotionSetupWizard
+        opened={notionWizardOpened}
+        onClose={closeNotionWizard}
+        project={project}
+        editMode={notionWizardEditMode}
+      />
+
+      {/* Monday.com Configuration Modal */}
+      <Modal
+        opened={mondayConfigOpened}
+        onClose={closeMondayConfig}
+        title="Configure Monday.com Integration"
+        size="md"
+      >
+        <Stack gap="md">
+          <TextInput
+            label="Board ID"
+            description="The Monday.com board ID to sync tasks with"
+            placeholder="e.g. 9693278102"
+            value={mondayBoardId}
+            onChange={(e) => setMondayBoardId(e.currentTarget.value)}
+            required
+          />
+
+          <Select
+            label="Sync Direction"
+            description="Which direction should tasks sync?"
+            data={[
+              { value: 'pull', label: 'Pull — Monday.com is source of truth' },
+              { value: 'push', label: 'Push — Send tasks to Monday.com' },
+              { value: 'bidirectional', label: 'Bidirectional — Sync both ways (coming soon)', disabled: true },
+            ]}
+            value={mondaySyncDirection}
+            onChange={(value) => setMondaySyncDirection(value ?? 'push')}
+          />
+
+          <Select
+            label="Sync Frequency"
+            description="How often should tasks sync automatically?"
+            data={[
+              { value: 'manual', label: 'Manual — Only when you click Sync' },
+              { value: 'hourly', label: 'Hourly' },
+              { value: 'daily', label: 'Daily' },
+            ]}
+            value={mondaySyncFrequency}
+            onChange={(value) => setMondaySyncFrequency(value ?? 'manual')}
+          />
+
+          <Group justify="flex-end">
+            <Button variant="light" onClick={closeMondayConfig}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveMondayConfig}
+              loading={updateTaskManagement.isPending}
+              leftSection={<IconCheck size={16} />}
+            >
+              Save Configuration
+            </Button>
+          </Group>
+        </Stack>
       </Modal>
 
       {/* Configure Project Modal */}

@@ -1,0 +1,277 @@
+/* ZoeDrawer.module.css
+   Right-side AI assistant drawer.
+   All colors reference tokens from globals.css — no hex, no rgba.
+   See dev-docs/styling-architecture.md */
+
+/* ---- Container + open state ---- */
+.zoeRoot {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: 560px;
+  z-index: 80;
+  display: flex;
+  pointer-events: none;
+  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  color: var(--color-text-primary);
+}
+.zoeRoot.isMax { width: auto; left: 0; }
+.zoeRoot.isOpen { pointer-events: auto; }
+
+.zoeRoot[data-size="s"] { width: 400px; }
+.zoeRoot[data-size="m"] { width: 560px; }
+.zoeRoot[data-size="l"] { width: 760px; }
+
+/* Backdrop — only in maximised mode */
+.zoeBackdrop {
+  position: fixed; inset: 0;
+  background: color-mix(in srgb, black 56%, transparent);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 200ms;
+  pointer-events: none;
+}
+.zoeRoot.isMax .zoeBackdrop {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Drawer */
+.zoeDrawer {
+  position: relative;
+  height: 100vh;
+  width: 100%;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  border-left: 1px solid var(--color-border-primary);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1), border-radius 220ms;
+  box-shadow: -30px 0 60px -20px color-mix(in srgb, black 50%, transparent);
+}
+.zoeRoot.isOpen .zoeDrawer { transform: translateX(0); }
+.zoeRoot.isMax .zoeDrawer {
+  position: fixed;
+  top: 4vh; right: 4vw; bottom: 4vh; left: 4vw;
+  width: auto; height: auto;
+  border-radius: 14px;
+  border: 1px solid var(--color-border-primary);
+  transform: translateX(0);
+  box-shadow: 0 40px 120px color-mix(in srgb, black 60%, transparent);
+}
+
+/* ---- Header ---- */
+.zoeHead {
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 48px;
+}
+.zoeHeadIdentity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  padding: 4px 8px 4px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  transition: background 120ms;
+}
+.zoeHeadIdentity:hover { background: var(--color-bg-hover); }
+
+.zoeHeadAvatar {
+  width: 26px; height: 26px;
+  border-radius: 6px;
+  display: grid; place-items: center;
+  color: var(--color-text-inverse);
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, white 8%, transparent);
+  background: linear-gradient(135deg, var(--accent-meetings), var(--brand-600));
+}
+
+.zoeHeadTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1.15;
+}
+.zoeHeadThread {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  line-height: 1.15;
+}
+.zoeHeadSpacer { flex: 1; }
+
+.zoeIconBtn {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.zoeIconBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.zoeIconBtnActive {
+  background: var(--color-surface-muted);
+  color: var(--color-text-primary);
+}
+
+/* Size toggle */
+.zoeSizeToggle {
+  display: flex;
+  background: var(--color-surface-muted);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 1px;
+}
+.zoeSizeToggle button {
+  padding: 3px 9px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.zoeSizeToggle button:hover { color: var(--color-text-primary); }
+.zoeSizeToggle button.on {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  box-shadow: 0 1px 2px color-mix(in srgb, black 30%, transparent);
+}
+
+/* ---- Context strip ---- */
+.zoeContext {
+  padding: 8px 14px 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--brand-400) 3%, transparent) 0%,
+    transparent 100%);
+}
+.zoeContextLabel {
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.zoeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 11px;
+  font-size: 11.5px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  font-family: inherit;
+  cursor: default;
+}
+.zoeChip svg { color: var(--brand-400); }
+.zoeChipBtn {
+  cursor: pointer;
+  transition: border-color 120ms, color 120ms;
+}
+.zoeChipBtn:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+.zoeChipGhost {
+  border-style: dashed;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.zoeChipGhost:hover {
+  border-color: var(--brand-500);
+  color: var(--color-text-primary);
+}
+
+/* ---- Body wrapper (houses ManyChat) ---- */
+.zoeBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- Floating action button ---- */
+.zoeFab {
+  position: fixed;
+  right: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  width: 48px; height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent-meetings), var(--brand-600));
+  color: var(--color-text-inverse);
+  border: 0;
+  display: grid; place-items: center;
+  box-shadow:
+    0 10px 40px -10px color-mix(in srgb, var(--brand-400) 60%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, white 8%, transparent);
+  z-index: 60;
+  cursor: pointer;
+  transition: transform 160ms, box-shadow 160ms;
+}
+.zoeFab:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 14px 50px -8px color-mix(in srgb, var(--brand-400) 80%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, white 8%, transparent);
+}
+.zoeFabPulse {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent-crm);
+  box-shadow: 0 0 0 2px var(--color-bg-primary);
+}
+.zoeFabKbd {
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-primary);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms;
+}
+.zoeFab:hover .zoeFabKbd { opacity: 1; }
+
+@media (max-width: 700px) {
+  .zoeRoot[data-size="s"],
+  .zoeRoot[data-size="m"],
+  .zoeRoot[data-size="l"] {
+    width: 100vw;
+  }
+}

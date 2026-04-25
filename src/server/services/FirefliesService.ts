@@ -1,4 +1,5 @@
 import { type ParsedActionItem } from './processors/ActionProcessor';
+import { isEmptyFirefliesSummary } from '~/lib/fireflies-summary';
 
 export interface FirefliesSummary {
   keywords?: string[];
@@ -33,7 +34,7 @@ export interface FirefliesTranscript {
 }
 
 export interface ProcessedTranscriptionData {
-  summary: FirefliesSummary;
+  summary: FirefliesSummary | null;
   actionItems: ParsedActionItem[];
   transcriptText: string;
 }
@@ -61,9 +62,77 @@ export class FirefliesService {
     }
 
     for (const actionText of actionTexts) {
-      const parsedItem = this.parseActionItemText(actionText);
+      const parsedItem = this.parseActionItemText(actionText, { strict: false });
       if (parsedItem) {
         actionItems.push(parsedItem);
+      }
+    }
+
+    return actionItems;
+  }
+
+  /**
+   * Extract action items from raw transcript text as a fallback.
+   */
+  static extractActionItemsFromTranscriptText(transcriptText: string): ParsedActionItem[] {
+    if (!transcriptText || transcriptText.trim().length === 0) {
+      return [];
+    }
+
+    const matched = new Set<string>();
+    const actionItems: ParsedActionItem[] = [];
+    let currentSpeaker: string | undefined;
+
+    const lines = transcriptText
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    for (const line of lines) {
+      // Skip timestamp / chapter headings
+      if (/^\d{1,2}:\d{2}\s*(?:[-–]\s*\d{1,2}:\d{2})?/.test(line)) {
+        continue;
+      }
+
+      let content = line;
+      const speakerMatch = line.match(
+        /^([A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*)*):\s*(.+)$/
+      );
+      if (speakerMatch) {
+        currentSpeaker = speakerMatch[1]?.trim();
+        content = speakerMatch[2]?.trim() ?? "";
+      }
+
+      if (!content || content.length < 10) {
+        continue;
+      }
+
+      const sentences = content
+        .split(/[.!?]+/)
+        .map((sentence) => sentence.trim())
+        .filter((sentence) => sentence.length >= 10);
+
+      for (const sentence of sentences) {
+        const normalized = sentence.replace(/\s+/g, " ").trim();
+        if (!normalized) continue;
+        if (matched.has(normalized)) continue;
+        matched.add(normalized);
+
+        const parsedItem = this.parseActionItemText(normalized, {
+          strict: true,
+          speakerName: currentSpeaker,
+        });
+        if (parsedItem) {
+          actionItems.push(parsedItem);
+        }
+
+        if (actionItems.length >= 25) {
+          break;
+        }
+      }
+
+      if (actionItems.length >= 25) {
+        break;
       }
     }
 
@@ -108,12 +177,48 @@ export class FirefliesService {
   /**
    * Parse individual action item text to extract details
    */
-  private static parseActionItemText(text: string): ParsedActionItem | null {
+  private static parseActionItemText(
+    text: string,
+    options?: { strict?: boolean; speakerName?: string }
+  ): ParsedActionItem | null {
     if (!text || text.trim().length === 0) {
       return null;
     }
 
     let cleanText = text.trim();
+
+    if (options?.strict) {
+      // Drop obvious non-action lines (chapter headings, timestamps, questions)
+      const nonActionPatterns = [
+        /^\d{1,2}:\d{2}\s*(?:[-–]\s*\d{1,2}:\d{2})?/,
+        /\bwrap-up\b/i,
+        /\bnext steps\b/i,
+        /^\s*(?:here’s|here is)\s+what\b/i,
+        /^\s*(?:and\s+today,?\s*)?what\s+does\b/i,
+        /^\s*how\s+does\b/i,
+        /^\s*why\s+does\b/i,
+        /^\s*when\s+does\b/i,
+        /^\s*where\s+does\b/i,
+        /^\s*who\s+does\b/i,
+      ];
+      const looksLikeQuestion = cleanText.endsWith("?");
+      const looksLikeNonAction = nonActionPatterns.some((pattern) => pattern.test(cleanText));
+
+      if (looksLikeQuestion || looksLikeNonAction) {
+        return null;
+      }
+
+      // Require action-like intent (imperative or commitment phrasing)
+      const actionIntentPatterns = [
+        /^(?:action\s*item|todo|task|next\s*step|follow\s*up)\b/i,
+        /^(?:please|assign|send|share|schedule|book|set up|create|draft|write|update|fix|review|ship|publish|deploy|test|investigate|follow up|circle back|confirm|ping|email|call|message|sync|meet|prepare|finalize|collect|gather|compile|organize|summarize)\b/i,
+        /\b(?:we should|we need to|we'll|we will|let's|lets|need to|needs to|must|assign|owner|due by|by end of|by eod|by eow)\b/i,
+      ];
+      const hasActionIntent = actionIntentPatterns.some((pattern) => pattern.test(cleanText));
+      if (!hasActionIntent) {
+        return null;
+      }
+    }
     let assignee: string | undefined;
 
     // Extract assignee from [ASSIGNEE:Name] tag first
@@ -131,20 +236,28 @@ export class FirefliesService {
 
     // Also try to extract assignee from @mention or "John will..." patterns (fallback)
     if (!assignee) {
-      const assigneeMatch = cleanText.match(/@(\w+)|(\w+)\s+(?:will|should|needs to|must)/i);
-      if (assigneeMatch) {
-        actionItem.assignee = assigneeMatch[1] || assigneeMatch[2];
+      actionItem.assignee = FirefliesService.parseAssigneeFromText(cleanText);
+    }
+
+    if (!actionItem.assignee && options?.speakerName) {
+      const firstPersonPatterns = [
+        /\bI will\b/i,
+        /\bI'll\b/i,
+        /\bI can\b/i,
+        /\bI should\b/i,
+        /\bI need to\b/i,
+        /\bI'm going to\b/i,
+        /\blet me\b/i,
+      ];
+      const hasFirstPerson = firstPersonPatterns.some((pattern) => pattern.test(cleanText));
+      if (hasFirstPerson) {
+        actionItem.assignee = options.speakerName;
       }
     }
 
-    // Extract due date (look for date patterns)
-    const dueDateMatch = text.match(/(?:by|before|until|due)\s+([\w\s,]+?)(?:\s|$|\.)/i);
-    if (dueDateMatch && dueDateMatch[1]) {
-      const dateStr = dueDateMatch[1].trim();
-      const parsedDate = this.parseDate(dateStr);
-      if (parsedDate) {
-        actionItem.dueDate = parsedDate;
-      }
+    const parsedDueDate = FirefliesService.extractDueDateFromText(text);
+    if (parsedDueDate) {
+      actionItem.dueDate = parsedDueDate;
     }
 
     // Extract priority indicators
@@ -162,7 +275,7 @@ export class FirefliesService {
   /**
    * Parse date strings into Date objects
    */
-  private static parseDate(dateStr: string): Date | undefined {
+  static parseDate(dateStr: string): Date | undefined {
     try {
       // Handle common relative dates
       const today = new Date();
@@ -202,41 +315,60 @@ export class FirefliesService {
     return undefined;
   }
 
-  /**
-   * Structure summary data for storage and display
-   */
-  static processSummary(summary: FirefliesSummary | null | undefined): FirefliesSummary {
-    if (!summary) {
-      return {
-        keywords: [],
-        action_items: [],
-        outline: '',
-        shorthand_bullet: [],
-        overview: '',
-        bullet_gist: [],
-        gist: '',
-        short_summary: '',
-        short_overview: '',
-        meeting_type: '',
-        topics_discussed: [],
-        transcript_chapters: [],
-      };
+  static parseAssigneeFromText(text: string): string | undefined {
+    const assigneeMatch = text.match(/@(\w+)/i);
+    if (assigneeMatch?.[1]) {
+      return assigneeMatch[1];
     }
 
-    return {
-      keywords: summary.keywords || [],
-      action_items: summary.action_items || [],
-      outline: summary.outline || '',
-      shorthand_bullet: summary.shorthand_bullet || [],
-      overview: summary.overview || '',
-      bullet_gist: summary.bullet_gist || [],
-      gist: summary.gist || '',
-      short_summary: summary.short_summary || '',
-      short_overview: summary.short_overview || '',
-      meeting_type: summary.meeting_type || '',
-      topics_discussed: summary.topics_discussed || [],
-      transcript_chapters: summary.transcript_chapters || [],
+    const namedAssigneeMatch = text.match(
+      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:will|should|needs to|must|to)\b/
+    );
+    if (namedAssigneeMatch?.[1]) {
+      return namedAssigneeMatch[1];
+    }
+
+    return undefined;
+  }
+
+  static extractDueDateFromText(text: string): Date | undefined {
+    const dueDateMatch = text.match(/(?:by|before|until|due)\s+([\w\s,]+?)(?:\s|$|\.)/i);
+    if (dueDateMatch?.[1]) {
+      const dateStr = dueDateMatch[1].trim();
+      return FirefliesService.parseDate(dateStr);
+    }
+    return undefined;
+  }
+
+  /**
+   * Structure summary data for storage and display.
+   * Returns null if summary is missing or all fields are empty.
+   */
+  static processSummary(summary: FirefliesSummary | null | undefined): FirefliesSummary | null {
+    if (!summary) {
+      return null;
+    }
+
+    const processed: FirefliesSummary = {
+      keywords: summary.keywords ?? [],
+      action_items: summary.action_items ?? [],
+      outline: summary.outline ?? '',
+      shorthand_bullet: summary.shorthand_bullet ?? [],
+      overview: summary.overview ?? '',
+      bullet_gist: summary.bullet_gist ?? [],
+      gist: summary.gist ?? '',
+      short_summary: summary.short_summary ?? '',
+      short_overview: summary.short_overview ?? '',
+      meeting_type: summary.meeting_type ?? '',
+      topics_discussed: summary.topics_discussed ?? [],
+      transcript_chapters: summary.transcript_chapters ?? [],
     };
+
+    if (isEmptyFirefliesSummary(processed)) {
+      return null;
+    }
+
+    return processed;
   }
 
   /**
@@ -261,8 +393,7 @@ export class FirefliesService {
   static processTranscription(transcript: FirefliesTranscript): ProcessedTranscriptionData {
     try {
       const summary = this.processSummary(transcript.summary);
-      console.log('📚 summary', summary);
-      const actionItems = this.parseActionItems(summary);
+      const actionItems = summary ? this.parseActionItems(summary) : [];
       const transcriptText = JSON.stringify(transcript, null, 2);
 
       return {
@@ -272,10 +403,9 @@ export class FirefliesService {
       };
     } catch (error) {
       console.error(`Failed to process transcript ${transcript.id}:`, error);
-      
-      // Return minimal data if processing fails
+
       return {
-        summary: this.processSummary(null), // Returns empty summary
+        summary: null,
         actionItems: [],
         transcriptText: JSON.stringify(transcript, null, 2),
       };

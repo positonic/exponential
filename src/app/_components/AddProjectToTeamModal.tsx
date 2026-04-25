@@ -15,9 +15,7 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
-
-type ProjectStatus = "ACTIVE" | "COMPLETED" | "ON_HOLD" | "CANCELLED";
-type ProjectPriority = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+import type { ProjectStatus, ProjectPriority } from '~/types/project';
 
 interface AddProjectToTeamModalProps {
   children: React.ReactNode;

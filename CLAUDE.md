@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. **NEVER USE HARDCODED HEX COLORS** like `#262626`, `#C1C2C5`, `#373A40`, `#1a1b1e`, etc.
 2. **NEVER USE RGB/RGBA COLORS** like `rgb(26, 27, 30)` or `rgba(0, 0, 0, 0.5)`
 3. **THE BUILD WILL FAIL** if you introduce ANY hardcoded color
-4. **ALWAYS READ** `/docs/styling-architecture.md` before ANY styling work
+4. **ALWAYS READ** `/dev-docs/styling-architecture.md` before ANY styling work
 
 ### ✅ CORRECT Color Usage:
 ```tsx
@@ -37,7 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run preview` - Build and start production server
-- Always use bun to install packages
+- Always use npm to install packages
 
 ### Code Quality
 
@@ -60,14 +60,14 @@ This project uses enhanced ESLint integration with immediate feedback and build-
 - Proper type imports (`import type {}`)
 - No unused variables or imports
 
-See `/docs/ESLINT_INTEGRATION.md` for complete rule details and fix patterns.
+See `/dev-docs/ESLINT_INTEGRATION.md` for complete rule details and fix patterns.
 
 ### Database Operations
 - `npx prisma migrate dev --name <migration_name>` - Create and apply a new migration (ALWAYS use this for schema changes!)
 - `npm run db:generate` - Generate Prisma client after migrations
 - `npm run db:migrate` - Deploy database migrations (production)
 - `npm run db:studio` - Open Prisma Studio for database management
-- `bun prisma/seed.ts` - Seed database with initial data
+- `npx tsx prisma/seed.ts` - Seed database with initial data
 
 **IMPORTANT**: Always create proper migration files when changing the schema:
 1. First, modify the schema.prisma file
@@ -97,13 +97,72 @@ Migrations are essential for:
 - Rollback capabilities
 
 ### Testing
-- Always run `npm run check` before committing to ensure code quality
-- No specific test framework configured - check if tests exist before running
+
+Uses **Vitest** with a multi-project config (unit + integration). Tests run automatically in CI on every PR.
+
+**Commands:**
+- `npm run test` — Run unit tests (<1s, no dependencies)
+- `npm run test:integration` — Run integration tests (~75s, requires Docker/OrbStack)
+- `npm run test:all` — Run both unit and integration tests
+- `npm run check` — Lint + typecheck (always run before committing)
+
+**Unit tests** (`*.test.ts`) — pure function tests, no DB needed:
+- Access control permissions (`src/server/services/access/__tests__/`)
+- Parsing logic (`src/server/services/parsing/__tests__/`)
+- JWT utilities (`src/server/utils/__tests__/`)
+
+**Integration tests** (`*.integration.test.ts`) — real DB via Testcontainers:
+- tRPC router tests (`src/server/api/routers/__tests__/`)
+- Tests workspace, action, project, goal/outcome routers
+- Requires **Docker** (OrbStack recommended on macOS) OR `DATABASE_URL_TEST` env var
+
+**Writing new tests:**
+- Unit tests: add `*.test.ts` files anywhere, use `happy-dom` environment
+- Integration tests: add `*.integration.test.ts` files, use factories from `src/test/factories/`
+- Use `createTestCaller(userId)` from `src/test/trpc-helpers.ts` to call tRPC procedures
+- Use factory functions (`createUser`, `createWorkspace`, etc.) to set up test data
+
+**Key test infrastructure files:**
+- `vitest.config.ts` — multi-project config (unit + integration)
+- `src/test/test-db.ts` — Testcontainers PostgreSQL setup + cleanup
+- `src/test/integration-setup.ts` — mocks for Next.js/auth modules + DB lifecycle
+- `src/test/factories/index.ts` — test data factories (user, workspace, project, action, etc.)
+- `src/test/trpc-helpers.ts` — `createTestCaller()`, `createQueryCounter()`
+
+**CI:** GitHub Actions runs lint, unit tests, integration tests, and build on every PR (`.github/workflows/test.yml`)
 
 ### Deployment
 - **Automated Build Checks**: Pre-push git hook automatically runs `Vercel build` before pushing
 - **Main Branch Protection**: Additional type checking (`npm run typecheck`) runs when pushing to main
 - **Vercel Ready**: Application configured for automatic Vercel deployment
+
+## Project Management (Exponential App)
+
+**Project URL**: https://www.exponential.im/w/exponential/projects/mvp_development-cmlf3zmw40005l804w0eg28p4?tab=tasks
+
+This is the primary project board for tracking all development work. Use the `exponential` CLI to query tasks and project status.
+
+### Proactive Behavior
+- **At session start**: Run `exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json` to check current tasks and priorities
+- **When picking up new work**: Check the project board for the latest task assignments and statuses
+- **After completing work**: Update task status if applicable
+
+### Key CLI Commands
+```bash
+# Check current tasks for this project
+exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json
+
+# View kanban board
+exponential actions kanban --json
+
+# List all projects in the workspace
+exponential projects list --workspace exponential --json
+
+# Check auth status
+exponential auth status
+```
+
+The CLI outputs JSON when piped or when `--json` is passed, making it easy to parse programmatically. In a terminal it uses colored pretty output.
 
 ## Architecture Overview
 
@@ -123,6 +182,8 @@ This is a productivity management application built with the T3 Stack (Next.js 1
 - **Daily Planning**: Journal system with reflection and planning tools
 - **AI Assistant**: Chat interface with semantic video search
 - **Video Processing**: YouTube analysis and transcription support
+- **CRM**: Contact/organization management, deal pipeline (Kanban), Gmail/Calendar import. See `/dev-docs/CRM_ARCHITECTURE.md`
+- **Notifications**: Multi-channel notification system (email, push, WhatsApp). See `/dev-docs/NOTIFICATION_ARCHITECTURE.md`
 
 ## Directory Structure
 
@@ -131,11 +192,18 @@ src/
 ├── app/                     # Next.js app router
 │   ├── (home)/             # Landing page and authentication
 │   ├── (sidemenu)/         # Main authenticated application
+│   │   └── w/[workspaceSlug]/  # Workspace-scoped routes
+│   │       ├── projects/       # Projects page
+│   │       ├── goals/          # Goals page
+│   │       ├── outcomes/       # Outcomes page
+│   │       └── settings/       # Workspace settings
 │   ├── (web3)/             # Web3 integration (Silk wallet integration)
 │   ├── _components/        # Shared components
 │   │   ├── layout/         # Navigation and shell components
 │   │   └── sections/       # Content sections (journal, outcomes, etc.)
 │   └── api/                # API routes and tRPC handlers
+├── providers/              # React context providers
+│   └── WorkspaceProvider.tsx  # Workspace context
 ├── server/                 # Server-side code
 │   ├── api/                # tRPC routers and procedures
 │   ├── auth/               # Authentication configuration
@@ -154,7 +222,7 @@ src/
   - `vercel build` (comprehensive) - used only for major features
   - Tests and additional validations as needed
 - **Enhanced ESLint Integration**: Triple protection system prevents non-compliant code:
-  1. **Prevention**: Comprehensive documentation (`/docs/ESLINT_INTEGRATION.md`)
+  1. **Prevention**: Comprehensive documentation (`/dev-docs/ESLINT_INTEGRATION.md`)
   2. **Immediate Feedback**: Post-edit hooks run `npm run check` after file changes
   3. **Comprehensive Validation**: Build-tester agent ensures deployment readiness
 - When asked about PR readiness, immediately use: `Task subagent_type="build-tester"` with the PR details
@@ -176,6 +244,16 @@ src/
 - Authentication middleware protects authenticated endpoints
 - Database operations use Prisma with proper error handling
 
+### Access Control
+
+**REMINDER: Read `/dev-docs/ACCESS_CONTROL.md` before modifying any access control logic.**
+
+- Centralized access control service at `src/server/services/access/`
+- Use middleware (`requireActionAccess`, `requireWorkspaceMembership`, etc.) for new endpoints
+- Use `buildActionAccessWhere()` for bulk queries that need permission scoping
+- 5 access paths: workspace membership, team membership, project membership, ownership, admin
+- Never duplicate inline permission checks — use the centralized resolvers
+
 ### Authentication
 - NextAuth.js v5 with JWT strategy
 - Multiple OAuth providers (Discord, Google, Notion)
@@ -185,11 +263,64 @@ src/
 ### Database Schema
 Key entities include:
 - `User` - Authentication and user data
+- `Workspace` - Container for organizing projects/goals/outcomes (similar to Linear.app)
 - `Project` - Main project container with status/priority
 - `Action` - Tasks linked to projects with flexible priority
 - `Goal` - Strategic goals linked to life domains
 - `Outcome` - Measurable results (daily/weekly/monthly/quarterly)
 - `Video` - Media content with transcription and AI analysis
+
+### Workspaces
+
+Workspaces allow users to organize their work into separate containers (e.g., one per company/client). Each user gets an auto-created "Personal" workspace.
+
+**Data Model:**
+- `Workspace` - Container with name, slug, type (personal/team/organization)
+- `WorkspaceUser` - Many-to-many join table with role (owner/admin/member/viewer)
+- Projects, Goals, Outcomes, Actions all have optional `workspaceId` field
+
+**URL Structure:**
+- All workspace-scoped pages use `/w/[workspaceSlug]/...` routes
+- Example: `/w/personal-abc123/projects`, `/w/ftc/goals`
+
+**Frontend Pattern - Using WorkspaceProvider:**
+```tsx
+// In any component under /w/[workspaceSlug]/ routes:
+import { useWorkspace } from '~/providers/WorkspaceProvider';
+
+function MyComponent() {
+  const { workspace, workspaceId, isLoading } = useWorkspace();
+
+  // Pass workspaceId to queries for filtering
+  const { data } = api.project.getAll.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspace }
+  );
+}
+```
+
+**Backend Pattern - Adding Workspace Filtering:**
+```typescript
+// In tRPC routers, accept optional workspaceId and filter:
+getAll: protectedProcedure
+  .input(z.object({
+    workspaceId: z.string().optional(),
+  }).optional())
+  .query(async ({ ctx, input }) => {
+    return ctx.db.project.findMany({
+      where: {
+        createdById: ctx.session.user.id,
+        ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      },
+    });
+  }),
+```
+
+**Key Files:**
+- `src/providers/WorkspaceProvider.tsx` - React context for current workspace
+- `src/app/_components/layout/WorkspaceSwitcher.tsx` - UI for switching workspaces
+- `src/server/api/routers/workspace.ts` - Workspace CRUD operations
+- `src/app/(sidemenu)/w/[workspaceSlug]/layout.tsx` - Workspace route layout
 
 ### Component Organization
 - **Layout Components**: Navigation, sidebar, header
@@ -222,6 +353,27 @@ Required environment variables:
 - Video processing with transcription
 - Browser extension authentication
 - [Mastra AI](https://mastra.ai/en/docs) for multi-agent system infrastructure
+
+## Related Codebases
+
+### Mastra Agents Repository
+
+The AI agents for this application live in a separate repository:
+
+- **Location**: `../mastra` (relative to this project root)
+- **Purpose**: Contains all Mastra agent definitions, tools, and workflows
+- **Relationship**: This Next.js app communicates with agents via `MASTRA_API_URL`
+
+**When to reference the agents codebase:**
+- Building new agent tools that interact with this app's data
+- Debugging agent behavior or tool execution
+- Adding new tRPC endpoints that agents will call
+- Understanding the full request flow from UI → tRPC → Agent → Tool
+
+**Cross-repo development tips:**
+- When adding a new tool, check if a corresponding tRPC endpoint exists here
+- Agent tools often mirror the services layer in `src/server/services/`
+- JWT tokens generated here (see `src/server/api/routers/mastra.ts`) are verified by agents
 
 ## Development Notes
 
@@ -258,11 +410,11 @@ We use a hybrid git flow optimized for a small team (2 developers) that balances
 - All schema changes MUST go through develop branch first
 - Test database (Railway) shared by develop and all PR previews
 - Weekly batch merge from develop to main for migrations
-- See `/docs/DEVELOPMENT_WORKFLOW.md` for complete details
+- See `/dev-docs/DEVELOPMENT_WORKFLOW.md` for complete details
 
 ## Styling Architecture Details
 
-**REMINDER: Read `/docs/styling-architecture.md` for complete styling guidelines.**
+**REMINDER: Read `/dev-docs/styling-architecture.md` for complete styling guidelines.**
 
 The application uses a comprehensive styling system with light/dark mode support:
 
@@ -299,7 +451,7 @@ The application uses a comprehensive styling system with light/dark mode support
 - Borders: `border-border-primary`, `border-border-focus`
 - Interactive: `bg-brand-primary`, `hover:bg-surface-hover`
 
-**See `/docs/styling-architecture.md` for complete styling guidelines.**
+**See `/dev-docs/styling-architecture.md` for complete styling guidelines.**
 
 Always ensure code follows the project's ESLint rules and TypeScript configuration. Run `npm run check` before committing changes to maintain code quality.
 
@@ -318,7 +470,7 @@ Always ensure code follows the project's ESLint rules and TypeScript configurati
 - `❌ tRPC failed` - API errors and failures
 
 ## Git Worktree Workflow
-For parallel feature development using git worktrees, see the comprehensive guide at `/docs/git-worktree-workflow.md`. This includes:
+For parallel feature development using git worktrees, see the comprehensive guide at `/dev-docs/git-worktree-workflow.md`. This includes:
 - Claude Code custom commands for worktree management
 - Step-by-step instructions for feature development
 - Best practices and common gotchas
@@ -326,7 +478,7 @@ For parallel feature development using git worktrees, see the comprehensive guid
 
 ## IDE Enhancement with Serena MCP
 
-The project uses Serena MCP server for enhanced code intelligence. See `/docs/SERENA_MCP_GUIDE.md` for details.
+The project uses Serena MCP server for enhanced code intelligence. See `/dev-docs/SERENA_MCP_GUIDE.md` for details.
 
 ### Automatic Serena Management
 
@@ -347,6 +499,16 @@ The project uses Serena MCP server for enhanced code intelligence. See `/docs/SE
 - If cache is older than 7 days → Suggest re-indexing
 - After `git pull` with 10+ file changes → Auto re-index
 - When user reports "can't find symbol" → Re-index and retry
+
+## Reusable Agent Prompts
+
+The project includes reusable system prompts for specialized Claude agents in `.claude/prompts/`. These are pre-configured personas that can be loaded into new Claude sessions for specific tasks.
+
+### Available Agents
+- **Product Strategist** (`.claude/prompts/product-strategist.md`) - Sense-making for early-stage products. Builds mental models, identifies value propositions, assesses narrative readiness.
+
+### Usage
+Copy the prompt content into a new Claude session, then provide your inputs. See `.claude/prompts/README.md` for detailed instructions and a template for creating new agent prompts.
 
 ## Task Master AI Instructions
 **Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
@@ -423,3 +585,53 @@ The project uses Serena MCP server for enhanced code intelligence. See `/docs/SE
 - Update references to external docs
 - Maintain links between related rules
 - Document breaking changes
+
+## Beads Workflow (Task Tracking)
+
+**All task tracking in this project uses [beads](https://github.com/beads-project/beads) (`bd` CLI). This is mandatory.**
+
+### Rules
+- **Use `bd` for ALL task tracking** — never use `TodoWrite`, `TaskCreate`, or markdown task lists
+- **Create a beads issue BEFORE writing code**: `bd create --title="..." --type=task|bug|feature --priority=2`
+- **Claim work** before starting: `bd update <id> --status=in_progress`
+- **Close issues on completion**: `bd close <id>` (or `bd close <id1> <id2> ...` for batch)
+- **Sync at session end**: `bd sync`
+
+### Session Close Protocol
+Before saying "done" or "complete", run this checklist:
+```
+1. git status              (check what changed)
+2. git add <files>         (stage code changes)
+3. bd sync                 (commit beads changes)
+4. git commit -m "..."     (commit code)
+5. bd sync                 (commit any new beads changes)
+6. git push                (push to remote)
+```
+
+### Essential Commands
+```bash
+# Finding work
+bd ready                              # Show issues ready to work (no blockers)
+bd list --status=open                 # All open issues
+bd list --status=in_progress          # Active work
+bd show <id>                          # Detailed issue view
+
+# Creating & updating
+bd create --title="..." --type=task --priority=2   # New issue
+bd update <id> --status=in_progress                # Claim work
+bd close <id>                                      # Mark complete
+bd close <id> --reason="explanation"               # Close with reason
+
+# Dependencies
+bd dep add <issue> <depends-on>       # Add dependency
+bd blocked                            # Show blocked issues
+
+# Sync
+bd sync                               # Sync with git remote
+```
+
+### Priority Values
+Use numeric priorities: 0-4 or P0-P4 (0=critical, 2=medium, 4=backlog). Do NOT use "high"/"medium"/"low".
+
+### Warning
+Do NOT use `bd edit` — it opens `$EDITOR` (vim/nano) which blocks agents. Use `bd update` instead.

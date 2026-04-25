@@ -37,6 +37,9 @@ const AiInteractionSchema = z.object({
     completion: z.number().optional(),
     total: z.number().optional(),
     cost: z.number().optional(),
+    cacheReadInput: z.number().optional(),
+    cacheCreationInput: z.number().optional(),
+    modelId: z.string().optional(),
   }).optional(),
   hadError: z.boolean().optional(),
   errorMessage: z.string().optional(),
@@ -277,6 +280,161 @@ export const aiInteractionRouter = createTRPCRouter({
       })),
     };
   }),
+
+  /**
+   * Get list of conversations for sidebar (unique conversationIds with first message as title)
+   */
+  getConversationList: protectedProcedure
+    .input(
+      z.object({
+        limit: z.number().min(1).max(50).default(20),
+        search: z.string().optional(),
+        workspaceId: z.string().optional(),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const limit = input?.limit ?? 20;
+      const search = input?.search;
+      const workspaceId = input?.workspaceId;
+
+      // Build where clause
+      const whereClause: any = {
+        systemUserId: userId,
+        conversationId: { not: null },
+      };
+
+      if (workspaceId) {
+        whereClause.workspaceId = workspaceId;
+      }
+
+      if (search) {
+        whereClause.userMessage = { contains: search, mode: 'insensitive' };
+      }
+
+      // Get conversations with their first message (oldest) for title
+      // Group by conversationId and get the earliest message
+      const conversations = await ctx.db.aiInteractionHistory.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'asc' },
+        distinct: ['conversationId'],
+        select: {
+          conversationId: true,
+          userMessage: true,
+          createdAt: true,
+          agentName: true,
+        },
+      });
+
+      // Get latest activity for each conversation
+      const conversationIds = conversations.map(c => c.conversationId).filter(Boolean) as string[];
+
+      const latestActivities = await ctx.db.aiInteractionHistory.groupBy({
+        by: ['conversationId'],
+        where: {
+          conversationId: { in: conversationIds },
+        },
+        _max: {
+          createdAt: true,
+        },
+      });
+
+      // Combine and sort by latest activity
+      const result = conversations
+        .filter(c => c.conversationId)
+        .map(conv => {
+          const lastActivity = latestActivities.find(
+            l => l.conversationId === conv.conversationId
+          )?._max.createdAt;
+
+          return {
+            conversationId: conv.conversationId!,
+            title: conv.userMessage.slice(0, 50) + (conv.userMessage.length > 50 ? '...' : ''),
+            createdAt: conv.createdAt,
+            lastActivity: lastActivity ?? conv.createdAt,
+            agentName: conv.agentName,
+          };
+        })
+        .sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime())
+        .slice(0, limit);
+
+      return result;
+    }),
+
+  /**
+   * Aggregate token usage per user, grouped by agent or model.
+   * Returns total prompt/completion/total tokens and estimated cost.
+   */
+  getTokenUsageSummary: protectedProcedure
+    .input(
+      z.object({
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+        groupBy: z.enum(['agent', 'model', 'day']).default('agent'),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const where: Record<string, unknown> = {
+        systemUserId: ctx.session.user.id,
+        tokenUsage: { not: null },
+      };
+      if (input.startDate ?? input.endDate) {
+        where.createdAt = {
+          ...(input.startDate ? { gte: input.startDate } : {}),
+          ...(input.endDate ? { lte: input.endDate } : {}),
+        };
+      }
+
+      const rows = await ctx.db.aiInteractionHistory.findMany({
+        where,
+        select: {
+          agentName: true,
+          model: true,
+          createdAt: true,
+          tokenUsage: true,
+        },
+      });
+
+      type BucketKey = string;
+      const buckets = new Map<
+        BucketKey,
+        { label: string; interactions: number; prompt: number; completion: number; total: number; cost: number }
+      >();
+
+      for (const row of rows) {
+        let key: BucketKey;
+        let label: string;
+
+        if (input.groupBy === 'agent') {
+          label = row.agentName ?? 'unknown';
+          key = label;
+        } else if (input.groupBy === 'model') {
+          label = row.model ?? 'unknown';
+          key = label;
+        } else {
+          // 'day'
+          label = row.createdAt.toISOString().slice(0, 10);
+          key = label;
+        }
+
+        if (!buckets.has(key)) {
+          buckets.set(key, { label, interactions: 0, prompt: 0, completion: 0, total: 0, cost: 0 });
+        }
+
+        const bucket = buckets.get(key)!;
+        bucket.interactions += 1;
+
+        if (row.tokenUsage) {
+          const usage = row.tokenUsage as { prompt?: number; completion?: number; total?: number; cost?: number };
+          bucket.prompt += usage.prompt ?? 0;
+          bucket.completion += usage.completion ?? 0;
+          bucket.total += usage.total ?? 0;
+          bucket.cost += usage.cost ?? 0;
+        }
+      }
+
+      return Array.from(buckets.values()).sort((a, b) => b.total - a.total);
+    }),
 
   /**
    * Start a new conversation and return conversation ID

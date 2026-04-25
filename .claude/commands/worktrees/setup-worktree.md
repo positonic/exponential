@@ -10,3 +10,5 @@ Steps:
 5. Provide status and next steps
 
 This is useful when switching between worktrees or after cloning.
+
+6. Remind the user: if running an AI agent in this worktree, load `.claude/prompts/worktree-agent.md` for safety rules.

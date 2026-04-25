@@ -11,6 +11,7 @@
     --color-bg-tertiary: #e9ecef;
     --color-bg-elevated: #ffffff;
     --color-bg-overlay: rgba(0, 0, 0, 0.5);
+    --color-bg-modal: #ffffff;
 
     /* Surface colors */
     --color-surface-primary: #ffffff;
@@ -33,94 +34,328 @@
     --color-border-focus: #339af0;
 
     /* Brand colors */
-    --color-brand-primary: #339af0;
-    --color-brand-primary-hover: #228be6;
-    --color-brand-primary-active: #1c7ed6;
+    --color-brand-primary: #1F5DE0;
+    --color-brand-primary-hover: #3D75FF;
+    --color-brand-primary-active: #1A4EC4;
     --color-brand-secondary: #868e96;
     --color-brand-success: #40c057;
     --color-brand-warning: #fab005;
     --color-brand-error: #fa5252;
     --color-brand-info: #339af0;
+
+    /* Command palette / workspace nav tokens */
+    --brand-400: #4E89FF;
+    --brand-500: #1F5DE0;
+    --color-bg-hover: #f1f3f5;
+    --color-surface-muted: #f8f9fa;
+    --color-border-subtle: #e9ecef;
+    --color-border-strong: #adb5bd;
+    --color-brand-subtle: rgba(78, 137, 255, 0.06);
+    --color-brand-glow: rgba(31, 93, 224, 0.12);
+    --brand-200: #A8C5FF;
+    --brand-700: #153FA8;
+
+    /* Accents (project detail, timeline, eyebrows, cues) */
+    --accent-ritual: #6B8CFF;
+    --accent-meetings: #A78BFA;
+    --accent-crm: #4ADE8C;
+    --accent-okr: #F5B94A;
+    --accent-due: #F87171;
+    --color-text-faint: #adb5bd;
+
+    /* Kanban column + priority badge accents */
+    --accent-neutral: #6F7F98;
+    --accent-high: #FBA74C;
+    --accent-low: #9AA7BC;
+    --accent-quick: #5AC8E0;
+
+    /* Today page palette (project chips, timeline) */
+    --today-proj-5: #F472B6;
+    --today-proj-6: #34D399;
+    --today-proj-7: #FBBF24;
+    --today-proj-8: #A3E635;
+    --today-proj-9: #818CF8;
+    --today-zoe-text: #C5B1FD;
+    --today-zoe-text-strong: #DACBFF;
+    --today-rail-cal-text: #A8C5FF;
+    --today-rail-task-text: #F9D48A;
+    --today-rail-focus-text: #A7F0C3;
+
+    /* Onboarding */
+    --color-onboarding-illustration-bg: #fdf4f3;
+    --color-onboarding-accent: #f87171;
+
+    /* macOS window button colors (for illustrations) */
+    --color-macos-close: #FF5F56;
+    --color-macos-minimize: #FFBD2E;
+    --color-macos-maximize: #27CA40;
+
+    /* Navigation */
+    --color-bg-nav: rgba(239, 246, 255, 0.95);
+
+    /* Hero/Landing page gradient colors */
+    --color-gradient-hero-start: #EFF6FF;
+    --color-gradient-hero-end: #FFFFFF;
+    --color-gradient-cta-start: #0339CF;
+    --color-gradient-cta-end: #2563EB;
+    --color-gradient-problem-bg: #0F172A;
+    --color-accent-periwinkle: #60A5FA;
+    --color-accent-indigo: #0339CF;
+
+    /* CTA overlay colors */
+    --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
+    --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
+
+    /* Shader gradient blob colors (light mode) */
+    --color-shader-blob-1: #B0D4E8;
+    --color-shader-blob-2: #8BBCD4;
+    --color-shader-blob-3: #C4E0F0;
+    --color-shader-blob-4: #9CCAE0;
+    --color-shader-blob-5: #D6ECF5;
+    --color-shader-blob-6: #7AADCC;
+    --color-shader-bg: #E8F4FA;
   }
 
   /* Dark theme colors */
   [data-mantine-color-scheme="dark"] {
     /* Background colors */
-    --color-bg-primary: #1a1b1e;
-    --color-bg-secondary: #25262b;
-    --color-bg-tertiary: #2c2e33;
-    --color-bg-elevated: #25262b;
+    --color-bg-primary: #0B1120;
+    --color-bg-secondary: #0F1728;
+    --color-bg-tertiary: #141E32;
+    --color-bg-elevated: #0F1728;
     --color-bg-overlay: rgba(0, 0, 0, 0.7);
+    --color-bg-modal: #0D1424;
 
     /* Surface colors */
-    --color-surface-primary: #25262b;
-    --color-surface-secondary: #2c2e33;
-    --color-surface-tertiary: #373a40;
-    --color-surface-hover: #373a40;
-    --color-surface-active: #495057;
+    --color-surface-primary: #0F1728;
+    --color-surface-secondary: #141E32;
+    --color-surface-tertiary: #1A263E;
+    --color-surface-hover: #1A263E;
+    --color-surface-active: #223050;
 
     /* Text colors */
     --color-text-primary: #ffffff;
     --color-text-secondary: #c1c2c5;
     --color-text-muted: #909296;
     --color-text-disabled: #5c5f66;
-    --color-text-inverse: #1a1b1e;
+    --color-text-inverse: #ffffff;
 
     /* Border colors */
-    --color-border-primary: #373a40;
-    --color-border-secondary: #2c2e33;
-    --color-border-tertiary: #25262b;
+    --color-border-primary: #1A263E;
+    --color-border-secondary: #141E32;
+    --color-border-tertiary: #0F1728;
     --color-border-focus: #339af0;
 
     /* Brand colors */
-    --color-brand-primary: #339af0;
-    --color-brand-primary-hover: #4dabf7;
-    --color-brand-primary-active: #228be6;
+    --color-brand-primary: #1F5DE0;
+    --color-brand-primary-hover: #3D75FF;
+    --color-brand-primary-active: #1A4EC4;
     --color-brand-secondary: #adb5bd;
     --color-brand-success: #51cf66;
     --color-brand-warning: #ffd43b;
     --color-brand-error: #ff6b6b;
     --color-brand-info: #4dabf7;
+
+    /* Command palette / workspace nav tokens */
+    --brand-400: #4E89FF;
+    --brand-500: #1F5DE0;
+    --color-bg-hover: #1A263E;
+    --color-surface-muted: #141E32;
+    --color-border-subtle: #141E32;
+    --color-border-strong: #1A263E;
+    --color-brand-subtle: rgba(78, 137, 255, 0.06);
+    --color-brand-glow: rgba(31, 93, 224, 0.12);
+    --brand-200: #A8C5FF;
+    --brand-700: #153FA8;
+
+    /* Accents (project detail, timeline, eyebrows, cues) */
+    --accent-ritual: #6B8CFF;
+    --accent-meetings: #A78BFA;
+    --accent-crm: #4ADE8C;
+    --accent-okr: #F5B94A;
+    --accent-due: #F87171;
+    --color-text-faint: #3F4A5C;
+
+    /* Kanban column + priority badge accents */
+    --accent-neutral: #6F7F98;
+    --accent-high: #FBA74C;
+    --accent-low: #9AA7BC;
+    --accent-quick: #5AC8E0;
+
+    /* Today page palette (project chips, timeline) */
+    --today-proj-5: #F472B6;
+    --today-proj-6: #34D399;
+    --today-proj-7: #FBBF24;
+    --today-proj-8: #A3E635;
+    --today-proj-9: #818CF8;
+    --today-zoe-text: #C5B1FD;
+    --today-zoe-text-strong: #DACBFF;
+    --today-rail-cal-text: #A8C5FF;
+    --today-rail-task-text: #F9D48A;
+    --today-rail-focus-text: #A7F0C3;
+
+    /* Onboarding */
+    --color-onboarding-illustration-bg: #141E32;
+    --color-onboarding-accent: #f87171;
+
+    /* macOS window button colors (for illustrations) */
+    --color-macos-close: #FF5F56;
+    --color-macos-minimize: #FFBD2E;
+    --color-macos-maximize: #27CA40;
+
+    /* Navigation */
+    --color-bg-nav: rgba(12, 16, 34, 0.95);
+
+    /* Hero/Landing page gradient colors (dark mode) */
+    --color-gradient-hero-start: #0C1835;
+    --color-gradient-hero-end: #0B1120;
+    --color-gradient-cta-start: #0339CF;
+    --color-gradient-cta-end: #2563EB;
+    --color-gradient-problem-bg: #0F172A;
+    --color-accent-periwinkle: #60A5FA;
+    --color-accent-indigo: #0339CF;
+
+    /* CTA overlay colors */
+    --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
+    --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
+
+    /* Shader gradient blob colors (dark mode) */
+    --color-shader-blob-1: #081020;
+    --color-shader-blob-2: #0A1228;
+    --color-shader-blob-3: #0E1A38;
+    --color-shader-blob-4: #070E1C;
+    --color-shader-blob-5: #101E3A;
+    --color-shader-blob-6: #060A16;
+    --color-shader-bg: #040810;
   }
 
   /* Also support Tailwind's dark mode class */
   .dark {
     /* Background colors */
-    --color-bg-primary: #1a1b1e;
-    --color-bg-secondary: #25262b;
-    --color-bg-tertiary: #2c2e33;
-    --color-bg-elevated: #25262b;
+    --color-bg-primary: #0B1120;
+    --color-bg-secondary: #0F1728;
+    --color-bg-tertiary: #141E32;
+    --color-bg-elevated: #0F1728;
     --color-bg-overlay: rgba(0, 0, 0, 0.7);
+    --color-bg-modal: #0D1424;
 
     /* Surface colors */
-    --color-surface-primary: #25262b;
-    --color-surface-secondary: #2c2e33;
-    --color-surface-tertiary: #373a40;
-    --color-surface-hover: #373a40;
-    --color-surface-active: #495057;
+    --color-surface-primary: #0F1728;
+    --color-surface-secondary: #141E32;
+    --color-surface-tertiary: #1A263E;
+    --color-surface-hover: #1A263E;
+    --color-surface-active: #223050;
 
     /* Text colors */
     --color-text-primary: #ffffff;
     --color-text-secondary: #c1c2c5;
     --color-text-muted: #909296;
     --color-text-disabled: #5c5f66;
-    --color-text-inverse: #1a1b1e;
+    --color-text-inverse: #ffffff;
 
     /* Border colors */
-    --color-border-primary: #373a40;
-    --color-border-secondary: #2c2e33;
-    --color-border-tertiary: #25262b;
+    --color-border-primary: #1A263E;
+    --color-border-secondary: #141E32;
+    --color-border-tertiary: #0F1728;
     --color-border-focus: #339af0;
 
     /* Brand colors */
-    --color-brand-primary: #339af0;
-    --color-brand-primary-hover: #4dabf7;
-    --color-brand-primary-active: #228be6;
+    --color-brand-primary: #1F5DE0;
+    --color-brand-primary-hover: #3D75FF;
+    --color-brand-primary-active: #1A4EC4;
     --color-brand-secondary: #adb5bd;
     --color-brand-success: #51cf66;
     --color-brand-warning: #ffd43b;
     --color-brand-error: #ff6b6b;
     --color-brand-info: #4dabf7;
+
+    /* Command palette / workspace nav tokens */
+    --brand-400: #4E89FF;
+    --brand-500: #1F5DE0;
+    --color-bg-hover: #1A263E;
+    --color-surface-muted: #141E32;
+    --color-border-subtle: #141E32;
+    --color-border-strong: #1A263E;
+    --color-brand-subtle: rgba(78, 137, 255, 0.06);
+    --color-brand-glow: rgba(31, 93, 224, 0.12);
+    --brand-200: #A8C5FF;
+    --brand-700: #153FA8;
+
+    /* Accents (project detail, timeline, eyebrows, cues) */
+    --accent-ritual: #6B8CFF;
+    --accent-meetings: #A78BFA;
+    --accent-crm: #4ADE8C;
+    --accent-okr: #F5B94A;
+    --accent-due: #F87171;
+    --color-text-faint: #3F4A5C;
+
+    /* Kanban column + priority badge accents */
+    --accent-neutral: #6F7F98;
+    --accent-high: #FBA74C;
+    --accent-low: #9AA7BC;
+    --accent-quick: #5AC8E0;
+
+    /* Today page palette (project chips, timeline) */
+    --today-proj-5: #F472B6;
+    --today-proj-6: #34D399;
+    --today-proj-7: #FBBF24;
+    --today-proj-8: #A3E635;
+    --today-proj-9: #818CF8;
+    --today-zoe-text: #C5B1FD;
+    --today-zoe-text-strong: #DACBFF;
+    --today-rail-cal-text: #A8C5FF;
+    --today-rail-task-text: #F9D48A;
+    --today-rail-focus-text: #A7F0C3;
+
+    /* Onboarding */
+    --color-onboarding-illustration-bg: #141E32;
+    --color-onboarding-accent: #f87171;
+
+    /* Navigation */
+    --color-bg-nav: rgba(12, 16, 34, 0.95);
+
+    /* Hero/Landing page gradient colors (dark mode) */
+    --color-gradient-hero-start: #0C1835;
+    --color-gradient-hero-end: #0B1120;
+    --color-gradient-cta-start: #0339CF;
+    --color-gradient-cta-end: #2563EB;
+    --color-gradient-problem-bg: #0F172A;
+    --color-accent-periwinkle: #60A5FA;
+    --color-accent-indigo: #0339CF;
+
+    /* CTA overlay colors */
+    --color-cta-overlay-light: rgba(255, 255, 255, 0.1);
+    --color-cta-overlay-lighter: rgba(255, 255, 255, 0.08);
+
+    /* Shader gradient blob colors (dark mode) */
+    --color-shader-blob-1: #081020;
+    --color-shader-blob-2: #0A1228;
+    --color-shader-blob-3: #0E1A38;
+    --color-shader-blob-4: #070E1C;
+    --color-shader-blob-5: #101E3A;
+    --color-shader-blob-6: #060A16;
+    --color-shader-bg: #040810;
+  }
+
+  /* Slate dark theme variant (original gray/black) */
+  [data-mantine-color-scheme="dark"][data-dark-theme="slate"],
+  .dark[data-dark-theme="slate"] {
+    --color-bg-primary: #1a1b1e;
+    --color-bg-secondary: #25262b;
+    --color-bg-tertiary: #2c2e33;
+    --color-bg-elevated: #25262b;
+    --color-bg-modal: #212121;
+    --color-surface-primary: #25262b;
+    --color-surface-secondary: #2c2e33;
+    --color-surface-tertiary: #373a40;
+    --color-surface-hover: #373a40;
+    --color-surface-active: #495057;
+    --color-border-primary: #373a40;
+    --color-border-secondary: #2c2e33;
+    --color-border-tertiary: #25262b;
+    --color-onboarding-illustration-bg: #2c2e33;
+    --color-gradient-hero-end: #1a1b1e;
+    --color-bg-nav: rgba(26, 27, 30, 0.95);
   }
 }
 
@@ -131,10 +366,422 @@
     background-color: var(--color-brand-primary) !important;
     font-weight: 600 !important;
   }
-  
+
   /* Handle selected state as well */
   .unified-datepicker-day[data-today][data-highlight-today][data-selected] {
     background-color: var(--color-brand-primary) !important;
     font-weight: 600 !important;
   }
+}
+
+/* =================================================================
+   Mantine Component Theme Overrides
+   Mantine v7's styles prop only supports flat CSS properties (inline
+   styles), not CSS selectors. These rules provide the interactive
+   states (hover, focus, data-attributes) that cannot be expressed
+   as inline styles.
+   ================================================================= */
+
+/* --- Modal & Drawer close button --- */
+.mantine-Modal-close:hover,
+.mantine-Drawer-close:hover {
+  background-color: var(--color-surface-hover);
+}
+
+/* --- Input focus & placeholder --- */
+.mantine-Select-input:focus,
+.mantine-TextInput-input:focus,
+.mantine-Textarea-input:focus,
+.mantine-DateInput-input:focus,
+.mantine-MultiSelect-input:focus {
+  border-color: var(--color-border-focus);
+}
+
+.mantine-Select-input::placeholder,
+.mantine-TextInput-input::placeholder,
+.mantine-Textarea-input::placeholder,
+.mantine-DateInput-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* --- Select / MultiSelect option states --- */
+.mantine-Select-option[data-combobox-selected],
+.mantine-MultiSelect-option[data-combobox-selected] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+
+.mantine-Select-option:hover:not([data-combobox-selected]),
+.mantine-MultiSelect-option:hover:not([data-combobox-selected]) {
+  background-color: var(--color-surface-hover);
+}
+
+/* --- MultiSelect pill remove button --- */
+.mantine-MultiSelect-pill .mantine-CloseButton-root:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-surface-hover);
+}
+
+/* --- Button variant styles --- */
+.mantine-Button-root[data-variant="filled"] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+.mantine-Button-root[data-variant="filled"]:hover {
+  background-color: var(--color-brand-primary-hover);
+}
+
+.mantine-Button-root[data-variant="subtle"] {
+  color: var(--color-text-secondary);
+}
+.mantine-Button-root[data-variant="subtle"]:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.mantine-Button-root[data-variant="default"] {
+  background-color: var(--color-surface-secondary);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-primary);
+}
+.mantine-Button-root[data-variant="default"]:hover {
+  background-color: var(--color-surface-hover);
+}
+
+/* --- Calendar header controls (DateInput, DatePicker, Calendar) --- */
+.mantine-DateInput-calendarHeaderControl:hover,
+.mantine-DatePicker-calendarHeaderControl:hover,
+.mantine-Calendar-calendarHeaderControl:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.mantine-DateInput-calendarHeaderLevel:hover,
+.mantine-DatePicker-calendarHeaderLevel:hover,
+.mantine-Calendar-calendarHeaderLevel:hover {
+  background-color: var(--color-surface-hover);
+}
+
+/* --- Months/Years list controls --- */
+.mantine-DateInput-monthsListControl:hover,
+.mantine-DatePicker-monthsListControl:hover,
+.mantine-Calendar-monthsListControl:hover,
+.mantine-DateInput-yearsListControl:hover,
+.mantine-DatePicker-yearsListControl:hover,
+.mantine-Calendar-yearsListControl:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.mantine-DateInput-monthsListControl[data-selected],
+.mantine-DatePicker-monthsListControl[data-selected],
+.mantine-Calendar-monthsListControl[data-selected],
+.mantine-DateInput-yearsListControl[data-selected],
+.mantine-DatePicker-yearsListControl[data-selected],
+.mantine-Calendar-yearsListControl[data-selected] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+
+/* --- Day states (DateInput) --- */
+.mantine-DateInput-day:hover:not([data-selected], [data-disabled]) {
+  background-color: var(--color-surface-hover);
+}
+.mantine-DateInput-day[data-selected] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+.mantine-DateInput-day[data-in-range] {
+  background-color: var(--color-brand-primary);
+  opacity: 0.2;
+}
+.mantine-DateInput-day[data-outside] {
+  color: var(--color-text-disabled);
+}
+.mantine-DateInput-day[data-today] {
+  background-color: var(--color-brand-success);
+  color: var(--color-text-inverse);
+  font-weight: 600;
+}
+
+/* --- Day states (DatePicker) --- */
+.mantine-DatePicker-day:hover:not([data-selected], [data-disabled]) {
+  background-color: var(--color-surface-hover);
+}
+.mantine-DatePicker-day[data-selected] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+.mantine-DatePicker-day[data-in-range] {
+  background-color: var(--color-brand-primary);
+  opacity: 0.2;
+}
+.mantine-DatePicker-day[data-outside] {
+  color: var(--color-text-disabled);
+}
+.mantine-DatePicker-day[data-today] {
+  background-color: var(--color-brand-error);
+  color: var(--color-text-inverse);
+  font-weight: 600;
+}
+
+/* --- Day states (Calendar) --- */
+.mantine-Calendar-day:hover:not([data-selected], [data-disabled]) {
+  background-color: var(--color-surface-hover);
+}
+.mantine-Calendar-day[data-selected] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+.mantine-Calendar-day[data-in-range] {
+  background-color: var(--color-brand-primary);
+  opacity: 0.2;
+}
+.mantine-Calendar-day[data-outside] {
+  color: var(--color-text-disabled);
+}
+.mantine-Calendar-day[data-weekend] {
+  color: var(--color-brand-primary) !important;
+}
+.mantine-Calendar-day[data-today] {
+  background-color: var(--color-brand-primary) !important;
+  color: var(--color-text-inverse) !important;
+  font-weight: 600 !important;
+}
+
+/* --- Tabs --- */
+.mantine-Tabs-list {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.mantine-Tabs-list::-webkit-scrollbar {
+  display: none;
+}
+.mantine-Tabs-tab[data-active] {
+  border-color: var(--color-brand-primary);
+  color: var(--color-brand-primary);
+  font-weight: 500;
+}
+.mantine-Tabs-tab:hover {
+  background-color: var(--color-surface-hover);
+}
+
+/* Tabs pills variant (used by ViewSwitcher) */
+.mantine-Tabs-tab[data-active][data-variant="pills"] {
+  background-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+
+/* Chat HTML content styling (for AI responses with HTML tables, lists, etc.) */
+.chat-html-content {
+  font-size: 0.875rem;
+  line-height: 1.625;
+  color: var(--color-text-primary);
+}
+.chat-html-content p {
+  margin-bottom: 0.5rem;
+}
+.chat-html-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.8125rem;
+}
+.chat-html-content thead {
+  border-bottom: 2px solid var(--color-border-primary);
+}
+.chat-html-content th {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  background-color: var(--color-surface-secondary);
+}
+.chat-html-content td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-secondary);
+  color: var(--color-text-primary);
+}
+.chat-html-content tr:last-child td {
+  border-bottom: none;
+}
+.chat-html-content ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+.chat-html-content ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+.chat-html-content li {
+  margin-bottom: 0.25rem;
+}
+.chat-html-content h1,
+.chat-html-content h2,
+.chat-html-content h3,
+.chat-html-content h4,
+.chat-html-content h5,
+.chat-html-content h6 {
+  font-weight: 600;
+  margin-top: 0.75rem;
+  margin-bottom: 0.375rem;
+  color: var(--color-text-primary);
+}
+.chat-html-content h1 { font-size: 1.25rem; }
+.chat-html-content h2 { font-size: 1.125rem; }
+.chat-html-content h3 { font-size: 1rem; }
+.chat-html-content a {
+  color: var(--color-brand-primary);
+  text-decoration: none;
+}
+.chat-html-content a:hover {
+  text-decoration: underline;
+}
+.chat-html-content blockquote {
+  border-left: 3px solid var(--color-border-primary);
+  padding-left: 1rem;
+  margin: 0.5rem 0;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+.chat-html-content pre {
+  background-color: var(--color-surface-secondary);
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.chat-html-content code {
+  background-color: var(--color-surface-secondary);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+}
+.chat-html-content strong,
+.chat-html-content b {
+  font-weight: 600;
+}
+
+/* Agent thinking/reasoning collapsible (chat AI responses) */
+.chat-html-content details.agent-thinking {
+  margin-bottom: 1rem;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+.chat-html-content details.agent-thinking > summary {
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  background-color: var(--color-surface-secondary);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  user-select: none;
+}
+.chat-html-content details.agent-thinking > summary::before {
+  content: '▶';
+  font-size: 0.6rem;
+  transition: transform 0.15s;
+}
+.chat-html-content details.agent-thinking[open] > summary::before {
+  transform: rotate(90deg);
+}
+.chat-html-content .agent-thinking-content {
+  padding: 0.75rem;
+  border-top: 1px solid var(--color-border-primary);
+}
+.chat-html-content .agent-thinking-content p {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.375rem;
+}
+
+/* Blog content typography — overrides Mantine inline styles */
+.blog-content p {
+  font-size: 1.125rem !important;
+  line-height: 1.8 !important;
+  margin-bottom: 1.5rem;
+}
+.blog-content h2 { margin-top: 3rem; margin-bottom: 1rem; }
+.blog-content h3 { margin-top: 2.5rem; margin-bottom: 0.75rem; }
+.blog-content ul, .blog-content ol { font-size: 1.125rem; line-height: 1.8; margin-bottom: 1.5rem; }
+.blog-content li { font-size: 1.125rem; line-height: 1.8; margin-bottom: 0.5rem; }
+.blog-content blockquote { margin: 1.5rem 0; }
+.blog-content blockquote p { margin-bottom: 0.25rem; }
+.blog-content strong { font-size: inherit; }
+.blog-content table { font-size: 1rem; line-height: 1.7; }
+
+/* ==========================================================================
+   Auth surface (/signin, /invite/[token]) — scoped design tokens
+   Consumed by src/styles/auth-surface.css. All hex lives here so the feature
+   CSS can be hex-free (pre-commit hook only allows hex in this file,
+   colors.ts, mantineTheme.ts, EmailService.ts).
+   ========================================================================== */
+.auth-surface {
+  /* Backgrounds */
+  --color-bg-primary: #0B0F17;
+  --color-bg-secondary: #10151F;
+  --color-bg-elevated: #141B27;
+  --color-bg-hover: #1A2230;
+  --color-bg-overlay: rgba(5, 8, 13, 0.72);
+
+  /* Surfaces */
+  --color-surface-muted: #161D2A;
+  --color-surface-raised: #1C2433;
+
+  /* Borders */
+  --color-border-primary: #1F2A3C;
+  --color-border-subtle: #172030;
+  --color-border-strong: #2A3850;
+
+  /* Text */
+  --color-text-primary: #E6ECF5;
+  --color-text-secondary: #96A2B5;
+  --color-text-muted: #5E6A7E;
+  --color-text-faint: #3F4A5C;
+
+  /* Brand scale */
+  --brand-50: #EEF3FF;
+  --brand-200: #A8C5FF;
+  --brand-400: #4E89FF;
+  --brand-500: #1F5DE0;
+  --brand-600: #1A4EC4;
+  --brand-700: #153FA8;
+
+  /* Accents */
+  --accent-ritual: #6B8CFF;
+  --accent-knowledge: #5AC8E0;
+  --accent-meetings: #A78BFA;
+  --accent-crm: #4ADE8C;
+  --accent-okr: #F5B94A;
+  --accent-due: #F87171;
+
+  /* Avatar gradient presets */
+  --invite-avatar-a1: linear-gradient(135deg, #F59E7E, #C73E9A);
+  --invite-avatar-a2: linear-gradient(135deg, #8B7EE8, #5AC8E0);
+  --invite-avatar-a3: linear-gradient(135deg, #4ADE8C, #1F5DE0);
+  --invite-avatar-a4: linear-gradient(135deg, #F5B94A, #F87171);
+
+  /* Brand logo colors (Google / Microsoft — per provider brand guidelines) */
+  --google-blue: #4285F4;
+  --google-green: #34A853;
+  --google-yellow: #FBBC05;
+  --google-red: #EA4335;
+  --microsoft-red: #F25022;
+  --microsoft-green: #7FBA00;
+  --microsoft-blue: #00A4EF;
+  --microsoft-yellow: #FFB900;
+
+  /* Type */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Rhythm */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
 }

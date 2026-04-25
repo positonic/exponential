@@ -1,36 +1,85 @@
 "use client";
 
-import { Actions } from "./Actions";
+import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { PageHeader } from "./PageHeader";
-import Link from "next/link";
-import { format } from "date-fns";
+import { TodayContent } from "./TodayContent";
+import type { FocusPeriod } from "~/types/focus";
+import { isValidFocusPeriod } from "~/types/focus";
+import { getDateRangeForFocus } from "~/lib/dateUtils";
 
 interface NavigationWrapperProps {
   calendarConnected: boolean;
   todayExists: boolean;
-  todayRecord: any;
+  initialTab?: string;
+  initialFocus?: FocusPeriod;
+  workspaceId?: string;
+  workspaceName?: string;
 }
 
-export function NavigationWrapper({ calendarConnected, todayExists, todayRecord }: NavigationWrapperProps) {
+export function NavigationWrapper({
+  calendarConnected,
+  todayExists,
+  initialTab,
+  initialFocus,
+  workspaceId,
+  workspaceName,
+}: NavigationWrapperProps) {
+  const searchParams = useSearchParams();
+
+  // Initialize focus from URL, then manage as client state
+  const focusFromUrl = searchParams.get("focus");
+  const initialFocusValue: FocusPeriod = isValidFocusPeriod(focusFromUrl)
+    ? focusFromUrl
+    : initialFocus ?? "today";
+
+  const [focus, setFocus] = useState<FocusPeriod>(initialFocusValue);
+
+  // Memoize date range to avoid recalculation and ensure stable reference
+  const dateRange = useMemo(() => getDateRangeForFocus(focus), [focus]);
+
+  const handleFocusChange = useCallback((newFocus: FocusPeriod) => {
+    setFocus(newFocus);
+
+    // Sync URL without triggering Next.js navigation
+    const params = new URLSearchParams(window.location.search);
+
+    if (newFocus === "today") {
+      params.delete("focus");
+    } else {
+      params.set("focus", newFocus);
+    }
+
+    // Reset journal tab when changing focus away from today
+    const currentTab = params.get("tab");
+    if (newFocus !== "today" && currentTab === "journal") {
+      params.delete("tab");
+    }
+
+    const newUrl = params.toString()
+      ? `${window.location.pathname}?${params.toString()}`
+      : window.location.pathname;
+    window.history.replaceState(null, "", newUrl);
+  }, []);
+
   return (
     <>
       {/* Page Header Navigation */}
       <PageHeader
-        calendarConnected={calendarConnected}
         todayExists={todayExists}
+        focus={focus}
+        onFocusChange={handleFocusChange}
+        workspaceName={workspaceName}
       />
 
-      {/* Main Actions Content */}
-      <Actions viewName="today" />
-
-      {/* Today record link */}
-      {todayExists && todayRecord && todayRecord.date && (
-        <div className="w-full max-w-3xl mx-auto mt-4">
-          <Link href={`/days/${format(todayRecord.date, 'yyyy-MM-dd')}`} className="text-blue-500">
-            Diverge, Converge, Synthesize
-          </Link>
-        </div>
-      )}
+      {/* Main Tabbed Content */}
+      <TodayContent
+        calendarConnected={calendarConnected}
+        initialTab={initialTab}
+        focus={focus}
+        dateRange={dateRange}
+        workspaceId={workspaceId}
+      />
     </>
   );
 }

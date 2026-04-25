@@ -145,13 +145,20 @@ export class SlackNotificationService extends NotificationService {
       }
     });
 
-    // Main message content
+    // Main message content - Slack section blocks have a 3000 char limit
     if (payload.message) {
+      const maxLength = 2900; // Leave buffer for safety
+      let messageText = payload.message;
+
+      if (messageText.length > maxLength) {
+        messageText = messageText.substring(0, maxLength) + '\n\n_...content truncated_';
+      }
+
       blocks.push({
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: payload.message
+          text: messageText
         }
       });
     }
@@ -173,7 +180,7 @@ export class SlackNotificationService extends NotificationService {
             },
             style: 'primary',
             action_id: 'view_all_actions',
-            url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/inbox`
+            url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/act`
           },
           {
             type: 'button',

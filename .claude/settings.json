@@ -1,4 +1,65 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(exponential *)",
+      "mcp__serena__find_symbol",
+      "mcp__serena__search_for_pattern",
+      "Read(//Users/james/code/exponential/**)",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__initial_instructions",
+      "mcp__serena__activate_project",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=8192\" npx next lint)",
+      "mcp__serena__check_onboarding_performed",
+      "Bash(grep -n \"uploadToBlob\\\\|FormData\\\\|image\\\\|avatar\" /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/crm/organizations/[id]/page.tsx)",
+      "Bash(npm list:*)",
+      "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/projects-tasks/)",
+      "Read(//Users/james/clawd/skills/exponential/**)",
+      "Bash(git add:*)",
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/)",
+      "Bash(ls -la \"/Users/james/code/exponential/src/app/\\(sidemenu\\)/w/[workspaceSlug]/settings/\")",
+      "Bash(head -100 \"/Users/james/code/exponential/src/app/\\(sidemenu\\)/w/[workspaceSlug]/settings/page.tsx\")",
+      "Bash(find /Users/james/code/exponential -type f \\\\\\(-name *.json -o -name *.yml -o -name *.yaml -o -name *.env* -o -name *.config.* -o -name vercel.json \\\\\\))",
+      "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/timeline/)",
+      "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/timeline/)",
+      "Bash(ls -la /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/daily-plan/_components/steps/)",
+      "mcp__serena__list_dir",
+      "Bash(cat '/Users/james/code/exponential/src/app/\\(sidemenu\\)/w/[workspaceSlug]/actions/[actionId]/page.tsx')",
+      "Bash(wc -l /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/settings/page.tsx)",
+      "Bash(find /Users/james/code/exponential/src -type f \\\\\\(-name *comment* -o -name *attachment* -o -name *image* \\\\\\))",
+      "mcp__serena__find_file",
+      "Bash(cr --help)",
+      "Bash(cr review:*)",
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/)",
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/projects/)",
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/goals/)",
+      "Bash(ls /Users/james/code/exponential/src/app/\\\\\\(sidemenu\\\\\\)/w/[workspaceSlug]/outcomes/)",
+      "Bash(npx vercel:*)",
+      "Bash(npx web-push:*)",
+      "Bash(openssl rand:*)",
+      "Bash(printf 'a1995ede27b74cfe17e2bf6b12aa8e469d4370eecbd17f828202c5aba4a2fea8')",
+      "WebFetch(domain:zulip.readthedocs.io)",
+      "WebFetch(domain:zulip.com)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=8192\" npx tsc --noEmit)",
+      "Bash(git mv:*)",
+      "Read(//Users/james/.claude/**)",
+      "Read(//Users/james/.nvm/versions/node/v20.20.0/lib/node_modules/**)",
+      "Read(//Users/james/Library/Preferences/exponential-cli-nodejs/**)",
+      "WebFetch(domain:linear.app)",
+      "Bash(sed -n '/^model OkrCheckin {/,/^}/p' /Users/james/code/exponential/prisma/schema.prisma)",
+      "Bash(sed -n '/^model OkrCheckinUpdate {/,/^}/p' /Users/james/code/exponential/prisma/schema.prisma)",
+      "Bash(sed -n '/^model OkrCheckinComment {/,/^}/p' /Users/james/code/exponential/prisma/schema.prisma)",
+      "Bash(git reset:*)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/Users/james/code/mastra/src/mastra/tools",
+      "/Users/james/code/one-2b/.claude",
+      "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]",
+      "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]/initiatives",
+      "/Users/james/code/exponential/prisma",
+      "/Users/james/code/exponential/src/app/(sidemenu)/w/[workspaceSlug]/goals"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -6,7 +67,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npm run check"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/eslint-check.sh",
+            "timeout": 30
           }
         ]
       }

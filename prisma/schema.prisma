@@ -32,6 +32,7 @@ model Account {
   id_token                 String?
   session_state            String?
   refresh_token_expires_in Int?
+  providerEmail            String?
   user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
@@ -46,60 +47,372 @@ model Session {
 }
 
 model User {
-  id                      String                   @id @default(cuid())
-  name                    String?
-  email                   String?                  @unique
-  emailVerified           DateTime?
-  image                   String?
-  onboardingCompletedAt   DateTime?
-  onboardingStep          Int                      @default(1)
-  selectedTools           String[]
-  usageType               String?
-  userRole                String?
-  accounts                Account[]
-  assignedActions         Action[]                 @relation("AssignedActions")
-  actions                 Action[]
-  actionAssignees         ActionAssignee[]         @relation("ActionAssignees")
-  aiInteractionHistory    AiInteractionHistory[]
-  feedback                Feedback[]
-  goals                   Goal[]
-  integrations            Integration[]
-  permissionsGrantedBy    IntegrationPermission[]  @relation("PermissionGrantedBy")
-  permissionsGrantedTo    IntegrationPermission[]  @relation("PermissionGrantedTo")
-  permissionsRevokedBy    IntegrationPermission[]  @relation("PermissionRevokedBy")
-  integrationMappings     IntegrationUserMapping[]
-  notes                   Note[]
-  notificationPreferences NotificationPreference?
-  outcomes                Outcome[]
-  posts                   Post[]
-  projects                Project[]
-  projectMemberships      ProjectMember[]
-  scheduledNotifications  ScheduledNotification[]
-  sessions                Session[]
-  slackChannelsConfigured SlackChannelConfig[]
-  slackMessageHistory     SlackMessageHistory[]
-  slackRegistrations      SlackRegistrationToken[]
-  teams                   TeamUser[]
-  transcriptionSessions   TranscriptionSession[]
-  exercises               UserExercise[]
-  verificationTokens      VerificationToken[]
-  whatsappConversations   WhatsAppConversation[]
-  workflows               Workflow[]
-  weeklyOutcomesCreated   WeeklyOutcome[]          @relation("WeeklyOutcomeCreated")
-  weeklyOutcomeAssignees  WeeklyOutcomeAssignee[]  @relation("WeeklyOutcomeAssignee")
-  teamCapacities          TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
-  weeklyReviewSharing     WeeklyReviewSharing[]
+  id                          String                     @id @default(cuid())
+  name                        String?
+  email                       String?                    @unique
+  emailVerified               DateTime?
+  image                       String?
+  onboardingCompletedAt       DateTime?
+  onboardingStep              Int                        @default(1)
+  welcomeCompletedAt          DateTime?
+  projectSetupCompletedAt     DateTime?
+  onboardingProjectId         String?
+  selectedTools               String[]
+  usageType                   String?
+  userRole                    String?
+  isAdmin                     Boolean                    @default(false)
+  emailMarketingOptIn         Boolean                    @default(true)
+  workRole                    String?
+  workFunction                String[]
+  usagePurposes               String[]
+  lastLogin                   DateTime?
+  defaultWorkspaceId          String?
+  accounts                    Account[]
+  actions                     Action[]
+  actionAssignees             ActionAssignee[]           @relation("ActionAssignees")
+  aiInteractionHistory        AiInteractionHistory[]
+  feedback                    Feedback[]
+  goals                       Goal[]
+  integrations                Integration[]
+  permissionsGrantedBy        IntegrationPermission[]    @relation("PermissionGrantedBy")
+  permissionsGrantedTo        IntegrationPermission[]    @relation("PermissionGrantedTo")
+  permissionsRevokedBy        IntegrationPermission[]    @relation("PermissionRevokedBy")
+  integrationMappings         IntegrationUserMapping[]
+  notes                       Note[]
+  notificationPreferences     NotificationPreference?
+  navigationPreference        NavigationPreference?
+  calendarPreferences         CalendarPreference[]
+  outcomes                    Outcome[]
+  posts                       Post[]
+  projects                    Project[]
+  projectMemberships          ProjectMember[]
+  scheduledNotifications      ScheduledNotification[]
+  sessions                    Session[]
+  slackChannelsConfigured     SlackChannelConfig[]
+  slackMessageHistory         SlackMessageHistory[]
+  slackRegistrations          SlackRegistrationToken[]
+  teams                       TeamUser[]
+  transcriptionSessions       TranscriptionSession[]
+  exercises                   UserExercise[]
+  verificationTokens          VerificationToken[]
+  whatsappConversations       WhatsAppConversation[]
+  whatsappGatewaySessions     WhatsAppGatewaySession[]
+  workflows                   Workflow[]
+  weeklyOutcomesCreated       WeeklyOutcome[]            @relation("WeeklyOutcomeCreated")
+  weeklyOutcomeAssignees      WeeklyOutcomeAssignee[]    @relation("WeeklyOutcomeAssignee")
+  teamCapacities              TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
+  weeklyReviewSharing         WeeklyReviewSharing[]
+  weeklyReviewCompletions     WeeklyReviewCompletion[]
+  wheelOfLifeAssessments      WheelOfLifeAssessment[]
+  habits                      Habit[]
+  ownedWorkspaces             Workspace[]                @relation("WorkspaceOwner")
+  workspaceMemberships        WorkspaceUser[]
+  resources                   Resource[]
+  workspaceInvitationsCreated WorkspaceInvitation[]      @relation("InvitationCreator")
+  // CRM relations
+  crmContactsCreated          CrmContact[]               @relation("CrmContactCreatedBy")
+  crmOrganizationsCreated     CrmOrganization[]          @relation("CrmOrganizationCreatedBy")
+  crmInteractions             CrmContactInteraction[]    @relation("CrmInteractionUser")
+  crmCommunicationsCreated    CrmCommunication[]         @relation("CrmCommunicationCreatedBy")
+  crmTemplatesCreated         CrmCommunicationTemplate[] @relation("CrmTemplateCreatedBy")
+  crmImportBatchesCreated     ContactImportBatch[]       @relation("CrmImportBatchCreatedBy")
+  // Plugin and OKR relations
+  pluginConfigs               PluginConfig[]
+  keyResults                  KeyResult[]
+  keyResultCheckIns           KeyResultCheckIn[]         @relation("KeyResultCheckInCreator")
+  driGoals                    Goal[]                     @relation("GoalDRI")
+  driKeyResults               KeyResult[]                @relation("KeyResultDRI")
+  // Tag relations
+  tagsCreated                 Tag[]                      @relation("TagCreator")
+  // View relations
+  viewsCreated                View[]                     @relation("ViewsCreated")
+  // List relations
+  listsCreated                List[]                     @relation("ListsCreated")
+  // Epic relations
+  epicsOwned                  Epic[]                     @relation("EpicOwner")
+  // OKR Check-in relations
+  facilitatedOkrCheckins      OkrCheckin[]               @relation("OkrCheckinFacilitator")
+  okrCheckinUpdates           OkrCheckinUpdate[]         @relation("OkrCheckinUpdateUser")
+  okrCheckinComments          OkrCheckinComment[]        @relation("OkrCheckinCommentAuthor")
+  // OKR Discussion relations
+  goalComments                GoalComment[]              @relation("GoalCommentAuthor")
+  goalUpdates                 GoalUpdate[]               @relation("GoalUpdateAuthor")
+  keyResultComments           KeyResultComment[]         @relation("KeyResultCommentAuthor")
+  // Action Discussion relations
+  actionComments              ActionComment[]            @relation("ActionCommentAuthor")
+  // Blog Discussion relations
+  blogComments                BlogComment[]              @relation("BlogCommentAuthor")
+  // Daily Planning relations
+  dailyPlans                  DailyPlan[]
+  // Zoe daily briefing
+  dailyBriefings              DailyBriefing[]
+  // Push notification subscriptions
+  pushSubscriptions           PushSubscription[]
+  // Webhook activity logs
+  webhookLogs                 WebhookLog[]
+  // Auto-scheduling relations
+  taskSchedulesCreated        TaskSchedule[]             @relation("TaskScheduleCreator")
+  recurringTasksCreated       RecurringTask[]            @relation("RecurringTaskCreator")
+
+  // Onboarding: Attribution
+  attributionSource           String?                    // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
+
+  // Onboarding: Work Hours
+  workHoursEnabled            Boolean                    @default(true)
+  workDaysJson                String?                    // JSON array: ["monday","tuesday","wednesday","thursday","friday"]
+  workHoursStart              String?                    @default("09:00")
+  workHoursEnd                String?                    @default("17:00")
+  // DRI (Directly Responsible Individual) relation
+  driProjects                 Project[]                  @relation("ProjectDRI")
+
+  // Scoring & Leaderboard preferences
+  leaderboardOptIn            Boolean                    @default(false)
+  leaderboardAnonymous        Boolean                    @default(false)
+  leaderboardWorkspaceIds     String[]                   @default([])
+
+  // Scoring relations
+  dailyScores                 DailyScore[]
+  streaks                     ProductivityStreak[]
+  leaderboardEntries          LeaderboardEntry[]
+  // AI Assistant customization
+  assistantsCreated           Assistant[]                @relation("AssistantCreatedBy")
+  // Telegram Gateway
+  telegramGatewaySession      TelegramGatewaySession?
+  // Workflow Pipeline relations
+  workflowDefinitions         WorkflowDefinition[]       @relation("WorkflowDefinitionCreatedBy")
+  workflowPipelineRuns        WorkflowPipelineRun[]      @relation("WorkflowPipelineRunTriggeredBy")
+  contentDrafts               ContentDraft[]             @relation("ContentDraftCreatedBy")
+  teamInvitationsCreated      TeamInvitation[]            @relation("TeamInvitationCreator")
+  // PM Agent config
+  pmAgentConfig               PMAgentConfig?
+  // Deal Pipeline relations
+  dealsCreated                Deal[]                     @relation("DealCreatedBy")
+  dealsAssigned               Deal[]                     @relation("DealAssignedTo")
+  dealActivities              DealActivity[]             @relation("DealActivityUser")
+
+  // Contributor & Wallet fields (bounty board)
+  displayName                 String?
+  bio                         String?
+  contributorSkills           String[]                   @default([])
+  isContributor               Boolean                    @default(false)
+  wallets                     Wallet[]
+  bountyClaims                BountyClaim[]
+  // Notification override relations
+  workspaceNotificationOverrides WorkspaceNotificationOverride[]
+
+  // Product Management plugin relations
+  productsCreated       Product[]       @relation("ProductCreatedBy")
+  featuresCreated       Feature[]       @relation("FeatureCreatedBy")
+  researchesCreated     Research[]      @relation("ResearchCreatedBy")
+  ticketsCreated        Ticket[]        @relation("TicketCreatedBy")
+  ticketsAssigned       Ticket[]        @relation("TicketAssignee")
+  retrospectivesCreated Retrospective[] @relation("RetrospectiveCreatedBy")
+  ticketComments        TicketComment[] @relation("TicketCommentAuthor")
+  ticketDepsCreated     TicketDependency[] @relation("TicketDependencyCreatedBy")
+  insightsCreated       Insight[]          @relation("InsightCreatedBy")
 }
 
 model VerificationToken {
   identifier String
   token      String   @unique
   expires    DateTime
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([identifier, token])
   @@index([userId])
+}
+
+// ============================================
+// Workspace Models
+// ============================================
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  type        String   @default("personal") // "personal" | "team" | "organization"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  ownerId     String
+
+  effortUnit              EffortUnit  @default(STORY_POINTS)
+  enableAdvancedActions   Boolean     @default(false)
+  enableDetailedActions   Boolean     @default(false)
+  enableBounties          Boolean     @default(false)
+  enableDailyPlanBanner    Boolean     @default(true)
+  enableWeeklyReviewBanner  Boolean     @default(true)
+  enableEmailNotifications  Boolean     @default(true)
+
+  // Notion integration defaults: { defaultIntegrationId, defaultDatabaseId, fieldMappings, syncDirection, syncFrequency }
+  notionDefaultConfig       Json?
+
+  owner             User                       @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members           WorkspaceUser[]
+  projects          Project[]
+  epics             Epic[]
+  goals             Goal[]
+  outcomes          Outcome[]
+  actions           Action[]
+  teams             Team[]
+  resources         Resource[]
+  invitations       WorkspaceInvitation[]
+  views             View[]
+  lists             List[]
+  // CRM relations
+  crmContacts       CrmContact[]
+  crmOrganizations  CrmOrganization[]
+  crmInteractions   CrmContactInteraction[]
+  crmCommunications CrmCommunication[]
+  crmTemplates      CrmCommunicationTemplate[]
+  crmImportBatches  ContactImportBatch[]
+  // Plugin and OKR relations
+  pluginConfigs            PluginConfig[]
+  keyResults               KeyResult[]
+  // Tag relations
+  tags                     Tag[]
+  weeklyReviewCompletions  WeeklyReviewCompletion[]
+  okrCheckins              OkrCheckin[]
+  // Daily Planning relations
+  dailyPlans               DailyPlan[]
+  // Zoe daily briefing
+  dailyBriefings           DailyBriefing[]
+  // Meetings/Transcription relations
+  transcriptionSessions    TranscriptionSession[]
+  // Auto-scheduling relations
+  taskSchedules            TaskSchedule[]
+  recurringTasks           RecurringTask[]
+  // Scoring & Gamification relations
+  dailyScores              DailyScore[]
+  streaks                  ProductivityStreak[]
+  leaderboardEntries       LeaderboardEntry[]
+  // AI Assistant customization
+  assistants               Assistant[]
+  // Workflow Pipeline relations
+  workflowDefinitions      WorkflowDefinition[]
+  contentDrafts            ContentDraft[]
+  // PM Agent relations
+  githubActivities         GitHubActivity[]
+  pmAgentConfigs           PMAgentConfig[]
+  // Deal Pipeline relations
+  deals                    Deal[]
+  // Integration relations
+  integrations             Integration[]
+  // Notification override relations
+  notificationOverrides    WorkspaceNotificationOverride[]
+  // Slack channel config relation
+  slackConfig              SlackChannelConfig?
+  // Product Management plugin relations
+  products                 Product[]
+  ticketTemplates          TicketTemplate[]
+  retrospectives           Retrospective[]
+
+  @@index([slug])
+  @@index([ownerId])
+  @@index([type])
+}
+
+model WorkspaceUser {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        String   @default("member") // "owner" | "admin" | "member" | "viewer"
+  joinedAt    DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+model WorkspaceInvitation {
+  id          String    @id @default(cuid())
+  workspaceId String
+  email       String
+  role        String    @default("member") // "admin" | "member" | "viewer"
+  token       String    @unique
+  status      String    @default("pending") // "pending" | "accepted" | "expired" | "cancelled"
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  createdById String
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("InvitationCreator", fields: [createdById], references: [id])
+
+  @@unique([workspaceId, email])
+  @@index([token])
+  @@index([email])
+  @@index([workspaceId])
+  @@index([status])
+}
+
+model View {
+  id           String      @id @default(cuid())
+  name         String
+  slug         String
+  description  String?
+
+  viewType     ViewType    @default(KANBAN)
+  groupBy      ViewGroupBy @default(STATUS)
+  filters      Json        @default("{}")   // { projectIds?, statuses?, priorities?, assigneeIds?, tagIds?, includeCompleted? }
+  sortConfig   Json        @default("{}")   // { field: string, direction: 'asc' | 'desc' }
+
+  isSystem     Boolean     @default(false)  // System views cannot be deleted
+  isDefault    Boolean     @default(false)  // Default view for workspace
+  displayOrder Int         @default(0)
+
+  workspaceId  String
+  createdById  String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy    User        @relation("ViewsCreated", fields: [createdById], references: [id])
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([isSystem])
+}
+
+model List {
+  id           String     @id @default(cuid())
+  name         String
+  slug         String
+  description  String?
+
+  listType     ListType   @default(CUSTOM)
+  status       ListStatus @default(ACTIVE)
+
+  startDate    DateTime?  // Optional: for sprints/iterations
+  endDate      DateTime?  // Optional: for sprints/iterations
+  cycleGoal    String?    // Goal/objective for this cycle
+  achievements String?    // What was accomplished this cycle
+
+  displayOrder Int        @default(0)
+
+  workspaceId  String
+  createdById  String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy    User       @relation("ListsCreated", fields: [createdById], references: [id])
+  actions      ActionList[]
+  tickets      Ticket[]          @relation("TicketCycle")
+  retrospectives Retrospective[] @relation("RetrospectiveCycle")
+  // PM Agent sprint tracking
+  snapshots    SprintSnapshot[]
+  metrics      SprintMetrics?
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([status])
 }
 
 model Action {
@@ -107,31 +420,149 @@ model Action {
   name                   String
   description            String?
   dueDate                DateTime?
+  scheduledStart         DateTime?             // When to start this action (time-blocking)
+  scheduledEnd           DateTime?             // When to end this action (optional)
+  duration               Int?                  // Duration in minutes (alternative to scheduledEnd)
   status                 String                @default("ACTIVE")
   priority               String                @default("Quick")
   projectId              String?
   createdById            String
-  assignedToId           String?
   teamId                 String?
+  workspaceId            String?
   transcriptionSessionId String?
   kanbanStatus           ActionStatus?
   kanbanOrder            Int?
   completedAt            DateTime?
-  assignedTo             User?                 @relation("AssignedActions", fields: [assignedToId], references: [id])
+  source                 String?               @default("app") // "app", "ios-shortcut", "notion", "api", "transcription"
+
+  // Auto-scheduling fields (Motion-like features)
+  isAutoScheduled        Boolean               @default(true)
+  isHardDeadline         Boolean               @default(false)
+  scheduleId             String?
+  idealStartTime         String?
+
+  // ETA & Progress tracking
+  etaDaysOffset          Int?
+  etaStatus              String?               // "on_track" | "at_risk" | "overdue"
+  timeSpentMins          Int                   @default(0)
+
+  // Task chunking
+  chunkDurationMins      Int?
+  parentChunkId          String?
+  chunkNumber            Int?
+  totalChunks            Int?
+
+  // Recurring task support
+  isRecurring            Boolean               @default(false)
+  recurringParentId      String?
+  instanceDate           DateTime?
+
+  // Task dependencies (blocking relationships)
+  blockedByIds           String[]
+  blockingIds            String[]
+
+  // Reminder task (not scheduled on calendar)
+  isReminderOnly         Boolean               @default(false)
+
+  // Timestamps
+  createdAt              DateTime              @default(now())
+
+  // Epic & Effort
+  epicId                 String?
+  effortEstimate         Float?                // Story points, t-shirt mapped value, or hours
+
+  // Product Management plugin: optional link to parent Ticket
+  ticketId               String?
+
   createdBy              User                  @relation(fields: [createdById], references: [id])
   project                Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   team                   Team?                 @relation(fields: [teamId], references: [id])
+  workspace              Workspace?            @relation(fields: [workspaceId], references: [id])
   transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
+  schedule               TaskSchedule?         @relation(fields: [scheduleId], references: [id])
+  epic                   Epic?                 @relation(fields: [epicId], references: [id], onDelete: SetNull)
+  ticket                 Ticket?               @relation("TicketActions", fields: [ticketId], references: [id], onDelete: SetNull)
+  recurringParent        RecurringTask?        @relation("RecurringInstances", fields: [recurringParentId], references: [id])
+  parentChunk            Action?               @relation("ActionChunks", fields: [parentChunkId], references: [id], onDelete: SetNull)
+  childChunks            Action[]              @relation("ActionChunks")
   syncs                  ActionSync[]
   assignees              ActionAssignee[]
-  weeklyOutcomes         WeeklyOutcome[]   @relation("WeeklyOutcomeActions")
+  weeklyOutcomes         WeeklyOutcome[]       @relation("WeeklyOutcomeActions")
+  tags                   ActionTag[]
+  lists                  ActionList[]
+  dailyPlanActions       DailyPlanAction[]
+  // PM Agent tracking
+  githubActivities       GitHubActivity[]
+  statusChanges          ActionStatusChange[]
+  actionScreenshots      ActionScreenshot[]
+  comments               ActionComment[]
+
+  // Bounty fields
+  isBounty               Boolean               @default(false)
+  bountyAmount           Decimal?
+  bountyToken            String?               // e.g. "USDC", "ETH"
+  bountyStatus           BountyStatus?
+  bountyDifficulty       String?               // "beginner", "intermediate", "advanced"
+  bountySkills           String[]              @default([])
+  bountyDeadline         DateTime?
+  bountyMaxClaimants     Int                   @default(1)
+  bountyExternalUrl      String?
+  bountyClaims           BountyClaim[]
 
   @@index([projectId])
   @@index([createdById])
   @@index([teamId])
-  @@index([assignedToId])
+  @@index([workspaceId])
   @@index([transcriptionSessionId])
   @@index([kanbanStatus])
+  @@index([scheduleId])
+  @@index([recurringParentId])
+  @@index([parentChunkId])
+  @@index([isAutoScheduled])
+  @@index([etaStatus])
+  @@index([epicId])
+  @@index([ticketId])
+  @@index([isBounty])
+  @@index([bountyStatus])
+}
+
+model BountyClaim {
+  id              String      @id @default(cuid())
+  actionId        String
+  claimantId      String
+  status          ClaimStatus @default(ACTIVE)
+  submissionUrl   String?
+  submissionNotes String?
+  reviewNotes     String?
+  claimedAt       DateTime    @default(now())
+  submittedAt     DateTime?
+  reviewedAt      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  action          Action      @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  claimant        User        @relation(fields: [claimantId], references: [id])
+
+  @@unique([actionId, claimantId])
+  @@index([actionId])
+  @@index([claimantId])
+  @@index([status])
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String
+  address   String   @unique
+  chain     String?  // e.g. "ethereum", "solana", "polygon"
+  label     String?  // user-defined label, e.g. "Hardware wallet"
+  isPrimary Boolean  @default(false)
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model ActionAssignee {
@@ -147,54 +578,78 @@ model ActionAssignee {
 }
 
 model Outcome {
-  id          String    @id @default(cuid())
-  description String
-  dueDate     DateTime?
-  userId      String?
-  type        String?   @default("daily")
-  projectId   String?
-  user        User?     @relation(fields: [userId], references: [id], onDelete: Restrict)
-  goals       Goal[]    @relation("GoalOutcomes")
-  projects    Project[] @relation("ProjectOutcomes")
+  id             String     @id @default(cuid())
+  description    String
+  dueDate        DateTime?
+  userId         String?
+  type           String?    @default("daily")
+  whyThisOutcome String?
+  projectId      String?
+  workspaceId    String?
+  user           User?      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  workspace      Workspace? @relation(fields: [workspaceId], references: [id])
+  goals          Goal[]     @relation("GoalOutcomes")
+  projects       Project[]  @relation("ProjectOutcomes")
 
   @@index([userId])
   @@index([projectId])
+  @@index([workspaceId])
 }
 
 model Project {
-  id                    String                 @id @default(cuid())
+  id                    String                     @id @default(cuid())
   name                  String
-  status                String                 @default("ACTIVE")
-  priority              String                 @default("NONE")
-  progress              Float                  @default(0)
-  createdAt             DateTime               @default(now())
+  status                String                     @default("ACTIVE")
+  priority              String                     @default("NONE")
+  progress              Float                      @default(0)
+  createdAt             DateTime                   @default(now())
   reviewDate            DateTime?
   nextActionDate        DateTime?
+  startDate             DateTime?
+  endDate               DateTime?
   createdById           String
-  slug                  String                 @unique
+  slug                  String                     @unique
   description           String?
   teamId                String?
+  workspaceId           String?
   taskManagementConfig  Json?
-  taskManagementTool    String?                @default("internal")
+  taskManagementTool    String?                    @default("internal")
   notionProjectId       String?
+  driId                 String?
+  isPublic              Boolean                    @default(false)
+  enableDetailedActions Boolean?                   // null = inherit from workspace
+  enableBounties        Boolean?                   // null = inherit from workspace
+  type                  String                     @default("standard") // "standard" | "pipeline"
   actions               Action[]
   aiInteractionHistory  AiInteractionHistory[]
-  createdBy             User                   @relation(fields: [createdById], references: [id])
-  team                  Team?                  @relation(fields: [teamId], references: [id])
+  createdBy             User                       @relation(fields: [createdById], references: [id])
+  dri                   User?                      @relation("ProjectDRI", fields: [driId], references: [id])
+  team                  Team?                      @relation(fields: [teamId], references: [id])
+  workspace             Workspace?                 @relation(fields: [workspaceId], references: [id])
   projectMembers        ProjectMember[]
   slackConfig           SlackChannelConfig?
   transcriptionSessions TranscriptionSession[]
   workflows             Workflow[]
-  goals                 Goal[]                 @relation("GoalProjects")
-  outcomes              Outcome[]              @relation("ProjectOutcomes")
+  goals                 Goal[]                     @relation("GoalProjects")
+  outcomes              Outcome[]                  @relation("ProjectOutcomes")
   weeklyOutcomes        WeeklyOutcome[]
   memberCapacities      TeamMemberWeeklyCapacity[] @relation("ProjectCapacities")
+  lifeDomains           LifeDomain[]               @relation("ProjectLifeDomains")
+  resources             Resource[]
+  recurringTasks        RecurringTask[]
+  keyResults            KeyResultProject[]         // Key results this project contributes to
+  // Deal Pipeline relations (when type = "pipeline")
+  pipelineStages        PipelineStage[]
+  deals                 Deal[]
 
   @@index([name])
   @@index([status])
   @@index([priority])
   @@index([teamId])
+  @@index([workspaceId])
   @@index([taskManagementTool])
+  @@index([driId])
+  @@index([isPublic])
 }
 
 model Video {
@@ -254,23 +709,122 @@ model Goal {
   id           Int        @id @default(autoincrement())
   title        String
   description  String?
+  whyThisGoal  String? // "Why this value goal?" motivation text
+  notes        String? // Notes field for each goal
   dueDate      DateTime?
-  lifeDomainId Int
+  period       String?    // OKR period e.g., "Q1-2026", "Annual-2026"
+  status       String     @default("active") // "planned" | "active" | "completed" | "archived"
+  lifeDomainId Int?
   userId       String
-  lifeDomain   LifeDomain @relation(fields: [lifeDomainId], references: [id])
+  driUserId    String?
+  workspaceId  String?
+
+  // Display icon: "emoji:🎯" or "tabler:IconTarget"
+  icon         String?
+  iconColor    String?   // Color key: "purple", "blue", "teal", etc.
+
+  // Parent-child nesting (sub-goals / sub-initiatives, up to 5 levels)
+  parentGoalId Int?
+  parentGoal   Goal?      @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: SetNull)
+  childGoals   Goal[]     @relation("GoalHierarchy")
+
+  // Computed health cache (aggregated from KRs, projects, child goals)
+  health          String?   // "on-track" | "at-risk" | "off-track" | "no-update"
+  healthUpdatedAt DateTime?
+
+  // Display ordering within parent or at root level
+  displayOrder Int        @default(0)
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  lifeDomain   LifeDomain? @relation(fields: [lifeDomainId], references: [id])
   user         User       @relation(fields: [userId], references: [id])
+  driUser      User?      @relation("GoalDRI", fields: [driUserId], references: [id])
+  workspace    Workspace? @relation(fields: [workspaceId], references: [id])
   outcomes     Outcome[]  @relation("GoalOutcomes")
   projects     Project[]  @relation("GoalProjects")
+  habits       Habit[] // Habits linked to this goal
+  keyResults      KeyResult[] // OKR key results for this goal (objective)
+  comments        GoalComment[] // Discussion comments on this objective
+  updates         GoalUpdate[]  // Structured status updates with health
+  recommendations WheelOfLifeRecommendation[]
+  progressSnapshots GoalProgressSnapshot[]
+  features          Feature[]              @relation("FeatureGoal")
 
   @@index([lifeDomainId])
   @@index([userId])
+  @@index([driUserId])
+  @@index([workspaceId])
+  @@index([parentGoalId])
+  @@index([status])
+}
+
+model GoalProgressSnapshot {
+  id           String   @id @default(cuid())
+  goalId       Int
+  progress     Float    // 0-100, computed from KRs + projects
+  health       String   // "on-track" | "at-risk" | "off-track" | "no-update"
+  snapshotDate DateTime @db.Date
+  createdAt    DateTime @default(now())
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@unique([goalId, snapshotDate])
+  @@index([goalId])
+}
+
+model Habit {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  frequency   String    @default("daily") // daily, 3x_week, weekly, bi_weekly, monthly, custom
+  daysOfWeek  Int[] // Array of day numbers (0=Sunday, 1=Monday, etc.) for custom scheduling
+  timeOfDay   String? // Optional reminder time (e.g., "08:00")
+  startDate   DateTime  @default(now())
+  endDate     DateTime?
+  isActive    Boolean   @default(true)
+  goalId      Int? // Optional link to a Goal
+  userId      String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  goal        Goal?             @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completions HabitCompletion[]
+
+  @@index([userId])
+  @@index([goalId])
+  @@index([isActive])
+}
+
+model HabitCompletion {
+  id            String   @id @default(cuid())
+  habitId       String
+  completedDate DateTime @db.Date // The date the habit was completed (no time component)
+  completedAt   DateTime @default(now()) // Timestamp when marked complete
+  notes         String? // Optional notes for this completion
+  duration      Int? // Optional duration in minutes
+  rating        Int? // Optional quality/rating 1-5
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, completedDate]) // One completion per habit per day
+  @@index([habitId])
+  @@index([completedDate])
 }
 
 model LifeDomain {
-  id          Int     @id @default(autoincrement())
-  title       String
-  description String?
-  goals       Goal[]
+  id               Int                @id @default(autoincrement())
+  title            String
+  description      String?
+  icon             String? // Tabler icon name (e.g., "IconBriefcase")
+  color            String? // Semantic color key (e.g., "brand-primary")
+  displayOrder     Int                @default(0)
+  isActive         Boolean            @default(true)
+  goals            Goal[]
+  assessmentScores WheelOfLifeScore[]
+  projects         Project[]          @relation("ProjectLifeDomains")
 }
 
 model Note {
@@ -306,13 +860,15 @@ model ProjectMember {
 }
 
 model Team {
-  id                      String                   @id @default(cuid())
+  id                      String                     @id @default(cuid())
   name                    String
-  slug                    String                   @unique
+  slug                    String                     @unique
   description             String?
-  isOrganization          Boolean                  @default(false)
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
+  isOrganization          Boolean                    @default(false)
+  workspaceId             String?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+  workspace               Workspace?                 @relation(fields: [workspaceId], references: [id])
   actions                 Action[]
   integrations            Integration[]
   integrationPermissions  IntegrationPermission[]
@@ -320,12 +876,15 @@ model Team {
   slackConfig             SlackChannelConfig?
   slackRegistrationTokens SlackRegistrationToken[]
   members                 TeamUser[]
+  invitations             TeamInvitation[]
   weeklyOutcomes          WeeklyOutcome[]
   memberCapacities        TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacities")
   weeklyReviewSharing     WeeklyReviewSharing[]
+  okrCheckins             OkrCheckin[]
 
   @@index([slug])
   @@index([isOrganization])
+  @@index([workspaceId])
 }
 
 model TeamUser {
@@ -340,6 +899,28 @@ model TeamUser {
   @@unique([userId, teamId])
   @@index([userId])
   @@index([teamId])
+}
+
+model TeamInvitation {
+  id          String    @id @default(cuid())
+  teamId      String
+  email       String
+  role        String    @default("member") // "admin" | "member"
+  token       String    @unique
+  status      String    @default("pending") // "pending" | "accepted" | "expired" | "cancelled"
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  createdById String
+
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy User @relation("TeamInvitationCreator", fields: [createdById], references: [id])
+
+  @@unique([teamId, email])
+  @@index([token])
+  @@index([email])
+  @@index([teamId])
+  @@index([status])
 }
 
 model Differentiator {
@@ -368,36 +949,64 @@ model TranscriptionSession {
   transcription       String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
-  meetingDate         DateTime?    // Actual date/time when the meeting occurred
+  meetingDate         DateTime? // Actual date/time when the meeting occurred
   userId              String?
   setupId             String?
   projectId           String?
   description         String?
   title               String?
   summary             String?
+  notes               String?
   processedAt         DateTime?
+  actionsSavedAt      DateTime?
   slackNotificationAt DateTime?
   archivedAt          DateTime?
   sourceIntegrationId String?
+  workspaceId         String?
+
+  // Embedding status tracking for knowledge base
+  embeddingStatus     String?      @default("none") // none|pending|processing|completed|failed
+  embeddingError      String?
+  embeddedAt          DateTime?
+  chunkCount          Int?
+
   actions             Action[]
   screenshots         Screenshot[]
   project             Project?     @relation(fields: [projectId], references: [id])
   sourceIntegration   Integration? @relation(fields: [sourceIntegrationId], references: [id])
   user                User?        @relation(fields: [userId], references: [id])
+  workspace           Workspace?   @relation(fields: [workspaceId], references: [id])
 
   @@index([sessionId])
+  @@index([workspaceId])
   @@index([userId])
   @@index([projectId])
   @@index([sourceIntegrationId])
+  @@index([embeddingStatus])
 }
 
 model Screenshot {
-  id                     String               @id @default(cuid())
+  id                     String                @id @default(cuid())
   url                    String
   timestamp              String
-  transcriptionSessionId String
-  createdAt              DateTime             @default(now())
-  transcriptionSession   TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id])
+  transcriptionSessionId String?
+  createdAt              DateTime              @default(now())
+  transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
+  actionScreenshots      ActionScreenshot[]
+}
+
+model ActionScreenshot {
+  id           String     @id @default(cuid())
+  actionId     String
+  screenshotId String
+  createdAt    DateTime   @default(now())
+
+  action       Action     @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  screenshot   Screenshot @relation(fields: [screenshotId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, screenshotId])
+  @@index([actionId])
+  @@index([screenshotId])
 }
 
 model Integration {
@@ -411,10 +1020,12 @@ model Integration {
   updatedAt               DateTime                 @updatedAt
   userId                  String?
   teamId                  String?
+  workspaceId             String?
   lastSyncAt              DateTime?
   allowTeamMemberAccess   Boolean                  @default(false)
   team                    Team?                    @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user                    User?                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace               Workspace?               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   credentials             IntegrationCredential[]
   permissions             IntegrationPermission[]
   userMappings            IntegrationUserMapping[]
@@ -425,10 +1036,13 @@ model Integration {
   transcriptionSessions   TranscriptionSession[]
   whatsappConfig          WhatsAppConfig?
   workflows               Workflow[]
+  // PM Agent GitHub tracking
+  githubActivities        GitHubActivity[]
 
   @@index([userId])
   @@index([teamId])
   @@index([provider])
+  @@index([workspaceId])
 }
 
 model IntegrationCredential {
@@ -508,9 +1122,11 @@ model WorkflowRun {
 model SlackChannelConfig {
   id                 String      @id @default(cuid())
   slackChannel       String
+  slackChannelId     String?
   isActive           Boolean     @default(true)
   projectId          String?     @unique
   teamId             String?     @unique
+  workspaceId        String?     @unique
   integrationId      String
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
@@ -519,9 +1135,11 @@ model SlackChannelConfig {
   integration        Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
   project            Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   team               Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  workspace          Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([teamId])
+  @@index([workspaceId])
   @@index([integrationId])
   @@index([configuredByUserId])
 }
@@ -630,7 +1248,7 @@ model SlackMessageHistory {
 }
 
 model AiInteractionHistory {
-  id              String   @id @default(cuid())
+  id              String     @id @default(cuid())
   platform        String
   sourceId        String?
   systemUserId    String?
@@ -648,17 +1266,20 @@ model AiInteractionHistory {
   category        String?
   responseTime    Int?
   tokenUsage      Json?
-  hadError        Boolean  @default(false)
+  hadError        Boolean    @default(false)
   errorMessage    String?
   confidenceScore Float?
   projectId       String?
+  workspaceId     String?
   actionsTaken    Json?
   toolsUsed       String[]
-  userAgent       String?
-  ipAddress       String?
-  createdAt       DateTime @default(now())
-  project         Project? @relation(fields: [projectId], references: [id])
-  user            User?    @relation(fields: [systemUserId], references: [id])
+  userAgent          String?
+  ipAddress          String?
+  anthropicRequestId String?
+  createdAt          DateTime   @default(now())
+  project            Project?   @relation(fields: [projectId], references: [id])
+  user               User?      @relation(fields: [systemUserId], references: [id])
+  feedback           Feedback[]
 
   @@index([systemUserId])
   @@index([platform])
@@ -670,23 +1291,48 @@ model AiInteractionHistory {
   @@index([createdAt])
   @@index([platform, systemUserId])
   @@index([conversationId, createdAt])
+  @@index([anthropicRequestId])
+  @@index([workspaceId, conversationId])
+  @@index([workspaceId, systemUserId, createdAt])
 }
 
 model Feedback {
-  id        String   @id @default(cuid())
-  userId    String
-  feature   String
-  rating    Int
-  content   String
-  metadata  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String                @id @default(cuid())
+  userId          String
+  feature         String
+  rating          Int
+  content         String
+  metadata        Json?
+  aiInteractionId String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiInteraction   AiInteractionHistory? @relation(fields: [aiInteractionId], references: [id])
 
   @@index([userId])
   @@index([feature])
   @@index([createdAt])
   @@index([feature, rating])
+  @@index([aiInteractionId])
+}
+
+model FeatureRequest {
+  id            String    @id @default(cuid())
+  title         String
+  description   String
+  embedding     Float[]
+  priority      Int       @default(0)
+  status        String    @default("open")
+  feedbackCount Int       @default(1)
+  avgRating     Float?
+  feedbackIds   String[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  resolvedAt    DateTime?
+
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
 }
 
 model WhatsAppConfig {
@@ -778,6 +1424,88 @@ model NotificationPreference {
   @@index([enabled])
 }
 
+model WorkspaceNotificationOverride {
+  id                 String   @id @default(cuid())
+  userId             String
+  workspaceId        String
+  emailNotifications Boolean
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+model NavigationPreference {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  hiddenSections     String[] @default([])
+  hiddenItems        String[] @default([])
+  showInspiringQuote Boolean  @default(true)
+  showSuggestedFocus Boolean  @default(true)
+  showGamification   Boolean  @default(false)
+  showDailyBriefing  Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model DailyBriefing {
+  id               String                 @id @default(cuid())
+  userId           String
+  workspaceId      String?
+  date             DateTime               @db.Date
+  promptVersion    String
+  modelId          String
+  inputSnapshot    Json
+  outputText       String
+  outputStructured Json?
+  latencyMs        Int?
+  tokensIn         Int?
+  tokensOut        Int?
+  createdAt        DateTime               @default(now())
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace        Workspace?             @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  interactions     BriefingInteraction[]
+
+  @@index([userId, date])
+  @@index([promptVersion])
+  @@index([createdAt])
+}
+
+model BriefingInteraction {
+  id          String        @id @default(cuid())
+  briefingId  String
+  type        String
+  createdAt   DateTime      @default(now())
+  briefing    DailyBriefing @relation(fields: [briefingId], references: [id], onDelete: Cascade)
+
+  @@index([briefingId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model CalendarPreference {
+  id                  String    @id @default(cuid())
+  userId              String
+  provider            String    @default("google")
+  selectedCalendarIds String[]  @default([])
+  cachedCalendars     Json?
+  cacheUpdatedAt      DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
 model ScheduledNotification {
   id             String       @id @default(cuid())
   userId         String
@@ -802,6 +1530,20 @@ model ScheduledNotification {
   @@index([status])
   @@index([type])
   @@index([userId, scheduledFor])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model WhatsAppTemplateUsage {
@@ -923,6 +1665,131 @@ model WhatsAppWebhookDelivery {
   @@index([webhookId])
 }
 
+// WhatsApp Gateway Sessions (for self-hosted WhatsApp Web bridge)
+model WhatsAppGatewaySession {
+  id           String    @id @default(cuid())
+  sessionId    String    @unique // Session ID from the gateway
+  phoneNumber  String? // Phone number once connected
+  userId       String
+  status       String    @default("PENDING") // PENDING, CONNECTED, DISCONNECTED, ERROR
+  connectedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastPingAt   DateTime?
+  errorMessage String?
+  metadata     Json? // Store additional gateway info
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([sessionId])
+}
+
+// Telegram Gateway Sessions (for multi-tenant Telegram bot gateway)
+enum TelegramGatewayStatus {
+  DISCONNECTED
+  CONNECTED
+}
+
+model TelegramGatewaySession {
+  id               String                @id @default(cuid())
+  userId           String                @unique
+  telegramUsername  String?
+  agentId          String                @default("assistant")
+  status           TelegramGatewayStatus @default(DISCONNECTED)
+  connectedAt      DateTime?
+  lastActiveAt     DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// Action Tagging Models
+// ============================================
+
+model Tag {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String
+  color       String    // Semantic color key (e.g., "avatar-red", "brand-primary")
+  description String?
+  category    String?   // e.g. "label", "area" - null treated as general "label"
+  isSystem    Boolean   @default(false) // System tags cannot be deleted
+  workspaceId String?   // null = global tag, available in all workspaces
+  createdById String?   // null for system tags
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User?      @relation("TagCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  actions      ActionTag[]
+  tickets      TicketTag[]
+  features     FeatureTag[]
+  insights     InsightTag[]
+
+  // Global tags: unique by slug (when workspaceId is null)
+  // Workspace tags: unique by slug within workspace
+  @@unique([slug, workspaceId])
+  @@index([workspaceId])
+  @@index([isSystem])
+  @@index([slug])
+}
+
+model ActionTag {
+  id        String   @id @default(cuid())
+  actionId  String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  action Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, tagId])
+  @@index([actionId])
+  @@index([tagId])
+}
+
+model ActionList {
+  id        String   @id @default(cuid())
+  actionId  String
+  listId    String
+  createdAt DateTime @default(now())
+
+  action Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  list   List   @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, listId])
+  @@index([actionId])
+  @@index([listId])
+}
+
+model Epic {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  status      EpicStatus @default(OPEN)
+  priority    String     @default("MEDIUM") // "HIGH" | "MEDIUM" | "LOW" | "NONE"
+  startDate   DateTime?
+  targetDate  DateTime?
+
+  ownerId     String
+  workspaceId String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  owner     User      @relation("EpicOwner", fields: [ownerId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actions   Action[]
+  tickets   Ticket[]  @relation("TicketEpic")
+
+  @@index([workspaceId])
+  @@index([ownerId])
+  @@index([status])
+}
+
 enum ActionStatus {
   BACKLOG
   TODO
@@ -932,64 +1799,119 @@ enum ActionStatus {
   CANCELLED
 }
 
+enum ViewType {
+  KANBAN
+  LIST
+}
+
+enum ViewGroupBy {
+  STATUS
+  PROJECT
+  ASSIGNEE
+  PRIORITY
+  LIST
+}
+
+enum ListType {
+  SPRINT
+  BACKLOG
+  CUSTOM
+}
+
+enum ListStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum EpicStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum EffortUnit {
+  STORY_POINTS
+  T_SHIRT
+  HOURS
+}
+
+enum BountyStatus {
+  OPEN
+  IN_PROGRESS
+  IN_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum ClaimStatus {
+  ACTIVE
+  SUBMITTED
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
 // Team Weekly Planning Models
 model WeeklyOutcome {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   title         String
   description   String?
   weekStartDate DateTime // Start of the week (Monday)
-  status        String   @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
-  priority      String   @default("MEDIUM") // HIGH, MEDIUM, LOW
+  status        String    @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
+  priority      String    @default("MEDIUM") // HIGH, MEDIUM, LOW
   teamId        String
   projectId     String
   createdById   String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   dueDate       DateTime? // Optional specific due date within the week
-  
+
   // Relations
-  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy     User     @relation("WeeklyOutcomeCreated", fields: [createdById], references: [id])
-  assignees     WeeklyOutcomeAssignee[]
-  relatedActions Action[] @relation("WeeklyOutcomeActions")
-  
+  team           Team                    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  project        Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy      User                    @relation("WeeklyOutcomeCreated", fields: [createdById], references: [id])
+  assignees      WeeklyOutcomeAssignee[]
+  relatedActions Action[]                @relation("WeeklyOutcomeActions")
+
+  @@unique([teamId, projectId, weekStartDate, title])
   @@index([teamId])
   @@index([projectId])
   @@index([weekStartDate])
   @@index([status])
-  @@unique([teamId, projectId, weekStartDate, title])
 }
 
 model WeeklyOutcomeAssignee {
-  id              String        @id @default(cuid())
+  id              String   @id @default(cuid())
   weeklyOutcomeId String
   userId          String
-  assignedAt      DateTime      @default(now())
-  
-  weeklyOutcome   WeeklyOutcome @relation(fields: [weeklyOutcomeId], references: [id], onDelete: Cascade)
-  user            User          @relation("WeeklyOutcomeAssignee", fields: [userId], references: [id], onDelete: Cascade)
-  
+  assignedAt      DateTime @default(now())
+
+  weeklyOutcome WeeklyOutcome @relation(fields: [weeklyOutcomeId], references: [id], onDelete: Cascade)
+  user          User          @relation("WeeklyOutcomeAssignee", fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([weeklyOutcomeId, userId])
   @@index([weeklyOutcomeId])
   @@index([userId])
 }
 
 model TeamMemberWeeklyCapacity {
-  id            String   @id @default(cuid())
-  userId        String
-  teamId        String
-  projectId     String?  // Optional: project-specific capacity
-  weekStartDate DateTime
-  availableHours Float   @default(40) // Default full-time capacity
-  notes         String?  // Vacation, part-time, etc.
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  user          User     @relation("TeamMemberCapacity", fields: [userId], references: [id])
-  team          Team     @relation("TeamMemberCapacities", fields: [teamId], references: [id])
-  project       Project? @relation("ProjectCapacities", fields: [projectId], references: [id])
-  
+  id             String   @id @default(cuid())
+  userId         String
+  teamId         String
+  projectId      String? // Optional: project-specific capacity
+  weekStartDate  DateTime
+  availableHours Float    @default(40) // Default full-time capacity
+  notes          String? // Vacation, part-time, etc.
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user    User     @relation("TeamMemberCapacity", fields: [userId], references: [id])
+  team    Team     @relation("TeamMemberCapacities", fields: [teamId], references: [id])
+  project Project? @relation("ProjectCapacities", fields: [projectId], references: [id])
+
   @@unique([userId, teamId, weekStartDate, projectId])
   @@index([userId])
   @@index([teamId])
@@ -1003,12 +1925,1701 @@ model WeeklyReviewSharing {
   isEnabled Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
   @@unique([userId, teamId])
   @@index([userId])
   @@index([teamId])
   @@index([isEnabled])
+}
+
+model WeeklyReviewCompletion {
+  id               String    @id @default(cuid())
+  userId           String
+  workspaceId      String?
+  weekStartDate    DateTime  @db.Date // Sunday of the week
+  completedAt      DateTime  @default(now())
+  projectsReviewed Int       @default(0)
+  statusChanges    Int       @default(0)
+  priorityChanges  Int       @default(0)
+  actionsAdded     Int       @default(0)
+  reviewMode       String?   // "full" | "quick"
+  durationMinutes  Int?      // Actual time taken to complete review
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId, weekStartDate])
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([weekStartDate])
+}
+
+// ============================================
+// Wheel of Life Assessment Models
+// ============================================
+
+model WheelOfLifeAssessment {
+  id          String   @id @default(cuid())
+  userId      String
+  completedAt DateTime @default(now())
+  mode        String   @default("quick") // "quick" | "deep"
+  type        String   @default("on_demand") // "on_demand" | "quarterly"
+  quarterYear String? // e.g., "2026-Q1"
+  notes       String?
+
+  user            User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scores          WheelOfLifeScore[]
+  recommendations WheelOfLifeRecommendation[]
+
+  @@index([userId])
+  @@index([completedAt])
+  @@index([quarterYear])
+}
+
+model WheelOfLifeScore {
+  id           String @id @default(cuid())
+  assessmentId String
+  lifeDomainId Int
+
+  // Priority rankings (both modes)
+  currentRank Int // 1-10, where 1 = highest priority currently
+  desiredRank Int // 1-10, where 1 = highest priority desired
+
+  // Satisfaction score (Deep mode only)
+  score Int? // 1-10 scale, null in Quick mode
+
+  reflection String? // Optional reflection
+
+  assessment WheelOfLifeAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  lifeDomain LifeDomain            @relation(fields: [lifeDomainId], references: [id])
+
+  @@unique([assessmentId, lifeDomainId])
+  @@index([assessmentId])
+  @@index([lifeDomainId])
+}
+
+model WheelOfLifeRecommendation {
+  id             String  @id @default(cuid())
+  assessmentId   String
+  lifeDomainId   Int
+  recommendation String
+  suggestedGoal  String?
+  priority       String  @default("medium") // "high" | "medium" | "low"
+  goalCreated    Boolean @default(false)
+  goalId         Int?
+
+  assessment WheelOfLifeAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  goal       Goal?                 @relation(fields: [goalId], references: [id], onDelete: SetNull)
+
+  @@index([assessmentId])
+  @@index([lifeDomainId])
+}
+
+// ============================================
+// Knowledge Base Models (RAG)
+// ============================================
+
+model Resource {
+  id String @id @default(cuid())
+
+  // Core content
+  title       String
+  description String?
+  url         String? // Source URL for web pages/bookmarks
+  rawContent  String? // Original HTML/content
+  content     String? // Cleaned/processed text
+  contentType String  @default("web_page") // "web_page" | "document" | "pdf" | "bookmark" | "note"
+  mimeType    String? // e.g., "text/html", "application/pdf"
+
+  // Metadata
+  author      String?
+  publishedAt DateTime?
+  fetchedAt   DateTime?
+  wordCount   Int?
+  summary     String? // AI-generated summary
+
+  // Organization
+  tags        String[]
+  userId      String
+  projectId   String?
+  workspaceId String?
+
+  // Agent context injection
+  pinnedAsContext Boolean @default(false)
+
+  // Timestamps
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  archivedAt DateTime?
+
+  // Relations
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project?   @relation(fields: [projectId], references: [id])
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([workspaceId])
+  @@index([contentType])
+  @@index([url])
+}
+
+model KnowledgeChunk {
+  id String @id @default(cuid())
+
+  // Content
+  content   String // Text chunk (~500 tokens)
+  embedding Unsupported("vector(1536)")? // pgvector embedding
+
+  // Source reference (polymorphic - query manually, no Prisma relations)
+  sourceType String // "transcription" | "resource"
+  sourceId   String // ID of TranscriptionSession or Resource
+
+  // Position info
+  chunkIndex Int // Order within source
+  tokenCount Int?
+  startPos   Int? // Character position in source
+  endPos     Int?
+
+  // Filtering
+  userId    String
+  projectId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([sourceType, sourceId])
+  @@index([userId])
+  @@index([projectId])
+}
+
+// ============================================
+// CRM Models
+// ============================================
+
+model CrmContact {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  firstName           String?
+  lastName            String?
+  email               Bytes?   @map("email_encrypted") @db.ByteA
+  phone               Bytes?   @map("phone_encrypted") @db.ByteA
+  linkedIn            Bytes?   @map("linkedIn_encrypted") @db.ByteA
+  telegram            Bytes?   @map("telegram_encrypted") @db.ByteA
+  twitter             Bytes?   @map("twitter_encrypted") @db.ByteA
+  github              Bytes?   @map("github_encrypted") @db.ByteA
+  bluesky             Bytes?   @map("bluesky_encrypted") @db.ByteA
+  about               String?   @db.Text
+  profileType         String?
+  skills              String[]
+  tags                String[]
+  lastInteractionAt   DateTime?
+  lastInteractionType String?
+  organizationId      String?
+  createdById         String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Gmail/Calendar import fields
+  connectionScore     Int?      @default(0)  // 0-100 calculated score
+  emailHash          String?   @unique      // SHA-256 for deduplication
+  importSource       String?                // "GMAIL", "CALENDAR", "MANUAL"
+  googleContactId    String?                // Google People API ID
+  lastSyncedAt       DateTime?              // Last import sync time
+
+  workspace      Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  organization   CrmOrganization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  createdBy      User?                   @relation("CrmContactCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  interactions   CrmContactInteraction[]
+  communications CrmCommunication[]
+  deals          Deal[]
+
+  @@index([workspaceId])
+  @@index([organizationId])
+  @@index([createdById])
+  @@index([email])
+  @@index([lastInteractionAt])
+  @@index([emailHash])
+  @@index([connectionScore])
+  @@index([workspaceId, importSource])
+}
+
+model CrmOrganization {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  websiteUrl  String?
+  logoUrl     String?
+  description String?  @db.Text
+  industry    String?
+  size        String? // "1-10" | "11-50" | "51-200" | "201-500" | "501-1000" | "1000+"
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("CrmOrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  contacts  CrmContact[]
+  deals     Deal[]
+
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([name])
+}
+
+model CrmContactInteraction {
+  id         String   @id @default(cuid())
+  contactId  String
+  workspaceId String
+  userId     String?
+  type       String // EMAIL, TELEGRAM, PHONE_CALL, MEETING, NOTE, LINKEDIN, OTHER
+  direction  String // INBOUND, OUTBOUND, BIDIRECTIONAL
+  subject    String?
+  notes      String?  @db.Text
+  metadata   Json? // Additional data like email thread ID, call duration, etc.
+  occurredAt DateTime @default(now()) // When interaction happened
+  createdAt  DateTime @default(now())
+
+  contact   CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?      @relation("CrmInteractionUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([contactId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([type])
+  @@index([occurredAt])
+  @@index([createdAt])
+}
+
+model CrmCommunication {
+  id           String    @id @default(cuid())
+  contactId    String?
+  workspaceId  String
+  type         String // EMAIL, TELEGRAM, SMS
+  fromEmail    Bytes?   @map("from_email_encrypted") @db.ByteA
+  toEmail      Bytes?   @map("to_email_encrypted") @db.ByteA
+  fromTelegram Bytes?   @map("from_telegram_encrypted") @db.ByteA
+  toTelegram   Bytes?   @map("to_telegram_encrypted") @db.ByteA
+  subject      String?
+  textContent  String?   @db.Text
+  htmlContent  String?   @db.Text
+  status       String    @default("DRAFT") // DRAFT, QUEUED, SENT, FAILED, CANCELLED
+  sentAt       DateTime?
+  openedAt     DateTime?
+  clickedAt    DateTime?
+  bouncedAt    DateTime?
+  errorMessage String?  @map("error_message_redacted")
+  errorCode    String?  @map("error_code")
+  externalId   String? // ID from external service (e.g., Postmark message ID)
+  metadata     Json? // Additional tracking data
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  contact   CrmContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User?       @relation("CrmCommunicationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([contactId])
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([status])
+  @@index([type])
+  @@index([sentAt])
+}
+
+model CrmCommunicationTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  subject     String?
+  textContent String?  @db.Text
+  htmlContent String?  @db.Text
+  type        String // EMAIL, TELEGRAM, SMS
+  variables   String[] // Template variable names like ["firstName", "companyName"]
+  isActive    Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User?     @relation("CrmTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@index([type])
+  @@index([isActive])
+}
+
+model ContactImportBatch {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  status             String    // PENDING, IN_PROGRESS, COMPLETED, FAILED, PARTIAL_SUCCESS
+  source             String    // GMAIL, CALENDAR, BOTH
+  totalContacts      Int       @default(0)
+  processedContacts  Int       @default(0)
+  newContacts        Int       @default(0)
+  updatedContacts    Int       @default(0)
+  errorCount         Int       @default(0)
+  googleSyncToken    String?   // For incremental syncs
+  metadata           Json?     // Error messages, warnings
+  createdById        String
+  createdAt          DateTime  @default(now())
+  completedAt        DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("CrmImportBatchCreatedBy", fields: [createdById], references: [id])
+
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ============================================
+// Plugin System Models
+// ============================================
+
+model PluginConfig {
+  id          String    @id @default(cuid())
+  pluginId    String
+  workspaceId String?
+  userId      String
+  enabled     Boolean   @default(true)
+  settings    Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pluginId, workspaceId, userId])
+  @@index([pluginId])
+  @@index([workspaceId])
+  @@index([userId])
+}
+
+// ============================================
+// OKR (Objectives & Key Results) Models
+// ============================================
+
+model KeyResult {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  targetValue  Float
+  currentValue Float     @default(0)
+  startValue   Float     @default(0)
+  unit         String    @default("percent") // "percent", "count", "currency", "hours", "custom"
+  unitLabel    String? // Custom label like "$" or "users"
+  period       String // "Q1-2025", "H1-2025", "Annual-2025"
+  periodStart  DateTime?
+  periodEnd    DateTime?
+  status       String    @default("on-track") // "on-track", "at-risk", "off-track", "achieved"
+  confidence   Int? // 0-100 confidence score
+  goalId       Int
+  userId       String
+  driUserId    String?
+  workspaceId  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  goal      Goal                @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  driUser   User?               @relation("KeyResultDRI", fields: [driUserId], references: [id])
+  workspace Workspace?          @relation(fields: [workspaceId], references: [id])
+  checkIns  KeyResultCheckIn[]
+  comments  KeyResultComment[] // Discussion comments on this key result
+  projects  KeyResultProject[] // Projects linked to this key result
+
+  @@index([goalId])
+  @@index([userId])
+  @@index([driUserId])
+  @@index([workspaceId])
+  @@index([period])
+  @@index([status])
+}
+
+model KeyResultCheckIn {
+  id            String   @id @default(cuid())
+  keyResultId   String
+  previousValue Float
+  newValue      Float
+  notes         String?
+  createdAt     DateTime @default(now())
+  createdById   String
+
+  keyResult KeyResult @relation(fields: [keyResultId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("KeyResultCheckInCreator", fields: [createdById], references: [id])
+
+  @@index([keyResultId])
+  @@index([createdAt])
+}
+
+model KeyResultProject {
+  id          String   @id @default(cuid())
+  keyResultId String
+  projectId   String
+  assignedAt  DateTime @default(now())
+
+  keyResult KeyResult @relation(fields: [keyResultId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([keyResultId, projectId])
+  @@index([keyResultId])
+  @@index([projectId])
+}
+
+// ============================================
+// OKR Check-in Models (Team Weekly Sync)
+// ============================================
+
+model OkrCheckin {
+  id              String    @id @default(cuid())
+  teamId          String
+  workspaceId     String
+  weekStartDate   DateTime  @db.Date
+  status          String    @default("PREPARING") // PREPARING | IN_PROGRESS | COMPLETED
+  facilitatorId   String
+  startedAt       DateTime?
+  completedAt     DateTime?
+  durationMinutes Int?
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  team          Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  workspace     Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  facilitator   User                   @relation("OkrCheckinFacilitator", fields: [facilitatorId], references: [id])
+  statusUpdates OkrCheckinUpdate[]
+  agendaItems   OkrCheckinAgendaItem[]
+
+  @@unique([teamId, weekStartDate])
+  @@index([teamId])
+  @@index([workspaceId])
+  @@index([weekStartDate])
+  @@index([status])
+}
+
+model OkrCheckinUpdate {
+  id              String    @id @default(cuid())
+  okrCheckinId    String
+  userId          String
+  accomplishments String?   @db.Text
+  blockers        String?   @db.Text
+  priorities      String?   @db.Text
+  isSubmitted     Boolean   @default(false)
+  submittedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  okrCheckin OkrCheckin          @relation(fields: [okrCheckinId], references: [id], onDelete: Cascade)
+  user       User                @relation("OkrCheckinUpdateUser", fields: [userId], references: [id])
+  comments   OkrCheckinComment[]
+
+  @@unique([okrCheckinId, userId])
+  @@index([okrCheckinId])
+  @@index([userId])
+  @@index([isSubmitted])
+}
+
+model OkrCheckinComment {
+  id        String   @id @default(cuid())
+  updateId  String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  update OkrCheckinUpdate @relation(fields: [updateId], references: [id], onDelete: Cascade)
+  author User             @relation("OkrCheckinCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([updateId])
+  @@index([authorId])
+}
+
+// OKR Discussion Comments - for Objectives (Goals)
+model GoalComment {
+  id             String   @id @default(cuid())
+  goalId         Int
+  authorId       String
+  content        String   @db.Text
+  parentUpdateId String?  // If set, this comment is a reply to a GoalUpdate
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  goal         Goal        @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  author       User        @relation("GoalCommentAuthor", fields: [authorId], references: [id])
+  parentUpdate GoalUpdate? @relation("GoalUpdateReplies", fields: [parentUpdateId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+  @@index([authorId])
+  @@index([parentUpdateId])
+  @@index([createdAt])
+}
+
+// Goal Updates - structured status updates with health indicator
+model GoalUpdate {
+  id        String   @id @default(cuid())
+  goalId    Int
+  authorId  String
+  content   String   @db.Text
+  health    String   // "on-track" | "at-risk" | "off-track"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  goal    Goal          @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  author  User          @relation("GoalUpdateAuthor", fields: [authorId], references: [id])
+  replies GoalComment[] @relation("GoalUpdateReplies")
+
+  @@index([goalId])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+// OKR Discussion Comments - for Key Results
+model KeyResultComment {
+  id          String   @id @default(cuid())
+  keyResultId String
+  authorId    String
+  content     String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  keyResult KeyResult @relation(fields: [keyResultId], references: [id], onDelete: Cascade)
+  author    User      @relation("KeyResultCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([keyResultId])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+// Action Discussion Comments
+model ActionComment {
+  id        String   @id @default(cuid())
+  actionId  String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  action Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  author User   @relation("ActionCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([actionId])
+  @@index([authorId])
+}
+
+// Blog Discussion Comments
+model BlogComment {
+  id        String   @id @default(cuid())
+  slug      String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author User @relation("BlogCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([slug])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+model OkrCheckinAgendaItem {
+  id              String    @id @default(cuid())
+  okrCheckinId    String
+  order           Int
+  type            String    // STANDUP | BLOCKERS | OKR_REVIEW | PROJECT_HEALTH | DISCUSSION
+  title           String
+  durationMinutes Int       @default(5)
+  isCompleted     Boolean   @default(false)
+  completedAt     DateTime?
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+
+  okrCheckin OkrCheckin @relation(fields: [okrCheckinId], references: [id], onDelete: Cascade)
+
+  @@index([okrCheckinId])
+}
+
+// ============================================
+// Daily Planning Wizard Models
+// ============================================
+
+model DailyPlan {
+  id           String   @id @default(cuid())
+  userId       String
+  workspaceId  String?
+  date         DateTime
+  shutdownTime String?  // "17:00" format
+  obstacles    String?  @db.Text
+  status       String   @default("DRAFT") // DRAFT, COMPLETED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Scoring metadata
+  overdueTasks       Int?
+  processedOverdue   Boolean  @default(false)
+  estimationAccuracy Float?
+  scoreCalculated    Boolean  @default(false)
+  scoreId            String?
+
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace      Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  plannedActions DailyPlanAction[]
+  score          DailyScore?       @relation(fields: [scoreId], references: [id])
+
+  @@unique([userId, date, workspaceId])
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([date])
+}
+
+model DailyPlanAction {
+  id               String    @id @default(cuid())
+  dailyPlanId      String
+  actionId         String?   // Link to existing Action (null for inline-created)
+  name             String
+  duration         Int       @default(30) // Duration in minutes
+  scheduledStart   DateTime?
+  scheduledEnd     DateTime?
+  sortOrder        Int       @default(0)
+  source           String    @default("manual") // manual, notion, monday, calendar
+  sourceId         String?   // External ID from integration
+  completed        Boolean   @default(false)
+  schedulingMethod String?   // "manual" | "auto-suggested" - tracks how task was scheduled
+  createdAt        DateTime  @default(now())
+
+  dailyPlan DailyPlan @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
+  action    Action?   @relation(fields: [actionId], references: [id], onDelete: SetNull)
+
+  @@index([dailyPlanId])
+  @@index([actionId])
+}
+
+// ============================================
+// Scoring & Gamification Models
+// ============================================
+
+model DailyScore {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String?
+  date        DateTime @db.Date
+
+  // Core scores (0-100 total)
+  totalScore      Int // Final score
+  planCreated     Int // 0-20
+  planCompleted   Int // 0-20
+  taskCompletion  Int // 0-25
+  habitCompletion Int // 0-20
+
+  // Bonuses (0-15 total)
+  schedulingBonus   Int // 0-5
+  inboxBonus        Int // 0-5
+  estimationBonus   Int // 0-5
+  weeklyReviewBonus Int // 0-10 (distributed from weekly review)
+
+  // Metadata for calculations
+  totalPlannedTasks  Int
+  completedTasks     Int
+  scheduledHabits    Int
+  completedHabits    Int
+  estimationAccuracy Float?
+  processedOverdue   Boolean @default(false)
+
+  // Timestamps
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  calculatedAt DateTime @default(now())
+
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace    Workspace?  @relation(fields: [workspaceId], references: [id])
+  dailyPlans   DailyPlan[]
+
+  @@unique([userId, workspaceId, date])
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([date])
+  @@index([totalScore]) // For leaderboard queries
+}
+
+model ProductivityStreak {
+  id         String   @id @default(cuid())
+  userId     String
+  workspaceId String?
+  streakType String // "daily_planning" | "habits" | "weekly_review"
+
+  currentStreak    Int       @default(0)
+  longestStreak    Int       @default(0)
+  lastActivityDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+
+  @@unique([userId, workspaceId, streakType])
+  @@index([userId])
+  @@index([streakType])
+}
+
+model LeaderboardEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String?
+  period      String // "today" | "week" | "month" | "all_time"
+
+  score      Int
+  rank       Int
+  percentile Float?
+
+  // Context
+  totalDays   Int?
+  consistency Float? // % days >= 60 points (qualified days)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+
+  @@unique([userId, workspaceId, period])
+  @@index([period, score]) // For efficient ranking
+  @@index([userId])
+}
+
+// ============================================
+// Webhook Activity Logging
+// ============================================
+
+model WebhookLog {
+  id           String   @id @default(cuid())
+  provider     String   // "fireflies"
+  eventType    String   // "webhook_received", "signature_verified", "signature_failed", "transcript_fetched", "manual_sync", "transcription_saved"
+  status       String   // "success", "failed", "invalid_signature"
+  meetingId    String?
+  meetingTitle String?
+  errorMessage String?  @db.Text
+  metadata     Json?
+  userId       String?
+  workspaceId  String?
+  createdAt    DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([provider])
+  @@index([createdAt])
+  @@index([status])
+}
+
+// ============================================
+// Motion-like Auto-Scheduling Models
+// ============================================
+
+model TaskSchedule {
+  id             String          @id @default(cuid())
+  name           String
+  isDefault      Boolean         @default(false)
+  startTime      String          // "09:00"
+  endTime        String          // "17:00"
+  daysOfWeek     Int[]           // [1,2,3,4,5] = Mon-Fri (0=Sun, 6=Sat)
+  workspaceId    String
+  createdById    String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy      User            @relation("TaskScheduleCreator", fields: [createdById], references: [id])
+  actions        Action[]
+  recurringTasks RecurringTask[]
+
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([isDefault])
+}
+
+model RecurringTask {
+  id             String        @id @default(cuid())
+  name           String
+  description    String?
+  priority       String        @default("Medium")
+  duration       Int           @default(30)
+
+  // Recurrence pattern
+  repeatPattern  String        // "daily" | "weekly" | "monthly" | "custom"
+  repeatDays     Int[]         // [1,3,5] = Mon, Wed, Fri (0=Sun, 6=Sat)
+  repeatInterval Int           @default(1)
+
+  // Schedule preferences
+  scheduleId     String?
+  idealStartTime String?
+
+  // Active period
+  startDate      DateTime
+  endDate        DateTime?
+
+  projectId      String?
+  workspaceId    String
+  createdById    String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  instances      Action[]      @relation("RecurringInstances")
+  project        Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy      User          @relation("RecurringTaskCreator", fields: [createdById], references: [id])
+  schedule       TaskSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([createdById])
+  @@index([scheduleId])
+}
+
+// ============================================
+// AI Assistant Customization
+// ============================================
+
+model Assistant {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  createdById  String
+  name         String   // User-chosen assistant name ("Aria", "Max", etc.)
+  emoji        String?  // Visual symbol
+  personality  String   @db.Text // Free-text soul/persona (like Clawd's SOUL.md)
+  instructions String?  @db.Text // Operating instructions
+  userContext   String?  @db.Text // About the user/team
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy    User           @relation("AssistantCreatedBy", fields: [createdById], references: [id])
+  contentDrafts ContentDraft[]
+
+  @@index([workspaceId])
+  @@index([createdById])
+}
+
+// ─── Workflow Pipeline Engine ───────────────────────────────────────────────
+
+model WorkflowTemplate {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  name            String
+  description     String   @db.Text
+  category        String
+  triggerTypes    String[]
+  configSchema    Json
+  stepDefinitions Json
+  isSystem        Boolean  @default(true)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  definitions WorkflowDefinition[]
+}
+
+model WorkflowDefinition {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  createdById  String
+  templateId   String?
+  name         String
+  description  String?
+  config       Json
+  triggerType  String    @default("manual")
+  cronSchedule String?
+  isActive     Boolean   @default(true)
+  lastRunAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User              @relation("WorkflowDefinitionCreatedBy", fields: [createdById], references: [id])
+  template  WorkflowTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  steps     WorkflowStep[]
+  runs      WorkflowPipelineRun[]
+
+  @@index([workspaceId])
+  @@index([templateId])
+  @@index([triggerType])
+}
+
+model WorkflowStep {
+  id           String   @id @default(cuid())
+  definitionId String
+  order        Int
+  type         String
+  label        String
+  config       Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  stepRuns   WorkflowStepRun[]
+
+  @@index([definitionId])
+  @@unique([definitionId, order])
+}
+
+model WorkflowPipelineRun {
+  id            String    @id @default(cuid())
+  definitionId  String
+  triggeredById String?
+  status        String    @default("RUNNING")
+  input         Json?
+  output        Json?
+  errorMessage  String?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  metadata      Json?
+
+  definition    WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  triggeredBy   User?              @relation("WorkflowPipelineRunTriggeredBy", fields: [triggeredById], references: [id])
+  stepRuns      WorkflowStepRun[]
+  contentDrafts ContentDraft[]
+
+  @@index([definitionId])
+  @@index([status])
+}
+
+model WorkflowStepRun {
+  id           String    @id @default(cuid())
+  runId        String
+  stepId       String
+  status       String    @default("PENDING")
+  input        Json?
+  output       Json?
+  errorMessage String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  durationMs   Int?
+
+  run  WorkflowPipelineRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  step WorkflowStep        @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([stepId])
+}
+
+model ContentDraft {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  createdById       String
+  pipelineRunId     String?
+  title             String
+  content           String    @db.Text
+  platform          String
+  status            String    @default("DRAFT")
+  assistantId       String?
+  tone              String?
+  version           Int       @default(1)
+  previousVersionId String?
+  wordCount         Int?
+  metadata          Json?
+  publishedAt       DateTime?
+  publishedUrl      String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  workspace       Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy       User                 @relation("ContentDraftCreatedBy", fields: [createdById], references: [id])
+  pipelineRun     WorkflowPipelineRun? @relation(fields: [pipelineRunId], references: [id], onDelete: SetNull)
+  assistant       Assistant?           @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  previousVersion ContentDraft?        @relation("ContentDraftVersions", fields: [previousVersionId], references: [id], onDelete: SetNull)
+  newerVersions   ContentDraft[]       @relation("ContentDraftVersions")
+
+  @@index([workspaceId])
+  @@index([pipelineRunId])
+  @@index([platform])
+  @@index([status])
+}
+
+// ============================================
+// AI Product Manager Agent Models
+// ============================================
+
+model GitHubActivity {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  integrationId   String
+
+  // Event data
+  eventType       String    // "push", "pull_request", "pull_request_review"
+  eventAction     String?   // "opened", "merged", "closed", "submitted", etc.
+  externalId      String    // GitHub delivery ID or commit SHA or PR node_id
+  deliveryId      String?   // x-github-delivery header for dedup
+
+  // Commit data (for push events)
+  commitSha       String?
+  commitMessage   String?   @db.Text
+  commitAuthor    String?
+  commitUrl       String?
+  branchName      String?
+
+  // PR data (for pull_request events)
+  prNumber        Int?
+  prTitle         String?
+  prState         String?   // "open", "closed", "merged"
+  prUrl           String?
+  prAuthor        String?
+  prMergedAt      DateTime?
+  prReviewState   String?   // "approved", "changes_requested", "commented"
+  prReviewer      String?
+
+  // Repository
+  repoFullName    String
+  repoUrl         String?
+
+  // Mapping to internal entities
+  actionId        String?
+  mappingMethod   String?   // "explicit", "branch", "semantic", "manual"
+  mappingConfidence Float?
+
+  // Timestamps
+  eventTimestamp  DateTime
+  createdAt       DateTime  @default(now())
+
+  workspace       Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration     Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  action          Action?     @relation(fields: [actionId], references: [id], onDelete: SetNull)
+
+  @@unique([externalId, eventType])
+  @@index([workspaceId])
+  @@index([integrationId])
+  @@index([actionId])
+  @@index([eventTimestamp])
+  @@index([repoFullName])
+  @@index([branchName])
+}
+
+model SprintSnapshot {
+  id              String   @id @default(cuid())
+  listId          String
+  snapshotDate    DateTime @db.Date
+
+  // Counts by kanban status
+  backlogCount    Int      @default(0)
+  todoCount       Int      @default(0)
+  inProgressCount Int      @default(0)
+  inReviewCount   Int      @default(0)
+  doneCount       Int      @default(0)
+  cancelledCount  Int      @default(0)
+
+  // Effort tracking
+  totalEffort     Float    @default(0)
+  completedEffort Float    @default(0)
+  addedEffort     Float    @default(0) // Effort added after sprint start (scope creep)
+
+  // Velocity
+  actionsCompleted Int     @default(0)
+
+  // GitHub activity summary
+  commitsCount    Int      @default(0)
+  prsOpened       Int      @default(0)
+  prsMerged       Int      @default(0)
+  prsReviewed     Int      @default(0)
+
+  createdAt       DateTime @default(now())
+
+  list            List     @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, snapshotDate])
+  @@index([listId])
+  @@index([snapshotDate])
+}
+
+model SprintMetrics {
+  id              String    @id @default(cuid())
+  listId          String    @unique
+
+  // Velocity
+  plannedEffort   Float     @default(0)
+  completedEffort Float     @default(0)
+  velocity        Float     @default(0)
+
+  // Throughput
+  plannedActions  Int       @default(0)
+  completedActions Int      @default(0)
+  addedActions    Int       @default(0)
+  removedActions  Int       @default(0)
+
+  // Cycle times (averages in hours)
+  avgCycleTime    Float?    // Average time from TODO to DONE
+  avgLeadTime     Float?    // Average time from BACKLOG to DONE
+  avgReviewTime   Float?    // Average time in IN_REVIEW
+
+  // GitHub metrics
+  totalCommits    Int       @default(0)
+  totalPRs        Int       @default(0)
+  avgPrTurnaround Float?   // Average hours from PR open to merge
+
+  // Completion
+  completionRate  Float?
+
+  calculatedAt    DateTime  @default(now())
+
+  list            List      @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@index([listId])
+}
+
+model ActionStatusChange {
+  id          String        @id @default(cuid())
+  actionId    String
+  fromStatus  ActionStatus?
+  toStatus    ActionStatus
+  changedById String?
+  changedAt   DateTime      @default(now())
+
+  action      Action        @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@index([actionId])
+  @@index([changedAt])
+  @@index([toStatus])
+}
+
+model PMAgentConfig {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  workspaceId       String
+
+  // Feature flags
+  enabled           Boolean  @default(true)
+
+  // Standup configuration
+  standupEnabled    Boolean  @default(true)
+  standupTime       String   @default("08:30")
+
+  // Wrapup configuration
+  wrapupEnabled     Boolean  @default(true)
+  wrapupTime        String   @default("18:00")
+
+  // Sprint review configuration
+  sprintReviewEnabled Boolean @default(true)
+  sprintReviewDay   Int      @default(5) // Day of week (1=Mon, 5=Fri)
+  sprintReviewTime  String   @default("15:00")
+
+  // Risk monitoring
+  riskCheckEnabled  Boolean  @default(true)
+  riskCheckInterval Int      @default(4) // Hours between risk checks
+
+  // Notification preferences
+  preferredChannel  String   @default("whatsapp") // "whatsapp" | "slack" | "email"
+
+  // Behavior preferences
+  verbosity         String   @default("normal") // "concise" | "normal" | "detailed"
+  includeGitHub     Boolean  @default(true)
+  includeKanban     Boolean  @default(true)
+
+  // Timezone
+  timezone          String   @default("UTC")
+
+  // Workflow definition references
+  standupDefinitionId      String?
+  wrapupDefinitionId       String?
+  sprintReviewDefinitionId String?
+  riskCheckDefinitionId    String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+// ============================================
+// Deal Pipeline Models
+// ============================================
+
+model PipelineStage {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  color     String   @default("blue")
+  order     Int
+  type      String   @default("active") // "active" | "won" | "lost"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deals   Deal[]
+
+  @@unique([projectId, order])
+  @@index([projectId])
+}
+
+model Deal {
+  id                String    @id @default(cuid())
+  projectId         String
+  stageId           String
+  title             String
+  description       String?   @db.Text
+  value             Float?
+  currency          String    @default("USD")
+  probability       Int?
+  expectedCloseDate DateTime?
+  closedAt          DateTime?
+  stageOrder        Int       @default(0)
+
+  // CRM links
+  contactId      String?
+  organizationId String?
+
+  // Ownership
+  workspaceId String
+  createdById String
+  assignedToId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stage        PipelineStage    @relation(fields: [stageId], references: [id])
+  contact      CrmContact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  organization CrmOrganization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  workspace    Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy    User             @relation("DealCreatedBy", fields: [createdById], references: [id])
+  assignedTo   User?            @relation("DealAssignedTo", fields: [assignedToId], references: [id])
+  activities   DealActivity[]
+
+  @@index([projectId])
+  @@index([stageId])
+  @@index([contactId])
+  @@index([organizationId])
+  @@index([workspaceId])
+}
+
+model DealActivity {
+  id        String   @id @default(cuid())
+  dealId    String
+  userId    String?
+  type      String // "STAGE_CHANGE" | "NOTE" | "VALUE_CHANGE" | "CREATED" | "CLOSED"
+  content   String?  @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  deal Deal  @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user User? @relation("DealActivityUser", fields: [userId], references: [id])
+
+  @@index([dealId])
+  @@index([createdAt])
+}
+
+// ============================================
+// Product Management Plugin Models
+// ============================================
+
+model Product {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String
+  description    String?
+  icon           String?
+  color          String?
+  funTicketIds   Boolean  @default(false)
+  ticketCounter  Int      @default(0)
+  workspaceId    String
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy       User             @relation("ProductCreatedBy", fields: [createdById], references: [id])
+  features        Feature[]
+  tickets         Ticket[]
+  researches      Research[]
+  insights        Insight[]
+  retrospectives  Retrospective[]
+  ticketTemplates TicketTemplate[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@index([createdById])
+}
+
+enum FeatureStatus {
+  IDEA
+  DEFINED
+  IN_PROGRESS
+  SHIPPED
+  ARCHIVED
+}
+
+model Feature {
+  id          String        @id @default(cuid())
+  productId   String
+  name        String
+  description String?
+  vision      String?
+  status      FeatureStatus @default(IDEA)
+  effort      Float?
+  priority    Int?
+  // Strategic alignment: optional link to a Goal (which may be an Objective in the OKR hierarchy)
+  goalId      Int?
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  product     Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy   User               @relation("FeatureCreatedBy", fields: [createdById], references: [id])
+  goal        Goal?              @relation("FeatureGoal", fields: [goalId], references: [id], onDelete: SetNull)
+  scopes      FeatureScope[]
+  userStories UserStory[]
+  insights    FeatureInsight[]
+  tickets     Ticket[]
+  tags        FeatureTag[]
+
+  @@index([productId])
+  @@index([goalId])
+  @@index([createdById])
+  @@index([status])
+}
+
+enum FeatureScopeStatus {
+  PLANNED
+  IN_PROGRESS
+  SHIPPED
+  DEPRECATED
+}
+
+model FeatureScope {
+  id           String             @id @default(cuid())
+  featureId    String
+  version      String
+  description  String
+  status       FeatureScopeStatus @default(PLANNED)
+  shippedAt    DateTime?
+  displayOrder Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  feature     Feature     @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  userStories UserStory[]
+  tickets     Ticket[]    @relation("TicketScope")
+
+  @@index([featureId])
+}
+
+model UserStory {
+  id                 String        @id @default(cuid())
+  featureId          String
+  scopeId            String?
+  asA                String?
+  iWant              String?
+  soThat             String?
+  acceptanceCriteria String?
+  displayOrder       Int           @default(0)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  feature Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  scope   FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+
+  @@index([featureId])
+  @@index([scopeId])
+}
+
+enum ResearchType {
+  INTERVIEW
+  DESK_RESEARCH
+  EXPERIMENT
+  ANALYTICS
+  SURVEY
+  OBSERVATION
+  OTHER
+}
+
+model Research {
+  id           String       @id @default(cuid())
+  productId    String
+  title        String
+  type         ResearchType @default(OTHER)
+  conductedAt  DateTime?
+  participants String?
+  notes        String?
+  createdById  String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("ResearchCreatedBy", fields: [createdById], references: [id])
+  insights  Insight[]
+
+  @@index([productId])
+  @@index([createdById])
+}
+
+enum InsightType {
+  PAIN_POINT
+  OPPORTUNITY
+  FEEDBACK
+  PERSONA
+  JOURNEY
+  OBSERVATION
+  COMPETITIVE
+}
+
+enum InsightStatus {
+  INBOX
+  TRIAGED
+  LINKED
+  DISMISSED
+}
+
+model Insight {
+  id          String        @id @default(cuid())
+  productId   String
+  researchId  String?
+  type        InsightType
+  title       String
+  body        String?
+  source      String?
+  sentiment   String?
+  description String        @default("")
+  status      InsightStatus @default(INBOX)
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  product  Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  research Research?        @relation(fields: [researchId], references: [id], onDelete: SetNull)
+  createdBy User            @relation("InsightCreatedBy", fields: [createdById], references: [id])
+  features FeatureInsight[]
+  tags     InsightTag[]
+
+  @@index([productId])
+  @@index([researchId])
+  @@index([status])
+  @@index([type])
+  @@index([createdById])
+}
+
+model FeatureInsight {
+  featureId String
+  insightId String
+  createdAt DateTime @default(now())
+
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  insight Insight @relation(fields: [insightId], references: [id], onDelete: Cascade)
+
+  @@id([featureId, insightId])
+  @@index([insightId])
+}
+
+enum TicketType {
+  BUG
+  FEATURE
+  CHORE
+  IMPROVEMENT
+  SPIKE
+  RESEARCH
+}
+
+enum TicketStatus {
+  BACKLOG
+  NEEDS_REFINEMENT
+  READY_TO_PLAN
+  COMMITTED
+  IN_PROGRESS
+  BLOCKED
+  QA
+  DONE
+  DEPLOYED
+  ARCHIVED
+}
+
+model Ticket {
+  id          String       @id @default(cuid())
+  productId   String
+  number      Int          @default(0)
+  shortId     String?
+  title       String
+  body        String?
+  type        TicketType   @default(FEATURE)
+  status      TicketStatus @default(BACKLOG)
+  priority    Int?
+  points      Float?
+
+  // Engineering metadata (queryable)
+  branchName String?
+  prUrl      String?
+  designUrl  String?
+  specUrl    String?
+  // Future-proof: arbitrary additional links
+  links Json?
+
+  // Relations
+  epicId     String?
+  featureId  String?
+  cycleId    String?
+  scopeId    String?
+  createdById String
+  assigneeId String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  // Dependencies (separate from Action's blockedBy)
+
+  product    Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  epic       Epic?            @relation("TicketEpic", fields: [epicId], references: [id], onDelete: SetNull)
+  feature    Feature?         @relation(fields: [featureId], references: [id], onDelete: SetNull)
+  cycle      List?            @relation("TicketCycle", fields: [cycleId], references: [id], onDelete: SetNull)
+  scope      FeatureScope?    @relation("TicketScope", fields: [scopeId], references: [id], onDelete: SetNull)
+  createdBy  User             @relation("TicketCreatedBy", fields: [createdById], references: [id])
+  assignee   User?            @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  actions    Action[]         @relation("TicketActions")
+  comments   TicketComment[]
+  depsOut   TicketDependency[] @relation("TicketDepsOut")
+  depsIn    TicketDependency[] @relation("TicketDepsIn")
+  tags       TicketTag[]
+
+  @@index([productId])
+  @@index([epicId])
+  @@index([featureId])
+  @@index([cycleId])
+  @@index([scopeId])
+  @@index([assigneeId])
+  @@index([createdById])
+  @@unique([productId, number])
+  @@unique([productId, shortId])
+  @@index([status])
+  @@index([type])
+}
+
+
+model TicketDependency {
+  id          String   @id @default(cuid())
+  ticketId    String
+  dependsOnId String
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  ticket    Ticket @relation("TicketDepsOut", fields: [ticketId], references: [id], onDelete: Cascade)
+  dependsOn Ticket @relation("TicketDepsIn", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("TicketDependencyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([ticketId, dependsOnId])
+  @@index([ticketId])
+  @@index([dependsOnId])
+}
+
+model TicketTemplate {
+  id          String     @id @default(cuid())
+  productId   String?
+  workspaceId String
+  type        TicketType
+  name        String
+  body        String
+  isDefault   Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([productId])
+  @@index([type])
+}
+
+model TicketComment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User   @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([ticketId])
+  @@index([authorId])
+}
+
+model Retrospective {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  productId      String?
+  cycleId        String?
+  title          String
+  coversFromDate DateTime?
+  coversToDate   DateTime?
+  conductedAt    DateTime?
+  participants   String?
+  wentWell       String?
+  wentPoorly     String?
+  actionItems    String?
+  notes          String?
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  cycle     List?     @relation("RetrospectiveCycle", fields: [cycleId], references: [id], onDelete: SetNull)
+  createdBy User      @relation("RetrospectiveCreatedBy", fields: [createdById], references: [id])
+
+  @@index([workspaceId])
+  @@index([productId])
+  @@index([cycleId])
+  @@index([createdById])
+}
+
+// ---------------------------------------------------------------------------
+// Tag join tables for Product plugin entities
+// ---------------------------------------------------------------------------
+
+model TicketTag {
+  id        String   @id @default(cuid())
+  ticketId  String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, tagId])
+  @@index([tagId])
+}
+
+model FeatureTag {
+  id        String   @id @default(cuid())
+  featureId String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([featureId, tagId])
+  @@index([tagId])
+}
+
+
+model InsightTag {
+  id        String   @id @default(cuid())
+  insightId String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  insight Insight @relation(fields: [insightId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([insightId, tagId])
+  @@index([tagId])
 }

@@ -2,17 +2,31 @@ import { auth } from "~/server/auth";
 import { HydrateClient } from "~/trpc/server";
 import { Welcome } from "~/app/_components/Welcome";
 import { Suspense } from "react";
-import { api } from "~/trpc/server";
-import { startOfDay } from "date-fns";
-import { NavigationWrapper } from "../../_components/NavigationWrapper";
+import { DoPageContent } from "~/app/_components/DoPageContent";
 
-export default async function Home() {
+export type DoFilter = "today" | "tomorrow" | "upcoming";
+
+const VALID_DO_FILTERS: DoFilter[] = ["today", "tomorrow", "upcoming"];
+
+function isValidDoFilter(value: string | null | undefined): value is DoFilter {
+  return value != null && VALID_DO_FILTERS.includes(value as DoFilter);
+}
+
+interface PageProps {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function TodayPage({ searchParams }: PageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const filterParam = typeof resolvedSearchParams?.filter === 'string' ? resolvedSearchParams.filter : undefined;
+  const filter: DoFilter = isValidDoFilter(filterParam) ? filterParam : "today";
+
   return (
     <HydrateClient>
       <main className="flex h-full flex-col items-center justify-start text-text-primary">
-        <div className="container flex flex-col items-stretch justify-start gap-4 px-4 py-8">
+        <div className="container flex flex-col items-stretch justify-start px-4 pb-20 pt-6">
           <Suspense fallback={<div>Loading...</div>}>
-            <ActionsWrapper />
+            <ActionsWrapper initialFilter={filter} />
           </Suspense>
         </div>
       </main>
@@ -20,36 +34,7 @@ export default async function Home() {
   );
 }
 
-async function ActionsWrapper() {
+async function ActionsWrapper({ initialFilter }: { initialFilter: DoFilter }) {
   const session = await auth();
-  
-  // Declare todayRecord in the outer scope
-  let todayRecord = null; // Or provide a more specific type if known, e.g., Awaited<ReturnType<typeof api.day.getByDate>> | null
-  let todayExists = false;
-  let calendarConnected = false;
-
-  // Only check for today's record if user is authenticated
-  if (session?.user) {
-    // Check if a day record exists for today
-    const today = startOfDay(new Date());
-    console.log("today", today);
-    // Assign the value inside the block
-    todayRecord = await api.day.getByDate({ date: today });
-    console.log("todayRecord", todayRecord);
-    todayExists = !!todayRecord;
-
-    // Check calendar connection status
-    const calendarStatus = await api.calendar.getConnectionStatus();
-    calendarConnected = calendarStatus.isConnected;
-  }
-  
-  return session?.user ? (
-    <NavigationWrapper 
-      calendarConnected={calendarConnected}
-      todayExists={todayExists}
-      todayRecord={todayRecord}
-    />
-  ) : (
-    <Welcome />
-  );
+  return session?.user ? <DoPageContent initialFilter={initialFilter} /> : <Welcome />;
 }

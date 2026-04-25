@@ -1,0 +1,27 @@
+.commitMessage {
+  word-break: break-word;
+  min-width: 0;
+}
+
+.commitRow {
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background-color: var(--mantine-color-default-hover);
+  }
+}
+
+.toggleButton {
+  cursor: pointer;
+}
+
+.toggleText {
+  color: var(--mantine-color-dimmed);
+  transition: color 0.15s ease;
+
+  &:hover {
+    color: var(--mantine-color-blue-4);
+  }
+}

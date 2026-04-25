@@ -1,6 +1,7 @@
 import { db } from '~/server/db';
 import { FirefliesService } from './FirefliesService';
-import { ActionProcessorFactory } from './processors/ActionProcessorFactory';
+import { ActionExtractionService, numberScreenshotMarkers } from './ActionExtractionService';
+import { InternalActionProcessor } from './processors/InternalActionProcessor';
 import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
 import { SlackChannelResolver } from './SlackChannelResolver';
 import { SlackNotificationService } from './notifications/SlackNotificationService';
@@ -12,109 +13,233 @@ export interface ProcessTranscriptionResult {
   errors: string[];
 }
 
+export interface DraftTranscriptionActionsResult {
+  success: boolean;
+  actionsCreated: number;
+  alreadyPublished: boolean;
+  draftCount: number;
+  errors: string[];
+}
+
 export class TranscriptionProcessingService {
   /**
    * Process a transcription after it has been associated with a project
+   */
+  /**
+   * Process a transcription — creates DRAFT actions that require human review.
+   * SECURITY: AI-extracted actions are never auto-published. Users must explicitly
+   * review and publish drafts via publishDraftActions to prevent prompt injection
+   * in crafted transcripts from creating arbitrary actions.
    */
   static async processTranscription(
     transcriptionId: string,
     userId: string
   ): Promise<ProcessTranscriptionResult> {
-    const result: ProcessTranscriptionResult = {
+    // Delegate to the draft flow — all AI-extracted actions require human review
+    const draftResult = await this.generateDraftActions(transcriptionId, userId);
+    return {
+      success: draftResult.success,
+      actionsCreated: draftResult.actionsCreated,
+      slackNotificationSent: false,
+      errors: draftResult.errors,
+    };
+  }
+
+  /**
+   * Generate draft actions for a transcription without publishing
+   */
+  static async generateDraftActions(
+    transcriptionId: string,
+    userId: string
+  ): Promise<DraftTranscriptionActionsResult> {
+    const result: DraftTranscriptionActionsResult = {
       success: false,
       actionsCreated: 0,
-      slackNotificationSent: false,
-      errors: []
+      alreadyPublished: false,
+      draftCount: 0,
+      errors: [],
     };
 
     try {
-      // 1. Get the transcription with its project
+      console.log(`[generateDraftActions] Starting for transcriptionId=${transcriptionId}`);
+
       const transcription = await db.transcriptionSession.findUnique({
         where: { id: transcriptionId },
         include: {
           project: {
-            include: { team: true }
+            include: { team: true },
           },
-          user: true
-        }
+          user: true,
+        },
       });
 
       if (!transcription) {
-        result.errors.push('Transcription not found');
+        console.log("[generateDraftActions] Transcription not found");
+        result.errors.push("Transcription not found");
         return result;
       }
 
-      // 2. Verify user has access
+      console.log(`[generateDraftActions] Found transcription: title="${transcription.title}", hasSummary=${!!transcription.summary}, hasTranscription=${!!transcription.transcription}, summaryLength=${transcription.summary?.length ?? 0}, transcriptionLength=${transcription.transcription?.length ?? 0}`);
+
+      // Fetch screenshots for this session (ordered by creation time for marker correlation)
+      const screenshots = await db.screenshot.findMany({
+        where: { transcriptionSessionId: transcriptionId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      console.log(`[generateDraftActions] Found ${screenshots.length} screenshots for session`);
+
       if (transcription.userId !== userId) {
-        const hasAccess = await this.verifyUserAccess(userId, transcription.projectId);
+        const hasAccess = await this.verifyUserAccess(
+          userId,
+          transcription.projectId
+        );
         if (!hasAccess) {
-          result.errors.push('User does not have access to this transcription');
+          console.log("[generateDraftActions] User does not have access");
+          result.errors.push("User does not have access to this transcription");
           return result;
         }
       }
 
-      // 3. Check if already processed
-      if (transcription.processedAt) {
-        console.log(`⚠️ Transcription ${transcriptionId} already processed at`, transcription.processedAt);
+      const existingActiveCount = await db.action.count({
+        where: {
+          transcriptionSessionId: transcriptionId,
+          status: { notIn: ["DELETED", "DRAFT"] },
+        },
+      });
+
+      if (existingActiveCount > 0) {
+        console.log(`[generateDraftActions] Already has ${existingActiveCount} active actions, returning alreadyPublished`);
+        result.alreadyPublished = true;
         result.success = true;
         return result;
       }
 
-      // 4. Parse the transcription data
+      const existingDraftCount = await db.action.count({
+        where: {
+          transcriptionSessionId: transcriptionId,
+          status: "DRAFT",
+        },
+      });
+
+      if (existingDraftCount > 0) {
+        console.log(`[generateDraftActions] Already has ${existingDraftCount} drafts, returning existing`);
+        result.success = true;
+        result.draftCount = existingDraftCount;
+        return result;
+      }
+
       let processedData;
       if (transcription.summary) {
         try {
+          console.log(`[generateDraftActions] Parsing summary JSON (first 200 chars): ${transcription.summary.slice(0, 200)}`);
           const summary = JSON.parse(transcription.summary);
-          const actionItems = FirefliesService.parseActionItems(summary);
+          let actionItems = FirefliesService.parseActionItems(summary);
+          console.log(`[generateDraftActions] FirefliesService.parseActionItems returned ${actionItems.length} items`);
+          const transcriptText = transcription.transcription || "";
+
+          if (actionItems.length === 0 && transcriptText) {
+            console.log(`[generateDraftActions] No Fireflies actions, falling back to AI extraction on transcript (${transcriptText.length} chars)`);
+            const { numberedText } = numberScreenshotMarkers(transcriptText);
+            actionItems = await ActionExtractionService.extractFromTranscript(screenshots.length > 0 ? numberedText : transcriptText);
+            console.log(`[generateDraftActions] AI extraction returned ${actionItems.length} items`);
+          } else if (actionItems.length === 0) {
+            console.log("[generateDraftActions] No Fireflies actions and no transcript text available");
+          }
+
           processedData = {
             summary,
             actionItems,
-            transcriptText: transcription.transcription || ''
+            transcriptText,
           };
         } catch (parseError) {
-          console.error('Failed to parse transcription summary:', parseError);
-          result.errors.push('Failed to parse transcription data');
+          console.error("[generateDraftActions] Failed to parse transcription summary:", parseError);
+          result.errors.push("Failed to parse transcription data");
         }
+      } else if (transcription.transcription) {
+        const transcriptText = transcription.transcription;
+        console.log(`[generateDraftActions] No summary, using AI extraction on transcript (${transcriptText.length} chars)`);
+        const { numberedText } = numberScreenshotMarkers(transcriptText);
+        const actionItems = await ActionExtractionService.extractFromTranscript(screenshots.length > 0 ? numberedText : transcriptText);
+        console.log(`[generateDraftActions] AI extraction returned ${actionItems.length} items`);
+        processedData = {
+          summary: {},
+          actionItems,
+          transcriptText,
+        };
+      } else {
+        console.log("[generateDraftActions] No summary and no transcription text available");
       }
 
-      // 5. Process action items if available and project is set
-      if (processedData?.actionItems && processedData.actionItems.length > 0 && transcription.projectId) {
-        try {
-          console.log(`🎯 Processing ${processedData.actionItems.length} action items for project ${transcription.projectId}`);
-          
-          // Get processors filtered by project/team
-          const processors = await ActionProcessorFactory.createProcessors(
-            userId,
-            transcription.projectId,
-            transcriptionId,
-            transcription.project?.teamId || undefined
-          );
-          
-          for (const processor of processors) {
-            const actionResult = await processor.processActionItems(processedData.actionItems);
-            result.actionsCreated += actionResult.processedCount;
-            console.log(`✅ ${processor.name}: Created ${actionResult.processedCount} actions`);
+      if (!processedData) {
+        console.log("[generateDraftActions] No processedData, returning early");
+        result.success = true;
+        return result;
+      }
+
+      if (!processedData.actionItems || processedData.actionItems.length === 0) {
+        console.log("[generateDraftActions] processedData exists but 0 action items found");
+        result.success = true;
+        return result;
+      }
+
+      console.log(`[generateDraftActions] Creating ${processedData.actionItems.length} draft actions`);
+
+      const draftProcessor = new InternalActionProcessor({
+        userId,
+        projectId: transcription.projectId ?? undefined,
+        transcriptionId,
+        actionStatus: "DRAFT",
+      });
+
+      const actionResult = await draftProcessor.processActionItems(
+        processedData.actionItems
+      );
+
+      result.actionsCreated = actionResult.processedCount;
+      result.draftCount = actionResult.processedCount;
+      result.errors = actionResult.errors;
+      result.success = actionResult.errors.length === 0;
+
+      // Create screenshot-action associations based on AI screenshotRefs
+      if (screenshots.length > 0 && actionResult.createdItems.length > 0) {
+        const junctionData: { actionId: string; screenshotId: string }[] = [];
+
+        for (let i = 0; i < actionResult.createdItems.length && i < processedData.actionItems.length; i++) {
+          const item = processedData.actionItems[i];
+          const created = actionResult.createdItems[i];
+          if (!item?.screenshotRefs?.length || !created) continue;
+
+          for (const ref of item.screenshotRefs) {
+            const screenshot = screenshots[ref - 1]; // ref is 1-based
+            if (screenshot) {
+              junctionData.push({ actionId: created.id, screenshotId: screenshot.id });
+            }
           }
+        }
 
-          // Mark as processed
-          await db.transcriptionSession.update({
-            where: { id: transcriptionId },
-            data: { processedAt: new Date() }
-          });
-          
-        } catch (actionError) {
-          console.error('Failed to process action items:', actionError);
-          result.errors.push(`Action processing failed: ${actionError instanceof Error ? actionError.message : 'Unknown error'}`);
+        if (junctionData.length > 0) {
+          await db.actionScreenshot.createMany({ data: junctionData, skipDuplicates: true });
+          console.log(`[generateDraftActions] Created ${junctionData.length} screenshot-action associations`);
         }
       }
 
-      result.success = true;
-    } catch (error) {
-      console.error('Error processing transcription:', error);
-      result.errors.push(error instanceof Error ? error.message : 'Unknown error');
-    }
+      await db.transcriptionSession.update({
+        where: { id: transcriptionId },
+        data: {
+          actionsSavedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
 
-    return result;
+      return result;
+    } catch (error) {
+      console.error("Error generating draft actions:", error);
+      result.errors.push(
+        error instanceof Error ? error.message : "Unknown error"
+      );
+      return result;
+    }
   }
 
   /**
@@ -249,10 +374,14 @@ export class TranscriptionProcessingService {
           status: { not: 'COMPLETED' }
         },
         include: {
-          assignedTo: {
-            select: {
-              name: true,
-              email: true
+          assignees: {
+            include: {
+              user: {
+                select: {
+                  name: true,
+                  email: true
+                }
+              }
             }
           }
         }
@@ -316,11 +445,12 @@ export class TranscriptionProcessingService {
         }
       }
 
-      // Actions content  
+      // Actions content
       if (options.includeActions && actions.length > 0) {
         messageParts.push('\n✅ *Action Items:*');
         actions.forEach((action, index) => {
-          const assignedText = action.assignedTo ? ` (assigned to ${action.assignedTo.name || action.assignedTo.email})` : '';
+          const firstAssignee = action.assignees[0]?.user;
+          const assignedText = firstAssignee ? ` (assigned to ${firstAssignee.name ?? firstAssignee.email})` : '';
           messageParts.push(`${index + 1}. ${action.description}${assignedText}`);
         });
       }
@@ -389,10 +519,19 @@ export class TranscriptionProcessingService {
         return { success: false, error: 'Access denied to project' };
       }
 
-      // 2. Update the transcription with the project
+      // Get the project's workspace to inherit
+      const project = await db.project.findUnique({
+        where: { id: projectId },
+        select: { workspaceId: true }
+      });
+
+      // 2. Update the transcription with the project and workspace
       await db.transcriptionSession.update({
         where: { id: transcriptionId },
-        data: { projectId }
+        data: {
+          projectId,
+          workspaceId: project?.workspaceId ?? null
+        }
       });
 
       // 3. Optionally process the transcription

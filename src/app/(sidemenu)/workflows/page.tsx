@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Container, Title, Text, SimpleGrid, Card, Button, Group, ThemeIcon, Stack, Paper, Badge, Alert, Modal, TextInput, Select, Textarea, Code, CopyButton, ActionIcon, Tabs } from '@mantine/core';
-import { IconDownload, IconUpload, IconArrowRight, IconPresentation, IconGitBranch, IconMicrophone, IconWebhook, IconBrandSlack, IconCheck, IconAlertCircle, IconPlus, IconKey, IconBrandFirebase, IconCopy, IconBrandNotion, IconCalendarEvent, /* IconRefresh, */ IconBrandGoogle, IconFileText, IconBolt, IconRocket, IconArrowsLeftRight } from '@tabler/icons-react';
+import { IconDownload, IconUpload, IconArrowRight, IconPresentation, IconGitBranch, IconMicrophone, IconWebhook, IconBrandSlack, IconCheck, IconAlertCircle, IconPlus, IconKey, IconBrandFirebase, IconCopy, IconBrandNotion, IconCalendarEvent, /* IconRefresh, */ IconBrandGoogle, IconFileText, IconBolt, IconRocket, IconArrowsLeftRight, IconInfoCircle } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
@@ -295,25 +295,36 @@ export default function WorkflowsPage() {
             
             {/* Action Button */}
             {workflow.configKey === 'fireflies' ? (
-              isConfigured ? (
-                <ThemeIcon size="lg" variant="light" color="green" radius="xl">
-                  <IconCheck size={20} />
-                </ThemeIcon>
-              ) : (
+              <Group gap="xs">
                 <Button
+                  component={Link}
+                  href="/docs/features/fireflies"
                   size="sm"
-                  variant="filled"
-                  onClick={() => {
-                    if (!hasFirefliesToken) {
-                      openTokenModal();
-                    } else if (!hasFirefliesIntegration) {
-                      openIntegrationModal();
-                    }
-                  }}
+                  variant="subtle"
+                  leftSection={<IconInfoCircle size={14} />}
                 >
-                  Setup
+                  How it works
                 </Button>
-              )
+                {isConfigured ? (
+                  <ThemeIcon size="lg" variant="light" color="green" radius="xl">
+                    <IconCheck size={20} />
+                  </ThemeIcon>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="filled"
+                    onClick={() => {
+                      if (!hasFirefliesToken) {
+                        openTokenModal();
+                      } else if (!hasFirefliesIntegration) {
+                        openIntegrationModal();
+                      }
+                    }}
+                  >
+                    Setup
+                  </Button>
+                )}
+              </Group>
             ) : workflow.href ? (
               <Button
                 component={Link}

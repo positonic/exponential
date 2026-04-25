@@ -1,30 +1,327 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { api } from "~/trpc/react";
+import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { 
-  Paper, 
-  TextInput, 
-  Button, 
-  ScrollArea, 
-  Avatar, 
-  Group, 
+import type { Components } from 'react-markdown';
+import {
+  Paper,
+  Textarea,
+  ScrollArea,
+  Avatar,
+  Group,
   Text,
   Box,
   ActionIcon,
-  Tooltip
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
+import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
+import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { trimByTokenBudget } from '~/lib/trim-conversation';
 
-interface Message {
-    type: 'system' | 'human' | 'ai' | 'tool';
-    content: string;
-    tool_call_id?: string;
-    name?: string; // Used for tool responses
-    agentName?: string; // Added: Name of the AI agent sending the message
+// Module-level constants to avoid re-creation on every render
+const VIDEO_PATTERN = /\[Video ([a-zA-Z0-9_-]+)\]/g;
+const HTML_PATTERN = /<(table|thead|tbody|tr|td|th|p|div|ul|ol|li|h[1-6]|strong|em|br|a|blockquote|pre|code)[^>]*>/i;
+
+const HTML_SANITIZE_CONFIG = {
+  ALLOWED_TAGS: [
+    'p', 'div', 'span', 'br', 'a', 'strong', 'em', 'b', 'i', 'u', 's',
+    'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'blockquote', 'pre', 'code',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+  ],
+  ALLOWED_ATTR: ['href', 'target', 'rel'],
+  ALLOW_DATA_ATTR: false,
+};
+
+const MARKDOWN_COMPONENTS: Partial<Components> = {
+  h1: ({children}) => <Text size="xl" fw={700} mb="sm">{children}</Text>,
+  h2: ({children}) => <Text size="lg" fw={600} mt="md" mb="xs">{children}</Text>,
+  h3: ({children}) => <Text size="md" fw={500} mt="sm" mb="xs">{children}</Text>,
+  h4: ({children}) => <Text size="sm" fw={500} mt="xs" mb={4}>{children}</Text>,
+  p: ({children}) => <Text size="sm" mb="xs">{children}</Text>,
+  strong: ({children}) => <Text component="span" fw={600}>{children}</Text>,
+  em: ({children}) => <Text component="em" size="sm" fs="italic">{children}</Text>,
+  ul: ({children}) => <Box component="ul" ml="md" mb="xs">{children}</Box>,
+  ol: ({children}) => <Box component="ol" ml="md" mb="xs">{children}</Box>,
+  li: ({children}) => <Text component="li" size="sm" mb={4}>{children}</Text>,
+  hr: () => <Box component="hr" my="sm" style={{ border: 'none', borderTop: '1px solid var(--color-border-primary)' }} />,
+  code: ({children}) => (
+    <Text
+      component="code"
+      style={{
+        backgroundColor: 'var(--color-surface-secondary)',
+        padding: '2px 4px',
+        borderRadius: '4px',
+        fontSize: '12px'
+      }}
+    >
+      {children}
+    </Text>
+  ),
+  pre: ({children}) => (
+    <Box
+      component="pre"
+      style={{
+        backgroundColor: 'var(--color-surface-secondary)',
+        padding: '8px',
+        borderRadius: '4px',
+        overflow: 'auto',
+        fontSize: '12px'
+      }}
+      mb="xs"
+    >
+      {children}
+    </Box>
+  ),
+  table: ({children}) => (
+    <Box component="table" style={{ width: '100%', borderCollapse: 'collapse', margin: '8px 0', fontSize: '13px' }}>
+      {children}
+    </Box>
+  ),
+  thead: ({children}) => (
+    <Box component="thead" style={{ borderBottom: '2px solid var(--color-border-primary)' }}>
+      {children}
+    </Box>
+  ),
+  tbody: ({children}) => <tbody>{children}</tbody>,
+  tr: ({children}) => <Box component="tr">{children}</Box>,
+  th: ({children}) => (
+    <Box component="th" style={{
+      padding: '8px 12px',
+      textAlign: 'left' as const,
+      fontWeight: 600,
+      backgroundColor: 'var(--color-surface-secondary)',
+      color: 'var(--color-text-primary)',
+    }}>
+      {children}
+    </Box>
+  ),
+  td: ({children}) => (
+    <Box component="td" style={{
+      padding: '8px 12px',
+      borderBottom: '1px solid var(--color-border-secondary)',
+      color: 'var(--color-text-primary)',
+    }}>
+      {children}
+    </Box>
+  ),
+  a: ({children, href}) => (
+    <a href={href} style={{ color: 'var(--color-brand-primary)', textDecoration: 'none' }} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  ),
+};
+
+const TEXT_INPUT_STYLES = {
+  input: {
+    backgroundColor: 'transparent',
+    border: '1px solid var(--color-border-primary)',
+    color: 'var(--color-text-primary)',
+    paddingRight: '100px',
+    fontSize: '16px',
+    fontFamily: 'inherit',
+    '&:focus': {
+      borderColor: 'var(--color-border-focus)',
+    },
+    '&::placeholder': {
+      color: 'var(--color-text-muted)',
+    }
+  }
+} as const;
+
+// Use ChatMessage from provider for consistency
+type Message = ChatMessage;
+
+function formatPageContextData(context: PageContext): string {
+  const str = (val: unknown, fallback = 'None'): string => {
+    if (val == null) return fallback;
+    if (typeof val === 'string') return val;
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    return JSON.stringify(val);
+  };
+
+  switch (context.pageType) {
+    case 'recording': {
+      const d = context.data;
+      const rawSummary = str(d.summary, 'No summary');
+      const summary = rawSummary.slice(0, 300) + (rawSummary.length > 300 ? '...' : '');
+      return `  - Transcription ID: ${str(d.transcriptionId)}
+  - Title: ${str(d.title, 'Untitled')}
+  - Summary: ${summary}
+  - Description: ${str(d.description)}
+  - Actions created from this transcript: ${str(d.actionsCount, '0')}
+  - Has transcription text: ${d.hasTranscription ? 'Yes' : 'No'}
+  - Meeting date: ${d.meetingDate ? new Date(str(d.meetingDate)).toLocaleDateString() : 'Unknown'}
+  - Workspace: ${str(d.workspaceName)}`;
+    }
+    default:
+      return Object.entries(context.data)
+        .filter(([, value]) => value != null)
+        .map(([key, value]) => `  - ${key}: ${str(value)}`)
+        .join('\n');
+  }
 }
+
+// Preprocesses sanitized agent HTML to improve readability:
+// 1. Splits long narration paragraphs at action boundaries (":Now ", ":Let ", etc.)
+// 2. Wraps narration text preceding structured results in a collapsible <details>
+function preprocessAgentHtml(html: string): string {
+  // Split long narration paragraphs at agent action boundaries
+  // Pattern: colon immediately followed by a new action phrase (agent narration style)
+  let processed = html.replace(/<p([^>]*)>([\s\S]{250,}?)<\/p>/gi, (_match, attrs: string, content: string) => {
+    const split = content.replace(
+      /:(Now |Let |Great|Good|Perfect|Excellent|However, |I |The |Then |First, |Next )/g,
+      (_: string, word: string) => `</p><p${attrs}>${word}`
+    );
+    return `<p${attrs}>${split}</p>`;
+  });
+
+  // If structured results (headings) exist, wrap preceding narration in a collapsible
+  const headingMatch = processed.match(/<h[1-6][^>]*>/i);
+  if (headingMatch?.index !== undefined && headingMatch.index > 80) {
+    const thinkingHtml = processed.slice(0, headingMatch.index).trim();
+    const resultsHtml = processed.slice(headingMatch.index);
+    if (thinkingHtml.length > 100) {
+      processed = `<details class="agent-thinking"><summary>View reasoning</summary><div class="agent-thinking-content">${thinkingHtml}</div></details>${resultsHtml}`;
+    }
+  }
+
+  return processed;
+}
+
+// Markdown equivalent of preprocessAgentHtml's paragraph splitting:
+// inserts `\n\n` at agent action boundaries so streamed narration renders
+// as separate paragraphs instead of one giant <Text>. Keep action-word
+// list in sync with preprocessAgentHtml above.
+function preprocessAgentMarkdown(content: string): string {
+  return content.replace(
+    /:(Now |Let |Great|Good|Perfect|Excellent|However, |I |The |Then |First, |Next )/g,
+    (_: string, word: string) => `:\n\n${word}`,
+  );
+}
+
+// Render message content with markdown/video support
+function renderMessageContent(content: string, messageType: string) {
+  // Handle video links first — reset lastIndex since VIDEO_PATTERN is a global regex
+  const hasVideoLinks = VIDEO_PATTERN.test(content);
+  VIDEO_PATTERN.lastIndex = 0;
+
+  if (hasVideoLinks) {
+    const parts = content.split(VIDEO_PATTERN);
+    VIDEO_PATTERN.lastIndex = 0;
+    return parts.map((part, index) => {
+      if (index % 2 === 1) {
+        return (
+          <a
+            key={index}
+            href={`/video/${part}`}
+            style={{
+              color: 'inherit',
+              textDecoration: 'underline'
+            }}
+          >
+            {`Video ${part}`}
+          </a>
+        );
+      }
+      return part;
+    });
+  }
+
+  // Detect HTML content from AI responses (tables, formatted paragraphs, etc.)
+  if (messageType === 'ai' && HTML_PATTERN.test(content)) {
+    const sanitizedHtml = DOMPurify.sanitize(content, HTML_SANITIZE_CONFIG);
+    const processedHtml = preprocessAgentHtml(sanitizedHtml);
+    return (
+      <div
+        className="chat-html-content"
+        dangerouslySetInnerHTML={{ __html: processedHtml }}
+      />
+    );
+  }
+
+  // For AI messages, check if content looks like markdown and render accordingly
+  if (messageType === 'ai' && (content.includes('###') || content.includes('**') || content.includes('- ') || content.includes('| ') || content.includes('```'))) {
+    const processed = preprocessAgentMarkdown(content);
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={MARKDOWN_COMPONENTS}
+      >
+        {processed}
+      </ReactMarkdown>
+    );
+  }
+
+  // For regular text, return as-is
+  return content;
+}
+
+// Memoized message list — isolates message rendering from input state changes
+interface MessageListProps {
+  messages: ChatMessage[];
+  conversationId: string;
+}
+
+const MessageList = memo(function MessageList({ messages, conversationId }: MessageListProps) {
+  const viewport = useRef<HTMLDivElement>(null);
+
+  const visibleMessages = useMemo(
+    () => messages.filter(m => m.type !== 'system'),
+    [messages]
+  );
+
+  useEffect(() => {
+    if (viewport.current) {
+      viewport.current.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
+    }
+  }, [messages]);
+
+  return (
+    <div className="flex-1 h-full overflow-hidden relative">
+      <ScrollArea className="h-full" viewportRef={viewport} p="lg" scrollbars="y">
+        <div className="space-y-6">
+          {visibleMessages.map((message, index) => (
+            <div
+              key={message.interactionId ?? `${message.type}-${index}`}
+              className={`flex ${message.type === 'human' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-3 duration-500`}
+              style={{ animationDelay: `${index * 50}ms` }}
+            >
+              {message.type === 'ai' ? (
+                <div className="max-w-[85%]">
+                  <div className="text-text-primary text-sm leading-relaxed">
+                    {renderMessageContent(message.content, message.type)}
+                  </div>
+                  {message.interactionId && (
+                    <AgentMessageFeedback
+                      aiInteractionId={message.interactionId}
+                      conversationId={conversationId}
+                      agentName={message.agentName}
+                    />
+                  )}
+                </div>
+              ) : (
+                <Paper
+                  p="sm"
+                  radius="xl"
+                  className="bg-surface-tertiary"
+                >
+                  <div className="text-text-primary whitespace-pre-wrap text-sm">
+                    {renderMessageContent(message.content, message.type)}
+                  </div>
+                </Paper>
+              )}
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+});
 
 interface ManyChatProps {
   initialMessages?: Message[];
@@ -35,90 +332,240 @@ interface ManyChatProps {
   };
   buttons?: React.ReactNode[];
   projectId?: string;
+  workspaceId?: string;
+  initialInput?: string;
+  defaultAgentId?: string | null;
 }
 
-export default function ManyChat({ initialMessages, githubSettings, buttons, projectId }: ManyChatProps) {
+export default function ManyChat({ initialMessages, githubSettings, buttons, projectId: projectIdProp, workspaceId: workspaceIdProp, initialInput, defaultAgentId }: ManyChatProps) {
+  // Get messages, conversationId, and page context from context to persist across navigation
+  const { messages, setMessages, conversationId, setConversationId, pageContext, isOpen, pendingPrompt, consumePendingPrompt } = useAgentModal();
+  const { workspaceId: urlWorkspaceId } = useWorkspace();
+  const workspaceId = workspaceIdProp ?? urlWorkspaceId;
+
+  // Fetch the user's custom assistant (if configured)
+  const { data: customAssistant } = api.assistant.getDefault.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId }
+  );
+
+  // Use prop if provided, otherwise fall back to pageContext (auto-detected from current page)
+  const projectId = projectIdProp ?? (pageContext?.data?.projectId as string | undefined);
+
+  // Fetch project's Slack channel config so agent knows which channel to search
+  const { data: projectSlackConfig } = api.slack.getChannelConfig.useQuery(
+    { projectId: projectId! },
+    { enabled: !!projectId }
+  );
+
   // Function to generate initial messages with project context
-  const generateInitialMessages = useCallback((projectData?: any, projectActions?: any[]): Message[] => {
+  const generateInitialMessages = useCallback((projectData?: any, projectActions?: any[], transcriptions?: any[]): Message[] => {
+    // Format transcription context
+    const transcriptionContext = transcriptions && transcriptions.length > 0 ? `
+
+      📝 RECENT MEETING TRANSCRIPTIONS (${transcriptions.length} meetings):
+      ${transcriptions.map(t => {
+        const dateStr = t.meetingDate
+          ? new Date(t.meetingDate).toLocaleDateString()
+          : t.processedAt
+            ? new Date(t.processedAt).toLocaleDateString()
+            : 'Unknown date';
+
+        let summaryInfo = '';
+        if (t.summary) {
+          try {
+            const summary = JSON.parse(t.summary);
+            if (summary.overview) {
+              summaryInfo = `\n        Summary: ${summary.overview.slice(0, 200)}${summary.overview.length > 200 ? '...' : ''}`;
+            }
+            if (summary.action_items?.length) {
+              summaryInfo += `\n        Action items discussed: ${summary.action_items.length}`;
+            }
+          } catch {
+            // Summary not JSON, include as-is if short
+            if (t.summary.length < 300) {
+              summaryInfo = `\n        Summary: ${t.summary}`;
+            }
+          }
+        }
+
+        const actionsFromMeeting = t.actions?.length
+          ? `\n        Created actions: ${t.actions.map((a: any) => a.name).join(', ')}`
+          : '';
+
+        return `
+      ### ${t.title || 'Untitled Meeting'} (${dateStr})${summaryInfo}${actionsFromMeeting}`;
+      }).join('\n')}
+    ` : '';
+
+    const slackChannelContext = projectSlackConfig?.slackChannel
+      ? `
+      - Slack Channel: ${projectSlackConfig.slackChannel}${projectSlackConfig.slackChannelId ? ` (ID: ${projectSlackConfig.slackChannelId})` : ''}
+      - IMPORTANT: When searching Slack for this project, use channel${projectSlackConfig.slackChannelId ? ` ID "${projectSlackConfig.slackChannelId}"` : ` "${projectSlackConfig.slackChannel}"`} to target the project's dedicated channel`
+      : '';
+
     const projectContext = projectData && projectActions ? `
-      
+
       📋 CURRENT PROJECT CONTEXT (Authorized User Data Only):
       - Project: ${projectData.name} (ID: ${projectId})
       - Owner: Authenticated user (secure context)
       - Description: ${projectData.description || 'No description'}
       - Status: ${projectData.status}
       - Priority: ${projectData.priority}
-      - Progress: ${projectData.progress || 0}%
+      - Progress: ${projectData.progress || 0}%${slackChannelContext}
       - Active Tasks Shown: ${projectActions.length} (use retrieveActionsTool for complete history)
-      ${projectActions.length > 0 ? 
-        projectActions.map(action => `  • ${action.name} (${action.status}, ${action.priority})`).join('\n      ') : 
+      ${projectActions.length > 0 ?
+        projectActions.map(action => `  • ${action.name} (${action.status}, ${action.priority})`).join('\n      ') :
         '  • No active tasks'}
-      
+      ${transcriptionContext}
       🎯 ACTIONS REQUIRED:
       - When creating actions: automatically assign to project ID: ${projectId}
       - When asked about tasks: refer to context above or use tools for complete data
       - Always specify project ID in tool calls for security
       - For historical data beyond current context, explicitly use retrieveActionsTool
+      - When asked about meetings or transcriptions: refer to the meeting context above${projectSlackConfig?.slackChannel ? `\n      - When asked about Slack or project communications: search in channel${projectSlackConfig.slackChannelId ? ` ID "${projectSlackConfig.slackChannelId}"` : ` "${projectSlackConfig.slackChannel}"`}` : ''}
     ` : '';
+
+    const goalTitle = typeof pageContext?.data?.goalTitle === 'string' ? pageContext.data.goalTitle : '';
+    const goalId = typeof pageContext?.data?.goalId === 'number' ? pageContext.data.goalId : null;
+    const goalDescription = typeof pageContext?.data?.goalDescription === 'string' ? pageContext.data.goalDescription : '';
+    const goalWhy = typeof pageContext?.data?.goalWhy === 'string' ? pageContext.data.goalWhy : '';
+    const goalStatus = typeof pageContext?.data?.goalStatus === 'string' ? pageContext.data.goalStatus : '';
+    const goalContext = pageContext?.pageType === 'goal' ? `
+
+      🎯 CURRENT GOAL CONTEXT:
+      - Goal: ${goalTitle} (ID: ${goalId})
+      - Description: ${goalDescription || 'No description'}
+      - Why: ${goalWhy || 'Not specified'}
+      - Status: ${goalStatus || 'Unknown'}
+      🎯 ACTIONS:
+      - When creating actions or outcomes, link to this goal where appropriate
+      - When asked about progress, refer to this goal's description and why
+    ` : '';
+
+    // Extract workspace info from page context for the system prompt
+    const wsName = typeof pageContext?.data?.workspaceName === 'string' ? pageContext.data.workspaceName : '';
+    const wsId = typeof pageContext?.data?.workspaceId === 'string' ? pageContext.data.workspaceId : '';
 
     return [
       {
         type: 'system',
-        content: `Your name is Paddy the project manager. You are a coordinator managing a multi-agent conversation. 
+        content: `Your name is ${customAssistant?.name ?? 'Zoe'}, an AI companion. You are a coordinator managing a multi-agent conversation.
                   Route user requests to the appropriate specialized agent if necessary.
                   Keep track of the conversation flow between the user and multiple AI agents.
-                  
+
                   🔒 SECURITY & DATA SCOPE:
-                  - You are operating in single-project context only
-                  - Only data from the current project is available in context
-                  - Never reference or access data from other projects or users
+                  ${wsId ? `- You are operating in workspace context: "${wsName}" (ID: ${wsId})
+                  - Only show data from this workspace. Do not reference projects or actions from other workspaces.` : `- You are operating in single-project context only
+                  - Only data from the current project is available in context`}
+                  - Never reference or access data from other users
                   ${projectId ? `- Current project ID: ${projectId}` : ''}
                   
                   🛠️ TOOL USAGE PROTOCOLS:
                   - ALWAYS report tool failures to user (never fail silently)
                   - Use format: "⚠️ Tool Error: [action] failed - [reason]. Working with available context instead."
                   - Context shows current/recent data only - use tools for historical/complete data
-                  - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue
+                  - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue, get_project_context, get-meeting-transcriptions, query-meeting-context, get-meeting-insights, firefliesCheckExisting, firefliesTestApiKey, firefliesCreateIntegration, firefliesGenerateWebhookToken, firefliesGetWebhookUrl
+                  - For project goals and outcomes: use get_project_context tool with the project ID
                   - If authentication fails, inform user and suggest checking token validity
-                  
+
+                  🔧 FIREFLIES INTEGRATION WIZARD:
+                  When user wants to connect Fireflies, set up meeting transcription, or asks about Fireflies configuration:
+
+                  1. CHECK EXISTING: First use firefliesCheckExisting tool to see if they already have Fireflies
+                     - If exists: Inform them and ask if they want to set up a new integration or configure webhooks
+
+                  2. GUIDE API KEY SETUP: If no integration exists, guide user to get their API key:
+                     - Tell them: "To connect Fireflies, you'll need your API key from the Fireflies dashboard"
+                     - Provide link: https://app.fireflies.ai/integrations/custom
+                     - Wait for them to share the key
+
+                  3. TEST THE KEY: When user provides an API key (long string, often starts with "ff_"):
+                     - Use firefliesTestApiKey tool to validate it
+                     - CRITICAL: NEVER echo the API key back to the user - this is a security requirement
+                     - On success: Proceed to integration creation
+                     - On failure: Explain the error and ask them to check the key
+
+                  4. CREATE INTEGRATION: After successful test:
+                     - Ask user to name their integration (suggest: "My Fireflies" or their workspace name)
+                     - Ask about scope: "Should this be just for you (personal), or available workspace-wide?"
+                     - Use firefliesCreateIntegration with the tested key, name, and scope
+
+                  5. WEBHOOK SETUP (after integration created):
+                     - Use firefliesGenerateWebhookToken to create a webhook secret
+                     - Use firefliesGetWebhookUrl to get the correct webhook URL
+                     - Provide CLEAR step-by-step instructions:
+                       a. Go to https://app.fireflies.ai/integrations/custom
+                       b. Click "Add Webhook" or find the webhook settings
+                       c. Enter the webhook URL provided
+                       d. Set authentication method to "Signature"
+                       e. Use the secret token provided
+                       f. Select event: "Transcription completed"
+                       g. Save the webhook
+
+                  6. CONFIRMATION: After setup, explain:
+                     - New meeting transcriptions will automatically appear in the app
+                     - They can test by having a short meeting or triggering a test from Fireflies
+                     - Offer to help with anything else
+
+                  📝 TRANSCRIPTION SEARCH (RAG):
+                  - The transcription summaries in context show recent meetings - use them for quick reference
+                  - For DEEPER questions about meeting content, USE THE SEARCH TOOLS:
+                    • "What did we discuss about [topic]?" → use 'query-meeting-context' to search full transcription text
+                    • "What decisions were made?" → use 'get-meeting-insights' for structured extraction
+                    • "What happened in meeting [name]?" → use 'get-meeting-transcriptions' with filters
+                  - ALWAYS search when: user asks about specific topics, quotes, or details not visible in summaries
+                  - The search tools access FULL transcription text, not just the summaries shown in context
+
                   📊 CONTEXT LIMITATIONS:
                   - Project data: Current snapshot only (real-time via tools)
                   - Actions: Active actions shown (use retrieveActionsTool for historical)
+                  - Transcriptions: Summaries shown in context (use search tools for full text and specific topics)
                   - For complete datasets or older data, explicitly use tools
                   - Always mention when working with limited context vs complete data
                   
                   ${githubSettings ? `When creating GitHub issues, use repo: "${githubSettings.repo}" and owner: "${githubSettings.owner}". Valid assignees are: ${githubSettings.validAssignees.join(", ")}` : ''}
                   ${projectContext}
+                  ${goalContext}
+                  ${pageContext ? `
+                  📍 CURRENT PAGE CONTEXT:
+                  The user is currently viewing this page:
+                  - Page: ${pageContext.pageTitle}
+                  - Type: ${pageContext.pageType}
+                  - Path: ${pageContext.pagePath}
+                  ${formatPageContextData(pageContext)}
+
+                  When the user says "this", "the", or refers to content on their current page, they mean the above context.
+                  Use this data to understand what the user is looking at right now.
+                  ` : ''}
                   The current date is: ${new Date().toISOString().split('T')[0]}`
       },
       {
         type: 'ai',
-        agentName: 'Paddy',
-        content: projectData ? 
-          `Hello! I'm Paddy, your project manager. I'll be your default assistant for the "${projectData.name}" project (ID: ${projectId}). \n\nI'm here to help with project management, task coordination, and can connect you with other specialized agents when needed. Just mention them with @ (like @designer or @developer) to speak with them directly.\n\nHow can I help you today?` :
-          'Hello! I\'m Paddy, your project manager. I\'ll be your default assistant here. \n\nI can help with project management, task coordination, and can connect you with other specialized agents when needed. Just mention them with @ to speak with them directly.\n\nHow can I help you today?'
+        agentName: customAssistant?.name ?? 'Zoe',
+        content: customAssistant
+          ? (projectData
+              ? `Hey! I'm ${customAssistant.name}${customAssistant.emoji ? ` ${customAssistant.emoji}` : ''} — your companion for the "${projectData.name}" project.\n\nI know your projects, actions, and goals. Ask me what to focus on, break down a vague idea, or just think through something. You can also tag other agents with @ if you need specialists.\n\nWhat's on your mind?`
+              : `Hey! I'm ${customAssistant.name}${customAssistant.emoji ? ` ${customAssistant.emoji}` : ''}\n\nI'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.\n\nWhat's up?`)
+          : (projectData
+              ? `Hey! I'm Zoe 🔮 — your companion for the "${projectData.name}" project.\n\nI know your projects, actions, and goals. Ask me what to focus on, break down a vague idea, or just think through something. You can also tag other agents with @ if you need specialists.\n\nWhat's on your mind?`
+              : `Hey! I'm Zoe 🔮\n\nI'm here to help you move forward — whether that's figuring out what to focus on today, breaking down a project, or just thinking something through. Tag other agents with @ if you need a specialist.\n\nWhat's up?`)
       }
     ];
-  }, [projectId, githubSettings]);
+  }, [projectId, githubSettings, pageContext, customAssistant, projectSlackConfig]);
 
-  const [messages, setMessages] = useState<Message[]>(
-    initialMessages ?? generateInitialMessages()
-  );
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const viewport = useRef<HTMLDivElement>(null);
-  const [agentFilter, setAgentFilter] = useState<string>('');
   const [showAgentDropdown, setShowAgentDropdown] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
-  const [conversationId, setConversationId] = useState<string>("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const [isStreaming, setIsStreaming] = useState(false);
   const transcribeAudio = api.tools.transcribe.useMutation();
-  const callAgent = api.mastra.callAgent.useMutation();
   const chooseAgent = api.mastra.chooseAgent.useMutation();
   const logInteraction = api.aiInteraction.logInteraction.useMutation();
   const startConversation = api.aiInteraction.startConversation.useMutation();
@@ -134,8 +581,14 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     { enabled: !!projectId }
   );
 
+  // Fetch project transcriptions for agent context
+  const { data: projectTranscriptions } = api.transcription.getProjectTranscriptions.useQuery(
+    { projectId: projectId! },
+    { enabled: !!projectId }
+  );
+
   // Fetch Mastra agents
-  const { data: mastraAgents, isLoading: isLoadingAgents, error: agentsError } = 
+  const { data: mastraAgents } =
     api.mastra.getMastraAgents.useQuery(
       undefined, // No input needed for this query
       {
@@ -143,10 +596,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         refetchOnWindowFocus: false, // Don't refetch just on focus
       }
     );
-  console.log("mastraAgents is ", mastraAgents);
   
   // Initialize conversation ID when component mounts
+  // Use a ref to prevent duplicate calls during rapid re-renders
+  // (useMutation returns a new ref each render, which would retrigger the effect)
+  const isInitializingConversation = useRef(false);
   useEffect(() => {
+    if (conversationId || isInitializingConversation.current) return;
+    isInitializingConversation.current = true;
+
     const initConversation = async () => {
       try {
         const result = await startConversation.mutateAsync({
@@ -160,33 +618,49 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         const timestamp = Date.now();
         const random = Math.random().toString(36).substring(2, 15);
         setConversationId(`conv_fallback_${timestamp}_${random}`);
+      } finally {
+        isInitializingConversation.current = false;
       }
     };
-    
-    if (!conversationId) {
-      void initConversation();
-    }
-  }, [projectId, startConversation, conversationId]);
+
+    void initConversation();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- startConversation is a mutation hook (new ref each render); projectId intentionally excluded to avoid re-init on project switch
+  }, [conversationId]);
   
-  // Update messages when project data is loaded - but only if messages are still initial
+  // Update system message with project/page context when data loads, page changes, or custom assistant loads
+  // This preserves conversation history while adding context
   useEffect(() => {
-    if (projectData && projectActions && !initialMessages && messages.length <= 2) {
-      // Only reset messages if we still have just the initial welcome messages
-      // Security audit logging
-      console.log('🔒 [SECURITY AUDIT] Generating agent context:', {
-        projectId: projectData.id,
-        projectName: projectData.name,
-        actionsCount: projectActions.length,
-        timestamp: new Date().toISOString(),
-        hasInitialMessages: !!initialMessages,
-        contextScope: 'single-project-only',
-        currentMessageCount: messages.length
-      });
-      
-      const newMessages = generateInitialMessages(projectData, projectActions);
-      setMessages(newMessages);
+    const hasProjectContext = projectData && projectActions;
+    const hasPageContext = !!pageContext;
+    const hasCustomAssistant = !!customAssistant;
+
+    if ((hasProjectContext || hasPageContext || hasCustomAssistant) && !initialMessages) {
+      // Generate updated system + welcome messages with all available context
+      const updatedMessages = generateInitialMessages(
+        hasProjectContext ? projectData : undefined,
+        hasProjectContext ? projectActions : undefined,
+        projectTranscriptions
+      );
+      const newSystemMessage = updatedMessages[0];
+      const newWelcomeMessage = updatedMessages[1];
+
+      if (newSystemMessage) {
+        setMessages(prev => {
+          // If first message is system, replace it; otherwise prepend
+          const withSystem = prev.length > 0 && prev[0]?.type === 'system'
+            ? [newSystemMessage, ...prev.slice(1)]
+            : [newSystemMessage, ...prev];
+
+          // Also update the welcome message if it's the only AI message (fresh chat)
+          if (newWelcomeMessage && withSystem.length === 2 && withSystem[1]?.type === 'ai') {
+            return [withSystem[0]!, newWelcomeMessage];
+          }
+          return withSystem;
+        });
+      }
     }
-  }, [projectData, projectActions, initialMessages, generateInitialMessages, messages.length]); // Added missing deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- setMessages is stable from context, messages.length would cause infinite loop
+  }, [projectData, projectActions, projectTranscriptions, pageContext, customAssistant, initialMessages, generateInitialMessages, conversationId]);
   
   // Parse agent mentions from input
   const parseAgentMention = (text: string): { agentId: string | null; cleanMessage: string } => {
@@ -220,22 +694,23 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // Filter agents based on partial mention
   const getFilteredAgentsForMention = (text: string, position: number) => {
     if (!mastraAgents) return [];
-    
+
     const beforeCursor = text.substring(0, position);
     const lastAtIndex = beforeCursor.lastIndexOf('@');
     if (lastAtIndex === -1) return [];
-    
+
     const searchTerm = beforeCursor.substring(lastAtIndex + 1).toLowerCase();
-    return mastraAgents.filter(agent => 
+    return mastraAgents.filter(agent =>
       agent.name.toLowerCase().startsWith(searchTerm)
     );
   };
 
-  useEffect(() => {
-    if (viewport.current) {
-      viewport.current.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
-    }
-  }, [messages]);
+  // Cache filtered agents to avoid recomputing on every render
+  const filteredAgentsForMention = useMemo(
+    () => getFilteredAgentsForMention(input, cursorPosition),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getFilteredAgentsForMention depends on mastraAgents
+    [input, cursorPosition, mastraAgents]
+  );
 
   // Handle click outside to close dropdown
   useEffect(() => {
@@ -250,40 +725,78 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Handle initialInput prop for agent selection from sidebar
+  useEffect(() => {
+    if (initialInput) {
+      setInput(initialInput);
+      // Focus the input after setting value
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
+    }
+  }, [initialInput]);
+
+  // Auto-submit when the drawer opens with a pending prompt seeded from
+  // another surface (e.g. the home-page Zoe input). Runs once per open.
+  const didSeedRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      didSeedRef.current = false;
+      return;
+    }
+    if (!pendingPrompt || didSeedRef.current) return;
+    didSeedRef.current = true;
+    const seeded = pendingPrompt;
+    consumePendingPrompt();
+    // Defer one tick so any mount-phase work settles before we fire the submit.
+    setTimeout(() => {
+      void handleSubmit(null, seeded);
+    }, 0);
+    // handleSubmit intentionally omitted — it's a stable closure over current state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, pendingPrompt, consumePendingPrompt]);
+
   // Handle input changes and autocomplete
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const position = e.target.selectionStart || 0;
-    
+
     setInput(value);
     setCursorPosition(position);
     setSelectedAgentIndex(0);
-    
+
     const shouldShowDropdown = checkForMention(value, position);
     setShowAgentDropdown(shouldShowDropdown);
   };
 
-  // Handle keyboard navigation in dropdown
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showAgentDropdown) return;
-    
-    const filteredAgents = getFilteredAgentsForMention(input, cursorPosition);
-    
-    if (e.key === 'ArrowDown') {
+  // Handle keyboard navigation in dropdown + Enter to submit / Shift+Enter for newline
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showAgentDropdown) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedAgentIndex(prev =>
+          prev < filteredAgentsForMention.length - 1 ? prev + 1 : 0
+        );
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedAgentIndex(prev =>
+          prev > 0 ? prev - 1 : filteredAgentsForMention.length - 1
+        );
+      } else if (e.key === 'Enter' && filteredAgentsForMention.length > 0) {
+        e.preventDefault();
+        selectAgent(filteredAgentsForMention[selectedAgentIndex]!);
+      } else if (e.key === 'Escape') {
+        setShowAgentDropdown(false);
+      }
+      return;
+    }
+
+    // Submit on Cmd+Enter (macOS) or Ctrl+Enter (Windows/Linux)
+    // Plain Enter and Shift+Enter insert a newline
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      setSelectedAgentIndex(prev => 
-        prev < filteredAgents.length - 1 ? prev + 1 : 0
-      );
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedAgentIndex(prev => 
-        prev > 0 ? prev - 1 : filteredAgents.length - 1
-      );
-    } else if (e.key === 'Enter' && filteredAgents.length > 0) {
-      e.preventDefault();
-      selectAgent(filteredAgents[selectedAgentIndex]!);
-    } else if (e.key === 'Escape') {
-      setShowAgentDropdown(false);
+      const form = e.currentTarget.closest('form');
+      if (form) form.requestSubmit();
     }
   };
 
@@ -370,28 +883,29 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+  const handleSubmit = async (e: React.FormEvent | null, overrideText?: string) => {
+    e?.preventDefault();
+    const text = overrideText ?? input;
+    if (!text.trim()) return;
 
-    const userMessage: Message = { type: 'human', content: input };
+    const userMessage: Message = { type: 'human', content: text };
     setMessages(prev => [...prev, userMessage]);
-    
+
     // Parse for agent mentions
-    const { agentId: mentionedAgentId, cleanMessage } = parseAgentMention(input);
-    const messageToSend = mentionedAgentId ? cleanMessage : input;
-    
+    const { agentId: mentionedAgentId, cleanMessage } = parseAgentMention(text);
+    const messageToSend = mentionedAgentId ? cleanMessage : text;
+
     setInput('');
     setShowAgentDropdown(false);
 
     let targetAgentId: string | undefined;
-    
+
     try {
-      
+
       // Security audit logging for agent calls
       console.log('🔒 [SECURITY AUDIT] Agent call initiated:', {
         projectId,
-        messageLength: input.length,
+        messageLength: text.length,
         hasMentionedAgent: !!mentionedAgentId,
         timestamp: new Date().toISOString(),
         contextScope: 'single-project-only'
@@ -401,99 +915,261 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         // Use the mentioned agent directly
         targetAgentId = mentionedAgentId;
         console.log('🔒 [SECURITY AUDIT] Using mentioned agent:', { agentId: mentionedAgentId });
+      } else if (defaultAgentId) {
+        // Use the persistently selected agent from dropdown
+        targetAgentId = defaultAgentId;
+      } else if (customAssistant) {
+        // If user has a custom assistant, route to the blank-canvas assistantAgent
+        targetAgentId = 'assistantAgent';
+        console.log('🤖 [AGENT] Using custom assistant:', { assistantId: customAssistant.id, name: customAssistant.name });
       } else {
-        // Always default to Paddy the project manager unless another agent is specifically mentioned
-        // First, find Paddy's agent ID
-        const paddyAgent = mastraAgents?.find(agent => 
-          agent.name.toLowerCase() === 'paddy' || 
-          agent.name.toLowerCase().includes('project manager') ||
-          agent.name.toLowerCase().includes('paddy')
+        // Fallback to Zoe unless another agent is specifically mentioned
+        const zoeAgent = mastraAgents?.find(agent =>
+          agent.name.toLowerCase() === 'zoe' ||
+          agent.id.toLowerCase() === 'zoeagent'
         );
-        
-        if (paddyAgent) {
-          targetAgentId = paddyAgent.id;
-          console.log('🔒 [SECURITY AUDIT] Defaulting to Paddy:', { agentId: paddyAgent.id });
+
+        if (zoeAgent) {
+          targetAgentId = zoeAgent.id;
+          console.log('🔮 [AGENT] Defaulting to Zoe:', { agentId: zoeAgent.id });
         } else {
-          // Fallback: Use AI to choose if Paddy not found (shouldn't happen)
-          console.warn('⚠️ Paddy agent not found, using AI selection');
-          const { agentId } = await chooseAgent.mutateAsync({ message: input });
+          // Fallback: Use AI to choose if Zoe not found
+          console.warn('⚠️ Zoe agent not found, using AI selection');
+          const { agentId } = await chooseAgent.mutateAsync({ message: text });
           targetAgentId = agentId;
-          console.log('🔒 [SECURITY AUDIT] AI selected agent:', { agentId });
+          console.log('🔮 [AGENT] AI selected agent:', { agentId });
         }
       }
       
       const startTime = Date.now();
-      
-      const result = await callAgent.mutateAsync({
+
+      // Get agent name for display — use custom assistant name if active
+      const agentName = customAssistant && targetAgentId === 'assistantAgent'
+        ? customAssistant.name
+        : mastraAgents?.find(a => a.id === targetAgentId)?.name ?? 'Agent';
+
+      // Add empty AI message that will be filled by streaming
+      setMessages(prev => [...prev, { type: 'ai', agentName, content: '' }]);
+      setIsStreaming(true);
+
+      // Build full conversation history so the agent has context from prior messages
+      const coreMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [];
+
+      const systemContent = messages.find(m => m.type === 'system')?.content;
+      if (systemContent) {
+        coreMessages.push({ role: 'system', content: systemContent });
+      }
+
+      // Include all prior user/assistant messages (skip system, skip the empty AI placeholder we just added)
+      for (const msg of messages) {
+        if (msg.type === 'human') {
+          coreMessages.push({ role: 'user', content: msg.content });
+        } else if (msg.type === 'ai' && msg.content) {
+          coreMessages.push({ role: 'assistant', content: msg.content });
+        }
+      }
+
+      // Add the current user message
+      coreMessages.push({ role: 'user', content: messageToSend });
+
+      // Trim by estimated token budget rather than raw message count so a
+      // few verbose tool-result turns can't blow past the context window.
+      // Mastra memory on the server will surface older turns via semantic
+      // recall / lastMessages when the agent actually needs them.
+      const HISTORY_TOKEN_BUDGET = 20_000;
+      const trimmed = trimByTokenBudget(coreMessages, HISTORY_TOKEN_BUDGET);
+      if (trimmed.droppedCount > 0) {
+        console.log('✂️ [ManyChat] Trimmed conversation history', {
+          droppedCount: trimmed.droppedCount,
+          estimatedTokens: trimmed.estimatedTokens,
+          budgetTokens: HISTORY_TOKEN_BUDGET,
+        });
+      }
+      coreMessages.splice(0, coreMessages.length, ...trimmed.messages);
+
+      const streamPayload = {
+        messages: coreMessages,
         agentId: targetAgentId,
-        messages: [
-          { role: 'system', content: messages.find(m => m.type === 'system')?.content || '' },
-          { role: 'user', content: messageToSend }
-        ],
+        assistantId: customAssistant?.id,
+        workspaceId,
+        projectId,
+        conversationId,
+      };
+
+      // Debug: always log what we're sending to Mastra
+      console.log('📤 [ManyChat → Mastra] Request payload:', {
+        agentId: streamPayload.agentId,
+        assistantId: streamPayload.assistantId,
+        workspaceId: streamPayload.workspaceId,
+        projectId: streamPayload.projectId,
+        conversationId: streamPayload.conversationId,
+        messageCount: coreMessages.length,
+        messages: coreMessages.map(m => ({
+          role: m.role,
+          contentPreview: m.content.slice(0, 200) + (m.content.length > 200 ? '...' : ''),
+        })),
       });
 
-      const responseTime = Date.now() - startTime;
-      const aiResponseText = typeof result.response === 'string' 
-        ? result.response 
-        : JSON.stringify(result.response);
-
-      const aiResponse: Message = {
-        type: 'ai', 
-        agentName: result.agentName || 'Agent',
-        content: aiResponseText
+      // Idle-timeout watchdog: abort if no chunk arrives for IDLE_TIMEOUT_MS.
+      // Prevents the stuck-isStreaming state when the server stream stalls silently.
+      const abortController = new AbortController();
+      const IDLE_TIMEOUT_MS = 60_000;
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      const clearIdleTimer = () => {
+        if (idleTimer) {
+          clearTimeout(idleTimer);
+          idleTimer = null;
+        }
       };
-      setMessages(prev => [...prev, aiResponse]);
+      const resetIdleTimer = () => {
+        clearIdleTimer();
+        idleTimer = setTimeout(() => {
+          abortController.abort(new DOMException('stream-idle-timeout', 'AbortError'));
+        }, IDLE_TIMEOUT_MS);
+      };
+      resetIdleTimer();
 
-      // Log the successful interaction
+      const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(streamPayload),
+        signal: abortController.signal,
+      });
+
+      if (!response.ok) {
+        clearIdleTimer();
+        throw new Error('Stream request failed');
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          resetIdleTimer();
+
+          const chunk = decoder.decode(value, { stream: true });
+          fullResponse += chunk;
+
+          setMessages(prev => {
+            const updated = [...prev];
+            const lastMessage = updated[updated.length - 1];
+            if (lastMessage && lastMessage.type === 'ai') {
+              updated[updated.length - 1] = {
+                ...lastMessage,
+                content: fullResponse,
+              };
+            }
+            return updated;
+          });
+        }
+      }
+
+      clearIdleTimer();
+      setIsStreaming(false);
+      const responseTime = Date.now() - startTime;
+      const isEmptyResponse = fullResponse.trim() === '';
+
+      // Debug: log what we received back
+      console.log('📥 [Mastra → ManyChat] Response:', {
+        responseLength: fullResponse.length,
+        responsePreview: fullResponse.slice(0, 300) + (fullResponse.length > 300 ? '...' : ''),
+        responseTime,
+        agentId: targetAgentId,
+        isEmpty: isEmptyResponse,
+        conversationId,
+      });
+
+      // Treat empty response as an error so the user sees a concrete message
+      // instead of a blank bubble with a "Rate this response" prompt beneath it.
+      if (isEmptyResponse) {
+        console.error('[ManyChat] Empty response from agent — stream closed with zero text', {
+          conversationId,
+          agentId: targetAgentId,
+          responseTime,
+        });
+        const emptyMessage = `⚠️ **No response from the assistant.**\n\nThe agent started but produced no output — this usually means a tool failed silently or the step budget was exhausted. Try rephrasing, or ask again in smaller pieces. Server logs (search \`[chat/stream]\`) have the details.`;
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMessage = updated[updated.length - 1];
+          if (lastMessage && lastMessage.type === 'ai') {
+            updated[updated.length - 1] = {
+              ...lastMessage,
+              content: emptyMessage,
+            };
+          }
+          return updated;
+        });
+      }
+
+      // Log the successful interaction after streaming completes
+      let interactionId: string | undefined;
       try {
-        await logInteraction.mutateAsync({
+        const logResult = await logInteraction.mutateAsync({
           platform: "manychat",
           conversationId: conversationId || undefined,
           userMessage: input,
           cleanMessage: messageToSend !== input ? messageToSend : undefined,
-          aiResponse: aiResponseText,
+          aiResponse: fullResponse || "(empty response from agent)",
           agentId: targetAgentId,
-          agentName: result.agentName || undefined,
+          agentName: agentName,
           model: "mastra-agents",
           messageType: mentionedAgentId ? "command" : "question",
           responseTime,
           projectId: projectId || undefined,
-          toolsUsed: result.toolCalls?.map((tool: any) => tool.name || tool.function?.name).filter(Boolean) || [],
-          actionsTaken: result.toolResults?.map((result: any) => ({
-            action: result.name || "unknown",
-            result: result.success ? "success" : "error",
-            data: result.content || result.text,
-          })) || [],
-          hadError: false,
+          toolsUsed: [],
+          actionsTaken: [],
+          hadError: isEmptyResponse,
+          errorMessage: isEmptyResponse ? 'empty-response' : undefined,
         });
+        interactionId = logResult.interactionId;
       } catch (logError) {
         console.warn("Failed to log AI interaction:", logError);
-        // Don't throw error to avoid breaking the chat flow
       }
 
+      // Update the message with interaction ID for feedback
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMessage = updated[updated.length - 1];
+        if (lastMessage && lastMessage.type === 'ai') {
+          updated[updated.length - 1] = {
+            ...lastMessage,
+            interactionId,
+          };
+        }
+        return updated;
+      });
+
     } catch (error) {
+      setIsStreaming(false);
       console.error('Chat error:', error);
-      
+
       // Enhanced error detection and reporting
       let errorMessage = 'Sorry, I encountered an error processing your request.';
       let errorType = 'Unknown';
       
       if (error instanceof Error) {
         const errorText = error.message.toLowerCase();
-        
+
         // Detect specific error types
-        if (errorText.includes('unauthorized') || errorText.includes('401')) {
+        if (error.name === 'AbortError' || errorText.includes('stream-idle-timeout')) {
+          errorType = 'Idle Timeout';
+          errorMessage = `⏱ **Connection stalled**: The assistant sent no data for 60 seconds and the stream was aborted. The agent is likely stuck on a tool call. Please try again — smaller requests tend to succeed.`;
+        } else if (errorText.includes('unauthorized') || errorText.includes('401')) {
           errorType = 'Authentication';
-          errorMessage = `🔐 **Authentication Error**: Agent tools are not accessible due to expired or invalid authentication. Please check your API tokens in the /tokens page. Working with available context only.`;
+          errorMessage = `🔐 **Authentication Error**: Agent tools are not accessible due to expired or invalid authentication. Please check your API tokens in the /settings/api-keys page. Working with available context only.`;
         } else if (errorText.includes('forbidden') || errorText.includes('403')) {
-          errorType = 'Authorization';  
+          errorType = 'Authorization';
           errorMessage = `🚫 **Authorization Error**: Agent doesn't have permission to access the requested data. This might be a security issue. Working with available context only.`;
         } else if (errorText.includes('not found') || errorText.includes('404')) {
           errorType = 'Resource Not Found';
           errorMessage = `📂 **Resource Error**: The requested project or data was not found. This might be a security restriction or the data may not exist. Working with available context only.`;
-        } else if (errorText.includes('timeout') || errorText.includes('network')) {
+        } else if (errorText.includes('timeout') || errorText.includes('network') || errorText.includes('failed to fetch') || error.name === 'TypeError') {
           errorType = 'Network';
-          errorMessage = `🌐 **Network Error**: Agent communication failed due to network issues. Please try again. Working with available context only.`;
+          errorMessage = `🌐 **Network Error**: The connection to the AI service was interrupted (possibly a timeout). Please try again. Working with available context only.`;
         } else if (errorText.includes('mastra') || errorText.includes('agent')) {
           errorType = 'Agent Communication';
           errorMessage = `🤖 **Agent Error**: Failed to communicate with the AI agent system. The agent service might be unavailable. Working with available context only.`;
@@ -532,483 +1208,54 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       setMessages(prev => [...prev, { 
         type: 'ai', 
         agentName: 'System Error',
-        content: `${errorMessage}\n\n_Error Type: ${errorType}_\n_Time: ${new Date().toLocaleTimeString()}_\n\n**Next Steps:**\n• Try rephrasing your request\n• Check /tokens page for authentication issues\n• Report persistent issues to support` 
+        content: `${errorMessage}\n\n_Error Type: ${errorType}_\n_Time: ${new Date().toLocaleTimeString()}_\n\n**Next Steps:**\n• Try rephrasing your request\n• Check /settings/api-keys page for authentication issues\n• Report persistent issues to support` 
       }]);
     }
   };
 
-  const renderMessageContent = (content: string, messageType: string) => {
-    // Handle video links first
-    const videoPattern = /\[Video ([a-zA-Z0-9_-]+)\]/g;
-    const hasVideoLinks = videoPattern.test(content);
-    
-    if (hasVideoLinks) {
-      const parts = content.split(videoPattern);
-      return parts.map((part, index) => {
-        if (index % 2 === 1) {
-          return (
-            <a 
-              key={index} 
-              href={`/video/${part}`}
-              style={{ 
-                color: 'inherit', 
-                textDecoration: 'underline' 
-              }}
-            >
-              {`Video ${part}`}
-            </a>
-          );
-        }
-        return part;
-      });
-    }
-
-    // For AI messages, check if content looks like markdown and render accordingly
-    if (messageType === 'ai' && (content.includes('###') || content.includes('**') || content.includes('- '))) {
-      return (
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            h1: ({children}) => <Text size="xl" fw={700} mb="sm">{children}</Text>,
-            h2: ({children}) => <Text size="lg" fw={600} mb="sm">{children}</Text>,
-            h3: ({children}) => <Text size="md" fw={500} mb="xs">{children}</Text>,
-            h4: ({children}) => <Text size="sm" fw={500} mb="xs">{children}</Text>,
-            p: ({children}) => <Text size="sm" mb={2}>{children}</Text>,
-            strong: ({children}) => <Text component="span" fw={600}>{children}</Text>,
-            ul: ({children}) => <Box component="ul" ml="md" mb={2}>{children}</Box>,
-            ol: ({children}) => <Box component="ol" ml="md" mb={2}>{children}</Box>,
-            li: ({children}) => <Text component="li" size="sm">{children}</Text>,
-            code: ({children}) => (
-              <Text 
-                component="code" 
-                style={{ 
-                  backgroundColor: 'var(--color-surface-secondary)', 
-                  padding: '2px 4px', 
-                  borderRadius: '4px',
-                  fontSize: '12px'
-                }}
-              >
-                {children}
-              </Text>
-            ),
-            pre: ({children}) => (
-              <Box 
-                component="pre" 
-                style={{ 
-                  backgroundColor: 'var(--color-surface-secondary)', 
-                  padding: '8px', 
-                  borderRadius: '4px',
-                  overflow: 'auto',
-                  fontSize: '12px'
-                }}
-                mb="xs"
-              >
-                {children}
-              </Box>
-            ),
-          }}
-        >
-          {content}
-        </ReactMarkdown>
-      );
-    }
-
-    // For regular text, return as-is
-    return content;
-  };
-
   const getInitials = (name = '') => name.split(' ').map(n => n[0]).join('').toUpperCase();
 
-  const renderAgentAvatars = () => {
-    if (isLoadingAgents) {
-      return (
-        <div className="flex gap-3">
-          <div className="flex items-center gap-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="w-9 h-9 rounded-full bg-surface-secondary animate-pulse"></div>
-            ))}
-          </div>
-          <div className="flex items-center text-xs text-text-muted animate-pulse">
-            Loading agents...
-          </div>
-        </div>
-      );
-    }
-    if (agentsError) {
-      return (
-        <div className="flex items-center gap-2 p-3 bg-error-bg border border-error-border rounded-lg">
-          <div className="w-2 h-2 bg-brand-error rounded-full"></div>
-          <Text size="xs" c="red">Error loading agents</Text>
-        </div>
-      );
-    }
-    if (!mastraAgents || mastraAgents.length === 0) {
-      return (
-        <div className="flex items-center gap-2 p-3 bg-warning-bg border border-warning-border rounded-lg">
-          <div className="w-2 h-2 bg-brand-warning rounded-full"></div>
-          <Text size="xs" c="yellow">No agents available</Text>
-        </div>
-      );
-    }
-
-    // Filter agents by name or instructions
-    const filteredAgents = mastraAgents.filter(agent => {
-      const term = agentFilter.trim().toLowerCase();
-      if (!term) return true;
-      const nameMatch = agent.name.toLowerCase().includes(term);
-      const instr = (agent as any).instructions as string | undefined;
-      const instructionsMatch = instr?.toLowerCase().includes(term) ?? false;
-      return nameMatch || instructionsMatch;
-    });
-    
-    if (filteredAgents.length === 0) {
-      return (
-        <div className="flex items-center gap-2 p-3 bg-surface-secondary border border-border-primary rounded-lg">
-          <div className="w-2 h-2 bg-text-muted rounded-full"></div>
-          <Text size="xs" c="dimmed">No agents match &quot;{agentFilter}&quot;</Text>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-wrap gap-3 py-2">
-        {filteredAgents.map((agent, index) => (
-          <Tooltip 
-            key={agent.id} 
-            label={
-              <div className="p-2">
-                <div className="font-semibold text-sm text-secondary">{agent.name}</div>
-                <div className="text-xs opacity-75 mt-1 text-secondary">
-                  {(agent as any).instructions ? 
-                    (agent as any).instructions.slice(0, 100) + '...' : 
-                    'AI Agent'
-                  }
-                </div>
-              </div>
-            } 
-            position="bottom" 
-            withArrow
-            styles={{
-              tooltip: {
-                backgroundColor: 'var(--color-background-primary)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid var(--color-border-primary)',
-                // maxWidth: '200px'
-              }
-            }}
-          >
-            <div 
-              className="relative group cursor-pointer transform transition-all duration-300 hover:scale-110"
-              style={{ animationDelay: `${index * 50}ms` }}
-            >
-              <Avatar 
-                size="md" 
-                radius="xl"
-                className="ring-2 ring-border-primary transition-all duration-300 group-hover:ring-brand-primary group-hover:shadow-lg group-hover:shadow-brand-primary/25"
-                styles={{
-                  root: {
-                    background: `linear-gradient(135deg, 
-                      ${index % 4 === 0 ? 'var(--color-brand-primary), var(--color-brand-info), var(--color-brand-info)' : 
-                        index % 4 === 1 ? 'var(--color-brand-primary), var(--color-brand-primary), var(--color-brand-primary)' :
-                        index % 4 === 2 ? 'var(--color-brand-error), var(--color-brand-error), var(--color-brand-error)' :
-                        'var(--color-brand-success), var(--color-brand-success), var(--color-brand-success)'})`,
-                  }
-                }}
-              >
-                {getInitials(agent.name)}
-              </Avatar>
-              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-brand-success rounded-full ring-1 ring-background-primary opacity-90"></div>
-              <div className="absolute inset-0 rounded-full bg-gradient-to-t from-transparent to-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            </div>
-          </Tooltip>
-        ))}
-        
-        {/* Agent Count Badge */}
-        <div className="flex items-center ml-2">
-          <div className="px-2 py-1 bg-brand-primary/20 border border-brand-primary/30 rounded-full">
-            <Text size="xs" fw={600} c="blue">
-              {filteredAgents.length} online
-            </Text>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div className="relative flex flex-col h-full">
-      {/* Enhanced Agent Discovery Header */}
-      <div className="bg-surface-secondary backdrop-blur-sm border-b border-border-primary p-4">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-2 h-2 bg-brand-success rounded-full animate-pulse"></div>
-          <Text size="sm" fw={600} c="blue">
-            Available Agents
-          </Text>
-        </div>
-        <TextInput
-          placeholder="🔍 Filter agents by name or skill..."
-          size="sm"
-          value={agentFilter}
-          onChange={e => setAgentFilter(e.currentTarget.value)}
-          mb="sm"
-          styles={{
-            input: {
-              backgroundColor: 'var(--color-surface-secondary)',
-              border: '1px solid var(--color-border-primary)',
-              color: 'var(--color-text-primary)',
-              '&:focus': {
-                borderColor: 'var(--color-brand-primary)',
-                boxShadow: '0 0 0 3px var(--color-brand-primary-opacity)'
-              },
-              '&::placeholder': {
-                color: 'var(--color-text-muted)'
-              }
-            }
-          }}
-        />
-        <div className="space-y-3">
-          <div className="overflow-x-auto">
-            {renderAgentAvatars()}
-          </div>
-          
-          {/* Enhanced Agent List */}
-          {mastraAgents && mastraAgents.length > 0 && (
-            <div className="space-y-2 max-h-32 overflow-y-auto">
-              {mastraAgents
-                .filter(agent => {
-                  const term = agentFilter.trim().toLowerCase();
-                  if (!term) return true;
-                  const nameMatch = agent.name.toLowerCase().includes(term);
-                  const instr = (agent as any).instructions as string | undefined;
-                  const instructionsMatch = instr?.toLowerCase().includes(term) ?? false;
-                  return nameMatch || instructionsMatch;
-                })
-                .map((agent, index) => (
-                  <div 
-                    key={agent.id}
-                    className="flex items-center gap-3 p-2 rounded-lg bg-surface-secondary border border-border-primary transition-all duration-200 hover:bg-surface-hover hover:border-brand-primary group"
-                    style={{ animationDelay: `${index * 30}ms` }}
-                  >
-                    <div className="relative">
-                      <Avatar 
-                        size="xs" 
-                        radius="xl"
-                        className="ring-1 ring-border-primary group-hover:ring-brand-primary transition-all duration-200"
-                        styles={{
-                          root: {
-                            background: `linear-gradient(135deg, 
-                              ${index % 4 === 0 ? 'var(--color-brand-primary), var(--color-brand-info)' : 
-                                index % 4 === 1 ? 'var(--color-brand-primary), var(--color-brand-primary)' :
-                                index % 4 === 2 ? 'var(--color-brand-error), var(--color-brand-error)' :
-                                'var(--color-brand-success), var(--color-brand-success)'})`,
-                          }
-                        }}
-                      >
-                        {getInitials(agent.name)}
-                      </Avatar>
-                      <div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-brand-success rounded-full ring-1 ring-background-primary"></div>
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Text size="xs" fw={600} className="text-text-primary group-hover:text-brand-primary transition-colors">
-                          {agent.name}
-                        </Text>
-                        <div className="px-1.5 py-0.5 bg-brand-success/20 border border-brand-success/30 rounded text-xs font-medium text-brand-success">
-                          online
-                        </div>
-                      </div>
-                      <Text size="xs" c="dimmed" className="truncate mt-0.5">
-                        {(agent as any).instructions ? 
-                          (agent as any).instructions.slice(0, 60) + '...' : 
-                          'AI Agent ready to assist'
-                        }
-                      </Text>
-                    </div>
-                    
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Text size="xs" c="blue" fw={500}>
-                        @{agent.name.toLowerCase()}
-                      </Text>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          )}
-        </div>
-      </div>
-      
+    <div
+      className="relative flex flex-col h-full"
+      style={{ fontFamily: 'ui-sans-serif, -apple-system, "system-ui", "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol"' }}
+    >
       {buttons && buttons.length > 0 && (
-        <div className="px-4 py-2 border-b border-gray-700/30">
+        <div className="px-4 py-2 border-b border-border-primary">
           <Group justify="flex-end">
             {buttons}
           </Group>
         </div>
       )}
-      
-      {/* Enhanced Messages Area */}
-      <div className="flex-1 h-full overflow-hidden relative">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background-primary/20 to-transparent pointer-events-none"></div>
-        <ScrollArea className="h-full" viewportRef={viewport} p="lg" scrollbars="y">
-          <div className="space-y-6">
-            {messages.filter(message => message.type !== 'system').map((message, index) => (
-              <div
-                key={index}
-                className={`flex ${message.type === 'human' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-3 duration-500`}
-                style={{ animationDelay: `${index * 50}ms` }}
-              >
-                {message.type === 'ai' ? (
-                  <div className="flex items-start gap-3 max-w-[85%] group">
-                    <Tooltip 
-                      label={message.agentName || 'Agent'} 
-                      position="left" 
-                      withArrow
-                      styles={{
-                        tooltip: {
-                          backgroundColor: 'var(--color-background-primary)',
-                          backdropFilter: 'blur(8px)',
-                          border: '1px solid var(--color-border-primary)'
-                        }
-                      }}
-                    >
-                      <div className="relative">
-                        <Avatar 
-                          size="md" 
-                          radius="xl" 
-                          alt={message.agentName || 'AI'}
-                          className="ring-2 ring-brand-primary/20 transition-all duration-300 group-hover:ring-brand-primary/40 group-hover:scale-105"
-                          styles={{
-                            root: {
-                              background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-info) 50%, var(--color-brand-info) 100%)',
-                            }
-                          }}
-                        >
-                          {getInitials(message.agentName || 'AI')}
-                        </Avatar>
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-brand-success rounded-full ring-2 ring-background-primary"></div>
-                      </div>
-                    </Tooltip>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Text size="xs" fw={500} c="blue">
-                          {message.agentName || 'Agent'}
-                        </Text>
-                        <div className="w-1 h-1 bg-text-muted rounded-full"></div>
-                        <Text size="xs" c="dimmed">
-                          just now
-                        </Text>
-                      </div>
-                      <Paper
-                        p="md"
-                        radius="xl"
-                        className="bg-surface-secondary backdrop-blur-sm border border-border-primary shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01]"
-                      >
-                        <div
-                          className="text-text-primary whitespace-pre-wrap text-sm leading-relaxed"
-                        >
-                          {renderMessageContent(message.content, message.type)}
-                        </div>
-                      </Paper>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-start gap-3 max-w-[85%] group">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-end gap-2 mb-1">
-                        <Text size="xs" c="dimmed">
-                          just now
-                        </Text>
-                        <div className="w-1 h-1 bg-text-muted rounded-full"></div>
-                        <Text size="xs" fw={500} c="dimmed">
-                          You
-                        </Text>
-                      </div>
-                      <Paper
-                        p="md"
-                        radius="xl"
-                        className="bg-brand-primary shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01] ml-auto"
-                      >
-                        <div className="text-primary whitespace-pre-wrap text-sm leading-relaxed">
-                          {renderMessageContent(message.content, message.type)}
-                        </div>
-                      </Paper>
-                    </div>
-                    <Tooltip 
-                      label="You" 
-                      position="right" 
-                      withArrow
-                      styles={{
-                        tooltip: {
-                          backgroundColor: 'var(--color-background-primary)',
-                          backdropFilter: 'blur(8px)',
-                          border: '1px solid var(--color-border-primary)'
-                        }
-                      }}
-                    >
-                      <div className="relative">
-                        <Avatar 
-                          size="md" 
-                          radius="xl" 
-                          alt="User"
-                          className="ring-2 ring-brand-primary/20 transition-all duration-300 group-hover:ring-brand-primary/40 group-hover:scale-105"
-                          styles={{
-                            root: {
-                              background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary) 50%, var(--color-brand-primary) 100%)',
-                            }
-                          }}
-                        >
-                          {getInitials('User')}
-                        </Avatar>
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-brand-success rounded-full ring-2 ring-background-primary"></div>
-                      </div>
-                    </Tooltip>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
-      </div>
+
+      {/* Messages Area */}
+      <MessageList messages={messages} conversationId={conversationId} />
       
       {/* Enhanced Input Area */}
       <div className="flex-shrink-0 bg-surface-primary backdrop-blur-lg border-t border-border-primary p-4">
         <form onSubmit={handleSubmit}>
           <div className="relative">
-            <TextInput
+            <Textarea
               ref={inputRef}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="💬 Type your message... (Paddy will respond, or use @agent to mention others)"
-              radius="xl"
+              placeholder="Ask anything"
+              radius="md"
               size="lg"
-              styles={{
-                input: {
-                  backgroundColor: 'var(--color-surface-secondary)',
-                  border: '1px solid var(--color-border-primary)',
-                  color: 'var(--color-text-primary)',
-                  paddingRight: '120px',
-                  fontSize: '14px',
-                  transition: 'all 0.3s ease',
-                  '&:focus': {
-                    borderColor: 'var(--color-brand-primary)',
-                    boxShadow: '0 0 0 4px var(--color-brand-primary-opacity)',
-                    backgroundColor: 'var(--color-surface-primary)'
-                  },
-                  '&::placeholder': {
-                    color: 'var(--color-text-muted)'
-                  }
-                }
-              }}
+              autosize
+              minRows={1}
+              maxRows={6}
+              styles={TEXT_INPUT_STYLES}
             />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            <div className="absolute right-3 bottom-2 flex items-center gap-2">
               <ActionIcon
                 onClick={handleMicClick}
                 variant={isRecording ? "filled" : "subtle"}
-                color={isRecording ? "red" : "blue"}
+                color={isRecording ? "red" : undefined}
                 size="lg"
                 radius="xl"
-                className={`transition-all duration-300 hover:scale-110 ${isRecording ? "animate-pulse shadow-lg shadow-brand-error/25" : "hover:bg-brand-primary/10"}`}
+                className={`${isRecording ? "animate-pulse" : "text-text-primary hover:bg-surface-hover"}`}
               >
                 {isRecording ? (
                   <IconMicrophoneOff size={18} />
@@ -1016,17 +1263,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   <IconMicrophone size={18} />
                 )}
               </ActionIcon>
-              <Button 
-                type="submit" 
+              <ActionIcon
+                type="submit"
+                variant="subtle"
+                size="lg"
                 radius="xl"
-                size="md"
-                variant="gradient"
-                gradient={{ from: 'blue', to: 'indigo', deg: 45 }}
-                className="transition-all duration-300 hover:scale-105 shadow-lg shadow-brand-primary/25"
                 disabled={!input.trim() && !isRecording}
+                className="text-text-primary hover:bg-surface-hover"
               >
-                <IconSend size={16} />
-              </Button>
+                <IconSend size={18} />
+              </ActionIcon>
             </div>
             
             {/* Enhanced Agent Autocomplete Dropdown */}
@@ -1037,14 +1283,14 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 style={{ zIndex: 1000 }}
               >
                 <div className="max-h-48 overflow-y-auto">
-                  {getFilteredAgentsForMention(input, cursorPosition).map((agent, index) => (
+                  {filteredAgentsForMention.map((agent, index) => (
                     <div
                       key={agent.id}
                       onClick={() => selectAgent(agent)}
                       onMouseEnter={() => setSelectedAgentIndex(index)}
                       className={`flex items-center gap-3 p-3 cursor-pointer transition-all duration-200 ${
-                        index === selectedAgentIndex 
-                          ? 'bg-brand-primary/20 border-l-2 border-brand-primary' 
+                        index === selectedAgentIndex
+                          ? 'bg-brand-primary/20 border-l-2 border-brand-primary'
                           : 'hover:bg-surface-hover'
                       }`}
                     >
@@ -1061,7 +1307,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                       )}
                     </div>
                   ))}
-                  {getFilteredAgentsForMention(input, cursorPosition).length === 0 && (
+                  {filteredAgentsForMention.length === 0 && (
                     <div className="p-4 text-center">
                       <Text size="sm" c="dimmed">
                         🔍 No agents found matching your search
@@ -1074,20 +1320,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           </div>
         </form>
         
-        {/* Typing Indicator Area */}
-        <div className="mt-2 h-4 flex items-center">
-          {(callAgent.isPending || chooseAgent.isPending) && (
-            <div className="flex items-center gap-2 text-xs text-text-muted">
-              <div className="flex gap-1">
-                <div className="w-1 h-1 bg-brand-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                <div className="w-1 h-1 bg-brand-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                <div className="w-1 h-1 bg-brand-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-              </div>
-              <Text size="xs" c="dimmed">AI is thinking...</Text>
-            </div>
-          )}
-        </div>
+        {/* Typing Indicator */}
+        {(isStreaming || chooseAgent.isPending) && (
+          <div className="mt-2 flex items-center gap-1">
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          </div>
+        )}
       </div>
+
     </div>
   );
 } 

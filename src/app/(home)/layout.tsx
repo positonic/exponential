@@ -1,11 +1,12 @@
 import "~/styles/globals.css";
 import { GeistSans } from "geist/font/sans";
-import { Orbitron } from 'next/font/google';
+import { Inter } from 'next/font/google';
 
-const orbitron = Orbitron({
+const inter = Inter({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800', '900'],
+  weight: ['700', '800', '900'],
   display: 'swap',
+  variable: '--font-inter',
 });
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
@@ -20,14 +21,44 @@ import { getThemeDomain } from '~/config/site';
 import { mantineThemes } from '~/config/themes';
 import { ModalsProvider } from '@mantine/modals';
 import { Analytics } from '@vercel/analytics/next';
+import { GoogleAnalytics } from '@next/third-parties/google';
 import { FloatingFeedbackButton } from '~/app/_components/FloatingFeedbackButton';
+import { PRODUCT_NAME } from '~/lib/brand';
+import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 const domain = getThemeDomain();
+const baseUrl = getPublicBaseUrlFromEnv();
 
 export const metadata: Metadata = {
+  metadataBase: new URL(baseUrl),
   title: themes[domain].branding.title,
   description: themes[domain].branding.description,
   icons: themes[domain].branding.icons,
+  alternates: {
+    canonical: './',
+  },
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    siteName: PRODUCT_NAME,
+    title: themes[domain].branding.title,
+    description: themes[domain].branding.description,
+    url: baseUrl,
+    images: [
+      {
+        url: '/og-image.png',
+        width: 1200,
+        height: 630,
+        alt: `${PRODUCT_NAME} - The OS for AI-Native Organizations`,
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: themes[domain].branding.title,
+    description: themes[domain].branding.description,
+    images: ['/og-image.png'],
+  },
 };
 
 export default async function HomeLayout({
@@ -39,17 +70,23 @@ export default async function HomeLayout({
   const mantineTheme = mantineThemes[domain];
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.className} h-full scroll-smooth`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${inter.variable} h-full scroll-smooth`} suppressHydrationWarning>
       <head>
+        <link
+          rel="alternate"
+          type="application/rss+xml"
+          title={`${PRODUCT_NAME} Blog`}
+          href="/blog/feed.xml"
+        />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               "@context": "https://schema.org",
               "@type": "SoftwareApplication",
-              "name": "Exponential",
-              "description": "AI-powered productivity platform for solo founders to turn ideas into working products faster with project management, task automation, and GitHub integration.",
-              "url": "https://exponential.im",
+              "name": PRODUCT_NAME,
+              "description": "The coordination layer for AI-first organizations. Goals cascade into outcomes, AI handles execution, and your team stays aligned.",
+              "url": baseUrl,
               "applicationCategory": "ProductivityApplication",
               "operatingSystem": "Web Browser",
               "offers": {
@@ -59,15 +96,15 @@ export default async function HomeLayout({
               },
               "creator": {
                 "@type": "Organization",
-                "name": "Exponential",
-                "url": "https://exponential.im"
+                "name": PRODUCT_NAME,
+                "url": baseUrl
               },
               "featureList": [
-                "AI-powered project management",
-                "GitHub integration",
-                "Task automation",
-                "Solo founder optimization",
-                "Product execution engine"
+                "AI-native organization coordination",
+                "Goals to outcomes to actions framework",
+                "AI-powered execution layer",
+                "Human-AI collaboration workspace",
+                "Team alignment without status meetings"
               ]
             })
           }}
@@ -81,6 +118,9 @@ export default async function HomeLayout({
                 <Notifications position="top-right" />
                 {children}
                 <Analytics />
+                {process.env.NEXT_PUBLIC_GA_ID && (
+                  <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+                )}
                 <FloatingFeedbackButton />
               </ModalsProvider>
             </MantineProvider>

@@ -1,10 +1,36 @@
 "use client";
 
-import { Modal, Button, Group, TextInput, Select } from '@mantine/core';
+import { Modal, Button, Group, TextInput, Select, Text, Textarea, MultiSelect, NumberInput, Stack, ActionIcon, Card, Badge, Accordion } from '@mantine/core';
+import { IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api } from "~/trpc/react";
-import { DateInput } from '@mantine/dates';
+import { UnifiedDatePicker } from './UnifiedDatePicker';
+import { CreateProjectModal } from './CreateProjectModal';
+import { CreateOutcomeModal } from './CreateOutcomeModal';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { notifications } from '@mantine/notifications';
+import { useTerminology } from '~/hooks/useTerminology';
+
+// Type for pending key results (not yet saved)
+interface PendingKeyResult {
+  tempId: string;
+  title: string;
+  targetValue: number;
+  startValue: number;
+  unit: 'percent' | 'count' | 'currency' | 'hours' | 'custom';
+  unitLabel?: string;
+  period: string;
+}
+
+// Unit options for key results
+const unitOptions = [
+  { value: "percent", label: "Percentage (%)" },
+  { value: "count", label: "Count (#)" },
+  { value: "currency", label: "Currency ($)" },
+  { value: "hours", label: "Hours" },
+  { value: "custom", label: "Custom" },
+];
 
 interface CreateGoalModalProps {
   children?: React.ReactNode;
@@ -12,24 +38,106 @@ interface CreateGoalModalProps {
     id: number;
     title: string;
     description: string | null;
+    whyThisGoal: string | null;
+    notes: string | null;
     dueDate: Date | null;
-    lifeDomainId: number;
+    period: string | null;
+    status?: string;
+    lifeDomainId: number | null;
+    parentGoalId?: number | null;
+    outcomes?: { id: string; description: string }[];
+    workspaceId?: string | null;
+    driUserId?: string | null;
   };
   trigger?: React.ReactNode;
   projectId?: string;
+  onSuccess?: (goalId: number) => void; // Callback when goal is created/updated
+  onDelete?: () => void; // Callback when goal is deleted
 }
 
-export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGoalModalProps) {
+export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess, onDelete }: CreateGoalModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [title, setTitle] = useState(goal?.title ?? "");
   const [description, setDescription] = useState(goal?.description ?? "");
+  const [whyThisGoal, setWhyThisGoal] = useState(goal?.whyThisGoal ?? "");
+  const [notes, setNotes] = useState(goal?.notes ?? "");
   const [dueDate, setDueDate] = useState<Date | null>(goal?.dueDate ?? null);
   const [lifeDomainId, setLifeDomainId] = useState<number | null>(goal?.lifeDomainId ?? null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(projectId);
+  const [selectedOutcomeIds, setSelectedOutcomeIds] = useState<string[]>(
+    goal?.outcomes?.map(o => o.id) ?? []
+  );
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    goal?.workspaceId ?? null
+  );
+  const [period, setPeriod] = useState<string | null>(goal?.period ?? null);
+  const [driUserId, setDriUserId] = useState<string | null>(goal?.driUserId ?? null);
+  const [status, setStatus] = useState<string | null>(goal?.status ?? "active");
+  const [parentGoalId, setParentGoalId] = useState<string | null>(
+    goal?.parentGoalId != null ? String(goal.parentGoalId) : null
+  );
+
+  // Key results state
+  const [pendingKeyResults, setPendingKeyResults] = useState<PendingKeyResult[]>([]);
+  const [isAddingKeyResult, setIsAddingKeyResult] = useState(false);
+  const [newKrTitle, setNewKrTitle] = useState("");
+  const [newKrTargetValue, setNewKrTargetValue] = useState<number>(100);
+  const [newKrStartValue, setNewKrStartValue] = useState<number>(0);
+  const [newKrUnit, setNewKrUnit] = useState<string>("percent");
+  const [newKrUnitLabel, setNewKrUnitLabel] = useState("");
+  const [newKrPeriod, setNewKrPeriod] = useState<string>("");
+  const [isCreatingKeyResults, setIsCreatingKeyResults] = useState(false);
 
   const utils = api.useUtils();
-  const { data: lifeDomains } = api.lifeDomain.getAllLifeDomains.useQuery();
-  const { data: projects } = api.project.getAll.useQuery();
+  const { workspaceId: currentWorkspaceId, workspace } = useWorkspace();
+  const { data: projects } = api.project.getAll.useQuery(
+    { workspaceId: workspace?.id },
+    { enabled: !!workspace },
+  );
+  const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
+  const { data: workspaces } = api.workspace.list.useQuery();
+  const { data: periods } = api.okr.getPeriods.useQuery();
+  const { data: currentUser } = api.user.getCurrentUser.useQuery();
+  const { data: existingKeyResults } = api.okr.getAll.useQuery(
+    { goalId: goal?.id },
+    { enabled: !!goal?.id && opened }
+  );
+  const terminology = useTerminology();
+  const { data: allGoals } = api.goal.getAllMyGoals.useQuery(
+    { workspaceId: workspace?.id },
+    { enabled: !!workspace && opened },
+  );
+  const parentGoalOptions = useMemo(() => {
+    if (!allGoals) return [];
+    return allGoals
+      .filter(g => g.id !== goal?.id) // Can't be own parent
+      .map(g => ({ value: String(g.id), label: g.title }));
+  }, [allGoals, goal?.id]);
+
+  // Mutations for key results
+  const createKeyResult = api.okr.create.useMutation({
+    onSuccess: () => {
+      void utils.okr.getAll.invalidate();
+      void utils.okr.getByObjective.invalidate();
+      void utils.okr.getStats.invalidate();
+    },
+  });
+
+  const deleteKeyResult = api.okr.delete.useMutation({
+    onSuccess: () => {
+      void utils.okr.getAll.invalidate();
+      void utils.okr.getByObjective.invalidate();
+      void utils.okr.getStats.invalidate();
+    },
+    onError: (error) => {
+      console.error('[CreateGoalModal] Failed to delete key result:', error);
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to delete key result. Please try again.',
+        color: 'red',
+      });
+    },
+  });
 
   const createGoal = api.goal.createGoal.useMutation({
     onMutate: async (newGoal) => {
@@ -41,16 +149,35 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
           id: -1,
           title: newGoal.title,
           description: newGoal.description ?? null,
+          whyThisGoal: newGoal.whyThisGoal ?? null,
+          notes: newGoal.notes ?? null,
           dueDate: newGoal.dueDate ?? null,
-          lifeDomainId: newGoal.lifeDomainId,
+          period: newGoal.period ?? null,
+          status: newGoal.status ?? "active",
+          lifeDomainId: newGoal.lifeDomainId ?? null,
           userId: "",
-          lifeDomain: {
+          driUserId: newGoal.driUserId ?? null,
+          workspaceId: newGoal.workspaceId ?? null,
+          parentGoalId: newGoal.parentGoalId ?? null,
+          icon: null,
+          iconColor: null,
+          health: null,
+          healthUpdatedAt: null,
+          displayOrder: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          lifeDomain: newGoal.lifeDomainId ? {
             id: newGoal.lifeDomainId,
             title: "Loading...",
-            description: null
-          },
+            description: null,
+            icon: null,
+            color: null,
+            displayOrder: 0,
+            isActive: true,
+          } : null,
           projects: [],
-          outcomes: []
+          outcomes: [],
+          childGoals: [],
         };
         return old ? [...old, optimisticGoal] : [optimisticGoal];
       });
@@ -64,12 +191,23 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
     },
     onSettled: () => {
       void utils.goal.getAllMyGoals.invalidate();
-      // Also invalidate project-specific goals if a project was selected
-      if (selectedProjectId) {
+      // Invalidate project-specific goals for both the prop projectId and selected projectId
+      // This ensures the cache is updated regardless of which was used
+      if (projectId) {
+        void utils.goal.getProjectGoals.invalidate({ projectId });
+      }
+      if (selectedProjectId && selectedProjectId !== projectId) {
         void utils.goal.getProjectGoals.invalidate({ projectId: selectedProjectId });
       }
+      // Also invalidate the project query to update goal counts in project lists
+      void utils.project.getAll.invalidate();
     },
-    onSuccess: () => {
+    onSuccess: async (newGoal) => {
+      // Create pending key results for the new goal
+      if (pendingKeyResults.length > 0) {
+        await createKeyResultsForGoal(newGoal.id);
+      }
+      onSuccess?.(newGoal.id);
       resetForm();
       close();
     },
@@ -86,8 +224,11 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
           ...g,
           title: updatedGoal.title,
           description: updatedGoal.description ?? null,
+          whyThisGoal: updatedGoal.whyThisGoal ?? null,
+          notes: updatedGoal.notes ?? null,
           dueDate: updatedGoal.dueDate ?? null,
-          lifeDomainId: updatedGoal.lifeDomainId,
+          period: updatedGoal.period ?? null,
+          lifeDomainId: updatedGoal.lifeDomainId ?? null,
         } : g);
       });
 
@@ -101,37 +242,209 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
     onSettled: () => {
       void utils.goal.getAllMyGoals.invalidate();
     },
-    onSuccess: () => {
+    onSuccess: (updatedGoal) => {
+      onSuccess?.(updatedGoal.id);
       resetForm();
       close();
+    },
+  });
+
+  const deleteGoal = api.goal.deleteGoal.useMutation({
+    onSuccess: () => {
+      void utils.goal.getAllMyGoals.invalidate();
+      // Also invalidate OKR queries since goals are objectives in the OKR view
+      void utils.okr.getByObjective.invalidate();
+      void utils.okr.getStats.invalidate();
+      void utils.okr.getAvailableGoals.invalidate();
+      onDelete?.();
+      close();
+    },
+    onError: (error) => {
+      console.error('[CreateGoalModal] Failed to delete goal:', error);
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to delete objective. Please try again.',
+        color: 'red',
+      });
     },
   });
 
   const resetForm = () => {
     setTitle("");
     setDescription("");
+    setWhyThisGoal("");
+    setNotes("");
     setDueDate(null);
+    setPeriod(null);
     setLifeDomainId(null);
     setSelectedProjectId(undefined);
+    setSelectedOutcomeIds([]);
+    setSelectedWorkspaceId(null);
+    setDriUserId(currentUser?.id ?? null);
+    // Reset key results state
+    setPendingKeyResults([]);
+    setIsAddingKeyResult(false);
+    resetNewKrForm();
+  };
+
+  const resetNewKrForm = () => {
+    setNewKrTitle("");
+    setNewKrTargetValue(100);
+    setNewKrStartValue(0);
+    setNewKrUnit("percent");
+    setNewKrUnitLabel("");
+    setNewKrPeriod("");
+  };
+
+  const handleAddPendingKeyResult = () => {
+    if (!newKrTitle || !newKrPeriod) return;
+
+    const newKr: PendingKeyResult = {
+      tempId: crypto.randomUUID(),
+      title: newKrTitle,
+      targetValue: newKrTargetValue,
+      startValue: newKrStartValue,
+      unit: newKrUnit as PendingKeyResult['unit'],
+      unitLabel: newKrUnit === 'custom' ? newKrUnitLabel : undefined,
+      period: newKrPeriod,
+    };
+
+    setPendingKeyResults(prev => [...prev, newKr]);
+    resetNewKrForm();
+    setIsAddingKeyResult(false);
+  };
+
+  const handleRemovePendingKeyResult = (tempId: string) => {
+    setPendingKeyResults(prev => prev.filter(kr => kr.tempId !== tempId));
+  };
+
+  const handleDeleteExistingKeyResult = (id: string) => {
+    if (confirm("Delete this key result?")) {
+      deleteKeyResult.mutate({ id });
+    }
+  };
+
+  // Create key results after goal is created
+  const createKeyResultsForGoal = async (goalId: number) => {
+    if (pendingKeyResults.length === 0) return;
+
+    setIsCreatingKeyResults(true);
+    try {
+      for (const kr of pendingKeyResults) {
+        await createKeyResult.mutateAsync({
+          goalId,
+          title: kr.title,
+          targetValue: kr.targetValue,
+          startValue: kr.startValue,
+          unit: kr.unit,
+          unitLabel: kr.unitLabel,
+          period: kr.period,
+          driUserId: driUserId ?? currentUser?.id ?? undefined,
+          workspaceId: selectedWorkspaceId ?? undefined,
+        });
+      }
+    } catch (error) {
+      console.error('[CreateGoalModal] Failed to create key results:', error);
+      notifications.show({
+        title: 'Warning',
+        message: 'Goal created but some key results failed to save.',
+        color: 'yellow',
+      });
+    } finally {
+      setIsCreatingKeyResults(false);
+    }
+  };
+
+  // Add key result immediately for existing goals
+  const handleAddKeyResultToExistingGoal = async () => {
+    if (!goal?.id || !newKrTitle || !newKrPeriod) return;
+
+    try {
+      await createKeyResult.mutateAsync({
+        goalId: goal.id,
+        title: newKrTitle,
+        targetValue: newKrTargetValue,
+        startValue: newKrStartValue,
+        unit: newKrUnit as PendingKeyResult['unit'],
+        unitLabel: newKrUnit === 'custom' ? newKrUnitLabel : undefined,
+        period: newKrPeriod,
+        driUserId: driUserId ?? currentUser?.id ?? undefined,
+        workspaceId: selectedWorkspaceId ?? undefined,
+      });
+      resetNewKrForm();
+      setIsAddingKeyResult(false);
+      notifications.show({
+        title: 'Success',
+        message: 'Key result added',
+        color: 'green',
+      });
+    } catch (error) {
+      console.error('[CreateGoalModal] Failed to add key result:', error);
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to add key result. Please try again.',
+        color: 'red',
+      });
+    }
   };
 
   useEffect(() => {
     if (goal) {
       setTitle(goal.title);
       setDescription(goal.description ?? "");
+      setWhyThisGoal(goal.whyThisGoal ?? "");
+      setNotes(goal.notes ?? "");
       setDueDate(goal.dueDate);
+      setPeriod(goal.period ?? null);
       setLifeDomainId(goal.lifeDomainId);
+      setSelectedOutcomeIds(goal.outcomes?.map(o => o.id) ?? []);
+      setSelectedWorkspaceId(goal.workspaceId ?? null);
+      setDriUserId(goal.driUserId ?? null);
     }
   }, [goal]);
+
+  // Auto-set workspace when creating (not editing)
+  useEffect(() => {
+    if (!goal && currentWorkspaceId && selectedWorkspaceId === null) {
+      setSelectedWorkspaceId(currentWorkspaceId);
+    }
+  }, [goal, currentWorkspaceId, selectedWorkspaceId]);
 
   useEffect(() => {
     setSelectedProjectId(projectId);
   }, [projectId]);
 
-  const lifeDomainOptions = lifeDomains?.map(domain => ({
-    value: domain.id.toString(),
-    label: domain.title
-  })) ?? [];
+  const driOptions = useMemo(() => {
+    const selectedWorkspace = workspaces?.find((ws) => ws.id === selectedWorkspaceId);
+    const members = selectedWorkspace?.members ?? workspace?.members ?? [];
+    const optionMap = new Map<string, { value: string; label: string }>();
+
+    members.forEach((member) => {
+      const label = member.user.name ?? member.user.email ?? "Unknown User";
+      optionMap.set(member.user.id, { value: member.user.id, label });
+    });
+
+    if (currentUser) {
+      const label = currentUser.name ?? currentUser.email ?? "Me";
+      optionMap.set(currentUser.id, { value: currentUser.id, label });
+    }
+
+    return Array.from(optionMap.values());
+  }, [currentUser, selectedWorkspaceId, workspaces, workspace?.members]);
+
+  useEffect(() => {
+    if (!driUserId && currentUser?.id) {
+      setDriUserId(currentUser.id);
+    }
+  }, [currentUser?.id, driUserId]);
+
+  useEffect(() => {
+    if (driOptions.length === 0) return;
+    if (!driUserId || !driOptions.some((option) => option.value === driUserId)) {
+      setDriUserId(driOptions[0]?.value ?? null);
+    }
+  }, [driOptions, driUserId]);
+
 
   return (
     <>
@@ -148,21 +461,35 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
         radius="md"
         padding="lg"
         styles={{
+          content: {
+            backgroundColor: 'var(--color-bg-elevated)',
+          },
           header: { display: 'none' },
-          body: { padding: 0 },
+          body: {
+            padding: 0,
+            backgroundColor: 'var(--color-bg-elevated)',
+          },
         }}
       >
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!title || !lifeDomainId) return;
+            if (!title) return;
             
             const goalData = {
               title,
               description: description || undefined,
+              whyThisGoal: whyThisGoal || undefined,
+              notes: notes || undefined,
               dueDate: dueDate ?? undefined,
-              lifeDomainId,
+              period: period ?? undefined,
+              status: (status as "planned" | "active" | "completed" | "archived") ?? undefined,
+              lifeDomainId: lifeDomainId ?? undefined,
               projectId: selectedProjectId,
+              outcomeIds: selectedOutcomeIds.length > 0 ? selectedOutcomeIds : undefined,
+              driUserId: driUserId ?? currentUser?.id,
+              workspaceId: selectedWorkspaceId ?? undefined,
+              parentGoalId: parentGoalId ? Number(parentGoalId) : undefined,
             };
 
             if (goal?.id) {
@@ -177,7 +504,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
           className="p-4"
         >
           <TextInput
-            placeholder="What's your goal?"
+            placeholder={terminology.whatIsYourGoal}
             variant="unstyled"
             size="xl"
             value={title}
@@ -198,19 +525,115 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
           />
 
           <Select
-            label="Life Domain"
-            data={lifeDomainOptions}
-            value={lifeDomainId?.toString()}
-            onChange={(value) => setLifeDomainId(value ? parseInt(value) : null)}
+            label="DRI"
+            description="Directly responsible individual"
+            placeholder="Select a DRI"
+            data={driOptions}
+            value={driUserId}
+            onChange={(value) => setDriUserId(value ?? null)}
             required
             mt="md"
           />
+
+          <Accordion
+            variant="separated"
+            mt="md"
+            styles={{
+              item: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+              control: {
+                color: 'var(--color-text-primary)',
+                backgroundColor: 'var(--color-surface-secondary)',
+              },
+              panel: {
+                backgroundColor: 'var(--color-surface-secondary)',
+              },
+              chevron: {
+                color: 'var(--color-text-secondary)',
+              },
+            }}
+          >
+            <Accordion.Item value="details">
+              <Accordion.Control>More details</Accordion.Control>
+              <Accordion.Panel>
+          <Select
+            label="Status"
+            description="Lifecycle stage of this objective"
+            data={[
+              { value: "planned", label: "Planned" },
+              { value: "active", label: "Active" },
+              { value: "completed", label: "Completed" },
+              { value: "archived", label: "Archived" },
+            ]}
+            value={status}
+            onChange={(value) => setStatus(value ?? "active")}
+            mt="md"
+          />
+
+          <Select
+            label={`Parent ${terminology.goal}`}
+            description={`Nest this under another ${terminology.goal.toLowerCase()} (up to 5 levels)`}
+            placeholder="None (top-level)"
+            data={parentGoalOptions}
+            value={parentGoalId}
+            onChange={(value) => setParentGoalId(value)}
+            clearable
+            searchable
+            mt="md"
+          />
+
+          <Textarea
+            label={terminology.whyThisGoal}
+            placeholder={`What makes this ${terminology.goal.toLowerCase()} meaningful to you? How does it align with your values?`}
+            value={whyThisGoal}
+            onChange={(e) => setWhyThisGoal(e.target.value)}
+            mt="md"
+            minRows={2}
+            autosize
+          />
+
+          <MultiSelect
+            label="Linked Outcomes"
+            placeholder={`Select outcomes that support this ${terminology.goal.toLowerCase()}`}
+            data={outcomes?.map(o => ({ value: o.id, label: o.description })) ?? []}
+            value={selectedOutcomeIds}
+            onChange={setSelectedOutcomeIds}
+            searchable
+            clearable
+            mt="md"
+          />
+          <CreateOutcomeModal onSuccess={(id) => setSelectedOutcomeIds(prev => [...prev, id])}>
+            <Button
+              variant="subtle"
+              size="xs"
+              leftSection={<IconPlus size={14} />}
+              mt={4}
+              className="text-text-secondary hover:text-text-primary"
+            >
+              Create outcome
+            </Button>
+          </CreateOutcomeModal>
+
           
-          <DateInput
-            value={dueDate}
-            onChange={setDueDate}
-            label="Due date (optional)"
-            placeholder="Pick a date"
+          <div className="mt-4">
+            <Text size="sm" fw={500} mb={4}>Due date (optional)</Text>
+            <UnifiedDatePicker
+              value={dueDate}
+              onChange={setDueDate}
+              notificationContext="goal"
+            />
+          </div>
+
+          <Select
+            label="Period"
+            description={`The time period for this ${terminology.goal.toLowerCase()} (e.g., Q1 2026 or Annual 2026)`}
+            placeholder="Select a period"
+            data={periods ?? []}
+            value={period}
+            onChange={(value) => setPeriod(value)}
+            clearable
             mt="md"
           />
 
@@ -220,19 +643,227 @@ export function CreateGoalModal({ children, goal, trigger, projectId }: CreateGo
             data={projects?.map(p => ({ value: p.id, label: p.name })) ?? []}
             value={selectedProjectId}
             onChange={(value) => setSelectedProjectId(value ?? undefined)}
+            searchable
+            clearable
             mt="md"
           />
+          <CreateProjectModal>
+            <Button
+              variant="subtle"
+              size="xs"
+              leftSection={<IconPlus size={14} />}
+              mt={4}
+              className="text-text-secondary hover:text-text-primary"
+            >
+              Add new project
+            </Button>
+          </CreateProjectModal>
+
+          <Textarea
+            label="Notes"
+            placeholder={`Additional notes about this ${terminology.goal.toLowerCase()}...`}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            mt="md"
+            minRows={3}
+            autosize
+          />
+
+          {/* Key Results Section - Only shown for team/org workspaces */}
+          {terminology.showKeyResults && (
+          <div className="mt-6 border-t border-border-primary pt-4">
+            <Text size="sm" fw={500} mb="sm">{terminology.keyResults}</Text>
+
+            {/* Existing Key Results (edit mode only) */}
+            {goal?.id && existingKeyResults && existingKeyResults.length > 0 && (
+              <Stack gap="xs" mb="sm">
+                {existingKeyResults.map((kr) => (
+                  <Card key={kr.id} padding="xs" className="bg-surface-secondary border border-border-primary">
+                    <Group justify="space-between" wrap="nowrap">
+                      <div className="flex-1 min-w-0">
+                        <Text size="sm" fw={500} truncate>{kr.title}</Text>
+                        <Group gap="xs">
+                          <Badge size="xs" variant="light">
+                            {kr.startValue} → {kr.targetValue} {kr.unit === 'percent' ? '%' : kr.unitLabel ?? kr.unit}
+                          </Badge>
+                          <Badge size="xs" variant="outline">{kr.period}</Badge>
+                        </Group>
+                      </div>
+                      <ActionIcon
+                        variant="subtle"
+                        color="red"
+                        size="sm"
+                        onClick={() => handleDeleteExistingKeyResult(kr.id)}
+                        loading={deleteKeyResult.isPending}
+                      >
+                        <IconX size={14} />
+                      </ActionIcon>
+                    </Group>
+                  </Card>
+                ))}
+              </Stack>
+            )}
+
+            {/* Pending Key Results (create mode only) */}
+            {!goal?.id && pendingKeyResults.length > 0 && (
+              <Stack gap="xs" mb="sm">
+                {pendingKeyResults.map((kr) => (
+                  <Card key={kr.tempId} padding="xs" className="bg-surface-secondary border border-border-primary">
+                    <Group justify="space-between" wrap="nowrap">
+                      <div className="flex-1 min-w-0">
+                        <Text size="sm" fw={500} truncate>{kr.title}</Text>
+                        <Group gap="xs">
+                          <Badge size="xs" variant="light">
+                            {kr.startValue} → {kr.targetValue} {kr.unit === 'percent' ? '%' : kr.unitLabel ?? kr.unit}
+                          </Badge>
+                          <Badge size="xs" variant="outline">{kr.period}</Badge>
+                        </Group>
+                      </div>
+                      <ActionIcon
+                        variant="subtle"
+                        color="red"
+                        size="sm"
+                        onClick={() => handleRemovePendingKeyResult(kr.tempId)}
+                      >
+                        <IconX size={14} />
+                      </ActionIcon>
+                    </Group>
+                  </Card>
+                ))}
+              </Stack>
+            )}
+
+            {/* Add Key Result Form */}
+            {isAddingKeyResult ? (
+              <Card padding="sm" className="bg-surface-secondary border border-border-primary">
+                <Stack gap="sm">
+                  <TextInput
+                    placeholder="Key result title (e.g., Increase revenue by 20%)"
+                    value={newKrTitle}
+                    onChange={(e) => setNewKrTitle(e.target.value)}
+                    size="sm"
+                  />
+                  <Group grow>
+                    <NumberInput
+                      label="Start"
+                      value={newKrStartValue}
+                      onChange={(v) => setNewKrStartValue(typeof v === 'number' ? v : 0)}
+                      size="sm"
+                    />
+                    <NumberInput
+                      label="Target"
+                      value={newKrTargetValue}
+                      onChange={(v) => setNewKrTargetValue(typeof v === 'number' ? v : 100)}
+                      size="sm"
+                    />
+                  </Group>
+                  <Group grow>
+                    <Select
+                      label="Unit"
+                      data={unitOptions}
+                      value={newKrUnit}
+                      onChange={(v) => setNewKrUnit(v ?? 'percent')}
+                      size="sm"
+                    />
+                    {newKrUnit === 'custom' && (
+                      <TextInput
+                        label="Unit label"
+                        placeholder="e.g., users"
+                        value={newKrUnitLabel}
+                        onChange={(e) => setNewKrUnitLabel(e.target.value)}
+                        size="sm"
+                      />
+                    )}
+                  </Group>
+                  <Select
+                    label="Period"
+                    placeholder="Select period"
+                    data={periods ?? []}
+                    value={newKrPeriod}
+                    onChange={(v) => setNewKrPeriod(v ?? '')}
+                    size="sm"
+                    required
+                  />
+                  <Group justify="flex-end" gap="xs">
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => {
+                        setIsAddingKeyResult(false);
+                        resetNewKrForm();
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="xs"
+                      onClick={goal?.id ? handleAddKeyResultToExistingGoal : handleAddPendingKeyResult}
+                      disabled={!newKrTitle || !newKrPeriod}
+                      loading={createKeyResult.isPending}
+                    >
+                      {goal?.id ? 'Add' : 'Add to list'}
+                    </Button>
+                  </Group>
+                </Stack>
+              </Card>
+            ) : (
+              <Button
+                variant="subtle"
+                size="xs"
+                leftSection={<IconPlus size={14} />}
+                onClick={() => setIsAddingKeyResult(true)}
+                className="text-text-secondary hover:text-text-primary"
+              >
+                Add key result
+              </Button>
+            )}
+          </div>
+          )}
+
+          {workspaces && workspaces.length > 0 && (
+            <Select
+              label="Workspace"
+              description={goal ? `Move this ${terminology.goal.toLowerCase()} to a different workspace` : `Save this ${terminology.goal.toLowerCase()} to a workspace`}
+              data={[
+                { value: '', label: 'No Workspace (Personal)' },
+                ...workspaces.map(ws => ({ value: ws.id, label: ws.name }))
+              ]}
+              value={selectedWorkspaceId ?? ''}
+              onChange={(value) => setSelectedWorkspaceId(value === '' ? null : value)}
+              mt="md"
+            />
+          )}
+              </Accordion.Panel>
+            </Accordion.Item>
+          </Accordion>
 
           <Group justify="flex-end" mt="xl">
+            {goal && (
+              <Button
+                type="button"
+                variant="subtle"
+                color="red"
+                leftSection={<IconTrash size={16} />}
+                onClick={() => {
+                  if (confirm(`Delete this ${terminology.goal.toLowerCase()}?${terminology.showKeyResults ? ' All associated key results will also be deleted.' : ''}`)) {
+                    deleteGoal.mutate({ id: goal.id });
+                  }
+                }}
+                loading={deleteGoal.isPending}
+                className="mr-auto"
+              >
+                Delete
+              </Button>
+            )}
             <Button variant="subtle" color="gray" onClick={close}>
               Cancel
             </Button>
-            <Button 
+            <Button
               type="submit"
-              loading={createGoal.isPending || updateGoal.isPending}
-              disabled={!title || !lifeDomainId}
+              loading={createGoal.isPending || updateGoal.isPending || isCreatingKeyResults}
+              disabled={!title}
             >
-              {goal ? 'Update Goal' : 'Create Goal'}
+              {goal ? terminology.updateGoal : terminology.createGoal}
             </Button>
           </Group>
         </form>

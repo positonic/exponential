@@ -1,30 +1,101 @@
 import { Modal } from '@mantine/core';
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { api } from "~/trpc/react";
-import { type RouterOutputs } from "~/trpc/react";
-import { type ActionPriority } from "~/types/action";
-import { ActionModalForm } from './ActionModalForm';
+import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
+import type { EffortUnit } from "~/types/effort";
+import { ActionModalForm, type PastedScreenshot } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
+import { notifications } from '@mantine/notifications';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
-type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
-type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
-type Action = ActionWithSyncs | ActionWithoutSyncs;
+// Minimal action type needed for the edit modal - supports actions from various query sources
+// Only requires fields that the modal actually reads for initialization
+type Action = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  dueDate: Date | null;
+  projectId: string | null;
+  workspaceId?: string | null;
+  project?: { workspaceId?: string | null } | null;
+  scheduledStart?: Date | null;
+  duration?: number | null;
+  epicId?: string | null;
+  effortEstimate?: number | null;
+  blockedByIds?: string[];
+  tags?: Array<{ tag: { id: string; name: string; color: string } }>;
+  assignees?: Array<{ user: { id: string; name: string | null; email: string | null; image: string | null } }>;
+  lists?: Array<{ list: { id: string; name: string; listType: string } }>;
+  // Bounty fields
+  isBounty?: boolean;
+  bountyAmount?: { toNumber?: () => number } | number | null;
+  bountyToken?: string | null;
+  bountyDifficulty?: string | null;
+  bountySkills?: string[];
+  bountyDeadline?: Date | null;
+  bountyMaxClaimants?: number;
+  bountyExternalUrl?: string | null;
+  [key: string]: unknown;
+};
 
 interface EditActionModalProps {
   action: Action | null;
   opened: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-export function EditActionModal({ action, opened, onClose }: EditActionModalProps) {
+export function EditActionModal({ action, opened, onClose, onSuccess }: EditActionModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
   const [priority, setPriority] = useState<ActionPriority>("Quick");
   const [dueDate, setDueDate] = useState<Date | null>(null);
+  const [scheduledStart, setScheduledStart] = useState<Date | null>(null);
+  const [duration, setDuration] = useState<number | null>(null);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
+  // New: Sprint, Epic, Effort, Dependencies
+  const [sprintListId, setSprintListId] = useState<string | null>(null);
+  const [originalSprintListId, setOriginalSprintListId] = useState<string | null>(null);
+  const [epicId, setEpicId] = useState<string | null>(null);
+  const [effortEstimate, setEffortEstimate] = useState<number | null>(null);
+  const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
+  // Bounty fields
+  const [isBounty, setIsBounty] = useState(false);
+  const [bountyAmount, setBountyAmount] = useState<number | null>(null);
+  const [bountyToken, setBountyToken] = useState<string | null>(null);
+  const [bountyDifficulty, setBountyDifficulty] = useState<string | null>('beginner');
+  const [bountySkills, setBountySkills] = useState<string[]>([]);
+  const [bountyDeadline, setBountyDeadline] = useState<Date | null>(null);
+  const [bountyMaxClaimants, setBountyMaxClaimants] = useState(1);
+  const [bountyExternalUrl, setBountyExternalUrl] = useState<string | null>(null);
 
+  // Screenshot state - for newly pasted screenshots during edit
+  const [pastedScreenshots, setPastedScreenshots] = useState<PastedScreenshot[]>([]);
+
+  const { workspaceSlug, workspaceId: contextWorkspaceId } = useWorkspace();
   const utils = api.useUtils();
+
+  // Get workspace effortUnit
+  const { data: workspaceData } = api.workspace.getBySlug.useQuery(
+    { slug: workspaceSlug ?? '' },
+    { enabled: !!workspaceSlug && opened }
+  );
+  const effortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
+  const advancedActionsEnabled = workspaceData?.enableAdvancedActions ?? false;
+
+  // Screenshot upload mutation
+  const uploadImageMutation = api.action.uploadImage.useMutation({
+    onError: (error) => {
+      console.error('Screenshot upload failed:', error);
+    },
+  });
+
+  // Ref to hold new screenshots for upload on save
+  const pendingScreenshotsRef = useRef<PastedScreenshot[]>([]);
 
   // Query to get fresh action data including assignees
   const { data: freshAction } = api.action.getAll.useQuery(undefined, {
@@ -33,36 +104,266 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
   });
 
   // Use fresh action data if available, fallback to prop
-  const currentAction = freshAction || action;
+  const currentAction = freshAction ?? action;
 
+  // Build combined screenshot list: existing (from DB) + newly pasted
+  const existingScreenshots: PastedScreenshot[] = useMemo(() => {
+    const screenshots = (currentAction as Record<string, unknown>)?.actionScreenshots as
+      Array<{ screenshot: { id: string; url: string } }> | undefined;
+    if (!screenshots) return [];
+    return screenshots.map((as) => ({
+      id: as.screenshot.id,
+      base64: '', // Already uploaded, no base64 needed
+      previewUrl: as.screenshot.url,
+    }));
+  }, [currentAction]);
+
+  const allScreenshots = useMemo(
+    () => [...existingScreenshots, ...pastedScreenshots],
+    [existingScreenshots, pastedScreenshots],
+  );
+
+  // Tag mutation for saving tags
+  const setTagsMutation = api.tag.setActionTags.useMutation({
+    onError: (error) => {
+      console.error('Setting tags failed:', error);
+    },
+  });
+
+  // List mutations for sprint assignment changes
+  const addToListMutation = api.list.addAction.useMutation({
+    onError: (error) => {
+      console.error('Sprint assignment failed:', error);
+    },
+  });
+
+  const removeFromListMutation = api.list.removeAction.useMutation({
+    onError: (error) => {
+      console.error('Sprint removal failed:', error);
+    },
+  });
+
+  // Only re-initialize form when a different action is loaded or modal reopens.
+  // Using currentAction?.id + opened as deps prevents the form from resetting
+  // when the user is actively editing (e.g., picking a date then selecting a time).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (currentAction) {
+    if (currentAction && opened) {
       setName(currentAction.name);
       setDescription(currentAction.description ?? "");
       setProjectId(currentAction.projectId ?? "");
-      setPriority(currentAction.priority as ActionPriority);
+      const validPriorities: string[] = PRIORITY_OPTIONS;
+      setPriority(
+        validPriorities.includes(currentAction.priority)
+          ? (currentAction.priority as ActionPriority)
+          : "Scheduled",
+      );
       setDueDate(currentAction.dueDate ? new Date(currentAction.dueDate) : null);
+      // Load scheduling fields
+      const actionData = currentAction as typeof currentAction & {
+        scheduledStart?: Date | null;
+        duration?: number | null;
+        epicId?: string | null;
+        effortEstimate?: number | null;
+        blockedByIds?: string[];
+        lists?: Array<{ list: { id: string; listType: string } }>;
+        tags?: Array<{ tag: { id: string } }>;
+      };
+      setScheduledStart(actionData.scheduledStart ? new Date(actionData.scheduledStart) : null);
+      setDuration(actionData.duration ?? null);
+      // Load epic & effort
+      setEpicId(actionData.epicId ?? null);
+      setEffortEstimate(actionData.effortEstimate ?? null);
+      setBlockedByIds(actionData.blockedByIds ?? []);
+      // Load sprint (first SPRINT-type list)
+      const sprintList = actionData.lists?.find(l => l.list.listType === 'SPRINT');
+      const sprintId = sprintList?.list.id ?? null;
+      setSprintListId(sprintId);
+      setOriginalSprintListId(sprintId);
+      // Load tags
+      if (actionData.tags) {
+        setSelectedTagIds(actionData.tags.map(t => t.tag.id));
+      } else {
+        setSelectedTagIds([]);
+      }
+      // Reset newly pasted screenshots when switching actions
+      setPastedScreenshots([]);
+      // Load bounty fields
+      setIsBounty(currentAction.isBounty ?? false);
+      const rawAmount = currentAction.bountyAmount;
+      setBountyAmount(
+        rawAmount == null ? null
+          : typeof rawAmount === 'number' ? rawAmount
+          : typeof rawAmount === 'object' && rawAmount && 'toNumber' in rawAmount ? (rawAmount as { toNumber: () => number }).toNumber()
+          : Number(rawAmount) || null
+      );
+      setBountyToken(currentAction.bountyToken ?? null);
+      setBountyDifficulty(currentAction.bountyDifficulty ?? 'beginner');
+      setBountySkills(currentAction.bountySkills ?? []);
+      setBountyDeadline(currentAction.bountyDeadline ? new Date(currentAction.bountyDeadline) : null);
+      setBountyMaxClaimants(currentAction.bountyMaxClaimants ?? 1);
+      setBountyExternalUrl(currentAction.bountyExternalUrl ?? null);
     }
-  }, [currentAction]);
+  }, [currentAction?.id, opened]);
 
   const updateAction = api.action.update.useMutation({
+    onMutate: async (updatedAction) => {
+      // Cancel in-flight queries to prevent race conditions
+      await utils.action.getAll.cancel();
+      await utils.action.getProjectActions.cancel();
+
+      // Snapshot previous state for rollback
+      const previousActions = utils.action.getAll.getData();
+
+      // Optimistically update the action in cache
+      utils.action.getAll.setData(undefined, (old) => {
+        if (!old) return old;
+        return old.map(action => {
+          if (action.id !== updatedAction.id) return action;
+          // Spread update but preserve original bountyAmount (Decimal type)
+          // to avoid type mismatch with optimistic number values
+          return { ...action, ...updatedAction, bountyAmount: action.bountyAmount };
+        });
+      });
+
+      return { previousActions };
+    },
+
     onSuccess: async () => {
+      let hasTagError = false;
+      let hasSprintError = false;
+      let hasScreenshotError = false;
+
+      // Upload any newly pasted screenshots
+      if (currentAction && pendingScreenshotsRef.current.length > 0) {
+        for (const screenshot of pendingScreenshotsRef.current) {
+          try {
+            await uploadImageMutation.mutateAsync({
+              actionId: currentAction.id,
+              base64Data: screenshot.base64,
+            });
+          } catch (error) {
+            hasScreenshotError = true;
+            console.error('Failed to upload screenshot:', error);
+          }
+        }
+        pendingScreenshotsRef.current = [];
+      }
+
+      // Update tags
+      if (currentAction && selectedTagIds) {
+        try {
+          await setTagsMutation.mutateAsync({
+            actionId: currentAction.id,
+            tagIds: selectedTagIds,
+          });
+        } catch (error) {
+          hasTagError = true;
+          console.error('Failed to update tags:', error);
+        }
+      }
+
+      // Handle sprint list changes
+      if (currentAction && sprintListId !== originalSprintListId) {
+        try {
+          // Remove from old sprint if it was set
+          if (originalSprintListId) {
+            await removeFromListMutation.mutateAsync({
+              listId: originalSprintListId,
+              actionId: currentAction.id,
+            });
+          }
+          // Add to new sprint if set
+          if (sprintListId) {
+            await addToListMutation.mutateAsync({
+              listId: sprintListId,
+              actionId: currentAction.id,
+            });
+          }
+        } catch (error) {
+          hasSprintError = true;
+          console.error('Failed to update sprint:', error);
+        }
+      }
+
+      const hasAnyError = hasTagError || hasSprintError || hasScreenshotError;
+      notifications.show({
+        title: hasAnyError ? "Partial Update" : "Action Updated",
+        message: hasAnyError
+          ? "Action updated but some changes failed to save"
+          : "All changes saved successfully",
+        color: hasAnyError ? "yellow" : "green",
+        autoClose: 3000,
+      });
+
+      // Invalidate queries to refresh data
       await utils.action.getAll.invalidate();
       await utils.action.getProjectActions.invalidate();
-      onClose();
+      await utils.view.getViewActions.invalidate();
+      await utils.action.getToday.invalidate();
+      await utils.action.getScheduledByDate.invalidate();
+      await utils.action.getScheduledByDateRange.invalidate();
+      await utils.scoring.getTodayScore.invalidate();
+      await utils.scoring.getProductivityStats.invalidate();
+
+      onSuccess?.();
+      // onClose() already called in handleSubmit
+    },
+
+    onError: (error, variables, context) => {
+      // Rollback optimistic updates
+      if (context?.previousActions) {
+        utils.action.getAll.setData(undefined, context.previousActions);
+      }
+
+      // Show error notification
+      notifications.show({
+        title: "Update Failed",
+        message: error.message || "Failed to update action. Please try again.",
+        color: "red",
+        autoClose: 5000,
+      });
+    },
+
+    onSettled: () => {
+      // Ensure consistency regardless of success/failure
+      void utils.action.getAll.invalidate();
+      void utils.action.getProjectActions.invalidate();
+      void utils.view.getViewActions.invalidate();
     },
   });
 
   const handleSubmit = () => {
     if (!name || !currentAction) return;
 
+    // Capture new screenshots before resetting
+    pendingScreenshotsRef.current = [...pastedScreenshots];
+
+    // Close modal immediately for better UX
+    onClose();
+
+    // Trigger mutation in background (tags and sprint changes handled in onSuccess)
     updateAction.mutate({
       id: currentAction.id,
       name,
       description: description || undefined,
       projectId: projectId || undefined,
       priority,
-      dueDate: dueDate || undefined,
+      dueDate: dueDate, // Pass null explicitly to clear the date
+      scheduledStart: scheduledStart,
+      duration: duration,
+      epicId: epicId,
+      effortEstimate: effortEstimate,
+      blockedByIds: blockedByIds,
+      // Bounty fields
+      isBounty,
+      bountyAmount,
+      bountyToken,
+      bountyDifficulty: bountyDifficulty as "beginner" | "intermediate" | "advanced" | null | undefined,
+      bountySkills: bountySkills,
+      bountyDeadline,
+      bountyMaxClaimants,
+      bountyExternalUrl,
     });
   };
 
@@ -78,15 +379,15 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
 
   return (
     <>
-    <Modal 
-      opened={opened} 
+    <Modal
+      opened={opened}
       onClose={onClose}
       size="lg"
       radius="md"
       padding="lg"
       styles={{
         header: { display: 'none' },
-        body: { padding: 0 },
+        body: { padding: 0, backgroundColor: 'var(--color-bg-elevated)' },
         content: {
           backgroundColor: 'var(--color-bg-elevated)',
           color: 'var(--color-text-primary)',
@@ -101,19 +402,59 @@ export function EditActionModal({ action, opened, onClose }: EditActionModalProp
         priority={priority}
         setPriority={setPriority}
         projectId={projectId}
-        setProjectId={(value: string | undefined) => setProjectId(value || "")}
+        setProjectId={(value: string | undefined) => setProjectId(value ?? "")}
         dueDate={dueDate}
         setDueDate={setDueDate}
+        scheduledStart={scheduledStart}
+        setScheduledStart={setScheduledStart}
+        duration={duration}
+        setDuration={setDuration}
         selectedAssigneeIds={selectedAssigneeIds}
+        selectedTagIds={selectedTagIds}
+        onTagChange={setSelectedTagIds}
         actionId={currentAction?.id}
+        workspaceId={(currentAction?.workspaceId ?? currentAction?.project?.workspaceId ?? contextWorkspaceId) as string | undefined}
         onAssigneeClick={handleAssigneeClick}
         onSubmit={handleSubmit}
         onClose={onClose}
         submitLabel="Save changes"
         isSubmitting={updateAction.isPending}
+        {...(advancedActionsEnabled ? {
+          sprintListId,
+          setSprintListId,
+          epicId,
+          setEpicId,
+          effortEstimate,
+          setEffortEstimate,
+          effortUnit,
+          blockedByIds,
+          setBlockedByIds,
+        } : {})}
+        isBounty={isBounty}
+        setIsBounty={setIsBounty}
+        bountyAmount={bountyAmount}
+        setBountyAmount={setBountyAmount}
+        bountyToken={bountyToken}
+        setBountyToken={setBountyToken}
+        bountyDifficulty={bountyDifficulty}
+        setBountyDifficulty={setBountyDifficulty}
+        bountySkills={bountySkills}
+        setBountySkills={setBountySkills}
+        bountyDeadline={bountyDeadline}
+        setBountyDeadline={setBountyDeadline}
+        bountyMaxClaimants={bountyMaxClaimants}
+        setBountyMaxClaimants={setBountyMaxClaimants}
+        bountyExternalUrl={bountyExternalUrl}
+        setBountyExternalUrl={setBountyExternalUrl}
+        pastedScreenshots={allScreenshots}
+        onScreenshotPaste={(screenshot) => setPastedScreenshots(prev => [...prev, screenshot])}
+        onScreenshotRemove={(id) => {
+          // Only allow removing newly pasted screenshots (existing ones need a delete API)
+          setPastedScreenshots(prev => prev.filter(s => s.id !== id));
+        }}
       />
     </Modal>
-    
+
     {currentAction && (
       <AssignActionModal
         opened={assignModalOpened}

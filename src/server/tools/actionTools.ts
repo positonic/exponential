@@ -51,6 +51,17 @@ export const createActionTools = (ctx: any) => {
 
         console.log('input is ', input);
         
+        // Inherit workspaceId from the target project
+        const effectiveProjectId = input.projectId && input.projectId !== '' ? input.projectId : null;
+        let toolWsId: string | null = null;
+        if (effectiveProjectId) {
+          const proj = await ctx.db.project.findUnique({
+            where: { id: effectiveProjectId },
+            select: { workspaceId: true },
+          });
+          toolWsId = proj?.workspaceId ?? null;
+        }
+
         const action = await ctx.db.action.create({
           data: {
             name: input.name,
@@ -59,7 +70,8 @@ export const createActionTools = (ctx: any) => {
             status: input.status,
             priority: input.priority,
             createdById: ctx.session.user.id,
-            projectId: input.projectId && input.projectId !== '' ? input.projectId : null,
+            projectId: effectiveProjectId,
+            workspaceId: toolWsId,
           },
         });
         

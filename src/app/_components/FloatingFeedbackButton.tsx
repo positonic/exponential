@@ -65,7 +65,7 @@ export function FloatingFeedbackButton() {
     <>
       <button
         onClick={open}
-        className="fixed bottom-6 right-6 z-50 p-4 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 hover:text-white hover:bg-blue-500/20 hover:border-blue-500/50 transition-all duration-200"
+        className="fixed bottom-20 sm:bottom-6 right-6 z-50 p-4 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 hover:text-white hover:bg-blue-500/20 hover:border-blue-500/50 transition-all duration-200"
         aria-label="Give Feedback"
       >
         <IconMessageCircle size={24} />

@@ -14,6 +14,7 @@ import {
   Collapse,
   ActionIcon,
   Alert,
+  Tooltip,
 } from "@mantine/core";
 import {
   IconMicrophone,
@@ -36,14 +37,20 @@ interface IntegrationCardProps {
   isSyncing: boolean;
   successMessage?: string;
   onSync: (integrationId: string) => void;
+  onSettingsClick?: (integrationId: string) => void;
 }
 
-function IntegrationCard({ integration, isSyncing, successMessage, onSync }: IntegrationCardProps) {
+function IntegrationCard({ integration, isSyncing, successMessage, onSync, onSettingsClick }: IntegrationCardProps) {
   // Individual hook call for this specific integration
   const { data: syncStatus, isLoading } = api.transcription.getFirefliesSyncStatus.useQuery(
     { integrationId: integration.id },
     { enabled: !!integration.id }
   );
+  const isUnavailable = syncStatus?.isAvailable === false;
+
+  // Extract email from credentials if available
+  const emailCredential = integration.credentials.find(c => c.keyType === 'EMAIL');
+  const email = emailCredential?.key;
 
   return (
     <Card key={integration.id} withBorder padding="md" radius="sm">
@@ -55,9 +62,17 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
             </ThemeIcon>
             <div>
               <Group gap="xs" align="center">
-                <Text fw={600} size="sm">
-                  {integration.name}
-                </Text>
+                {email ? (
+                  <Tooltip label={email} position="top" withArrow>
+                    <Text fw={600} size="sm" style={{ cursor: 'help' }}>
+                      {integration.name}
+                    </Text>
+                  </Tooltip>
+                ) : (
+                  <Text fw={600} size="sm">
+                    {integration.name}
+                  </Text>
+                )}
                 <Badge variant="dot" color="teal" size="xs">
                   Fireflies
                 </Badge>
@@ -65,6 +80,8 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
               
               {isLoading ? (
                 <Text size="xs" c="dimmed">Loading status...</Text>
+              ) : isUnavailable ? (
+                <Text size="xs" c="dimmed">Integration unavailable</Text>
               ) : syncStatus ? (
                 <Group gap="md" mt={2}>
                   {syncStatus.lastSyncAt ? (
@@ -90,6 +107,7 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
               color="gray"
               size="sm"
               title="Integration settings"
+              onClick={() => onSettingsClick?.(integration.id)}
             >
               <IconSettings size={14} />
             </ActionIcon>
@@ -99,13 +117,18 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
               variant={syncStatus?.estimatedNewCount ? "filled" : "light"}
               color={syncStatus?.estimatedNewCount ? "blue" : "gray"}
               loading={isSyncing}
-              disabled={isLoading || isSyncing}
+              disabled={
+                isLoading ||
+                isSyncing ||
+                isUnavailable ||
+                (syncStatus?.estimatedNewCount === 0 && !!syncStatus?.lastSyncAt)
+              }
               onClick={() => onSync(integration.id)}
               leftSection={
-                successMessage ? (
+                isUnavailable ? (
+                  <IconSettings size={12} />
+                ) : syncStatus?.estimatedNewCount === 0 && syncStatus?.lastSyncAt ? (
                   <IconCheck size={12} />
-                ) : syncStatus?.estimatedNewCount ? (
-                  <IconRefresh size={12} />
                 ) : (
                   <IconRefresh size={12} />
                 )
@@ -113,8 +136,12 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
             >
               {isSyncing
                 ? 'Syncing...'
+                : isUnavailable
+                ? 'Unavailable'
                 : syncStatus?.estimatedNewCount
                 ? `Sync ${syncStatus.estimatedNewCount}`
+                : syncStatus?.lastSyncAt
+                ? 'Up to date'
                 : 'Sync Now'
               }
             </Button>
@@ -137,13 +164,6 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
           </Alert>
         )}
 
-        {/* Status indicators */}
-        {syncStatus?.estimatedNewCount === 0 && syncStatus.lastSyncAt && (
-          <Group gap="xs">
-            <IconCheck size={14} color="green" />
-            <Text size="xs" c="green">Up to date</Text>
-          </Group>
-        )}
       </Stack>
     </Card>
   );
@@ -151,9 +171,10 @@ function IntegrationCard({ integration, isSyncing, successMessage, onSync }: Int
 
 interface FirefliesSyncPanelProps {
   onSyncComplete?: () => void;
+  onSettingsClick?: (integrationId: string) => void;
 }
 
-export function FirefliesSyncPanel({ onSyncComplete }: FirefliesSyncPanelProps) {
+export function FirefliesSyncPanel({ onSyncComplete, onSettingsClick }: FirefliesSyncPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [syncingIntegrations, setSyncingIntegrations] = useState<Set<string>>(new Set());
   const [successMessages, setSuccessMessages] = useState<Record<string, string>>({});
@@ -185,8 +206,9 @@ export function FirefliesSyncPanel({ onSyncComplete }: FirefliesSyncPanelProps) 
         });
       }, 3000);
 
-      // Refresh transcriptions list
+      // Refresh transcriptions list and sync status
       void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getFirefliesSyncStatus.invalidate({ integrationId });
       
       // Call callback if provided
       onSyncComplete?.();
@@ -260,6 +282,7 @@ export function FirefliesSyncPanel({ onSyncComplete }: FirefliesSyncPanelProps) 
                 isSyncing={syncingIntegrations.has(integration.id)}
                 successMessage={successMessages[integration.id]}
                 onSync={handleSync}
+                onSettingsClick={onSettingsClick}
               />
             ))}
 

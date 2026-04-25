@@ -4,6 +4,8 @@ import { TRPCError } from "@trpc/server";
 import { WeeklyReviewSummaryService } from "~/server/services/WeeklyReviewSummaryService";
 import { SlackNotificationService } from "~/server/services/notifications/SlackNotificationService";
 import { SlackChannelResolver } from "~/server/services/SlackChannelResolver";
+import { getSundayWeekStart } from "~/lib/weekUtils";
+import { ScoringService } from "~/server/services/ScoringService";
 
 export const weeklyReviewRouter = createTRPCRouter({
   
@@ -180,10 +182,7 @@ export const weeklyReviewRouter = createTRPCRouter({
       }
 
       if (!membership.team.isOrganization) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Weekly reviews are only available for organization teams',
-        });
+        return [];
       }
 
       // Get all users sharing with this team
@@ -467,5 +466,222 @@ export const weeklyReviewRouter = createTRPCRouter({
       
       const channels = await slackService.getAvailableChannels();
       return channels;
+    }),
+
+  /**
+   * Mark weekly review as complete for the current week
+   */
+  markComplete: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+        projectsReviewed: z.number().optional(),
+        statusChanges: z.number().optional(),
+        priorityChanges: z.number().optional(),
+        actionsAdded: z.number().optional(),
+        reviewMode: z.enum(["full", "quick"]).optional(),
+        durationMinutes: z.number().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const weekStartDate = getSundayWeekStart(new Date());
+
+      // Find existing completion for this week
+      const existing = await ctx.db.weeklyReviewCompletion.findFirst({
+        where: {
+          userId,
+          workspaceId: input.workspaceId ?? null,
+          weekStartDate,
+        },
+      });
+
+      let completion;
+      if (existing) {
+        completion = await ctx.db.weeklyReviewCompletion.update({
+          where: { id: existing.id },
+          data: {
+            completedAt: new Date(),
+            projectsReviewed: input.projectsReviewed ?? 0,
+            statusChanges: input.statusChanges ?? 0,
+            priorityChanges: input.priorityChanges ?? 0,
+            actionsAdded: input.actionsAdded ?? 0,
+            reviewMode: input.reviewMode,
+            durationMinutes: input.durationMinutes,
+          },
+        });
+      } else {
+        completion = await ctx.db.weeklyReviewCompletion.create({
+          data: {
+            userId,
+            workspaceId: input.workspaceId,
+            weekStartDate,
+            projectsReviewed: input.projectsReviewed ?? 0,
+            statusChanges: input.statusChanges ?? 0,
+            priorityChanges: input.priorityChanges ?? 0,
+            actionsAdded: input.actionsAdded ?? 0,
+            reviewMode: input.reviewMode,
+            durationMinutes: input.durationMinutes,
+          },
+        });
+      }
+
+      // Apply weekly review bonus to all days in this week
+      await ScoringService.applyWeeklyReviewBonus(
+        ctx,
+        weekStartDate,
+        input.workspaceId
+      ).catch((err) => {
+        console.error("[weeklyReview.markComplete] Failed to apply bonus:", err);
+      });
+
+      return completion;
+    }),
+
+  /**
+   * Check if the current week's review is complete
+   */
+  isCompletedThisWeek: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const weekStartDate = getSundayWeekStart(new Date());
+
+      const completion = await ctx.db.weeklyReviewCompletion.findFirst({
+        where: {
+          userId,
+          workspaceId: input.workspaceId ?? null,
+          weekStartDate,
+        },
+      });
+
+      return {
+        isCompleted: !!completion,
+        completedAt: completion?.completedAt ?? null,
+        weekStartDate,
+      };
+    }),
+
+  /**
+   * Get streak data for weekly reviews
+   */
+  getStreak: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Get all completions ordered by week descending
+      const completions = await ctx.db.weeklyReviewCompletion.findMany({
+        where: {
+          userId,
+          workspaceId: input.workspaceId ?? null,
+        },
+        orderBy: { weekStartDate: "desc" },
+        select: { weekStartDate: true },
+      });
+
+      if (completions.length === 0) {
+        return {
+          currentStreak: 0,
+          longestStreak: 0,
+          totalReviews: 0,
+          thisWeekComplete: false,
+        };
+      }
+
+      // Calculate current streak (consecutive weeks from now or last week)
+      const now = new Date();
+      const thisWeekStart = getSundayWeekStart(now);
+      const lastWeekStart = new Date(thisWeekStart);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+      let currentStreak = 0;
+      let expectedWeek = thisWeekStart;
+
+      // Check if this week is done or last week is done
+      const weekDates = completions.map((c) => c.weekStartDate.getTime());
+      const thisWeekDone = weekDates.includes(thisWeekStart.getTime());
+      const lastWeekDone = weekDates.includes(lastWeekStart.getTime());
+
+      if (!thisWeekDone && !lastWeekDone) {
+        currentStreak = 0; // Streak broken
+      } else {
+        expectedWeek = thisWeekDone ? thisWeekStart : lastWeekStart;
+
+        for (const completion of completions) {
+          const weekTime = completion.weekStartDate.getTime();
+          if (weekTime === expectedWeek.getTime()) {
+            currentStreak++;
+            expectedWeek = new Date(expectedWeek);
+            expectedWeek.setDate(expectedWeek.getDate() - 7);
+          } else if (weekTime < expectedWeek.getTime()) {
+            break; // Gap found, streak ends
+          }
+        }
+      }
+
+      // Calculate longest streak (scan all completions)
+      let longestStreak = 0;
+      let tempStreak = 0;
+      let prevWeek: Date | null = null;
+
+      // Sort by date ascending for longest streak calc
+      const sortedCompletions = [...completions].sort(
+        (a, b) => a.weekStartDate.getTime() - b.weekStartDate.getTime()
+      );
+
+      for (const completion of sortedCompletions) {
+        if (!prevWeek) {
+          tempStreak = 1;
+        } else {
+          const expectedNext = new Date(prevWeek);
+          expectedNext.setDate(expectedNext.getDate() + 7);
+          if (completion.weekStartDate.getTime() === expectedNext.getTime()) {
+            tempStreak++;
+          } else {
+            tempStreak = 1;
+          }
+        }
+        longestStreak = Math.max(longestStreak, tempStreak);
+        prevWeek = completion.weekStartDate;
+      }
+
+      return {
+        currentStreak,
+        longestStreak,
+        totalReviews: completions.length,
+        thisWeekComplete: thisWeekDone,
+      };
+    }),
+
+  /**
+   * Get completed weekly reviews history
+   */
+  getCompletedReviews: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+        limit: z.number().optional().default(10),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      return ctx.db.weeklyReviewCompletion.findMany({
+        where: {
+          userId,
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        orderBy: { weekStartDate: "desc" },
+        take: input.limit,
+      });
     }),
 });

@@ -1,75 +1,47 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
-
-// Middleware to check API key (similar to transcription router)
-const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
-  const apiKey = ctx.headers.get("x-api-key");
-
-  if (!apiKey) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "API key is required",
-    });
-  }
-
-  // Find the verification token and associated user
-  const verificationToken = await ctx.db.verificationToken.findFirst({
-    where: {
-      token: apiKey,
-      expires: {
-        gt: new Date(), // Only non-expired tokens
-      },
-    },
-    include: {
-      user: true,
-    },
-  });
-
-  if (!verificationToken) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "Invalid or expired API key",
-    });
-  }
-
-  // Type-safe error handling
-  const userId = verificationToken.userId;
-  if (!userId) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "No user associated with this API key",
-    });
-  }
-
-  // Add the user id to the context
-  return next({
-    ctx: {
-      ...ctx,
-      userId, // Now type-safe
-      user: verificationToken.user,
-    },
-  });
-});
+import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { getProjectAccess, canEditProject, hasProjectAccess } from "~/server/services/access/resolvers/projectResolver";
+import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 export const projectRouter = createTRPCRouter({
   // API endpoint for browser plugin - uses API key authentication
   getUserProjects: apiKeyMiddleware
+    .input(z.object({
+      workspaceId: z.string().optional(),
+    }).optional())
     .output(z.object({
       projects: z.array(z.object({
         id: z.string(),
         name: z.string(),
+        slug: z.string(),
       }))
     }))
-    .query(async ({ ctx }) => {
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.userId;
       const projects = await ctx.db.project.findMany({
         where: {
-          createdById: ctx.userId,
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          OR: [
+            // User is the project creator
+            { createdById: userId },
+            // User is a member of the project's team
+            { team: { members: { some: { userId } } } },
+            // User is a direct member of the workspace
+            { workspace: { members: { some: { userId } } } },
+            // User is a member of a team linked to the project's workspace
+            { workspace: { teams: { some: { members: { some: { userId } } } } } },
+            // Public projects (only when not filtering by workspace)
+            ...(!input?.workspaceId ? [{ isPublic: true }] : []),
+          ],
         },
         select: {
           id: true,
           name: true,
+          slug: true,
         },
         orderBy: {
           name: "asc",
@@ -85,7 +57,9 @@ export const projectRouter = createTRPCRouter({
     .input(z.object({
       include: z.object({
         actions: z.boolean()
-      }).optional()
+      }).optional(),
+      workspaceId: z.string().optional(),
+      goalId: z.number().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       console.log('🔍 [PROJECT.GETALL DEBUG] Query started', {
@@ -94,11 +68,16 @@ export const projectRouter = createTRPCRouter({
         userEmail: ctx.session.user.email,
         userName: ctx.session.user.name,
         sessionExpires: ctx.session.expires,
-        includeActions: input?.include?.actions ?? false
+        includeActions: input?.include?.actions ?? false,
+        workspaceId: input?.workspaceId ?? 'none'
       });
 
       const projects = await ctx.db.project.findMany({
         where: {
+          // Filter by workspace if provided
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          // Filter by goal if provided
+          ...(input?.goalId ? { goals: { some: { id: input.goalId } } } : {}),
           OR: [
             // User is the project creator
             { createdById: ctx.session.user.id },
@@ -111,7 +90,33 @@ export const projectRouter = createTRPCRouter({
                   }
                 }
               }
-            }
+            },
+            // User is a direct member of the workspace
+            {
+              workspace: {
+                members: {
+                  some: {
+                    userId: ctx.session.user.id
+                  }
+                }
+              }
+            },
+            // User is a member of a team linked to the project's workspace
+            {
+              workspace: {
+                teams: {
+                  some: {
+                    members: {
+                      some: {
+                        userId: ctx.session.user.id
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            // Public projects visible when not filtering by workspace
+            ...(!input?.workspaceId ? [{ isPublic: true }] : []),
           ]
         },
         orderBy: {
@@ -120,7 +125,22 @@ export const projectRouter = createTRPCRouter({
         include: {
           actions: input?.include?.actions ?? false,
           goals: true,
-          outcomes: true
+          outcomes: true,
+          lifeDomains: true,
+          dri: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
+          workspace: {
+            select: {
+              slug: true,
+              name: true,
+            },
+          },
         }
       });
 
@@ -175,10 +195,16 @@ export const projectRouter = createTRPCRouter({
         progress: z.number().min(0).max(100).optional().default(0),
         reviewDate: z.date().nullable().optional(),
         nextActionDate: z.date().nullable().optional(),
+        startDate: z.date().nullable().optional(),
+        endDate: z.date().nullable().optional(),
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
+        lifeDomainIds: z.array(z.number()).optional(),
         teamId: z.string().optional(),
         notionProjectId: z.string().optional(),
+        workspaceId: z.string().optional(),
+        driId: z.string().nullable().optional(),
+        isPublic: z.boolean().optional().default(false),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -193,7 +219,7 @@ export const projectRouter = createTRPCRouter({
         counter++;
       }
 
-      return ctx.db.project.create({
+      const project = await ctx.db.project.create({
         data: {
           name: input.name,
           description: input.description,
@@ -203,25 +229,47 @@ export const projectRouter = createTRPCRouter({
           slug,
           reviewDate: input.reviewDate ?? null,
           nextActionDate: input.nextActionDate ?? null,
+          startDate: input.startDate ?? null,
+          endDate: input.endDate ?? null,
           notionProjectId: input.notionProjectId,
-          createdBy: {
-            connect: {
-              id: ctx.session.user.id,
-            },
-          },
-          team: input.teamId ? {
-            connect: {
-              id: input.teamId,
-            },
-          } : undefined,
-          goals: input.goalIds?.length ? {
-            connect: input.goalIds.map(id => ({ id: parseInt(id) })),
-          } : undefined,
-          outcomes: input.outcomeIds?.length ? {
-            connect: input.outcomeIds.map(id => ({ id })),
-          } : undefined,
+          createdById: ctx.session.user.id,
+          workspaceId: input.workspaceId ?? null,
+          teamId: input.teamId ?? null,
+          driId: input.driId ?? null,
+          isPublic: input.isPublic ?? false,
         },
       });
+
+      // Connect relations if provided
+      if (input.goalIds?.length || input.outcomeIds?.length || input.lifeDomainIds?.length) {
+        await ctx.db.project.update({
+          where: { id: project.id },
+          data: {
+            ...(input.goalIds?.length && {
+              goals: {
+                connect: input.goalIds.map(id => ({ id: parseInt(id) })),
+              },
+            }),
+            ...(input.outcomeIds?.length && {
+              outcomes: {
+                connect: input.outcomeIds.map(id => ({ id })),
+              },
+            }),
+            ...(input.lifeDomainIds?.length && {
+              lifeDomains: {
+                connect: input.lifeDomainIds.map(id => ({ id })),
+              },
+            }),
+          },
+        });
+      }
+
+      // Sync onboarding progress (fire-and-forget)
+      void completeOnboardingStep(ctx.db, ctx.session.user.id, "project").catch(
+        (err: unknown) => { console.error("[onboarding-sync] project:", err); },
+      );
+
+      return project;
     }),
 
   delete: protectedProcedure
@@ -249,10 +297,20 @@ export const projectRouter = createTRPCRouter({
         taskManagementConfig: z.record(z.any()).optional(),
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
+        lifeDomainIds: z.array(z.number()).optional(),
+        workspaceId: z.string().nullable().optional(),
+        driId: z.string().nullable().optional(),
+        reviewDate: z.date().nullable().optional(),
+        nextActionDate: z.date().nullable().optional(),
+        startDate: z.date().nullable().optional(),
+        endDate: z.date().nullable().optional(),
+        isPublic: z.boolean().optional(),
+        enableDetailedActions: z.boolean().nullable().optional(),
+        enableBounties: z.boolean().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, ...updateData } = input;
+      const { id, goalIds, outcomeIds, lifeDomainIds, workspaceId, driId, isPublic, enableDetailedActions, enableBounties, ...updateData } = input;
       
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -270,11 +328,17 @@ export const projectRouter = createTRPCRouter({
         counter++;
       }
       
+      // Check edit access (creator, workspace admin+, team admin+)
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, id);
+      if (!canEditProject(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have edit access to this project",
+        });
+      }
+
       return ctx.db.project.update({
-        where: {
-          id,
-          createdById: ctx.session.user.id,
-        },
+        where: { id },
         data: {
           ...updateData,
           slug,
@@ -284,6 +348,53 @@ export const projectRouter = createTRPCRouter({
           outcomes: outcomeIds !== undefined ? {
             set: outcomeIds.map(id => ({ id })),
           } : undefined,
+          lifeDomains: lifeDomainIds !== undefined ? {
+            set: lifeDomainIds.map(id => ({ id })),
+          } : undefined,
+          // Handle workspace: null means disconnect, string means connect
+          workspace: workspaceId === null
+            ? { disconnect: true }
+            : workspaceId !== undefined
+              ? { connect: { id: workspaceId } }
+              : undefined,
+          // Handle DRI: null means disconnect, string means connect
+          dri: driId === null
+            ? { disconnect: true }
+            : driId !== undefined
+              ? { connect: { id: driId } }
+              : undefined,
+          // Handle public visibility toggle
+          ...(isPublic !== undefined ? { isPublic } : {}),
+          // Handle detailed actions override (null = inherit from workspace)
+          ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
+          // Handle bounties override (null = inherit from workspace)
+          ...(enableBounties !== undefined ? { enableBounties } : {}),
+        },
+      });
+    }),
+
+  updateDates: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        startDate: z.date().nullable(),
+        endDate: z.date().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.id);
+      if (!hasProjectAccess(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this project",
+        });
+      }
+
+      return ctx.db.project.update({
+        where: { id: input.id },
+        data: {
+          startDate: input.startDate,
+          endDate: input.endDate,
         },
       });
     }),
@@ -312,11 +423,15 @@ export const projectRouter = createTRPCRouter({
     }),
 
   getActiveWithDetails: protectedProcedure
-    .query(async ({ ctx }) => {
+    .input(z.object({
+      workspaceId: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
       return await ctx.db.project.findMany({
         where: {
           createdById: ctx.session.user.id,
           status: "ACTIVE",
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
         },
         include: {
           actions: {
@@ -332,11 +447,16 @@ export const projectRouter = createTRPCRouter({
             },
           },
           outcomes: {
-            where: {
-              type: 'weekly',
-            },
             orderBy: {
               dueDate: 'asc',
+            },
+          },
+          dri: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
             },
           },
         },
@@ -344,6 +464,86 @@ export const projectRouter = createTRPCRouter({
           priority: 'asc',
         },
       });
+    }),
+
+  // Get projects with their actions for the hierarchical projects-tasks view
+  getProjectsWithActions: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().optional(),
+      includeCompleted: z.boolean().default(false),
+      goalId: z.number().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Fetch projects with their actions
+      const projects = await ctx.db.project.findMany({
+        where: {
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(input.goalId ? { goals: { some: { id: input.goalId } } } : {}),
+          OR: [
+            { createdById: userId },
+            { team: { members: { some: { userId } } } },
+            ...(input.workspaceId ? [
+              { workspace: { members: { some: { userId } } } },
+              { workspace: { teams: { some: { members: { some: { userId } } } } } },
+            ] : []),
+            // Public projects visible when not filtering by workspace
+            ...(!input.workspaceId ? [{ isPublic: true }] : []),
+          ]
+        },
+        include: {
+          actions: {
+            where: {
+              status: input.includeCompleted
+                ? { notIn: ["DELETED", "DRAFT"] }
+                : { notIn: ["DELETED", "COMPLETED", "DRAFT"] }
+            },
+            include: {
+              assignees: {
+                include: {
+                  user: {
+                    select: { id: true, name: true, email: true, image: true }
+                  }
+                }
+              },
+              project: { select: { id: true, name: true } },
+              tags: { include: { tag: true } },
+            },
+            orderBy: [{ dueDate: 'asc' }, { priority: 'asc' }],
+          },
+          _count: { select: { actions: true } },
+        },
+        orderBy: [{ priority: 'asc' }, { name: 'asc' }],
+      });
+
+      // Fetch actions without projects (unassigned)
+      const noProjectActions = await ctx.db.action.findMany({
+        where: {
+          projectId: null,
+          status: input.includeCompleted
+            ? { notIn: ["DELETED", "DRAFT"] }
+            : { notIn: ["DELETED", "COMPLETED", "DRAFT"] },
+          OR: [
+            { createdById: userId, assignees: { none: {} } },
+            { assignees: { some: { userId } } },
+          ],
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        include: {
+          assignees: {
+            include: {
+              user: {
+                select: { id: true, name: true, email: true, image: true }
+              }
+            }
+          },
+          tags: { include: { tag: true } },
+        },
+        orderBy: [{ dueDate: 'asc' }, { priority: 'asc' }],
+      });
+
+      return { projects, noProjectActions };
     }),
 
   getActiveWithDetailsForUser: protectedProcedure
@@ -436,6 +636,14 @@ export const projectRouter = createTRPCRouter({
               },
             },
           },
+          dri: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
           outcomes: {
             where: {
               type: 'weekly',
@@ -493,28 +701,100 @@ export const projectRouter = createTRPCRouter({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.project.findFirst({
-        where: { 
-          id: input.id,
-          OR: [
-            // User is the project creator
-            { createdById: ctx.session.user.id },
-            // User is a member of the project's team
-            {
-              team: {
-                members: {
-                  some: {
-                    userId: ctx.session.user.id
-                  }
-                }
-              }
-            }
-          ]
-        },
+      // Try finding by id first, then fall back to slug lookup
+      const selectFields = { id: true, createdById: true, teamId: true, workspaceId: true, isPublic: true } as const;
+
+      let projectExists = await ctx.db.project.findUnique({
+        where: { id: input.id },
+        select: selectFields,
+      });
+
+      if (!projectExists) {
+        projectExists = await ctx.db.project.findUnique({
+          where: { slug: input.id },
+          select: selectFields,
+        });
+      }
+
+      // URLs use compound format: "slug-cuid" (e.g. "my_project-cmjoko5550000rz03x4eqvycy")
+      // Extract the CUID suffix and try looking up by that
+      if (!projectExists) {
+        const cuidMatch = input.id.match(/-(c[a-z0-9]{24,})$/);
+        if (cuidMatch) {
+          projectExists = await ctx.db.project.findUnique({
+            where: { id: cuidMatch[1] },
+            select: selectFields,
+          });
+        }
+      }
+
+      if (!projectExists) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project not found",
+        });
+      }
+
+      // Check permission: user is creator OR public project OR team member OR workspace member
+      let hasPermission = projectExists.createdById === ctx.session.user.id;
+
+      // Public projects are accessible to all authenticated users
+      if (!hasPermission && projectExists.isPublic) {
+        hasPermission = true;
+      }
+
+      // Check team membership
+      if (!hasPermission && projectExists.teamId) {
+        const teamMembership = await ctx.db.teamUser.findFirst({
+          where: {
+            teamId: projectExists.teamId,
+            userId: ctx.session.user.id,
+          },
+        });
+        hasPermission = !!teamMembership;
+      }
+
+      // Check workspace membership (includes team-based workspace access)
+      if (!hasPermission && projectExists.workspaceId) {
+        const workspaceMembership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          projectExists.workspaceId,
+        );
+        hasPermission = !!workspaceMembership;
+      }
+
+      if (!hasPermission) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Access denied - you don't have permission to view this project",
+        });
+      }
+
+      // Return full project with includes (use resolved id in case input was a slug)
+      return ctx.db.project.findUnique({
+        where: { id: projectExists.id },
         include: {
           goals: true,
           outcomes: true,
+          lifeDomains: true,
           actions: true,
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
+          dri: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
           team: {
             select: {
               id: true,
@@ -525,6 +805,7 @@ export const projectRouter = createTRPCRouter({
           },
           transcriptionSessions: {
             include: {
+              screenshots: true,
               sourceIntegration: {
                 select: {
                   id: true,
@@ -551,6 +832,22 @@ export const projectRouter = createTRPCRouter({
       });
     }),
 
+  // Get resolved Notion config with inheritance chain (project > workspace > app defaults)
+  getResolvedNotionConfig: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!access) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Access denied",
+        });
+      }
+
+      const { resolveNotionConfig } = await import("~/server/services/notion-config-resolver");
+      return resolveNotionConfig(input.projectId);
+    }),
+
   getTeamMembers: protectedProcedure
     .input(z.object({ projectId: z.string() }))
     .query(async ({ ctx, input }) => {
@@ -568,11 +865,14 @@ export const projectRouter = createTRPCRouter({
         taskManagementTool: z.enum(["internal", "monday", "notion"]),
         taskManagementConfig: z.object({
           // Core workflow configuration
+          integrationId: z.string().optional(), // which integration (Notion account) to use
           workflowId: z.string().optional(),
           databaseId: z.string().optional(), // for Notion
           boardId: z.string().optional(), // for Monday
-          
-          // New sync strategy options
+
+          // Sync configuration
+          syncDirection: z.enum(['pull', 'push', 'bidirectional']).optional().default('pull'),
+          syncFrequency: z.enum(['manual', 'hourly', 'daily']).optional().default('manual'),
           syncStrategy: z.enum(['manual', 'auto_pull_then_push', 'notion_canonical']).optional().default('manual'),
           conflictResolution: z.enum(['local_wins', 'remote_wins']).optional().default('local_wins'),
           deletionBehavior: z.enum(['mark_deleted', 'archive']).optional().default('mark_deleted'),
@@ -581,11 +881,16 @@ export const projectRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.id);
+      if (!canEditProject(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have edit access to this project",
+        });
+      }
+
       return ctx.db.project.update({
-        where: {
-          id: input.id,
-          createdById: ctx.session.user.id,
-        },
+        where: { id: input.id },
         data: {
           taskManagementTool: input.taskManagementTool,
           taskManagementConfig: input.taskManagementConfig,

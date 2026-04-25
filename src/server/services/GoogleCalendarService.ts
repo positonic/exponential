@@ -1,30 +1,21 @@
 import { google } from 'googleapis';
 import { db } from '~/server/db';
 import NodeCache from 'node-cache';
+import type {
+  CalendarEvent,
+  CalendarInfo,
+  CalendarEventWithSource,
+  CreateEventInput,
+  CreatedCalendarEvent,
+  CalendarProvider,
+} from './CalendarProvider';
 
-export interface CalendarEvent {
-  id: string;
-  summary: string;
-  description?: string;
-  start: {
-    dateTime?: string;
-    date?: string;
-    timeZone?: string;
-  };
-  end: {
-    dateTime?: string;
-    date?: string;
-    timeZone?: string;
-  };
-  location?: string;
-  attendees?: Array<{
-    email: string;
-    displayName?: string;
-    responseStatus: string;
-  }>;
-  htmlLink: string;
-  status: string;
-}
+// Re-export shared types for backwards compatibility
+export type { CalendarEvent, CalendarEventWithSource, CreateEventInput, CreatedCalendarEvent };
+
+// Alias for backwards compatibility
+export type GoogleCalendarInfo = CalendarInfo;
+export type { CalendarInfo };
 
 // Create a cache instance with 15 minute TTL
 const calendarCache = new NodeCache({ 
@@ -33,7 +24,7 @@ const calendarCache = new NodeCache({
   useClones: false // Better performance, but be careful with mutations
 });
 
-export class GoogleCalendarService {
+export class GoogleCalendarService implements CalendarProvider {
   private generateCacheKey(userId: string, options: any): string {
     const { timeMin, timeMax, calendarId, maxResults } = options;
     return `cal:${userId}:${calendarId}:${timeMin?.getTime()}:${timeMax?.getTime()}:${maxResults}`;
@@ -116,6 +107,45 @@ export class GoogleCalendarService {
       });
 
       return google.calendar({ version: 'v3', auth: oauth2Client });
+    }
+  }
+
+  /**
+   * Fetch and update provider email for an account
+   * This is used to backfill missing providerEmail fields
+   */
+  async fetchAndUpdateProviderEmail(accountId: string, accessToken: string): Promise<string | null> {
+    try {
+      // Fetch user info from Google
+      const response = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error("Failed to fetch Google user info:", response.status);
+        return null;
+      }
+
+      const userInfo = (await response.json()) as { email?: string };
+
+      if (!userInfo.email) {
+        console.error("No email in Google user info response");
+        return null;
+      }
+
+      // Update the Account record with the provider email
+      await db.account.update({
+        where: { id: accountId },
+        data: { providerEmail: userInfo.email },
+      });
+
+      console.log(`✅ Backfilled providerEmail for account ${accountId}: ${userInfo.email}`);
+      return userInfo.email;
+    } catch (error) {
+      console.error("Error fetching provider email:", error);
+      return null;
     }
   }
 
@@ -261,8 +291,167 @@ export class GoogleCalendarService {
     // Clear cache for this specific request first
     const cacheKey = this.generateCacheKey(userId, options);
     calendarCache.del(cacheKey);
-    
+
     // Fetch fresh data
     return this.getEvents(userId, { ...options, useCache: true });
+  }
+
+  // Create a new calendar event
+  async createEvent(
+    userId: string,
+    input: CreateEventInput
+  ): Promise<CreatedCalendarEvent> {
+    const calendar = await this.getCalendarClient(userId);
+    const { calendarId = 'primary', conferenceData, ...eventData } = input;
+
+    try {
+      const response = await calendar.events.insert({
+        calendarId,
+        conferenceDataVersion: conferenceData ? 1 : undefined,
+        requestBody: {
+          ...eventData,
+          conferenceData,
+        },
+      });
+
+      const event = response.data;
+
+      // Clear cache since we've created a new event
+      this.clearUserCache(userId);
+
+      return {
+        id: event.id!,
+        summary: event.summary ?? 'No title',
+        description: event.description ?? undefined,
+        start: {
+          dateTime: event.start?.dateTime ?? undefined,
+          date: event.start?.date ?? undefined,
+          timeZone: event.start?.timeZone ?? undefined,
+        },
+        end: {
+          dateTime: event.end?.dateTime ?? undefined,
+          date: event.end?.date ?? undefined,
+          timeZone: event.end?.timeZone ?? undefined,
+        },
+        location: event.location ?? undefined,
+        attendees: event.attendees?.map(attendee => ({
+          email: attendee.email!,
+          displayName: attendee.displayName ?? undefined,
+          responseStatus: attendee.responseStatus!,
+        })),
+        htmlLink: event.htmlLink!,
+        status: event.status!,
+        conferenceData: event.conferenceData ? {
+          entryPoints: event.conferenceData.entryPoints?.map(ep => ({
+            uri: ep.uri!,
+            label: ep.label ?? undefined,
+            entryPointType: ep.entryPointType!,
+          })),
+          conferenceId: event.conferenceData.conferenceId ?? undefined,
+        } : undefined,
+      };
+    } catch (error) {
+      console.error('Failed to create calendar event:', error);
+      throw new Error('Failed to create calendar event. Please try again.');
+    }
+  }
+
+  /**
+   * List all calendars available to the user
+   */
+  async listCalendars(userId: string): Promise<GoogleCalendarInfo[]> {
+    const calendar = await this.getCalendarClient(userId);
+
+    try {
+      const response = await calendar.calendarList.list({
+        minAccessRole: 'reader',
+      });
+
+      const calendars = response.data.items ?? [];
+
+      return calendars.map((cal): GoogleCalendarInfo => ({
+        id: cal.id!,
+        summary: cal.summary ?? 'Unnamed Calendar',
+        description: cal.description ?? undefined,
+        primary: cal.primary ?? false,
+        accessRole: cal.accessRole ?? 'reader',
+        backgroundColor: cal.backgroundColor ?? undefined,
+        foregroundColor: cal.foregroundColor ?? undefined,
+      }));
+    } catch (error) {
+      console.error('Failed to list calendars:', error);
+      throw new Error('Failed to list calendars. Please try again.');
+    }
+  }
+
+  /**
+   * Get events from multiple calendars and merge them
+   */
+  async getEventsFromMultipleCalendars(
+    userId: string,
+    calendarIds: string[],
+    options: {
+      timeMin?: Date;
+      timeMax?: Date;
+      maxResults?: number;
+      useCache?: boolean;
+    } = {},
+    calendarMetadata?: GoogleCalendarInfo[]
+  ): Promise<CalendarEventWithSource[]> {
+    if (calendarIds.length === 0) {
+      // Default to primary calendar if none selected
+      calendarIds = ['primary'];
+    }
+
+    // Limit to 10 calendars for performance
+    const limitedCalendarIds = calendarIds.slice(0, 10);
+
+    // Create a map of calendar metadata for quick lookup
+    const calendarMap = new Map<string, GoogleCalendarInfo>();
+    if (calendarMetadata) {
+      calendarMetadata.forEach(cal => calendarMap.set(cal.id, cal));
+    }
+
+    // Fetch events from all calendars in parallel
+    const eventPromises = limitedCalendarIds.map(async (calendarId) => {
+      try {
+        const events = await this.getEvents(userId, {
+          ...options,
+          calendarId,
+        });
+
+        const calInfo = calendarMap.get(calendarId);
+
+        // Add calendar metadata to each event
+        return events.map((event): CalendarEventWithSource => ({
+          ...event,
+          calendarId,
+          calendarName: calInfo?.summary ?? (calendarId === 'primary' ? 'Primary' : calendarId),
+          calendarColor: calInfo?.backgroundColor ?? undefined,
+        }));
+      } catch (error) {
+        // Log error but don't fail the entire request
+        console.error(`Failed to fetch events from calendar ${calendarId}:`, error);
+        return [];
+      }
+    });
+
+    const allEventsArrays = await Promise.all(eventPromises);
+    const allEvents = allEventsArrays.flat();
+
+    // Sort by start time
+    return allEvents.sort((a, b) => {
+      const aTime = a.start.dateTime
+        ? new Date(a.start.dateTime)
+        : a.start.date
+          ? new Date(a.start.date)
+          : new Date(0);
+      const bTime = b.start.dateTime
+        ? new Date(b.start.dateTime)
+        : b.start.date
+          ? new Date(b.start.date)
+          : new Date(0);
+      return aTime.getTime() - bTime.getTime();
+    });
   }
 }

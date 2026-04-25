@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "~/server/db";
 import { githubIntegrationService } from "~/server/services/github-integration";
+import { githubActivityService } from "~/server/services/GitHubActivityService";
 
 const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET!;
 
@@ -54,6 +55,15 @@ export async function POST(request: NextRequest) {
     switch (event) {
       case "issues":
         await handleIssueEvent(data);
+        break;
+      case "push":
+        await githubActivityService.processPushEvent(data, delivery);
+        break;
+      case "pull_request":
+        await githubActivityService.processPullRequestEvent(data, delivery);
+        break;
+      case "pull_request_review":
+        await githubActivityService.processPullRequestReviewEvent(data, delivery);
         break;
       case "installation":
       case "installation_repositories":

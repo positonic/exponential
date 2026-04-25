@@ -1,8 +1,60 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
 import * as githubService from "~/server/services/githubService";
 
 export const githubRouter = createTRPCRouter({
+  listCommits: publicProcedure
+    .input(
+      z.object({
+        page: z.number().min(1).default(1),
+        perPage: z.number().min(1).max(100).default(100),
+        owner: z.string().default("positonic"),
+        repo: z.string().default("exponential"),
+        branch: z.string().default("main"),
+      }).optional(),
+    )
+    .query(async ({ input }) => {
+      const owner = input?.owner ?? "positonic";
+      const repo = input?.repo ?? "exponential";
+      const branch = input?.branch;
+      const page = input?.page;
+      const perPage = input?.perPage;
+      const octokit = githubService.initGithubClient(
+        process.env.GITHUB_TOKEN ?? "",
+      );
+      return githubService.listCommits(
+        octokit,
+        owner,
+        repo,
+        {
+          branch,
+          page,
+          perPage,
+        },
+      );
+    }),
+
+  listReleases: publicProcedure
+    .input(
+      z.object({
+        page: z.number().min(1).default(1),
+        perPage: z.number().min(1).max(100).default(30),
+        owner: z.string().default("positonic"),
+        repo: z.string().default("exponential"),
+      }).optional(),
+    )
+    .query(async ({ input }) => {
+      const owner = input?.owner ?? "positonic";
+      const repo = input?.repo ?? "exponential";
+      const octokit = githubService.initGithubClient(
+        process.env.GITHUB_TOKEN ?? "",
+      );
+      return githubService.listReleases(octokit, owner, repo, {
+        page: input?.page,
+        perPage: input?.perPage,
+      });
+    }),
+
   createIssue: protectedProcedure
     .input(
       z.object({
@@ -16,8 +68,6 @@ export const githubRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input }) => {
-      // Initialize GitHub client
-      console.log("GITHUB_TOKEN", process.env.GITHUB_TOKEN);
       const octokit = githubService.initGithubClient(process.env.GITHUB_TOKEN || "");
       
       // Create the issue using the shared service

@@ -1,6 +1,6 @@
 'use client';
 
-import { Paper, Title, TextInput, Stack, Group, Button } from "@mantine/core";
+import { Paper, Title, TextInput, Stack, Group, Button, Text } from "@mantine/core";
 import { IconList } from "@tabler/icons-react";
 import { memo } from 'react';
 
@@ -56,12 +56,27 @@ export const ExerciseSection = memo(({
           className="bg-surface-secondary"
           rightSectionWidth={42}
           rightSection="🏃‍♂️"
+          onKeyDown={(e) => {
+            if (
+              e.key === 'Enter' &&
+              e.metaKey &&
+              !isSaving &&
+              exercise.trim() &&
+              !isDisabled
+            ) {
+              e.preventDefault();
+              saveExercise();
+            }
+          }}
         />
-        <SaveButton 
-          onClick={saveExercise} 
-          loading={isSaving}
-          disabled={!exercise.trim() || isDisabled}
-        />
+        <Group justify="space-between" align="center">
+          <Text size="xs" c="dimmed">⌘↵ to save</Text>
+          <SaveButton
+            onClick={saveExercise}
+            loading={isSaving}
+            disabled={!exercise.trim() || isDisabled}
+          />
+        </Group>
       </Stack>
     </Paper>
   );

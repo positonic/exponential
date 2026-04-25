@@ -1,16 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Actions } from "./Actions";
 import ProjectDetails from "./ProjectDetails";
 //import Chat from "./Chat";
-import ManyChat from "./ManyChat";
 import { Team } from "./Team";
 // import { Plan } from "./Plan";
-import { GoalsTable } from "./GoalsTable";
 import { OutcomesTable } from "./OutcomesTable";
 import { OutcomeTimeline } from "./OutcomeTimeline";
-import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
 import { Button } from "@mantine/core";
 import { HTMLContent } from "./HTMLContent";
 import {
@@ -24,6 +23,7 @@ import {
   Badge,
   ActionIcon,
   Card,
+  SegmentedControl,
 } from "@mantine/core";
 import { api } from "~/trpc/react";
 import {
@@ -39,158 +39,459 @@ import {
   IconUsers,
   IconCalendarWeek,
   IconGitBranch,
+  IconHome,
+  IconEdit,
+  IconPlayerPlay,
+  IconTrash,
+  IconLayoutList,
+  IconCoin,
+  IconPlug,
 } from "@tabler/icons-react";
+import { format, isBefore, startOfDay } from "date-fns";
+import overviewStyles from "./ProjectOverview.module.css";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
-import { TranscriptionRenderer } from "./TranscriptionRenderer";
+import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
+import { SmartContentRenderer } from "./SmartContentRenderer";
 import { ProjectIntegrations } from "./ProjectIntegrations";
 import { ProjectSyncStatus } from "./ProjectSyncStatus";
 import { ProjectSyncConfiguration } from "./ProjectSyncConfiguration";
-import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
+import { TranscriptionDetailsModal } from "./TranscriptionDetailsModal";
 import { TeamWeeklyReview } from "./TeamWeeklyReview";
 import { WeeklyOutcomes } from "./WeeklyOutcomes";
 import { ProjectFirefliesSyncPanel } from "./ProjectFirefliesSyncPanel";
 import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
+import { ProjectOverview } from "./ProjectOverview";
+import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
+import { useAgentModal } from "~/providers/AgentModalProvider";
+import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { notifications } from "@mantine/notifications";
 import Link from "next/link";
+import { useMemo } from "react";
 
 type TabValue =
+  | "overview"
   | "tasks"
   | "plan"
   | "goals"
   | "outcomes"
   | "timeline"
   | "transcriptions"
+  | "integrations"
   | "workflows"
   | "weekly-team-review"
   | "weekly-outcomes";
 
+const VALID_TABS: TabValue[] = [
+  "overview",
+  "tasks",
+  "plan",
+  "goals",
+  "outcomes",
+  "timeline",
+  "transcriptions",
+  "integrations",
+  "workflows",
+  "weekly-team-review",
+  "weekly-outcomes",
+];
+
+function isValidTab(tab: string | null | undefined): tab is TabValue {
+  return tab != null && VALID_TABS.includes(tab as TabValue);
+}
+
 export function ProjectContent({
   viewName,
   projectId,
+  initialTab,
 }: {
   viewName: string;
   projectId: string;
+  initialTab?: string;
 }) {
-  const [activeTab, setActiveTab] = useState<TabValue>("tasks");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Get tab from URL or use initial/default
+  const tabFromUrl = searchParams.get("tab");
+  const activeTab: TabValue = isValidTab(tabFromUrl)
+    ? tabFromUrl
+    : isValidTab(initialTab)
+      ? initialTab
+      : "overview";
+
+  const pathname = usePathname();
   const [drawerOpened, setDrawerOpened] = useState(false);
-  const [activeDrawer, setActiveDrawer] = useState<'chat' | 'settings' | null>(null);
-  const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
+  const [activeDrawer, setActiveDrawer] = useState<'settings' | null>(null);
+  const { openModal: openChatModal, isOpen: chatModalOpen } = useAgentModal();
+  const [selectedTranscription, setSelectedTranscription] = useState<unknown>(null);
   const [syncStatusOpened, setSyncStatusOpened] = useState(false);
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
-  const { data: project, isLoading } = api.project.getById.useQuery({
+  const { data: project, isLoading, error: projectError } = api.project.getById.useQuery({
     id: projectId,
   });
-  const { data: projectActions } = api.action.getProjectActions.useQuery({ projectId });
-  const goalsQuery = api.goal.getProjectGoals.useQuery({ projectId });
-  const outcomesQuery = api.outcome.getProjectOutcomes.useQuery({ projectId });
-  const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery({ projectId });
+
+  // Register project context for agent chat — merges with workspace context
+  const { workspace, workspaceId } = useWorkspace();
+  const projectPageContext = useMemo(() => {
+    if (!projectId) return null;
+    return {
+      pageType: 'project' as const,
+      pageTitle: project?.name ?? 'Project',
+      pagePath: pathname,
+      data: {
+        projectId,
+        projectName: project?.name,
+        ...(workspaceId && {
+          workspaceId,
+          workspaceName: workspace?.name,
+          workspaceSlug: workspace?.slug,
+        }),
+      },
+    };
+  }, [projectId, project?.name, pathname, workspaceId, workspace?.name, workspace?.slug]);
+  useRegisterPageContext(projectPageContext);
+  // Workspace data for detailed actions setting
+  const { data: workspaceData } = api.workspace.getBySlug.useQuery(
+    { slug: workspace?.slug ?? "" },
+    { enabled: !!workspace?.slug },
+  );
+  const workspaceDetailedEnabled = workspaceData?.enableDetailedActions ?? false;
+  const workspaceBountiesEnabled = workspaceData?.enableBounties ?? false;
+
+  const updateDetailedActionsMutation = api.project.update.useMutation({
+    onSuccess: () => {
+      void utils.project.getById.invalidate({ id: projectId });
+      notifications.show({
+        title: "Settings Updated",
+        message: "Detailed action pages setting has been updated",
+        color: "green",
+        autoClose: 3000,
+      });
+    },
+  });
+
+  const updateBountiesMutation = api.project.update.useMutation({
+    onSuccess: () => {
+      void utils.project.getById.invalidate({ id: projectId });
+      notifications.show({
+        title: "Settings Updated",
+        message: "Bounties setting has been updated",
+        color: "green",
+        autoClose: 3000,
+      });
+    },
+  });
+
+  // Use the resolved project ID (from getById which handles slug resolution)
+  // instead of the raw projectId prop which may be a slug like "home-renovation-cmm3mjlev..."
+  const resolvedProjectId = project?.id ?? projectId;
+  const { data: projectActions } = api.action.getProjectActions.useQuery(
+    { projectId: resolvedProjectId },
+    { enabled: !!project },
+  );
+  const goalsQuery = api.goal.getProjectGoals.useQuery(
+    { projectId: resolvedProjectId },
+    { enabled: !!project },
+  );
+  const outcomesQuery = api.outcome.getProjectOutcomes.useQuery(
+    { projectId: resolvedProjectId },
+    { enabled: !!project },
+  );
+  const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery(
+    { projectId: resolvedProjectId },
+    { enabled: !!project },
+  );
   const utils = api.useUtils();
 
-  const handleTabChange = (value: string | null) => {
-    if (value) {
-      setActiveTab(value as TabValue);
-    }
-  };
+  const toggleActionsMutation = api.transcription.toggleActionGeneration.useMutation({
+    onSuccess: (result) => {
+      if (result.action === "generated") {
+        notifications.show({
+          title: "Actions Generated",
+          message: `Successfully created ${result.actionsCreated} action${result.actionsCreated === 1 ? "" : "s"} from the transcription`,
+          color: "green",
+        });
+      } else {
+        notifications.show({
+          title: "Actions Deleted",
+          message: `Successfully deleted ${result.actionsDeleted} action${result.actionsDeleted === 1 ? "" : "s"}`,
+          color: "orange",
+        });
+      }
+      // Refresh project data
+      void utils.project.getById.invalidate({ id: projectId });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to toggle actions",
+        color: "red",
+      });
+    },
+  });
 
-  const handleTranscriptionClick = (transcription: any) => {
+  const handleTabChange = useCallback((value: string | null) => {
+    if (value && isValidTab(value)) {
+      // Update URL with new tab
+      const params = new URLSearchParams(searchParams.toString());
+      if (value === "overview") {
+        params.delete("tab");
+      } else {
+        params.set("tab", value);
+      }
+      const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+      router.push(newUrl, { scroll: false });
+    }
+  }, [router, searchParams]);
+
+  const handleTranscriptionClick = useCallback((transcription: any) => {
     setSelectedTranscription(transcription);
     setDrawerOpened(true);
-  };
+
+    // Add transcription sessionId to URL
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("transcription", transcription.sessionId);
+    const newUrl = `?${params.toString()}`;
+    router.push(newUrl, { scroll: false });
+  }, [router, searchParams]);
+
+  const handleTranscriptionClose = useCallback(() => {
+    setDrawerOpened(false);
+    setSelectedTranscription(null);
+
+    // Remove transcription param from URL
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("transcription");
+    const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+    router.push(newUrl, { scroll: false });
+  }, [router, searchParams]);
 
   // Check if project has active Fireflies workflow
   const hasFirefliesWorkflow = projectWorkflows?.some(
     workflow => workflow.template?.id === 'fireflies-meeting-transcription' && workflow.status === 'ACTIVE'
   ) || false;
 
+  // Auto-open transcription from URL param
+  useEffect(() => {
+    const transcriptionParam = searchParams.get("transcription");
+    if (transcriptionParam && project?.transcriptionSessions && !drawerOpened) {
+      const transcription = project.transcriptionSessions.find(
+        (session) => session.sessionId === transcriptionParam
+      );
+      if (transcription) {
+        setSelectedTranscription(transcription);
+        setDrawerOpened(true);
+      }
+    }
+  }, [searchParams, project?.transcriptionSessions, drawerOpened]);
+
   if (isLoading) {
     return <div>Loading project...</div>;
+  }
+
+  if (projectError) {
+    const isAccessDenied = projectError.data?.code === "FORBIDDEN";
+    return (
+      <Paper p="xl" className="text-center">
+        <Text size="lg" c="dimmed">
+          {isAccessDenied
+            ? "Access denied - you don't have permission to view this project"
+            : "Project not found"}
+        </Text>
+      </Paper>
+    );
   }
 
   if (!project) {
     return <div>Project not found</div>;
   }
 
+  // Derive header stats
+  const monogram = project.name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0] ?? "")
+    .join("")
+    .toUpperCase() || "P";
+
+  const statusLabel = (() => {
+    switch (project.status) {
+      case "ACTIVE":
+        return "Active project";
+      case "ON_HOLD":
+        return "On hold";
+      case "COMPLETED":
+        return "Completed";
+      case "CANCELLED":
+        return "Cancelled";
+      default:
+        return "Project";
+    }
+  })();
+
+  const totalActions = projectActions?.length ?? 0;
+  const doneActions =
+    projectActions?.filter((a) => a.status === "COMPLETED").length ?? 0;
+  const progressPct = Math.max(0, Math.min(100, Math.round(project.progress ?? 0)));
+
+  const dueDate = project.reviewDate ? new Date(project.reviewDate) : null;
+  const dueLabel = dueDate ? format(dueDate, "MMM d") : null;
+  const dueIsOverdue = dueDate ? isBefore(dueDate, startOfDay(new Date())) : false;
+
+  const ownerUser = project.dri ?? project.createdBy;
+  const ownerName = ownerUser?.name ?? null;
+  const ownerFirstName = ownerName ? ownerName.split(" ")[0] : null;
+  const ownerInitial = (ownerName ?? "?")[0]?.toUpperCase() ?? "?";
+
   return (
     <>
-      {/* Project Title and Description */}
-      <Paper className="w-full pl-8" px={0} bg="transparent" mb="xl">
-        <Group justify="space-between" align="flex-start">
-          <div>
-            <Title
-              order={2}
-              mb={4}
-              className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent"
-            >
-              {project.name}
-            </Title>
-            <Text size="sm" c="dimmed" lineClamp={2} maw={800}>
-              {project.description}
-            </Text>
+      {/* Project Header */}
+      <div className={overviewStyles.header}>
+        <div className={overviewStyles.headerMain}>
+          <div className={overviewStyles.eyebrow}>
+            <span className={overviewStyles.eyebrowDot} />
+            {statusLabel}
+            {workspace?.name ? ` · ${workspace.name}` : ""}
           </div>
-          <Group gap="xs">
-            <ActionIcon
-              variant={activeDrawer === 'chat' ? 'gradient' : 'filled'}
-              gradient={activeDrawer === 'chat' ? { from: 'blue', to: 'indigo', deg: 45 } : undefined}
-              size="lg"
-              onClick={() => setActiveDrawer(activeDrawer === 'chat' ? null : 'chat')}
-              title={activeDrawer === 'chat' ? 'Close Project Chat' : 'Open Project Chat'}
-              className={activeDrawer === 'chat' ? 'shadow-lg scale-105' : 'hover:scale-105'}
-              style={{
-                transition: 'all 0.2s ease',
-                transform: activeDrawer === 'chat' ? 'scale(1.05)' : 'scale(1)',
-                boxShadow: activeDrawer === 'chat' ? '0 4px 12px rgba(59, 130, 246, 0.3)' : undefined,
-              }}
+          <h1 className={overviewStyles.title}>
+            <span className={overviewStyles.titleGlyph}>{monogram}</span>
+            {project.name}
+          </h1>
+          {project.description && (
+            <div className={overviewStyles.sub}>{project.description}</div>
+          )}
+
+          <div className={overviewStyles.stats}>
+            <div className={overviewStyles.stat}>
+              <div className={overviewStyles.statLabel}>Progress</div>
+              <div className={overviewStyles.statValue}>
+                <div className={overviewStyles.progressBar}>
+                  <div
+                    className={overviewStyles.progressBarFill}
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+                {progressPct}%
+              </div>
+            </div>
+            <div className={overviewStyles.stat}>
+              <div className={overviewStyles.statLabel}>Actions</div>
+              <div className={overviewStyles.statValue}>
+                {doneActions} of {totalActions}
+              </div>
+            </div>
+            <div className={overviewStyles.stat}>
+              <div className={overviewStyles.statLabel}>Due</div>
+              <div
+                className={`${overviewStyles.statValue} ${
+                  dueIsOverdue ? overviewStyles.statValueDue : ""
+                }`}
+              >
+                {dueLabel ?? "—"}
+              </div>
+            </div>
+            {ownerFirstName && (
+              <div className={overviewStyles.stat}>
+                <div className={overviewStyles.statLabel}>Owner</div>
+                <div className={overviewStyles.statValue}>
+                  <div className={overviewStyles.ownerAvatar}>{ownerInitial}</div>
+                  {ownerFirstName}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={overviewStyles.headerActions}>
+          <CreateProjectModal project={project}>
+            <button
+              type="button"
+              className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
+              title="Edit Project"
+              aria-label="Edit project"
             >
-              <IconMessageCircle size={20} />
-            </ActionIcon>
-            <ActionIcon
-              variant={activeDrawer === 'settings' ? 'gradient' : 'filled'}
-              gradient={activeDrawer === 'settings' ? { from: 'gray', to: 'dark', deg: 45 } : undefined}
-              size="lg"
-              onClick={() => setActiveDrawer(activeDrawer === 'settings' ? null : 'settings')}
-              title={activeDrawer === 'settings' ? 'Close Project Settings' : 'Open Project Settings'}
-              className={activeDrawer === 'settings' ? 'shadow-lg scale-105' : 'hover:scale-105'}
-              style={{
-                transition: 'all 0.2s ease',
-                transform: activeDrawer === 'settings' ? 'scale(1.05)' : 'scale(1)',
-                boxShadow: activeDrawer === 'settings' ? '0 4px 12px rgba(107, 114, 128, 0.3)' : undefined,
-              }}
-            >
-              <IconSettings size={20} />
-            </ActionIcon>
-          </Group>
-        </Group>
-      </Paper>
+              <IconEdit size={14} />
+            </button>
+          </CreateProjectModal>
+          <button
+            type="button"
+            className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
+            onClick={() => openChatModal(projectId)}
+            title={chatModalOpen ? "Close Project Chat" : "Open Project Chat"}
+            aria-label="Project chat"
+          >
+            <IconMessageCircle size={14} />
+          </button>
+          <button
+            type="button"
+            className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
+            onClick={() =>
+              setActiveDrawer(activeDrawer === "settings" ? null : "settings")
+            }
+            title={
+              activeDrawer === "settings"
+                ? "Close Project Settings"
+                : "Open Project Settings"
+            }
+            aria-label="Project settings"
+          >
+            <IconSettings size={14} />
+          </button>
+        </div>
+      </div>
 
       {/* Main Content */}
       <div className="w-full">
-        <Tabs value={activeTab} onChange={handleTabChange}>
+        <Tabs
+          value={activeTab}
+          onChange={handleTabChange}
+          classNames={{ list: overviewStyles.tabsList, tab: overviewStyles.tab }}
+        >
           <Stack gap="xl" align="stretch" justify="flex-start">
             {/* Tabs Navigation */}
             <Tabs.List>
               <Tabs.Tab
+                value="overview"
+                leftSection={<IconHome size={14} />}
+              >
+                Overview
+              </Tabs.Tab>
+              <Tabs.Tab
                 value="tasks"
-                leftSection={<IconLayoutKanban size={16} />}
+                leftSection={<IconLayoutKanban size={14} />}
+                rightSection={
+                  totalActions > 0 ? (
+                    <span
+                      className={`${overviewStyles.tabCount} ${
+                        activeTab === "tasks" ? overviewStyles.tabCountActive : ""
+                      }`}
+                    >
+                      {totalActions}
+                    </span>
+                  ) : null
+                }
               >
                 Tasks
               </Tabs.Tab>
               <Tabs.Tab
                 value="goals"
-                leftSection={<IconTargetArrow size={16} />}
+                leftSection={<IconTargetArrow size={14} />}
               >
                 Goals
               </Tabs.Tab>
               <Tabs.Tab
                 value="outcomes"
-                leftSection={<IconActivity size={16} />}
+                leftSection={<IconActivity size={14} />}
               >
                 Outcomes
               </Tabs.Tab>
-              <Tabs.Tab value="timeline" leftSection={<IconClock size={16} />}>
+              <Tabs.Tab value="timeline" leftSection={<IconClock size={14} />}>
                 Timeline
               </Tabs.Tab>
               {/* <Tabs.Tab
                 value="plan"
-                leftSection={<IconClipboardList size={16} />}
+                leftSection={<IconClipboardList size={14} />}
               >
                 Plan
               </Tabs.Tab> */}
@@ -200,13 +501,13 @@ export function ProjectContent({
                 <>
                   <Tabs.Tab 
                     value="weekly-team-review" 
-                    leftSection={<IconUsers size={16} />}
+                    leftSection={<IconUsers size={14} />}
                   >
                     Weekly Team Review
                   </Tabs.Tab>
                   <Tabs.Tab 
                     value="weekly-outcomes" 
-                    leftSection={<IconCalendarWeek size={16} />}
+                    leftSection={<IconCalendarWeek size={14} />}
                   >
                     Weekly Outcomes
                   </Tabs.Tab>
@@ -215,19 +516,29 @@ export function ProjectContent({
               
               <Tabs.Tab
                 value="workflows"
-                leftSection={<IconGitBranch size={16} />}
+                leftSection={<IconGitBranch size={14} />}
               >
                 Workflows
               </Tabs.Tab>
               <Tabs.Tab
                 value="transcriptions"
-                leftSection={<IconMicrophone size={16} />}
+                leftSection={<IconMicrophone size={14} />}
               >
                 Transcriptions
+              </Tabs.Tab>
+              <Tabs.Tab
+                value="integrations"
+                leftSection={<IconPlug size={14} />}
+              >
+                Integrations
               </Tabs.Tab>
             </Tabs.List>
 
             {/* Content Area */}
+            <Tabs.Panel value="overview">
+              <ProjectOverview project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+            </Tabs.Panel>
+
             <Tabs.Panel value="tasks">
               <Stack gap="md">
                 <ProjectSyncStatus
@@ -238,7 +549,7 @@ export function ProjectContent({
                 <Actions
                   viewName={viewName}
                   defaultView="list"
-                  projectId={projectId}
+                  projectId={project.id}
                   displayAlignment={false}
                   projectSyncInfo={{
                     taskManagementTool: project.taskManagementTool,
@@ -256,18 +567,7 @@ export function ProjectContent({
             </Tabs.Panel> */}
 
             <Tabs.Panel value="goals">
-              <Paper
-                p="md"
-                radius="sm"
-                className="mx-auto w-full bg-surface-secondary"
-              >
-                <GoalsTable goals={goalsQuery.data ?? []} />
-                <CreateGoalModal projectId={projectId}>
-                  <Button variant="filled" color="dark" leftSection="+">
-                    Add Goal
-                  </Button>
-                </CreateGoalModal>
-              </Paper>
+              <InitiativeDashboard projectId={resolvedProjectId} />
             </Tabs.Panel>
 
             <Tabs.Panel value="outcomes">
@@ -277,11 +577,13 @@ export function ProjectContent({
                 className="mx-auto w-full bg-surface-secondary"
               >
                 <OutcomesTable outcomes={outcomesQuery.data ?? []} />
-                <CreateOutcomeModal projectId={projectId}>
-                  <Button variant="filled" color="dark" leftSection="+">
-                    Add Outcome
-                  </Button>
-                </CreateOutcomeModal>
+                <div className="mt-4">
+                  <CreateOutcomeModal projectId={resolvedProjectId}>
+                    <Button variant="filled" color="dark" leftSection="+">
+                      Add Outcome
+                    </Button>
+                  </CreateOutcomeModal>
+                </div>
               </Paper>
             </Tabs.Panel>
 
@@ -291,7 +593,7 @@ export function ProjectContent({
                 radius="sm"
                 className="mx-auto w-full bg-surface-secondary"
               >
-                <OutcomeTimeline projectId={projectId} />
+                <OutcomeTimeline projectId={resolvedProjectId} />
               </Paper>
             </Tabs.Panel>
 
@@ -301,7 +603,7 @@ export function ProjectContent({
                 radius="sm"
                 className="mx-auto w-full bg-surface-secondary"
               >
-                <ProjectWorkflowsTab projectId={projectId} />
+                <ProjectWorkflowsTab projectId={resolvedProjectId} />
               </Paper>
             </Tabs.Panel>
 
@@ -309,11 +611,11 @@ export function ProjectContent({
             {project.teamId && (
               <>
                 <Tabs.Panel value="weekly-team-review">
-                  <TeamWeeklyReview projectId={projectId} />
+                  <TeamWeeklyReview projectId={resolvedProjectId} />
                 </Tabs.Panel>
 
                 <Tabs.Panel value="weekly-outcomes">
-                  <WeeklyOutcomes projectId={projectId} />
+                  <WeeklyOutcomes projectId={resolvedProjectId} />
                 </Tabs.Panel>
               </>
             )}
@@ -321,11 +623,14 @@ export function ProjectContent({
             <Tabs.Panel value="transcriptions">
               <Stack gap="md">
                 <Group justify="space-between" align="center">
-                  <Title order={4}>Project Transcriptions</Title>
+                  <Group gap="md">
+                    <Title order={4}>Project Transcriptions</Title>
+                    <CreateTranscriptionModal projectId={resolvedProjectId} />
+                  </Group>
                   <Group gap="md">
                     {hasFirefliesWorkflow && (
-                      <ProjectFirefliesSyncPanel 
-                        projectId={projectId}
+                      <ProjectFirefliesSyncPanel
+                        projectId={resolvedProjectId}
                         onSyncComplete={() => {
                           // Refresh project data to show newly synced transcriptions
                           void utils.project.getById.invalidate({ id: projectId });
@@ -380,10 +685,10 @@ export function ProjectContent({
                                   )}
                                 </Group>
                               </Group>
-                              
+
                               <Group gap="md" c="dimmed">
                                 <Text size="sm">
-                                  {new Date(session.createdAt).toLocaleDateString('en-US', {
+                                  {new Date(session.meetingDate ?? session.createdAt).toLocaleDateString('en-US', {
                                     weekday: 'short',
                                     year: 'numeric',
                                     month: 'short',
@@ -391,7 +696,7 @@ export function ProjectContent({
                                   })}
                                 </Text>
                                 <Text size="sm">
-                                  {new Date(session.createdAt).toLocaleTimeString('en-US', {
+                                  {new Date(session.meetingDate ?? session.createdAt).toLocaleTimeString('en-US', {
                                     hour: '2-digit',
                                     minute: '2-digit',
                                   })}
@@ -406,14 +711,28 @@ export function ProjectContent({
                                 )}
                               </Group>
                             </Stack>
+
+                            {/* Generate/Delete Actions Button */}
+                            <Button
+                              size="xs"
+                              variant={(session as any).processedAt && session.actions?.length > 0 ? "light" : "filled"}
+                              color={(session as any).processedAt && session.actions?.length > 0 ? "red" : "blue"}
+                              leftSection={(session as any).processedAt && session.actions?.length > 0 ? <IconTrash size={14} /> : <IconPlayerPlay size={14} />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleActionsMutation.mutate({ transcriptionId: session.id });
+                              }}
+                              loading={toggleActionsMutation.isPending && toggleActionsMutation.variables?.transcriptionId === session.id}
+                            >
+                              {(session as any).processedAt && session.actions?.length > 0 ? "Delete Actions" : "Generate Actions"}
+                            </Button>
                           </Group>
 
-                          {/* Transcription Preview */}
-                          {session.transcription && (
-                            <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800">
-                              <TranscriptionRenderer
-                                transcription={session.transcription}
-                                provider={session.sourceIntegration?.provider}
+                          {/* Description Preview */}
+                          {session.description && (
+                            <Paper p="sm" radius="sm" className="bg-surface-secondary">
+                              <SmartContentRenderer
+                                content={session.description}
                                 isPreview={true}
                                 maxLines={3}
                               />
@@ -440,7 +759,7 @@ export function ProjectContent({
                                   <Group key={action.id} gap="xs" align="flex-start">
                                     <Text size="xs" c="dimmed" mt={2}>•</Text>
                                     <Text size="sm" lineClamp={1} style={{ flex: 1 }}>
-                                      <HTMLContent html={action.name} />
+                                      <HTMLContent html={action.name} compactUrls />
                                     </Text>
                                     {action.priority && (
                                       <Badge variant="outline" size="xs" color="gray">
@@ -474,60 +793,21 @@ export function ProjectContent({
                 )}
               </Stack>
             </Tabs.Panel>
+
+            <Tabs.Panel value="integrations">
+              <ProjectIntegrations project={{ ...project, teamId: project.teamId }} />
+            </Tabs.Panel>
           </Stack>
         </Tabs>
       </div>
 
-      {/* Transcription Details Drawer */}
-      <TranscriptionDetailsDrawer
+      {/* Transcription Details Modal */}
+      <TranscriptionDetailsModal
         opened={drawerOpened}
-        onClose={() => setDrawerOpened(false)}
+        onClose={handleTranscriptionClose}
         transcription={selectedTranscription}
+        onTranscriptionUpdate={(updated) => setSelectedTranscription(updated)}
       />
-
-      {/* Project Chat Drawer */}
-      <Drawer.Root
-        opened={activeDrawer === 'chat'}
-        onClose={() => setActiveDrawer(null)}
-        position="right"
-        size="lg"
-        trapFocus={false}
-        lockScroll={false}
-      >
-        <Drawer.Content 
-          style={{ 
-            height: "100vh",
-            backgroundColor: 'transparent'
-          }}
-        >
-          <div className="flex h-full flex-col bg-primary">
-            {/* Custom Header integrated with ManyChat design */}
-            <div className="bg-background-secondary/90 backdrop-blur-lg border-b border-border-primary/30 p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-brand-success rounded-full animate-pulse"></div>
-                  <Text size="lg" fw={600} className="text-primary">
-                    Project Chat
-                  </Text>
-                </div>
-                <ActionIcon
-                  variant="subtle"
-                  size="lg"
-                  onClick={() => setActiveDrawer(null)}
-                  c="dimmed"
-                  className="hover:bg-surface-hover/50 transition-colors"
-                >
-                  <IconX size={20} />
-                </ActionIcon>
-              </div>
-            </div>
-            
-            <div className="flex-1 h-full overflow-hidden">
-              <ManyChat projectId={projectId} />
-            </div>
-          </div>
-        </Drawer.Content>
-      </Drawer.Root>
 
       {/* Project Settings Drawer */}
       <Drawer
@@ -541,12 +821,12 @@ export function ProjectContent({
         styles={{
           header: { display: 'none' },
           body: { padding: 0 },
-          content: { backgroundColor: 'var(--mantine-color-dark-7)' }
+          content: { backgroundColor: 'var(--color-bg-elevated)' }
         }}
       >
         <Stack gap="xl" p="lg" h="100vh" style={{ overflowY: 'auto' }}>
           {/* Custom Header with Close Button */}
-          <Group justify="space-between" align="center" pb="sm" style={{ borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
+          <Group justify="space-between" align="center" pb="sm" style={{ borderBottom: '1px solid var(--color-border-primary)' }}>
             <div>
               <Text size="lg" fw={600} c="bright">
                 {project.name}
@@ -569,8 +849,8 @@ export function ProjectContent({
           {project.team && (
             <Stack gap="xs">
               <Group gap="xs" align="center">
-                <IconTargetArrow size={16} color="var(--mantine-color-blue-4)" />
-                <Text size="sm" fw={600} c="blue.4">
+                <IconTargetArrow size={16} className="text-brand-primary" />
+                <Text size="sm" fw={600} className="text-brand-primary">
                   TEAM
                 </Text>
               </Group>
@@ -607,10 +887,7 @@ export function ProjectContent({
 
           {/* Project Details */}
           <ProjectDetails project={project} />
-          
-          {/* Project Integrations */}
-          <ProjectIntegrations project={{ ...project, teamId: project.teamId }} />
-          
+
           {/* Project Sync Configuration */}
           {project && (
             <ProjectSyncConfiguration
@@ -625,8 +902,102 @@ export function ProjectContent({
             />
           )}
           
+          {/* Detailed Action Pages Override */}
+          <Stack gap="xs">
+            <Group gap="xs" align="center">
+              <IconLayoutList size={16} className="text-brand-primary" />
+              <Text size="sm" fw={600} className="text-brand-primary">
+                ACTION DETAIL PAGES
+              </Text>
+            </Group>
+            <Card withBorder p="md" radius="lg" className="bg-surface-secondary border-border-primary">
+              <Stack gap="sm">
+                <Text size="sm" className="text-text-secondary">
+                  Override the workspace default for detailed action pages in this project.
+                </Text>
+                <SegmentedControl
+                  value={
+                    project?.enableDetailedActions == null
+                      ? "inherit"
+                      : project.enableDetailedActions
+                        ? "on"
+                        : "off"
+                  }
+                  onChange={(value) => {
+                    if (!project) return;
+                    const newValue = value === "inherit" ? null : value === "on";
+                    updateDetailedActionsMutation.mutate({
+                      id: project.id,
+                      name: project.name,
+                      status: project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
+                      priority: project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
+                      enableDetailedActions: newValue,
+                    });
+                  }}
+                  data={[
+                    {
+                      label: `Inherit (${workspaceDetailedEnabled ? "ON" : "OFF"})`,
+                      value: "inherit",
+                    },
+                    { label: "On", value: "on" },
+                    { label: "Off", value: "off" },
+                  ]}
+                  fullWidth
+                  disabled={updateDetailedActionsMutation.isPending}
+                />
+              </Stack>
+            </Card>
+          </Stack>
+
+          {/* Bounties Override */}
+          <Stack gap="xs">
+            <Group gap="xs" align="center">
+              <IconCoin size={16} className="text-brand-primary" />
+              <Text size="sm" fw={600} className="text-brand-primary">
+                BOUNTIES
+              </Text>
+            </Group>
+            <Card withBorder p="md" radius="lg" className="bg-surface-secondary border-border-primary">
+              <Stack gap="sm">
+                <Text size="sm" className="text-text-secondary">
+                  Override the workspace default for bounties in this project.
+                </Text>
+                <SegmentedControl
+                  value={
+                    project?.enableBounties == null
+                      ? "inherit"
+                      : project.enableBounties
+                        ? "on"
+                        : "off"
+                  }
+                  onChange={(value) => {
+                    if (!project) return;
+                    const newValue = value === "inherit" ? null : value === "on";
+                    updateBountiesMutation.mutate({
+                      id: project.id,
+                      name: project.name,
+                      status: project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
+                      priority: project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
+                      enableBounties: newValue,
+                    });
+                  }}
+                  data={[
+                    {
+                      label: `Inherit (${workspaceBountiesEnabled ? "ON" : "OFF"})`,
+                      value: "inherit",
+                    },
+                    { label: "On", value: "on" },
+                    { label: "Off", value: "off" },
+                  ]}
+                  fullWidth
+                  disabled={updateBountiesMutation.isPending}
+                />
+              </Stack>
+            </Card>
+          </Stack>
+
           {/* Team Members */}
-          <Team projectId={projectId} />
+          <Team projectId={resolvedProjectId} />
         </Stack>
       </Drawer>
     </>

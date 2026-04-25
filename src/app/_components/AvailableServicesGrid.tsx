@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Title, Text, SimpleGrid, Stack, TextInput } from "@mantine/core";
+import { Title, Text, Stack, TextInput } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
 import { ServiceCard } from "./ServiceCard";
 
@@ -50,38 +50,35 @@ export function AvailableServicesGrid({
       </div>
 
       {/* Search Bar */}
-      <div className="flex justify-center py-4">
-        <TextInput
-          placeholder="Search for services..."
-          leftSection={<IconSearch size={16} />}
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.currentTarget.value)}
-          styles={{
-            root: { maxWidth: "400px", width: "100%" },
-          }}
-        />
-      </div>
+      <TextInput
+        placeholder="Search for services..."
+        leftSection={<IconSearch size={16} />}
+        value={searchQuery}
+        onChange={(event) => setSearchQuery(event.currentTarget.value)}
+        styles={{
+          root: { maxWidth: "400px", width: "100%" },
+        }}
+      />
 
-      <SimpleGrid cols={2} spacing="md">
+      <div className="flex flex-wrap gap-3">
         {filteredServices.length > 0 ? (
           filteredServices.map((option) => (
-            <div key={option.value} className="flex justify-center">
-              <ServiceCard
-                variant="available"
-                serviceName={option.label}
-                provider={option.value}
-                onCardClick={() => onServiceClick(option.value)}
-              />
-            </div>
+            <ServiceCard
+              key={option.value}
+              variant="available"
+              serviceName={option.label}
+              provider={option.value}
+              onCardClick={() => onServiceClick(option.value)}
+            />
           ))
         ) : (
-          <div className="col-span-2 text-center py-8">
+          <div className="w-full text-center py-8">
             <Text c="dimmed" size="sm">
               No services found matching &ldquo;{searchQuery}&rdquo;
             </Text>
           </div>
         )}
-      </SimpleGrid>
+      </div>
     </Stack>
   );
 }

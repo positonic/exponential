@@ -4,6 +4,10 @@ import { db } from '~/server/db';
 import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
 import { createCallerFactory } from '~/server/api/trpc';
 import { appRouter } from '~/server/api/root';
+import { parseActionInput } from '~/server/services/parsing';
+import { SlackChannelResolver } from '~/server/services/SlackChannelResolver';
+import { PRODUCT_NAME } from '~/lib/brand';
+import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 // Slack API client
 const SLACK_API_BASE = 'https://slack.com/api';
@@ -198,7 +202,8 @@ interface SlackEvent {
 
 // Slack Interactive Components payload
 interface SlackInteractivePayload {
-  type: 'block_actions' | 'view_submission' | 'shortcut';
+  type: 'block_actions' | 'view_submission' | 'shortcut' | 'message_action';
+  callback_id?: string;
   user: {
     id: string;
     name: string;
@@ -207,6 +212,16 @@ interface SlackInteractivePayload {
   team: {
     id: string;
     domain: string;
+  };
+  channel?: {
+    id: string;
+    name?: string;
+  };
+  message?: {
+    type: string;
+    text: string;
+    user: string;
+    ts: string;
   };
   actions?: Array<{
     action_id: string;
@@ -408,9 +423,9 @@ async function sendAccessDeniedWithRegistration(
     const registrationUrl = `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/auth/slack-connect?token=${registrationToken}`;
     
     const message = `🚨 **Access denied** - You are not authorized to use this system.\n\n` +
-      `To connect your Slack account to Exponential, please:\n` +
+      `To connect your Slack account to ${PRODUCT_NAME}, please:\n` +
       `1. Click here: ${registrationUrl}\n` +
-      `2. Sign in to your Exponential account\n` +
+      `2. Sign in to your ${PRODUCT_NAME} account\n` +
       `3. Complete the connection process\n\n` +
       `*This link expires in 24 hours. Contact your team administrator if you need help.*`;
 
@@ -540,8 +555,8 @@ export async function POST(request: NextRequest) {
     } else if ('command' in payload) {
       // Slash command
       response = await handleSlashCommand(payload, integrationData);
-    } else if ('actions' in payload || 'view' in payload) {
-      // Interactive component
+    } else if ('actions' in payload || 'view' in payload || 'callback_id' in payload) {
+      // Interactive component (block_actions, view_submission, message shortcuts)
       response = await handleInteractiveComponent(payload, integrationData);
     } else {
       response = { success: true, message: 'Received but not processed' };
@@ -698,19 +713,41 @@ async function handleSlashCommand(payload: SlackSlashCommandPayload, integration
       case '/exponential':
         return await handleExpoCommand(text, authenticatedUser, response_url, channel_id, integrationData);
       
-      case '/paddy':
-      case '/p':
-        // Direct shorthand for chatting with Paddy
+      case '/zoe':
+      case '/z':
+        // Primary AI companion
         if (text.trim()) {
-          void handleDeferredPaddyResponse(text, authenticatedUser, response_url);
+          void handleDeferredZoeResponse(text, authenticatedUser, response_url, {
+            channelId: channel_id,
+            integrationData,
+          });
           return {
             response_type: 'ephemeral',
-            text: '🤖 Paddy is thinking... I\'ll respond shortly!'
+            text: '🔮 Zoe is thinking...'
           };
         } else {
           return {
             response_type: 'ephemeral',
-            text: 'Hi! I\'m Paddy, your AI project manager. What can I help you with today?'
+            text: 'Hey! I\'m Zoe 🔮 — what\'s on your mind?'
+          };
+        }
+
+      case '/paddy':
+      case '/p':
+        // Legacy support - redirects to Zoe
+        if (text.trim()) {
+          void handleDeferredZoeResponse(text, authenticatedUser, response_url, {
+            channelId: channel_id,
+            integrationData,
+          });
+          return {
+            response_type: 'ephemeral',
+            text: '🔮 Zoe is thinking...'
+          };
+        } else {
+          return {
+            response_type: 'ephemeral',
+            text: 'Hey! I\'m Zoe 🔮 (Paddy retired) — what\'s on your mind?'
           };
         }
       
@@ -733,6 +770,10 @@ async function handleInteractiveComponent(payload: SlackInteractivePayload, inte
   const { type, actions } = payload;
   const { user } = integrationData;
 
+  // Message shortcut: "Create Action"
+  if (type === 'message_action' && payload.callback_id === 'create_action') {
+    return handleCreateAction(payload, integrationData);
+  }
 
   if (type === 'block_actions' && actions) {
     for (const action of actions) {
@@ -854,7 +895,94 @@ async function findTeamMemberFromSlackUser(
   }
 }
 
-async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<string> {
+/**
+ * Build concise OKR and project summary context for a workspace.
+ * Used to give the Slack bot awareness of workspace-level goals and active projects.
+ */
+async function buildWorkspaceOKRContext(workspaceId: string): Promise<string> {
+  const [goals, projects] = await Promise.all([
+    db.goal.findMany({
+      where: { workspaceId },
+      include: {
+        keyResults: {
+          select: {
+            title: true,
+            targetValue: true,
+            currentValue: true,
+            startValue: true,
+            unit: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { title: 'asc' },
+      take: 10,
+    }),
+    db.project.findMany({
+      where: {
+        workspaceId,
+        status: { in: ['ACTIVE', 'IN_PROGRESS', 'AT_RISK'] },
+      },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        description: true,
+        actions: {
+          select: { status: true, kanbanStatus: true },
+        },
+      },
+      orderBy: { name: 'asc' },
+      take: 15,
+    }),
+  ]);
+
+  let context = '';
+
+  if (goals.length > 0) {
+    context += 'OKRs (Objectives & Key Results):\n';
+    for (const goal of goals) {
+      const krs = goal.keyResults;
+      const avgProgress = krs.length > 0
+        ? krs.reduce((acc, kr) => {
+            const range = kr.targetValue - kr.startValue;
+            const progress = range > 0 ? ((kr.currentValue - kr.startValue) / range) * 100 : 0;
+            return acc + Math.min(100, Math.max(0, progress));
+          }, 0) / krs.length
+        : 0;
+
+      context += `\n• Objective: "${goal.title}" (${Math.round(avgProgress)}% overall)`;
+      if (goal.period) context += ` [${goal.period}]`;
+      for (const kr of krs) {
+        const krRange = kr.targetValue - kr.startValue;
+        const krProgress = krRange > 0 ? ((kr.currentValue - kr.startValue) / krRange) * 100 : 0;
+        context += `\n  - KR: "${kr.title}" — ${kr.currentValue}/${kr.targetValue} ${kr.unit} (${Math.round(Math.min(100, Math.max(0, krProgress)))}%, ${kr.status})`;
+      }
+    }
+  }
+
+  if (projects.length > 0) {
+    context += '\n\nActive Projects:\n';
+    for (const p of projects) {
+      const totalActions = p.actions.length;
+      const completedActions = p.actions.filter(a =>
+        a.status === 'COMPLETED' || a.kanbanStatus === 'DONE'
+      ).length;
+      const actionProgress = totalActions > 0 ? Math.round((completedActions / totalActions) * 100) : 0;
+      context += `• "${p.name}" — ${p.status ?? 'unknown'}, ${completedActions}/${totalActions} actions done (${actionProgress}%)`;
+      if (p.description) context += ` — ${p.description.slice(0, 80)}`;
+      context += '\n';
+    }
+  }
+
+  return context;
+}
+
+async function chatWithZoeUsingTRPC(
+  message: string,
+  user: any,
+  channelContext?: { channelId: string; integrationData: any }
+): Promise<string> {
   const startTime = Date.now();
   
   try {
@@ -865,8 +993,9 @@ async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<strin
         email: user.email,
         name: user.name,
         image: user.image,
+        isAdmin: user.isAdmin ?? false,
       },
-      expires: new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
+      expires: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
     };
 
     // Create server-side tRPC caller with authentication context
@@ -878,60 +1007,130 @@ async function chatWithPaddyUsingTRPC(message: string, user: any): Promise<strin
     });
 
     // Get available agents
+    console.log(`🔍 [Zoe] Fetching agents for user ${user.id}...`);
     const mastraAgents = await caller.mastra.getMastraAgents();
+    console.log(`🔍 [Zoe] Found ${mastraAgents.length} agents: ${mastraAgents.map(a => a.id).join(', ')}`);
 
-    // Find Paddy agent or fallback
+    // Find Zoe agent or fallback
     let targetAgentId: string;
-    const paddyAgent = mastraAgents.find(agent => 
-      agent.name.toLowerCase().includes('paddy') || 
-      agent.name.toLowerCase().includes('project manager')
+    const zoeAgent = mastraAgents.find(agent =>
+      agent.name.toLowerCase() === 'zoe' ||
+      agent.id.toLowerCase() === 'zoeagent'
     );
-    
-    if (paddyAgent) {
-      targetAgentId = paddyAgent.id;
+
+    if (zoeAgent) {
+      targetAgentId = zoeAgent.id;
     } else if (mastraAgents.length > 0) {
-      // Use agent selection if Paddy not found
+      // Use agent selection if Zoe not found
       const { agentId } = await caller.mastra.chooseAgent({ message });
       targetAgentId = agentId;
     } else {
       throw new Error('No agents available');
     }
+    console.log(`🔍 [Zoe] Using agent: ${targetAgentId}`);
+
+    // Resolve channel-to-project and workspace context if available
+    let projectContext = '';
+    let workspaceContext = '';
+    let resolvedWorkspaceId: string | undefined;
+    if (channelContext?.channelId && !channelContext.channelId.startsWith('D')) {
+      const botToken = channelContext.integrationData?.credentials?.BOT_TOKEN;
+      const integrationId = channelContext.integrationData?.integration?.id;
+      if (botToken) {
+        const { projects, teams, workspaces } = await SlackChannelResolver.resolveProjectFromChannelId(
+          channelContext.channelId,
+          botToken,
+          integrationId
+        );
+        if (projects.length === 1) {
+          const project = projects[0]!;
+          projectContext = `\n\nCHANNEL PROJECT CONTEXT:
+This Slack channel is linked to the project "${project.name}" (ID: ${project.id}).
+Project status: ${project.status ?? 'unknown'}
+${project.description ? `Project description: ${project.description}` : ''}
+When the user says "this project" or "the project", they are referring to "${project.name}".
+Use the project ID ${project.id} when querying for project-specific data.`;
+        } else if (projects.length > 1) {
+          const projectDetails = projects
+            .map(p => `- "${p.name}" (ID: ${p.id}, status: ${p.status ?? 'unknown'})${p.description ? ` — ${p.description}` : ''}`)
+            .join('\n');
+          projectContext = `\n\nCHANNEL PROJECT CONTEXT:
+This Slack channel is linked to ${projects.length} projects:
+${projectDetails}
+When the user says "this project", ask which one they mean or use context clues.
+Use the project IDs above when querying for project-specific data.`;
+        }
+        for (const team of teams) {
+          projectContext += `\nThis channel is associated with team "${team.name}" (ID: ${team.id}).`;
+        }
+
+        // Resolve workspace context with OKRs and project summaries
+        if (workspaces.length >= 1) {
+          const workspace = workspaces[0]!;
+          resolvedWorkspaceId = workspace.id;
+          const todoAppBaseUrl = process.env.TODO_APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
+          const okrPageUrl = `${todoAppBaseUrl}/w/${workspace.slug}/okrs`;
+          const okrContext = await buildWorkspaceOKRContext(workspace.id);
+          workspaceContext = `\n\nWORKSPACE CONTEXT:
+This channel is linked to workspace "${workspace.name}" (slug: ${workspace.slug}, type: ${workspace.type}).
+When the user mentions "the workspace", "our team", or asks about overall progress, they mean "${workspace.name}".
+OKR page: ${okrPageUrl}
+When discussing OKRs, ALWAYS include a link to the OKR page using Slack format: <${okrPageUrl}|View OKRs in ${PRODUCT_NAME}>
+Only show OKRs belonging to this workspace ("${workspace.name}"). Do NOT include OKRs from other workspaces.
+${okrContext}`;
+        }
+      }
+    }
 
     // Generate system context for Slack interaction
-    const systemContext = `You are Paddy, a helpful project manager assistant integrated with Slack. 
+    const systemContext = `You are Zoe 🔮, an AI companion integrated with Slack.
 The user is ${user.name || 'User'} (ID: ${user.id}).
 Current date: ${new Date().toISOString().split('T')[0]}
 
 You can help with:
-- Creating and managing tasks/actions
-- Discussing projects and priorities  
-- General productivity and project management advice
-- Answering questions about their work
+- Figuring out what to focus on
+- Breaking down projects into actions
+- Tracking progress on goals
+- Thinking through decisions
 - Accessing meeting transcriptions and project data
 
-Keep responses concise and friendly, suitable for Slack chat. Use Slack formatting when helpful (like *bold* or _italic_).
+Be concise, direct, and genuinely helpful. Skip the corporate fluff.
 
-IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
+FORMATTING: You are responding in Slack, NOT a markdown renderer. Use Slack mrkdwn format:
+- Bold: *text* (single asterisks, NOT **double**)
+- Italic: _text_
+- Code: \`code\` or \`\`\`code block\`\`\`
+- Lists: use • or numbered lists
+- DO NOT use markdown headers (# or ## or ###) — they render as literal text in Slack
+- DO NOT use markdown links [text](url) — use <url|text> instead
+- Use line breaks and emoji to structure sections visually
+
+IMPORTANT: Keep responses under 3000 characters due to Slack message limits.${projectContext}${workspaceContext}`;
 
     // Call agent through authenticated tRPC
+    console.log(`🔍 [Zoe] Calling agent ${targetAgentId} with message: "${message.slice(0, 80)}..."`);
     const result = await caller.mastra.callAgent({
       agentId: targetAgentId,
+      workspaceId: resolvedWorkspaceId,
       messages: [
         { role: 'system', content: systemContext },
         { role: 'user', content: message }
       ]
     });
+    console.log(`✅ [Zoe] Agent responded in ${Date.now() - startTime}ms`);
 
-    const finalResponse = typeof result.response === 'string' 
-      ? result.response 
+    const finalResponse = typeof result.response === 'string'
+      ? result.response
       : 'Sorry, I had trouble understanding that. Can you try rephrasing?';
     
     return finalResponse;
 
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    console.error(`❌ [Paddy] Error after ${totalTime}ms:`, error);
-    
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error(`❌ [Zoe] Error after ${totalTime}ms: ${errorMsg}`, { error: errorMsg, stack: errorStack });
+
     if (error instanceof Error) {
       if (error.message.toLowerCase().includes('timeout')) {
         return 'The request timed out. Please try asking something simpler or try again in a moment.';
@@ -939,68 +1138,54 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.`;
       if (error.message.toLowerCase().includes('unauthorized')) {
         return 'I had trouble accessing some features. Please try a simpler question.';
       }
+      if (error.message.includes('No agents available')) {
+        return 'I\'m having trouble connecting to my AI backend. The team has been notified.';
+      }
+      if (error.message.includes('Mastra generate failed')) {
+        return `I ran into an issue processing your request. Please try again in a moment.`;
+      }
     }
-    
-    return 'Sorry, I encountered an error. Please try a simpler question or try again later.';
+
+    return `Sorry, I encountered an error. Please try again later. (Debug: ${errorMsg.slice(0, 100)})`;
   }
 }
 
 /**
- * Format AI responses for better Slack presentation
+ * Format AI responses for Slack's mrkdwn format.
+ * Slack uses its own markup: *bold*, _italic_, ~strike~, `code`, ```code block```
+ * Slack does NOT support: ## headers, **bold**, [links](url) with text, or nested formatting.
  */
 function formatResponseForSlack(response: string): string {
-  // Convert markdown-style formatting to Slack formatting
-  let formatted = response
+  const formatted = response
+    // Convert markdown headers (###, ##, #) to bold text with newline
+    .replace(/^#{1,3}\s+(.+)$/gm, '\n*$1*')
     // Convert **bold** to *bold* for Slack
     .replace(/\*\*(.*?)\*\*/g, '*$1*')
-    // Convert _italic_ to _italic_ (already correct for Slack)
-    .replace(/_(.*?)_/g, '_$1_')
-    // Convert `code` to `code` (already correct for Slack)
-    .replace(/`([^`]+)`/g, '`$1`')
-    // Convert numbered lists to better formatting
-    .replace(/^(\d+)\.\s*\*\*(.*?)\*\*/gm, '$1. *$2*')
-    // Ensure proper spacing around sections
-    .replace(/\n\s*-\s*\*\*(.*?)\*\*/g, '\n   • *$1*')
-    // Clean up extra asterisks that might remain
+    // Convert markdown links [text](url) to Slack format <url|text>
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>')
+    // Convert markdown bullet dashes to bullet points
+    .replace(/^(\s*)-\s+/gm, '$1• ')
+    // Clean up triple asterisks from bold+italic collisions
     .replace(/\*\*\*/g, '*')
-    // Add emoji for better visual appeal
-    .replace(/^Here are your current goals:/m, '🎯 *Your Current Goals:*')
-    .replace(/Life Domain:/g, '📂 Life Domain:')
-    .replace(/Due Date:/g, '📅 Due Date:')
-    .replace(/Project:/g, '📋 Project:')
-    .replace(/Priority:/g, '⚡ Priority:')
-    .replace(/Status:/g, '🔄 Status:')
-    // Format goal entries better
-    .replace(/^(\d+)\.\s*\*(.*?)\*/gm, '$1. 🎯 *$2*')
     // Clean up multiple line breaks
     .replace(/\n{3,}/g, '\n\n')
-    // Add spacing around list items for readability
-    .replace(/^(\d+\.\s*🎯.*?)$/gm, '\n$1')
+    // Remove horizontal rules (--- or ***)
+    .replace(/^[-*]{3,}$/gm, '───')
     .trim();
-
-  // Add helpful footer for goals
-  if (formatted.includes('Your Current Goals')) {
-    formatted += '\n\n💬 _Want to discuss a specific goal or set new ones? Just ask!_';
-  }
-  
-  // Add helpful footer for projects
-  if (formatted.includes('project') || formatted.includes('Project')) {
-    formatted += '\n\n💬 _Need help with a specific project? Just let me know!_';
-  }
-
-  // Add helpful footer for actions/tasks
-  if (formatted.includes('action') || formatted.includes('task') || formatted.includes('todo')) {
-    formatted += '\n\n💬 _Want to add, update, or discuss any tasks? I\'m here to help!_';
-  }
 
   return formatted;
 }
 
 
-async function handleDeferredPaddyResponse(message: string, user: any, responseUrl: string) {
+async function handleDeferredZoeResponse(
+  message: string,
+  user: any,
+  responseUrl: string,
+  channelContext?: { channelId: string; integrationData: any }
+) {
   try {
-    const paddyResponse = await chatWithPaddyUsingTRPC(message, user);
-    const formattedResponse = formatResponseForSlack(paddyResponse);
+    const zoeResponse = await chatWithZoeUsingTRPC(message, user, channelContext);
+    const formattedResponse = formatResponseForSlack(zoeResponse);
     
     // Send the response back to Slack using the response_url
     await fetch(responseUrl, {
@@ -1013,7 +1198,7 @@ async function handleDeferredPaddyResponse(message: string, user: any, responseU
     });
     
   } catch (error) {
-    console.error('❌ [Deferred] Error in deferred Paddy response:', error);
+    console.error('❌ [Deferred] Error in deferred Zoe response:', error);
     
     // Send error message back to Slack
     await fetch(responseUrl, {
@@ -1094,7 +1279,7 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
 
   // For DMs, if no text or just greeting, send welcome message
   if (isDM && (!cleanText || cleanText.toLowerCase().match(/^(hi|hello|hey|sup|yo)$/))) {
-    const welcomeMessage = `👋 *Hello! I'm Paddy, your AI project manager.*
+    const welcomeMessage = `👋 *Hey! I'm Zoe 🔮*
 
 You can chat with me naturally here - no commands needed!
 
@@ -1130,7 +1315,10 @@ You can chat with me naturally here - no commands needed!
 
   try {
     // Process the request and respond directly (no "thinking" message)
-    const response = await chatWithPaddyUsingTRPC(cleanText, user);
+    const response = await chatWithZoeUsingTRPC(cleanText, user, {
+      channelId: event.channel!,
+      integrationData,
+    });
     const formattedResponse = formatResponseForSlack(response);
     
     await sendSlackResponse(
@@ -1139,19 +1327,19 @@ You can chat with me naturally here - no commands needed!
       integrationData,
       event.thread_ts
     );
-    logMessageCompletion('paddy');
+    logMessageCompletion('zoe');
   } catch (error) {
-    console.error('Error chatting with Paddy:', error);
+    console.error('Error chatting with Zoe:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
     // Send error response
     await sendSlackResponse(
-      'Sorry, I encountered an error. Please try a simpler question or try again later.',
+      'Sorry, I hit a snag. Try again or rephrase?',
       event.channel!,
       integrationData,
       event.thread_ts
     );
-    logMessageCompletion('paddy', true, errorMessage);
+    logMessageCompletion('zoe', true, errorMessage);
   }
 
   return { success: true };
@@ -1188,15 +1376,18 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
       const chatMessage = args.slice(1).join(' ');
       if (chatMessage) {
         // Immediately return acknowledgment and process in background
-        void handleDeferredPaddyResponse(chatMessage, user, responseUrl);
+        void handleDeferredZoeResponse(chatMessage, user, responseUrl, {
+          channelId,
+          integrationData,
+        });
         return {
           response_type: 'ephemeral',
-          text: '🤖 Paddy is thinking... I\'ll respond shortly!'
+          text: '🔮 Zoe is thinking...'
         };
       } else {
         return {
           response_type: 'ephemeral',
-          text: 'Please provide a message to chat with Paddy. Usage: `/expo chat [your message]`'
+          text: 'Usage: `/expo chat [your message]`'
         };
       }
 
@@ -1207,10 +1398,16 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
 • \`/expo create [description]\` - Create a new action
 • \`/expo list\` - List your pending actions
 • \`/expo projects\` - List your active projects
-• \`/expo chat [message]\` - Chat with Paddy, your AI assistant
+• \`/expo chat [message]\` - Chat with Zoe, your AI companion
 • \`/expo help\` - Show this help message
 
-You can also mention me (@Exponential) in any channel to chat with Paddy!`
+*Smart parsing:* Add dates and projects naturally!
+• \`/expo create Call John tomorrow\` - due tomorrow
+• \`/expo create Review docs today\` - due today
+• \`/expo create Fix bug for Acme project\` - linked to "Acme" project
+• \`/expo create Send report tomorrow for Sales project\` - both!
+
+You can also mention me (@${PRODUCT_NAME}) in any channel to chat with Zoe!`
       };
 
     default:
@@ -1223,28 +1420,55 @@ You can also mention me (@Exponential) in any channel to chat with Paddy!`
 
 async function createActionFromSlack(title: string, user: any, channelId: string, integrationData: any) {
   try {
+    // Parse natural language input for dates and project references
+    const parsed = await parseActionInput(title, user.id, db);
 
-    // Get action processors for this user
-    const processors = await ActionProcessorFactory.createProcessors(user.id);
-    
+    // Get action processors for this user (with parsed projectId if found)
+    const processors = await ActionProcessorFactory.createProcessors(
+      user.id,
+      parsed.projectId ?? undefined
+    );
+
     const actionItem = {
-      text: title,
+      text: parsed.name,
       priority: 'medium' as const,
       context: 'Created from Slack',
+      dueDate: parsed.dueDate ?? parsed.scheduledStart ?? undefined,
     };
 
-    // let totalCreated = 0;
     for (const processor of processors) {
       await processor.processActionItems([actionItem]);
-      // totalCreated += result.processedCount;
     }
 
-    // Send confirmation back to Slack
-    await sendSlackResponse(
-      `✅ Created action: *${title}*\n_Added to your Exponential inbox_`,
-      channelId,
-      integrationData
-    );
+    // Build confirmation message with parsing details
+    let confirmationMessage = `✅ Created action: *${parsed.name}*`;
+
+    const details: string[] = [];
+    if (parsed.scheduledStart) {
+      const dateStr = parsed.scheduledStart.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric'
+      });
+      details.push(`📅 Do: ${dateStr}`);
+    } else if (parsed.dueDate) {
+      const dateStr = parsed.dueDate.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric'
+      });
+      details.push(`📅 Due: ${dateStr}`);
+    }
+    if (parsed.parsingMetadata?.matchedProject) {
+      details.push(`📁 Project: ${parsed.parsingMetadata.matchedProject.name}`);
+    }
+
+    if (details.length > 0) {
+      confirmationMessage += '\n' + details.join(' • ');
+    }
+    confirmationMessage += `\n_Added to your ${PRODUCT_NAME} inbox_`;
+
+    await sendSlackResponse(confirmationMessage, channelId, integrationData);
 
   } catch (error) {
     console.error('❌ Error creating action from Slack:', error);
@@ -1285,7 +1509,7 @@ async function listUserActions(user: any, _responseUrl: string) {
 
     return {
       response_type: 'ephemeral',
-      text: `📋 Your pending actions:\n${actionList}\n\n_Visit your <https://exponential.im/home|Exponential> dashboard to manage these actions_`
+      text: `📋 Your pending actions:\n${actionList}\n\n_Visit your <${getPublicBaseUrlFromEnv()}/home|${PRODUCT_NAME}> dashboard to manage these actions_`
     };
   } catch (error) {
     console.error('Error listing actions:', error);
@@ -1325,7 +1549,7 @@ async function listUserProjects(user: any, _responseUrl: string) {
     if (projects.length === 0) {
       return {
         response_type: 'ephemeral',
-        text: '📁 No active projects found. Create your first project in the Exponential dashboard!'
+        text: `📁 No active projects found. Create your first project in the ${PRODUCT_NAME} dashboard!`
       };
     }
 
@@ -1341,7 +1565,7 @@ async function listUserProjects(user: any, _responseUrl: string) {
 
     return {
       response_type: 'ephemeral',
-      text: `📁 Your active projects:\n${projectList}\n\n_Visit your <https://exponential.im/projects|Exponential> dashboard to manage these projects_`
+      text: `📁 Your active projects:\n${projectList}\n\n_Visit your <${getPublicBaseUrlFromEnv()}/projects|${PRODUCT_NAME}> dashboard to manage these projects_`
     };
   } catch (error) {
     console.error('Error listing projects:', error);
@@ -1406,6 +1630,116 @@ async function handleActionSnooze(actionId: string, user: any, responseUrl?: str
     }
   } catch (error) {
     console.error('Error snoozing action:', error);
+  }
+}
+
+async function handleCreateAction(payload: SlackInteractivePayload, integrationData: any) {
+  const { integration, user: installerUser } = integrationData;
+
+  try {
+    const slackUserId = payload.user.id;
+    const messageText = payload.message?.text || '';
+    const messageTs = payload.message?.ts || '';
+    const channelId = payload.channel?.id || '';
+    const teamDomain = payload.team.domain;
+
+    // Resolve Slack user to system user
+    let user = await findTeamMemberFromSlackUser(integration, slackUserId, payload.user.name);
+    if (!user) {
+      user = installerUser;
+    }
+
+    if (!user) {
+      console.error('❌ [CreateAction] No user found for Slack user', slackUserId);
+      if (payload.response_url) {
+        await fetch(payload.response_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            response_type: 'ephemeral',
+            text: `Could not create action — your Slack account is not linked to ${PRODUCT_NAME}.`
+          })
+        });
+      }
+      return { success: false, error: 'User not found' };
+    }
+
+    // Build Slack permalink from team domain, channel ID, and message timestamp
+    const tsWithoutDot = messageTs.replace('.', '');
+    const permalink = `https://${teamDomain}.slack.com/archives/${channelId}/p${tsWithoutDot}`;
+
+    // Truncate message for action name (first 150 chars)
+    const actionName = messageText.length > 150
+      ? messageText.substring(0, 147) + '...'
+      : messageText;
+
+    // Build description with full text and permalink
+    const description = messageText + `\n\n[View in Slack](${permalink})`;
+
+    // Resolve channel to project/workspace if possible
+    let projectId: string | undefined;
+    let workspaceId: string | undefined;
+    const botToken = integrationData.credentials.BOT_TOKEN;
+    if (channelId && botToken && !channelId.startsWith('D')) {
+      try {
+        const { projects, workspaces } = await SlackChannelResolver.resolveProjectFromChannelId(
+          channelId,
+          botToken,
+          integration.id
+        );
+        if (projects.length > 0) {
+          projectId = projects[0]!.id;
+        }
+        if (workspaces.length > 0) {
+          workspaceId = workspaces[0]!.id;
+        }
+      } catch (err) {
+        console.warn('⚠️ [CreateAction] Could not resolve channel to project:', err);
+      }
+    }
+
+    // Create the action
+    const action = await db.action.create({
+      data: {
+        name: actionName,
+        description,
+        source: 'slack',
+        status: 'ACTIVE',
+        priority: 'Quick',
+        createdById: user.id,
+        ...(projectId && { projectId }),
+        ...(workspaceId && { workspaceId }),
+      }
+    });
+
+    console.log(`✅ [CreateAction] Created action ${action.id} from Slack message for user ${user.name}`);
+
+    // Send ephemeral confirmation
+    if (payload.response_url) {
+      await fetch(payload.response_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          response_type: 'ephemeral',
+          text: `✅ Action created: "${actionName}"`
+        })
+      });
+    }
+
+    return { success: true, actionId: action.id };
+  } catch (error) {
+    console.error('❌ [CreateAction] Error creating action from Slack message:', error);
+    if (payload.response_url) {
+      await fetch(payload.response_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          response_type: 'ephemeral',
+          text: 'Sorry, there was an error creating the action.'
+        })
+      });
+    }
+    return { success: false, error: 'Failed to create action' };
   }
 }
 
@@ -1488,14 +1822,14 @@ async function handleAppHomeOpened(event: SlackEvent, user: any, integrationData
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: 'Welcome to your Exponential Slack app home tab!'
+          text: `Welcome to your ${PRODUCT_NAME} Slack app home tab!`
         }
       },
       {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: 'You can use the following commands:\n• `/expo help` - Show available commands\n• `/paddy` - Chat with Paddy AI\n• `/expo list` - List your actions'
+          text: 'You can use the following commands:\n• `/expo help` - Show available commands\n• `/zoe` - Chat with Zoe 🔮\n• `/expo list` - List your actions'
         }
       },
       {

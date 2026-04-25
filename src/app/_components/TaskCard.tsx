@@ -3,12 +3,17 @@
 import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Card, Text, Group, Badge, Avatar, Stack, ActionIcon, Menu, Tooltip, HoverCard, Modal, Button, Divider } from "@mantine/core";
-import { IconGripVertical, IconDots, IconEdit, IconTrash, IconArrowsMaximize } from "@tabler/icons-react";
+import { Text, Group, Avatar, Stack, Menu, Tooltip, HoverCard, Modal, Button, Divider, Badge } from "@mantine/core";
+import { IconDots, IconEdit, IconTrash, IconArrowsMaximize, IconCheck, IconList } from "@tabler/icons-react";
 import { AssignActionModal } from "./AssignActionModal";
 import { EditActionModal } from "./EditActionModal";
+import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
+import { api } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+import styles from "./ProjectTasks.module.css";
+
 type ActionStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
 
 interface Task {
@@ -28,39 +33,109 @@ interface Task {
       image: string | null;
     };
   }>;
+  tags?: Array<{
+    tag: {
+      id: string;
+      name: string;
+      slug: string;
+      color: string;
+    };
+  }>;
   project?: {
     id: string;
     name: string;
   } | null;
+  lists?: Array<{
+    listId: string;
+    list: {
+      id: string;
+      name: string;
+    };
+  }>;
 }
 
 interface TaskCardProps {
   task: Task;
   isDragging?: boolean;
+  onActionOpen?: (id: string) => void;
 }
 
-// // Helper component to render HTML content safely
-// const HTMLContent = ({ html, className }: { html: string, className?: string }) => (
-//   <div 
-//     className={className || "text-text-primary"}
-//     dangerouslySetInnerHTML={{ __html: html }}
-//     style={{ display: 'inline' }}
-//   />
-// );
-
-const priorityColors: Record<string, string> = {
-  "Critical": "red",
-  "High": "orange", 
-  "Medium": "yellow",
-  "Low": "blue",
-  "Quick": "gray",
+// Map codebase priority strings to visual severity badge styles.
+// Preserves the existing label text so the UI matches stored data.
+const PRIORITY_CLASS: Record<string, string> = {
+  "1st Priority": styles.priCritical!,
+  "2nd Priority": styles.priHigh!,
+  "3rd Priority": styles.priMedium!,
+  "4th Priority": styles.priLow!,
+  "5th Priority": styles.priLow!,
+  "Quick": styles.priQuick!,
+  "Scheduled": styles.priScheduled!,
+  "Errand": styles.priLow!,
+  "Remember": styles.priLow!,
+  "Watch": styles.priLow!,
+  "Someday Maybe": styles.priLow!,
+  "Critical": styles.priCritical!,
+  "High": styles.priHigh!,
+  "Medium": styles.priMedium!,
+  "Low": styles.priLow!,
 };
 
-export function TaskCard({ task, isDragging = false }: TaskCardProps) {
+// Fallback for the Mantine badge inside the expanded modal (uses Mantine color names).
+const MANTINE_PRIORITY_COLOR: Record<string, string> = {
+  "1st Priority": "red",
+  "2nd Priority": "orange",
+  "3rd Priority": "yellow",
+  "4th Priority": "gray",
+  "5th Priority": "gray",
+  "Quick": "cyan",
+  "Scheduled": "blue",
+  "Critical": "red",
+  "High": "orange",
+  "Medium": "yellow",
+  "Low": "gray",
+};
+
+const STATUS_LABEL: Record<ActionStatus, string> = {
+  BACKLOG: "Backlog",
+  TODO: "Todo",
+  IN_PROGRESS: "In Progress",
+  IN_REVIEW: "In Review",
+  DONE: "Done",
+  CANCELLED: "Cancelled",
+};
+
+export function TaskCard({ task, isDragging = false, onActionOpen }: TaskCardProps) {
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [expandedModalOpen, setExpandedModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
-  
+
+  const { workspaceId } = useWorkspace();
+  const utils = api.useUtils();
+  const { data: workspaceLists } = api.list.list.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: !!workspaceId }
+  );
+
+  const addToList = api.list.addAction.useMutation({
+    onSettled: async () => {
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.view.getViewActions.invalidate(),
+        utils.list.list.invalidate(),
+      ]);
+    },
+  });
+
+  const removeFromList = api.list.removeAction.useMutation({
+    onSettled: async () => {
+      await Promise.all([
+        utils.action.getAll.invalidate(),
+        utils.view.getViewActions.invalidate(),
+        utils.list.list.invalidate(),
+      ]);
+    },
+  });
+
   const {
     attributes,
     listeners,
@@ -75,76 +150,78 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging || isSortableDragging ? 0.5 : 1,
   };
 
   const formatDate = (date: Date | null | undefined) => {
     if (!date) return null;
-    return new Date(date).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
+    return new Date(date).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
     });
   };
 
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
+  const priorityClass = PRIORITY_CLASS[task.priority] ?? styles.priLow;
+  const statusLabel = task.kanbanStatus ? STATUS_LABEL[task.kanbanStatus] : null;
 
   const handleCardClick = (e: React.MouseEvent) => {
-    // Only open modal if we're not interacting with drag handles, menus, or action buttons
+    // Only open modal if we're not interacting with menus or action buttons
     const target = e.target as HTMLElement;
-    if (!target.closest('[data-dnd-handle]') && !target.closest('[data-no-modal]')) {
+    if (!target.closest("[data-no-modal]")) {
       e.stopPropagation();
-      setEditModalOpen(true);
+      if (onActionOpen) {
+        onActionOpen(task.id);
+      } else {
+        setEditModalOpen(true);
+      }
     }
   };
 
+  const cardClasses = [
+    styles.kcard,
+    isDragging ? styles.kcardOverlay : "",
+    isSortableDragging ? styles.kcardDragging : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <>
-      <Card
+      <div
         ref={setNodeRef}
         style={style}
         {...attributes}
         {...listeners}
-        className={`cursor-grab active:cursor-grabbing transition-all duration-200 ${
-          isDragging ? 'shadow-lg ring-2 ring-blue-400 ring-opacity-50 scale-105' : 'hover:shadow-md'
-        }`}
-        p="sm"
-        radius="md"
-        withBorder
+        className={cardClasses}
         role="button"
         tabIndex={0}
         aria-describedby={`task-${task.id}-description`}
         aria-label={`Task: ${task.name}. Priority: ${task.priority}. ${
-          task.assignees.length > 0 ? `Assigned to ${task.assignees.length} person${task.assignees.length > 1 ? 's' : ''}. ` : ''
-        }${task.dueDate ? `Due: ${formatDate(task.dueDate)}. ` : ''}${
-          isOverdue ? 'Overdue. ' : ''
+          task.assignees.length > 0 ? `Assigned to ${task.assignees.length} person${task.assignees.length > 1 ? "s" : ""}. ` : ""
+        }${task.dueDate ? `Due: ${formatDate(task.dueDate)}. ` : ""}${
+          isOverdue ? "Overdue. " : ""
         }Drag to move, or press space to open menu.`}
         onClick={handleCardClick}
       >
-      <Stack gap="xs">
-        {/* Header with drag handle and menu */}
-        <Group justify="space-between" wrap="nowrap">
-          <div 
-            className="p-1 -ml-1"
-            aria-label="Drag handle"
-            data-dnd-handle
-          >
-            <IconGripVertical size={16} className="text-text-muted" />
+        <div className={styles.kcardHead}>
+          <div className={styles.kcardTitle}>
+            <HTMLContent html={task.name} />
           </div>
-          
-          <Menu shadow="md" width={150} position="bottom-end">
+
+          <Menu shadow="md" width={200} position="bottom-end">
             <Menu.Target>
-              <ActionIcon 
-                variant="subtle" 
-                size="sm"
+              <button
+                type="button"
+                className={styles.kcardMenu}
                 aria-label="Open task menu"
                 onClick={(e) => e.stopPropagation()}
                 data-no-modal
               >
-                <IconDots size={16} />
-              </ActionIcon>
+                <IconDots size={13} />
+              </button>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item 
+              <Menu.Item
                 leftSection={<IconArrowsMaximize size={16} />}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -153,7 +230,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               >
                 Expand
               </Menu.Item>
-              <Menu.Item 
+              <Menu.Item
                 leftSection={<IconEdit size={16} />}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -162,7 +239,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               >
                 Edit
               </Menu.Item>
-              <Menu.Item 
+              <Menu.Item
                 onClick={(e) => {
                   e.stopPropagation();
                   setAssignModalOpen(true);
@@ -170,7 +247,33 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               >
                 Assign
               </Menu.Item>
-              <Menu.Item 
+              <Menu.Divider />
+              <Menu.Label>Lists</Menu.Label>
+              {workspaceLists?.map((list) => {
+                const isInList = task.lists?.some((al) => al.listId === list.id);
+                return (
+                  <Menu.Item
+                    key={list.id}
+                    leftSection={<IconList size={14} />}
+                    rightSection={isInList ? <IconCheck size={14} /> : null}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isInList) {
+                        removeFromList.mutate({ listId: list.id, actionId: task.id });
+                      } else {
+                        addToList.mutate({ listId: list.id, actionId: task.id });
+                      }
+                    }}
+                  >
+                    {list.name}
+                  </Menu.Item>
+                );
+              })}
+              {(!workspaceLists || workspaceLists.length === 0) && (
+                <Menu.Item disabled>No lists yet</Menu.Item>
+              )}
+              <Menu.Divider />
+              <Menu.Item
                 leftSection={<IconTrash size={16} />}
                 color="red"
               >
@@ -178,163 +281,137 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               </Menu.Item>
             </Menu.Dropdown>
           </Menu>
-        </Group>
-
-        {/* Task title */}
-        <div
-          className="text-sm font-medium text-text-primary"
-          style={{
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          <HTMLContent html={task.name} className="text-sm font-medium text-text-primary" />
         </div>
 
-        {/* Task description */}
         {task.description && (
           <div
+            id={`task-${task.id}-description`}
             className="text-xs text-text-muted"
             style={{
-              display: '-webkit-box',
+              display: "-webkit-box",
               WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
-            id={`task-${task.id}-description`}
           >
             <HTMLContent html={task.description} className="text-xs text-text-muted" />
           </div>
         )}
 
-        {/* Project badge */}
-        {task.project && (
-          <Badge size="xs" variant="light" color="blue">
-            {task.project.name}
-          </Badge>
-        )}
-
-        {/* Footer with priority, due date, and assignees */}
-        <Group justify="space-between" align="center">
-          <Group gap="xs">
-            {/* Priority badge */}
-            <Badge
-              size="xs"
-              variant="light"
-              color={priorityColors[task.priority] || "gray"}
-            >
-              {task.priority}
-            </Badge>
-
-            {/* Due date */}
-            {task.dueDate && (
-              <Badge
-                size="xs"
-                variant="light"
-                color={isOverdue ? "red" : "gray"}
-              >
-                {formatDate(task.dueDate)}
-              </Badge>
-            )}
-          </Group>
-
-          {/* Assignee avatars with hover details */}
-          {task.assignees.length > 0 && (
-            <Avatar.Group spacing="xs">
-              {task.assignees.slice(0, 3).map((assignee) => {
-                const colorSeed = getColorSeed(assignee.user.name, assignee.user.email);
-                const backgroundColor = assignee.user.image ? undefined : getAvatarColor(colorSeed);
-                const textColor = backgroundColor ? getTextColor(backgroundColor) : 'white';
-                const initial = getInitial(assignee.user.name, assignee.user.email);
-                
-                return (
-                  <HoverCard key={assignee.user.id} width={200} shadow="md">
-                    <HoverCard.Target>
-                      <Avatar
-                        size="md"
-                        src={assignee.user.image}
-                        alt={assignee.user.name || assignee.user.email || 'User'}
-                        radius="xl"
-                        className="cursor-pointer"
-                        styles={{
-                          root: {
-                            backgroundColor: backgroundColor,
-                            color: textColor,
-                            fontWeight: 600,
-                            fontSize: '14px',
-                          }
-                        }}
-                      >
-                        {!assignee.user.image && initial}
-                      </Avatar>
-                    </HoverCard.Target>
-                  <HoverCard.Dropdown>
-                    <Group gap="sm">
-                      <Avatar
-                        src={assignee.user.image}
-                        alt={assignee.user.name || assignee.user.email || 'User'}
-                        radius="xl"
-                        styles={{
-                          root: {
-                            backgroundColor: backgroundColor,
-                            color: textColor,
-                            fontWeight: 600,
-                            fontSize: '14px',
-                          }
-                        }}
-                      >
-                        {!assignee.user.image && initial}
-                      </Avatar>
-                      <div>
-                        <Text size="sm" fw={500}>
-                          {assignee.user.name || "Unknown User"}
-                        </Text>
-                        <Text size="xs" c="dimmed">
-                          {assignee.user.email}
-                        </Text>
-                      </div>
-                    </Group>
-                  </HoverCard.Dropdown>
-                </HoverCard>
-                );
-              })}
-              {task.assignees.length > 3 && (
-                <Tooltip label={`${task.assignees.length - 3} more assignees`}>
-                  <Avatar 
-                    size="md" 
-                    radius="xl" 
-                    className="cursor-pointer"
-                    color="gray"
-                    styles={{
-                      root: {
-                        backgroundColor: 'var(--mantine-color-gray-6)',
-                        color: 'white',
-                        fontWeight: 600,
-                      }
-                    }}
-                  >
-                    +{task.assignees.length - 3}
-                  </Avatar>
-                </Tooltip>
-              )}
-            </Avatar.Group>
+        <div className={styles.kcardMeta}>
+          {statusLabel && (
+            <span className={styles.typeBadge}>{statusLabel}</span>
           )}
-        </Group>
-      </Stack>
-      
-      <AssignActionModal
-        opened={assignModalOpen}
-        onClose={() => setAssignModalOpen(false)}
-        actionId={task.id}
-        actionName={task.name}
-        projectId={task.projectId}
-        currentAssignees={task.assignees}
-      />
-      </Card>
+          <span className={`${styles.pri} ${priorityClass}`}>
+            {task.priority}
+          </span>
+          {task.dueDate && (
+            <span className={`${styles.dueTag} ${isOverdue ? styles.dueTagOverdue : ""}`}>
+              {formatDate(task.dueDate)}
+            </span>
+          )}
+          {task.tags && task.tags.length > 0 && (
+            <TagBadgeList
+              tags={task.tags.map((t) => t.tag)}
+              maxDisplay={2}
+              size="xs"
+            />
+          )}
+
+          {task.assignees.length > 0 && (
+            <span className={styles.kcardMetaRight}>
+              <Avatar.Group spacing="xs">
+                {task.assignees.slice(0, 3).map((assignee) => {
+                  const colorSeed = getColorSeed(assignee.user.name, assignee.user.email);
+                  const backgroundColor = assignee.user.image ? undefined : getAvatarColor(colorSeed);
+                  const textColor = backgroundColor ? getTextColor(backgroundColor) : "white";
+                  const initial = getInitial(assignee.user.name, assignee.user.email);
+
+                  return (
+                    <HoverCard key={assignee.user.id} width={200} shadow="md">
+                      <HoverCard.Target>
+                        <Avatar
+                          size="sm"
+                          src={assignee.user.image}
+                          alt={assignee.user.name ?? assignee.user.email ?? "User"}
+                          radius="xl"
+                          className="cursor-pointer"
+                          styles={{
+                            root: {
+                              backgroundColor: backgroundColor,
+                              color: textColor,
+                              fontWeight: 600,
+                              fontSize: "11px",
+                            },
+                          }}
+                        >
+                          {!assignee.user.image && initial}
+                        </Avatar>
+                      </HoverCard.Target>
+                      <HoverCard.Dropdown>
+                        <Group gap="sm">
+                          <Avatar
+                            src={assignee.user.image}
+                            alt={assignee.user.name ?? assignee.user.email ?? "User"}
+                            radius="xl"
+                            styles={{
+                              root: {
+                                backgroundColor: backgroundColor,
+                                color: textColor,
+                                fontWeight: 600,
+                                fontSize: "14px",
+                              },
+                            }}
+                          >
+                            {!assignee.user.image && initial}
+                          </Avatar>
+                          <div>
+                            <Text size="sm" fw={500}>
+                              {assignee.user.name ?? "Unknown User"}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {assignee.user.email}
+                            </Text>
+                          </div>
+                        </Group>
+                      </HoverCard.Dropdown>
+                    </HoverCard>
+                  );
+                })}
+                {task.assignees.length > 3 && (
+                  <Tooltip label={`${task.assignees.length - 3} more assignees`}>
+                    <Avatar
+                      size="sm"
+                      radius="xl"
+                      className="cursor-pointer"
+                      color="gray"
+                      styles={{
+                        root: {
+                          backgroundColor: "var(--mantine-color-gray-6)",
+                          color: "white",
+                          fontWeight: 600,
+                        },
+                      }}
+                    >
+                      +{task.assignees.length - 3}
+                    </Avatar>
+                  </Tooltip>
+                )}
+              </Avatar.Group>
+            </span>
+          )}
+        </div>
+
+        <AssignActionModal
+          opened={assignModalOpen}
+          onClose={() => setAssignModalOpen(false)}
+          actionId={task.id}
+          actionName={task.name}
+          projectId={task.projectId}
+          currentAssignees={task.assignees}
+        />
+      </div>
 
       {/* Expanded Task Modal */}
       <Modal
@@ -348,7 +425,7 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
             <Badge
               size="sm"
               variant="light"
-              color={priorityColors[task.priority] || "gray"}
+              color={MANTINE_PRIORITY_COLOR[task.priority] ?? "gray"}
             >
               {task.priority}
             </Badge>
@@ -361,7 +438,6 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
         }}
       >
         <Stack gap="lg">
-          {/* Task Details */}
           <div>
             <Text size="sm" fw={500} mb="xs" c="dimmed">
               Description
@@ -379,7 +455,6 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
 
           <Divider />
 
-          {/* Metadata */}
           <Group justify="space-between" wrap="wrap">
             <Stack gap="xs">
               <Text size="sm" fw={500} c="dimmed">
@@ -409,7 +484,6 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
               </Group>
             </Stack>
 
-            {/* Assignees */}
             {task.assignees.length > 0 && (
               <Stack gap="xs">
                 <Text size="sm" fw={500} c="dimmed">
@@ -419,29 +493,29 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
                   {task.assignees.map((assignee) => {
                     const colorSeed = getColorSeed(assignee.user.name, assignee.user.email);
                     const backgroundColor = assignee.user.image ? undefined : getAvatarColor(colorSeed);
-                    const textColor = backgroundColor ? getTextColor(backgroundColor) : 'white';
+                    const textColor = backgroundColor ? getTextColor(backgroundColor) : "white";
                     const initial = getInitial(assignee.user.name, assignee.user.email);
-                    
+
                     return (
                       <Group key={assignee.user.id} gap="xs" align="center">
                         <Avatar
                           size="sm"
                           src={assignee.user.image}
-                          alt={assignee.user.name || assignee.user.email || 'User'}
+                          alt={assignee.user.name ?? assignee.user.email ?? "User"}
                           radius="xl"
                           styles={{
                             root: {
                               backgroundColor: backgroundColor,
                               color: textColor,
                               fontWeight: 600,
-                              fontSize: '12px',
-                            }
+                              fontSize: "12px",
+                            },
                           }}
                         >
                           {!assignee.user.image && initial}
                         </Avatar>
                         <div>
-                          <Text size="sm">{assignee.user.name || "Unknown User"}</Text>
+                          <Text size="sm">{assignee.user.name ?? "Unknown User"}</Text>
                           <Text size="xs" c="dimmed">{assignee.user.email}</Text>
                         </div>
                       </Group>
@@ -454,7 +528,6 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
 
           <Divider />
 
-          {/* Actions */}
           <Group justify="flex-end">
             <Button
               variant="light"
@@ -480,7 +553,6 @@ export function TaskCard({ task, isDragging = false }: TaskCardProps) {
         </Stack>
       </Modal>
 
-      {/* Edit Task Modal */}
       <EditActionModal
         action={task as any}
         opened={editModalOpen}

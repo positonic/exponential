@@ -19,6 +19,7 @@ import {
   IconCalendar,
   IconMail
 } from '@tabler/icons-react';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 export default function AIAutomationPage() {
   return (
@@ -35,7 +36,7 @@ export default function AIAutomationPage() {
             Stop Losing $50K+ Annually to Manual Processes
           </Title>
           <Text size="xl" c="dimmed" maw={800} mx="auto" mb="lg">
-            Transform Your Business Operations with AI Automation Consulting from the Exponential.im Team
+            Transform Your Business Operations with AI Automation Consulting from the {PRODUCT_NAME}.im Team
           </Text>
           <Group justify="center">
             <Button
@@ -243,9 +244,9 @@ export default function AIAutomationPage() {
 
         {/* Expertise Section */}
         <div>
-          <Title order={2} mb="lg" ta="center">Built by the Exponential.im Team</Title>
+          <Title order={2} mb="lg" ta="center">Built by the {PRODUCT_NAME}.im Team</Title>
           <Text size="lg" c="dimmed" ta="center" maw={700} mx="auto" mb="lg">
-            The same team behind Exponential.im&apos;s advanced productivity platform now brings 
+            The same team behind {PRODUCT_NAME}.im&apos;s advanced productivity platform now brings
             enterprise-grade automation expertise to your business.
           </Text>
           
@@ -529,7 +530,7 @@ export default function AIAutomationPage() {
                 </div>
               </Group>
               <Text size="md" style={{ fontStyle: 'italic' }} mb="md">
-                &quot;The Exponential.im team didn&apos;t just automate our processes - they transformed how we think about efficiency. 
+                &quot;The {PRODUCT_NAME}.im team didn&apos;t just automate our processes - they transformed how we think about efficiency.
                 We&apos;re now processing 3x more orders with the same headcount.&quot;
               </Text>
               <Group>

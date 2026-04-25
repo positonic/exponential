@@ -13,7 +13,7 @@ import {
 // import { IconMoonStars, IconBrain, IconHeart, IconBolt } from "@tabler/icons-react";
 import { useLocalStorage } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { WhatWentWellSection } from './sections/WhatWentWellSection';
 import { EnergyReflectionSection } from './sections/EnergyReflectionSection';
 import { LearningGrowthSection } from './sections/LearningGrowthSection';
@@ -110,16 +110,10 @@ export function WindDownRoutineForm({ dayId, date }: WindDownRoutineProps) {
     });
   }, [todayString, wentWell, energized, drained, gratitude, didMeditate, loggedFood, learnings, mistakes, causes, solutions, setDailyEntries]);
 
-  // Autosave functionality
-  useEffect(() => {
-    const autosaveInterval = setInterval(saveEntry, 30000); // Autosave every 30 seconds
-    return () => clearInterval(autosaveInterval);
-  }, [saveEntry]);
-
   return (
     <Stack gap="xl">
       {/* What went well today */}
-      <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
+      <Paper shadow="sm" p="md" radius="md" className="bg-surface-secondary">
         {/* What went well today - Using the new self-contained component */}
         <WhatWentWellSection dayId={dayId} date={date} />
       </Paper>
@@ -139,7 +133,7 @@ export function WindDownRoutineForm({ dayId, date }: WindDownRoutineProps) {
       
 
       {/* Daily Habits */}
-      <Paper shadow="sm" p="md" radius="md" className="bg-[#262626]">
+      <Paper shadow="sm" p="md" radius="md" className="bg-surface-secondary">
         <Stack gap="md">
           <Title order={2} className="text-2xl">Daily Habits</Title>
           <Group>

@@ -44,6 +44,7 @@ import { useSearchParams } from 'next/navigation';
 import { IntegrationPermissionManager } from '~/app/_components/IntegrationPermissionManager';
 import { ConnectedServicesGrid } from '~/app/_components/ConnectedServicesGrid';
 import { AvailableServicesGrid } from '~/app/_components/AvailableServicesGrid';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 interface CreateIntegrationForm {
   name: string;
@@ -62,6 +63,12 @@ interface CreateIntegrationForm {
   whatsappPhoneNumberId?: string;
   whatsappBusinessAccountId?: string;
   whatsappWebhookVerifyToken?: string;
+  // Email-specific fields
+  emailAddress?: string;
+  emailAppPassword?: string;
+  emailProvider?: 'gmail' | 'outlook' | 'custom';
+  emailImapHost?: string;
+  emailSmtpHost?: string;
 }
 
 interface EditIntegrationForm {
@@ -83,7 +90,7 @@ const PROVIDER_OPTIONS = [
   },
   { 
     value: 'exponential-plugin', 
-    label: 'Exponential Plugin', 
+    label: `${PRODUCT_NAME} Plugin`,
     description: 'Browser extension for seamless task creation from web content',
     disabled: false, 
     oauth: false 
@@ -117,12 +124,19 @@ const PROVIDER_OPTIONS = [
     disabled: false, 
     oauth: true 
   },
-  { 
-    value: 'monday', 
-    label: 'Monday.com', 
+  {
+    value: 'monday',
+    label: 'Monday.com',
     description: 'Sync boards, items, and project status with Monday.com workspace',
-    disabled: false, 
-    oauth: false 
+    disabled: false,
+    oauth: false
+  },
+  {
+    value: 'email',
+    label: 'Email (IMAP)',
+    description: 'Connect your email so Zoe can read and send on your behalf',
+    disabled: false,
+    oauth: false
   },
 ];
 
@@ -225,6 +239,28 @@ export default function IntegrationsClient() {
       notifications.show({
         title: 'WhatsApp Integration Error',
         message: error.message || 'Failed to create WhatsApp integration',
+        color: 'red',
+        icon: <IconAlertCircle size={16} />,
+      });
+    },
+  });
+
+  const createEmailIntegration = api.integration.createEmailIntegration.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: 'Email Connected',
+        message: 'Your email has been connected successfully. Zoe can now read and send emails on your behalf.',
+        color: 'green',
+        icon: <IconCheck size={16} />,
+      });
+      void refetch();
+      form.reset();
+      close();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Email Connection Failed',
+        message: error.message || 'Failed to connect email. Please check your credentials.',
         color: 'red',
         icon: <IconAlertCircle size={16} />,
       });
@@ -347,13 +383,18 @@ export default function IntegrationsClient() {
       whatsappPhoneNumberId: '',
       whatsappBusinessAccountId: '',
       whatsappWebhookVerifyToken: '',
+      emailAddress: '',
+      emailAppPassword: '',
+      emailProvider: 'gmail' as 'gmail' | 'outlook' | 'custom',
+      emailImapHost: '',
+      emailSmtpHost: '',
     },
     validate: {
       name: (value) => value.trim().length === 0 ? 'Integration name is required' : null,
       provider: (value) => value.trim().length === 0 ? 'Provider is required' : null,
       apiKey: (value, values) => {
-        // Don't require API key for Slack or WhatsApp (uses manual credentials)
-        if (values.provider === 'slack' || values.provider === 'whatsapp') return null;
+        // Don't require API key for Slack, WhatsApp, or Email (uses manual credentials)
+        if (values.provider === 'slack' || values.provider === 'whatsapp' || values.provider === 'email') return null;
         return value.trim().length === 0 ? 'API key is required' : null;
       },
       botToken: (value, values) => {
@@ -397,6 +438,22 @@ export default function IntegrationsClient() {
       whatsappWebhookVerifyToken: (value, values) => {
         if (values.provider === 'whatsapp' && (!value || value.trim().length === 0)) {
           return 'Webhook Verify Token is required for WhatsApp integration';
+        }
+        return null;
+      },
+      // Email-specific validations
+      emailAddress: (value, values) => {
+        if (values.provider === 'email' && (!value || value.trim().length === 0)) {
+          return 'Email address is required';
+        }
+        if (values.provider === 'email' && value && !value.includes('@')) {
+          return 'Please enter a valid email address';
+        }
+        return null;
+      },
+      emailAppPassword: (value, values) => {
+        if (values.provider === 'email' && (!value || value.trim().length === 0)) {
+          return 'App password is required';
         }
         return null;
       },
@@ -446,6 +503,21 @@ export default function IntegrationsClient() {
         slackTeamId: values.teamId || undefined,
         teamName: values.teamName || undefined,
         appId: values.appId || undefined,
+        allowTeamMemberAccess: values.allowTeamMemberAccess || false,
+      });
+      return;
+    }
+
+    // Special handling for Email - use createEmailIntegration
+    if (values.provider === 'email') {
+      await createEmailIntegration.mutateAsync({
+        name: values.name,
+        emailAddress: values.emailAddress!,
+        appPassword: values.emailAppPassword!,
+        emailProvider: values.emailProvider || 'gmail',
+        imapHost: values.emailImapHost || undefined,
+        smtpHost: values.emailSmtpHost || undefined,
+        description: values.description,
         allowTeamMemberAccess: values.allowTeamMemberAccess || false,
       });
       return;
@@ -595,10 +667,10 @@ export default function IntegrationsClient() {
           <div>
             <Title order={1} size="h2">External Service Integrations</Title>
             <Text c="dimmed" size="sm">
-              Connect Exponential to external services (Fireflies, GitHub, etc.) using their API keys
+              Connect {PRODUCT_NAME} to external services (Fireflies, GitHub, etc.) using their API keys
             </Text>
             <Text c="blue" size="sm" mt="xs">
-              💡 Need to give external apps access to YOUR Exponential data? <Link href="/tokens" style={{ textDecoration: 'underline' }}>Generate API tokens here</Link>
+              💡 Need to give external apps access to YOUR {PRODUCT_NAME} data? <Link href="/settings/api-keys" style={{ textDecoration: 'underline' }}>Generate API tokens here</Link>
             </Text>
           </div>
           {viewMode === 'grid' && (
@@ -860,7 +932,7 @@ export default function IntegrationsClient() {
               )}
 
               {/* API Key input for non-OAuth providers */}
-              {!isOAuthProvider(form.values.provider) && form.values.provider !== 'slack' && form.values.provider !== 'whatsapp' && (
+              {!isOAuthProvider(form.values.provider) && form.values.provider !== 'slack' && form.values.provider !== 'whatsapp' && form.values.provider !== 'email' && (
                 <TextInput
                   label="API Key"
                   placeholder="Enter your API key"
@@ -937,7 +1009,7 @@ export default function IntegrationsClient() {
 
               {form.values.provider === 'whatsapp' && (
                 <>
-                  <Alert 
+                  <Alert
                     icon={<IconPlugConnected size={16} />}
                     title="WhatsApp Business Setup Required"
                     color="blue"
@@ -981,6 +1053,66 @@ export default function IntegrationsClient() {
                     {...form.getInputProps('whatsappWebhookVerifyToken')}
                     description="A custom token you create to verify webhook requests. You'll use this when setting up webhooks in Meta Business Manager."
                   />
+                </>
+              )}
+
+              {form.values.provider === 'email' && (
+                <>
+                  <Alert
+                    icon={<IconPlugConnected size={16} />}
+                    title="Email Setup"
+                    color="blue"
+                  >
+                    Connect your email so Zoe can read and send on your behalf. You&apos;ll need an App Password — not your regular password.
+                    For Gmail: Google Account → Security → 2-Step Verification → App Passwords.
+                    For Outlook: Microsoft Account → Security → App Passwords.
+                  </Alert>
+
+                  <Select
+                    label="Email Provider"
+                    data={[
+                      { value: 'gmail', label: 'Gmail / Google Workspace' },
+                      { value: 'outlook', label: 'Outlook / Microsoft 365' },
+                      { value: 'custom', label: 'Custom (IMAP/SMTP)' },
+                    ]}
+                    {...form.getInputProps('emailProvider')}
+                    description="Select your email provider for automatic server detection"
+                  />
+
+                  <TextInput
+                    label="Email Address"
+                    placeholder="you@example.com"
+                    required
+                    {...form.getInputProps('emailAddress')}
+                    description="The email address you want Zoe to access"
+                  />
+
+                  <TextInput
+                    label="App Password"
+                    placeholder="xxxx-xxxx-xxxx-xxxx"
+                    required
+                    type="password"
+                    {...form.getInputProps('emailAppPassword')}
+                    description="An app-specific password (NOT your regular login password)"
+                  />
+
+                  {form.values.emailProvider === 'custom' && (
+                    <>
+                      <TextInput
+                        label="IMAP Host"
+                        placeholder="imap.example.com"
+                        {...form.getInputProps('emailImapHost')}
+                        description="IMAP server hostname for reading emails"
+                      />
+
+                      <TextInput
+                        label="SMTP Host"
+                        placeholder="smtp.example.com"
+                        {...form.getInputProps('emailSmtpHost')}
+                        description="SMTP server hostname for sending emails"
+                      />
+                    </>
+                  )}
                 </>
               )}
 

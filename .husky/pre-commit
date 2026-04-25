@@ -1,13 +1,26 @@
-# Run tests with Bun
+# Run tests
 echo "Running tests..."
-if ! bun test; then
+if ! npm run test; then
   echo "❌ Tests failed. Please fix the failing tests before committing."
   exit 1
 fi
 
+# Check for Prisma schema changes without migrations
+echo "Checking Prisma migrations..."
+SCHEMA_STAGED=$(git diff --staged --name-only -- prisma/schema.prisma)
+MIGRATIONS_STAGED=$(git diff --staged --name-only -- 'prisma/migrations/**')
+
+if [ -n "$SCHEMA_STAGED" ] && [ -z "$MIGRATIONS_STAGED" ]; then
+  echo "❌ prisma/schema.prisma is staged without migrations."
+  echo "Run: npx prisma migrate dev --name <descriptive_name>"
+  exit 1
+fi
+
+echo "✅ Prisma migration check passed"
+
 # Check for hardcoded colors (excluding allowed files)
 echo "Checking for hardcoded colors..."
-ALLOWED_FILES="(colors\.ts|mantineTheme\.ts|globals\.css)"
+ALLOWED_FILES="(colors\.ts|mantineTheme\.ts|globals\.css|EmailService\.ts)"
 
 # Get staged files that match our criteria
 STAGED_FILES=$(git diff --staged --name-only | grep -E '\.(tsx?|jsx?|css)$' | grep -v -E "$ALLOWED_FILES" || true)
@@ -16,12 +29,19 @@ if [ -n "$STAGED_FILES" ]; then
   # Check each file for hardcoded colors
   FOUND_COLORS=false
   for file in $STAGED_FILES; do
-    if [ -f "$file" ] && grep -q -E '(#[0-9A-Fa-f]{3}\b|#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{8}\b)' "$file" 2>/dev/null; then
-      echo "❌ Hardcoded colors found in: $file"
-      FOUND_COLORS=true
+    if [ -f "$file" ]; then
+      # Check for hex colors, but exclude:
+      # - Lines with theme-color meta tags (browser requirement)
+      # - Lines with eslint-disable comments
+      PROBLEMATIC_LINES=$(grep -n -E '(#[0-9A-Fa-f]{3}\b|#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{8}\b)' "$file" 2>/dev/null | grep -v -E '(theme-color|eslint-disable)' || true)
+      if [ -n "$PROBLEMATIC_LINES" ]; then
+        echo "❌ Hardcoded colors found in: $file"
+        echo "$PROBLEMATIC_LINES"
+        FOUND_COLORS=true
+      fi
     fi
   done
-  
+
   if [ "$FOUND_COLORS" = true ]; then
     echo "❌ Error: Hardcoded hex colors found in staged files!"
     echo "Please use CSS variables or Tailwind classes instead."

@@ -25,7 +25,8 @@ const config = {
     "@typescript-eslint/no-unused-vars": [
       "warn",
       {
-        "argsIgnorePattern": "^_"
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
       }
     ],
     "@typescript-eslint/no-unsafe-assignment": "off",
@@ -63,7 +64,8 @@ const config = {
     "src/test/**/*",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
-    "**/__tests__/**"
+    "**/__tests__/**",
+    "public/sw.js"
   ]
 }
 module.exports = config;

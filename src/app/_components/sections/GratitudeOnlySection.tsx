@@ -1,6 +1,6 @@
 'use client';
 
-import { Paper, Title, Stack, Textarea, Group, Button } from "@mantine/core";
+import { Paper, Title, Stack, Textarea, Group, Button, Text } from "@mantine/core";
 import { IconStars } from "@tabler/icons-react";
 import { memo, useState, useEffect } from 'react';
 import { api } from "~/trpc/react";
@@ -104,12 +104,27 @@ export const GratitudeOnlySection = memo(({
           minRows={3}
           size="md"
           className="bg-surface-secondary"
+          onKeyDown={(e) => {
+            if (
+              e.key === 'Enter' &&
+              e.metaKey &&
+              !createNote.isPending &&
+              gratitude.trim() &&
+              dayId
+            ) {
+              e.preventDefault();
+              saveGratitude();
+            }
+          }}
         />
-        <SaveButton 
-          onClick={saveGratitude} 
-          loading={createNote.isPending}
-          disabled={!gratitude.trim() || !dayId}
-        />
+        <Group justify="space-between" align="center">
+          <Text size="xs" c="dimmed">⌘↵ to save</Text>
+          <SaveButton
+            onClick={saveGratitude}
+            loading={createNote.isPending}
+            disabled={!gratitude.trim() || !dayId}
+          />
+        </Group>
       </Stack>
     </Paper>
   );

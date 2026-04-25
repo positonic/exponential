@@ -58,7 +58,7 @@ export const OutcomeSection = memo(({
               }
             }}
           />
-          <Button 
+          <Button
             onClick={addOutcome}
             loading={isLoading}
             disabled={!newOutcome.trim()}
@@ -66,6 +66,7 @@ export const OutcomeSection = memo(({
             Add Outcome
           </Button>
         </Group>
+        <Text size="xs" c="dimmed">⌘↵ to add</Text>
       </Stack>
     </Paper>
   );

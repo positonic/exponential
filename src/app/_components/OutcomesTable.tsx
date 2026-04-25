@@ -5,14 +5,14 @@ import { Table, Text, Paper, ActionIcon, Tabs, Checkbox, Button, Group } from "@
 import { api } from "~/trpc/react";
 import { format, isBefore, startOfDay } from "date-fns";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
-import { IconEdit, IconTrash } from '@tabler/icons-react';
+import { IconEdit, IconTrash, IconTargetArrow } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
+import { useTerminology } from '~/hooks/useTerminology';
+import { EmptyState } from './EmptyState';
+import { CreateOutcomeModal as CreateOutcomeModalCta } from './CreateOutcomeModal';
 
 // Define OutcomeType to match the one in CreateOutcomeModal.tsx
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
-
-// Define the types we want to filter by
-const filterableTypes: OutcomeType[] = ['daily', 'weekly', 'monthly', 'quarterly', 'annual'];
 
 interface OutcomesTableProps {
   outcomes: any[];
@@ -23,11 +23,13 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
   const [hidePastDue, setHidePastDue] = useState<boolean>(true);
   const [bulkEditMode, setBulkEditMode] = useState(false);
   const [selectedOutcomes, setSelectedOutcomes] = useState<Set<string>>(new Set());
-  
+
+  const terminology = useTerminology();
   const utils = api.useUtils();
   const deleteOutcomeMutation = api.outcome.deleteOutcome.useMutation({
     onSuccess: () => {
       void utils.outcome.getMyOutcomes.invalidate();
+      void utils.outcome.getProjectOutcomes.invalidate();
       notifications.show({
         title: 'Success',
         message: 'Outcome deleted successfully',
@@ -46,6 +48,7 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
   const bulkDeleteMutation = api.outcome.deleteOutcomes.useMutation({
     onSuccess: () => {
       void utils.outcome.getMyOutcomes.invalidate();
+      void utils.outcome.getProjectOutcomes.invalidate();
       setSelectedOutcomes(new Set());
       setBulkEditMode(false);
       notifications.show({
@@ -63,7 +66,18 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
     },
   });
 
-  if (!outcomes) return <div>No outcomes found.</div>;
+  if (!outcomes) return (
+    <EmptyState
+      icon={IconTargetArrow}
+      title="No outcomes yet"
+      message="Outcomes help you define measurable results. Create your first outcome to start tracking progress."
+      action={
+        <CreateOutcomeModalCta>
+          <Button variant="light">Create Outcome</Button>
+        </CreateOutcomeModalCta>
+      }
+    />
+  );
 
   const today = startOfDay(new Date());
 
@@ -92,11 +106,15 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
   };
   
   const handleDeleteSelected = () => {
-    bulkDeleteMutation.mutate({ ids: Array.from(selectedOutcomes) });
+    if (confirm(`Are you sure you want to delete ${selectedOutcomes.size} outcome${selectedOutcomes.size !== 1 ? 's' : ''}?`)) {
+      bulkDeleteMutation.mutate({ ids: Array.from(selectedOutcomes) });
+    }
   };
-  
+
   const handleDeleteOutcome = (id: string) => {
-    deleteOutcomeMutation.mutate({ id });
+    if (confirm("Are you sure you want to delete this outcome?")) {
+      deleteOutcomeMutation.mutate({ id });
+    }
   };
 
   return (
@@ -106,9 +124,9 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
           <Tabs value={activeTab} onChange={setActiveTab}>
             <Tabs.List>
               <Tabs.Tab value="all">All</Tabs.Tab>
-              {filterableTypes.map((type) => (
+              {terminology.visibleOutcomeTypes.map((type) => (
                 <Tabs.Tab key={type} value={type} style={{ textTransform: 'capitalize' }}>
-                  {type}
+                  {type === 'weekly' ? terminology.weeklyOutcome : type}
                 </Tabs.Tab>
               ))}
             </Tabs.List>
@@ -149,13 +167,24 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
       </div>
 
       {filteredOutcomes.length === 0 && (
-        <Paper p="md" withBorder>
-          <Text c="dimmed">
-            {activeTab === 'all' && !hidePastDue
-              ? "No outcomes yet. Create your first one!"
-              : "No outcomes match the current filters."}
-          </Text>
-        </Paper>
+        activeTab === 'all' && !hidePastDue ? (
+          <EmptyState
+            icon={IconTargetArrow}
+            title="No outcomes yet"
+            message="Outcomes help you define measurable results. Create your first outcome to start tracking progress."
+            action={
+              <CreateOutcomeModalCta>
+                <Button variant="light">Create Outcome</Button>
+              </CreateOutcomeModalCta>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={IconTargetArrow}
+            message="No outcomes match the current filters. Try adjusting your filters to see more results."
+            iconColor="gray"
+          />
+        )
       )}
 
       {filteredOutcomes.length > 0 && (
@@ -206,7 +235,9 @@ export function OutcomesTable({ outcomes }: OutcomesTableProps) {
                           description: outcome.description,
                           dueDate: outcome.dueDate,
                           type: outcome.type as OutcomeType,
+                          whyThisOutcome: outcome.whyThisOutcome,
                           projectId: outcome.projects[0]?.id,
+                          goalId: outcome.goals[0]?.id,
                         }}
                         trigger={
                           <ActionIcon

@@ -1,13 +1,13 @@
 import Layout from "~/app/_components/layout/Layout";
 import "~/styles/globals.css";
 import { GeistSans } from "geist/font/sans";
-import { Orbitron } from 'next/font/google';
+import { Inter } from 'next/font/google';
 
-const orbitron = Orbitron({
+const inter = Inter({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800', '900'],
+  weight: ['700', '800', '900'],
   display: 'swap',
-  variable: '--font-orbitron',
+  variable: '--font-inter',
 });
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
@@ -15,21 +15,33 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dates/styles.css';
 import { ThemeProvider } from '~/providers/ThemeProvider';
+import { AgentModalProvider } from '~/providers/AgentModalProvider';
+import { BugReportProvider } from '~/providers/BugReportProvider';
 import { themes } from '~/config/themes';
 import { getThemeDomain } from '~/config/site';
 import { Analytics } from '@vercel/analytics/next';
-import { FloatingFeedbackButton } from '~/app/_components/FloatingFeedbackButton';
+import { GoogleAnalytics } from '@next/third-parties/google';
+import { ZoeDrawer, ZoeFab } from '~/app/_components/layout/ZoeDrawer';
+import { CommandPalette } from '~/app/_components/layout/CommandPalette';
 import { ColorSchemeScript } from '~/app/_components/layout/ColorSchemeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
 import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvider';
 import { SessionProvider } from "next-auth/react";
+import { WorkspaceProvider } from '~/providers/WorkspaceProvider';
+import { ServiceWorkerRegistration } from '~/app/_components/ServiceWorkerRegistration';
+import { PRODUCT_NAME } from '~/lib/brand';
+import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 const domain = getThemeDomain();
 
 export const metadata: Metadata = {
+  metadataBase: new URL(getPublicBaseUrlFromEnv()),
   title: themes[domain].branding.title,
   description: themes[domain].branding.description,
   icons: themes[domain].branding.icons,
+  alternates: {
+    canonical: './',
+  },
 };
 
 export default async function RootLayout({
@@ -40,22 +52,39 @@ export default async function RootLayout({
   const domain = getThemeDomain();
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${orbitron.variable} h-full`}>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${inter.variable} h-full`} suppressHydrationWarning>
       <head>
         <ColorSchemeScript />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content={PRODUCT_NAME} />
       </head>
       <body className="h-full bg-background-primary">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
             <SessionProvider>
               <MantineRootProvider>
-                <ColorSchemeProvider>
-                  <Layout domain={domain}>
-                    {children}
-                    <Analytics />
-                  </Layout>
-                  <FloatingFeedbackButton />
-                </ColorSchemeProvider>
+                <AgentModalProvider>
+                  <BugReportProvider>
+                    <ColorSchemeProvider>
+                      <WorkspaceProvider>
+                        <Layout domain={domain}>
+                          {children}
+                          <Analytics />
+                          {process.env.NEXT_PUBLIC_GA_ID && (
+                            <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+                          )}
+                        </Layout>
+                        <ServiceWorkerRegistration />
+                        <ZoeDrawer />
+                        <ZoeFab />
+                        <CommandPalette />
+                      </WorkspaceProvider>
+                    </ColorSchemeProvider>
+                  </BugReportProvider>
+                </AgentModalProvider>
               </MantineRootProvider>
             </SessionProvider>
           </TRPCReactProvider>

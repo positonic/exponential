@@ -56,20 +56,7 @@ export class OptimizedQueries {
             }
           },
           include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                emailVerified: true,
-                image: true,
-                usageType: true,
-                userRole: true,
-                selectedTools: true,
-                onboardingCompletedAt: true,
-                onboardingStep: true
-              }
-            }
+            user: true
           }
         });
       },

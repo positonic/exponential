@@ -1,7 +1,8 @@
 // ValuePropositionSection.tsx
 import React from "react";
 import { Title, Text } from "@mantine/core";
-import { IconRocket, IconUsers, IconCode } from "@tabler/icons-react";
+import { IconTarget, IconCalendarWeek, IconBrain } from "@tabler/icons-react";
+import { PRODUCT_NAME } from "~/lib/brand";
 
 interface FeatureDetailCardProps {
   icon: React.ReactNode;
@@ -38,33 +39,33 @@ interface ValuePropositionSectionProps {
 // Update component definition to use the new props interface and accept the id prop
 export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = ({ id }) => {
   const benefits = [
-    "Solo-founder focused",
-    "Product execution mastery",
-    "Human-AI collaboration",
-    "Idea to launch acceleration"
+    "Connect daily work to quarterly goals",
+    "Weekly reviews that surface patterns",
+    "AI assistance with your actual context",
+    "Migrate easily from Notion"
   ];
 
   const features = [
     {
-      icon: <IconRocket size={32} stroke={1.5} />,
-      iconColor: "var(--color-brand-warning)",
+      icon: <IconTarget size={32} stroke={1.5} />,
+      iconColor: "var(--color-brand-primary)",
       iconBgColor: "var(--color-surface-secondary)",
-      title: "Execution Acceleration",
-      description: "Focus on shipping — AI guides your planning, task breakdown, and iteration."
+      title: "Strategic Clarity",
+      description: "See your goal hierarchy at a glance. Know what matters and why."
     },
     {
-      icon: <IconUsers size={32} stroke={1.5} />,
+      icon: <IconCalendarWeek size={32} stroke={1.5} />,
       iconColor: "var(--color-brand-info)",
       iconBgColor: "var(--color-surface-secondary)",
-      title: "AI Partner for Founders",
-      description: "Work hand-in-hand with an intelligent assistant that helps organize your ideas and actions."
+      title: "Weekly Outcomes",
+      description: "Plan your week around results, not activities. Track what actually moves the needle."
     },
     {
-      icon: <IconCode size={32} stroke={1.5} />,
+      icon: <IconBrain size={32} stroke={1.5} />,
       iconColor: "var(--color-brand-success)",
       iconBgColor: "var(--color-surface-secondary)",
-      title: "Seamless GitHub Integration",
-      description: "Automatically syncs with your issues, milestones, and repositories."
+      title: "Context-Aware AI",
+      description: "An assistant that knows your goals, projects, and priorities. Not generic advice."
     }
   ];
 
@@ -76,16 +77,16 @@ export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = (
           <div className="flex flex-col justify-center">
             <div className="mb-6">
               <span className="px-4 py-2 bg-surface-secondary rounded-full text-brand-primary text-sm font-medium">
-                Why Use Exponential?
+                Why Use {PRODUCT_NAME}?
               </span>
             </div>
 
             <Title order={2} className="text-4xl md:text-5xl font-bold mb-6 text-white pb-4">
-              Your AI-Powered Product Execution Engine
+              Work That Connects to What Matters
             </Title>
 
             <Text className="text-text-muted text-xl mb-12 leading-relaxed">
-              Whether you&apos;re prototyping a side project or launching a startup solo, Exponential helps you stay focused, move faster, and build smarter — with the power of AI.
+              Most productivity tools help you check boxes. {PRODUCT_NAME} helps you know which boxes matter — and why.
             </Text>
 
             <div className="space-y-3 mt-4">

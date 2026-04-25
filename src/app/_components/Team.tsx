@@ -13,7 +13,7 @@ export function Team({ projectId }: { projectId: string }) {
   }
 
   return (
-    <Paper p="md" radius="sm" className="bg-[#262626] w-full max-w-3xl mx-auto">
+    <Paper p="md" radius="sm" className="bg-surface-primary w-full max-w-3xl mx-auto">
       <Group justify="space-between" mb="md">
         <Text size="xl" fw={700}>Team</Text>
         <Button variant="subtle" size="sm">
@@ -23,7 +23,7 @@ export function Team({ projectId }: { projectId: string }) {
 
       <div className="space-y-4">
         {teamMembers?.map((member) => (
-          <Paper key={member.id} p="sm" radius="sm" className="bg-[#2C2E33]">
+          <Paper key={member.id} p="sm" radius="sm" className="bg-surface-secondary">
             <Group>
               <Avatar src={member.avatarUrl} radius="xl" />
               <div className="flex-1">

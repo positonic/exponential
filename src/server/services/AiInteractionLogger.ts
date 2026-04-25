@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 
 export interface AiInteractionData {
   // Source Information (Required)
-  platform: "slack" | "manychat" | "api" | "webhook" | "direct";
+  platform: "slack" | "manychat" | "api" | "webhook" | "direct" | "web";
   sourceId?: string; // Platform-specific ID (Slack channel, chat session, etc.)
 
   // User Context
@@ -34,6 +34,9 @@ export interface AiInteractionData {
     completion?: number;
     total?: number;
     cost?: number; // Cost in USD
+    cacheReadInput?: number; // Anthropic cache_read_input_tokens / OpenAI cached_tokens
+    cacheCreationInput?: number; // Anthropic cache_creation_input_tokens
+    modelId?: string; // Provider-reported model id (e.g. claude-sonnet-4-6)
   };
   hadError?: boolean;
   errorMessage?: string;
@@ -41,6 +44,7 @@ export interface AiInteractionData {
 
   // Context & Results
   projectId?: string; // Associated project
+  workspaceId?: string; // Associated workspace (for per-workspace chat scoping)
   actionsTaken?: Array<{
     action: string;
     result: string;
@@ -51,6 +55,7 @@ export interface AiInteractionData {
   // Additional metadata
   userAgent?: string; // Browser/client information
   ipAddress?: string; // For security/analytics (should be hashed)
+  anthropicRequestId?: string; // Anthropic API request ID for correlation
 }
 
 export interface ConversationContext {
@@ -123,14 +128,16 @@ export class AiInteractionLogger {
 
           // Context & Results
           projectId: data.projectId,
+          workspaceId: data.workspaceId,
           actionsTaken: data.actionsTaken ? JSON.stringify(data.actionsTaken) : undefined,
           toolsUsed: data.toolsUsed ?? [],
 
           // Additional metadata
           userAgent: data.userAgent,
-          ipAddress: this.options.hashIpAddresses 
-            ? this.hashIpAddress(data.ipAddress) 
+          ipAddress: this.options.hashIpAddresses
+            ? this.hashIpAddress(data.ipAddress)
             : data.ipAddress,
+          anthropicRequestId: data.anthropicRequestId,
         },
       });
 
@@ -374,7 +381,7 @@ export class AiInteractionLogger {
    * Helper method to create logging data from common patterns
    */
   static createFromMastraCall(data: {
-    platform: "slack" | "manychat" | "api" | "direct";
+    platform: AiInteractionData["platform"];
     userMessage: string;
     aiResponse: string;
     agentId?: string;

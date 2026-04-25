@@ -1,0 +1,18 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* Break out of main's padding on sm+ so topbar/nav are edge-to-edge */
+@media (min-width: 640px) {
+  .wrapper {
+    margin: -1rem -1rem 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  .wrapper {
+    margin: -2rem -2rem 0;
+  }
+}

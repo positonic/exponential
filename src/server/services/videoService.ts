@@ -258,7 +258,7 @@ export async function summarizeTranscription(transcription: string, summaryType:
                 },
                 {
                     role: "user",
-                    content: `${prompt}${transcription}`
+                    content: `${prompt}\n<transcript>\n${transcription}\n</transcript>`
                 }
             ],
             temperature: 0.7,
@@ -297,7 +297,7 @@ export async function getSetups(transcription: string, summaryType: string): Pro
                 },
                 {
                     role: "user",
-                    content: `${getPrompt(summaryType)}${transcription}`
+                    content: `${getPrompt(summaryType)}\n<transcript>\n${transcription}\n</transcript>`
                 }
             ],
             temperature: 0.7,

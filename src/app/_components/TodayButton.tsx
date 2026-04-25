@@ -37,10 +37,6 @@ export function TodayButton() {
           color: 'rgba(147, 197, 253, 0.9)',
           backgroundColor: 'rgba(59, 130, 246, 0.1)',
           border: '1px solid rgba(59, 130, 246, 0.2)',
-          '&:hover': {
-            backgroundColor: 'rgba(59, 130, 246, 0.15)',
-            border: '1px solid rgba(59, 130, 246, 0.3)',
-          }
         }
       }}
     >

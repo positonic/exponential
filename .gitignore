@@ -84,4 +84,15 @@ pnpm-lock.yaml
 # Serena MCP cache (regenerated automatically)
 .serena/
 
+# Playwright MCP test artifacts
+.playwright-mcp/
+
+# Test seed scripts (local development only)
+prisma/seed-test.ts
+prisma/seed-product.ts
+
 db-backups/
+
+# Electron
+/dist-electron/
+/release/

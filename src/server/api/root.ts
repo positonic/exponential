@@ -1,6 +1,7 @@
 import { postRouter } from "~/server/api/routers/post";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 import { actionRouter } from "./routers/action";
+import { adminRouter } from "./routers/admin";
 import { projectRouter } from "./routers/project";
 import { toolRouter } from "./routers/tool";
 import { videoRouter } from "~/server/api/routers/video";
@@ -21,13 +22,54 @@ import { slackRouter } from "./routers/slack";
 import { aiInteractionRouter } from "./routers/aiInteraction";
 import { calendarRouter } from "./routers/calendar";
 import { feedbackRouter } from "./routers/feedback";
+import { featureRequestRouter } from "./routers/featureRequest";
 import { whatsappRouter } from "./routers/whatsapp";
+import { whatsappGatewayRouter } from "./routers/whatsappGateway";
+import { telegramGatewayRouter } from "./routers/telegramGateway";
 import { notificationRouter } from "./routers/notification";
+import { pushSubscriptionRouter } from "./routers/pushSubscription";
 import { onboardingRouter } from "./routers/onboarding";
 import { weeklyPlanningRouter } from "./routers/weeklyPlanning";
 import { projectWorkflowRouter } from "./routers/projectWorkflow";
 import { weeklyReviewRouter } from "./routers/weeklyReview";
 import { userRouter } from "./routers/user";
+import { wheelOfLifeRouter } from "./routers/wheelOfLife";
+import { navigationPreferenceRouter } from "./routers/navigationPreference";
+import { habitRouter } from "./routers/habit";
+import { workspaceRouter } from "./routers/workspace";
+import { resourceRouter } from "./routers/resource";
+import { crmContactRouter } from "./routers/crmContact";
+import { crmOrganizationRouter } from "./routers/crmOrganization";
+import { tagRouter } from "./routers/tag";
+import { schedulingRouter } from "./routers/scheduling";
+import { taskScheduleRouter } from "./routers/taskSchedule";
+import { okrCheckinRouter } from "./routers/okrCheckin";
+import { viewRouter } from "./routers/view";
+import { listRouter } from "./routers/list";
+import { epicRouter } from "./routers/epic";
+import { dailyPlanRouter } from "./routers/dailyPlan";
+import { scoringRouter } from "./routers/scoring";
+import { leaderboardRouter } from "./routers/leaderboard";
+import { assistantRouter } from "./routers/assistant";
+import { workflowPipelineRouter } from "./routers/workflowPipeline";
+import { pipelineRouter } from "./routers/pipeline";
+import { contentRouter } from "./routers/content";
+import { sprintAnalyticsRouter } from "./routers/sprintAnalytics";
+import { briefingRouter } from "./routers/briefing";
+import { pmSchedulerRouter } from "./routers/pmScheduler";
+import { bountyRouter } from "./routers/bounty";
+import { bugReportRouter } from "./routers/bugReport";
+import { actionCommentRouter } from "./routers/actionComment";
+import { blogCommentRouter } from "./routers/blogComment";
+import { goalCommentRouter } from "./routers/goalComment";
+import { goalUpdateRouter } from "./routers/goalUpdate";
+import { goalActivityRouter } from "./routers/goalActivity";
+import { crmApiRouter } from "./routers/crmApi";
+// Plugin system
+import { pluginConfigRouter } from "./routers/pluginConfig";
+import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
+import { productPluginRouter } from "~/plugins/product/server/routers";
+import { authRouter } from "./routers/auth";
 /**
  * This is the primary router for your server.
  *
@@ -37,6 +79,7 @@ export const appRouter = createTRPCRouter({
   post: postRouter,
   project: projectRouter,
   action: actionRouter,
+  admin: adminRouter,
   tools: toolRouter,
   video: videoRouter,
   goal: goalRouter,
@@ -56,13 +99,54 @@ export const appRouter = createTRPCRouter({
   aiInteraction: aiInteractionRouter,
   calendar: calendarRouter,
   feedback: feedbackRouter,
+  featureRequest: featureRequestRouter,
   whatsapp: whatsappRouter,
+  whatsappGateway: whatsappGatewayRouter,
+  telegramGateway: telegramGatewayRouter,
   notification: notificationRouter,
+  pushSubscription: pushSubscriptionRouter,
   onboarding: onboardingRouter,
   weeklyPlanning: weeklyPlanningRouter,
   projectWorkflow: projectWorkflowRouter,
   weeklyReview: weeklyReviewRouter,
   user: userRouter,
+  wheelOfLife: wheelOfLifeRouter,
+  navigationPreference: navigationPreferenceRouter,
+  habit: habitRouter,
+  workspace: workspaceRouter,
+  resource: resourceRouter,
+  crmContact: crmContactRouter,
+  crmOrganization: crmOrganizationRouter,
+  tag: tagRouter,
+  scheduling: schedulingRouter,
+  taskSchedule: taskScheduleRouter,
+  okrCheckin: okrCheckinRouter,
+  view: viewRouter,
+  list: listRouter,
+  epic: epicRouter,
+  dailyPlan: dailyPlanRouter,
+  scoring: scoringRouter,
+  leaderboard: leaderboardRouter,
+  assistant: assistantRouter,
+  workflowPipeline: workflowPipelineRouter,
+  content: contentRouter,
+  pipeline: pipelineRouter,
+  sprintAnalytics: sprintAnalyticsRouter,
+  briefing: briefingRouter,
+  pmScheduler: pmSchedulerRouter,
+  bounty: bountyRouter,
+  bugReport: bugReportRouter,
+  actionComment: actionCommentRouter,
+  blogComment: blogCommentRouter,
+  goalComment: goalCommentRouter,
+  goalUpdate: goalUpdateRouter,
+  goalActivity: goalActivityRouter,
+  crmApi: crmApiRouter,
+  auth: authRouter,
+  // Plugin system
+  pluginConfig: pluginConfigRouter,
+  okr: keyResultRouter,
+  product: productPluginRouter,
 });
 
 // export type definition of API

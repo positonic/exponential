@@ -1,0 +1,74 @@
+appId: im.exponential.app
+productName: Exponential
+copyright: Copyright © 2024 Exponential
+
+directories:
+  buildResources: electron/build
+  output: dist-electron
+  app: dist-electron
+
+files:
+  - "**/*"
+  - "!**/*.ts"
+  - "!**/*.map"
+
+extraMetadata:
+  main: main.js
+  type: commonjs
+
+# macOS configuration
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.productivity
+  darkModeSupport: true
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: electron/build/entitlements.mac.plist
+  entitlementsInherit: electron/build/entitlements.mac.plist
+
+# Windows configuration
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  publisherName: Exponential
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+# Linux configuration
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  category: Office
+  maintainer: support@exponential.im
+
+# Protocol registration for OAuth
+protocols:
+  - name: Exponential
+    schemes:
+      - exponential
+
+# Auto-update configuration (disabled for now)
+publish: null

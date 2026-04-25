@@ -194,6 +194,12 @@ export class MondaySyncService {
         .filter(Boolean)
         .join('\n');
 
+      // Inherit workspaceId from the target project
+      const mondayProject = await db.project.findUnique({
+        where: { id: projectId },
+        select: { workspaceId: true },
+      });
+
       const action = await db.action.create({
         data: {
           name: `[${todo.boardName}] ${todo.name || 'Untitled'}`,
@@ -203,7 +209,7 @@ export class MondaySyncService {
           dueDate,
           projectId,
           createdById: userId,
-          // assignedToId: assigneeId, // Would implement assignee mapping if needed
+          workspaceId: mondayProject?.workspaceId ?? null,
         },
       });
 

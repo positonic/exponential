@@ -53,28 +53,25 @@ export function GoogleCalendarConnect({ isConnected = false }: GoogleCalendarCon
 
   const handleConnect = () => {
     setLoading(true);
-    window.location.href = "/api/auth/google-calendar";
+    // Pass current URL as return URL so user comes back to same page after OAuth
+    const returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `/api/auth/google-calendar?returnUrl=${returnUrl}`;
   };
 
   if (isConnected) {
     return (
       <Button
-        variant="subtle"
-        color="gray"
+        variant="light"
+        color="green"
         leftSection={<IconCheck size={16} />}
         disabled
         styles={{
           root: {
-            color: 'rgba(134, 239, 172, 0.8)',
-            backgroundColor: 'rgba(134, 239, 172, 0.1)',
-            border: '1px solid rgba(134, 239, 172, 0.2)',
+            opacity: 1,
             '&:disabled': {
-              backgroundColor: 'rgba(134, 239, 172, 0.1)',
-              border: '1px solid rgba(134, 239, 172, 0.2)',
-              color: 'rgba(134, 239, 172, 0.8)',
               opacity: 1,
-            }
-          }
+            },
+          },
         }}
       >
         Calendar Connected
@@ -87,18 +84,8 @@ export function GoogleCalendarConnect({ isConnected = false }: GoogleCalendarCon
       onClick={handleConnect}
       loading={loading}
       leftSection={<IconCalendar size={16} />}
-      variant="subtle"
-      styles={{
-        root: {
-          color: 'rgba(147, 197, 253, 0.9)',
-          backgroundColor: 'rgba(59, 130, 246, 0.1)',
-          border: '1px solid rgba(59, 130, 246, 0.2)',
-          '&:hover': {
-            backgroundColor: 'rgba(59, 130, 246, 0.15)',
-            border: '1px solid rgba(59, 130, 246, 0.3)',
-          }
-        }
-      }}
+      variant="light"
+      color="blue"
     >
       Connect Google Calendar
     </Button>

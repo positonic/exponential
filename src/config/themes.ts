@@ -1,5 +1,6 @@
 import type { MantineTheme } from '@mantine/core';
 import { mantineTheme } from '~/styles/mantineTheme';
+import { PRODUCT_NAME } from '~/lib/brand';
 export type ValidDomain = 'forceflow.com' | 'exponential.im';
 
 export type ThemeConfig = {
@@ -32,7 +33,7 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
   'forceflow.com': {
     name: 'Force Flow',
     logo: '🧘‍♂️',
-    fontFamily: 'Orbitron, sans-serif',
+    fontFamily: 'Inter, sans-serif',
     colors: {
       primary: 'from-blue-400 to-purple-600',
       secondary: 'from-blue-500 to-purple-600',
@@ -54,9 +55,9 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
     }
   },
   'exponential.im': {
-    name: 'Exponential.im',
+    name: 'exponential.im',
     logo: '/expo-logo-20.png',
-    fontFamily: 'Orbitron, sans-serif',
+    fontFamily: 'Inter, sans-serif',
     colors: {
         primary: 'from-blue-400 to-purple-600',
         secondary: 'from-blue-500 to-purple-600',
@@ -70,11 +71,11 @@ export const themes: Record<ValidDomain, ThemeConfig> = {
         }
       },
     branding: {
-      title: 'Exponential - AI-Powered Productivity Platform for Solo Founders',
-      description: 'Turn your ideas into working products faster with Exponential. AI-powered project management, task automation, and GitHub integration designed for solo entrepreneurs and founders.',
-      descriptionLonger: 'Transform your productivity with Exponential - an AI-powered personal management system that helps you organize tasks, track projects, and make better decisions. Features smart project management, semantic search, and intelligent insights.',
-      heroTitle: 'Turn Linear Progress into Exponential Growth',
-      heroSubtitle: 'AI-powered system for exponential personal and professional growth.'
+      title: `${PRODUCT_NAME} - The OS for AI-Native Organizations`,
+      description: 'The coordination layer for AI-first organizations. Goals cascade into outcomes, AI handles execution, and your team stays aligned.',
+      descriptionLonger: `${PRODUCT_NAME} is the operating system where humans and AI build together. A coordination layer for AI-first organizations that connects goals to outcomes to actions — with AI handling execution while your team stays aligned on what matters.`,
+      heroTitle: 'Where humans and AI build together',
+      heroSubtitle: 'The coordination layer for AI-first organizations. Goals cascade into outcomes. AI handles execution. Your team stays aligned.'
     }
   }
 };

@@ -20,4 +20,6 @@ To work in this worktree:
 - Run dev server: npm run dev -- -p 3001
 - Make changes and commit as usual
 - When done: git push -u origin feature/$ARGUMENTS
+
+🤖 If running an AI agent in this worktree, run: /worktree-agent
 ```

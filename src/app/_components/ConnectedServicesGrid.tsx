@@ -3,7 +3,6 @@
 import {
   Title,
   Text,
-  SimpleGrid,
   Stack,
   Paper,
   Group,
@@ -151,7 +150,7 @@ export function ConnectedServicesGrid({
         </div>
       </Group>
 
-      <SimpleGrid cols={2} spacing="md">
+      <div className="flex flex-wrap gap-3">
         {providerCards.map((providerCard) => {
           const {
             provider,
@@ -212,7 +211,7 @@ export function ConnectedServicesGrid({
             />
           );
         })}
-      </SimpleGrid>
+      </div>
     </Stack>
   );
 }

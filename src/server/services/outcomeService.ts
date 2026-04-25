@@ -1,4 +1,5 @@
 import { type Context } from "~/server/auth/types";
+import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 export async function getMyOutcomes({ ctx }: { ctx: Context }) {
   return await ctx.db.outcome.findMany({
@@ -10,6 +11,7 @@ export async function getMyOutcomes({ ctx }: { ctx: Context }) {
       description: true,
       dueDate: true,
       type: true,
+      whyThisOutcome: true,
       projects: true,
       goals: true
     }
@@ -20,7 +22,10 @@ interface OutcomeInput {
   description: string;
   dueDate?: Date;
   type: string;
+  whyThisOutcome?: string;
   projectId?: string;
+  goalId?: number;
+  workspaceId?: string;
 }
 
 export const createOutcome = async ({ ctx, input }: { ctx: Context, input: OutcomeInput }) => {
@@ -28,14 +33,19 @@ export const createOutcome = async ({ ctx, input }: { ctx: Context, input: Outco
     throw new Error("User not authenticated");
   }
 
-  return await ctx.db.outcome.create({
+  const outcome = await ctx.db.outcome.create({
     data: {
       description: input.description,
       dueDate: input.dueDate,
       type: input.type,
+      whyThisOutcome: input.whyThisOutcome,
       userId: ctx.session.user.id,
+      workspaceId: input.workspaceId,
       projects: input.projectId ? {
         connect: [{ id: input.projectId }]
+      } : undefined,
+      goals: input.goalId ? {
+        connect: [{ id: input.goalId }]
       } : undefined,
     },
     include: {
@@ -43,6 +53,13 @@ export const createOutcome = async ({ ctx, input }: { ctx: Context, input: Outco
       goals: true,
     },
   });
+
+  // Sync onboarding progress (fire-and-forget)
+  void completeOnboardingStep(ctx.db, ctx.session.user.id, "outcome").catch(
+    (err: unknown) => { console.error("[onboarding-sync] outcome:", err); },
+  );
+
+  return outcome;
 };
 
 interface UpdateOutcomeInput extends OutcomeInput {
@@ -74,11 +91,19 @@ export const updateOutcome = async ({ ctx, input }: { ctx: Context, input: Updat
       description: input.description,
       dueDate: input.dueDate,
       type: input.type,
+      whyThisOutcome: input.whyThisOutcome,
+      workspaceId: input.workspaceId,
       projects: input.projectId ? {
         set: [], // Clear existing connections
         connect: [{ id: input.projectId }]
       } : {
         set: [] // Clear project connection if no projectId provided
+      },
+      goals: input.goalId ? {
+        set: [], // Clear existing connections
+        connect: [{ id: input.goalId }]
+      } : {
+        set: [] // Clear goal connection if no goalId provided
       },
     },
     include: {

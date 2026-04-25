@@ -1,0 +1,222 @@
+"use client";
+
+import { useState } from "react";
+import { Stack, Group, Title, Text, Button, Paper } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
+import { IconClock } from "@tabler/icons-react";
+import { startOfDay, endOfDay } from "date-fns";
+import type { RouterOutputs } from "~/trpc/react";
+import { api } from "~/trpc/react";
+import { TimeGrid } from "../TimeGrid";
+import {
+  SchedulingSuggestionsModal,
+  type SchedulingSuggestion,
+} from "../SchedulingSuggestionsModal";
+
+type DailyPlan = RouterOutputs["dailyPlan"]["getOrCreateToday"];
+type DailyPlanAction = DailyPlan["plannedActions"][number];
+
+interface ScheduleStepProps {
+  dailyPlan: DailyPlan;
+  tasks: DailyPlanAction[];
+  planDate: Date;
+  workHoursStart: string;
+  workHoursEnd: string;
+  onUpdateTask: (
+    taskId: string,
+    updates: { scheduledStart?: Date | null; scheduledEnd?: Date | null; schedulingMethod?: string | null }
+  ) => Promise<void>;
+  onRefetch: () => void;
+  onNext: () => void;
+  onBack: () => void;
+}
+
+export function ScheduleStep({
+  dailyPlan,
+  tasks,
+  planDate,
+  workHoursStart,
+  workHoursEnd,
+  onUpdateTask,
+  onRefetch,
+  onNext,
+  onBack,
+}: ScheduleStepProps) {
+  const [suggestionsModalOpen, setSuggestionsModalOpen] = useState(false);
+  const utils = api.useUtils();
+
+  // Get calendar events for the plan date (matching calendar page pattern)
+  const { data: connectionStatus } = api.calendar.getConnectionStatus.useQuery();
+  const calendarConnected = connectionStatus?.isConnected ?? false;
+
+  // Use multi-calendar endpoint to fetch from all user-selected calendars
+  const { data: calendarEvents } = api.calendar.getEventsMultiCalendar.useQuery(
+    {
+      timeMin: startOfDay(planDate),
+      timeMax: endOfDay(planDate),
+      maxResults: 50,
+    },
+    {
+      enabled: calendarConnected,
+      retry: false,
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  // Get user's timezone offset (minutes from UTC)
+  const timezoneOffset = new Date().getTimezoneOffset();
+
+  // Get scheduling suggestions query
+  const {
+    data: suggestionsData,
+    isLoading: isLoadingSuggestions,
+    refetch: refetchSuggestions,
+  } = api.scheduling.getSuggestionsForDailyPlan.useQuery(
+    { dailyPlanId: dailyPlan.id, timezoneOffset },
+    { enabled: false } // Only fetch when requested
+  );
+
+  // Apply suggestions mutation
+  const applySuggestionsMutation = api.scheduling.applySuggestions.useMutation({
+    onSuccess: async () => {
+      // Invalidate the correct query that powers the TimeGrid
+      await utils.dailyPlan.getOrCreateToday.invalidate({
+        date: planDate,
+        workspaceId: dailyPlan.workspaceId ?? undefined,
+      });
+
+      // Also invalidate action queries (may be used elsewhere)
+      await utils.action.getScheduledByDateRange.invalidate();
+      await utils.action.getScheduledByDate.invalidate();
+
+      // Trigger refetch
+      onRefetch();
+
+      setSuggestionsModalOpen(false);
+    },
+  });
+
+  const handleScheduleTask = async (
+    taskId: string,
+    scheduledStart: Date,
+    scheduledEnd: Date
+  ) => {
+    // When manually scheduling, clear the auto-suggested method
+    await onUpdateTask(taskId, { scheduledStart, scheduledEnd, schedulingMethod: "manual" });
+  };
+
+  const handleGetSuggestions = async () => {
+    try {
+      await refetchSuggestions();
+      setSuggestionsModalOpen(true);
+    } catch (error) {
+      console.error("[ScheduleStep] Error fetching suggestions:", error);
+      notifications.show({
+        title: "Could not get suggestions",
+        message: "There was an error generating scheduling suggestions. Please try again.",
+        color: "red",
+      });
+      // Still open modal to show the error state
+      setSuggestionsModalOpen(true);
+    }
+  };
+
+  const handleApplySuggestions = async (suggestions: SchedulingSuggestion[]) => {
+    await applySuggestionsMutation.mutateAsync({
+      suggestions: suggestions.map((s) => ({
+        taskId: s.taskId,
+        scheduledStart: s.suggestedStart,
+        scheduledEnd: s.suggestedEnd,
+      })),
+    });
+  };
+
+  // Transform suggestions data to modal format
+  const modalSuggestions: SchedulingSuggestion[] = (suggestionsData?.suggestions ?? []).map((s) => ({
+    taskId: s.taskId,
+    taskName: s.taskName,
+    duration: s.duration,
+    suggestedStart: new Date(s.suggestedStart),
+    suggestedEnd: new Date(s.suggestedEnd),
+    reasoning: s.reasoning,
+    score: s.score,
+  }));
+
+  return (
+    <Group align="flex-start" gap="xl" wrap="nowrap">
+      {/* Left Panel: Instructions */}
+      <Stack w={280} gap="lg">
+        <div>
+          <Title order={3} className="text-text-primary">
+            Schedule your tasks
+          </Title>
+          <Text c="dimmed" size="sm" mt="xs">
+            Drag tasks to the timeline to time-block your day, or skip this step
+            to work through your list flexibly.
+          </Text>
+        </div>
+
+        <Paper
+          p="md"
+          className="bg-surface-secondary border border-border-primary"
+        >
+          <Group gap="xs" mb="sm">
+            <IconClock size={16} className="text-text-muted" />
+            <Text fw={600} size="sm" className="text-text-primary">
+              Quick Tips
+            </Text>
+          </Group>
+          <Stack gap="xs">
+            <Text size="xs" c="dimmed">
+              • Click &quot;Get Suggestions&quot; for AI scheduling
+            </Text>
+            <Text size="xs" c="dimmed">
+              • Drag tasks to specific time slots
+            </Text>
+            <Text size="xs" c="dimmed">
+              • Tasks auto-calculate end time
+            </Text>
+            <Text size="xs" c="dimmed">
+              • Gray slots show calendar events
+            </Text>
+          </Stack>
+        </Paper>
+
+        <Stack gap="xs">
+          <Button variant="default" onClick={onNext} className="border-border-primary">
+            Next
+          </Button>
+          <Button variant="subtle" onClick={onBack}>
+            Back
+          </Button>
+        </Stack>
+      </Stack>
+
+      {/* Right: Time Grid */}
+      <Stack flex={1}>
+        <TimeGrid
+          planDate={planDate}
+          tasks={tasks}
+          calendarEvents={calendarEvents ?? []}
+          onScheduleTask={handleScheduleTask}
+          workHoursStart={workHoursStart}
+          workHoursEnd={workHoursEnd}
+          onGetSuggestions={() => void handleGetSuggestions()}
+          isLoadingSuggestions={isLoadingSuggestions}
+        />
+      </Stack>
+
+      {/* Scheduling Suggestions Modal */}
+      <SchedulingSuggestionsModal
+        opened={suggestionsModalOpen}
+        onClose={() => setSuggestionsModalOpen(false)}
+        suggestions={modalSuggestions}
+        isLoading={isLoadingSuggestions}
+        calendarConnected={suggestionsData?.calendarConnected ?? true}
+        onApply={handleApplySuggestions}
+        isApplying={applySuggestionsMutation.isPending}
+      />
+    </Group>
+  );
+}

@@ -49,7 +49,7 @@ export function DaysTable() {
 
   if (isError) {
     return (
-      <Paper className="bg-[#262626] p-4">
+      <Paper className="bg-surface-secondary p-4">
         <Text c="dimmed">Error loading days. Please try again later.</Text>
       </Paper>
     );
@@ -57,7 +57,7 @@ export function DaysTable() {
 
   if (!filteredDays.length) {
     return (
-      <Paper className="bg-[#262626] p-4">
+      <Paper className="bg-surface-secondary p-4">
         <Text c="dimmed">No days found. Create your first day by clicking the &quot;Today&quot; button.</Text>
       </Paper>
     );
@@ -74,17 +74,17 @@ export function DaysTable() {
             { label: 'This week', value: 'week' },
             { label: 'This month', value: 'month' },
           ]}
-          className="bg-[#262626]"
+          className="bg-surface-secondary"
         />
       </Group>
 
-      <Paper className="bg-[#262626]">
-        <Table verticalSpacing="sm" className="bg-[#262626]">
+      <Paper className="bg-surface-secondary">
+        <Table verticalSpacing="sm" className="bg-surface-secondary">
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Name</Table.Th>
-              <Table.Th>Date</Table.Th>
-              <Table.Th>Week</Table.Th>
+              <Table.Th className="text-text-primary">Name</Table.Th>
+              <Table.Th className="text-text-primary">Date</Table.Th>
+              <Table.Th className="text-text-primary">Week</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -96,15 +96,15 @@ export function DaysTable() {
               const formattedUrlDate = format(date, 'yyyy-MM-dd');
               
               return (
-                <Table.Tr key={day.id} className="hover:bg-[#2C2E33] cursor-pointer">
+                <Table.Tr key={day.id} className="hover:bg-surface-hover cursor-pointer">
                   <Table.Td>
-                    <Link href={`/days/${formattedUrlDate}`} className="flex items-center no-underline text-gray-300">
+                    <Link href={`/days/${formattedUrlDate}`} className="flex items-center no-underline text-text-primary hover:text-brand-primary">
                       <span className="mr-2">🌻</span>
                       {dayName}
                     </Link>
                   </Table.Td>
-                  <Table.Td>{formattedDate}</Table.Td>
-                  <Table.Td>{weekRange}</Table.Td>
+                  <Table.Td className="text-text-secondary">{formattedDate}</Table.Td>
+                  <Table.Td className="text-text-secondary">{weekRange}</Table.Td>
                 </Table.Tr>
               );
             })}

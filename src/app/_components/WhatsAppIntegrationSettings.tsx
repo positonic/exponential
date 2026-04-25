@@ -38,6 +38,7 @@ import { api } from '~/trpc/react';
 import { useRouter } from 'next/navigation';
 import { WhatsAppPhoneMapping } from './WhatsAppPhoneMapping';
 import { WhatsAppMonitoringDashboard } from './WhatsAppMonitoringDashboard';
+import { PRODUCT_NAME } from '~/lib/brand';
 
 interface WhatsAppIntegrationSettingsProps {
   integrationId: string;
@@ -90,7 +91,7 @@ export function WhatsAppIntegrationSettings({ integrationId }: WhatsAppIntegrati
   const testForm = useForm({
     initialValues: {
       phoneNumber: '',
-      message: 'Hello! This is a test message from Exponential.',
+      message: `Hello! This is a test message from ${PRODUCT_NAME}.`,
     },
     validate: {
       phoneNumber: (value) => {

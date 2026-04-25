@@ -1,0 +1,396 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ── page header ── */
+.pageHeader {
+  padding: 24px 32px 16px;
+  border-bottom: 1px solid var(--color-border-primary);
+  flex-shrink: 0;
+}
+
+.pageTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 0 0 4px;
+}
+
+.pageStats {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+/* ── top bar: tabs + actions ── */
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 32px;
+  border-bottom: 1px solid var(--color-border-primary);
+  flex-shrink: 0;
+}
+
+.viewTabs {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.viewTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 100ms, color 100ms;
+}
+
+.viewTab:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.viewTab[data-active='true'] {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.searchWrap {
+  position: relative;
+}
+
+.searchInput {
+  height: 32px;
+  padding: 0 10px 0 30px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  outline: none;
+  width: 200px;
+  transition: border-color 120ms, width 120ms;
+}
+
+.searchInput:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--color-brand-glow);
+  width: 240px;
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-primary);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 100ms, color 100ms;
+  text-decoration: none;
+}
+
+.actionBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.actionBtnActive,
+.actionBtn[data-active='true'] {
+  background: var(--color-brand-subtle);
+  color: var(--brand-400);
+  border-color: var(--brand-500);
+}
+
+/* ── filter row ── */
+.filterRow {
+  padding: 12px 32px 0;
+  flex-shrink: 0;
+}
+
+.newBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 0;
+  background: var(--brand-500);
+  color: var(--color-text-inverse);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 120ms;
+}
+
+.newBtn:hover {
+  opacity: 0.88;
+}
+
+/* ── table ── */
+.tableWrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* ── table head ── */
+.tableHead th {
+  padding: 9px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-primary);
+  white-space: nowrap;
+  background: var(--color-bg-primary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tableHead th.nameCol {
+  padding-left: 16px;
+}
+
+/* ── project row ── */
+.projectRow {
+  border-bottom: 1px solid var(--color-border-primary);
+  background: var(--color-bg-secondary);
+  cursor: pointer;
+  transition: background 80ms;
+}
+
+.projectRow:hover {
+  background: var(--color-bg-hover);
+}
+
+.projectRow td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.projectRow td.nameCol {
+  padding-left: 16px;
+}
+
+.projectNameCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.expandBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 80ms, background 80ms;
+  padding: 0;
+}
+
+.expandBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.expandArrow {
+  transition: transform 160ms;
+}
+
+.expandArrow[data-open='true'] {
+  transform: rotate(90deg);
+}
+
+.taskCountBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ── task row ── */
+.taskRow {
+  border-bottom: 1px solid var(--color-border-secondary);
+  cursor: pointer;
+  transition: background 80ms;
+}
+
+.taskRow:hover {
+  background: var(--color-bg-secondary);
+}
+
+.taskRow td {
+  padding: 8px 12px;
+  vertical-align: middle;
+}
+
+.taskRow td.nameCol {
+  padding-left: 16px;
+}
+
+.taskNameCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 28px;
+}
+
+.taskCheckboxWrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.taskName {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.taskNameDone {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+/* ── shared chip styles ── */
+.statusChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.priorityChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.priorityBars {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.5px;
+}
+
+.priorityBar {
+  width: 3px;
+  border-radius: 1px;
+}
+
+/* ── project badge in task rows ── */
+.projectBadge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+/* ── DRI placeholder ── */
+.driPlaceholder {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--color-border-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+/* ── empty / muted ── */
+.muted {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.empty {
+  text-align: center;
+  padding: 80px 40px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}

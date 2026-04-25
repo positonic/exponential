@@ -4,20 +4,72 @@ import { api } from "~/trpc/react";
 import { ActionList } from './ActionList';
 import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
-import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff } from "@tabler/icons-react";
-import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge } from "@mantine/core";
-import { useState, useEffect } from "react";
+import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag, IconFilter, IconArchive, IconSearch, IconCircleDot, IconFlag } from "@tabler/icons-react";
+import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge, MultiSelect, Collapse } from "@mantine/core";
+import { FilterBar } from "./filters";
+import { hasActiveFilters } from "~/types/filter";
+import type { FilterBarConfig } from "~/types/filter";
+import tasksStyles from "./ProjectTasks.module.css";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { notifications } from "@mantine/notifications";
+import type { SchedulingSuggestionData } from "./SchedulingSuggestion";
+import { useActionDeepLink } from "~/hooks/useActionDeepLink";
+import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
+
+import type { FilterState } from "~/types/filter";
+
+const ACTION_FILTER_CONFIG: FilterBarConfig = {
+  fields: [
+    {
+      key: "status",
+      label: "Status",
+      type: "multi-select",
+      icon: IconCircleDot,
+      badgeColor: "cyan",
+      options: [
+        { value: "ACTIVE", label: "Active" },
+        { value: "COMPLETED", label: "Completed" },
+      ],
+    },
+    {
+      key: "priority",
+      label: "Priority",
+      type: "multi-select",
+      icon: IconFlag,
+      badgeColor: "grape",
+      options: [
+        { value: "1st Priority", label: "1st Priority" },
+        { value: "2nd Priority", label: "2nd Priority" },
+        { value: "3rd Priority", label: "3rd Priority" },
+        { value: "4th Priority", label: "4th Priority" },
+        { value: "5th Priority", label: "5th Priority" },
+        { value: "Quick", label: "Quick" },
+        { value: "Scheduled", label: "Scheduled" },
+        { value: "Errand", label: "Errand" },
+        { value: "Remember", label: "Remember" },
+        { value: "Watch", label: "Watch" },
+      ],
+    },
+  ],
+};
 
 interface ActionsProps {
   viewName: string;
   defaultView?: 'list' | 'alignment' | 'kanban';
   projectId?: string;
   displayAlignment?: boolean;
+  /** Search query for filtering actions by name */
+  searchQuery?: string;
+  /** Filter state for filtering actions by status/priority */
+  filters?: FilterState;
+  /** Externally controlled tag ids - when provided, hides the internal tag filter UI */
+  tagIds?: string[];
   /** Project sync info for showing Notion sync button */
   projectSyncInfo?: {
     taskManagementTool?: string | null;
@@ -28,12 +80,66 @@ interface ActionsProps {
   };
 }
 
-export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false, projectSyncInfo }: ActionsProps) {
+export function Actions({ viewName, defaultView = 'list', projectId, displayAlignment = false, searchQuery, filters, tagIds, projectSyncInfo }: ActionsProps) {
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const viewFromUrl = searchParams.get("view");
   const [isAlignmentMode, setIsAlignmentMode] = useState(defaultView === 'alignment');
-  const [isKanbanMode, setIsKanbanMode] = useState(defaultView === 'kanban');
+  const [isKanbanMode, setIsKanbanMode] = useState(viewFromUrl === "kanban" || defaultView === 'kanban');
   const [isSyncing, setIsSyncing] = useState(false);
   const [showNotionUnassigned, setShowNotionUnassigned] = useState(false);
+  const [internalSelectedTagIds, setInternalSelectedTagIds] = useState<string[]>([]);
+  const [internalSearch, setInternalSearch] = useState("");
+  const [internalFilters, setInternalFilters] = useState<FilterState>({});
+  const [filterRowOpen, setFilterRowOpen] = useState(false);
+  const appliedSearchQuery = searchQuery ?? internalSearch;
+  const appliedFilters = filters ?? internalFilters;
+  const filtersActive = hasActiveFilters(ACTION_FILTER_CONFIG, appliedFilters);
+  const isTagFilterControlled = tagIds !== undefined;
+  const selectedTagIds = isTagFilterControlled ? tagIds : internalSelectedTagIds;
+  const setSelectedTagIds = setInternalSelectedTagIds;
   const utils = api.useUtils();
+  const { actionIdFromUrl, setActionId, clearActionId } = useActionDeepLink();
+  const detailedEnabled = useDetailedActionsEnabled(projectId);
+  const { workspace } = useWorkspace();
+  const actionsRouter = useRouter();
+
+  const setViewMode = useCallback((kanban: boolean) => {
+    setIsKanbanMode(kanban);
+    const params = new URLSearchParams(searchParams.toString());
+    if (kanban) {
+      params.set("view", "kanban");
+    } else {
+      params.delete("view");
+    }
+    const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+    actionsRouter.replace(newUrl, { scroll: false });
+  }, [searchParams, pathname, actionsRouter]);
+
+  const handleActionOpen = useCallback(
+    (id: string) => {
+      if (detailedEnabled && workspace?.slug) {
+        actionsRouter.push(`/w/${workspace.slug}/actions/${id}`);
+      } else {
+        setActionId(id);
+      }
+    },
+    [detailedEnabled, workspace?.slug, actionsRouter, setActionId],
+  );
+
+  // Mutation to award inbox processing bonus when overdue tasks are handled
+  const markProcessedOverdue = api.dailyPlan.markProcessedOverdue.useMutation({
+    onSuccess: () => {
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
+    },
+  });
+
+  // Query available tags for filtering
+  const tagsQuery = api.tag.list.useQuery();
+  const tagOptions = useMemo(() => 
+    tagsQuery.data?.allTags?.map((tag: { id: string; name: string }) => ({ value: tag.id.toString(), label: tag.name })) ?? []
+  , [tagsQuery.data]);
 
   // Check if this project has a Notion integration
   const hasNotionSync = projectSyncInfo?.taskManagementTool === 'notion' &&
@@ -93,108 +199,257 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     { enabled: !!projectId }
   );
 
+  // Filter Notion unassigned to only show items scheduled for today with ACTIVE status
+  const notionUnassignedTodayData = useMemo(() => {
+    if (!notionUnassignedQuery.data) return [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return notionUnassignedQuery.data.filter(action => {
+      // Must be ACTIVE status
+      if (action.status !== 'ACTIVE') return false;
+      // Must be scheduled for today
+      if (!action.scheduledStart) return false;
+      const scheduledDate = new Date(action.scheduledStart);
+      scheduledDate.setHours(0, 0, 0, 0);
+      return scheduledDate.getTime() === today.getTime();
+    });
+  }, [notionUnassignedQuery.data]);
+
   // Use filtered results if Notion unassigned filter is active, otherwise use normal query
   // All three queries return the same shape, so we can safely union them
-  const actions = projectId
+  const actionsBeforeTagFilter = projectId
     ? projectActionsQuery.data
-    : (showNotionUnassigned ? notionUnassignedQuery.data : allActionsQuery.data);
+    : (showNotionUnassigned ? notionUnassignedTodayData : allActionsQuery.data);
 
-  // Count of unassigned Notion imports (for badge)
-  const notionUnassignedCount = notionUnassignedQuery.data?.length ?? 0;
+  // Apply tag filter if tags are selected
+  const actions = useMemo(() => {
+    if (!actionsBeforeTagFilter || selectedTagIds.length === 0) return actionsBeforeTagFilter;
+    return actionsBeforeTagFilter.filter(action => 
+      action.tags?.some(actionTag => selectedTagIds.includes(actionTag.tagId.toString()))
+    );
+  }, [actionsBeforeTagFilter, selectedTagIds]);
+
+  // Apply search and filter from toolbar
+  const filteredActions = useMemo(() => {
+    let result = actions ?? [];
+
+    const statusFilter = appliedFilters?.status as string[] | undefined;
+    if (statusFilter?.length) {
+      result = result.filter((a) => statusFilter.includes(a.status));
+    }
+
+    const priorityFilter = appliedFilters?.priority as string[] | undefined;
+    if (priorityFilter?.length) {
+      result = result.filter((a) => priorityFilter.includes(a.priority));
+    }
+
+    if (appliedSearchQuery?.trim()) {
+      const q = appliedSearchQuery.toLowerCase();
+      result = result.filter((a) => a.name.toLowerCase().includes(q));
+    }
+
+    return result;
+  }, [actions, appliedFilters, appliedSearchQuery]);
+
+  // Count of unassigned Notion imports for today (for badge)
+  const notionUnassignedCount = notionUnassignedTodayData.length;
+
+  // State for dismissed scheduling suggestions
+  const [dismissedSuggestionIds, setDismissedSuggestionIds] = useState<Set<string>>(new Set());
+  const [applyingSuggestionId, setApplyingSuggestionId] = useState<string | null>(null);
+
+  // Determine if we have overdue actions (for enabling scheduling suggestions query)
+  const hasOverdueActions = useMemo(() => {
+    if (!actions) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return actions.some(action => {
+      if (!action.scheduledStart || action.status !== 'ACTIVE') return false;
+      const scheduledDate = new Date(action.scheduledStart);
+      scheduledDate.setHours(0, 0, 0, 0);
+      return scheduledDate < today;
+    });
+  }, [actions]);
+
+  // Query for AI scheduling suggestions (only for non-project "today" view with overdue actions)
+  const shouldFetchSchedulingSuggestions = !projectId && viewName.toLowerCase() === 'today' && hasOverdueActions;
+  const schedulingSuggestionsQuery = api.scheduling.getSchedulingSuggestions.useQuery(
+    { days: 7 },
+    {
+      enabled: shouldFetchSchedulingSuggestions,
+      staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+      refetchOnWindowFocus: false,
+      retry: false,
+    }
+  );
+
+  // Filter out dismissed suggestions and create a map by actionId
+  const schedulingSuggestionsMap = useMemo(() => {
+    const map = new Map<string, SchedulingSuggestionData>();
+    if (schedulingSuggestionsQuery.data?.suggestions) {
+      for (const suggestion of schedulingSuggestionsQuery.data.suggestions) {
+        if (!dismissedSuggestionIds.has(suggestion.actionId)) {
+          map.set(suggestion.actionId, suggestion);
+        }
+      }
+    }
+    return map;
+  }, [schedulingSuggestionsQuery.data?.suggestions, dismissedSuggestionIds]);
+
+  // Handler for applying a scheduling suggestion
+  const handleApplySchedulingSuggestion = async (actionId: string, suggestedDate: string, suggestedTime: string) => {
+    setApplyingSuggestionId(actionId);
+    try {
+      // Parse the date and time
+      const [hours, minutes] = suggestedTime.split(':').map(Number);
+      const scheduledStart = new Date(suggestedDate + 'T00:00:00');
+      scheduledStart.setHours(hours ?? 9, minutes ?? 0, 0, 0);
+
+      const dueDate = new Date(suggestedDate + 'T00:00:00');
+
+      await bulkUpdateMutation.mutateAsync({
+        id: actionId,
+        dueDate,
+        scheduledStart,
+      });
+
+      // Remove the suggestion after applying
+      setDismissedSuggestionIds(prev => new Set([...prev, actionId]));
+
+      notifications.show({
+        title: 'Task Scheduled',
+        message: `Scheduled for ${scheduledStart.toLocaleDateString()} at ${suggestedTime}`,
+        color: 'green',
+        autoClose: 3000,
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Failed to Schedule',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        color: 'red',
+      });
+    } finally {
+      setApplyingSuggestionId(null);
+    }
+  };
+
+  // Handler for dismissing a scheduling suggestion
+  const handleDismissSchedulingSuggestion = (actionId: string) => {
+    setDismissedSuggestionIds(prev => new Set([...prev, actionId]));
+  };
 
   // Bulk update mutation for rescheduling
   const bulkUpdateMutation = api.action.update.useMutation({
     onMutate: async ({ id, dueDate }) => {
-      const mutationStartTime = Date.now();
-      console.log(`🔧 [MUTATION DEBUG] onMutate started for action ${id}:`, {
-        actionId: id,
-        newDueDate: dueDate?.toISOString() || null,
-        timestamp: new Date().toISOString()
-      });
-
       // Cancel any outgoing refetches
       await utils.action.getAll.cancel();
-      console.log(`🔧 [MUTATION DEBUG] Cancelled outgoing refetches for action ${id}`);
-      
+
       // Get current data
       const previousData = utils.action.getAll.getData();
-      const currentAction = previousData?.find(action => action.id === id);
-      
-      console.log(`🔧 [MUTATION DEBUG] Current cache state for action ${id}:`, {
-        actionFound: !!currentAction,
-        currentDueDate: currentAction?.dueDate?.toISOString() || null,
-        actionName: currentAction?.name,
-        totalCacheSize: previousData?.length
-      });
-      
+
       // Optimistically update the cache
       if (previousData) {
         utils.action.getAll.setData(undefined, (old) => {
-          if (!old) {
-            console.log(`🔧 [MUTATION DEBUG] No old cache data for action ${id}, returning empty array`);
-            return [];
-          }
-          
-          const updated = old.map((action) =>
+          if (!old) return [];
+          return old.map((action) =>
             action.id === id
               ? { ...action, dueDate: dueDate ?? null }
               : action
           );
-          
-          const updatedAction = updated.find(action => action.id === id);
-          console.log(`🔧 [MUTATION DEBUG] Optimistic update applied for action ${id}:`, {
-            found: !!updatedAction,
-            oldDueDate: currentAction?.dueDate?.toISOString() || null,
-            newDueDate: updatedAction?.dueDate?.toISOString() || null,
-            mutationDuration: Date.now() - mutationStartTime + 'ms'
-          });
-          
-          return updated;
         });
-      } else {
-        console.log(`🔧 [MUTATION DEBUG] No previous data found in cache for action ${id}`);
       }
-      
-      console.log(`🔧 [MUTATION DEBUG] onMutate completed for action ${id}, duration:`, Date.now() - mutationStartTime + 'ms');
-      return { previousData, actionId: id, mutationStartTime };
+
+      return { previousData, actionId: id };
     },
     onError: (err, variables, context) => {
-      const errorTime = Date.now();
-      const duration = context?.mutationStartTime ? errorTime - context.mutationStartTime : 0;
-      
-      console.error(`🔧 [MUTATION DEBUG] onError for action ${variables.id}:`, {
-        error: err.message || 'Unknown error',
-        actionId: variables.id,
-        duration: duration + 'ms',
-        hadPreviousData: !!context?.previousData
-      });
-
       // Rollback on error
       if (context?.previousData) {
         utils.action.getAll.setData(undefined, context.previousData);
-        console.log(`🔧 [MUTATION DEBUG] Rollback completed for action ${variables.id}`);
       }
-      
+
       notifications.show({
         title: 'Update Failed',
-        message: `Failed to update action ${variables.id}: ${err.message || 'Unknown error'}`,
+        message: `Failed to update action ${variables.id}: ${err.message ?? 'Unknown error'}`,
         color: 'red',
       });
     },
-    onSettled: (data, error, variables, context) => {
-      const settledTime = Date.now();
-      const duration = context?.mutationStartTime ? settledTime - context.mutationStartTime : 0;
-      
-      console.log(`🔧 [MUTATION DEBUG] onSettled for action ${variables.id}:`, {
-        success: !error,
-        error: error?.message || null,
-        actionId: variables.id,
-        totalDuration: duration + 'ms',
-        data: data ? { id: data.id, dueDate: data.dueDate?.toISOString() } : null
-      });
-
+    onSettled: (_data, _error, _variables) => {
       // Always refetch after error or success
-      console.log(`🔧 [MUTATION DEBUG] Starting invalidation for action ${variables.id}`);
+      void utils.action.getAll.invalidate();
+      void utils.action.getToday.invalidate();
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
+    },
+  });
+
+  // Bulk reschedule mutation - single API call for multiple actions
+  const bulkRescheduleMutation = api.action.bulkReschedule.useMutation({
+    onMutate: async ({ actionIds, dueDate }) => {
+      await utils.action.getAll.cancel();
+      const previousData = utils.action.getAll.getData();
+
+      // Optimistically update ALL selected actions at once (scheduledStart + dueDate)
+      if (previousData) {
+        utils.action.getAll.setData(undefined, (old) => {
+          if (!old) return [];
+          return old.map((action) => {
+            if (!actionIds.includes(action.id)) return action;
+            const newScheduledStart = dueDate ?? null;
+            // Update dueDate only if it's before the new date or null
+            const newDueDate = dueDate
+              ? (!action.dueDate || action.dueDate < dueDate ? dueDate : action.dueDate)
+              : null;
+            return { ...action, scheduledStart: newScheduledStart, dueDate: newDueDate };
+          });
+        });
+      }
+
+      return { previousData };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousData) {
+        utils.action.getAll.setData(undefined, context.previousData);
+      }
+    },
+    onSettled: () => {
+      void utils.action.getAll.invalidate();
+      void utils.action.getToday.invalidate();
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
+    },
+  });
+
+  // Fetch projects for bulk assignment dropdown
+  const projectsQuery = api.project.getAll.useQuery(
+    { workspaceId: workspace?.id },
+    { enabled: !!workspace },
+  );
+
+  // Bulk assign project mutation
+  const bulkAssignProjectMutation = api.action.bulkAssignProject.useMutation({
+    onMutate: async ({ actionIds, projectId: newProjectId }) => {
+      await utils.action.getAll.cancel();
+      const previousData = utils.action.getAll.getData();
+
+      if (previousData) {
+        utils.action.getAll.setData(undefined, (old) => {
+          if (!old) return [];
+          return old.map((action) =>
+            actionIds.includes(action.id)
+              ? { ...action, projectId: newProjectId }
+              : action
+          );
+        });
+      }
+
+      return { previousData };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousData) {
+        utils.action.getAll.setData(undefined, context.previousData);
+      }
+    },
+    onSettled: () => {
       void utils.action.getAll.invalidate();
       void utils.action.getToday.invalidate();
     },
@@ -202,34 +457,10 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
   // Handle overdue bulk reschedule (non-project pages only)
   const handleOverdueBulkReschedule = async (date: Date | null, actionIds: string[]) => {
-    const startTime = Date.now();
-    console.log('🔧 [BULK DEBUG] handleOverdueBulkReschedule started:', {
-      date: date?.toISOString(),
-      actionIds,
-      totalCount: actionIds.length,
-      timestamp: new Date().toISOString()
-    });
+    if (actionIds.length === 0) return;
 
-    if (actionIds.length === 0) {
-      console.log('🔧 [BULK DEBUG] No actions to reschedule - exiting early');
-      return;
-    }
-    
     const totalCount = actionIds.length;
 
-    // Log current cache state before starting
-    const currentCache = utils.action.getAll.getData();
-    const currentActions = currentCache?.filter(action => actionIds.includes(action.id));
-    console.log('🔧 [BULK DEBUG] Current cache state for selected actions:', {
-      selectedActions: currentActions?.map(a => ({ 
-        id: a.id, 
-        name: a.name, 
-        currentDueDate: a.dueDate?.toISOString() 
-      })),
-      totalCacheActions: currentCache?.length
-    });
-    
-    // Show initial notification
     notifications.show({
       id: 'bulk-reschedule',
       title: 'Rescheduling...',
@@ -237,96 +468,17 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       loading: true,
       autoClose: false,
     });
-    
+
     try {
-      console.log('🔧 [BULK DEBUG] Starting SEQUENTIAL mutations to avoid database connection pool exhaustion...');
-      const results: Array<{actionId: string, success: boolean, result?: any, error?: string}> = [];
-      
-      // Process mutations sequentially to avoid overwhelming database connection pool
-      for (let i = 0; i < actionIds.length; i++) {
-        const actionId = actionIds[i]!;
-        const index = i + 1;
-        
-        console.log(`🔧 [BULK DEBUG] Processing mutation ${index}/${totalCount} for action ${actionId}`);
-        
-        try {
-          const result = await bulkUpdateMutation.mutateAsync({
-            id: actionId,
-            dueDate: date ?? undefined
-          });
-          
-          console.log(`🔧 [BULK DEBUG] Mutation ${index}/${totalCount} SUCCESS for action ${actionId}:`, result);
-          results.push({ actionId, success: true, result });
-          
-          // Small delay between mutations to prevent overwhelming the database
-          if (i < actionIds.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-          
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          console.error(`🔧 [BULK DEBUG] Mutation ${index}/${totalCount} FAILED for action ${actionId}:`, errorMessage);
-          results.push({ actionId, success: false, error: errorMessage });
-          
-          // Check if this is a connection reset error
-          if (errorMessage.includes('Server has closed the connection') || 
-              errorMessage.includes('Connection reset by peer')) {
-            console.error('🔧 [BULK DEBUG] Database connection lost - stopping bulk operation');
-            // Stop processing more actions as connection is lost
-            break;
-          }
-          
-          // Continue with next mutation for other types of errors
-        }
-      }
-      
-      console.log('🔧 [BULK DEBUG] All mutations completed:', {
-        results,
-        successful: results.filter(r => r.success).length,
-        failed: results.filter(r => !r.success).length,
-        duration: Date.now() - startTime + 'ms'
+      const result = await bulkRescheduleMutation.mutateAsync({
+        actionIds,
+        dueDate: date,
       });
 
-      const failedResults = results.filter(r => !r.success);
-      const successfulResults = results.filter(r => r.success);
+      const message = date
+        ? `Rescheduled ${result.count} action${result.count !== 1 ? 's' : ''} to ${date.toDateString()}`
+        : `Removed due date from ${result.count} action${result.count !== 1 ? 's' : ''}`;
 
-      // Check if any failures were due to connection issues
-      const connectionErrors = failedResults.filter(r => 
-        r.error?.includes('Server has closed the connection') || 
-        r.error?.includes('Connection reset by peer')
-      );
-
-      if (failedResults.length > 0) {
-        console.error('🔧 [BULK DEBUG] Some mutations failed:', failedResults);
-        
-        if (connectionErrors.length > 0) {
-          throw new Error(
-            `Database connection was lost during bulk update. ` +
-            `${successfulResults.length} of ${totalCount} actions were updated successfully. ` +
-            `Please try again for the remaining ${failedResults.length} actions.`
-          );
-        } else {
-          throw new Error(`${failedResults.length} out of ${totalCount} mutations failed`);
-        }
-      }
-      
-      // Log cache state after mutations
-      const updatedCache = utils.action.getAll.getData();
-      const updatedActions = updatedCache?.filter(action => actionIds.includes(action.id));
-      console.log('🔧 [BULK DEBUG] Cache state after mutations:', {
-        updatedActions: updatedActions?.map(a => ({ 
-          id: a.id, 
-          name: a.name, 
-          newDueDate: a.dueDate?.toISOString() 
-        })),
-        expectedDueDate: date?.toISOString() || null
-      });
-
-      // Success notification
-      const message = date 
-        ? `Successfully rescheduled ${successfulResults.length} action${successfulResults.length !== 1 ? 's' : ''} to ${date.toDateString()}`
-        : `Successfully removed due date from ${successfulResults.length} action${successfulResults.length !== 1 ? 's' : ''}`;
-      
       notifications.update({
         id: 'bulk-reschedule',
         title: date ? 'Bulk Reschedule Complete' : 'Due Date Removed',
@@ -335,35 +487,24 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         loading: false,
         autoClose: 3000,
       });
-      
-      console.log('🔧 [BULK DEBUG] Starting cache invalidation...');
-      // Force immediate UI update
-      await Promise.all([
-        utils.action.getAll.invalidate(),
-        utils.action.getToday.invalidate(),
-        projectId ? utils.action.getProjectActions.invalidate({ projectId }) : Promise.resolve()
-      ]);
-      console.log('🔧 [BULK DEBUG] Cache invalidation complete');
-      
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      console.error('🔧 [BULK DEBUG] Bulk reschedule failed:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        duration: duration + 'ms',
-        actionIds
-      });
 
+      // Invalidate project actions if on project page
+      if (projectId) {
+        void utils.action.getProjectActions.invalidate({ projectId });
+      }
+
+      // Award inbox processing bonus for handling overdue tasks
+      markProcessedOverdue.mutate({});
+    } catch (error) {
       notifications.update({
         id: 'bulk-reschedule',
         title: 'Bulk Update Failed',
-        message: `Failed to update actions. Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: error instanceof Error ? error.message : 'Unknown error',
         color: 'red',
         loading: false,
         autoClose: 5000,
       });
     }
-
-    console.log('🔧 [BULK DEBUG] handleOverdueBulkReschedule finished, total duration:', Date.now() - startTime + 'ms');
   };
 
   // Bulk delete mutation for overdue actions (non-project pages only)
@@ -381,6 +522,8 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         void allActionsQuery.refetch();
         void notionUnassignedQuery.refetch();
       }
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -396,16 +539,212 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     if (action === 'delete') {
       bulkDeleteMutation.mutate({
         actionIds,
+      }, {
+        onSuccess: () => {
+          // Award inbox processing bonus for handling overdue tasks
+          markProcessedOverdue.mutate({});
+        },
       });
     }
   };
 
+  // Handle project bulk delete
+  const handleProjectBulkDelete = (actionIds: string[]) => {
+    bulkDeleteMutation.mutate({
+      actionIds,
+    });
+  };
 
+  // Handle project bulk assign to different project
+  const handleProjectBulkAssignProject = async (targetProjectId: string, actionIds: string[]) => {
+    if (actionIds.length === 0) return;
 
+    const totalCount = actionIds.length;
+    const projectName = projectsQuery.data?.find(p => p.id === targetProjectId)?.name ?? 'project';
 
+    notifications.show({
+      id: 'bulk-assign-project-from-project',
+      title: 'Moving to project...',
+      message: `Moving ${totalCount} action${totalCount !== 1 ? 's' : ''}...`,
+      loading: true,
+      autoClose: false,
+    });
 
+    try {
+      const result = await bulkAssignProjectMutation.mutateAsync({
+        actionIds,
+        projectId: targetProjectId,
+      });
 
-  
+      notifications.update({
+        id: 'bulk-assign-project-from-project',
+        title: 'Moved',
+        message: `Successfully moved ${result.count} action${result.count !== 1 ? 's' : ''} to ${projectName}`,
+        loading: false,
+        autoClose: 3000,
+        color: 'green',
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      notifications.update({
+        id: 'bulk-assign-project-from-project',
+        title: 'Error',
+        message: `Failed to move actions: ${errMsg}`,
+        loading: false,
+        autoClose: 5000,
+        color: 'red',
+      });
+    }
+  };
+
+  // Helper to detect focus views (today, this week, this month)
+  const isFocusView = (name: string) => {
+    const focusViews = ['today', 'this-week', 'this-month', 'tomorrow'];
+    return focusViews.includes(name.toLowerCase());
+  };
+
+  // Handle focus view bulk reschedule (today, this week, this month)
+  const handleFocusBulkReschedule = async (date: Date | null, actionIds: string[]) => {
+    if (actionIds.length === 0) return;
+
+    const totalCount = actionIds.length;
+
+    notifications.show({
+      id: 'bulk-reschedule-focus',
+      title: 'Rescheduling...',
+      message: `Updating ${totalCount} action${totalCount !== 1 ? 's' : ''}...`,
+      loading: true,
+      autoClose: false,
+    });
+
+    try {
+      const result = await bulkRescheduleMutation.mutateAsync({
+        actionIds,
+        dueDate: date,
+      });
+
+      notifications.update({
+        id: 'bulk-reschedule-focus',
+        title: 'Rescheduled',
+        message: `Successfully updated ${result.count} action${result.count !== 1 ? 's' : ''}`,
+        loading: false,
+        autoClose: 3000,
+        color: 'green',
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Bulk reschedule error:', err);
+
+      notifications.update({
+        id: 'bulk-reschedule-focus',
+        title: 'Error',
+        message: `Failed to reschedule: ${errMsg}`,
+        loading: false,
+        autoClose: 5000,
+        color: 'red',
+      });
+    }
+  };
+
+  // Handle focus view bulk delete
+  const handleFocusBulkDelete = (actionIds: string[]) => {
+    bulkDeleteMutation.mutate({
+      actionIds,
+    });
+  };
+
+  // Handle inbox bulk schedule (assign due date to untriaged actions)
+  const handleInboxBulkSchedule = async (date: Date | null, actionIds: string[]) => {
+    if (actionIds.length === 0) return;
+
+    const totalCount = actionIds.length;
+
+    notifications.show({
+      id: 'bulk-schedule-inbox',
+      title: 'Scheduling...',
+      message: `Updating ${totalCount} action${totalCount !== 1 ? 's' : ''}...`,
+      loading: true,
+      autoClose: false,
+    });
+
+    try {
+      const result = await bulkRescheduleMutation.mutateAsync({
+        actionIds,
+        dueDate: date,
+      });
+
+      notifications.update({
+        id: 'bulk-schedule-inbox',
+        title: 'Scheduled',
+        message: `Successfully updated ${result.count} action${result.count !== 1 ? 's' : ''}`,
+        loading: false,
+        autoClose: 3000,
+        color: 'green',
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Bulk schedule error:', err);
+
+      notifications.update({
+        id: 'bulk-schedule-inbox',
+        title: 'Error',
+        message: `Failed to schedule: ${errMsg}`,
+        loading: false,
+        autoClose: 5000,
+        color: 'red',
+      });
+    }
+  };
+
+  // Handle inbox bulk delete
+  const handleInboxBulkDelete = async (actionIds: string[]) => {
+    bulkDeleteMutation.mutate({
+      actionIds,
+    });
+  };
+
+  // Handle inbox bulk assign to project
+  const handleInboxBulkAssignProject = async (projectId: string, actionIds: string[]) => {
+    if (actionIds.length === 0) return;
+
+    const totalCount = actionIds.length;
+    const projectName = projectsQuery.data?.find(p => p.id === projectId)?.name ?? 'project';
+
+    notifications.show({
+      id: 'bulk-assign-project',
+      title: 'Assigning to project...',
+      message: `Updating ${totalCount} action${totalCount !== 1 ? 's' : ''}...`,
+      loading: true,
+      autoClose: false,
+    });
+
+    try {
+      const result = await bulkAssignProjectMutation.mutateAsync({
+        actionIds,
+        projectId,
+      });
+
+      notifications.update({
+        id: 'bulk-assign-project',
+        title: 'Project Assigned',
+        message: `Successfully assigned ${result.count} action${result.count !== 1 ? 's' : ''} to ${projectName}`,
+        loading: false,
+        autoClose: 3000,
+        color: 'green',
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      notifications.update({
+        id: 'bulk-assign-project',
+        title: 'Error',
+        message: `Failed to assign project: ${errMsg}`,
+        loading: false,
+        autoClose: 5000,
+        color: 'red',
+      });
+    }
+  };
+
   // Use the appropriate query based on whether we have a projectId
   const outcomes = projectId 
     ? api.outcome.getProjectOutcomes.useQuery(
@@ -420,13 +759,10 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
         staleTime: 0
       });
 
-  console.log("outcomes are ", outcomes.data);
   useEffect(() => {
     setIsAlignmentMode(defaultView === 'alignment');
     setIsKanbanMode(defaultView === 'kanban');
   }, [defaultView]);
-
-  console.log("outcomes are ", outcomes.data);
   // Filter outcomes for today
   const todayOutcomes = outcomes.data?.filter((outcome: any) => {
     if (!outcome.dueDate) return false;
@@ -456,42 +792,33 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     );
   });
 
-  // Add debugging for filtered outcomes
-  useEffect(() => {
-    console.log('📊 Today outcomes:', todayOutcomes);
-    console.log('📊 Weekly outcomes:', weeklyOutcomes);
-  }, [todayOutcomes, weeklyOutcomes]);
-
-
-
 
   return (
     <div className="w-full  mx-auto">
-      {/* View Toggle Buttons */}
+      {/* View Toggle Toolbar */}
       {projectId && (
-        <Group gap="xs" mb="md" justify="space-between">
-          <Group gap="xs">
-            {/* List/Kanban toggle - only show for projects */}
-            <Button
-              variant={!isKanbanMode ? "filled" : "subtle"}
-              size="sm"
-              onClick={() => setIsKanbanMode(false)}
-            >
-              <Group gap="xs">
-                <IconList size={16} />
-                List
-              </Group>
-            </Button>
-            <Button
-              variant={isKanbanMode ? "filled" : "subtle"}
-              size="sm"
-              onClick={() => setIsKanbanMode(true)}
-            >
-              <Group gap="xs">
-                <IconLayoutKanban size={16} />
-                Kanban
-              </Group>
-            </Button>
+        <div className={tasksStyles.toolbar} style={{ marginBottom: 14 }}>
+          <Group gap="xs" align="center">
+            <div className={tasksStyles.viewSeg} role="tablist" aria-label="Task view">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!isKanbanMode}
+                className={!isKanbanMode ? tasksStyles.segOn : ""}
+                onClick={() => setViewMode(false)}
+              >
+                <IconList size={13} /> List
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isKanbanMode}
+                className={isKanbanMode ? tasksStyles.segOn : ""}
+                onClick={() => setViewMode(true)}
+              >
+                <IconLayoutKanban size={13} /> Kanban
+              </button>
+            </div>
 
             {/* Alignment toggle */}
             {displayAlignment && (
@@ -508,34 +835,79 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
             )}
           </Group>
 
-          {/* Notion Sync Button - only show when project has Notion integration */}
-          {hasNotionSync && (
-            <Group gap="xs">
-              <Tooltip label="Sync with Notion" position="left">
-                <ActionIcon
-                  variant="light"
-                  color="gray"
-                  size="lg"
-                  onClick={handleNotionSync}
-                  loading={isSyncing}
-                >
-                  <IconBrandNotion size={20} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="Refresh from Notion" position="left">
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  size="lg"
-                  onClick={handleNotionSync}
-                  loading={isSyncing}
-                >
-                  <IconRefresh size={18} />
-                </ActionIcon>
-              </Tooltip>
-            </Group>
-          )}
-        </Group>
+          <div className={tasksStyles.toolbarRight}>
+            <div className={tasksStyles.searchWrap}>
+              <IconSearch
+                className={tasksStyles.searchIcon}
+                size={13}
+                stroke={1.75}
+              />
+              <input
+                type="text"
+                placeholder="Search tasks"
+                value={internalSearch}
+                onChange={(e) => setInternalSearch(e.target.value)}
+                className={tasksStyles.searchInput}
+              />
+            </div>
+
+            <button
+              type="button"
+              className={tasksStyles.actionBtn}
+              onClick={() => setFilterRowOpen((o) => !o)}
+              data-active={filtersActive ? "true" : "false"}
+              aria-label="Toggle filters"
+            >
+              <IconFilter size={13} stroke={1.75} />
+              Filter
+            </button>
+
+            <Tooltip label="Archive" position="bottom">
+              <button type="button" className={tasksStyles.iconGhost} aria-label="Archive">
+                <IconArchive size={14} />
+              </button>
+            </Tooltip>
+
+            {hasNotionSync && (
+              <>
+                <Tooltip label="Sync with Notion" position="bottom">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="md"
+                    onClick={handleNotionSync}
+                    loading={isSyncing}
+                  >
+                    <IconBrandNotion size={16} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Refresh from Notion" position="bottom">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="md"
+                    onClick={handleNotionSync}
+                    loading={isSyncing}
+                  >
+                    <IconRefresh size={16} />
+                  </ActionIcon>
+                </Tooltip>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {projectId && (
+        <Collapse in={filterRowOpen || filtersActive}>
+          <div className={tasksStyles.filterRow}>
+            <FilterBar
+              config={ACTION_FILTER_CONFIG}
+              filters={internalFilters}
+              onFiltersChange={setInternalFilters}
+            />
+          </div>
+        </Collapse>
       )}
 
       {/* Filter for Notion imports without project - only show on non-project pages */}
@@ -566,6 +938,45 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               leftSection={<IconFilterOff size={16} />}
             >
               Clear Filter
+            </Button>
+          )}
+        </Group>
+      )}
+
+      {/* Tag filter - available on all non-project pages (hidden when controlled externally) */}
+      {!projectId && !isTagFilterControlled && tagOptions.length > 0 && (
+        <Group gap="xs" mb="md" align="flex-end" justify="flex-end">
+          <MultiSelect
+            data={tagOptions}
+            value={selectedTagIds}
+            onChange={setSelectedTagIds}
+            placeholder="Filter by tags..."
+            leftSection={<IconTag size={16} />}
+            clearable
+            searchable
+            size="sm"
+            maxDropdownHeight={200}
+            styles={{
+              input: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+                minWidth: 200,
+              },
+              dropdown: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+            }}
+          />
+          {selectedTagIds.length > 0 && (
+            <Button
+              variant="subtle"
+              size="sm"
+              color="gray"
+              onClick={() => setSelectedTagIds([])}
+              leftSection={<IconFilterOff size={16} />}
+            >
+              Clear Tags
             </Button>
           )}
         </Group>
@@ -678,17 +1089,40 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       
       {/* Conditional rendering of List or Kanban view */}
       {projectId && isKanbanMode ? (
-        <KanbanBoard 
+        <KanbanBoard
           projectId={projectId}
-          actions={actions ?? []} 
+          actions={filteredActions ?? []}
+          onActionOpen={handleActionOpen}
         />
       ) : (
-        <ActionList 
-          viewName={viewName} 
-          actions={actions ?? []} 
-          enableBulkEditForOverdue={true} // Enable bulk edit for all pages
+        <ActionList
+          viewName={showNotionUnassigned ? "notion-unassigned" : viewName}
+          actions={filteredActions ?? []}
+          showProject={!projectId}
+          enableBulkEditForOverdue={true}
           onOverdueBulkAction={handleOverdueBulkAction}
           onOverdueBulkReschedule={handleOverdueBulkReschedule}
+          enableBulkEditForProject={!!projectId}
+          onProjectBulkDelete={handleProjectBulkDelete}
+          onProjectBulkAssignProject={handleProjectBulkAssignProject}
+          enableBulkEditForFocus={!projectId && isFocusView(viewName)}
+          onFocusBulkDelete={handleFocusBulkDelete}
+          onFocusBulkReschedule={handleFocusBulkReschedule}
+          enableBulkEditForInbox={viewName.toLowerCase() === 'inbox'}
+          onInboxBulkSchedule={handleInboxBulkSchedule}
+          onInboxBulkDelete={handleInboxBulkDelete}
+          onInboxBulkAssignProject={handleInboxBulkAssignProject}
+          schedulingSuggestions={schedulingSuggestionsMap}
+          schedulingSuggestionsLoading={schedulingSuggestionsQuery.isLoading}
+          _schedulingSuggestionsError={schedulingSuggestionsQuery.error?.message}
+          _calendarConnected={schedulingSuggestionsQuery.data?.calendarConnected}
+          onApplySchedulingSuggestion={handleApplySchedulingSuggestion}
+          onDismissSchedulingSuggestion={handleDismissSchedulingSuggestion}
+          applyingSuggestionId={applyingSuggestionId}
+          isLoading={projectId ? projectActionsQuery.isLoading : allActionsQuery.isLoading}
+          deepLinkActionId={detailedEnabled ? null : actionIdFromUrl}
+          onActionOpen={handleActionOpen}
+          onActionClose={clearActionId}
         />
       )}
       <div className="mt-6">
