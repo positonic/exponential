@@ -84,8 +84,8 @@ function PortfolioReviewInner({ data, isCompletedThisWeek }: InnerProps) {
     ),
   );
 
-  // Phase 2 — KR bets per workspace
-  const [bets, setBets] = useState<Map<string, string[]>>(() => {
+  // Phase 2 — KR focuses per workspace
+  const [focuses, setFocuses] = useState<Map<string, string[]>>(() => {
     const m = new Map<string, string[]>();
     for (const f of data.currentWeekFocuses) {
       m.set(f.workspaceId, f.focusKeyResultIds);
@@ -93,10 +93,10 @@ function PortfolioReviewInner({ data, isCompletedThisWeek }: InnerProps) {
     return m;
   });
   const [krCheckInsLogged, setKrCheckInsLogged] = useState(0);
-  const setBetsForWorkspace = (workspaceId: string, next: string[]) => {
-    const newMap = new Map(bets);
+  const setFocusesForWorkspace = (workspaceId: string, next: string[]) => {
+    const newMap = new Map(focuses);
     newMap.set(workspaceId, next);
-    setBets(newMap);
+    setFocuses(newMap);
     void setWeeklyFocusGoals.mutateAsync({
       workspaceId,
       focusGoalIds: [], // not pinning goals from this UI yet
@@ -251,7 +251,7 @@ function PortfolioReviewInner({ data, isCompletedThisWeek }: InnerProps) {
             <PhaseHeader
               eyebrow={`${PHASE_META.okrs.label} of 4 · ${PHASE_META.okrs.title}`}
               title="Re-rank goals inside each focus workspace"
-              sub="Click a row to expand its KRs. Mark this week's bets to anchor your theme to specific results, and inline-edit current values to log a check-in."
+              sub="Click a row to expand its KRs. Mark this week's focus areas to anchor your theme to specific results, and inline-edit current values to log a check-in."
               progress={2 / 4}
               counter="step 2 / 4"
             />
@@ -259,8 +259,8 @@ function PortfolioReviewInner({ data, isCompletedThisWeek }: InnerProps) {
               data={data}
               focusedWorkspaces={focusedWorkspaces}
               themes={themes}
-              bets={bets}
-              onBetsChange={setBetsForWorkspace}
+              focuses={focuses}
+              onFocusesChange={setFocusesForWorkspace}
               onCheckInLogged={() => setKrCheckInsLogged((n) => n + 1)}
             />
           </>
@@ -278,7 +278,7 @@ function PortfolioReviewInner({ data, isCompletedThisWeek }: InnerProps) {
             <CrossWorkspaceProjectList
               data={data}
               focusedWorkspaces={focusedWorkspaces}
-              bets={bets}
+              focuses={focuses}
               onPriorityChange={recordPriorityChange}
             />
           </>
@@ -289,7 +289,7 @@ function PortfolioReviewInner({ data, isCompletedThisWeek }: InnerProps) {
             data={data}
             focusedWorkspaces={focusedWorkspaces}
             themes={themes}
-            bets={bets}
+            focuses={focuses}
             priorityChanges={priorityChanges}
             krCheckInsLogged={krCheckInsLogged}
             durationMinutes={elapsedMin > 0 ? elapsedMin : null}
@@ -310,18 +310,18 @@ function PortfolioReviewInner({ data, isCompletedThisWeek }: InnerProps) {
               {phase === "okrs" && (
                 <>
                   <IconInfoCircle size={13} />
-                  {Array.from(bets.values()).reduce(
+                  {Array.from(focuses.values()).reduce(
                     (acc, arr) => acc + arr.length,
                     0,
                   )}{" "}
-                  bet
-                  {Array.from(bets.values()).reduce(
+                  KR
+                  {Array.from(focuses.values()).reduce(
                     (acc, arr) => acc + arr.length,
                     0,
                   ) === 1
                     ? ""
                     : "s"}{" "}
-                  placed across {focusedCount} workspace
+                  in focus across {focusedCount} workspace
                   {focusedCount === 1 ? "" : "s"}
                 </>
               )}

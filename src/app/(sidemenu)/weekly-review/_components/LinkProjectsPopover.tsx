@@ -10,11 +10,11 @@ interface WorkspaceLite {
 }
 
 interface Props {
-  /** The bet KR's workspace — projects in it sort first. */
+  /** The focused KR's workspace — projects in it sort first. */
   krWorkspaceId: string;
   /** Lookup table for displaying workspace names next to projects. */
   workspaceById: Map<string, WorkspaceLite>;
-  /** Project ids currently linked to the bet KR. */
+  /** Project ids currently linked to the focused KR. */
   currentlyLinkedIds: string[];
   /**
    * Called when user toggles a project. Receives the full new id list.
@@ -67,17 +67,17 @@ export function LinkProjectsPopover({
 
   return (
     <div
-      className="pr-bets-recap__popover"
+      className="pr-focus-recap__popover"
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         if (e.key === "Escape") onClose();
       }}
     >
-      <div className="pr-bets-recap__popover-search">
+      <div className="pr-focus-recap__popover-search">
         <IconSearch size={12} />
         <input
           type="text"
-          className="pr-bets-recap__popover-input"
+          className="pr-focus-recap__popover-input"
           placeholder="Search projects…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -85,11 +85,11 @@ export function LinkProjectsPopover({
         />
       </div>
 
-      <div className="pr-bets-recap__popover-list">
+      <div className="pr-focus-recap__popover-list">
         {projectsQuery.isLoading ? (
-          <div className="pr-bets-recap__popover-empty">Loading…</div>
+          <div className="pr-focus-recap__popover-empty">Loading…</div>
         ) : sorted.length === 0 ? (
-          <div className="pr-bets-recap__popover-empty">
+          <div className="pr-focus-recap__popover-empty">
             {search ? "No projects match" : "No projects yet"}
           </div>
         ) : (
@@ -104,17 +104,17 @@ export function LinkProjectsPopover({
                 type="button"
                 className={
                   isLinked
-                    ? "pr-bets-recap__popover-item is-linked"
-                    : "pr-bets-recap__popover-item"
+                    ? "pr-focus-recap__popover-item is-linked"
+                    : "pr-focus-recap__popover-item"
                 }
                 onClick={() => toggle(p.id)}
               >
-                <span className="pr-bets-recap__popover-check">
+                <span className="pr-focus-recap__popover-check">
                   {isLinked && <IconCheck size={12} />}
                 </span>
-                <span className="pr-bets-recap__popover-name">{p.name}</span>
+                <span className="pr-focus-recap__popover-name">{p.name}</span>
                 {ws && (
-                  <span className="pr-bets-recap__popover-ws">{ws.name}</span>
+                  <span className="pr-focus-recap__popover-ws">{ws.name}</span>
                 )}
               </button>
             );
@@ -124,7 +124,7 @@ export function LinkProjectsPopover({
 
       <button
         type="button"
-        className="pr-bets-recap__popover-create"
+        className="pr-focus-recap__popover-create"
         onClick={onCreateNew}
       >
         <IconPlus size={12} /> Create new project

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { IconBolt, IconChevronUp } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
-import { BetsRecapCard, type LinkedProjectLite } from "./BetsRecapCard";
+import { FocusRecapCard, type LinkedProjectLite } from "./FocusRecapCard";
 import {
   workspaceGlyphVar,
   type ReviewData,
@@ -12,7 +12,7 @@ import {
 
 type ProjectPriority = "HIGH" | "MEDIUM" | "LOW" | "NONE";
 
-interface BetKrLite {
+interface FocusKrLite {
   id: string;
   title: string;
 }
@@ -25,9 +25,9 @@ interface ProjectRow {
   progress: number;
   actionCount: number;
   /** KR ids the user pinned this week that this project is linked to. */
-  matchedBetKrIds: string[];
-  /** Bet KRs (id + title) this project is linked to — for inline display. */
-  matchedBetKrs: BetKrLite[];
+  matchedFocusKrIds: string[];
+  /** Focused KRs (id + title) this project is linked to — for inline display. */
+  matchedFocusKrs: FocusKrLite[];
   /** All KR ids this project is linked to (for the "no KR" warning). */
   linkedKrIds: string[];
 }
@@ -35,8 +35,8 @@ interface ProjectRow {
 interface Props {
   data: ReviewData;
   focusedWorkspaces: ReviewWorkspace[];
-  /** Map of workspaceId → KR ids the user has bet on this week. */
-  bets: Map<string, string[]>;
+  /** Map of workspaceId → KR ids the user is focused on this week. */
+  focuses: Map<string, string[]>;
   onPriorityChange: (
     projectId: string,
     before: ProjectPriority,
@@ -47,11 +47,11 @@ interface Props {
 export function CrossWorkspaceProjectList({
   data,
   focusedWorkspaces,
-  bets,
+  focuses,
   onPriorityChange,
 }: Props) {
   const [filter, setFilter] = useState<string>("all");
-  const [betFilter, setBetFilter] = useState<string | null>(null);
+  const [focusFilter, setFocusFilter] = useState<string | null>(null);
 
   const projectsQuery = api.project.getActiveWithDetails.useQuery(
     {},
@@ -61,23 +61,23 @@ export function CrossWorkspaceProjectList({
   const updatePriority = api.project.updatePriority.useMutation();
 
   const focusedIds = new Set(focusedWorkspaces.map((w) => w.id));
-  // Flatten all bet KR ids across focused workspaces. Projects can link to
-  // bets in workspaces other than their own (allowed by the picker), so we
-  // match against the full set, not just bets in the project's workspace.
-  const allBetKrIdsSet = new Set<string>();
+  // Flatten all focused KR ids across focused workspaces. Projects can link to
+  // focuses in workspaces other than their own (allowed by the picker), so we
+  // match against the full set, not just focuses in the project's workspace.
+  const allFocusKrIdsSet = new Set<string>();
   for (const ws of focusedWorkspaces) {
-    for (const id of bets.get(ws.id) ?? []) allBetKrIdsSet.add(id);
+    for (const id of focuses.get(ws.id) ?? []) allFocusKrIdsSet.add(id);
   }
   const projects: ProjectRow[] =
     projectsQuery.data
       ?.filter((p) => p.workspaceId && focusedIds.has(p.workspaceId))
       .map((p) => {
         const linkedKrIds = p.keyResults.map((k) => k.keyResultId);
-        const matchedBetKrIds = linkedKrIds.filter((id) =>
-          allBetKrIdsSet.has(id),
+        const matchedFocusKrIds = linkedKrIds.filter((id) =>
+          allFocusKrIdsSet.has(id),
         );
-        const matchedBetKrs: BetKrLite[] = p.keyResults
-          .filter((k) => matchedBetKrIds.includes(k.keyResultId))
+        const matchedFocusKrs: FocusKrLite[] = p.keyResults
+          .filter((k) => matchedFocusKrIds.includes(k.keyResultId))
           .map((k) => ({
             id: k.keyResultId,
             title: k.keyResult?.title ?? "Untitled KR",
@@ -89,35 +89,35 @@ export function CrossWorkspaceProjectList({
           priority: p.priority as ProjectPriority,
           progress: p.progress ?? 0,
           actionCount: p.actions.length,
-          matchedBetKrIds,
-          matchedBetKrs,
+          matchedFocusKrIds,
+          matchedFocusKrs,
           linkedKrIds,
         };
       }) ?? [];
 
   const wsFiltered =
     filter === "all" ? projects : projects.filter((p) => p.workspaceId === filter);
-  const visible = betFilter
-    ? wsFiltered.filter((p) => p.matchedBetKrIds.includes(betFilter))
+  const visible = focusFilter
+    ? wsFiltered.filter((p) => p.matchedFocusKrIds.includes(focusFilter))
     : wsFiltered;
 
-  // Count linked projects per bet KR (across the workspace-filtered list, ignoring
-  // the bet filter itself so users see "real" counts in the recap).
+  // Count linked projects per focused KR (across the workspace-filtered list, ignoring
+  // the focus filter itself so users see "real" counts in the recap).
   const projectCountByKrId = useMemo(() => {
     const counts = new Map<string, number>();
     for (const p of wsFiltered) {
-      for (const krId of p.matchedBetKrIds) {
+      for (const krId of p.matchedFocusKrIds) {
         counts.set(krId, (counts.get(krId) ?? 0) + 1);
       }
     }
     return counts;
   }, [wsFiltered]);
 
-  // Build list of linked projects per bet KR for inline pills in the recap card.
+  // Build list of linked projects per focused KR for inline pills in the recap card.
   const linkedProjectsByKrId = useMemo(() => {
     const map = new Map<string, LinkedProjectLite[]>();
     for (const p of wsFiltered) {
-      for (const krId of p.matchedBetKrIds) {
+      for (const krId of p.matchedFocusKrIds) {
         const list = map.get(krId) ?? [];
         list.push({ id: p.id, name: p.name });
         map.set(krId, list);
@@ -126,21 +126,21 @@ export function CrossWorkspaceProjectList({
     return map;
   }, [wsFiltered]);
 
-  // Resolve workspace per bet KR so the picker can scope project search.
+  // Resolve workspace per focused KR so the picker can scope project search.
   const workspaceByKrId = useMemo(() => {
     const map = new Map<string, string>();
     for (const ws of focusedWorkspaces) {
-      for (const krId of bets.get(ws.id) ?? []) {
+      for (const krId of focuses.get(ws.id) ?? []) {
         map.set(krId, ws.id);
       }
     }
     return map;
-  }, [bets, focusedWorkspaces]);
+  }, [focuses, focusedWorkspaces]);
 
-  // Bet-linked projects that aren't already at Top focus — these are the
+  // Focus-linked projects that aren't already at Top focus — these are the
   // ones the suggestion banner offers to promote.
-  const betLinkedNotTop = visible.filter(
-    (p) => p.matchedBetKrIds.length > 0 && p.priority !== "HIGH",
+  const focusLinkedNotTop = visible.filter(
+    (p) => p.matchedFocusKrIds.length > 0 && p.priority !== "HIGH",
   );
 
   const tiers: Array<{
@@ -184,8 +184,8 @@ export function CrossWorkspaceProjectList({
     void projectsQuery.refetch();
   };
 
-  const promoteAllBetLinked = () => {
-    for (const p of betLinkedNotTop) {
+  const promoteAllFocusLinked = () => {
+    for (const p of focusLinkedNotTop) {
       onPriorityChange(p.id, p.priority, "HIGH");
       updatePriority.mutate({ id: p.id, priority: "HIGH" });
     }
@@ -206,35 +206,35 @@ export function CrossWorkspaceProjectList({
 
   return (
     <div>
-      <BetsRecapCard
+      <FocusRecapCard
         data={data}
         focusedWorkspaces={focusedWorkspaces}
-        bets={bets}
+        focuses={focuses}
         projectCountByKrId={projectCountByKrId}
         linkedProjectsByKrId={linkedProjectsByKrId}
         workspaceByKrId={workspaceByKrId}
-        activeBetFilter={betFilter}
-        onSelectBet={setBetFilter}
+        activeFocusFilter={focusFilter}
+        onSelectFocus={setFocusFilter}
         onLinksChanged={() => void projectsQuery.refetch()}
       />
 
-      {betLinkedNotTop.length > 0 && (
-        <div className="pr-bet-banner">
-          <div className="pr-bet-banner__icon">
+      {focusLinkedNotTop.length > 0 && (
+        <div className="pr-focus-banner">
+          <div className="pr-focus-banner__icon">
             <IconBolt size={14} />
           </div>
-          <div className="pr-bet-banner__text">
+          <div className="pr-focus-banner__text">
             <strong>
-              {betLinkedNotTop.length} project
-              {betLinkedNotTop.length === 1 ? "" : "s"} link to your bets
+              {focusLinkedNotTop.length} project
+              {focusLinkedNotTop.length === 1 ? "" : "s"} link to your focus
             </strong>{" "}
-            but {betLinkedNotTop.length === 1 ? "isn't" : "aren't"} in Top
+            but {focusLinkedNotTop.length === 1 ? "isn't" : "aren't"} in Top
             focus. Promote so the work matches what you said matters.
           </div>
           <button
             type="button"
-            className="pr-bet-banner__cta"
-            onClick={promoteAllBetLinked}
+            className="pr-focus-banner__cta"
+            onClick={promoteAllFocusLinked}
           >
             <IconChevronUp size={13} /> Promote all
           </button>
@@ -252,7 +252,7 @@ export function CrossWorkspaceProjectList({
             }
             onClick={() => {
               setFilter("all");
-              setBetFilter(null);
+              setFocusFilter(null);
             }}
           >
             All workspaces
@@ -270,7 +270,7 @@ export function CrossWorkspaceProjectList({
                 }
                 onClick={() => {
                   setFilter(ws.id);
-                  setBetFilter(null);
+                  setFocusFilter(null);
                 }}
               >
                 <span
@@ -297,13 +297,13 @@ export function CrossWorkspaceProjectList({
 
       <div className="pr-tier-list">
         {tiers.map((tier) => {
-          // Sort bet-linked projects first within each tier.
+          // Sort focus-linked projects first within each tier.
           const items = visible
             .filter(tier.matches)
             .sort(
               (a, b) =>
-                (b.matchedBetKrIds.length > 0 ? 1 : 0) -
-                (a.matchedBetKrIds.length > 0 ? 1 : 0),
+                (b.matchedFocusKrIds.length > 0 ? 1 : 0) -
+                (a.matchedFocusKrIds.length > 0 ? 1 : 0),
             );
           const overCap = tier.cap !== null && items.length > tier.cap;
           return (
@@ -340,13 +340,13 @@ export function CrossWorkspaceProjectList({
                     const ws = data.workspaces.find(
                       (w) => w.id === p.workspaceId,
                     );
-                    const isBetLinked = p.matchedBetKrIds.length > 0;
+                    const isFocusLinked = p.matchedFocusKrIds.length > 0;
                     return (
                       <div
                         key={p.id}
                         className={
-                          isBetLinked
-                            ? "pr-proj pr-proj--bet"
+                          isFocusLinked
+                            ? "pr-proj pr-proj--focus"
                             : "pr-proj"
                         }
                       >
@@ -358,13 +358,13 @@ export function CrossWorkspaceProjectList({
                         <div style={{ minWidth: 0 }}>
                           <div className="pr-proj__name">
                             {p.name}
-                            {isBetLinked && (
+                            {isFocusLinked && (
                               <span
-                                className="pr-bet-pip"
-                                title={`Linked to ${p.matchedBetKrIds.length} KR${p.matchedBetKrIds.length === 1 ? "" : "s"} you bet on this week`}
+                                className="pr-focus-pip"
+                                title={`Linked to ${p.matchedFocusKrIds.length} KR${p.matchedFocusKrIds.length === 1 ? "" : "s"} you're focused on this week`}
                               >
                                 <IconBolt size={10} />
-                                Bet
+                                Focus
                               </span>
                             )}
                           </div>
@@ -376,16 +376,16 @@ export function CrossWorkspaceProjectList({
                               {ws?.name ?? "—"}
                             </span>
                             <span>{p.actionCount} open actions</span>
-                            {isBetLinked && p.matchedBetKrs[0] && (
+                            {isFocusLinked && p.matchedFocusKrs[0] && (
                               <span
-                                className="pr-proj__bet-meta"
-                                title={p.matchedBetKrs
+                                className="pr-proj__focus-meta"
+                                title={p.matchedFocusKrs
                                   .map((k) => k.title)
                                   .join(" · ")}
                               >
-                                ↳ KR: {p.matchedBetKrs[0].title}
-                                {p.matchedBetKrs.length > 1
-                                  ? ` +${p.matchedBetKrs.length - 1} more`
+                                ↳ KR: {p.matchedFocusKrs[0].title}
+                                {p.matchedFocusKrs.length > 1
+                                  ? ` +${p.matchedFocusKrs.length - 1} more`
                                   : ""}
                               </span>
                             )}

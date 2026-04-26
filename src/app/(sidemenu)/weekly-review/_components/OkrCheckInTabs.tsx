@@ -24,8 +24,8 @@ interface Props {
   data: ReviewData;
   focusedWorkspaces: ReviewWorkspace[];
   themes: Map<string, string | null>;
-  bets: Map<string, string[]>; // workspaceId -> KR ids
-  onBetsChange: (workspaceId: string, betIds: string[]) => void;
+  focuses: Map<string, string[]>; // workspaceId -> KR ids
+  onFocusesChange: (workspaceId: string, focusIds: string[]) => void;
   onCheckInLogged: () => void;
 }
 
@@ -35,8 +35,8 @@ export function OkrCheckInTabs({
   data,
   focusedWorkspaces,
   themes,
-  bets,
-  onBetsChange,
+  focuses,
+  onFocusesChange,
   onCheckInLogged,
 }: Props) {
   const [activeWsId, setActiveWsId] = useState<string | null>(
@@ -98,8 +98,8 @@ export function OkrCheckInTabs({
         workspace={active}
         workspaceIndex={activeIndex}
         theme={themes.get(active.id) ?? null}
-        bets={bets.get(active.id) ?? []}
-        onBetsChange={(next) => onBetsChange(active.id, next)}
+        focuses={focuses.get(active.id) ?? []}
+        onFocusesChange={(next) => onFocusesChange(active.id, next)}
         onCheckInLogged={onCheckInLogged}
       />
     </div>
@@ -111,8 +111,8 @@ interface ObjectivesPanelProps {
   workspace: ReviewWorkspace;
   workspaceIndex: number;
   theme: string | null;
-  bets: string[];
-  onBetsChange: (next: string[]) => void;
+  focuses: string[];
+  onFocusesChange: (next: string[]) => void;
   onCheckInLogged: () => void;
 }
 
@@ -120,8 +120,8 @@ function ObjectivesPanel({
   data,
   workspace,
   theme,
-  bets,
-  onBetsChange,
+  focuses,
+  onFocusesChange,
   onCheckInLogged,
 }: ObjectivesPanelProps) {
   const [quarter, setQuarter] = useState<string>(
@@ -136,9 +136,6 @@ function ObjectivesPanel({
     period,
     includePairedPeriod: quarter !== "Annual",
   });
-
-  const monthlyOutcomes = (data.monthlyOutcomesByWorkspace[workspace.id] ??
-    []) as Array<{ id: string; description: string; dueDate: Date | null }>;
 
   return (
     <div>
@@ -208,12 +205,12 @@ function ObjectivesPanel({
               key={obj.id}
               objective={obj}
               rank={idx + 1}
-              bets={bets}
-              onToggleBet={(krId) => {
-                const next = bets.includes(krId)
-                  ? bets.filter((b) => b !== krId)
-                  : [...bets, krId];
-                onBetsChange(next);
+              focuses={focuses}
+              onToggleFocus={(krId) => {
+                const next = focuses.includes(krId)
+                  ? focuses.filter((b) => b !== krId)
+                  : [...focuses, krId];
+                onFocusesChange(next);
               }}
               onCheckInLogged={onCheckInLogged}
               workspaceId={workspace.id}
@@ -224,26 +221,6 @@ function ObjectivesPanel({
         </div>
       )}
 
-      {monthlyOutcomes.length > 0 && (
-        <div style={{ marginTop: 24 }}>
-          <div className="pr-phase-head__eyebrow">This month · outcomes due</div>
-          <div className="pr-obj-list">
-            {monthlyOutcomes.map((o) => (
-              <div key={o.id} className="pr-obj">
-                <div className="pr-obj__head">
-                  <div className="pr-obj__rank">M</div>
-                  <div className="pr-obj__id">OUT</div>
-                  <div className="pr-obj__title">{o.description}</div>
-                  <div />
-                  <div />
-                  <div />
-                  <div />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -251,8 +228,8 @@ function ObjectivesPanel({
 interface ObjectiveRowProps {
   objective: ObjectiveData;
   rank: number;
-  bets: string[];
-  onToggleBet: (krId: string) => void;
+  focuses: string[];
+  onToggleFocus: (krId: string) => void;
   onCheckInLogged: () => void;
   workspaceId: string;
   period: string;
@@ -262,8 +239,8 @@ interface ObjectiveRowProps {
 function ObjectiveRow({
   objective,
   rank,
-  bets,
-  onToggleBet,
+  focuses,
+  onToggleFocus,
   onCheckInLogged,
   workspaceId,
   period,
@@ -352,8 +329,8 @@ function ObjectiveRow({
             <KrRow
               key={kr.id}
               kr={kr}
-              isBet={bets.includes(kr.id)}
-              onToggleBet={() => onToggleBet(kr.id)}
+              isFocused={focuses.includes(kr.id)}
+              onToggleFocus={() => onToggleFocus(kr.id)}
               onCheckInLogged={onCheckInLogged}
             />
           ))}
@@ -387,12 +364,12 @@ function ObjectiveRow({
 
 interface KrRowProps {
   kr: KrData;
-  isBet: boolean;
-  onToggleBet: () => void;
+  isFocused: boolean;
+  onToggleFocus: () => void;
   onCheckInLogged: () => void;
 }
 
-function KrRow({ kr, isBet, onToggleBet, onCheckInLogged }: KrRowProps) {
+function KrRow({ kr, isFocused, onToggleFocus, onCheckInLogged }: KrRowProps) {
   const [editing, setEditing] = useState(false);
   const [draftValue, setDraftValue] = useState(kr.currentValue);
 
@@ -490,16 +467,16 @@ function KrRow({ kr, isBet, onToggleBet, onCheckInLogged }: KrRowProps) {
       )}
       <button
         type="button"
-        className={isBet ? "pr-kr-row__bet is-on" : "pr-kr-row__bet"}
-        onClick={onToggleBet}
+        className={isFocused ? "pr-kr-row__focus is-on" : "pr-kr-row__focus"}
+        onClick={onToggleFocus}
       >
-        {isBet ? (
+        {isFocused ? (
           <>
-            <IconCheck size={11} /> Bet
+            <IconCheck size={11} /> Focused
           </>
         ) : (
           <>
-            <IconBolt size={11} /> Bet on
+            <IconBolt size={11} /> Focus on
           </>
         )}
       </button>

@@ -24,44 +24,44 @@ export interface LinkedProjectLite {
 interface Props {
   data: ReviewData;
   focusedWorkspaces: ReviewWorkspace[];
-  /** Map of workspaceId → KR ids the user has bet on this week. */
-  bets: Map<string, string[]>;
-  /** Map of bet KR id → number of in-list projects linked to it. */
+  /** Map of workspaceId → KR ids the user is focused on this week. */
+  focuses: Map<string, string[]>;
+  /** Map of focused KR id → number of in-list projects linked to it. */
   projectCountByKrId: Map<string, number>;
-  /** Map of bet KR id → linked project objects (for inline pills). */
+  /** Map of focused KR id → linked project objects (for inline pills). */
   linkedProjectsByKrId: Map<string, LinkedProjectLite[]>;
-  /** Map of bet KR id → workspace id (so picker scopes correctly). */
+  /** Map of focused KR id → workspace id (so picker scopes correctly). */
   workspaceByKrId: Map<string, string>;
-  /** Currently active filter mode (for highlighting selected bet). */
-  activeBetFilter: string | null;
-  onSelectBet: (krId: string | null) => void;
+  /** Currently active filter mode (for highlighting selected focus). */
+  activeFocusFilter: string | null;
+  onSelectFocus: (krId: string | null) => void;
   /** Called after a successful link/unlink so parent can refetch. */
   onLinksChanged: () => void;
 }
 
-export function BetsRecapCard({
+export function FocusRecapCard({
   data,
   focusedWorkspaces,
-  bets,
+  focuses,
   projectCountByKrId,
   linkedProjectsByKrId,
   workspaceByKrId,
-  activeBetFilter,
-  onSelectBet,
+  activeFocusFilter,
+  onSelectFocus,
   onLinksChanged,
 }: Props) {
-  const allBetKrIds = useMemo(() => {
+  const allFocusKrIds = useMemo(() => {
     const ids: string[] = [];
     for (const ws of focusedWorkspaces) {
-      const wsBets = bets.get(ws.id) ?? [];
-      for (const id of wsBets) ids.push(id);
+      const wsFocuses = focuses.get(ws.id) ?? [];
+      for (const id of wsFocuses) ids.push(id);
     }
     return ids;
-  }, [bets, focusedWorkspaces]);
+  }, [focuses, focusedWorkspaces]);
 
   const krsQuery = api.okr.getByIds.useQuery(
-    { ids: allBetKrIds },
-    { enabled: allBetKrIds.length > 0 },
+    { ids: allFocusKrIds },
+    { enabled: allFocusKrIds.length > 0 },
   );
 
   const updateLinkedProjects = api.okr.updateLinkedProjects.useMutation({
@@ -111,7 +111,7 @@ export function BetsRecapCard({
     return map;
   }, [data.workspaces]);
 
-  if (allBetKrIds.length === 0) return null;
+  if (allFocusKrIds.length === 0) return null;
 
   const krById = new Map(
     (krsQuery.data ?? []).map((k) => [k.id, k] as const),
@@ -136,44 +136,44 @@ export function BetsRecapCard({
   };
 
   return (
-    <div className="pr-bets-recap" ref={popoverContainerRef}>
-      <div className="pr-bets-recap__head">
-        <span className="pr-bets-recap__icon">
+    <div className="pr-focus-recap" ref={popoverContainerRef}>
+      <div className="pr-focus-recap__head">
+        <span className="pr-focus-recap__icon">
           <IconBolt size={13} />
         </span>
-        <span className="pr-bets-recap__title">Your bets this week</span>
-        <span className="pr-bets-recap__count">
-          {allBetKrIds.length} bet{allBetKrIds.length === 1 ? "" : "s"}
+        <span className="pr-focus-recap__title">Your focus this week</span>
+        <span className="pr-focus-recap__count">
+          {allFocusKrIds.length} KR{allFocusKrIds.length === 1 ? "" : "s"}
         </span>
-        {activeBetFilter && (
+        {activeFocusFilter && (
           <button
             type="button"
-            className="pr-bets-recap__clear"
-            onClick={() => onSelectBet(null)}
+            className="pr-focus-recap__clear"
+            onClick={() => onSelectFocus(null)}
           >
             Clear filter
           </button>
         )}
       </div>
-      <div className="pr-bets-recap__list">
+      <div className="pr-focus-recap__list">
         {focusedWorkspaces.map((ws) => {
-          const wsBets = bets.get(ws.id) ?? [];
-          if (wsBets.length === 0) return null;
+          const wsFocuses = focuses.get(ws.id) ?? [];
+          if (wsFocuses.length === 0) return null;
           const wsIdx = data.workspaces.findIndex((w) => w.id === ws.id);
           return (
-            <div key={ws.id} className="pr-bets-recap__group">
-              <div className="pr-bets-recap__ws">
+            <div key={ws.id} className="pr-focus-recap__group">
+              <div className="pr-focus-recap__ws">
                 <span
-                  className="pr-bets-recap__ws-dot"
+                  className="pr-focus-recap__ws-dot"
                   style={{ background: workspaceGlyphVar(wsIdx) }}
                 />
-                <span className="pr-bets-recap__ws-name">{ws.name}</span>
+                <span className="pr-focus-recap__ws-name">{ws.name}</span>
               </div>
-              {wsBets.map((krId) => {
+              {wsFocuses.map((krId) => {
                 const kr = krById.get(krId);
                 const linked = projectCountByKrId.get(krId) ?? 0;
                 const linkedProjects = linkedProjectsByKrId.get(krId) ?? [];
-                const isActive = activeBetFilter === krId;
+                const isActive = activeFocusFilter === krId;
                 const isPopoverOpen = openPopoverKrId === krId;
                 const krWorkspaceId = workspaceByKrId.get(krId) ?? ws.id;
                 const range =
@@ -204,57 +204,57 @@ export function BetsRecapCard({
                     key={krId}
                     className={
                       isActive
-                        ? "pr-bets-recap__row is-active"
-                        : "pr-bets-recap__row"
+                        ? "pr-focus-recap__row is-active"
+                        : "pr-focus-recap__row"
                     }
                   >
                     <button
                       type="button"
-                      className="pr-bets-recap__row-main-btn"
-                      onClick={() => onSelectBet(isActive ? null : krId)}
+                      className="pr-focus-recap__row-main-btn"
+                      onClick={() => onSelectFocus(isActive ? null : krId)}
                       title={
                         linked > 0
                           ? `Filter project list to ${linked} project${linked === 1 ? "" : "s"} linked to this KR`
                           : "Click to filter (no projects linked yet)"
                       }
                     >
-                      <div className="pr-bets-recap__obj">
+                      <div className="pr-focus-recap__obj">
                         {kr?.goal?.title ?? "Objective"}
                       </div>
-                      <div className="pr-bets-recap__kr">
+                      <div className="pr-focus-recap__kr">
                         {krsQuery.isLoading
                           ? "Loading…"
                           : (kr?.title ?? "Key result not found")}
                       </div>
                     </button>
-                    <div className="pr-bets-recap__progress">
-                      <div className="pr-bets-recap__bar">
+                    <div className="pr-focus-recap__progress">
+                      <div className="pr-focus-recap__bar">
                         <div
-                          className="pr-bets-recap__bar-fill"
+                          className="pr-focus-recap__bar-fill"
                           style={{ width: `${pct}%`, background: fillVar }}
                         />
                       </div>
-                      <span className="pr-bets-recap__pct">{pct}%</span>
+                      <span className="pr-focus-recap__pct">{pct}%</span>
                     </div>
-                    <div className="pr-bets-recap__actions">
+                    <div className="pr-focus-recap__actions">
                       {linked === 0 ? (
-                        <span className="pr-bets-recap__linked pr-bets-recap__linked--empty">
+                        <span className="pr-focus-recap__linked pr-focus-recap__linked--empty">
                           <IconAlertCircle size={11} /> 0 projects
                         </span>
                       ) : (
-                        <div className="pr-bets-recap__projects">
+                        <div className="pr-focus-recap__projects">
                           {linkedProjects.map((p) => (
                             <span
                               key={p.id}
-                              className="pr-bets-recap__project-pill"
-                              title={`Unlink ${p.name} from this bet`}
+                              className="pr-focus-recap__project-pill"
+                              title={`Unlink ${p.name} from this focus`}
                             >
-                              <span className="pr-bets-recap__project-name">
+                              <span className="pr-focus-recap__project-name">
                                 {p.name}
                               </span>
                               <button
                                 type="button"
-                                className="pr-bets-recap__project-unlink"
+                                className="pr-focus-recap__project-unlink"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleUnlink(krId, p.id);
@@ -267,10 +267,10 @@ export function BetsRecapCard({
                           ))}
                         </div>
                       )}
-                      <div className="pr-bets-recap__add-wrap">
+                      <div className="pr-focus-recap__add-wrap">
                         <button
                           type="button"
-                          className="pr-bets-recap__add-btn"
+                          className="pr-focus-recap__add-btn"
                           onClick={(e) => {
                             e.stopPropagation();
                             setOpenPopoverKrId(

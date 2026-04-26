@@ -23,7 +23,7 @@ interface Props {
   data: ReviewData;
   focusedWorkspaces: ReviewWorkspace[];
   themes: Map<string, string | null>;
-  bets: Map<string, string[]>;
+  focuses: Map<string, string[]>;
   priorityChanges: Map<string, { before: string; after: string }>;
   krCheckInsLogged: number;
   durationMinutes: number | null;
@@ -39,7 +39,7 @@ export function PortfolioReviewCompletion({
   data,
   focusedWorkspaces,
   themes,
-  bets,
+  focuses,
   priorityChanges,
   krCheckInsLogged,
   durationMinutes,
@@ -58,7 +58,7 @@ export function PortfolioReviewCompletion({
   const focusStatementsSet = Array.from(themes.values()).filter(
     (t) => t && t.trim().length > 0,
   ).length;
-  const goalsReprioritized = Array.from(bets.values()).reduce(
+  const goalsReprioritized = Array.from(focuses.values()).reduce(
     (acc, arr) => acc + arr.length,
     0,
   );
@@ -99,7 +99,7 @@ export function PortfolioReviewCompletion({
       <p className="pr-done__sub">
         {focusedWorkspaces.length} workspace
         {focusedWorkspaces.length === 1 ? "" : "s"} in focus ·{" "}
-        {goalsReprioritized} bet{goalsReprioritized === 1 ? "" : "s"} placed ·{" "}
+        {goalsReprioritized} KR{goalsReprioritized === 1 ? "" : "s"} in focus ·{" "}
         {projectsReprioritized} project priorit
         {projectsReprioritized === 1 ? "y" : "ies"} updated. Now drill into any
         workspace to handle individual project actions, or come back later.

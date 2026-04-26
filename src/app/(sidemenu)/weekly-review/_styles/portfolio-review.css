@@ -685,14 +685,14 @@
   font-family: var(--font-mono); font-size: 11px;
   color: var(--pr-text-secondary); font-variant-numeric: tabular-nums;
 }
-.pr-kr-row__bet {
+.pr-kr-row__focus {
   background: var(--pr-surface-muted);
   border: 1px solid var(--pr-border-subtle);
   border-radius: 4px; font-family: inherit; font-size: 11px;
   color: var(--pr-text-muted); padding: 3px 8px; cursor: pointer;
 }
-.pr-kr-row__bet:hover { color: var(--pr-brand-400); border-color: var(--pr-brand-400); }
-.pr-kr-row__bet.is-on { background: var(--pr-brand-500); color: var(--pr-text-primary); border-color: var(--pr-brand-500); }
+.pr-kr-row__focus:hover { color: var(--pr-brand-400); border-color: var(--pr-brand-400); }
+.pr-kr-row__focus.is-on { background: var(--pr-brand-500); color: var(--pr-text-primary); border-color: var(--pr-brand-500); }
 
 /* Inline "Add key result" trigger inside an expanded objective */
 .pr-kr-add-row {
@@ -783,8 +783,8 @@
   color: var(--pr-text-muted); font-size: 12px; padding: 18px;
 }
 
-/* Bet-linked promote banner */
-.pr-bet-banner {
+/* Focus-linked promote banner */
+.pr-focus-banner {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -794,7 +794,7 @@
   border: 1px solid var(--pr-brand-500);
   border-radius: 6px;
 }
-.pr-bet-banner__icon {
+.pr-focus-banner__icon {
   width: 24px; height: 24px;
   display: grid; place-items: center;
   border-radius: 4px;
@@ -802,17 +802,17 @@
   color: var(--pr-text-primary);
   flex-shrink: 0;
 }
-.pr-bet-banner__text {
+.pr-focus-banner__text {
   flex: 1;
   font-size: 12.5px;
   color: var(--pr-text-secondary);
   line-height: 1.5;
 }
-.pr-bet-banner__text strong {
+.pr-focus-banner__text strong {
   color: var(--pr-text-primary);
   font-weight: 600;
 }
-.pr-bet-banner__cta {
+.pr-focus-banner__cta {
   flex-shrink: 0;
   height: 28px;
   padding: 0 12px;
@@ -827,10 +827,10 @@
   cursor: pointer;
   transition: background 120ms;
 }
-.pr-bet-banner__cta:hover { background: var(--pr-brand-600); }
+.pr-focus-banner__cta:hover { background: var(--pr-brand-600); }
 
-/* Bet pip — small inline tag next to project name when linked to a bet */
-.pr-bet-pip {
+/* Focus pip — small inline tag next to project name when linked to a focused KR */
+.pr-focus-pip {
   display: inline-flex; align-items: center; gap: 3px;
   margin-left: 8px;
   padding: 1px 6px;
@@ -843,7 +843,7 @@
   text-transform: uppercase;
   vertical-align: middle;
 }
-.pr-proj__bet-meta {
+.pr-proj__focus-meta {
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--pr-brand-400);
@@ -859,10 +859,10 @@
 }
 .pr-proj + .pr-proj { margin-top: 2px; }
 .pr-proj:hover { background: var(--pr-bg-elevated); }
-.pr-proj--bet {
+.pr-proj--focus {
   background: var(--pr-bg-elevated);
 }
-.pr-proj--bet::before {
+.pr-proj--focus::before {
   content: "";
   position: absolute;
   left: 0; top: 6px; bottom: 6px;
@@ -1106,19 +1106,19 @@
   }
 }
 
-/* ----- Phase 3 · Bets recap card ------------------------------------------ */
-.pr-bets-recap {
+/* ----- Phase 3 · Focus recap card ----------------------------------------- */
+.pr-focus-recap {
   margin-bottom: 14px;
   padding: 12px 14px;
   background: var(--pr-bg-secondary);
   border: 1px solid var(--pr-border-subtle);
   border-radius: 6px;
 }
-.pr-bets-recap__head {
+.pr-focus-recap__head {
   display: flex; align-items: center; gap: 8px;
   margin-bottom: 10px;
 }
-.pr-bets-recap__icon {
+.pr-focus-recap__icon {
   width: 20px; height: 20px;
   display: grid; place-items: center;
   border-radius: 4px;
@@ -1126,18 +1126,18 @@
   color: var(--pr-text-primary);
   flex-shrink: 0;
 }
-.pr-bets-recap__title {
+.pr-focus-recap__title {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--pr-text-primary);
   letter-spacing: 0.01em;
 }
-.pr-bets-recap__count {
+.pr-focus-recap__count {
   font-size: 11px;
   color: var(--pr-text-muted);
   font-variant-numeric: tabular-nums;
 }
-.pr-bets-recap__clear {
+.pr-focus-recap__clear {
   margin-left: auto;
   background: transparent;
   border: 1px solid var(--pr-border-primary);
@@ -1149,35 +1149,35 @@
   cursor: pointer;
   transition: background 120ms, color 120ms;
 }
-.pr-bets-recap__clear:hover {
+.pr-focus-recap__clear:hover {
   background: var(--pr-bg-hover);
   color: var(--pr-text-primary);
 }
-.pr-bets-recap__list {
+.pr-focus-recap__list {
   display: flex; flex-direction: column;
   gap: 10px;
 }
-.pr-bets-recap__group {
+.pr-focus-recap__group {
   display: flex; flex-direction: column;
   gap: 4px;
 }
-.pr-bets-recap__ws {
+.pr-focus-recap__ws {
   display: flex; align-items: center; gap: 6px;
   padding: 0 2px;
 }
-.pr-bets-recap__ws-dot {
+.pr-focus-recap__ws-dot {
   width: 6px; height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-.pr-bets-recap__ws-name {
+.pr-focus-recap__ws-name {
   font-size: 10.5px;
   font-weight: 500;
   color: var(--pr-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
-.pr-bets-recap__row {
+.pr-focus-recap__row {
   display: grid;
   grid-template-columns: 1fr 180px auto;
   gap: 12px;
@@ -1190,15 +1190,15 @@
   color: inherit;
   transition: background 120ms, border-color 120ms;
 }
-.pr-bets-recap__row:hover {
+.pr-focus-recap__row:hover {
   background: var(--pr-bg-elevated);
   border-color: var(--pr-border-primary);
 }
-.pr-bets-recap__row.is-active {
+.pr-focus-recap__row.is-active {
   background: var(--pr-bg-elevated);
   border-color: var(--pr-brand-500);
 }
-.pr-bets-recap__row-main-btn {
+.pr-focus-recap__row-main-btn {
   min-width: 0;
   display: flex; flex-direction: column;
   gap: 2px;
@@ -1210,7 +1210,7 @@
   font-family: inherit;
   color: inherit;
 }
-.pr-bets-recap__obj {
+.pr-focus-recap__obj {
   font-size: 10.5px;
   color: var(--pr-text-muted);
   text-transform: uppercase;
@@ -1219,7 +1219,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pr-bets-recap__kr {
+.pr-focus-recap__kr {
   font-size: 12.5px;
   color: var(--pr-text-primary);
   font-weight: 500;
@@ -1227,22 +1227,22 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pr-bets-recap__progress {
+.pr-focus-recap__progress {
   display: flex; align-items: center; gap: 8px;
 }
-.pr-bets-recap__bar {
+.pr-focus-recap__bar {
   flex: 1;
   height: 4px;
   background: var(--pr-surface-muted);
   border-radius: 2px;
   overflow: hidden;
 }
-.pr-bets-recap__bar-fill {
+.pr-focus-recap__bar-fill {
   height: 100%;
   border-radius: 2px;
   transition: width 240ms ease;
 }
-.pr-bets-recap__pct {
+.pr-focus-recap__pct {
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--pr-text-secondary);
@@ -1250,7 +1250,7 @@
   min-width: 30px;
   text-align: right;
 }
-.pr-bets-recap__linked {
+.pr-focus-recap__linked {
   display: inline-flex; align-items: center; gap: 3px;
   padding: 2px 7px;
   border-radius: 3px;
@@ -1261,14 +1261,14 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.pr-bets-recap__linked--empty {
+.pr-focus-recap__linked--empty {
   background: transparent;
   border: 1px dashed var(--pr-at-risk);
   color: var(--pr-at-risk);
 }
 
 /* Inline actions area: pills of linked projects + add button + popover anchor. */
-.pr-bets-recap__actions {
+.pr-focus-recap__actions {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1276,13 +1276,13 @@
   justify-content: flex-end;
   max-width: 320px;
 }
-.pr-bets-recap__projects {
+.pr-focus-recap__projects {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
 }
-.pr-bets-recap__project-pill {
+.pr-focus-recap__project-pill {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -1295,13 +1295,13 @@
   font-weight: 500;
   max-width: 160px;
 }
-.pr-bets-recap__project-name {
+.pr-focus-recap__project-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 130px;
 }
-.pr-bets-recap__project-unlink {
+.pr-focus-recap__project-unlink {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1314,16 +1314,16 @@
   padding: 0;
   transition: background 120ms, color 120ms;
 }
-.pr-bets-recap__project-unlink:hover {
+.pr-focus-recap__project-unlink:hover {
   background: var(--pr-bg-hover);
   color: var(--pr-off-track);
 }
 
 /* "+ Add project" button — mirrors .pr-kr-add-btn for visual consistency. */
-.pr-bets-recap__add-wrap {
+.pr-focus-recap__add-wrap {
   position: relative;
 }
-.pr-bets-recap__add-btn {
+.pr-focus-recap__add-btn {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 8px;
   background: transparent;
@@ -1335,14 +1335,14 @@
   cursor: pointer;
   transition: background 120ms, color 120ms, border-color 120ms;
 }
-.pr-bets-recap__add-btn:hover {
+.pr-focus-recap__add-btn:hover {
   color: var(--pr-brand-400);
   border-color: var(--pr-brand-400);
   background: var(--pr-surface-muted);
 }
 
 /* Popover anchored to the add button. */
-.pr-bets-recap__popover {
+.pr-focus-recap__popover {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
@@ -1356,7 +1356,7 @@
   flex-direction: column;
   overflow: hidden;
 }
-.pr-bets-recap__popover-search {
+.pr-focus-recap__popover-search {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1364,7 +1364,7 @@
   border-bottom: 1px solid var(--pr-border-subtle);
   color: var(--pr-text-muted);
 }
-.pr-bets-recap__popover-input {
+.pr-focus-recap__popover-input {
   flex: 1;
   background: transparent;
   border: 0;
@@ -1373,22 +1373,22 @@
   font-family: inherit;
   font-size: 12px;
 }
-.pr-bets-recap__popover-input::placeholder {
+.pr-focus-recap__popover-input::placeholder {
   color: var(--pr-text-muted);
 }
-.pr-bets-recap__popover-list {
+.pr-focus-recap__popover-list {
   max-height: 220px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
-.pr-bets-recap__popover-empty {
+.pr-focus-recap__popover-empty {
   padding: 14px 12px;
   font-size: 11.5px;
   color: var(--pr-text-muted);
   text-align: center;
 }
-.pr-bets-recap__popover-item {
+.pr-focus-recap__popover-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1402,13 +1402,13 @@
   cursor: pointer;
   transition: background 120ms;
 }
-.pr-bets-recap__popover-item:hover {
+.pr-focus-recap__popover-item:hover {
   background: var(--pr-bg-hover);
 }
-.pr-bets-recap__popover-item.is-linked {
+.pr-focus-recap__popover-item.is-linked {
   color: var(--pr-brand-400);
 }
-.pr-bets-recap__popover-check {
+.pr-focus-recap__popover-check {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1418,18 +1418,18 @@
   flex-shrink: 0;
   color: var(--pr-brand-400);
 }
-.pr-bets-recap__popover-item.is-linked .pr-bets-recap__popover-check {
+.pr-focus-recap__popover-item.is-linked .pr-focus-recap__popover-check {
   border-color: var(--pr-brand-500);
   background: var(--pr-brand-500);
   color: var(--pr-text-primary);
 }
-.pr-bets-recap__popover-name {
+.pr-focus-recap__popover-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pr-bets-recap__popover-ws {
+.pr-focus-recap__popover-ws {
   font-size: 10.5px;
   color: var(--pr-text-muted);
   white-space: nowrap;
@@ -1438,7 +1438,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pr-bets-recap__popover-create {
+.pr-focus-recap__popover-create {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1452,20 +1452,20 @@
   cursor: pointer;
   transition: background 120ms, color 120ms;
 }
-.pr-bets-recap__popover-create:hover {
+.pr-focus-recap__popover-create:hover {
   background: var(--pr-bg-hover);
   color: var(--pr-brand-400);
 }
 
 @media (max-width: 720px) {
-  .pr-bets-recap__row {
+  .pr-focus-recap__row {
     grid-template-columns: 1fr;
     gap: 6px;
   }
-  .pr-bets-recap__progress {
+  .pr-focus-recap__progress {
     width: 100%;
   }
-  .pr-bets-recap__actions {
+  .pr-focus-recap__actions {
     max-width: 100%;
     justify-content: flex-start;
   }
