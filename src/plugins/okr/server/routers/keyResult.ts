@@ -317,6 +317,36 @@ export const keyResultRouter = createTRPCRouter({
       return keyResult;
     }),
 
+  // Batch lookup of KR metadata by ids — used by Phase 3 of weekly review
+  // to render the "Your bets this week" recap card. Filters to KRs the
+  // current user can access (owns or shares a workspace with).
+  getByIds: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()) }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.db.keyResult.findMany({
+        where: {
+          id: { in: input.ids },
+          OR: [
+            { userId },
+            { workspace: { members: { some: { userId } } } },
+          ],
+        },
+        select: {
+          id: true,
+          title: true,
+          currentValue: true,
+          targetValue: true,
+          startValue: true,
+          unit: true,
+          status: true,
+          workspaceId: true,
+          goalId: true,
+          goal: { select: { id: true, title: true } },
+        },
+      });
+    }),
+
   // Create a new key result
   create: protectedProcedure
     .input(createKeyResultInput)

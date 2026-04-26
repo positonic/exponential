@@ -477,7 +477,16 @@ export const projectRouter = createTRPCRouter({
             },
           },
           keyResults: {
-            select: { keyResultId: true },
+            select: {
+              keyResultId: true,
+              keyResult: {
+                select: {
+                  id: true,
+                  title: true,
+                  goal: { select: { id: true, title: true } },
+                },
+              },
+            },
           },
         },
         orderBy: {
@@ -673,7 +682,16 @@ export const projectRouter = createTRPCRouter({
             },
           },
           keyResults: {
-            select: { keyResultId: true },
+            select: {
+              keyResultId: true,
+              keyResult: {
+                select: {
+                  id: true,
+                  title: true,
+                  goal: { select: { id: true, title: true } },
+                },
+              },
+            },
           },
         },
         orderBy: {

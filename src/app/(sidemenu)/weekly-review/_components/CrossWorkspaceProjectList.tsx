@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { IconBolt, IconChevronUp } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { BetsRecapCard } from "./BetsRecapCard";
 import {
   workspaceGlyphVar,
   type ReviewData,
@@ -10,6 +11,11 @@ import {
 } from "./types";
 
 type ProjectPriority = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+
+interface BetKrLite {
+  id: string;
+  title: string;
+}
 
 interface ProjectRow {
   id: string;
@@ -20,6 +26,8 @@ interface ProjectRow {
   actionCount: number;
   /** KR ids the user pinned this week that this project is linked to. */
   matchedBetKrIds: string[];
+  /** Bet KRs (id + title) this project is linked to — for inline display. */
+  matchedBetKrs: BetKrLite[];
   /** All KR ids this project is linked to (for the "no KR" warning). */
   linkedKrIds: string[];
 }
@@ -43,6 +51,7 @@ export function CrossWorkspaceProjectList({
   onPriorityChange,
 }: Props) {
   const [filter, setFilter] = useState<string>("all");
+  const [betFilter, setBetFilter] = useState<string | null>(null);
 
   const projectsQuery = api.project.getActiveWithDetails.useQuery(
     {},
@@ -57,10 +66,16 @@ export function CrossWorkspaceProjectList({
       ?.filter((p) => p.workspaceId && focusedIds.has(p.workspaceId))
       .map((p) => {
         const linkedKrIds = p.keyResults.map((k) => k.keyResultId);
-        const wsBets = (p.workspaceId && bets.get(p.workspaceId)) || [];
+        const wsBets = (p.workspaceId && bets.get(p.workspaceId)) ?? [];
         const matchedBetKrIds = linkedKrIds.filter((id) =>
           wsBets.includes(id),
         );
+        const matchedBetKrs: BetKrLite[] = p.keyResults
+          .filter((k) => matchedBetKrIds.includes(k.keyResultId))
+          .map((k) => ({
+            id: k.keyResultId,
+            title: k.keyResult?.title ?? "Untitled KR",
+          }));
         return {
           id: p.id,
           name: p.name,
@@ -69,12 +84,28 @@ export function CrossWorkspaceProjectList({
           progress: p.progress ?? 0,
           actionCount: p.actions.length,
           matchedBetKrIds,
+          matchedBetKrs,
           linkedKrIds,
         };
       }) ?? [];
 
-  const visible =
+  const wsFiltered =
     filter === "all" ? projects : projects.filter((p) => p.workspaceId === filter);
+  const visible = betFilter
+    ? wsFiltered.filter((p) => p.matchedBetKrIds.includes(betFilter))
+    : wsFiltered;
+
+  // Count linked projects per bet KR (across the workspace-filtered list, ignoring
+  // the bet filter itself so users see "real" counts in the recap).
+  const projectCountByKrId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of wsFiltered) {
+      for (const krId of p.matchedBetKrIds) {
+        counts.set(krId, (counts.get(krId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [wsFiltered]);
 
   // Bet-linked projects that aren't already at Top focus — these are the
   // ones the suggestion banner offers to promote.
@@ -145,6 +176,15 @@ export function CrossWorkspaceProjectList({
 
   return (
     <div>
+      <BetsRecapCard
+        data={data}
+        focusedWorkspaces={focusedWorkspaces}
+        bets={bets}
+        projectCountByKrId={projectCountByKrId}
+        activeBetFilter={betFilter}
+        onSelectBet={setBetFilter}
+      />
+
       {betLinkedNotTop.length > 0 && (
         <div className="pr-bet-banner">
           <div className="pr-bet-banner__icon">
@@ -177,7 +217,10 @@ export function CrossWorkspaceProjectList({
                 ? "pr-filter-chip is-active"
                 : "pr-filter-chip"
             }
-            onClick={() => setFilter("all")}
+            onClick={() => {
+              setFilter("all");
+              setBetFilter(null);
+            }}
           >
             All workspaces
           </button>
@@ -192,7 +235,10 @@ export function CrossWorkspaceProjectList({
                     ? "pr-filter-chip is-active"
                     : "pr-filter-chip"
                 }
-                onClick={() => setFilter(ws.id)}
+                onClick={() => {
+                  setFilter(ws.id);
+                  setBetFilter(null);
+                }}
               >
                 <span
                   className="pr-filter-chip__sw"
@@ -297,10 +343,17 @@ export function CrossWorkspaceProjectList({
                               {ws?.name ?? "—"}
                             </span>
                             <span>{p.actionCount} open actions</span>
-                            {isBetLinked && (
-                              <span className="pr-proj__bet-meta">
-                                → {p.matchedBetKrIds.length} pinned KR
-                                {p.matchedBetKrIds.length === 1 ? "" : "s"}
+                            {isBetLinked && p.matchedBetKrs[0] && (
+                              <span
+                                className="pr-proj__bet-meta"
+                                title={p.matchedBetKrs
+                                  .map((k) => k.title)
+                                  .join(" · ")}
+                              >
+                                ↳ KR: {p.matchedBetKrs[0].title}
+                                {p.matchedBetKrs.length > 1
+                                  ? ` +${p.matchedBetKrs.length - 1} more`
+                                  : ""}
                               </span>
                             )}
                           </div>
