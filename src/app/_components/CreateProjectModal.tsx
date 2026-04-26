@@ -27,11 +27,12 @@ interface CreateProjectModalProps {
   prefillName?: string;
   prefillNotionProjectId?: string;
   prefillGoalId?: string;
+  prefillWorkspaceId?: string;
   onClose?: () => void;
   onSuccess?: (project: Project) => void;
 }
 
-export function CreateProjectModal({ children, project, prefillName, prefillNotionProjectId, prefillGoalId, onClose, onSuccess }: CreateProjectModalProps) {
+export function CreateProjectModal({ children, project, prefillName, prefillNotionProjectId, prefillGoalId, prefillWorkspaceId, onClose, onSuccess }: CreateProjectModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [projectName, setProjectName] = useState(project?.name ?? prefillName ?? "");
   const [notionProjectId] = useState(prefillNotionProjectId);
@@ -45,7 +46,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [selectedLifeDomainIds, setSelectedLifeDomainIds] = useState<string[]>(project?.lifeDomains?.map(d => d.id.toString()) ?? []);
   const [goalSearchValue, setGoalSearchValue] = useState("");
   const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(project?.workspaceId ?? null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(project?.workspaceId ?? prefillWorkspaceId ?? null);
   const [selectedDriId, setSelectedDriId] = useState<string | null>(project?.driId ?? null);
   const [startDate, setStartDate] = useState<Date | null>(project?.startDate ?? null);
   const [endDate, setEndDate] = useState<Date | null>(project?.endDate ?? null);
@@ -57,12 +58,13 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   // Fetch all workspaces the user belongs to
   const { data: workspaces } = api.workspace.list.useQuery();
 
-  // Set workspace to current workspace when creating a new project
+  // Set workspace to prefilled or current workspace when creating a new project
   useEffect(() => {
-    if (!project && currentWorkspaceId) {
-      setSelectedWorkspaceId(currentWorkspaceId);
+    if (!project) {
+      const initial = prefillWorkspaceId ?? currentWorkspaceId;
+      if (initial) setSelectedWorkspaceId(initial);
     }
-  }, [project, currentWorkspaceId]);
+  }, [project, currentWorkspaceId, prefillWorkspaceId]);
 
   // Multi-step flow state for Notion imports
   const [step, setStep] = useState<'create' | 'workflow' | 'success'>('create');
@@ -264,7 +266,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
       setSelectedLifeDomainIds([]);
       setGoalSearchValue("");
       setOutcomeSearchValue("");
-      setSelectedWorkspaceId(currentWorkspaceId ?? null);
+      setSelectedWorkspaceId(prefillWorkspaceId ?? currentWorkspaceId ?? null);
       setSelectedDriId(null);
       setStartDate(null);
       setEndDate(null);

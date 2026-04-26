@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { IconBolt, IconChevronUp } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
-import { BetsRecapCard } from "./BetsRecapCard";
+import { BetsRecapCard, type LinkedProjectLite } from "./BetsRecapCard";
 import {
   workspaceGlyphVar,
   type ReviewData,
@@ -61,14 +61,20 @@ export function CrossWorkspaceProjectList({
   const updatePriority = api.project.updatePriority.useMutation();
 
   const focusedIds = new Set(focusedWorkspaces.map((w) => w.id));
+  // Flatten all bet KR ids across focused workspaces. Projects can link to
+  // bets in workspaces other than their own (allowed by the picker), so we
+  // match against the full set, not just bets in the project's workspace.
+  const allBetKrIdsSet = new Set<string>();
+  for (const ws of focusedWorkspaces) {
+    for (const id of bets.get(ws.id) ?? []) allBetKrIdsSet.add(id);
+  }
   const projects: ProjectRow[] =
     projectsQuery.data
       ?.filter((p) => p.workspaceId && focusedIds.has(p.workspaceId))
       .map((p) => {
         const linkedKrIds = p.keyResults.map((k) => k.keyResultId);
-        const wsBets = (p.workspaceId && bets.get(p.workspaceId)) ?? [];
         const matchedBetKrIds = linkedKrIds.filter((id) =>
-          wsBets.includes(id),
+          allBetKrIdsSet.has(id),
         );
         const matchedBetKrs: BetKrLite[] = p.keyResults
           .filter((k) => matchedBetKrIds.includes(k.keyResultId))
@@ -106,6 +112,30 @@ export function CrossWorkspaceProjectList({
     }
     return counts;
   }, [wsFiltered]);
+
+  // Build list of linked projects per bet KR for inline pills in the recap card.
+  const linkedProjectsByKrId = useMemo(() => {
+    const map = new Map<string, LinkedProjectLite[]>();
+    for (const p of wsFiltered) {
+      for (const krId of p.matchedBetKrIds) {
+        const list = map.get(krId) ?? [];
+        list.push({ id: p.id, name: p.name });
+        map.set(krId, list);
+      }
+    }
+    return map;
+  }, [wsFiltered]);
+
+  // Resolve workspace per bet KR so the picker can scope project search.
+  const workspaceByKrId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ws of focusedWorkspaces) {
+      for (const krId of bets.get(ws.id) ?? []) {
+        map.set(krId, ws.id);
+      }
+    }
+    return map;
+  }, [bets, focusedWorkspaces]);
 
   // Bet-linked projects that aren't already at Top focus — these are the
   // ones the suggestion banner offers to promote.
@@ -181,8 +211,11 @@ export function CrossWorkspaceProjectList({
         focusedWorkspaces={focusedWorkspaces}
         bets={bets}
         projectCountByKrId={projectCountByKrId}
+        linkedProjectsByKrId={linkedProjectsByKrId}
+        workspaceByKrId={workspaceByKrId}
         activeBetFilter={betFilter}
         onSelectBet={setBetFilter}
+        onLinksChanged={() => void projectsQuery.refetch()}
       />
 
       {betLinkedNotTop.length > 0 && (
