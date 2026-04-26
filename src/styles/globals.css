@@ -799,7 +799,8 @@
    Consumed by src/app/(sidemenu)/weekly-review/_styles/portfolio-review.css.
    Mirrors the auth-surface pattern: all hex lives here, feature CSS uses var().
    ========================================================================== */
-.portfolio-review-surface {
+.portfolio-review-surface,
+.pr-modal-surface {
   /* Background scale (matches the dark slate the designer used) */
   --pr-bg-primary: #0B0F17;
   --pr-bg-secondary: #10151F;

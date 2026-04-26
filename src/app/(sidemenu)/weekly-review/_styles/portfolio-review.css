@@ -694,6 +694,29 @@
 .pr-kr-row__bet:hover { color: var(--pr-brand-400); border-color: var(--pr-brand-400); }
 .pr-kr-row__bet.is-on { background: var(--pr-brand-500); color: var(--pr-text-primary); border-color: var(--pr-brand-500); }
 
+/* Inline "Add key result" trigger inside an expanded objective */
+.pr-kr-add-row {
+  padding: 6px 12px 8px 44px;
+  border-top: 1px dashed var(--pr-border-subtle);
+}
+.pr-kr-add-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 9px;
+  background: transparent;
+  border: 1px dashed var(--pr-border-strong);
+  border-radius: 4px;
+  color: var(--pr-text-secondary);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.pr-kr-add-btn:hover {
+  color: var(--pr-brand-400);
+  border-color: var(--pr-brand-400);
+  background: var(--pr-surface-muted);
+}
+
 /* ===================================================================
    Phase 3 — Cross-workspace projects
    =================================================================== */
@@ -1080,5 +1103,171 @@
   }
   .pr-history-row__stats {
     grid-template-columns: repeat(4, auto);
+  }
+}
+
+/* ----- Phase 3 · Bets recap card ------------------------------------------ */
+.pr-bets-recap {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: var(--pr-bg-secondary);
+  border: 1px solid var(--pr-border-subtle);
+  border-radius: 6px;
+}
+.pr-bets-recap__head {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px;
+}
+.pr-bets-recap__icon {
+  width: 20px; height: 20px;
+  display: grid; place-items: center;
+  border-radius: 4px;
+  background: var(--pr-brand-500);
+  color: var(--pr-text-primary);
+  flex-shrink: 0;
+}
+.pr-bets-recap__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--pr-text-primary);
+  letter-spacing: 0.01em;
+}
+.pr-bets-recap__count {
+  font-size: 11px;
+  color: var(--pr-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pr-bets-recap__clear {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--pr-border-primary);
+  color: var(--pr-text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.pr-bets-recap__clear:hover {
+  background: var(--pr-bg-hover);
+  color: var(--pr-text-primary);
+}
+.pr-bets-recap__list {
+  display: flex; flex-direction: column;
+  gap: 10px;
+}
+.pr-bets-recap__group {
+  display: flex; flex-direction: column;
+  gap: 4px;
+}
+.pr-bets-recap__ws {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 2px;
+}
+.pr-bets-recap__ws-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pr-bets-recap__ws-name {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--pr-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.pr-bets-recap__row {
+  display: grid;
+  grid-template-columns: 1fr 180px auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid var(--pr-border-subtle);
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  transition: background 120ms, border-color 120ms;
+}
+.pr-bets-recap__row:hover {
+  background: var(--pr-bg-elevated);
+  border-color: var(--pr-border-primary);
+}
+.pr-bets-recap__row.is-active {
+  background: var(--pr-bg-elevated);
+  border-color: var(--pr-brand-500);
+}
+.pr-bets-recap__row-main {
+  min-width: 0;
+  display: flex; flex-direction: column;
+  gap: 2px;
+}
+.pr-bets-recap__obj {
+  font-size: 10.5px;
+  color: var(--pr-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pr-bets-recap__kr {
+  font-size: 12.5px;
+  color: var(--pr-text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pr-bets-recap__progress {
+  display: flex; align-items: center; gap: 8px;
+}
+.pr-bets-recap__bar {
+  flex: 1;
+  height: 4px;
+  background: var(--pr-surface-muted);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.pr-bets-recap__bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 240ms ease;
+}
+.pr-bets-recap__pct {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--pr-text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 30px;
+  text-align: right;
+}
+.pr-bets-recap__linked {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--pr-surface-muted);
+  color: var(--pr-text-secondary);
+  font-size: 10.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pr-bets-recap__linked--empty {
+  background: transparent;
+  border: 1px dashed var(--pr-at-risk);
+  color: var(--pr-at-risk);
+}
+
+@media (max-width: 720px) {
+  .pr-bets-recap__row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .pr-bets-recap__progress {
+    width: 100%;
   }
 }

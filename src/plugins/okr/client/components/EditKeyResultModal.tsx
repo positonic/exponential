@@ -56,19 +56,43 @@ interface KeyResultData {
   driUserId?: string | null;
 }
 
-interface EditKeyResultModalProps {
-  keyResult: KeyResultData | null;
+type EditKeyResultModalProps = {
   opened: boolean;
   onClose: () => void;
   onSuccess?: () => void;
-}
+  variant?: "default" | "review";
+} & (
+  | {
+      mode?: "edit";
+      keyResult: KeyResultData | null;
+      goalId?: never;
+      period?: never;
+      workspaceId?: never;
+      defaultDriUserId?: never;
+    }
+  | {
+      mode: "create";
+      keyResult?: null;
+      goalId: number;
+      period: string;
+      workspaceId?: string;
+      defaultDriUserId?: string | null;
+    }
+);
 
 export function EditKeyResultModal({
   keyResult,
   opened,
   onClose,
   onSuccess,
+  mode = "edit",
+  variant = "default",
+  goalId,
+  period: createPeriod,
+  workspaceId: createWorkspaceId,
+  defaultDriUserId,
 }: EditKeyResultModalProps) {
+  const isCreate = mode === "create";
   // Form state
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -88,21 +112,40 @@ export function EditKeyResultModal({
 
   // Fetch available projects for the workspace
   const { data: availableProjects = [] } = api.project.getAll.useQuery(
-    { workspaceId: workspace?.id },
-    { enabled: opened && !!workspace }
+    { workspaceId: workspace?.id ?? createWorkspaceId },
+    { enabled: opened && !!(workspace?.id ?? createWorkspaceId) }
   );
 
-  // Query to get fresh key result data
+  // Query to get fresh key result data (edit mode only)
   const { data: freshKeyResult } = api.okr.getById.useQuery(
     { id: keyResult?.id ?? "" },
-    { enabled: !!keyResult?.id && opened }
+    { enabled: !isCreate && !!keyResult?.id && opened }
   );
 
   // Use fresh data if available, fallback to prop
   const currentKeyResult = freshKeyResult ?? keyResult;
 
-  // Populate form when key result changes
+  // Reset form fields to defaults (used for create mode + when modal opens)
+  const resetCreateDefaults = () => {
+    setTitle("");
+    setDescription("");
+    setTargetValue(100);
+    setCurrentValue(0);
+    setStartValue(0);
+    setUnit("percent");
+    setUnitLabel("");
+    setStatus("on-track");
+    setConfidence(null);
+    setSelectedProjectIds([]);
+    setDriUserId(defaultDriUserId ?? currentUser?.id ?? null);
+  };
+
+  // Populate form when key result changes (edit) or reset (create)
   useEffect(() => {
+    if (isCreate) {
+      if (opened) resetCreateDefaults();
+      return;
+    }
     if (currentKeyResult) {
       setTitle(currentKeyResult.title);
       setDescription(currentKeyResult.description ?? "");
@@ -126,7 +169,8 @@ export function EditKeyResultModal({
           ?.projects?.map((p) => p.project.id) ?? [];
       setSelectedProjectIds(linkedProjectIds);
     }
-  }, [currentKeyResult, currentUser?.id, freshKeyResult]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentKeyResult, currentUser?.id, freshKeyResult, isCreate, opened]);
 
   const driOptions = useMemo(() => {
     const members = workspace?.members ?? [];
@@ -162,6 +206,15 @@ export function EditKeyResultModal({
     },
   });
 
+  // Create mutation
+  const createKeyResult = api.okr.create.useMutation({
+    onSuccess: async () => {
+      await utils.okr.getByObjective.invalidate();
+      await utils.okr.getStats.invalidate();
+      await utils.okr.getAll.invalidate();
+    },
+  });
+
   // Update linked projects mutation
   const updateLinkedProjects = api.okr.updateLinkedProjects.useMutation({
     onSuccess: async () => {
@@ -182,9 +235,39 @@ export function EditKeyResultModal({
   });
 
   const handleSubmit = async () => {
-    if (!title || !currentKeyResult) return;
+    if (!title) return;
 
     try {
+      if (isCreate) {
+        if (goalId == null || !createPeriod) return;
+        const created = await createKeyResult.mutateAsync({
+          goalId,
+          title,
+          description: description || undefined,
+          targetValue,
+          startValue,
+          currentValue,
+          unit,
+          unitLabel: unit === "custom" ? unitLabel : undefined,
+          period: createPeriod,
+          driUserId: driUserId ?? undefined,
+          workspaceId: createWorkspaceId,
+        });
+
+        if (selectedProjectIds.length > 0) {
+          await updateLinkedProjects.mutateAsync({
+            keyResultId: created.id,
+            projectIds: selectedProjectIds,
+          });
+        }
+
+        onSuccess?.();
+        onClose();
+        return;
+      }
+
+      if (!currentKeyResult) return;
+
       // Save key result fields
       await updateKeyResult.mutateAsync({
         id: currentKeyResult.id,
@@ -210,7 +293,7 @@ export function EditKeyResultModal({
       onClose();
     } catch (error) {
       // Error is handled by mutation hooks
-      console.error("Failed to update key result:", error);
+      console.error("Failed to save key result:", error);
     }
   };
 
@@ -227,25 +310,66 @@ export function EditKeyResultModal({
   const progressPercent =
     range > 0 ? Math.round(((currentValue - startValue) / range) * 100) : 0;
 
+  const isReview = variant === "review";
+
+  // Token map: in 'review' variant, swap to portfolio-review tokens so the
+  // modal blends with the weekly-review surface. The `pr-modal-surface`
+  // class (defined in globals.css) re-declares `--pr-*` outside the
+  // surface element so they resolve inside the Mantine Portal.
+  const bgElevated = isReview
+    ? "var(--pr-bg-elevated)"
+    : "var(--color-bg-elevated)";
+  const bgInput = isReview
+    ? "var(--pr-surface-muted)"
+    : "var(--color-bg-input)";
+  const textPrimary = isReview
+    ? "var(--pr-text-primary)"
+    : "var(--color-text-primary)";
+  const textSecondary = isReview
+    ? "var(--pr-text-secondary)"
+    : "var(--color-text-secondary)";
+  const borderPrimary = isReview
+    ? "var(--pr-border-subtle)"
+    : "var(--color-border-primary)";
+
+  const inputStyles = {
+    input: {
+      backgroundColor: bgInput,
+      borderColor: borderPrimary,
+      color: textPrimary,
+    },
+    label: {
+      color: textSecondary,
+    },
+  };
+  const selectStyles = {
+    ...inputStyles,
+    dropdown: {
+      backgroundColor: bgElevated,
+      borderColor: borderPrimary,
+    },
+  };
+
   return (
     <Modal
       opened={opened}
       onClose={onClose}
       size="lg"
       radius="md"
+      classNames={isReview ? { content: "pr-modal-surface", header: "pr-modal-surface" } : undefined}
       title={
         <Text fw={600} size="lg">
-          Edit Key Result
+          {isCreate ? "Create Key Result" : "Edit Key Result"}
         </Text>
       }
       styles={{
         content: {
-          backgroundColor: "var(--color-bg-elevated)",
-          color: "var(--color-text-primary)",
+          backgroundColor: bgElevated,
+          color: textPrimary,
         },
         header: {
-          backgroundColor: "var(--color-bg-elevated)",
-          borderBottom: "1px solid var(--color-border-primary)",
+          backgroundColor: bgElevated,
+          borderBottom: `1px solid ${borderPrimary}`,
         },
       }}
     >
@@ -268,16 +392,7 @@ export function EditKeyResultModal({
             value={title}
             onChange={(e) => setTitle(e.currentTarget.value)}
             required
-            styles={{
-              input: {
-                backgroundColor: "var(--color-bg-input)",
-                borderColor: "var(--color-border-primary)",
-                color: "var(--color-text-primary)",
-              },
-              label: {
-                color: "var(--color-text-secondary)",
-              },
-            }}
+            styles={inputStyles}
           />
 
           <Select
@@ -288,20 +403,7 @@ export function EditKeyResultModal({
             value={driUserId}
             onChange={(value) => setDriUserId(value ?? null)}
             required
-            styles={{
-              input: {
-                backgroundColor: "var(--color-bg-input)",
-                borderColor: "var(--color-border-primary)",
-                color: "var(--color-text-primary)",
-              },
-              label: {
-                color: "var(--color-text-secondary)",
-              },
-              dropdown: {
-                backgroundColor: "var(--color-bg-elevated)",
-                borderColor: "var(--color-border-primary)",
-              },
-            }}
+            styles={selectStyles}
           />
 
           {/* Description */}
@@ -311,16 +413,7 @@ export function EditKeyResultModal({
             value={description}
             onChange={(e) => setDescription(e.currentTarget.value)}
             minRows={2}
-            styles={{
-              input: {
-                backgroundColor: "var(--color-bg-input)",
-                borderColor: "var(--color-border-primary)",
-                color: "var(--color-text-primary)",
-              },
-              label: {
-                color: "var(--color-text-secondary)",
-              },
-            }}
+            styles={inputStyles}
           />
 
           <Divider label="Progress Tracking" labelPosition="center" />
@@ -332,48 +425,21 @@ export function EditKeyResultModal({
               value={startValue}
               onChange={(val) => setStartValue(Number(val) || 0)}
               min={0}
-              styles={{
-                input: {
-                  backgroundColor: "var(--color-bg-input)",
-                  borderColor: "var(--color-border-primary)",
-                  color: "var(--color-text-primary)",
-                },
-                label: {
-                  color: "var(--color-text-secondary)",
-                },
-              }}
+              styles={inputStyles}
             />
             <NumberInput
               label="Current Value"
               value={currentValue}
               onChange={(val) => setCurrentValue(Number(val) || 0)}
               min={0}
-              styles={{
-                input: {
-                  backgroundColor: "var(--color-bg-input)",
-                  borderColor: "var(--color-border-primary)",
-                  color: "var(--color-text-primary)",
-                },
-                label: {
-                  color: "var(--color-text-secondary)",
-                },
-              }}
+              styles={inputStyles}
             />
             <NumberInput
               label="Target Value"
               value={targetValue}
               onChange={(val) => setTargetValue(Number(val) || 0)}
               min={0}
-              styles={{
-                input: {
-                  backgroundColor: "var(--color-bg-input)",
-                  borderColor: "var(--color-border-primary)",
-                  color: "var(--color-text-primary)",
-                },
-                label: {
-                  color: "var(--color-text-secondary)",
-                },
-              }}
+              styles={inputStyles}
             />
           </Group>
 
@@ -389,20 +455,7 @@ export function EditKeyResultModal({
               data={unitOptions}
               value={unit}
               onChange={(val) => setUnit((val as UnitType) ?? "percent")}
-              styles={{
-                input: {
-                  backgroundColor: "var(--color-bg-input)",
-                  borderColor: "var(--color-border-primary)",
-                  color: "var(--color-text-primary)",
-                },
-                label: {
-                  color: "var(--color-text-secondary)",
-                },
-                dropdown: {
-                  backgroundColor: "var(--color-bg-elevated)",
-                  borderColor: "var(--color-border-primary)",
-                },
-              }}
+              styles={selectStyles}
             />
             {unit === "custom" && (
               <TextInput
@@ -410,65 +463,40 @@ export function EditKeyResultModal({
                 placeholder="e.g., users, tasks, etc."
                 value={unitLabel}
                 onChange={(e) => setUnitLabel(e.currentTarget.value)}
-                styles={{
-                  input: {
-                    backgroundColor: "var(--color-bg-input)",
-                    borderColor: "var(--color-border-primary)",
-                    color: "var(--color-text-primary)",
-                  },
-                  label: {
-                    color: "var(--color-text-secondary)",
-                  },
-                }}
+                styles={inputStyles}
               />
             )}
           </Group>
 
-          <Divider label="Status & Confidence" labelPosition="center" />
+          {!isCreate && (
+            <>
+              <Divider label="Status & Confidence" labelPosition="center" />
 
-          {/* Status and confidence */}
-          <Group grow>
-            <Select
-              label="Status"
-              data={statusOptions}
-              value={status}
-              onChange={(val) => setStatus((val as StatusType) ?? "on-track")}
-              styles={{
-                input: {
-                  backgroundColor: "var(--color-bg-input)",
-                  borderColor: "var(--color-border-primary)",
-                  color: "var(--color-text-primary)",
-                },
-                label: {
-                  color: "var(--color-text-secondary)",
-                },
-                dropdown: {
-                  backgroundColor: "var(--color-bg-elevated)",
-                  borderColor: "var(--color-border-primary)",
-                },
-              }}
-            />
-            <NumberInput
-              label="Confidence (%)"
-              placeholder="How confident are you?"
-              value={confidence ?? ""}
-              onChange={(val) =>
-                setConfidence(val === "" ? null : Number(val))
-              }
-              min={0}
-              max={100}
-              styles={{
-                input: {
-                  backgroundColor: "var(--color-bg-input)",
-                  borderColor: "var(--color-border-primary)",
-                  color: "var(--color-text-primary)",
-                },
-                label: {
-                  color: "var(--color-text-secondary)",
-                },
-              }}
-            />
-          </Group>
+              {/* Status and confidence */}
+              <Group grow>
+                <Select
+                  label="Status"
+                  data={statusOptions}
+                  value={status}
+                  onChange={(val) =>
+                    setStatus((val as StatusType) ?? "on-track")
+                  }
+                  styles={selectStyles}
+                />
+                <NumberInput
+                  label="Confidence (%)"
+                  placeholder="How confident are you?"
+                  value={confidence ?? ""}
+                  onChange={(val) =>
+                    setConfidence(val === "" ? null : Number(val))
+                  }
+                  min={0}
+                  max={100}
+                  styles={inputStyles}
+                />
+              </Group>
+            </>
+          )}
 
           <Divider label="Linked Projects" labelPosition="center" />
 
@@ -485,43 +513,38 @@ export function EditKeyResultModal({
             onChange={setSelectedProjectIds}
             searchable
             clearable
-            styles={{
-              input: {
-                backgroundColor: "var(--color-bg-input)",
-                borderColor: "var(--color-border-primary)",
-                color: "var(--color-text-primary)",
-              },
-              label: {
-                color: "var(--color-text-secondary)",
-              },
-              dropdown: {
-                backgroundColor: "var(--color-bg-elevated)",
-                borderColor: "var(--color-border-primary)",
-              },
-            }}
+            styles={selectStyles}
           />
 
           {/* Actions */}
           <Group justify="space-between" mt="lg">
-            <Button
-              variant="subtle"
-              color="red"
-              leftSection={<IconTrash size={16} />}
-              onClick={handleDelete}
-              loading={deleteKeyResult.isPending}
-            >
-              Delete
-            </Button>
+            {isCreate ? (
+              <span />
+            ) : (
+              <Button
+                variant="subtle"
+                color="red"
+                leftSection={<IconTrash size={16} />}
+                onClick={handleDelete}
+                loading={deleteKeyResult.isPending}
+              >
+                Delete
+              </Button>
+            )}
             <Group>
               <Button variant="subtle" color="gray" onClick={onClose}>
                 Cancel
               </Button>
               <Button
                 type="submit"
-                loading={updateKeyResult.isPending || updateLinkedProjects.isPending}
+                loading={
+                  updateKeyResult.isPending ||
+                  createKeyResult.isPending ||
+                  updateLinkedProjects.isPending
+                }
                 disabled={!title}
               >
-                Save Changes
+                {isCreate ? "Create Key Result" : "Save Changes"}
               </Button>
             </Group>
           </Group>

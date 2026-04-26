@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import { EditKeyResultModal } from "~/plugins/okr/client/components/EditKeyResultModal";
 import {
   workspaceGlyphVar,
   workspaceShortName,
@@ -211,6 +212,9 @@ function ObjectivesPanel({
                 onBetsChange(next);
               }}
               onCheckInLogged={onCheckInLogged}
+              workspaceId={workspace.id}
+              period={period}
+              onKrCreated={() => void objectives.refetch()}
             />
           ))}
         </div>
@@ -246,6 +250,9 @@ interface ObjectiveRowProps {
   bets: string[];
   onToggleBet: (krId: string) => void;
   onCheckInLogged: () => void;
+  workspaceId: string;
+  period: string;
+  onKrCreated: () => void;
 }
 
 function ObjectiveRow({
@@ -254,8 +261,12 @@ function ObjectiveRow({
   bets,
   onToggleBet,
   onCheckInLogged,
+  workspaceId,
+  period,
+  onKrCreated,
 }: ObjectiveRowProps) {
   const [open, setOpen] = useState(rank === 1);
+  const [addKrOpen, setAddKrOpen] = useState(false);
   const krs = objective.keyResults;
 
   // Aggregate confidence from KRs
@@ -331,7 +342,7 @@ function ObjectiveRow({
           />
         </button>
       </div>
-      {open && krs.length > 0 && (
+      {open && (
         <div className="pr-kr-list">
           {krs.map((kr) => (
             <KrRow
@@ -342,8 +353,30 @@ function ObjectiveRow({
               onCheckInLogged={onCheckInLogged}
             />
           ))}
+          <div className="pr-kr-add-row">
+            <button
+              type="button"
+              className="pr-kr-add-btn"
+              onClick={() => setAddKrOpen(true)}
+            >
+              <IconPlus size={12} /> Add key result
+            </button>
+          </div>
         </div>
       )}
+      <EditKeyResultModal
+        mode="create"
+        variant="review"
+        opened={addKrOpen}
+        onClose={() => setAddKrOpen(false)}
+        onSuccess={() => {
+          onKrCreated();
+          setAddKrOpen(false);
+        }}
+        goalId={objective.id}
+        period={period}
+        workspaceId={workspaceId}
+      />
     </div>
   );
 }
