@@ -26,7 +26,7 @@ export default function ProductsListPage() {
 
   if (wsLoading) {
     return (
-      <Stack gap="md">
+      <Stack gap="md" className="px-10 pt-6">
         <Skeleton height={40} width={240} />
         <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
           {[1, 2, 3].map((i) => (
@@ -38,13 +38,15 @@ export default function ProductsListPage() {
   }
 
   if (!workspace) {
-    return <Text className="text-text-secondary">Workspace not found</Text>;
+    return (
+      <Text className="px-10 pt-6 text-text-secondary">Workspace not found</Text>
+    );
   }
 
   const basePath = `/w/${workspace.slug}/products`;
 
   return (
-    <Stack gap="lg">
+    <Stack gap="lg" className="px-10 pt-6">
       <Group justify="space-between" align="flex-start">
         <div>
           <Title order={2} className="text-text-primary">

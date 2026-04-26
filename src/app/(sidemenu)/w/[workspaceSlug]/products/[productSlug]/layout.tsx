@@ -78,7 +78,7 @@ export default function ProductLayout({
   return (
     <div className="w-full">
       {/* Header: Title + action icons */}
-      <div className="w-full pl-8 mb-6" style={{ paddingRight: 0 }}>
+      <div className="w-full px-10 pt-6 mb-6">
         <Group justify="space-between" align="flex-start">
           <div>
             {isLoading ? (
@@ -129,7 +129,7 @@ export default function ProductLayout({
       {/* Tabs */}
       <Tabs value={activeTab} onChange={handleTabChange}>
         <Stack gap="xl" align="stretch" justify="flex-start">
-          <Tabs.List>
+          <Tabs.List className="px-10">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -145,7 +145,7 @@ export default function ProductLayout({
           </Tabs.List>
 
           {/* Tab content */}
-          <div>{children}</div>
+          <div className="px-10 pb-6">{children}</div>
         </Stack>
       </Tabs>
     </div>
