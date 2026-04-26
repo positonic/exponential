@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef } from "react";
-import { Container, Title, Group } from "@mantine/core";
+import { Container, Title, Group, Text } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { WeeklyReviewIntro, type ReviewMode, type TimerDuration } from "./_components/WeeklyReviewIntro";
@@ -23,7 +23,8 @@ interface ProjectChanges {
   statusChanged: boolean;
   priorityChanged: boolean;
   actionAdded: boolean;
-  outcomesChanged: boolean;
+  keyResultsChanged: boolean;
+  reflection?: string;
 }
 
 /**
@@ -57,9 +58,9 @@ function calculateProjectHealthScore(project: Project): number {
   );
   if (hasOverdue) score -= 20;
 
-  // -15 if no outcome linked
-  const hasOutcome = project.outcomes.length > 0;
-  if (!hasOutcome) score -= 15;
+  // -15 if no key result linked
+  const hasKeyResult = project.keyResults.length > 0;
+  if (!hasKeyResult) score -= 15;
 
   // -10 if status is stuck or blocked
   if (project.status === "STUCK" || project.status === "BLOCKED") {
@@ -104,12 +105,6 @@ export default function WeeklyReviewPage() {
       { workspaceId: workspaceId ?? undefined },
       { enabled: workspaceId !== null }
     );
-
-  // Fetch all outcomes for the outcome linking feature
-  const { data: allOutcomes } = api.outcome.getMyOutcomes.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    { enabled: workspaceId !== null }
-  );
 
   // Fetch streak data for motivation display
   const { data: streakData } = api.weeklyReview.getStreak.useQuery(
@@ -231,17 +226,39 @@ export default function WeeklyReviewPage() {
 
   return (
     <Container size="md" py="xl">
-      <Group justify="space-between" align="center" className="mb-6">
-        <Title order={2} className="text-text-primary">
-          Weekly Review
-        </Title>
-        {step === "reviewing" && timerMinutes && (
-          <ReviewTimer
-            initialMinutes={timerMinutes}
-            isActive={step === "reviewing"}
-          />
-        )}
-      </Group>
+      {step !== "reviewing" && (
+        <Group justify="space-between" align="center" className="mb-6">
+          <Title order={2} className="text-text-primary">
+            Weekly Review
+          </Title>
+        </Group>
+      )}
+
+      {step === "reviewing" && (
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-blue-500">
+                Weekly Review · Project Pass
+              </span>
+            </div>
+            <Title order={2} className="text-text-primary">
+              Decide what each project does this week.
+            </Title>
+            <Text size="sm" className="mt-2 max-w-xl text-text-secondary">
+              One project at a time. Tie it to the Key Result it drives so the
+              work always ladders up to the quarter&apos;s bets.
+            </Text>
+          </div>
+          {timerMinutes && (
+            <ReviewTimer
+              initialMinutes={timerMinutes}
+              isActive={step === "reviewing"}
+            />
+          )}
+        </div>
+      )}
 
       {step === "intro" && (
         <>
@@ -278,7 +295,8 @@ export default function WeeklyReviewPage() {
             hasPrevious={currentProjectIndex > 0}
             hasNext={currentProjectIndex < reviewSessionProjects.length - 1}
             workspaceId={workspaceId}
-            allOutcomes={allOutcomes}
+            currentIndex={currentProjectIndex + 1}
+            totalCount={reviewSessionProjects.length}
           />
         </>
       )}
