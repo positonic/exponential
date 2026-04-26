@@ -1,0 +1,257 @@
+"use client";
+
+import { useState } from "react";
+import { api } from "~/trpc/react";
+import {
+  workspaceGlyphVar,
+  type ReviewData,
+  type ReviewWorkspace,
+} from "./types";
+
+type ProjectPriority = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+
+interface ProjectRow {
+  id: string;
+  name: string;
+  workspaceId: string | null;
+  priority: ProjectPriority;
+  progress: number;
+  actionCount: number;
+  krCount: number;
+}
+
+interface Props {
+  data: ReviewData;
+  focusedWorkspaces: ReviewWorkspace[];
+  onPriorityChange: (
+    projectId: string,
+    before: ProjectPriority,
+    after: ProjectPriority,
+  ) => void;
+}
+
+export function CrossWorkspaceProjectList({
+  data,
+  focusedWorkspaces,
+  onPriorityChange,
+}: Props) {
+  const [filter, setFilter] = useState<string>("all");
+
+  // Lazy load active projects with priority via the project router so
+  // we can include priority changes that happen mid-review.
+  const projectsQuery = api.project.getActiveWithDetails.useQuery(
+    {},
+    { enabled: focusedWorkspaces.length > 0 },
+  );
+
+  const updatePriority = api.project.updatePriority.useMutation();
+
+  const focusedIds = new Set(focusedWorkspaces.map((w) => w.id));
+  const projects: ProjectRow[] =
+    projectsQuery.data
+      ?.filter((p) => p.workspaceId && focusedIds.has(p.workspaceId))
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        workspaceId: p.workspaceId,
+        priority: p.priority as ProjectPriority,
+        progress: p.progress ?? 0,
+        actionCount: p.actions.length,
+        krCount: 0, // krLinks not on this query — could enhance later
+      })) ?? [];
+
+  const visible =
+    filter === "all" ? projects : projects.filter((p) => p.workspaceId === filter);
+
+  const tiers: Array<{
+    key: "top" | "active" | "backlog";
+    label: string;
+    sub: string;
+    cap: number | null;
+    matches: (p: ProjectRow) => boolean;
+    setsPriority: ProjectPriority;
+  }> = [
+    {
+      key: "top",
+      label: "Top focus",
+      sub: "The 3–5 you'll actually move this week.",
+      cap: 5,
+      matches: (p) => p.priority === "HIGH",
+      setsPriority: "HIGH",
+    },
+    {
+      key: "active",
+      label: "Active",
+      sub: "Open & moving, but not the priority.",
+      cap: null,
+      matches: (p) => p.priority === "MEDIUM" || p.priority === "NONE",
+      setsPriority: "MEDIUM",
+    },
+    {
+      key: "backlog",
+      label: "Backlog",
+      sub: "Visible, parked, will not work this week.",
+      cap: null,
+      matches: (p) => p.priority === "LOW",
+      setsPriority: "LOW",
+    },
+  ];
+
+  const moveProject = (proj: ProjectRow, target: ProjectPriority) => {
+    if (proj.priority === target) return;
+    onPriorityChange(proj.id, proj.priority, target);
+    updatePriority.mutate({ id: proj.id, priority: target });
+    // optimistic UI: rely on tRPC cache invalidation via react-query;
+    // for instant feel we rewrite local state via projectsQuery refetch.
+    void projectsQuery.refetch();
+  };
+
+  if (focusedWorkspaces.length === 0) {
+    return (
+      <div className="pr-empty">
+        Pick at least one workspace in Phase 1 to see its projects here.
+      </div>
+    );
+  }
+
+  if (projectsQuery.isLoading) {
+    return <div className="pr-empty">Loading projects…</div>;
+  }
+
+  return (
+    <div>
+      <div className="pr-x-toolbar">
+        <div className="pr-x-filters">
+          <button
+            type="button"
+            className={
+              filter === "all"
+                ? "pr-filter-chip is-active"
+                : "pr-filter-chip"
+            }
+            onClick={() => setFilter("all")}
+          >
+            All workspaces
+          </button>
+          {focusedWorkspaces.map((ws) => {
+            const idx = data.workspaces.findIndex((w) => w.id === ws.id);
+            return (
+              <button
+                key={ws.id}
+                type="button"
+                className={
+                  filter === ws.id
+                    ? "pr-filter-chip is-active"
+                    : "pr-filter-chip"
+                }
+                onClick={() => setFilter(ws.id)}
+              >
+                <span
+                  className="pr-filter-chip__sw"
+                  style={{ background: workspaceGlyphVar(idx) }}
+                />
+                {ws.name}
+              </button>
+            );
+          })}
+        </div>
+        <div className="pr-x-counts">
+          {visible.length} projects ·{" "}
+          {visible.filter((p) => p.priority === "HIGH").length} top ·{" "}
+          {
+            visible.filter(
+              (p) => p.priority === "MEDIUM" || p.priority === "NONE",
+            ).length
+          }{" "}
+          active ·{" "}
+          {visible.filter((p) => p.priority === "LOW").length} backlog
+        </div>
+      </div>
+
+      <div className="pr-tier-list">
+        {tiers.map((tier) => {
+          const items = visible.filter(tier.matches);
+          const overCap = tier.cap !== null && items.length > tier.cap;
+          return (
+            <div key={tier.key} className={`pr-tier pr-tier--${tier.key}`}>
+              <div className="pr-tier__head">
+                <div className="pr-tier__title">
+                  <span className="pr-tier__bullet" />
+                  {tier.label}
+                  <span className="pr-tier__title-sub">· {tier.sub}</span>
+                </div>
+                <div
+                  className={
+                    overCap ? "pr-tier__cap pr-tier__cap--over" : "pr-tier__cap"
+                  }
+                >
+                  <strong>{items.length}</strong>
+                  {tier.cap !== null ? ` / ${tier.cap}` : ""}
+                </div>
+              </div>
+              <div
+                className={
+                  items.length === 0
+                    ? "pr-tier__body pr-tier__body--empty"
+                    : "pr-tier__body"
+                }
+              >
+                {items.length === 0 ? (
+                  <span>No projects here</span>
+                ) : (
+                  items.map((p, i) => {
+                    const wsIdx = data.workspaces.findIndex(
+                      (w) => w.id === p.workspaceId,
+                    );
+                    const ws = data.workspaces.find(
+                      (w) => w.id === p.workspaceId,
+                    );
+                    return (
+                      <div key={p.id} className="pr-proj">
+                        <div className="pr-proj__rank">{i + 1}</div>
+                        <div
+                          className="pr-proj__ws-bar"
+                          style={{ background: workspaceGlyphVar(wsIdx) }}
+                        />
+                        <div style={{ minWidth: 0 }}>
+                          <div className="pr-proj__name">{p.name}</div>
+                          <div className="pr-proj__sub">
+                            <span
+                              className="pr-proj__ws-label"
+                              style={{ color: workspaceGlyphVar(wsIdx) }}
+                            >
+                              {ws?.name ?? "—"}
+                            </span>
+                            <span>{p.actionCount} open actions</span>
+                          </div>
+                        </div>
+                        <div className="pr-proj__progress-text">
+                          {Math.round(p.progress * 100)}%
+                        </div>
+                        <div className="pr-proj__move">
+                          {tiers
+                            .filter((t) => t.key !== tier.key)
+                            .map((t) => (
+                              <button
+                                key={t.key}
+                                type="button"
+                                className="pr-proj-move-btn"
+                                onClick={() => moveProject(p, t.setsPriority)}
+                              >
+                                {t.label.split(" ")[0]}
+                              </button>
+                            ))}
+                        </div>
+                        <div />
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

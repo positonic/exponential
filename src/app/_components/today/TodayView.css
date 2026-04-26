@@ -142,6 +142,93 @@
   border-color: var(--color-border-primary);
 }
 
+.today-section__action--active {
+  background: var(--brand-400);
+  border-color: var(--brand-400);
+  color: var(--color-bg-primary);
+}
+
+.today-section__action--active:hover {
+  background: var(--brand-500, var(--brand-400));
+  border-color: var(--brand-500, var(--brand-400));
+  color: var(--color-bg-primary);
+}
+
+.today-section__action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- Bulk-edit toolbar ---------- */
+
+.today-bulkbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  margin: 4px 0 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-surface-muted);
+}
+
+.today-bulkbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.today-bulkbar__btn:hover:not(:disabled) {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-primary);
+}
+
+.today-bulkbar__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.today-bulkbar__btn--primary {
+  background: var(--brand-400);
+  border-color: var(--brand-400);
+  color: var(--color-bg-primary);
+}
+
+.today-bulkbar__btn--primary:hover:not(:disabled) {
+  background: var(--brand-500, var(--brand-400));
+  border-color: var(--brand-500, var(--brand-400));
+  color: var(--color-bg-primary);
+}
+
+.today-bulkbar__btn--danger {
+  background: var(--accent-due);
+  border-color: var(--accent-due);
+  color: var(--color-bg-primary);
+}
+
+.today-bulkbar__btn--danger:hover:not(:disabled) {
+  filter: brightness(1.05);
+  color: var(--color-bg-primary);
+}
+
+.today-bulkbar__count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding: 0 4px;
+}
+
+.today-bulkbar__spacer {
+  flex: 1;
+}
+
 /* ---------- Action row ---------- */
 
 .today-row {
@@ -160,6 +247,17 @@
 .today-row:hover {
   background: var(--color-surface-muted);
   border-color: var(--color-border-subtle);
+}
+
+.today-row--bulk {
+  grid-template-columns: 22px 28px 1fr auto auto;
+}
+
+.today-row__bulkcheck {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--brand-400);
 }
 
 .today-check {

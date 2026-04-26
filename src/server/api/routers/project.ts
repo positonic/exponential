@@ -285,6 +285,23 @@ export const projectRouter = createTRPCRouter({
       });
     }),
 
+  // Slim mutation used by the portfolio review's cross-workspace project list.
+  // Avoids the full update() input shape just to change priority.
+  updatePriority: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        priority: z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.project.update({
+        where: { id: input.id, createdById: ctx.session.user.id },
+        data: { priority: input.priority },
+        select: { id: true, priority: true },
+      });
+    }),
+
   update: protectedProcedure
     .input(
       z.object({

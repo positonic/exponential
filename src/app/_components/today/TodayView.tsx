@@ -292,11 +292,15 @@ interface ActionRowProps {
   onComplete: (id: string) => void;
   onReschedule: (id: string, choice: RescheduleChoice) => void;
   onOpen: (a: ActionData) => void;
+  bulkMode?: boolean;
+  bulkSelected?: boolean;
+  onBulkToggle?: (id: string) => void;
 }
 
 const ActionRow: React.FC<ActionRowProps> = ({
   action, isDone, isCompleting, showOverdueChip, openPopId, setOpenPopId,
   suggestionProposal, onComplete, onReschedule, onOpen,
+  bulkMode = false, bulkSelected = false, onBulkToggle,
 }) => {
   const popId = `${action.id}-pop`;
   const open = openPopId === popId;
@@ -310,9 +314,25 @@ const ActionRow: React.FC<ActionRowProps> = ({
 
   return (
     <div
-      className={`today-row ${isDone ? "done" : ""} ${isCompleting ? "completing" : ""}`}
-      onClick={() => onOpen(action)}
+      className={`today-row ${bulkMode ? "today-row--bulk" : ""} ${isDone ? "done" : ""} ${isCompleting ? "completing" : ""}`}
+      onClick={() => {
+        if (bulkMode) {
+          onBulkToggle?.(action.id);
+          return;
+        }
+        onOpen(action);
+      }}
     >
+      {bulkMode && (
+        <input
+          type="checkbox"
+          className="today-row__bulkcheck"
+          checked={bulkSelected}
+          onChange={() => onBulkToggle?.(action.id)}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Select ${action.name}`}
+        />
+      )}
       <button
         type="button"
         className={`today-check ${priorityClass(visualPriority)}`}
@@ -564,6 +584,14 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
   const [editModalOpened, setEditModalOpened] = useState(false);
   const [now, setNow] = useState<number>(() => hourFloat(new Date()));
 
+  const [bulkEditMode, setBulkEditMode] = useState(false);
+  const [selectedOverdueIds, setSelectedOverdueIds] = useState<Set<string>>(new Set());
+  const [bulkReschedulePopOpen, setBulkReschedulePopOpen] = useState(false);
+
+  const [bulkEditActiveMode, setBulkEditActiveMode] = useState(false);
+  const [selectedActiveIds, setSelectedActiveIds] = useState<Set<string>>(new Set());
+  const [bulkActiveReschedulePopOpen, setBulkActiveReschedulePopOpen] = useState(false);
+
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Tick the now line every minute
@@ -760,6 +788,21 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
     },
   });
 
+  const bulkDeleteMutation = api.action.bulkDelete.useMutation({
+    onSettled: () => {
+      void utils.action.getAll.invalidate();
+      void utils.action.getToday.invalidate();
+    },
+  });
+
+  const markProcessedOverdueMutation = api.dailyPlan.markProcessedOverdue.useMutation({
+    onSuccess: () => {
+      void utils.scoring.getTodayScore.invalidate();
+      void utils.scoring.getProductivityStats.invalidate();
+      void utils.dailyPlan.invalidate();
+    },
+  });
+
   // Action handlers
   const handleComplete = (id: string) => {
     setCompleting((c) => ({ ...c, [id]: true }));
@@ -816,21 +859,167 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
     for (const s of activeSuggestions) handleAcceptSuggestion(s);
   };
 
-  const handleBulkReschedule = () => {
+  const toggleBulkEditMode = () => {
     if (onBulkReschedule) {
       onBulkReschedule();
       return;
     }
-    const tomorrow = addDays(new Date(), 1);
-    tomorrow.setHours(9, 0, 0, 0);
+    setBulkEditMode((m) => {
+      if (m) {
+        setSelectedOverdueIds(new Set());
+        setBulkReschedulePopOpen(false);
+      }
+      return !m;
+    });
+  };
+
+  const toggleOverdueSelection = (id: string) => {
+    setSelectedOverdueIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAllOverdue = () => {
+    setSelectedOverdueIds(new Set(overdueActions.map((a) => a.id)));
+  };
+
+  const handleSelectNoneOverdue = () => {
+    setSelectedOverdueIds(new Set());
+  };
+
+  const handleBulkEditReschedule = (choice: RescheduleChoice) => {
+    setBulkReschedulePopOpen(false);
+    const ids = Array.from(selectedOverdueIds);
+    if (ids.length === 0) return;
+    const newDate = choice.date ?? null;
     bulkRescheduleMutation.mutate(
-      { actionIds: overdueActions.map((a) => a.id), dueDate: tomorrow },
+      { actionIds: ids, dueDate: newDate },
       {
-        onSuccess: (data) =>
+        onSuccess: (data) => {
           notifications.show({
-            title: "Bulk reschedule complete",
-            message: `Rescheduled ${data.count} action${data.count === 1 ? "" : "s"} to tomorrow`,
+            title: newDate ? "Bulk reschedule complete" : "Due date removed",
+            message: newDate
+              ? `Rescheduled ${data.count} action${data.count === 1 ? "" : "s"} to ${choice.label}`
+              : `Cleared due date from ${data.count} action${data.count === 1 ? "" : "s"}`,
             color: "green",
+          });
+          setSelectedOverdueIds(new Set());
+          markProcessedOverdueMutation.mutate({});
+        },
+        onError: () =>
+          notifications.show({
+            title: "Reschedule failed",
+            message: "Could not reschedule the selected actions.",
+            color: "red",
+          }),
+      },
+    );
+  };
+
+  const handleBulkEditDelete = () => {
+    const ids = Array.from(selectedOverdueIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} overdue action${ids.length === 1 ? "" : "s"}?`)) return;
+    bulkDeleteMutation.mutate(
+      { actionIds: ids },
+      {
+        onSuccess: (data) => {
+          notifications.show({
+            title: "Overdue actions deleted",
+            message: `Deleted ${data.count} action${data.count === 1 ? "" : "s"}`,
+            color: "green",
+          });
+          setSelectedOverdueIds(new Set());
+          markProcessedOverdueMutation.mutate({});
+        },
+        onError: () =>
+          notifications.show({
+            title: "Delete failed",
+            message: "Could not delete the selected actions.",
+            color: "red",
+          }),
+      },
+    );
+  };
+
+  const toggleBulkEditActiveMode = () => {
+    setBulkEditActiveMode((m) => {
+      if (m) {
+        setSelectedActiveIds(new Set());
+        setBulkActiveReschedulePopOpen(false);
+      }
+      return !m;
+    });
+  };
+
+  const toggleActiveSelection = (id: string) => {
+    setSelectedActiveIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAllActive = () => {
+    setSelectedActiveIds(new Set(todayActions.map((a) => a.id)));
+  };
+
+  const handleSelectNoneActive = () => {
+    setSelectedActiveIds(new Set());
+  };
+
+  const handleBulkActiveReschedule = (choice: RescheduleChoice) => {
+    setBulkActiveReschedulePopOpen(false);
+    const ids = Array.from(selectedActiveIds);
+    if (ids.length === 0) return;
+    const newDate = choice.date ?? null;
+    bulkRescheduleMutation.mutate(
+      { actionIds: ids, dueDate: newDate },
+      {
+        onSuccess: (data) => {
+          notifications.show({
+            title: newDate ? "Bulk reschedule complete" : "Due date removed",
+            message: newDate
+              ? `Rescheduled ${data.count} action${data.count === 1 ? "" : "s"} to ${choice.label}`
+              : `Cleared due date from ${data.count} action${data.count === 1 ? "" : "s"}`,
+            color: "green",
+          });
+          setSelectedActiveIds(new Set());
+        },
+        onError: () =>
+          notifications.show({
+            title: "Reschedule failed",
+            message: "Could not reschedule the selected actions.",
+            color: "red",
+          }),
+      },
+    );
+  };
+
+  const handleBulkActiveDelete = () => {
+    const ids = Array.from(selectedActiveIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} action${ids.length === 1 ? "" : "s"}?`)) return;
+    bulkDeleteMutation.mutate(
+      { actionIds: ids },
+      {
+        onSuccess: (data) => {
+          notifications.show({
+            title: "Actions deleted",
+            message: `Deleted ${data.count} action${data.count === 1 ? "" : "s"}`,
+            color: "green",
+          });
+          setSelectedActiveIds(new Set());
+        },
+        onError: () =>
+          notifications.show({
+            title: "Delete failed",
+            message: "Could not delete the selected actions.",
+            color: "red",
           }),
       },
     );
@@ -876,8 +1065,12 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
                   </button>
                 )}
                 <span className="today-section__spacer" />
-                <button type="button" className="today-section__action" onClick={handleBulkReschedule}>
-                  <Icon name="arrow" size={12} /> Bulk reschedule
+                <button
+                  type="button"
+                  className={`today-section__action ${bulkEditMode ? "today-section__action--active" : ""}`}
+                  onClick={toggleBulkEditMode}
+                >
+                  {bulkEditMode ? "Exit" : "Bulk edit"}
                 </button>
               </div>
 
@@ -895,6 +1088,49 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
                       }
                     />
                   )}
+                  {bulkEditMode && (
+                    <div className="today-bulkbar" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="today-bulkbar__btn"
+                        onClick={handleSelectAllOverdue}
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        className="today-bulkbar__btn"
+                        onClick={handleSelectNoneOverdue}
+                      >
+                        Select none
+                      </button>
+                      <span className="today-bulkbar__count">
+                        {selectedOverdueIds.size} selected
+                      </span>
+                      <span className="today-bulkbar__spacer" />
+                      <div style={{ position: "relative" }}>
+                        <button
+                          type="button"
+                          className="today-bulkbar__btn today-bulkbar__btn--primary"
+                          disabled={selectedOverdueIds.size === 0}
+                          onClick={() => setBulkReschedulePopOpen((o) => !o)}
+                        >
+                          <Icon name="calendar" size={12} /> Reschedule
+                        </button>
+                        {bulkReschedulePopOpen && (
+                          <ReschedulePopover onChoose={handleBulkEditReschedule} />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="today-bulkbar__btn today-bulkbar__btn--danger"
+                        disabled={selectedOverdueIds.size === 0}
+                        onClick={handleBulkEditDelete}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
                   <div onClick={(e) => e.stopPropagation()}>
                     {overdueActions.map((a) => (
                       <ActionRow
@@ -909,6 +1145,9 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
                         onComplete={handleComplete}
                         onReschedule={handleReschedule}
                         onOpen={handleOpenAction}
+                        bulkMode={bulkEditMode}
+                        bulkSelected={selectedOverdueIds.has(a.id)}
+                        onBulkToggle={toggleOverdueSelection}
                       />
                     ))}
                   </div>
@@ -926,8 +1165,59 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
               Show: Active
             </span>
             <span className="today-section__spacer" />
-            <button type="button" className="today-section__action">Bulk edit</button>
+            <button
+              type="button"
+              className={`today-section__action ${bulkEditActiveMode ? "today-section__action--active" : ""}`}
+              onClick={toggleBulkEditActiveMode}
+              disabled={todayActions.length === 0}
+            >
+              {bulkEditActiveMode ? "Exit" : "Bulk edit"}
+            </button>
           </div>
+
+          {bulkEditActiveMode && todayActions.length > 0 && (
+            <div className="today-bulkbar" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="today-bulkbar__btn"
+                onClick={handleSelectAllActive}
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                className="today-bulkbar__btn"
+                onClick={handleSelectNoneActive}
+              >
+                Select none
+              </button>
+              <span className="today-bulkbar__count">
+                {selectedActiveIds.size} selected
+              </span>
+              <span className="today-bulkbar__spacer" />
+              <div style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className="today-bulkbar__btn today-bulkbar__btn--primary"
+                  disabled={selectedActiveIds.size === 0}
+                  onClick={() => setBulkActiveReschedulePopOpen((o) => !o)}
+                >
+                  <Icon name="calendar" size={12} /> Reschedule
+                </button>
+                {bulkActiveReschedulePopOpen && (
+                  <ReschedulePopover onChoose={handleBulkActiveReschedule} />
+                )}
+              </div>
+              <button
+                type="button"
+                className="today-bulkbar__btn today-bulkbar__btn--danger"
+                disabled={selectedActiveIds.size === 0}
+                onClick={handleBulkActiveDelete}
+              >
+                Delete
+              </button>
+            </div>
+          )}
 
           <div onClick={(e) => e.stopPropagation()}>
             {isLoading && todayActions.length === 0 ? (
@@ -949,6 +1239,9 @@ export function TodayView({ onBulkReschedule, tagIds }: TodayViewProps) {
                   onComplete={handleComplete}
                   onReschedule={handleReschedule}
                   onOpen={handleOpenAction}
+                  bulkMode={bulkEditActiveMode}
+                  bulkSelected={selectedActiveIds.has(a.id)}
+                  onBulkToggle={toggleActiveSelection}
                 />
               ))
             )}

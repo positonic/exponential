@@ -6,10 +6,58 @@ import {
   IconUsers,
   IconClipboardCheck,
   IconArrowRight,
+  IconCompass,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+
+function PortfolioReviewCard() {
+  const { data, isLoading } =
+    api.portfolioReview.isCompletedThisWeek.useQuery();
+  const isCompleted = data?.isCompleted ?? false;
+
+  return (
+    <Card
+      component={Link}
+      href="/weekly-review"
+      withBorder
+      radius="md"
+      className="cursor-pointer border-border-primary bg-surface-secondary transition-colors hover:bg-surface-hover"
+      p="md"
+    >
+      <Group justify="space-between" wrap="nowrap">
+        <Group gap="sm" wrap="nowrap">
+          <IconCompass size={20} className="text-blue-400" />
+          <div>
+            <Text fw={600} size="sm" className="text-text-primary">
+              Portfolio Review
+            </Text>
+            <Text size="xs" className="text-text-muted">
+              Set the week across all your workspaces
+            </Text>
+          </div>
+        </Group>
+        <Group gap="xs" wrap="nowrap">
+          {isLoading ? (
+            <Badge variant="light" color="gray" size="sm">
+              ...
+            </Badge>
+          ) : isCompleted ? (
+            <Badge variant="light" color="green" size="sm">
+              Completed
+            </Badge>
+          ) : (
+            <Badge variant="light" color="orange" size="sm">
+              Due
+            </Badge>
+          )}
+          <IconArrowRight size={14} className="text-text-muted" />
+        </Group>
+      </Group>
+    </Card>
+  );
+}
 
 function WeeklyReviewCard() {
   const { workspaceSlug, workspaceId } = useWorkspace();
@@ -139,6 +187,7 @@ export function RitualCards() {
         Rituals
       </Text>
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm">
+        <PortfolioReviewCard />
         <WeeklyReviewCard />
         <TeamCheckinCard />
         {!isPersonal && <OkrCheckinCard />}

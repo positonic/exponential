@@ -386,6 +386,28 @@ const componentStyles = {
     },
   },
 
+  // SegmentedControl component
+  SegmentedControl: {
+    defaultProps: {
+      styles: {
+        root: {
+          backgroundColor: 'var(--color-surface-primary)',
+          border: '1px solid var(--color-border-primary)',
+        },
+        indicator: {
+          backgroundColor: 'var(--color-surface-tertiary)',
+          border: '1px solid var(--color-border-primary)',
+        },
+        label: {
+          color: 'var(--color-text-secondary)',
+        },
+        innerLabel: {
+          color: 'var(--color-text-secondary)',
+        },
+      },
+    },
+  },
+
   // MultiSelect component
   MultiSelect: {
     defaultProps: {

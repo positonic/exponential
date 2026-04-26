@@ -103,6 +103,8 @@ model User {
   teamCapacities              TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacity")
   weeklyReviewSharing         WeeklyReviewSharing[]
   weeklyReviewCompletions     WeeklyReviewCompletion[]
+  portfolioReviewCompletions  PortfolioReviewCompletion[]
+  workspaceWeeklyFocuses      WorkspaceWeeklyFocus[]
   wheelOfLifeAssessments      WheelOfLifeAssessment[]
   habits                      Habit[]
   ownedWorkspaces             Workspace[]                @relation("WorkspaceOwner")
@@ -273,6 +275,7 @@ model Workspace {
   // Tag relations
   tags                     Tag[]
   weeklyReviewCompletions  WeeklyReviewCompletion[]
+  weeklyFocuses            WorkspaceWeeklyFocus[]
   okrCheckins              OkrCheckin[]
   // Daily Planning relations
   dailyPlans               DailyPlan[]
@@ -1955,6 +1958,54 @@ model WeeklyReviewCompletion {
   @@index([userId])
   @@index([workspaceId])
   @@index([weekStartDate])
+}
+
+// ============================================
+// Portfolio (cross-workspace) Weekly Review
+// ============================================
+
+// One row per user per week — completion of the high-altitude /weekly-review ritual.
+// Distinct from WeeklyReviewCompletion (per-workspace) and tracked with its own streak.
+model PortfolioReviewCompletion {
+  id                    String   @id @default(cuid())
+  userId                String
+  weekStartDate         DateTime @db.Date // Sunday of the week
+  completedAt           DateTime @default(now())
+  workspacesInFocus     Int      @default(0)
+  krCheckInsLogged      Int      @default(0)
+  goalsReprioritized    Int      @default(0)
+  projectsReprioritized Int      @default(0)
+  focusStatementsSet    Int      @default(0)
+  durationMinutes       Int?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weekStartDate])
+  @@index([userId])
+  @@index([weekStartDate])
+}
+
+// Per-user, per-workspace, per-week record of focus decisions made during the
+// portfolio review. `isInFocus` = "in focus this week" vs "dormant".
+// `focusGoalIds` and `focusKeyResultIds` are the user's pinned bets for the week.
+model WorkspaceWeeklyFocus {
+  id                String   @id @default(cuid())
+  userId            String
+  workspaceId       String
+  weekStartDate     DateTime @db.Date // Sunday of the week
+  isInFocus         Boolean  @default(false)
+  focusText         String?  @db.Text
+  focusGoalIds      Int[]    @default([]) // Goal.id is Int autoincrement
+  focusKeyResultIds String[] @default([]) // KeyResult.id is String cuid
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId, weekStartDate])
+  @@index([userId, weekStartDate])
+  @@index([workspaceId])
 }
 
 // ============================================

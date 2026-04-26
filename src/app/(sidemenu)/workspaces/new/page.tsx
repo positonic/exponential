@@ -141,9 +141,6 @@ export default function NewWorkspacePage() {
                 { value: 'organization', label: 'Organization' },
               ]}
               fullWidth
-              classNames={{
-                root: 'bg-surface-primary',
-              }}
             />
             <Text size="xs" className="text-text-muted mt-2">
               Teams are for small groups. Organizations are for larger companies with multiple teams.

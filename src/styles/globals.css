@@ -422,6 +422,14 @@
   background-color: var(--color-surface-hover);
 }
 
+/* --- SegmentedControl active label --- */
+.mantine-SegmentedControl-label[data-active] {
+  color: var(--color-text-primary);
+}
+.mantine-SegmentedControl-label:hover:not([data-active]) {
+  color: var(--color-text-primary);
+}
+
 /* --- Button variant styles --- */
 .mantine-Button-root[data-variant="filled"] {
   background-color: var(--color-brand-primary);
@@ -784,4 +792,52 @@
   --radius-md: 6px;
   --radius-lg: 10px;
   --radius-xl: 14px;
+}
+
+/* ==========================================================================
+   Portfolio review surface (/weekly-review) — scoped design tokens.
+   Consumed by src/app/(sidemenu)/weekly-review/_styles/portfolio-review.css.
+   Mirrors the auth-surface pattern: all hex lives here, feature CSS uses var().
+   ========================================================================== */
+.portfolio-review-surface {
+  /* Background scale (matches the dark slate the designer used) */
+  --pr-bg-primary: #0B0F17;
+  --pr-bg-secondary: #10151F;
+  --pr-bg-elevated: #141B27;
+  --pr-bg-hover: #1A2230;
+
+  /* Surfaces */
+  --pr-surface-muted: #161D2A;
+  --pr-surface-raised: #1C2433;
+
+  /* Borders */
+  --pr-border-primary: #1F2A3C;
+  --pr-border-subtle: #172030;
+  --pr-border-strong: #2A3850;
+
+  /* Text */
+  --pr-text-primary: #E6ECF5;
+  --pr-text-secondary: #96A2B5;
+  --pr-text-muted: #5E6A7E;
+  --pr-text-faint: #3F4A5C;
+
+  /* Brand scale */
+  --pr-brand-200: #A8C5FF;
+  --pr-brand-400: #4E89FF;
+  --pr-brand-500: #1F5DE0;
+  --pr-brand-600: #1A4EC4;
+
+  /* Semantic accents (KR confidence buckets, health) */
+  --pr-on-track: #4ADE8C;
+  --pr-at-risk: #F5B94A;
+  --pr-off-track: #F87171;
+  --pr-no-update: #5E6A7E;
+
+  /* Workspace glyph palette (deterministic by index) */
+  --pr-ws-1: #4E89FF;
+  --pr-ws-2: #A78BFA;
+  --pr-ws-3: #5AC8E0;
+  --pr-ws-4: #F5B94A;
+  --pr-ws-5: #4ADE8C;
+  --pr-ws-6: #9CA3B5;
 }
