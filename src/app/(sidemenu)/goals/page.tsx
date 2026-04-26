@@ -1,38 +1,87 @@
 "use client";
-import { Container, Title, Button } from "@mantine/core";
-import { GoalsTable } from "~/app/_components/GoalsTable";
-import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
-import { api } from "~/trpc/react";
 
-export default function Goals() {
-  const { data: goals } = api.goal.getAllMyGoals.useQuery(undefined, {
-    refetchOnWindowFocus: true,
-    staleTime: 0,
-  });
+import { Suspense } from "react";
+import { Skeleton, Container, Stack, Text, Tabs } from "@mantine/core";
+import { IconTarget, IconChartBar } from "@tabler/icons-react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
+import { OkrDashboard } from "~/plugins/okr/client/components/OkrDashboard";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+
+function GoalsPageContent() {
+  const { workspace, isLoading } = useWorkspace();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const activeTab = searchParams.get("tab") ?? "goals";
+
+  const handleTabChange = (value: string | null) => {
+    if (!value) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", value);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  if (isLoading) {
+    return (
+      <Container size="xl" className="py-8">
+        <Skeleton height={40} width={200} mb="lg" />
+        <Skeleton height={300} />
+      </Container>
+    );
+  }
+
+  if (!workspace) {
+    return (
+      <Container size="xl" className="py-8">
+        <Text className="text-text-secondary">Workspace not found</Text>
+      </Container>
+    );
+  }
 
   return (
-    <Container size="xl" className="py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <Title
-          order={1}
-          className="text-4xl font-bold bg-gradient-to-r from-green-400 to-teal-400 bg-clip-text text-transparent"
-        >
-          🎯 Goals
-        </Title>
-        <CreateGoalModal>
-          <Button 
-            variant="filled" 
-            color="dark"
-            leftSection="+"
-          >
-            Add Goal
-          </Button>
-        </CreateGoalModal>
-      </div>
+    <Tabs
+      value={activeTab}
+      onChange={handleTabChange}
+      className="w-full"
+    >
+      <Tabs.List className="px-10 border-b border-border-primary">
+        <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>
+          Goals
+        </Tabs.Tab>
+        <Tabs.Tab value="okrs" leftSection={<IconChartBar size={16} />}>
+          OKRs
+        </Tabs.Tab>
+      </Tabs.List>
 
-      {/* Content */}
-      <GoalsTable goals={goals || []} />
-    </Container>
+      <Tabs.Panel value="goals">
+        <InitiativeDashboard />
+      </Tabs.Panel>
+
+      <Tabs.Panel value="okrs">
+        <OkrDashboard />
+      </Tabs.Panel>
+    </Tabs>
+  );
+}
+
+export default function GoalsPage() {
+  return (
+    <main className="flex h-full flex-col items-start justify-start text-text-primary">
+      <Suspense
+        fallback={
+          <Container size="xl" className="py-8">
+            <Stack gap="md">
+              <Skeleton height={60} />
+              <Skeleton height={100} />
+              <Skeleton height={200} />
+            </Stack>
+          </Container>
+        }
+      >
+        <GoalsPageContent />
+      </Suspense>
+    </main>
   );
 }
