@@ -27,8 +27,15 @@ type ProjectPriority = "HIGH" | "MEDIUM" | "LOW" | "NONE";
 
 export function PortfolioReviewClient() {
   const reviewData = api.portfolioReview.getReviewData.useQuery();
+  const completedQuery =
+    api.portfolioReview.isCompletedThisWeek.useQuery();
 
-  if (reviewData.isLoading || !reviewData.data) {
+  if (
+    reviewData.isLoading ||
+    !reviewData.data ||
+    completedQuery.isLoading ||
+    !completedQuery.data
+  ) {
     return (
       <div className="portfolio-review-surface -m-4 -mt-16 sm:-mt-4 lg:-m-8 -mb-20 sm:-mb-4 lg:-mb-8">
         <div className="pr-shell">
@@ -38,16 +45,35 @@ export function PortfolioReviewClient() {
     );
   }
 
-  return <PortfolioReviewInner data={reviewData.data} />;
+  return (
+    <PortfolioReviewInner
+      data={reviewData.data}
+      isCompletedThisWeek={completedQuery.data.isCompleted}
+    />
+  );
 }
 
 interface InnerProps {
   data: ReviewData;
+  isCompletedThisWeek: boolean;
 }
 
-function PortfolioReviewInner({ data }: InnerProps) {
-  const [phase, setPhase] = useState<Phase>("intro");
-  const [furthestReached, setFurthestReached] = useState<Phase>("intro");
+function PortfolioReviewInner({ data, isCompletedThisWeek }: InnerProps) {
+  // Resume rule:
+  // - already completed this week  → land on `complete` (summary + drill-in)
+  // - any in-progress focus state  → land on `scope` (resume editing)
+  // - clean slate                  → `intro`
+  const initialPhase: Phase = (() => {
+    if (isCompletedThisWeek) return "complete";
+    const hasAnyFocusState = data.currentWeekFocuses.some(
+      (f) => f.isInFocus || f.focusText || f.focusKeyResultIds.length > 0,
+    );
+    if (hasAnyFocusState) return "scope";
+    return "intro";
+  })();
+
+  const [phase, setPhase] = useState<Phase>(initialPhase);
+  const [furthestReached, setFurthestReached] = useState<Phase>(initialPhase);
 
   // Phase 1 — focus map keyed by workspaceId
   const [focusMap, setFocusMap] = useState(() =>
@@ -181,7 +207,7 @@ function PortfolioReviewInner({ data }: InnerProps) {
               <IconClock size={13} /> {elapsedMin} min elapsed
             </span>
           )}
-          <Link href="/" className="pr-topbar__close" aria-label="Save & exit">
+          <Link href="/home" className="pr-topbar__close" aria-label="Save & exit">
             <IconX size={16} />
           </Link>
         </div>
@@ -267,6 +293,7 @@ function PortfolioReviewInner({ data }: InnerProps) {
             priorityChanges={priorityChanges}
             krCheckInsLogged={krCheckInsLogged}
             durationMinutes={elapsedMin > 0 ? elapsedMin : null}
+            resumedFromCompletion={initialPhase === "complete"}
           />
         )}
 

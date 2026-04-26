@@ -27,6 +27,12 @@ interface Props {
   priorityChanges: Map<string, { before: string; after: string }>;
   krCheckInsLogged: number;
   durationMinutes: number | null;
+  /**
+   * True when the user landed on this screen by resuming an already-completed
+   * review (rather than by finishing the flow this session). When true, we do
+   * NOT re-fire markComplete — it would reset the stored stats to zero.
+   */
+  resumedFromCompletion: boolean;
 }
 
 export function PortfolioReviewCompletion({
@@ -37,6 +43,7 @@ export function PortfolioReviewCompletion({
   priorityChanges,
   krCheckInsLogged,
   durationMinutes,
+  resumedFromCompletion,
 }: Props) {
   const utils = api.useUtils();
   const hasMarkedComplete = useRef(false);
@@ -59,6 +66,7 @@ export function PortfolioReviewCompletion({
 
   useEffect(() => {
     if (hasMarkedComplete.current) return;
+    if (resumedFromCompletion) return; // already complete in DB, don't re-fire
     hasMarkedComplete.current = true;
     markComplete.mutate({
       workspacesInFocus: focusedWorkspaces.length,
@@ -76,6 +84,7 @@ export function PortfolioReviewCompletion({
     focusStatementsSet,
     durationMinutes,
     markComplete,
+    resumedFromCompletion,
   ]);
 
   const streak = api.portfolioReview.getStreak.useQuery();
@@ -112,7 +121,7 @@ export function PortfolioReviewCompletion({
             with project health, status, and next actions.
           </div>
         </div>
-        <Link href="/" className="pr-btn pr-btn--ghost">
+        <Link href="/home" className="pr-btn pr-btn--ghost">
           <IconHome size={13} /> Back to home
         </Link>
       </div>
@@ -127,9 +136,11 @@ export function PortfolioReviewCompletion({
           const top =
             rollup?.activeProjectCount ?? ws.counts.projects;
           return (
-            <Link
+            <a
               key={ws.id}
               href={`/w/${ws.slug}/weekly-review`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="pr-drill"
             >
               <div
@@ -152,7 +163,7 @@ export function PortfolioReviewCompletion({
               <div className="pr-drill__cta">
                 Start review <IconArrowRight size={13} />
               </div>
-            </Link>
+            </a>
           );
         })}
       </div>
@@ -165,7 +176,7 @@ export function PortfolioReviewCompletion({
           gap: 8,
         }}
       >
-        <Link href="/" className="pr-btn">
+        <Link href="/home" className="pr-btn">
           <IconShare size={13} /> Done — back to home
         </Link>
       </div>
