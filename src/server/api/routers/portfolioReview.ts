@@ -32,18 +32,6 @@ function getQuarterEnd(date: Date): Date {
   return d;
 }
 
-function getMonthStart(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-}
-
-function getMonthEnd(date: Date): Date {
-  const d = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
-  );
-  d.setUTCHours(23, 59, 59, 999);
-  return d;
-}
-
 export const portfolioReviewRouter = createTRPCRouter({
   /**
    * Bootstrap query for the /weekly-review page. Returns everything needed
@@ -61,8 +49,6 @@ export const portfolioReviewRouter = createTRPCRouter({
     const currentAnnual = getCurrentAnnual(now);
     const quarterStart = getQuarterStart(now);
     const quarterEnd = getQuarterEnd(now);
-    const monthStart = getMonthStart(now);
-    const monthEnd = getMonthEnd(now);
 
     const workspaces = await ctx.db.workspace.findMany({
       where: buildWorkspaceAccessWhere(userId),
@@ -85,7 +71,6 @@ export const portfolioReviewRouter = createTRPCRouter({
       lastWeekFocuses,
       goalsForRollup,
       activeProjects,
-      monthlyOutcomes,
     ] = await Promise.all([
       ctx.db.workspaceWeeklyFocus.findMany({
         where: { userId, weekStartDate, workspaceId: { in: workspaceIds } },
@@ -145,21 +130,6 @@ export const portfolioReviewRouter = createTRPCRouter({
         },
         orderBy: { createdAt: "desc" },
       }),
-      // Monthly outcomes due this calendar month (for inline visibility under each workspace).
-      ctx.db.outcome.findMany({
-        where: {
-          workspaceId: { in: workspaceIds },
-          type: "monthly",
-          dueDate: { gte: monthStart, lte: monthEnd },
-        },
-        select: {
-          id: true,
-          description: true,
-          dueDate: true,
-          workspaceId: true,
-          type: true,
-        },
-      }),
     ]);
 
     // Group rollup data per workspace
@@ -185,24 +155,12 @@ export const portfolioReviewRouter = createTRPCRouter({
       projectsByWorkspace.set(p.workspaceId, list);
     }
 
-    const monthlyOutcomesByWorkspace = new Map<
-      string,
-      Array<(typeof monthlyOutcomes)[number]>
-    >();
-    for (const o of monthlyOutcomes) {
-      if (!o.workspaceId) continue;
-      const list = monthlyOutcomesByWorkspace.get(o.workspaceId) ?? [];
-      list.push(o);
-      monthlyOutcomesByWorkspace.set(o.workspaceId, list);
-    }
-
     const quarterRollupByWorkspace = workspaces.map((ws) => {
       const goals = goalsByWorkspace.get(ws.id) ?? [];
       const okrCount = goals.filter(
         (g) => g.period === currentQuarter || g.period === currentAnnual,
       ).length;
       const projects = projectsByWorkspace.get(ws.id) ?? [];
-      const monthly = monthlyOutcomesByWorkspace.get(ws.id) ?? [];
 
       // Health distribution (uses cached Goal.health from the OKR rollup)
       const healthCounts = goals.reduce(
@@ -247,7 +205,6 @@ export const portfolioReviewRouter = createTRPCRouter({
         activeProjectCount: projects.length,
         dueActions,
         mostRecentActivity,
-        monthlyOutcomeCount: monthly.length,
       };
     });
 
@@ -267,8 +224,6 @@ export const portfolioReviewRouter = createTRPCRouter({
       currentAnnual,
       quarterStart,
       quarterEnd,
-      monthStart,
-      monthEnd,
       workspaces: workspaces.map((ws) => ({
         id: ws.id,
         name: ws.name,
@@ -280,9 +235,6 @@ export const portfolioReviewRouter = createTRPCRouter({
       currentWeekFocuses,
       lastWeekFocuses,
       quarterRollupByWorkspace,
-      monthlyOutcomesByWorkspace: Object.fromEntries(
-        monthlyOutcomesByWorkspace,
-      ),
       streak,
     };
   }),

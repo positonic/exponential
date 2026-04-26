@@ -72,11 +72,6 @@ export function WorkspaceFocusList({ data, focusMap, onChange }: Props) {
               quarterStart={new Date(data.quarterStart)}
               quarterEnd={new Date(data.quarterEnd)}
               currentQuarter={data.currentQuarter}
-              monthlyOutcomeCount={
-                data.quarterRollupByWorkspace.find(
-                  (r) => r.workspaceId === ws.id,
-                )?.monthlyOutcomeCount ?? 0
-              }
               onChange={(next) => onChange(ws.id, next)}
             />
           ))
@@ -117,11 +112,6 @@ export function WorkspaceFocusList({ data, focusMap, onChange }: Props) {
               quarterStart={new Date(data.quarterStart)}
               quarterEnd={new Date(data.quarterEnd)}
               currentQuarter={data.currentQuarter}
-              monthlyOutcomeCount={
-                data.quarterRollupByWorkspace.find(
-                  (r) => r.workspaceId === ws.id,
-                )?.monthlyOutcomeCount ?? 0
-              }
               onChange={(next) => onChange(ws.id, next)}
             />
           ))
@@ -145,7 +135,6 @@ interface CardProps {
   quarterStart: Date;
   quarterEnd: Date;
   currentQuarter: string;
-  monthlyOutcomeCount: number;
   onChange: (next: { isInFocus: boolean; focusText: string | null }) => void;
 }
 
@@ -159,7 +148,6 @@ function WorkspaceFocusToggleCard({
   quarterStart,
   quarterEnd,
   currentQuarter,
-  monthlyOutcomeCount,
   onChange,
 }: CardProps) {
   const setFocus = api.portfolioReview.setWorkspaceFocus.useMutation();
@@ -252,11 +240,6 @@ function WorkspaceFocusToggleCard({
         <div className="pr-ws__stat">
           <strong>{rollup?.dueActions ?? 0}</strong> due
         </div>
-        {monthlyOutcomeCount > 0 && (
-          <div className="pr-ws__stat">
-            <strong>{monthlyOutcomeCount}</strong> month
-          </div>
-        )}
       </div>
 
       {totalKrish > 0 ? (

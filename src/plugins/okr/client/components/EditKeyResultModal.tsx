@@ -69,6 +69,7 @@ type EditKeyResultModalProps = {
       period?: never;
       workspaceId?: never;
       defaultDriUserId?: never;
+      initialProjectIds?: never;
     }
   | {
       mode: "create";
@@ -77,6 +78,7 @@ type EditKeyResultModalProps = {
       period: string;
       workspaceId?: string;
       defaultDriUserId?: string | null;
+      initialProjectIds?: string[];
     }
 );
 
@@ -91,6 +93,7 @@ export function EditKeyResultModal({
   period: createPeriod,
   workspaceId: createWorkspaceId,
   defaultDriUserId,
+  initialProjectIds,
 }: EditKeyResultModalProps) {
   const isCreate = mode === "create";
   // Form state
@@ -136,7 +139,7 @@ export function EditKeyResultModal({
     setUnitLabel("");
     setStatus("on-track");
     setConfidence(null);
-    setSelectedProjectIds([]);
+    setSelectedProjectIds(initialProjectIds ?? []);
     setDriUserId(defaultDriUserId ?? currentUser?.id ?? null);
   };
 

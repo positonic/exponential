@@ -21,7 +21,7 @@ interface ProjectChanges {
   statusChanged: boolean;
   priorityChanged: boolean;
   actionAdded: boolean;
-  outcomesChanged: boolean;
+  keyResultsChanged: boolean;
 }
 
 interface ReviewCompletionProps {
@@ -62,13 +62,13 @@ export function ReviewCompletion({
   let statusChanges = 0;
   let priorityChanges = 0;
   let actionsAdded = 0;
-  let outcomesChanged = 0;
+  let keyResultsChanged = 0;
 
   changes.forEach((change) => {
     if (change.statusChanged) statusChanges++;
     if (change.priorityChanged) priorityChanges++;
     if (change.actionAdded) actionsAdded++;
-    if (change.outcomesChanged) outcomesChanged++;
+    if (change.keyResultsChanged) keyResultsChanged++;
   });
 
   // Mark review as complete when component mounts
@@ -115,7 +115,7 @@ export function ReviewCompletion({
     statusChanges > 0 ||
     priorityChanges > 0 ||
     actionsAdded > 0 ||
-    outcomesChanged > 0;
+    keyResultsChanged > 0;
 
   const currentStreak = streakData?.currentStreak ?? 0;
   const longestStreak = streakData?.longestStreak ?? 0;
@@ -264,13 +264,13 @@ export function ReviewCompletion({
                   </Text>
                 </Group>
               )}
-              {outcomesChanged > 0 && (
+              {keyResultsChanged > 0 && (
                 <Group gap="xs">
                   <Text size="sm" className="text-text-secondary">
-                    Outcomes updated:
+                    Key results updated:
                   </Text>
                   <Text size="sm" fw={500} className="text-text-primary">
-                    {outcomesChanged}
+                    {keyResultsChanged}
                   </Text>
                 </Group>
               )}
