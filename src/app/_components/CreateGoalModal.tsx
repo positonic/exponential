@@ -51,11 +51,13 @@ interface CreateGoalModalProps {
   };
   trigger?: React.ReactNode;
   projectId?: string;
+  defaultWorkspaceId?: string | null;
+  defaultPeriod?: string | null;
   onSuccess?: (goalId: number) => void; // Callback when goal is created/updated
   onDelete?: () => void; // Callback when goal is deleted
 }
 
-export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess, onDelete }: CreateGoalModalProps) {
+export function CreateGoalModal({ children, goal, trigger, projectId, defaultWorkspaceId, defaultPeriod, onSuccess, onDelete }: CreateGoalModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [title, setTitle] = useState(goal?.title ?? "");
   const [description, setDescription] = useState(goal?.description ?? "");
@@ -68,9 +70,9 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
     goal?.outcomes?.map(o => o.id) ?? []
   );
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
-    goal?.workspaceId ?? null
+    goal?.workspaceId ?? defaultWorkspaceId ?? null
   );
-  const [period, setPeriod] = useState<string | null>(goal?.period ?? null);
+  const [period, setPeriod] = useState<string | null>(goal?.period ?? defaultPeriod ?? null);
   const [driUserId, setDriUserId] = useState<string | null>(goal?.driUserId ?? null);
   const [status, setStatus] = useState<string | null>(goal?.status ?? "active");
   const [parentGoalId, setParentGoalId] = useState<string | null>(
@@ -201,6 +203,11 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
       }
       // Also invalidate the project query to update goal counts in project lists
       void utils.project.getAll.invalidate();
+      // Refresh OKR/portfolio views so new objectives appear without a manual reload
+      void utils.okr.getByObjective.invalidate();
+      void utils.okr.getStats.invalidate();
+      void utils.okr.getAvailableGoals.invalidate();
+      void utils.portfolioReview.getReviewData.invalidate();
     },
     onSuccess: async (newGoal) => {
       // Create pending key results for the new goal
@@ -275,11 +282,11 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
     setWhyThisGoal("");
     setNotes("");
     setDueDate(null);
-    setPeriod(null);
+    setPeriod(defaultPeriod ?? null);
     setLifeDomainId(null);
     setSelectedProjectId(undefined);
     setSelectedOutcomeIds([]);
-    setSelectedWorkspaceId(null);
+    setSelectedWorkspaceId(defaultWorkspaceId ?? null);
     setDriUserId(currentUser?.id ?? null);
     // Reset key results state
     setPendingKeyResults([]);
@@ -409,6 +416,19 @@ export function CreateGoalModal({ children, goal, trigger, projectId, onSuccess,
       setSelectedWorkspaceId(currentWorkspaceId);
     }
   }, [goal, currentWorkspaceId, selectedWorkspaceId]);
+
+  // Sync default workspace/period from caller when they change (e.g. user
+  // switches the active tab in weekly review) — only while creating a new goal
+  // and the modal isn't currently open, to avoid clobbering user edits.
+  useEffect(() => {
+    if (goal || opened) return;
+    if (defaultWorkspaceId !== undefined) {
+      setSelectedWorkspaceId(defaultWorkspaceId);
+    }
+    if (defaultPeriod !== undefined) {
+      setPeriod(defaultPeriod);
+    }
+  }, [goal, opened, defaultWorkspaceId, defaultPeriod]);
 
   useEffect(() => {
     setSelectedProjectId(projectId);

@@ -160,6 +160,8 @@ function ObjectivesPanel({
           ))}
         </div>
         <CreateGoalModal
+          defaultWorkspaceId={workspace.id}
+          defaultPeriod={period}
           onSuccess={() => void objectives.refetch()}
           trigger={
             <button type="button" className="pr-create-goal-btn">
@@ -186,6 +188,8 @@ function ObjectivesPanel({
             No objectives set for {workspace.name} in {period}.
           </p>
           <CreateGoalModal
+            defaultWorkspaceId={workspace.id}
+            defaultPeriod={period}
             onSuccess={() => void objectives.refetch()}
             trigger={
               <button
