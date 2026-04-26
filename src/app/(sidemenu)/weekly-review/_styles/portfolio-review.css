@@ -15,11 +15,11 @@
 
 /* ----- Top header ---------------------------------------------------------- */
 .pr-topbar {
-  height: 56px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28px;
+  padding: 0 40px;
   border-bottom: 1px solid var(--pr-border-subtle);
   flex-shrink: 0;
 }
