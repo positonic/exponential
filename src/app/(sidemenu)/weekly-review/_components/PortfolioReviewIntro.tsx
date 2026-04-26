@@ -9,6 +9,7 @@ import {
   IconBolt,
 } from "@tabler/icons-react";
 import { type ReviewData, quarterElapsedPct, daysBetween } from "./types";
+import { PastReviewsSection } from "./PastReviewsSection";
 
 interface Props {
   data: ReviewData;
@@ -201,6 +202,12 @@ export function PortfolioReviewIntro({ data, onStart }: Props) {
       <button type="button" className="pr-intro__cta" onClick={onStart}>
         Start portfolio review <IconArrowRight size={16} />
       </button>
+
+      <PastReviewsSection
+        limit={4}
+        workspaces={data.workspaces}
+        showViewAllLink
+      />
     </div>
   );
 }

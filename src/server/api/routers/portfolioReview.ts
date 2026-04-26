@@ -438,6 +438,61 @@ export const portfolioReviewRouter = createTRPCRouter({
     }),
 
   /**
+   * Past completed portfolio reviews, joined with the user's workspace
+   * focus rows for each of those weeks so we can show themes in the list.
+   */
+  getCompletedReviews: protectedProcedure
+    .input(
+      z
+        .object({
+          limit: z.number().min(1).max(52).optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const limit = input?.limit ?? 12;
+
+      const completions = await ctx.db.portfolioReviewCompletion.findMany({
+        where: { userId },
+        orderBy: { weekStartDate: "desc" },
+        take: limit,
+      });
+
+      if (completions.length === 0) {
+        return [];
+      }
+
+      const weekStarts = completions.map((c) => c.weekStartDate);
+      const focuses = await ctx.db.workspaceWeeklyFocus.findMany({
+        where: {
+          userId,
+          weekStartDate: { in: weekStarts },
+          isInFocus: true,
+        },
+        include: {
+          workspace: {
+            select: { id: true, name: true, slug: true, type: true },
+          },
+        },
+      });
+
+      // Group focuses by week start ms for fast lookup
+      const focusByWeek = new Map<number, typeof focuses>();
+      for (const f of focuses) {
+        const k = f.weekStartDate.getTime();
+        const list = focusByWeek.get(k) ?? [];
+        list.push(f);
+        focusByWeek.set(k, list);
+      }
+
+      return completions.map((c) => ({
+        ...c,
+        focuses: focusByWeek.get(c.weekStartDate.getTime()) ?? [],
+      }));
+    }),
+
+  /**
    * Has the current week's portfolio review been completed?
    */
   isCompletedThisWeek: protectedProcedure.query(async ({ ctx }) => {
