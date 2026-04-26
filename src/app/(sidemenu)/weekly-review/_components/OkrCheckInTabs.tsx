@@ -5,8 +5,10 @@ import {
   IconChevronRight,
   IconCheck,
   IconBolt,
+  IconPlus,
 } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
+import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import {
   workspaceGlyphVar,
   workspaceShortName,
@@ -156,6 +158,14 @@ function ObjectivesPanel({
             </button>
           ))}
         </div>
+        <CreateGoalModal
+          onSuccess={() => void objectives.refetch()}
+          trigger={
+            <button type="button" className="pr-create-goal-btn">
+              <IconPlus size={13} /> Create goal
+            </button>
+          }
+        />
       </div>
 
       {theme && (
@@ -171,8 +181,20 @@ function ObjectivesPanel({
         <div className="pr-empty">Loading objectives…</div>
       ) : !objectives.data || objectives.data.length === 0 ? (
         <div className="pr-empty">
-          No objectives set for {workspace.name} in {period}. You can add OKRs
-          from the workspace Goals page.
+          <p style={{ marginBottom: 14 }}>
+            No objectives set for {workspace.name} in {period}.
+          </p>
+          <CreateGoalModal
+            onSuccess={() => void objectives.refetch()}
+            trigger={
+              <button
+                type="button"
+                className="pr-create-goal-btn pr-create-goal-btn--primary"
+              >
+                <IconPlus size={14} /> Create goal
+              </button>
+            }
+          />
         </div>
       ) : (
         <div className="pr-obj-list">

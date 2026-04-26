@@ -550,6 +550,40 @@
 .pr-quarter-bar__pct { font-size: 10.5px; color: var(--pr-text-muted); font-variant-numeric: tabular-nums; }
 .pr-quarter-bar__btn.is-active .pr-quarter-bar__pct { color: var(--pr-brand-400); }
 
+/* Create goal CTA — Phase 2 */
+.pr-create-goal-btn {
+  height: 28px;
+  padding: 0 11px;
+  background: var(--pr-surface-muted);
+  border: 1px solid var(--pr-border-subtle);
+  border-radius: 5px;
+  color: var(--pr-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex; align-items: center; gap: 5px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.pr-create-goal-btn:hover {
+  background: var(--pr-bg-hover);
+  color: var(--pr-text-primary);
+  border-color: var(--pr-border-strong);
+}
+.pr-create-goal-btn--primary {
+  height: 32px;
+  padding: 0 14px;
+  background: var(--pr-brand-500);
+  border-color: var(--pr-brand-500);
+  color: var(--pr-text-primary);
+  font-size: 13px;
+}
+.pr-create-goal-btn--primary:hover {
+  background: var(--pr-brand-600);
+  border-color: var(--pr-brand-600);
+  color: var(--pr-text-primary);
+}
+
 /* Objective list */
 .pr-obj-list { display: flex; flex-direction: column; gap: 6px; }
 .pr-obj {
@@ -708,15 +742,93 @@
   color: var(--pr-text-muted); font-size: 12px; padding: 18px;
 }
 
+/* Bet-linked promote banner */
+.pr-bet-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  background: var(--pr-bg-elevated);
+  border: 1px solid var(--pr-brand-500);
+  border-radius: 6px;
+}
+.pr-bet-banner__icon {
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border-radius: 4px;
+  background: var(--pr-brand-500);
+  color: var(--pr-text-primary);
+  flex-shrink: 0;
+}
+.pr-bet-banner__text {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--pr-text-secondary);
+  line-height: 1.5;
+}
+.pr-bet-banner__text strong {
+  color: var(--pr-text-primary);
+  font-weight: 600;
+}
+.pr-bet-banner__cta {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--pr-brand-500);
+  border: 1px solid var(--pr-brand-500);
+  border-radius: 5px;
+  color: var(--pr-text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex; align-items: center; gap: 4px;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.pr-bet-banner__cta:hover { background: var(--pr-brand-600); }
+
+/* Bet pip — small inline tag next to project name when linked to a bet */
+.pr-bet-pip {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--pr-brand-500);
+  color: var(--pr-text-primary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.pr-proj__bet-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--pr-brand-400);
+}
+
 /* Project row */
 .pr-proj {
   display: grid;
   grid-template-columns: 22px 4px 1fr auto auto auto;
   align-items: center; gap: 12px;
   padding: 10px 12px; border-radius: 4px;
+  position: relative;
 }
 .pr-proj + .pr-proj { margin-top: 2px; }
 .pr-proj:hover { background: var(--pr-bg-elevated); }
+.pr-proj--bet {
+  background: var(--pr-bg-elevated);
+}
+.pr-proj--bet::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 6px; bottom: 6px;
+  width: 2px;
+  background: var(--pr-brand-400);
+  border-radius: 1px;
+}
 .pr-proj__rank {
   font-family: var(--font-mono); font-size: 11.5px;
   color: var(--pr-text-muted); font-variant-numeric: tabular-nums;

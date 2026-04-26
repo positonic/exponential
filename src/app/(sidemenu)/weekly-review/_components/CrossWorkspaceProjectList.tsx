@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { IconBolt, IconChevronUp } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import {
   workspaceGlyphVar,
@@ -17,12 +18,17 @@ interface ProjectRow {
   priority: ProjectPriority;
   progress: number;
   actionCount: number;
-  krCount: number;
+  /** KR ids the user pinned this week that this project is linked to. */
+  matchedBetKrIds: string[];
+  /** All KR ids this project is linked to (for the "no KR" warning). */
+  linkedKrIds: string[];
 }
 
 interface Props {
   data: ReviewData;
   focusedWorkspaces: ReviewWorkspace[];
+  /** Map of workspaceId → KR ids the user has bet on this week. */
+  bets: Map<string, string[]>;
   onPriorityChange: (
     projectId: string,
     before: ProjectPriority,
@@ -33,12 +39,11 @@ interface Props {
 export function CrossWorkspaceProjectList({
   data,
   focusedWorkspaces,
+  bets,
   onPriorityChange,
 }: Props) {
   const [filter, setFilter] = useState<string>("all");
 
-  // Lazy load active projects with priority via the project router so
-  // we can include priority changes that happen mid-review.
   const projectsQuery = api.project.getActiveWithDetails.useQuery(
     {},
     { enabled: focusedWorkspaces.length > 0 },
@@ -50,18 +55,32 @@ export function CrossWorkspaceProjectList({
   const projects: ProjectRow[] =
     projectsQuery.data
       ?.filter((p) => p.workspaceId && focusedIds.has(p.workspaceId))
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        workspaceId: p.workspaceId,
-        priority: p.priority as ProjectPriority,
-        progress: p.progress ?? 0,
-        actionCount: p.actions.length,
-        krCount: 0, // krLinks not on this query — could enhance later
-      })) ?? [];
+      .map((p) => {
+        const linkedKrIds = p.keyResults.map((k) => k.keyResultId);
+        const wsBets = (p.workspaceId && bets.get(p.workspaceId)) || [];
+        const matchedBetKrIds = linkedKrIds.filter((id) =>
+          wsBets.includes(id),
+        );
+        return {
+          id: p.id,
+          name: p.name,
+          workspaceId: p.workspaceId,
+          priority: p.priority as ProjectPriority,
+          progress: p.progress ?? 0,
+          actionCount: p.actions.length,
+          matchedBetKrIds,
+          linkedKrIds,
+        };
+      }) ?? [];
 
   const visible =
     filter === "all" ? projects : projects.filter((p) => p.workspaceId === filter);
+
+  // Bet-linked projects that aren't already at Top focus — these are the
+  // ones the suggestion banner offers to promote.
+  const betLinkedNotTop = visible.filter(
+    (p) => p.matchedBetKrIds.length > 0 && p.priority !== "HIGH",
+  );
 
   const tiers: Array<{
     key: "top" | "active" | "backlog";
@@ -101,8 +120,14 @@ export function CrossWorkspaceProjectList({
     if (proj.priority === target) return;
     onPriorityChange(proj.id, proj.priority, target);
     updatePriority.mutate({ id: proj.id, priority: target });
-    // optimistic UI: rely on tRPC cache invalidation via react-query;
-    // for instant feel we rewrite local state via projectsQuery refetch.
+    void projectsQuery.refetch();
+  };
+
+  const promoteAllBetLinked = () => {
+    for (const p of betLinkedNotTop) {
+      onPriorityChange(p.id, p.priority, "HIGH");
+      updatePriority.mutate({ id: p.id, priority: "HIGH" });
+    }
     void projectsQuery.refetch();
   };
 
@@ -120,6 +145,29 @@ export function CrossWorkspaceProjectList({
 
   return (
     <div>
+      {betLinkedNotTop.length > 0 && (
+        <div className="pr-bet-banner">
+          <div className="pr-bet-banner__icon">
+            <IconBolt size={14} />
+          </div>
+          <div className="pr-bet-banner__text">
+            <strong>
+              {betLinkedNotTop.length} project
+              {betLinkedNotTop.length === 1 ? "" : "s"} link to your bets
+            </strong>{" "}
+            but {betLinkedNotTop.length === 1 ? "isn't" : "aren't"} in Top
+            focus. Promote so the work matches what you said matters.
+          </div>
+          <button
+            type="button"
+            className="pr-bet-banner__cta"
+            onClick={promoteAllBetLinked}
+          >
+            <IconChevronUp size={13} /> Promote all
+          </button>
+        </div>
+      )}
+
       <div className="pr-x-toolbar">
         <div className="pr-x-filters">
           <button
@@ -170,7 +218,14 @@ export function CrossWorkspaceProjectList({
 
       <div className="pr-tier-list">
         {tiers.map((tier) => {
-          const items = visible.filter(tier.matches);
+          // Sort bet-linked projects first within each tier.
+          const items = visible
+            .filter(tier.matches)
+            .sort(
+              (a, b) =>
+                (b.matchedBetKrIds.length > 0 ? 1 : 0) -
+                (a.matchedBetKrIds.length > 0 ? 1 : 0),
+            );
           const overCap = tier.cap !== null && items.length > tier.cap;
           return (
             <div key={tier.key} className={`pr-tier pr-tier--${tier.key}`}>
@@ -206,15 +261,34 @@ export function CrossWorkspaceProjectList({
                     const ws = data.workspaces.find(
                       (w) => w.id === p.workspaceId,
                     );
+                    const isBetLinked = p.matchedBetKrIds.length > 0;
                     return (
-                      <div key={p.id} className="pr-proj">
+                      <div
+                        key={p.id}
+                        className={
+                          isBetLinked
+                            ? "pr-proj pr-proj--bet"
+                            : "pr-proj"
+                        }
+                      >
                         <div className="pr-proj__rank">{i + 1}</div>
                         <div
                           className="pr-proj__ws-bar"
                           style={{ background: workspaceGlyphVar(wsIdx) }}
                         />
                         <div style={{ minWidth: 0 }}>
-                          <div className="pr-proj__name">{p.name}</div>
+                          <div className="pr-proj__name">
+                            {p.name}
+                            {isBetLinked && (
+                              <span
+                                className="pr-bet-pip"
+                                title={`Linked to ${p.matchedBetKrIds.length} KR${p.matchedBetKrIds.length === 1 ? "" : "s"} you bet on this week`}
+                              >
+                                <IconBolt size={10} />
+                                Bet
+                              </span>
+                            )}
+                          </div>
                           <div className="pr-proj__sub">
                             <span
                               className="pr-proj__ws-label"
@@ -223,6 +297,12 @@ export function CrossWorkspaceProjectList({
                               {ws?.name ?? "—"}
                             </span>
                             <span>{p.actionCount} open actions</span>
+                            {isBetLinked && (
+                              <span className="pr-proj__bet-meta">
+                                → {p.matchedBetKrIds.length} pinned KR
+                                {p.matchedBetKrIds.length === 1 ? "" : "s"}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="pr-proj__progress-text">

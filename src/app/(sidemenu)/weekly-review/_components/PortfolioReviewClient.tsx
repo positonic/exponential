@@ -252,6 +252,7 @@ function PortfolioReviewInner({ data }: InnerProps) {
             <CrossWorkspaceProjectList
               data={data}
               focusedWorkspaces={focusedWorkspaces}
+              bets={bets}
               onPriorityChange={recordPriorityChange}
             />
           </>

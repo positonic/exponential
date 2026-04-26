@@ -476,6 +476,9 @@ export const projectRouter = createTRPCRouter({
               image: true,
             },
           },
+          keyResults: {
+            select: { keyResultId: true },
+          },
         },
         orderBy: {
           priority: 'asc',
@@ -668,6 +671,9 @@ export const projectRouter = createTRPCRouter({
             orderBy: {
               dueDate: 'asc',
             },
+          },
+          keyResults: {
+            select: { keyResultId: true },
           },
         },
         orderBy: {
