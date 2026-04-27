@@ -672,7 +672,7 @@ export const actionRouter = createTRPCRouter({
             updatedAction.dailyPlanActions.map((dpa) =>
               ScoringService.calculateDailyScore(
                 ctx,
-                startOfDay(dpa.dailyPlan.date),
+                dpa.dailyPlan.date,
                 dpa.dailyPlan.workspaceId ?? undefined
               ).catch((err) => {
                 console.error("[action.update] Failed to recalculate score:", err);

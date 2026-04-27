@@ -57,7 +57,9 @@ export class ScoringService {
     const userId = ctx.session?.user?.id;
     if (!userId) throw new Error("User not authenticated");
 
-    const normalizedDate = startOfDay(date);
+    // DailyPlan.date stores the client's local-midnight timestamp; applying
+    // startOfDay on a UTC server would shift it and miss the plan.
+    const normalizedDate = date;
 
     // Get the daily plan for this date
     const dailyPlan = await ctx.db.dailyPlan.findFirst({

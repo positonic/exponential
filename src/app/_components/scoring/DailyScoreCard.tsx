@@ -6,6 +6,7 @@ import { api } from "~/trpc/react";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { ScoreBreakdown } from "./ScoreBreakdown";
 import { StreakBadge } from "./StreakBadge";
+import { useDayRollover } from "~/hooks/useDayRollover";
 
 interface DailyScoreCardProps {
   date?: Date;
@@ -15,10 +16,12 @@ interface DailyScoreCardProps {
 
 export function DailyScoreCard({ date, workspaceId, compact = false }: DailyScoreCardProps) {
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const today = useDayRollover();
 
-  // Fetch today's score
+  // Fetch today's score. Default to client-local midnight so the lookup
+  // matches DailyPlan.date (stored at client-local midnight).
   const { data: score, isLoading } = api.scoring.getTodayScore.useQuery({
-    date,
+    date: date ?? today,
     workspaceId,
   });
 

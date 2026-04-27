@@ -17,10 +17,10 @@ export const scoringRouter = createTRPCRouter({
         .optional()
     )
     .query(async ({ ctx, input }) => {
-      const targetDate = input?.date ?? new Date();
+      const targetDate = input?.date ?? startOfDay(new Date());
       return await ScoringService.calculateDailyScore(
         ctx,
-        startOfDay(targetDate),
+        targetDate,
         input?.workspaceId
       );
     }),
@@ -143,7 +143,7 @@ export const scoringRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       return await ScoringService.calculateDailyScore(
         ctx,
-        startOfDay(input.date),
+        input.date,
         input.workspaceId
       );
     }),

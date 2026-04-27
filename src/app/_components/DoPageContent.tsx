@@ -12,6 +12,7 @@ import { ScoreBreakdown } from "./scoring/ScoreBreakdown";
 import { StreakBadge } from "./scoring/StreakBadge";
 import { ToolbarActions } from "./toolbar";
 import { api } from "~/trpc/react";
+import { useDayRollover } from "~/hooks/useDayRollover";
 
 export type DoFilter = "today" | "tomorrow" | "upcoming";
 
@@ -37,9 +38,12 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
     [tagsQuery.data],
   );
 
-  // Fetch score data for inline display (only on "today" filter)
+  // Fetch score data for inline display (only on "today" filter).
+  // Pass client-local midnight so the lookup matches DailyPlan.date (which
+  // is also stored using the client's local-midnight timestamp).
+  const today = useDayRollover();
   const gamificationEnabled = preferences?.showGamification !== false;
-  const { data: score } = api.scoring.getTodayScore.useQuery({}, {
+  const { data: score } = api.scoring.getTodayScore.useQuery({ date: today }, {
     enabled: gamificationEnabled,
   });
   const { data: streak } = api.scoring.getStreakByType.useQuery({

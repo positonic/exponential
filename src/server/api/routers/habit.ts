@@ -12,7 +12,6 @@ import {
   getTodayStatus,
 } from "~/server/services/habitService";
 import { ScoringService } from "~/server/services/ScoringService";
-import { startOfDay } from "date-fns";
 
 export const habitRouter = createTRPCRouter({
   // Get all user's habits
@@ -102,7 +101,7 @@ export const habitRouter = createTRPCRouter({
       // Recalculate score for the day when habit is toggled
       await ScoringService.calculateDailyScore(
         ctx,
-        startOfDay(input.date),
+        input.date,
         undefined // Habits don't have workspace context
       ).catch((err) => {
         console.error("[habit.toggleCompletion] Failed to recalculate score:", err);
