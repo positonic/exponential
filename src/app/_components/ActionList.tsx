@@ -16,13 +16,14 @@ import { SyncStatusIndicator } from "./actions/components/SyncStatusIndicator";
 import { RowAssignees } from "./actions/components/RowAssignees";
 import { RowCreatorBadge } from "./actions/components/RowCreatorBadge";
 import { RowActionsMenu } from "./actions/components/RowActionsMenu";
+import { useActionMutations } from "./actions/hooks/useActionMutations";
+import { useActionPartition } from "./actions/hooks/useActionPartition";
 import { SchedulingSuggestion, type SchedulingSuggestionData } from "./SchedulingSuggestion";
 import { InboxZeroCelebration } from "./InboxZeroCelebration";
 import { EmptyState } from "./EmptyState";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
-type ActionWithoutSyncs = RouterOutputs["action"]["getToday"][0];
 // Make createdBy, lists, epic, and tags optional to support both queries that include them and those that don't
 type Action = Omit<ActionWithSyncs, 'createdBy' | 'lists' | 'epic' | 'tags'> & {
   createdBy?: ActionWithSyncs['createdBy'] | null;
@@ -166,71 +167,7 @@ export function ActionList({
     enabled: enableBulkEditForInbox || enableBulkEditForAll || enableBulkEditForProject,
   });
   
-  const updateAction = api.action.update.useMutation({
-    onMutate: async ({ id, status }) => {
-      // Cancel outgoing refetches
-      await Promise.all([
-        utils.action.getAll.cancel(),
-        utils.action.getToday.cancel()
-      ]);
-      
-      // Snapshot the previous values
-      const previousState = {
-        actions: utils.action.getAll.getData(),
-        todayActions: utils.action.getToday.getData()
-      };
-      
-      // Helper function to update action in the getAll list (with syncs)
-      const updateActionInGetAllList = (old: ActionWithSyncs[] | undefined): ActionWithSyncs[] => {
-        if (!old) return [];
-        return old.map((action) =>
-          action.id === id 
-            ? { ...action, status: status as string } 
-            : action
-        );
-      };
-
-      // Helper function to update action in the getToday list (without syncs)
-      const updateActionInGetTodayList = (old: ActionWithoutSyncs[] | undefined): ActionWithoutSyncs[] => {
-        if (!old) return [];
-        return old.map((action) =>
-          action.id === id 
-            ? { ...action, status: status as string } 
-            : action
-        );
-      };
-
-      // Optimistically update both caches
-      utils.action.getAll.setData(undefined, updateActionInGetAllList);
-      utils.action.getToday.setData(undefined, updateActionInGetTodayList);
-      
-      return previousState;
-    },
-    
-    onError: (err: any, _variables: any, context: any) => {
-      if (!context) return;
-      // Restore both caches on error
-      utils.action.getAll.setData(undefined, context.actions);
-      utils.action.getToday.setData(undefined, context.todayActions);
-    },
-    
-    onSettled: (data) => {
-      // Invalidate queries after mutation finishes (non-blocking for faster UI)
-      const projectId = data?.projectId;
-      if (viewName === 'transcription-actions') {
-        void utils.action.getByTranscription.invalidate();
-      } else if (viewName.toLowerCase() === 'today') {
-        void utils.action.getToday.invalidate();
-      } else if (projectId) {
-        void utils.action.getProjectActions.invalidate({ projectId });
-      } else {
-        void utils.action.getAll.invalidate();
-      }
-      // Also invalidate scoring queries for productivity updates
-      void utils.scoring.getTodayScore.invalidate();
-      void utils.scoring.getProductivityStats.invalidate();
-    },
-  });;
+  const { updateAction, isUpdating } = useActionMutations({ viewName });
 
   // Lists feature - fetch workspace lists and mutations
   const { workspaceId } = useWorkspace();
@@ -278,7 +215,7 @@ export function ActionList({
       updatePayload.kanbanStatus = "TODO";
     }
     
-    updateAction.mutate(updatePayload);
+    updateAction(updatePayload);
   };
 
   const handleActionClick = (action: Action) => {
@@ -293,76 +230,38 @@ export function ActionList({
   // --- Filtering Logic ---
 
   const today = new Date();
-  today.setHours(0, 0, 0, 0); // Normalize today to the start of the day
+  const partition = useActionPartition(actions, { today });
+  const overdueActions = partition.overdue;
 
-  // Find overdue actions (scheduled before today, status ACTIVE)
-  const overdueActions = actions.filter(action => {
-    if (!action.scheduledStart || action.status !== 'ACTIVE') return false;
-    const normalizedScheduledDate = new Date(action.scheduledStart);
-    normalizedScheduledDate.setHours(0, 0, 0, 0);
-    return normalizedScheduledDate < today;
-  }).sort(sortByPriority);
-  // Create a Set of overdue action IDs for quick lookup
-  const overdueActionIds = new Set(overdueActions.map(a => a.id));
-
-  // Filter the main list actions
+  // Main list: pick the right partition by viewName, falling back to manual
+  // filtering for viewNames the partition doesn't cover (tomorrow, project views).
   const filteredActions = (() => {
-    
-    // Initial filter based on viewName (excluding items already in the overdue list)
-    const viewFilteredPreStatus = actions.filter(action => 
-      !overdueActionIds.has(action.id) // Exclude actions already marked as overdue
-    ).filter(action => {
-      // Normalize action scheduled date for comparison if it exists
-      let normalizedScheduledDate: Date | null = null;
-      if (action.scheduledStart) {
-        normalizedScheduledDate = new Date(action.scheduledStart);
-        normalizedScheduledDate.setHours(0, 0, 0, 0);
-      }
+    if (filter === "COMPLETED") return partition.completed;
 
-      // Calculate tomorrow for filtering
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+    const lower = viewName.toLowerCase();
+    if (lower === "today") return partition.todays;
+    if (lower === "inbox") return partition.inbox;
+    if (lower === "upcoming") return partition.upcoming;
 
-      switch (viewName.toLowerCase()) {
-        case 'inbox':
-          // Show untriaged actions (no due date, no scheduled start, AND no project assigned)
-          return !action.dueDate && !action.scheduledStart && !action.projectId;
-        case 'today':
-          // Check if the action is scheduled for today
-          return normalizedScheduledDate?.getTime() === today.getTime();
-        case 'tomorrow':
-          // Check if the action is scheduled for tomorrow
-          return normalizedScheduledDate?.getTime() === tomorrow.getTime();
-        case 'upcoming':
-          // Check if the action is scheduled after tomorrow
-          return normalizedScheduledDate && normalizedScheduledDate > tomorrow;
-        default:
-          // For project views, data is already filtered by projectId in the query
-          return true;
-      }
-    });
-    // Then filter by status (ACTIVE/COMPLETED) and sort accordingly
-    const finalFiltered = viewFilteredPreStatus
-      .filter((action) => action.status === filter)
-      .sort((a, b) => {
-        // For completed actions, sort by completion date (most recent first)
-        if (filter === "COMPLETED") {
-          const aCompletedAt = (a as any).completedAt;
-          const bCompletedAt = (b as any).completedAt;
+    // Tomorrow / project / default: inline filter, excluding overdue.
+    const startOfToday = new Date(today);
+    startOfToday.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(startOfToday);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const overdueIds = new Set(overdueActions.map((a) => a.id));
 
-          // Handle null/undefined completion dates
-          if (!aCompletedAt && !bCompletedAt) return a.id.localeCompare(b.id);
-          if (!aCompletedAt) return 1; // Push items without completion date to the end
-          if (!bCompletedAt) return -1;
-
-          // Sort by completion date descending (most recent first)
-          return new Date(bCompletedAt).getTime() - new Date(aCompletedAt).getTime();
+    return actions
+      .filter((a) => !overdueIds.has(a.id) && a.status === "ACTIVE")
+      .filter((a) => {
+        if (lower === "tomorrow") {
+          if (!a.scheduledStart) return false;
+          const d = new Date(a.scheduledStart);
+          d.setHours(0, 0, 0, 0);
+          return d.getTime() === tomorrow.getTime();
         }
-
-        // For active actions, sort by priority
-        return sortByPriority(a, b);
-      });
-    return finalFiltered;
+        return true; // project / general
+      })
+      .sort(sortByPriority);
   })();
   // --- End Filtering Logic ---
 
@@ -667,7 +566,7 @@ export function ActionList({
               onChange={(event) => {
                 handleCheckboxChange(action.id, event.currentTarget.checked);
               }}
-              disabled={updateAction.isPending}
+              disabled={isUpdating}
               styles={{
                 input: {
                   borderColor: priorityCheckboxBorderVar(action.priority),
