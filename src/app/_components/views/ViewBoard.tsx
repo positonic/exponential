@@ -32,7 +32,8 @@ import {
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { WorkspaceKanbanBoard } from "./WorkspaceKanbanBoard";
-import { ActionList } from "../ActionList";
+import { ActionsList } from "../actions/ActionsList";
+import type { Action } from "~/lib/actions/types";
 import { EditActionModal } from "../EditActionModal";
 import { ViewSwitcher } from "./ViewSwitcher";
 import { SaveViewModal } from "./SaveViewModal";
@@ -739,14 +740,26 @@ export function ViewBoard({ workspaceId, viewConfig, deepLinkActionId, onActionO
       )}
 
       {viewType === "LIST" && (
-        <ActionList
+        <ActionsList
           viewName="actions"
-          actions={(actions ?? []) as any}
-          showProject={true}
-          enableBulkEditForAll={true}
-          onAllBulkDelete={handleBulkDelete}
-          onAllBulkReschedule={handleBulkReschedule}
-          onAllBulkAssignProject={handleBulkAssignProject}
+          actions={(actions ?? []) as Action[]}
+          showProject
+          bulkActions={[
+            {
+              kind: 'reschedule',
+              onReschedule: (date, ids) => {
+                void handleBulkReschedule(date, ids);
+              },
+            },
+            {
+              kind: 'delete',
+              onDelete: (ids) => {
+                void handleBulkDelete(ids);
+              },
+            },
+            { kind: 'assignProject', onAssign: handleBulkAssignProject },
+          ]}
+          workspaceProjects={projects?.map((p) => ({ id: p.id, name: p.name })) ?? []}
           isLoading={isLoading}
           deepLinkActionId={deepLinkActionId}
           onActionOpen={onActionOpen}

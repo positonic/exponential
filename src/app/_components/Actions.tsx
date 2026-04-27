@@ -1,7 +1,9 @@
 "use client";
 
 import { api } from "~/trpc/react";
-import { ActionList } from './ActionList';
+import { ActionsList } from './actions/ActionsList';
+import type { BulkActionDef } from './actions/components/BulkEditToolbar';
+import type { Action } from "~/lib/actions/types";
 import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
 import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag, IconFilter, IconArchive, IconSearch, IconCircleDot, IconFlag } from "@tabler/icons-react";
@@ -256,7 +258,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
   // State for dismissed scheduling suggestions
   const [dismissedSuggestionIds, setDismissedSuggestionIds] = useState<Set<string>>(new Set());
-  const [applyingSuggestionId, setApplyingSuggestionId] = useState<string | null>(null);
+  const [_applyingSuggestionId, setApplyingSuggestionId] = useState<string | null>(null);
 
   // Determine if we have overdue actions (for enabling scheduling suggestions query)
   const hasOverdueActions = useMemo(() => {
@@ -745,6 +747,59 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     }
   };
 
+  // Declarative bulk-action config; the new ActionsList uses this in place of
+  // the old ActionList's enableBulkEditFor{Overdue,Project,Focus,Inbox} pairs.
+  // Recomputed each render — the handlers are not stable, so memoizing buys
+  // nothing.
+  const bulkActions: BulkActionDef[] = (() => {
+    const list: BulkActionDef[] = [];
+    if (projectId) {
+      list.push({
+        kind: 'assignProject',
+        onAssign: handleProjectBulkAssignProject,
+      });
+      list.push({ kind: 'delete', onDelete: handleProjectBulkDelete });
+    } else if (isFocusView(viewName)) {
+      list.push({
+        kind: 'reschedule',
+        onReschedule: (date, ids) => {
+          void handleFocusBulkReschedule(date, ids);
+        },
+      });
+      list.push({ kind: 'delete', onDelete: handleFocusBulkDelete });
+    } else if (viewName.toLowerCase() === 'inbox') {
+      list.push({
+        kind: 'reschedule',
+        onReschedule: (date, ids) => {
+          void handleInboxBulkSchedule(date, ids);
+        },
+      });
+      list.push({
+        kind: 'assignProject',
+        onAssign: handleInboxBulkAssignProject,
+      });
+      list.push({
+        kind: 'delete',
+        onDelete: (ids) => {
+          void handleInboxBulkDelete(ids);
+        },
+      });
+    } else {
+      // Default (today / tomorrow / upcoming / saved-view): overdue bulk only
+      list.push({
+        kind: 'reschedule',
+        onReschedule: (date, ids) => {
+          void handleOverdueBulkReschedule(date, ids);
+        },
+      });
+      list.push({
+        kind: 'delete',
+        onDelete: (ids) => handleOverdueBulkAction('delete', ids),
+      });
+    }
+    return list;
+  })();
+
   // Use the appropriate query based on whether we have a projectId
   const outcomes = projectId 
     ? api.outcome.getProjectOutcomes.useQuery(
@@ -1095,30 +1150,16 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           onActionOpen={handleActionOpen}
         />
       ) : (
-        <ActionList
+        <ActionsList
           viewName={showNotionUnassigned ? "notion-unassigned" : viewName}
-          actions={filteredActions ?? []}
+          actions={(filteredActions ?? []) as Action[]}
           showProject={!projectId}
-          enableBulkEditForOverdue={true}
-          onOverdueBulkAction={handleOverdueBulkAction}
-          onOverdueBulkReschedule={handleOverdueBulkReschedule}
-          enableBulkEditForProject={!!projectId}
-          onProjectBulkDelete={handleProjectBulkDelete}
-          onProjectBulkAssignProject={handleProjectBulkAssignProject}
-          enableBulkEditForFocus={!projectId && isFocusView(viewName)}
-          onFocusBulkDelete={handleFocusBulkDelete}
-          onFocusBulkReschedule={handleFocusBulkReschedule}
-          enableBulkEditForInbox={viewName.toLowerCase() === 'inbox'}
-          onInboxBulkSchedule={handleInboxBulkSchedule}
-          onInboxBulkDelete={handleInboxBulkDelete}
-          onInboxBulkAssignProject={handleInboxBulkAssignProject}
+          bulkActions={bulkActions}
+          workspaceProjects={projectsQuery.data?.map((p) => ({ id: p.id, name: p.name })) ?? []}
           schedulingSuggestions={schedulingSuggestionsMap}
           schedulingSuggestionsLoading={schedulingSuggestionsQuery.isLoading}
-          _schedulingSuggestionsError={schedulingSuggestionsQuery.error?.message}
-          _calendarConnected={schedulingSuggestionsQuery.data?.calendarConnected}
           onApplySchedulingSuggestion={handleApplySchedulingSuggestion}
           onDismissSchedulingSuggestion={handleDismissSchedulingSuggestion}
-          applyingSuggestionId={applyingSuggestionId}
           isLoading={projectId ? projectActionsQuery.isLoading : allActionsQuery.isLoading}
           deepLinkActionId={detailedEnabled ? null : actionIdFromUrl}
           onActionOpen={handleActionOpen}

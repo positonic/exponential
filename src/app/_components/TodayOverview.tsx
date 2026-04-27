@@ -18,7 +18,7 @@ import {
   IconTarget,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
-import { ActionList } from "./ActionList";
+import { ActionsList } from "./actions/ActionsList";
 import { CreateActionModal } from "./CreateActionModal";
 import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { CreateGoalModal } from "./CreateGoalModal";
@@ -417,7 +417,7 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
           </Group>
 
           {/* Action List */}
-          <ActionList
+          <ActionsList
             viewName="today"
             actions={actions}
             showCheckboxes={false}

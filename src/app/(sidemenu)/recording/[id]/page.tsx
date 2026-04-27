@@ -28,7 +28,7 @@ import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRende
 import { parseFirefliesSummary, isEmptyFirefliesSummary } from "~/lib/fireflies-summary";
 import { notifications } from "@mantine/notifications";
 import { useAgentModal } from "~/providers/AgentModalProvider";
-import { ActionList } from "~/app/_components/ActionList";
+import { ActionsList } from "~/app/_components/actions/ActionsList";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 
 function isMarkdownContent(content: string) {
@@ -626,7 +626,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           {isActionsLoading ? (
             <Skeleton height={200} />
           ) : transcriptActions.length > 0 ? (
-            <ActionList
+            <ActionsList
               viewName="transcription-actions"
               actions={transcriptActions}
               showCheckboxes={false}

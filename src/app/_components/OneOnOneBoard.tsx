@@ -5,7 +5,7 @@ import { api } from "~/trpc/react";
 import { Select, Text, Group, Progress, Title, Container, ScrollArea } from "@mantine/core";
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { type RouterOutputs } from "~/trpc/react";
-import { ActionList } from "./ActionList";
+import { ActionsList } from "./actions/ActionsList";
 import { OutcomeMultiSelect } from "./OutcomeMultiSelect";
 import { OutcomeBadges } from "./OutcomeBadges";
 import Link from "next/link";
@@ -276,11 +276,10 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
                       <td colSpan={6} className="p-0">
                         <div className="bg-background-secondary border-t border-border-primary">
                           <div className="pl-12 pr-4 py-2 max-w-3xl">
-                            <ActionList 
+                            <ActionsList
                               actions={project.actions}
                               viewName={`project-${project.id}`}
                               showCheckboxes={false}
-                              enableBulkEditForOverdue={false}
                             />
                           </div>
                         </div>

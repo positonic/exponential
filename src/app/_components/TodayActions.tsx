@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "~/trpc/react";
-import { ActionList } from './ActionList';
+import { ActionsList } from './actions/ActionsList';
 import { CreateActionModal } from './CreateActionModal';
 import { notifications } from "@mantine/notifications";
 
@@ -94,12 +94,19 @@ export function TodayActions() {
 
   return (
     <div className="w-full max-w-3xl mx-auto">
-      <ActionList 
-        viewName="Today" 
-        actions={todayActions.data ?? []} 
-        enableBulkEditForOverdue={true}
-        onOverdueBulkAction={handleOverdueBulkAction}
-        onOverdueBulkReschedule={handleOverdueBulkReschedule}
+      <ActionsList
+        viewName="Today"
+        actions={todayActions.data ?? []}
+        bulkActions={[
+          {
+            kind: 'reschedule',
+            onReschedule: (date, ids) => handleOverdueBulkReschedule(date, ids),
+          },
+          {
+            kind: 'delete',
+            onDelete: (ids) => handleOverdueBulkAction('delete', ids),
+          },
+        ]}
       />
       <div className="mt-6">
         <CreateActionModal viewName="Today" />
