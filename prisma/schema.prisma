@@ -327,6 +327,7 @@ model Workspace {
   // One2b agent reverse relations
   agentDocuments                   Document[]
   transcriptionSessionParticipants TranscriptionSessionParticipant[]
+  actionParticipantAssignees       ActionParticipantAssignee[]
   preMeetingBriefs                 PreMeetingBrief[]
   reminderLogs                     ReminderLog[]
   pendingDriveUploads              PendingDriveUpload[]
@@ -503,20 +504,21 @@ model Action {
   lastUpdatedBy     String? // 'AGENT' | 'USER_EMAIL' | 'USER_WHATSAPP' | 'USER_UI'
   lastUpdatedSource String?
 
-  createdBy            User                  @relation(fields: [createdById], references: [id])
-  project              Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  team                 Team?                 @relation(fields: [teamId], references: [id])
-  workspace            Workspace?            @relation(fields: [workspaceId], references: [id])
-  transcriptionSession TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
-  schedule             TaskSchedule?         @relation(fields: [scheduleId], references: [id])
-  epic                 Epic?                 @relation(fields: [epicId], references: [id], onDelete: SetNull)
-  ticket               Ticket?               @relation("TicketActions", fields: [ticketId], references: [id], onDelete: SetNull)
-  recurringParent      RecurringTask?        @relation("RecurringInstances", fields: [recurringParentId], references: [id])
-  parentChunk          Action?               @relation("ActionChunks", fields: [parentChunkId], references: [id], onDelete: SetNull)
-  childChunks          Action[]              @relation("ActionChunks")
+  createdBy            User                        @relation(fields: [createdById], references: [id])
+  project              Project?                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team                 Team?                       @relation(fields: [teamId], references: [id])
+  workspace            Workspace?                  @relation(fields: [workspaceId], references: [id])
+  transcriptionSession TranscriptionSession?       @relation(fields: [transcriptionSessionId], references: [id])
+  schedule             TaskSchedule?               @relation(fields: [scheduleId], references: [id])
+  epic                 Epic?                       @relation(fields: [epicId], references: [id], onDelete: SetNull)
+  ticket               Ticket?                     @relation("TicketActions", fields: [ticketId], references: [id], onDelete: SetNull)
+  recurringParent      RecurringTask?              @relation("RecurringInstances", fields: [recurringParentId], references: [id])
+  parentChunk          Action?                     @relation("ActionChunks", fields: [parentChunkId], references: [id], onDelete: SetNull)
+  childChunks          Action[]                    @relation("ActionChunks")
   syncs                ActionSync[]
   assignees            ActionAssignee[]
-  weeklyOutcomes       WeeklyOutcome[]       @relation("WeeklyOutcomeActions")
+  participantAssignees ActionParticipantAssignee[]
+  weeklyOutcomes       WeeklyOutcome[]             @relation("WeeklyOutcomeActions")
   tags                 ActionTag[]
   lists                ActionList[]
   dailyPlanActions     DailyPlanAction[]
@@ -3781,10 +3783,11 @@ model TranscriptionSessionParticipant {
   isHost                 Boolean  @default(false)
   createdAt              DateTime @default(now())
 
-  transcriptionSession TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
-  workspace            Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user                 User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
-  contact              CrmContact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  transcriptionSession TranscriptionSession        @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
+  workspace            Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user                 User?                       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contact              CrmContact?                 @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  actionAssignments    ActionParticipantAssignee[]
 
   @@unique([transcriptionSessionId, email])
   @@index([transcriptionSessionId])
@@ -3869,4 +3872,26 @@ model PendingDriveUpload {
   @@index([whatsappMessageId])
   @@index([state])
   @@index([expiresAt])
+}
+
+// Lightweight assignment of an Action to a TranscriptionSessionParticipant
+// when the assignee is not (yet) an exponential User. Sibling to
+// ActionAssignee; the agent picks one based on whether the email
+// resolves to a workspace User. If the participant later signs up,
+// a backfill job migrates these to ActionAssignee.
+model ActionParticipantAssignee {
+  id            String   @id @default(cuid())
+  actionId      String
+  participantId String
+  workspaceId   String // denormalized for workspace-scoped queries
+  createdAt     DateTime @default(now())
+
+  action      Action                          @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  participant TranscriptionSessionParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  workspace   Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, participantId])
+  @@index([actionId])
+  @@index([participantId])
+  @@index([workspaceId])
 }
