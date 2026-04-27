@@ -81,6 +81,26 @@
     --today-rail-task-text: #F9D48A;
     --today-rail-focus-text: #A7F0C3;
 
+    /* Actions list — visual priority tokens */
+    --pri-urgent: var(--accent-due);
+    --pri-high: var(--accent-okr);
+    --pri-normal: var(--brand-400);
+    --pri-low: var(--color-text-muted);
+
+    /* Actions list — project chip palette (indices 0-4 mapped to accents) */
+    --actions-proj-0: var(--accent-meetings);
+    --actions-proj-1: var(--accent-due);
+    --actions-proj-2: var(--accent-okr);
+    --actions-proj-3: var(--accent-crm);
+    --actions-proj-4: var(--brand-400);
+
+    /* Backwards-compat aliases for --today-proj-{0..4} (removed in Phase 8) */
+    --today-proj-0: var(--actions-proj-0);
+    --today-proj-1: var(--actions-proj-1);
+    --today-proj-2: var(--actions-proj-2);
+    --today-proj-3: var(--actions-proj-3);
+    --today-proj-4: var(--actions-proj-4);
+
     /* Onboarding */
     --color-onboarding-illustration-bg: #fdf4f3;
     --color-onboarding-accent: #f87171;
@@ -194,6 +214,26 @@
     --today-rail-task-text: #F9D48A;
     --today-rail-focus-text: #A7F0C3;
 
+    /* Actions list — visual priority tokens */
+    --pri-urgent: var(--accent-due);
+    --pri-high: var(--accent-okr);
+    --pri-normal: var(--brand-400);
+    --pri-low: var(--color-text-muted);
+
+    /* Actions list — project chip palette (indices 0-4 mapped to accents) */
+    --actions-proj-0: var(--accent-meetings);
+    --actions-proj-1: var(--accent-due);
+    --actions-proj-2: var(--accent-okr);
+    --actions-proj-3: var(--accent-crm);
+    --actions-proj-4: var(--brand-400);
+
+    /* Backwards-compat aliases for --today-proj-{0..4} (removed in Phase 8) */
+    --today-proj-0: var(--actions-proj-0);
+    --today-proj-1: var(--actions-proj-1);
+    --today-proj-2: var(--actions-proj-2);
+    --today-proj-3: var(--actions-proj-3);
+    --today-proj-4: var(--actions-proj-4);
+
     /* Onboarding */
     --color-onboarding-illustration-bg: #141E32;
     --color-onboarding-accent: #f87171;
@@ -306,6 +346,26 @@
     --today-rail-cal-text: #A8C5FF;
     --today-rail-task-text: #F9D48A;
     --today-rail-focus-text: #A7F0C3;
+
+    /* Actions list — visual priority tokens */
+    --pri-urgent: var(--accent-due);
+    --pri-high: var(--accent-okr);
+    --pri-normal: var(--brand-400);
+    --pri-low: var(--color-text-muted);
+
+    /* Actions list — project chip palette (indices 0-4 mapped to accents) */
+    --actions-proj-0: var(--accent-meetings);
+    --actions-proj-1: var(--accent-due);
+    --actions-proj-2: var(--accent-okr);
+    --actions-proj-3: var(--accent-crm);
+    --actions-proj-4: var(--brand-400);
+
+    /* Backwards-compat aliases for --today-proj-{0..4} (removed in Phase 8) */
+    --today-proj-0: var(--actions-proj-0);
+    --today-proj-1: var(--actions-proj-1);
+    --today-proj-2: var(--actions-proj-2);
+    --today-proj-3: var(--actions-proj-3);
+    --today-proj-4: var(--actions-proj-4);
 
     /* Onboarding */
     --color-onboarding-illustration-bg: #141E32;

@@ -9,7 +9,7 @@ export interface ProjectSortState {
   direction: SortDirection;
 }
 
-const PRIORITY_ORDER: Record<string, number> = {
+const PROJECT_PRIORITY_RANK: Record<string, number> = {
   HIGH: 0,
   MEDIUM: 1,
   LOW: 2,
@@ -25,7 +25,7 @@ const STATUS_ORDER: Record<string, number> = {
 
 const DATE_FIELDS = new Set(["createdAt", "startDate", "endDate", "reviewDate", "nextActionDate"]);
 const ENUM_FIELDS: Record<string, Record<string, number>> = {
-  priority: PRIORITY_ORDER,
+  priority: PROJECT_PRIORITY_RANK,
   status: STATUS_ORDER,
 };
 

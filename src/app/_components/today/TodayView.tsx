@@ -10,7 +10,20 @@ import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
 import { EditActionModal } from "../EditActionModal";
 import { CreateActionModal } from "../CreateActionModal";
 import { HTMLContent } from "../HTMLContent";
-import type { Priority } from "~/types/action";
+import {
+  toVisualPriority,
+  type VisualPriority,
+} from "~/lib/actions/priority";
+import { projectColorIndexFor } from "~/lib/actions/projectColor";
+import {
+  formatClockTime,
+  formatAprDay,
+  hourFloat,
+  formatHourLabel,
+  formatHourMinute12,
+  addDays,
+  nextSaturday,
+} from "~/lib/actions/dates";
 import "./TodayView.css";
 
 // ─────────────────────────────────────────────────────────
@@ -21,8 +34,6 @@ type ActionData = RouterOutputs["action"]["getAll"][number];
 type SchedulingSuggestionData = NonNullable<
   RouterOutputs["scheduling"]["getSchedulingSuggestions"]["suggestions"]
 >[number];
-
-type VisualPriority = "urgent" | "high" | "normal" | "low";
 
 interface RescheduleChoice {
   id: string;
@@ -42,71 +53,11 @@ interface RailBlock {
 // Helpers
 // ─────────────────────────────────────────────────────────
 
-const PROJECT_PALETTE_SIZE = 10;
-
-function projectColorIndexFor(projectId: string | null | undefined): number {
-  if (!projectId) return 4;
-  let hash = 0;
-  for (let i = 0; i < projectId.length; i++) {
-    hash = (hash * 31 + projectId.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash) % PROJECT_PALETTE_SIZE;
-}
-
-function toVisualPriority(priority: string | null | undefined, isOverdue: boolean): VisualPriority {
-  if (isOverdue) return "urgent";
-  const p = (priority ?? "") as Priority | "";
-  if (p === "1st Priority") return "urgent";
-  if (p === "2nd Priority" || p === "3rd Priority") return "high";
-  if (p === "Remember" || p === "Watch") return "low";
-  return "normal";
-}
-
 function priorityClass(p: VisualPriority): string {
   if (p === "urgent") return "today-check--urgent";
   if (p === "high") return "today-check--high";
   if (p === "low") return "today-check--low";
   return "";
-}
-
-function formatClockTime(date: Date | null | undefined): string {
-  if (!date) return "";
-  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-}
-
-function formatAprDay(date: Date | null | undefined): string {
-  if (!date) return "";
-  return date.toLocaleDateString("en-US", { day: "numeric", month: "short" });
-}
-
-function hourFloat(date: Date): number {
-  return date.getHours() + date.getMinutes() / 60;
-}
-
-function formatHourLabel(h: number): string {
-  const hr = Math.floor(h);
-  const disp = hr === 0 ? 12 : hr > 12 ? hr - 12 : hr;
-  const suffix = hr >= 12 ? "PM" : "AM";
-  return `${disp} ${suffix}`;
-}
-
-function formatHourMinute12(h: number): string {
-  const hr = Math.floor(h);
-  const min = Math.round((h - hr) * 60);
-  const suffix = hr >= 12 ? "PM" : "AM";
-  const disp = hr === 0 ? 12 : hr > 12 ? hr - 12 : hr;
-  return `${disp}:${String(min).padStart(2, "0")} ${suffix}`;
-}
-
-function addDays(base: Date, n: number): Date {
-  const d = new Date(base);
-  d.setDate(d.getDate() + n);
-  return d;
-}
-
-function nextSaturday(from: Date): Date {
-  const daysUntilSat = (6 - from.getDay() + 7) % 7;
-  return addDays(from, daysUntilSat === 0 ? 7 : daysUntilSat);
 }
 
 // ─────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import { api, type RouterOutputs } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { ActionItem, type Action } from "~/app/_components/ActionItem";
 import { EditActionModal } from "~/app/_components/EditActionModal";
+import { PRIORITY_ORDER as ACTION_PRIORITY_RANK, type Priority } from "~/lib/actions/priority";
 
 // Use the full action type from the query for proper EditActionModal support
 type ExistingAction = RouterOutputs["project"]["getActiveWithDetails"][0]["actions"][0];
@@ -24,19 +25,8 @@ interface NextActionCaptureProps {
   onActionUpdated?: () => void;
 }
 
-// Priority order for determining "next action" (lower index = higher priority)
-const PRIORITY_ORDER = [
-  "1st Priority",
-  "2nd Priority",
-  "3rd Priority",
-  "4th Priority",
-  "5th Priority",
-  "Quick",
-  "Scheduled",
-  "Errand",
-  "Remember",
-  "Watch",
-];
+const priorityRank = (priority: string): number =>
+  ACTION_PRIORITY_RANK[priority as Priority] ?? Number.MAX_SAFE_INTEGER;
 
 export function NextActionCapture({
   projectId,
@@ -68,17 +58,17 @@ export function NextActionCapture({
   // Determine "next action" IDs - actions with the highest priority
   const nextActionIds = new Set<string>();
   if (openActions.length > 0) {
-    // Find the highest priority among open actions
-    let highestPriorityIndex = PRIORITY_ORDER.length;
+    // Find the highest priority (lowest rank value) among open actions
+    let highestPriorityRank = Number.MAX_SAFE_INTEGER;
     for (const action of openActions) {
-      const priorityIndex = PRIORITY_ORDER.indexOf(action.priority);
-      if (priorityIndex !== -1 && priorityIndex < highestPriorityIndex) {
-        highestPriorityIndex = priorityIndex;
+      const rank = priorityRank(action.priority);
+      if (rank < highestPriorityRank) {
+        highestPriorityRank = rank;
       }
     }
     // Mark all actions with that priority as "next"
     for (const action of openActions) {
-      if (PRIORITY_ORDER.indexOf(action.priority) === highestPriorityIndex) {
+      if (priorityRank(action.priority) === highestPriorityRank) {
         nextActionIds.add(action.id);
       }
     }

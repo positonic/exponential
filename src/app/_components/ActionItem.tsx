@@ -1,31 +1,12 @@
 import { Checkbox, Text, Group, Paper, Badge, Tooltip, Avatar, HoverCard } from '@mantine/core';
 import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconBrandNotion, IconClock, IconMicrophone, IconTrendingUp, IconTrendingDown, IconRobot } from '@tabler/icons-react';
-import { type RouterOutputs } from "~/trpc/react";
 import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
+import { type Action, type SimpleAction } from "~/lib/actions/types";
 import Link from "next/link";
 
-type ActionWithSyncs = RouterOutputs["action"]["getAll"][0];
-// Make createdBy, tags, epic, and lists optional to support various queries that may not include them
-export type Action = Omit<ActionWithSyncs, 'createdBy' | 'tags' | 'epic' | 'lists'> & {
-  createdBy?: ActionWithSyncs['createdBy'] | null;
-  tags?: ActionWithSyncs['tags'];
-  epic?: ActionWithSyncs['epic'] | null;
-  lists?: ActionWithSyncs['lists'];
-};
-
-// Also export a simpler action type for components that don't need all fields
-export type SimpleAction = {
-  id: string;
-  name: string;
-  status: string;
-  priority: string;
-  dueDate?: Date | null;
-  completedAt?: Date | null;
-  projectId?: string | null;
-  createdById?: string;
-};
+export type { Action, SimpleAction };
 
 // Helper function to format date like "22 Feb"
 const formatDate = (date: Date | null | undefined): string => {

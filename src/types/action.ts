@@ -1,17 +1,14 @@
-export type ActionPriority = 
-  | "1st Priority"
-  | "2nd Priority"
-  | "3rd Priority"
-  | "4th Priority"
-  | "5th Priority"
-  | "Quick"
-  | "Scheduled"
-  | "Errand"
-  | "Remember"
-  | "Watch"
-  | "Someday Maybe";
+import { type Priority } from "~/types/priority";
 
-export const PRIORITY_OPTIONS: ActionPriority[] = [
+export type { Priority };
+
+// Alias kept for legacy callers (Mantine modal forms).
+export type ActionPriority = Priority;
+
+// UI dropdown options for action priority.
+// Same Priority union as PRIORITY_VALUES, but excludes "Someday Maybe"
+// to preserve the existing dropdown order/contents in the modals.
+export const PRIORITY_OPTIONS: Priority[] = [
   "1st Priority",
   "2nd Priority",
   "3rd Priority",
@@ -21,18 +18,5 @@ export const PRIORITY_OPTIONS: ActionPriority[] = [
   "Scheduled",
   "Errand",
   "Remember",
-  "Watch"
+  "Watch",
 ];
-
-export type Priority = 
-  | "1st Priority"
-  | "2nd Priority"
-  | "3rd Priority"
-  | "4th Priority"
-  | "5th Priority"
-  | "Quick"
-  | "Scheduled"
-  | "Errand"
-  | "Remember"
-  | "Watch"; 
-

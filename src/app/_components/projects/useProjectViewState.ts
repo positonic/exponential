@@ -12,7 +12,7 @@ const FILTER_KEYS = ["status", "priority", "driId"] as const;
 const QUERY_PARAM = "q";
 const SORT_PARAM = "sort";
 
-const PRIORITY_ORDER: Record<string, number> = {
+const PROJECT_PRIORITY_RANK: Record<string, number> = {
   HIGH: 0,
   MEDIUM: 1,
   LOW: 2,
@@ -34,7 +34,7 @@ const DATE_FIELDS = new Set([
   "nextActionDate",
 ]);
 const ENUM_FIELDS: Record<string, Record<string, number>> = {
-  priority: PRIORITY_ORDER,
+  priority: PROJECT_PRIORITY_RANK,
   status: STATUS_ORDER,
 };
 

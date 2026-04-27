@@ -11,7 +11,9 @@ import { AssignActionModal } from "./AssignActionModal";
 import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
-import type { Priority } from "~/types/action";
+import { sortByPriority, priorityCheckboxBorderVar } from "~/lib/actions/priority";
+import { getSyncStatus } from "~/lib/actions/syncStatus";
+import { formatDate, formatScheduledTime } from "~/lib/actions/dates";
 import { SchedulingSuggestion, type SchedulingSuggestionData } from "./SchedulingSuggestion";
 import { InboxZeroCelebration } from "./InboxZeroCelebration";
 import { EmptyState } from "./EmptyState";
@@ -25,64 +27,6 @@ type Action = Omit<ActionWithSyncs, 'createdBy' | 'lists' | 'epic' | 'tags'> & {
   lists?: ActionWithSyncs['lists'];
   epic?: ActionWithSyncs['epic'] | null;
   tags?: ActionWithSyncs['tags'];
-};
-
-// Helper function to format date like "22 Feb"
-const formatDate = (date: Date | null | undefined): string => {
-  if (!date) return '';
-  return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-};
-
-// Helper function to format scheduled time like "9:00 AM"
-const formatScheduledTime = (date: Date | null | undefined): string => {
-  if (!date) return '';
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-};
-
-// Helper function to get sync status for an action
-const getSyncStatus = (action: Action) => {
-  if (!('syncs' in action) || !action.syncs || action.syncs.length === 0) {
-    return { status: 'not_synced', provider: null };
-  }
-
-  // Check for Notion sync status
-  const notionSync = ('syncs' in action) ? action.syncs.find((sync: any) => sync.provider === 'notion') : undefined;
-  if (notionSync) {
-    return { 
-      status: notionSync.status, 
-      provider: 'notion',
-      externalId: notionSync.externalId,
-      syncedAt: notionSync.syncedAt 
-    };
-  }
-
-  // Check for other providers
-  const otherSync = ('syncs' in action) ? action.syncs[0] : undefined;
-  if (otherSync) {
-    return { 
-      status: otherSync.status, 
-      provider: otherSync.provider,
-      externalId: otherSync.externalId,
-      syncedAt: otherSync.syncedAt 
-    };
-  }
-
-  // Fallback if no sync records found
-  return { status: 'not_synced', provider: null };
-};
-
-// Priority order for sorting actions (lower number = higher priority)
-const PRIORITY_ORDER: Record<Priority, number> = {
-  '1st Priority': 1, '2nd Priority': 2, '3rd Priority': 3, '4th Priority': 4,
-  '5th Priority': 5, 'Quick': 6, 'Scheduled': 7, 'Errand': 8,
-  'Remember': 9, 'Watch': 10
-};
-
-// Helper function to sort actions by priority, then by id for stable ordering
-const sortByPriority = (a: Action, b: Action): number => {
-  const priorityDiff = (PRIORITY_ORDER[a.priority as Priority] ?? 999) - (PRIORITY_ORDER[b.priority as Priority] ?? 999);
-  if (priorityDiff !== 0) return priorityDiff;
-  return a.id.localeCompare(b.id);
 };
 
 // Helper component to render sync status indicator
@@ -782,17 +726,7 @@ export function ActionList({
               disabled={updateAction.isPending}
               styles={{
                 input: {
-                  borderColor: action.priority === '1st Priority' ? 'var(--mantine-color-red-filled)' :
-                    action.priority === '2nd Priority' ? 'var(--mantine-color-orange-filled)' :
-                    action.priority === '3rd Priority' ? 'var(--mantine-color-yellow-filled)' :
-                    action.priority === '4th Priority' ? 'var(--mantine-color-green-filled)' :
-                    action.priority === '5th Priority' ? 'var(--mantine-color-blue-filled)' :
-                    action.priority === 'Quick' ? 'var(--mantine-color-violet-filled)' :
-                    action.priority === 'Scheduled' ? 'var(--mantine-color-pink-filled)' :
-                    action.priority === 'Errand' ? 'var(--mantine-color-cyan-filled)' :
-                    action.priority === 'Remember' ? 'var(--mantine-color-indigo-filled)' :
-                    action.priority === 'Watch' ? 'var(--mantine-color-grape-filled)' :
-                    'var(--color-border-primary)', // Default checkbox border
+                  borderColor: priorityCheckboxBorderVar(action.priority),
                   backgroundColor: 'transparent',
                   cursor: 'pointer',
                   flexShrink: 0,
