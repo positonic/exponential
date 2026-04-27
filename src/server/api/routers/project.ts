@@ -127,6 +127,9 @@ export const projectRouter = createTRPCRouter({
           goals: true,
           outcomes: true,
           lifeDomains: true,
+          keyResults: {
+            select: { keyResultId: true },
+          },
           dri: {
             select: {
               id: true,
@@ -199,6 +202,7 @@ export const projectRouter = createTRPCRouter({
         endDate: z.date().nullable().optional(),
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
+        keyResultIds: z.array(z.string()).optional(),
         lifeDomainIds: z.array(z.number()).optional(),
         teamId: z.string().optional(),
         notionProjectId: z.string().optional(),
@@ -264,6 +268,17 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
+      // Link to key results via the KeyResultProject join table
+      if (input.keyResultIds?.length) {
+        await ctx.db.keyResultProject.createMany({
+          data: input.keyResultIds.map((keyResultId) => ({
+            keyResultId,
+            projectId: project.id,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
       // Sync onboarding progress (fire-and-forget)
       void completeOnboardingStep(ctx.db, ctx.session.user.id, "project").catch(
         (err: unknown) => { console.error("[onboarding-sync] project:", err); },
@@ -314,6 +329,7 @@ export const projectRouter = createTRPCRouter({
         taskManagementConfig: z.record(z.any()).optional(),
         goalIds: z.array(z.string()).optional(),
         outcomeIds: z.array(z.string()).optional(),
+        keyResultIds: z.array(z.string()).optional(),
         lifeDomainIds: z.array(z.number()).optional(),
         workspaceId: z.string().nullable().optional(),
         driId: z.string().nullable().optional(),
@@ -327,7 +343,7 @@ export const projectRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, lifeDomainIds, workspaceId, driId, isPublic, enableDetailedActions, enableBounties, ...updateData } = input;
+      const { id, goalIds, outcomeIds, keyResultIds, lifeDomainIds, workspaceId, driId, isPublic, enableDetailedActions, enableBounties, ...updateData } = input;
       
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -354,7 +370,7 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.project.update({
+      const updated = await ctx.db.project.update({
         where: { id },
         data: {
           ...updateData,
@@ -388,6 +404,26 @@ export const projectRouter = createTRPCRouter({
           ...(enableBounties !== undefined ? { enableBounties } : {}),
         },
       });
+
+      // Replace key result links when keyResultIds is provided
+      if (keyResultIds !== undefined) {
+        await ctx.db.$transaction([
+          ctx.db.keyResultProject.deleteMany({ where: { projectId: id } }),
+          ...(keyResultIds.length > 0
+            ? [
+                ctx.db.keyResultProject.createMany({
+                  data: keyResultIds.map((keyResultId) => ({
+                    keyResultId,
+                    projectId: id,
+                  })),
+                  skipDuplicates: true,
+                }),
+              ]
+            : []),
+        ]);
+      }
+
+      return updated;
     }),
 
   updateDates: protectedProcedure
@@ -467,6 +503,9 @@ export const projectRouter = createTRPCRouter({
             orderBy: {
               dueDate: 'asc',
             },
+          },
+          goals: {
+            select: { id: true, title: true },
           },
           dri: {
             select: {
@@ -681,6 +720,9 @@ export const projectRouter = createTRPCRouter({
               dueDate: 'asc',
             },
           },
+          goals: {
+            select: { id: true, title: true },
+          },
           keyResults: {
             select: {
               keyResultId: true,
@@ -820,6 +862,18 @@ export const projectRouter = createTRPCRouter({
           outcomes: true,
           lifeDomains: true,
           actions: true,
+          keyResults: {
+            select: {
+              keyResultId: true,
+              keyResult: {
+                select: {
+                  id: true,
+                  title: true,
+                  goal: { select: { id: true, title: true } },
+                },
+              },
+            },
+          },
           createdBy: {
             select: {
               id: true,

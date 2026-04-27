@@ -100,7 +100,7 @@ export function ProjectStateOverview() {
                 <div className="space-y-1 text-xs">
                   <div className="font-semibold">Health Score (0-10)</div>
                   <div>Each indicator adds 2 points:</div>
-                  <div>• Weekly Planning - Has weekly outcomes</div>
+                  <div>• OKR Alignment - Linked to a Key Result or Objective</div>
                   <div>• Recent Activity - Actions done in 7 days</div>
                   <div>• Momentum - Has active actions</div>
                   <div>• On Track - No overdue actions</div>

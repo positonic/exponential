@@ -167,7 +167,7 @@ interface ProjectRowProps {
 
 function ProjectRow({ project, isExpanded, onToggle }: ProjectRowProps) {
   const taskCount = project.actions.length;
-  const healthData = { progress: project.progress ?? 0, actions: project.actions, outcomes: [] };
+  const healthData = { progress: project.progress ?? 0, actions: project.actions, keyResults: [], goals: [] };
   const { score } = calculateProjectHealth(healthData);
   void score;
 

@@ -3,7 +3,7 @@ import { DateInput } from '@mantine/dates';
 import { IconAlertCircle, IconBrandNotion, IconCheck, IconPlus } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useDisclosure } from '@mantine/hooks';
-import type { Project, Goal, Outcome } from '@prisma/client';
+import type { Project } from '@prisma/client';
 import { useState, useEffect } from "react";
 import { useSession } from 'next-auth/react';
 import { api } from "~/trpc/react";
@@ -13,8 +13,15 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import type { ProjectStatus, ProjectPriority } from '~/types/project';
 
 type ProjectWithRelations = Project & {
-  goals?: Goal[];
-  outcomes?: Outcome[];
+  goals?: Array<{ id: number; title: string }>;
+  keyResults?: Array<{
+    keyResultId: string;
+    keyResult?: {
+      id: string;
+      title: string;
+      goal?: { id: number; title: string } | null;
+    } | null;
+  }>;
   lifeDomains?: { id: number; title: string }[];
   workspaceId?: string | null;
   driId?: string | null;
@@ -42,10 +49,11 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [selectedGoals, setSelectedGoals] = useState<string[]>(
     project?.goals?.map(g => g.id.toString()) ?? (prefillGoalId ? [prefillGoalId] : [])
   );
-  const [selectedOutcomes, setSelectedOutcomes] = useState<string[]>(project?.outcomes?.map(o => o.id) ?? []);
+  const [selectedKeyResults, setSelectedKeyResults] = useState<string[]>(
+    project?.keyResults?.map(kr => kr.keyResultId) ?? []
+  );
   const [selectedLifeDomainIds, setSelectedLifeDomainIds] = useState<string[]>(project?.lifeDomains?.map(d => d.id.toString()) ?? []);
   const [goalSearchValue, setGoalSearchValue] = useState("");
-  const [outcomeSearchValue, setOutcomeSearchValue] = useState("");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(project?.workspaceId ?? prefillWorkspaceId ?? null);
   const [selectedDriId, setSelectedDriId] = useState<string | null>(project?.driId ?? null);
   const [startDate, setStartDate] = useState<Date | null>(project?.startDate ?? null);
@@ -81,12 +89,12 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const isOwner = !project || project.createdById === session?.user?.id;
   const cannotEditMessage = "Only the project owner can change this field";
 
-  // Fetch goals and outcomes for the select boxes (workspace-scoped when applicable)
+  // Fetch goals and key results for the select boxes (workspace-scoped when applicable)
   const effectiveWorkspaceId = selectedWorkspaceId ?? currentWorkspaceId;
   const { data: goals } = api.goal.getAllMyGoals.useQuery(
     effectiveWorkspaceId ? { workspaceId: effectiveWorkspaceId } : undefined
   );
-  const { data: outcomes } = api.outcome.getMyOutcomes.useQuery(
+  const { data: keyResults } = api.okr.getAll.useQuery(
     effectiveWorkspaceId ? { workspaceId: effectiveWorkspaceId } : undefined
   );
   const { data: lifeDomains } = api.lifeDomain.getAllLifeDomains.useQuery();
@@ -176,27 +184,6 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
     },
   });
 
-  const createOutcomeMutation = api.outcome.createOutcome.useMutation({
-    onSuccess: (newOutcome) => {
-      void utils.outcome.getMyOutcomes.invalidate();
-      // Add the new outcome to selected outcomes
-      setSelectedOutcomes(prev => [...prev, newOutcome.id]);
-      setOutcomeSearchValue(""); // Clear search after creation
-      notifications.show({
-        title: 'Outcome created',
-        message: `Successfully created outcome: ${newOutcome.description}`,
-        color: 'green',
-      });
-    },
-    onError: (error) => {
-      notifications.show({
-        title: 'Failed to create outcome',
-        message: error.message,
-        color: 'red',
-      });
-    },
-  });
-
   // Build goal data with create option
   const goalData = goals?.map(goal => ({
     value: goal.id.toString(),
@@ -221,28 +208,27 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
     });
   }
 
-  // Build outcome data with create option
-  const outcomeData = outcomes?.map(outcome => ({
-    value: outcome.id.toString(),
-    label: outcome.description
+  // Build key result data, formatted as "Goal title › KR title" for context
+  const keyResultData = keyResults?.map(kr => ({
+    value: kr.id,
+    label: kr.goal?.title ? `${kr.goal.title} › ${kr.title}` : kr.title,
   })) ?? [];
 
-  // Merge in outcomes from the project prop that may not appear in the query results
-  if (project?.outcomes) {
-    const existingValues = new Set(outcomeData.map(o => o.value));
-    for (const outcome of project.outcomes) {
-      if (!existingValues.has(outcome.id.toString())) {
-        outcomeData.push({ value: outcome.id.toString(), label: outcome.description });
+  // Merge in key results from the project prop that may not appear in the query results
+  // (e.g. KRs owned by another user that the current user can still see via the project)
+  if (project?.keyResults) {
+    const existingValues = new Set(keyResultData.map(kr => kr.value));
+    for (const link of project.keyResults) {
+      if (!existingValues.has(link.keyResultId)) {
+        const kr = link.keyResult;
+        const label = kr
+          ? kr.goal?.title
+            ? `${kr.goal.title} › ${kr.title}`
+            : kr.title
+          : link.keyResultId;
+        keyResultData.push({ value: link.keyResultId, label });
       }
     }
-  }
-
-  // Add create option if there's a search value
-  if (outcomeSearchValue.trim()) {
-    outcomeData.push({
-      value: `create-${outcomeSearchValue}`,
-      label: `➕ Create new outcome: "${outcomeSearchValue}"`,
-    });
   }
 
   // Reset all modal state when closing
@@ -262,10 +248,9 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
       setStatus("ACTIVE");
       setPriority("NONE");
       setSelectedGoals([]);
-      setSelectedOutcomes([]);
+      setSelectedKeyResults([]);
       setSelectedLifeDomainIds([]);
       setGoalSearchValue("");
-      setOutcomeSearchValue("");
       setSelectedWorkspaceId(prefillWorkspaceId ?? currentWorkspaceId ?? null);
       setSelectedDriId(null);
       setStartDate(null);
@@ -362,7 +347,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 status: status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
                 priority: priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
                 goalIds: selectedGoals,
-                outcomeIds: selectedOutcomes,
+                keyResultIds: selectedKeyResults,
                 lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
                 workspaceId: selectedWorkspaceId,
                 driId: selectedDriId,
@@ -377,7 +362,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 status,
                 priority,
                 goalIds: selectedGoals,
-                outcomeIds: selectedOutcomes,
+                keyResultIds: selectedKeyResults,
                 lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
                 notionProjectId: notionProjectId ?? undefined,
                 workspaceId: selectedWorkspaceId ?? undefined,
@@ -581,27 +566,11 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
           </CreateGoalModal>
 
           <MultiSelect
-            data={outcomeData}
-            value={selectedOutcomes}
-            onChange={(values) => {
-              // Check if a create option was selected
-              const createValue = values.find(v => v.startsWith('create-'));
-              if (createValue) {
-                const outcomeDescription = createValue.replace('create-', '');
-                createOutcomeMutation.mutate({
-                  description: outcomeDescription,
-                  type: 'weekly', // Default to weekly for project outcomes
-                });
-                // Remove the create option from selection
-                setSelectedOutcomes(values.filter(v => !v.startsWith('create-')));
-              } else {
-                setSelectedOutcomes(values);
-              }
-            }}
-            onSearchChange={setOutcomeSearchValue}
-            searchValue={outcomeSearchValue}
-            label="Link to Outcomes"
-            placeholder="Select or create outcomes"
+            data={keyResultData}
+            value={selectedKeyResults}
+            onChange={setSelectedKeyResults}
+            label="Link to Key Results"
+            placeholder="Select key results"
             searchable
             clearable
             maxDropdownHeight={300}

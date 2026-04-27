@@ -17,13 +17,12 @@ export interface ProjectHealthData {
     completedAt: Date | null;
     dueDate: Date | null;
   }>;
-  outcomes: Array<{
-    id: string;
-  }>;
+  keyResults?: Array<unknown>;
+  goals?: Array<unknown>;
 }
 
 export interface HealthIndicators {
-  weeklyPlanning: boolean;
+  okrAlignment: boolean;
   recentActivity: boolean;
   momentum: boolean;
   onTrack: boolean;
@@ -39,7 +38,8 @@ export function calculateProjectHealth(project: ProjectHealthData): {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const weeklyPlanning = project.outcomes.length > 0;
+  const okrAlignment =
+    (project.keyResults?.length ?? 0) > 0 || (project.goals?.length ?? 0) > 0;
   const recentActivity = project.actions.some(
     (a) => a.completedAt && new Date(a.completedAt) > sevenDaysAgo
   );
@@ -53,7 +53,7 @@ export function calculateProjectHealth(project: ProjectHealthData): {
   );
   const hasProgress = project.progress > 0;
 
-  const indicators = { weeklyPlanning, recentActivity, momentum, onTrack, hasProgress };
+  const indicators = { okrAlignment, recentActivity, momentum, onTrack, hasProgress };
   const score = Object.values(indicators).filter(Boolean).length * 20;
 
   return { score, indicators };
@@ -113,16 +113,16 @@ export function HealthIndicatorIcons({ indicators }: { indicators: HealthIndicat
     <Group gap={4} wrap="nowrap">
       <Tooltip
         label={
-          indicators.weeklyPlanning
-            ? "Outcomes linked"
-            : "No outcomes linked"
+          indicators.okrAlignment
+            ? "Linked to a Key Result or Objective"
+            : "No Key Result or Objective linked"
         }
         withArrow
       >
         <IconTarget
           size={14}
           className={
-            indicators.weeklyPlanning
+            indicators.okrAlignment
               ? "text-green-500"
               : "text-red-500"
           }
