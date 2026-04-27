@@ -1,0 +1,131 @@
+.popover {
+  position: absolute;
+  z-index: 50;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px color-mix(in srgb, black 50%, transparent);
+  padding: 10px;
+  min-width: 240px;
+}
+
+.head {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+
+.quick {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.btn:hover {
+  background: var(--color-bg-hover);
+}
+
+.kbd {
+  font-size: 10px;
+  color: var(--color-text-faint);
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+}
+
+.sep {
+  height: 1px;
+  background: var(--color-border-subtle);
+  margin: 6px 0;
+}
+
+.cal {
+  padding: 4px;
+}
+
+.calHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 8px;
+}
+
+.calTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.calNav {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.calNav:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.calGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+
+.calDow {
+  text-align: center;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-faint);
+  padding: 4px 0;
+}
+
+.calDay {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.calDay:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.calDayToday {
+  background: color-mix(in srgb, var(--brand-400) 12%, transparent);
+  color: var(--brand-400);
+  font-weight: 600;
+}

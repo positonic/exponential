@@ -1,0 +1,51 @@
+.check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.75px solid var(--pri-normal);
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  padding: 0;
+  transition: background 150ms, border-color 150ms, transform 120ms;
+}
+
+.check:hover {
+  transform: scale(1.08);
+}
+
+.urgent {
+  border-color: var(--pri-urgent);
+}
+
+.high {
+  border-color: var(--pri-high);
+}
+
+.low {
+  border-color: var(--pri-low);
+}
+
+.check::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background 150ms;
+}
+
+.done.check::after {
+  background: currentColor;
+}
+
+.done.check {
+  border-color: var(--color-brand-success);
+  color: var(--color-brand-success);
+}
+
+.check:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

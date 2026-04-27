@@ -1,5 +1,5 @@
-import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button, Avatar, HoverCard, ActionIcon, Menu, Select } from '@mantine/core';
-import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconTrash, IconEdit, IconDots, IconBrandNotion, IconUserShare, IconClock, IconCheck, IconList } from '@tabler/icons-react';
+import { Checkbox, Text, Group, Paper, Accordion, Badge, Tooltip, Button, Select } from '@mantine/core';
+import { IconCalendar, IconTrash, IconEdit, IconClock, IconList } from '@tabler/icons-react';
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { type RouterOutputs } from "~/trpc/react";
 import { api } from "~/trpc/react";
@@ -9,11 +9,13 @@ import { useSession } from 'next-auth/react';
 import { EditActionModal } from "./EditActionModal";
 import { AssignActionModal } from "./AssignActionModal";
 import { TagBadgeList } from "./TagBadge";
-import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
 import { sortByPriority, priorityCheckboxBorderVar } from "~/lib/actions/priority";
-import { getSyncStatus } from "~/lib/actions/syncStatus";
 import { formatDate, formatScheduledTime } from "~/lib/actions/dates";
+import { SyncStatusIndicator } from "./actions/components/SyncStatusIndicator";
+import { RowAssignees } from "./actions/components/RowAssignees";
+import { RowCreatorBadge } from "./actions/components/RowCreatorBadge";
+import { RowActionsMenu } from "./actions/components/RowActionsMenu";
 import { SchedulingSuggestion, type SchedulingSuggestionData } from "./SchedulingSuggestion";
 import { InboxZeroCelebration } from "./InboxZeroCelebration";
 import { EmptyState } from "./EmptyState";
@@ -27,64 +29,6 @@ type Action = Omit<ActionWithSyncs, 'createdBy' | 'lists' | 'epic' | 'tags'> & {
   lists?: ActionWithSyncs['lists'];
   epic?: ActionWithSyncs['epic'] | null;
   tags?: ActionWithSyncs['tags'];
-};
-
-// Helper component to render sync status indicator
-const SyncStatusIndicator = ({ action }: { action: Action }) => {
-  const syncInfo = getSyncStatus(action);
-  
-  if (syncInfo.status === 'not_synced') {
-    return null; // No indicator for unsynced items
-  }
-
-  if (syncInfo.status === 'deleted_remotely') {
-    return (
-      <Tooltip label={`Deleted from ${syncInfo.provider === 'notion' ? 'Notion' : syncInfo.provider}. This task no longer exists in the external system.`}>
-        <Badge 
-          size="sm" 
-          color="red" 
-          variant="light"
-          leftSection={<IconCloudOff size={12} />}
-        >
-          Deleted from {syncInfo.provider === 'notion' ? 'Notion' : syncInfo.provider}
-        </Badge>
-      </Tooltip>
-    );
-  }
-
-  if (syncInfo.status === 'failed') {
-    return (
-      <Tooltip label={`Failed to sync to ${syncInfo.provider === 'notion' ? 'Notion' : syncInfo.provider}. There was an error during synchronization.`}>
-        <Badge 
-          size="sm" 
-          color="orange" 
-          variant="light"
-          leftSection={<IconAlertTriangle size={12} />}
-        >
-          Sync failed
-        </Badge>
-      </Tooltip>
-    );
-  }
-
-  if (syncInfo.status === 'synced') {
-    // Show provider-specific icon
-    if (syncInfo.provider === 'notion') {
-      return (
-        <Tooltip label={`Synced to Notion on ${syncInfo.syncedAt ? new Date(syncInfo.syncedAt).toLocaleDateString() : 'unknown date'}`}>
-          <IconBrandNotion size={16} style={{ color: 'var(--mantine-color-gray-5)' }} />
-        </Tooltip>
-      );
-    }
-    // Fallback for other providers
-    return (
-      <Tooltip label={`Synced to ${syncInfo.provider} on ${syncInfo.syncedAt ? new Date(syncInfo.syncedAt).toLocaleDateString() : 'unknown date'}`}>
-        <IconCloudCheck size={16} style={{ color: 'var(--mantine-color-green-5)' }} />
-      </Tooltip>
-    );
-  }
-
-  return null;
 };
 
 export function ActionList({
@@ -789,190 +733,32 @@ export function ActionList({
                 </Badge>
               )}
 
-              {/* Show "From [Creator]" indicator if task was created by someone else */}
-              {currentUserId && action.createdById !== currentUserId && action.createdBy && (
-                <HoverCard width={200} shadow="md">
-                  <HoverCard.Target>
-                    <Badge
-                      size="sm"
-                      variant="light"
-                      color="blue"
-                      leftSection={<IconUserShare size={12} />}
-                      className="cursor-pointer"
-                    >
-                      From {action.createdBy.name?.split(' ')[0] ?? 'Unknown'}
-                    </Badge>
-                  </HoverCard.Target>
-                  <HoverCard.Dropdown>
-                    <Group gap="sm">
-                      <Avatar
-                        src={action.createdBy.image}
-                        alt={action.createdBy.name ?? 'User'}
-                        radius="xl"
-                        size="md"
-                        styles={{
-                          root: {
-                            backgroundColor: action.createdBy.image ? undefined : getAvatarColor(getColorSeed(action.createdBy.name, action.createdBy.email)),
-                            color: action.createdBy.image ? undefined : getTextColor(getAvatarColor(getColorSeed(action.createdBy.name, action.createdBy.email))),
-                            fontWeight: 600,
-                          }
-                        }}
-                      >
-                        {!action.createdBy.image && getInitial(action.createdBy.name, action.createdBy.email)}
-                      </Avatar>
-                      <div>
-                        <Text size="sm" fw={500}>
-                          {action.createdBy.name ?? "Unknown User"}
-                        </Text>
-                        <Text size="xs" c="dimmed">
-                          Assigned this to you
-                        </Text>
-                      </div>
-                    </Group>
-                  </HoverCard.Dropdown>
-                </HoverCard>
-              )}
+              <RowCreatorBadge
+                createdBy={action.createdBy}
+                createdById={action.createdById}
+                currentUserId={currentUserId}
+              />
 
-              {/* Assignees */}
-              {action.assignees && action.assignees.length > 0 && (
-                <Avatar.Group spacing="xs">
-                  {action.assignees.slice(0, 2).map((assignee: any) => {
-                    const colorSeed = getColorSeed(assignee.user.name, assignee.user.email);
-                    const backgroundColor = assignee.user.image ? undefined : getAvatarColor(colorSeed);
-                    const textColor = backgroundColor ? getTextColor(backgroundColor) : 'white';
-                    const initial = getInitial(assignee.user.name, assignee.user.email);
-                    
-                    return (
-                      <HoverCard key={assignee.user.id} width={200} shadow="md">
-                        <HoverCard.Target>
-                          <Avatar
-                            size="sm"
-                            src={assignee.user.image}
-                            alt={assignee.user.name || assignee.user.email || 'User'}
-                            radius="xl"
-                            className="cursor-pointer"
-                            styles={{
-                              root: {
-                                backgroundColor: backgroundColor,
-                                color: textColor,
-                                fontWeight: 600,
-                                fontSize: '12px',
-                              }
-                            }}
-                          >
-                            {!assignee.user.image && initial}
-                          </Avatar>
-                        </HoverCard.Target>
-                      <HoverCard.Dropdown>
-                        <Group gap="sm">
-                          <Avatar
-                            src={assignee.user.image}
-                            alt={assignee.user.name || assignee.user.email || 'User'}
-                            radius="xl"
-                            styles={{
-                              root: {
-                                backgroundColor: backgroundColor,
-                                color: textColor,
-                                fontWeight: 600,
-                                fontSize: '14px',
-                              }
-                            }}
-                          >
-                            {!assignee.user.image && initial}
-                          </Avatar>
-                          <div>
-                            <Text size="sm" fw={500}>
-                              {assignee.user.name || "Unknown User"}
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              {assignee.user.email}
-                            </Text>
-                          </div>
-                        </Group>
-                      </HoverCard.Dropdown>
-                    </HoverCard>
-                  );
-                })}
-                  {action.assignees.length > 2 && (
-                    <Tooltip label={`${action.assignees.length - 2} more assignees`}>
-                      <Avatar 
-                        size="sm" 
-                        radius="xl" 
-                        className="cursor-pointer"
-                        color="gray"
-                        styles={{
-                          root: {
-                            backgroundColor: 'var(--mantine-color-gray-6)',
-                            color: 'white',
-                            fontWeight: 600,
-                            fontSize: '10px',
-                          }
-                        }}
-                      >
-                        +{action.assignees.length - 2}
-                      </Avatar>
-                    </Tooltip>
-                  )}
-                </Avatar.Group>
-              )}
+              <RowAssignees assignees={action.assignees} />
             </Group>
           </div>
         </Group>
-        
-        {/* Action Menu */}
-        <Menu shadow="md" width={200} position="bottom-end">
-          <Menu.Target>
-            <ActionIcon
-              variant="subtle"
-              size="sm"
-              aria-label="Open action menu"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <IconDots size={16} />
-            </ActionIcon>
-          </Menu.Target>
-          <Menu.Dropdown>
-            <Menu.Item leftSection={<IconEdit size={16} />}>
-              Edit
-            </Menu.Item>
-            <Menu.Item
-              onClick={(e) => {
-                e.stopPropagation();
-                setAssignSelectedAction(action);
-                setAssignModalOpened(true);
-              }}
-            >
-              Assign
-            </Menu.Item>
-            <Menu.Divider />
-            <Menu.Label>Lists</Menu.Label>
-            {workspaceLists?.map((list) => {
-              const isInList = action.lists?.some(
-                (al) => al.listId === list.id
-              );
-              return (
-                <Menu.Item
-                  key={list.id}
-                  leftSection={<IconList size={14} />}
-                  rightSection={isInList ? <IconCheck size={14} /> : null}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (isInList) {
-                      removeFromList.mutate({ listId: list.id, actionId: action.id });
-                    } else {
-                      addToList.mutate({ listId: list.id, actionId: action.id });
-                    }
-                  }}
-                >
-                  {list.name}
-                </Menu.Item>
-              );
-            })}
-            {(!workspaceLists || workspaceLists.length === 0) && (
-              <Menu.Item disabled>No lists yet</Menu.Item>
-            )}
-          </Menu.Dropdown>
-        </Menu>
+
+        <RowActionsMenu
+          action={action}
+          workspaceLists={workspaceLists}
+          onAssign={() => {
+            setAssignSelectedAction(action);
+            setAssignModalOpened(true);
+          }}
+          onListToggle={(listId, isCurrentlyInList) => {
+            if (isCurrentlyInList) {
+              removeFromList.mutate({ listId, actionId: action.id });
+            } else {
+              addToList.mutate({ listId, actionId: action.id });
+            }
+          }}
+        />
       </Group>
 
       {/* AI Scheduling Suggestion - only shown for overdue actions with suggestions */}

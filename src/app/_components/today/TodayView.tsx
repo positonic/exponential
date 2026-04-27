@@ -14,7 +14,6 @@ import {
   toVisualPriority,
   type VisualPriority,
 } from "~/lib/actions/priority";
-import { projectColorIndexFor } from "~/lib/actions/projectColor";
 import {
   formatClockTime,
   formatAprDay,
@@ -22,8 +21,12 @@ import {
   formatHourLabel,
   formatHourMinute12,
   addDays,
-  nextSaturday,
 } from "~/lib/actions/dates";
+import {
+  ReschedulePopover,
+  type RescheduleChoice as ReschedulePopoverChoice,
+} from "../actions/components/ReschedulePopover";
+import { ProjectChip } from "../actions/components/ProjectChip";
 import "./TodayView.css";
 
 // ─────────────────────────────────────────────────────────
@@ -35,11 +38,7 @@ type SchedulingSuggestionData = NonNullable<
   RouterOutputs["scheduling"]["getSchedulingSuggestions"]["suggestions"]
 >[number];
 
-interface RescheduleChoice {
-  id: string;
-  label: string;
-  date?: Date | null;
-}
+type RescheduleChoice = ReschedulePopoverChoice;
 
 interface RailBlock {
   id: string;
@@ -104,131 +103,6 @@ const Icon: React.FC<{ name: IconName; size?: number; style?: React.CSSPropertie
 );
 
 // ─────────────────────────────────────────────────────────
-// Reschedule popover
-// ─────────────────────────────────────────────────────────
-
-const QUICK_RESCHEDULE = [
-  { id: "today",     label: "Today",        kbd: "T" },
-  { id: "tomorrow",  label: "Tomorrow",     kbd: "O" },
-  { id: "next-week", label: "Next week",    kbd: "N" },
-  { id: "weekend",   label: "This weekend", kbd: "W" },
-  { id: "no-date",   label: "No date",      kbd: "X" },
-];
-
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
-const ReschedulePopover: React.FC<{
-  onChoose: (c: RescheduleChoice) => void;
-}> = ({ onChoose }) => {
-  const [month, setMonth] = useState(() => {
-    const d = new Date();
-    return { y: d.getFullYear(), m: d.getMonth() };
-  });
-  const [mode, setMode] = useState<"quick" | "cal">("quick");
-  const today = new Date();
-
-  const daysInMonth = new Date(month.y, month.m + 1, 0).getDate();
-  const firstDow = new Date(month.y, month.m, 1).getDay();
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < firstDow; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length < 42) cells.push(null);
-
-  const resolveQuick = (id: string): RescheduleChoice => {
-    const base = new Date();
-    switch (id) {
-      case "today":     return { id, label: "Today",        date: base };
-      case "tomorrow":  return { id, label: "Tomorrow",     date: addDays(base, 1) };
-      case "next-week": return { id, label: "Next week",    date: addDays(base, 7) };
-      case "weekend":   return { id, label: "This weekend", date: nextSaturday(base) };
-      default:          return { id, label: "No date",      date: null };
-    }
-  };
-
-  return (
-    <div className="today-popover" style={{ right: 0, top: 36 }} onClick={(e) => e.stopPropagation()}>
-      {mode === "quick" && (
-        <>
-          <div className="today-popover__head">Reschedule</div>
-          <div className="today-popover__quick">
-            {QUICK_RESCHEDULE.map((q) => (
-              <button key={q.id} className="today-popover__btn" onClick={() => onChoose(resolveQuick(q.id))}>
-                <span>{q.label}</span>
-                <span className="today-popover__btn-kbd">{q.kbd}</span>
-              </button>
-            ))}
-          </div>
-          <div className="today-popover__sep" />
-          <button className="today-popover__btn" onClick={() => setMode("cal")}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <Icon name="calendar" size={14} />
-              Pick a date…
-            </span>
-          </button>
-        </>
-      )}
-      {mode === "cal" && (
-        <div className="today-popover__cal">
-          <div className="today-popover__cal-head">
-            <button
-              className="today-popover__cal-nav"
-              onClick={() => setMonth((m) => (m.m === 0 ? { y: m.y - 1, m: 11 } : { y: m.y, m: m.m - 1 }))}
-              aria-label="Previous month"
-            >
-              <Icon name="chevDown" size={12} style={{ transform: "rotate(90deg)" }} />
-            </button>
-            <div className="today-popover__cal-title">{MONTHS[month.m]} {month.y}</div>
-            <button
-              className="today-popover__cal-nav"
-              onClick={() => setMonth((m) => (m.m === 11 ? { y: m.y + 1, m: 0 } : { y: m.y, m: m.m + 1 }))}
-              aria-label="Next month"
-            >
-              <Icon name="chevDown" size={12} style={{ transform: "rotate(-90deg)" }} />
-            </button>
-          </div>
-          <div className="today-popover__cal-grid">
-            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-              <div key={i} className="today-popover__cal-dow">{d}</div>
-            ))}
-            {cells.map((d, i) =>
-              d === null ? (
-                <div key={i} />
-              ) : (
-                <button
-                  key={i}
-                  className={
-                    "today-popover__cal-day " +
-                    (d === today.getDate() && month.m === today.getMonth() && month.y === today.getFullYear()
-                      ? "today-popover__cal-day--today"
-                      : "")
-                  }
-                  onClick={() =>
-                    onChoose({
-                      id: "custom",
-                      label: `${MONTHS[month.m]!.slice(0, 3)} ${d}`,
-                      date: new Date(month.y, month.m, d),
-                    })
-                  }
-                >
-                  {d}
-                </button>
-              ),
-            )}
-          </div>
-          <div className="today-popover__sep" />
-          <button className="today-popover__btn" onClick={() => setMode("quick")}>
-            <span>← Back to quick</span>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ─────────────────────────────────────────────────────────
 // Action row
 // ─────────────────────────────────────────────────────────
 
@@ -257,7 +131,6 @@ const ActionRow: React.FC<ActionRowProps> = ({
   const open = openPopId === popId;
   const visualPriority = toVisualPriority(action.priority, showOverdueChip);
   const projectTag = action.project?.name ?? "UNASSIGNED";
-  const projectColorIdx = projectColorIndexFor(action.projectId ?? null);
 
   const scheduled = action.scheduledStart ? new Date(action.scheduledStart) : null;
   const due = action.dueDate ? new Date(action.dueDate) : null;
@@ -317,9 +190,7 @@ const ActionRow: React.FC<ActionRowProps> = ({
               )}
             </>
           )}
-          <span className={`today-chip today-chip--project today-chip--proj-${projectColorIdx}`}>
-            {projectTag}
-          </span>
+          <ProjectChip projectId={action.projectId ?? null} projectName={projectTag} />
           {suggestionProposal && (
             <span className="today-chip today-chip--suggest">
               <Icon name="sparkles" size={10} /> {suggestionProposal}
