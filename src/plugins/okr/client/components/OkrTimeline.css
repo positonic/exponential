@@ -158,12 +158,6 @@
   font-weight: 600;
   font-size: 14px;
 }
-.okrt-label__kr-code {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
-  margin-right: 6px;
-}
 .okrt-label__meta {
   font-size: 11px;
   color: var(--color-text-muted);
@@ -251,16 +245,30 @@
   border: 1px dashed var(--color-border-strong);
 }
 
-/* Today marker */
+/* Rows wrapper — anchors the single TODAY marker overlay */
+.okrt-rows {
+  position: relative;
+}
+
+/* Today marker — single full-height line overlaying all rows */
 .okrt-today {
   position: absolute;
-  top: -4px;
-  bottom: -4px;
-  width: 2px;
-  background: var(--brand-400);
+  top: 0;
+  bottom: 0;
+  /* Align with the chart column: row padding-left + label col + grid gap */
+  left: calc(18px + 320px + 18px);
+  right: 18px;
+  pointer-events: none;
   z-index: 2;
 }
-.okrt-today::before {
+.okrt-today__line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--brand-400);
+}
+.okrt-today__line::before {
   content: "";
   position: absolute;
   top: -3px;
@@ -270,10 +278,9 @@
   border-radius: 50%;
   background: var(--brand-400);
 }
-.okrt-today::after {
-  content: "TODAY";
+.okrt-today__label {
   position: absolute;
-  top: -18px;
+  top: -16px;
   left: 50%;
   transform: translateX(-50%);
   font-size: 9px;

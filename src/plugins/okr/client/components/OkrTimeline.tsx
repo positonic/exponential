@@ -133,15 +133,11 @@ const Track = ({
   end,
   progress,
   status,
-  isObj,
-  todayFrac,
 }: {
   start: number;
   end: number;
   progress: number;
   status: OkrStatus;
-  isObj?: boolean;
-  todayFrac: number;
 }) => {
   const widthPct = Math.max(0, end - start) * 100;
   const fillPct = Math.max(0, Math.min(1, progress)) * 100;
@@ -162,9 +158,6 @@ const Track = ({
           />
         )}
       </div>
-      {isObj && (
-        <div className="okrt-today" style={{ left: `${todayFrac * 100}%` }} />
-      )}
     </div>
   );
 };
@@ -229,69 +222,78 @@ export function OkrTimeline({
     <div className={`okrt ${className}`}>
       {header}
 
-      {objectives.map((obj) => (
-        <Fragment key={obj.id}>
-          <div
-            className="okrt-row okrt-row--obj"
-            onClick={onObjectiveClick ? () => onObjectiveClick(obj) : undefined}
-            style={onObjectiveClick ? { cursor: "pointer" } : undefined}
-          >
-            <div className="okrt-label">
-              <div className="okrt-label__code">{obj.code}</div>
-              <div className="okrt-label__title">{obj.title}</div>
-              <div className="okrt-label__meta">
-                <OwnerStack
-                  ids={[obj.owner, ...(obj.coOwners ?? [])]}
-                  getUser={getUser}
-                />
-                <span>
-                  {Math.round(obj.progress * 100)}% · {obj.krs.length} KRs
-                </span>
-              </div>
-            </div>
-            <Track
-              start={0}
-              end={1.0}
-              progress={obj.progress}
-              status={obj.status}
-              isObj
-              todayFrac={todayFrac}
-            />
-          </div>
-
-          {obj.krs.map((kr) => (
+      <div className="okrt-rows">
+        {objectives.map((obj) => (
+          <Fragment key={obj.id}>
             <div
-              key={kr.id}
-              className="okrt-row"
+              className="okrt-row okrt-row--obj"
               onClick={
-                onKeyResultClick ? () => onKeyResultClick(kr, obj) : undefined
+                onObjectiveClick ? () => onObjectiveClick(obj) : undefined
               }
-              style={onKeyResultClick ? { cursor: "pointer" } : undefined}
+              style={onObjectiveClick ? { cursor: "pointer" } : undefined}
             >
-              <div className="okrt-label okrt-label--kr">
-                <div className="okrt-label__title">
-                  <span className="okrt-label__kr-code">{kr.id}</span>
-                  {kr.title}
-                </div>
+              <div className="okrt-label">
+                <div className="okrt-label__code">{obj.code}</div>
+                <div className="okrt-label__title">{obj.title}</div>
                 <div className="okrt-label__meta">
-                  <Avatar user={getUser(kr.owner)} size={18} />
+                  <OwnerStack
+                    ids={[obj.owner, ...(obj.coOwners ?? [])]}
+                    getUser={getUser}
+                  />
                   <span>
-                    {kr.currentLabel} / {kr.targetLabel}
+                    {Math.round(obj.progress * 100)}% · {obj.krs.length} KRs
                   </span>
-                  <span>· due {kr.due}</span>
                 </div>
               </div>
               <Track
-                start={kr.startFrac ?? 0.05}
-                end={resolveEnd(kr)}
-                progress={kr.progress}
-                status={kr.status}
-                todayFrac={todayFrac}
+                start={0}
+                end={1.0}
+                progress={obj.progress}
+                status={obj.status}
               />
             </div>
-          ))}
-        </Fragment>
-      ))}
+
+            {obj.krs.map((kr) => (
+              <div
+                key={kr.id}
+                className="okrt-row"
+                onClick={
+                  onKeyResultClick
+                    ? () => onKeyResultClick(kr, obj)
+                    : undefined
+                }
+                style={onKeyResultClick ? { cursor: "pointer" } : undefined}
+              >
+                <div className="okrt-label okrt-label--kr">
+                  <div className="okrt-label__title">{kr.title}</div>
+                  <div className="okrt-label__meta">
+                    <Avatar user={getUser(kr.owner)} size={18} />
+                    <span>
+                      {kr.currentLabel} / {kr.targetLabel}
+                    </span>
+                    <span>· due {kr.due}</span>
+                  </div>
+                </div>
+                <Track
+                  start={kr.startFrac ?? 0.05}
+                  end={resolveEnd(kr)}
+                  progress={kr.progress}
+                  status={kr.status}
+                />
+              </div>
+            ))}
+          </Fragment>
+        ))}
+
+        <div className="okrt-today" aria-hidden="true">
+          <div
+            className="okrt-today__line"
+            style={{ left: `${todayFrac * 100}%` }}
+          >
+            <span className="okrt-today__label">TODAY</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
