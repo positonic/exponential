@@ -1,0 +1,71 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  margin: 4px 0 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-surface-muted);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-primary);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  background: var(--brand-400);
+  border-color: var(--brand-400);
+  color: var(--color-bg-primary);
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--brand-500, var(--brand-400));
+  border-color: var(--brand-500, var(--brand-400));
+  color: var(--color-bg-primary);
+}
+
+.btnDanger {
+  background: var(--accent-due);
+  border-color: var(--accent-due);
+  color: var(--color-bg-primary);
+}
+
+.btnDanger:hover:not(:disabled) {
+  filter: brightness(1.05);
+  color: var(--color-bg-primary);
+}
+
+.count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding: 0 4px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.popoverWrap {
+  position: relative;
+}
