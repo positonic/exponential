@@ -7,7 +7,7 @@ import { Button, Divider, Group, MultiSelect, Title, SegmentedControl, Modal, Te
 import { useDisclosure } from "@mantine/hooks";
 import { IconCalendarEvent, IconHash } from "@tabler/icons-react";
 import { Actions } from "./Actions";
-import { TodayView } from "./today/TodayView";
+import { TodayLayout } from "./actions/TodayLayout";
 import { ScoreBreakdown } from "./scoring/ScoreBreakdown";
 import { StreakBadge } from "./scoring/StreakBadge";
 import { ToolbarActions } from "./toolbar";
@@ -223,7 +223,7 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
 
       {/* Actions List */}
       {filter === "today" ? (
-        <TodayView tagIds={selectedTagIds} />
+        <TodayLayout tagIds={selectedTagIds} />
       ) : (
         <Actions
           viewName={getViewName(filter)}

@@ -421,7 +421,6 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
             viewName="today"
             actions={actions}
             showCheckboxes={false}
-            enableBulkEditForOverdue={true}
           />
         </Card>
       </div>
