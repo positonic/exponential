@@ -183,6 +183,13 @@ export function ActionModalForm({
     }
   }, [onScreenshotPaste]);
 
+  // scheduledStart combines date + time in one field; treat midnight (00:00) as
+  // "date only, no time set" so the user can clear time without losing the date.
+  const hasScheduledTime = (date: Date | null): boolean => {
+    if (!date) return false;
+    return date.getHours() !== 0 || date.getMinutes() !== 0;
+  };
+
   // Format scheduled time for display
   const formatScheduledTime = (date: Date | null): string => {
     if (!date) return '';
@@ -192,17 +199,24 @@ export function ActionModalForm({
   // Handle time input change
   const handleTimeChange = (timeString: string) => {
     if (!timeString) {
-      setScheduledStart(null);
+      // Preserve the date if one was set; only clear the time portion.
+      if (scheduledStart) {
+        const dateOnly = new Date(scheduledStart);
+        dateOnly.setHours(0, 0, 0, 0);
+        setScheduledStart(dateOnly);
+      } else {
+        setScheduledStart(null);
+      }
       return;
     }
 
     // Parse the time string and update the date
     // Priority: preserve existing scheduledStart date > use dueDate > use today
     const [hours, minutes] = timeString.split(':').map(Number);
-    const baseDate = scheduledStart 
-      ? new Date(scheduledStart) 
-      : dueDate 
-        ? new Date(dueDate) 
+    const baseDate = scheduledStart
+      ? new Date(scheduledStart)
+      : dueDate
+        ? new Date(dueDate)
         : new Date();
     baseDate.setHours(hours ?? 0, minutes ?? 0, 0, 0);
     setScheduledStart(baseDate);
@@ -210,7 +224,7 @@ export function ActionModalForm({
 
   // Get time string from scheduledStart for the input
   const getTimeValue = (): string => {
-    if (!scheduledStart) return '';
+    if (!scheduledStart || !hasScheduledTime(scheduledStart)) return '';
     const hours = scheduledStart.getHours().toString().padStart(2, '0');
     const minutes = scheduledStart.getMinutes().toString().padStart(2, '0');
     return `${hours}:${minutes}`;
@@ -357,25 +371,34 @@ export function ActionModalForm({
         >
           <Popover.Target>
             <Button
-              variant={scheduledStart ? "light" : "subtle"}
-              color={scheduledStart ? "blue" : "gray"}
+              variant={hasScheduledTime(scheduledStart) ? "light" : "subtle"}
+              color={hasScheduledTime(scheduledStart) ? "blue" : "gray"}
               size="sm"
               leftSection={<IconClock size={16} />}
-              rightSection={scheduledStart ? (
+              rightSection={hasScheduledTime(scheduledStart) ? (
                 <span
                   role="button"
                   tabIndex={0}
                   onClick={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
-                    setScheduledStart(null);
+                    // Preserve the date; only clear the time portion.
+                    if (scheduledStart) {
+                      const dateOnly = new Date(scheduledStart);
+                      dateOnly.setHours(0, 0, 0, 0);
+                      setScheduledStart(dateOnly);
+                    }
                     setDuration(null);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.stopPropagation();
                       e.preventDefault();
-                      setScheduledStart(null);
+                      if (scheduledStart) {
+                        const dateOnly = new Date(scheduledStart);
+                        dateOnly.setHours(0, 0, 0, 0);
+                        setScheduledStart(dateOnly);
+                      }
                       setDuration(null);
                     }
                   }}
@@ -386,7 +409,7 @@ export function ActionModalForm({
               ) : undefined}
               onClick={() => setSchedulePopoverOpened(true)}
             >
-              {scheduledStart ? formatScheduledTime(scheduledStart) : 'Schedule'}
+              {hasScheduledTime(scheduledStart) ? formatScheduledTime(scheduledStart) : 'Schedule'}
             </Button>
           </Popover.Target>
           <Popover.Dropdown>
