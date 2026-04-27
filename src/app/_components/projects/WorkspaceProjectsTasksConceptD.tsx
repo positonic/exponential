@@ -24,6 +24,7 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { CreateProjectModal } from '~/app/_components/CreateProjectModal';
 import { CreateActionModal } from '~/app/_components/CreateActionModal';
 import { EditActionModal } from '~/app/_components/EditActionModal';
+import { HTMLContent } from '~/app/_components/HTMLContent';
 import { calculateProjectHealth } from '~/app/_components/home/ProjectHealth';
 import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu } from '~/app/_components/toolbar';
@@ -234,9 +235,11 @@ function TaskRow({ action, projectName, onRowClick, onCheckboxChange }: TaskRowP
               styles={{ input: { cursor: 'pointer' } }}
             />
           </div>
-          <span className={`${styles.taskName} ${isCompleted ? styles.taskNameDone : ''}`}>
-            {action.name}
-          </span>
+          <HTMLContent
+            html={action.name}
+            className={`${styles.taskName} ${isCompleted ? styles.taskNameDone : ''}`}
+            compactUrls
+          />
         </div>
       </td>
       <td>
