@@ -8,6 +8,7 @@ import {
   generateInviteUrl,
 } from "~/server/utils/tokens";
 import { sendTeamInvitationEmail } from "~/server/services/EmailService";
+import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 
 export const workspaceRouter = createTRPCRouter({
   // API endpoint for browser extension - uses API key authentication
@@ -290,6 +291,98 @@ export const workspaceRouter = createTRPCRouter({
       });
 
       return updatedWorkspace;
+    }),
+
+  // Upload a workspace logo (base64-encoded image -> Vercel Blob -> Workspace.logoUrl)
+  uploadLogo: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        base64Data: z.string().min(1),
+        contentType: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+      });
+
+      if (!member || (member.role !== "owner" && member.role !== "admin")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners and admins can change the workspace logo",
+        });
+      }
+
+      // Cache-bust by including a timestamp so the new URL replaces the old one in CDN/clients
+      const filename = `workspace-logos/${input.workspaceId}-${Date.now()}.png`;
+      const blob = await uploadToBlob(input.base64Data, filename);
+
+      const previous = await ctx.db.workspace.findUnique({
+        where: { id: input.workspaceId },
+        select: { logoUrl: true },
+      });
+
+      const updated = await ctx.db.workspace.update({
+        where: { id: input.workspaceId },
+        data: { logoUrl: blob.url },
+      });
+
+      if (previous?.logoUrl && previous.logoUrl !== blob.url) {
+        try {
+          await deleteFromBlob(previous.logoUrl);
+        } catch {
+          // Best-effort cleanup; do not fail the upload if the old blob can't be deleted
+        }
+      }
+
+      return { logoUrl: updated.logoUrl };
+    }),
+
+  // Remove the workspace logo (clears logoUrl, deletes underlying blob)
+  removeLogo: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+      });
+
+      if (!member || (member.role !== "owner" && member.role !== "admin")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners and admins can change the workspace logo",
+        });
+      }
+
+      const previous = await ctx.db.workspace.findUnique({
+        where: { id: input.workspaceId },
+        select: { logoUrl: true },
+      });
+
+      await ctx.db.workspace.update({
+        where: { id: input.workspaceId },
+        data: { logoUrl: null },
+      });
+
+      if (previous?.logoUrl) {
+        try {
+          await deleteFromBlob(previous.logoUrl);
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+
+      return { logoUrl: null };
     }),
 
   // Get workspace Notion configuration

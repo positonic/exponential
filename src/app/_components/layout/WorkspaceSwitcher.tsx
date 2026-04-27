@@ -114,8 +114,10 @@ export function WorkspaceSwitcher({
 
   const pill = userRole ? roleToPill[userRole] : null;
   const workspaceName = workspace?.name ?? 'Select Workspace';
-  const logoSrc = theme?.logo;
-  const isImageLogo = logoSrc?.includes('/');
+  const workspaceLogoUrl = workspace?.logoUrl ?? null;
+  const themeLogo = theme?.logo;
+  const logoSrc = workspaceLogoUrl ?? themeLogo;
+  const isImageLogo = !!workspaceLogoUrl || (typeof logoSrc === 'string' && logoSrc.includes('/'));
 
   const focusIdSet = new Set(focusIds ?? []);
   const focusedWorkspaces = workspaces.filter((ws) => focusIdSet.has(ws.id));
@@ -131,6 +133,7 @@ export function WorkspaceSwitcher({
           size="xs"
           color="brand"
           radius="sm"
+          src={ws.logoUrl ?? null}
           className="bg-brand-primary text-white"
         >
           {ws.name.charAt(0).toUpperCase()}
@@ -171,7 +174,15 @@ export function WorkspaceSwitcher({
             aria-haspopup="menu"
           >
             <span className="relative grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-md border border-border-primary bg-surface-secondary text-text-primary">
-              {isImageLogo && logoSrc ? (
+              {workspaceLogoUrl ? (
+                // Uploaded workspace logo (Vercel Blob URL) — render as plain img to avoid next/image remotePatterns config
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={workspaceLogoUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : isImageLogo && logoSrc ? (
                 <Image
                   src={logoSrc}
                   alt=""

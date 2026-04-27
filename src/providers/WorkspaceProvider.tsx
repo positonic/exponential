@@ -27,6 +27,7 @@ interface Workspace {
   name: string;
   slug: string;
   description: string | null;
+  logoUrl: string | null;
   type: string;
   members?: WorkspaceMember[];
 }

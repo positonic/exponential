@@ -234,6 +234,7 @@ model Workspace {
   name        String
   slug        String   @unique
   description String?
+  logoUrl     String?
   type        String   @default("personal") // "personal" | "team" | "organization"
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

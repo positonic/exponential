@@ -45,7 +45,7 @@ import {
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import { InviteMemberModal } from '~/app/_components/InviteMemberModal';
@@ -98,6 +98,8 @@ export default function WorkspaceSettingsPage() {
   const [emailAppPassword, setEmailAppPassword] = useState('');
   const [emailImapHost, setEmailImapHost] = useState('');
   const [emailSmtpHost, setEmailSmtpHost] = useState('');
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const utils = api.useUtils();
 
@@ -208,6 +210,96 @@ export default function WorkspaceSettingsPage() {
       setEditingField(null);
     },
   });
+
+  const uploadLogoMutation = api.workspace.uploadLogo.useMutation({
+    onSuccess: () => {
+      refetchWorkspace();
+      void utils.workspace.list.invalidate();
+      void utils.workspace.getBySlug.invalidate();
+      notifications.show({
+        title: 'Logo updated',
+        message: 'Workspace logo has been saved.',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Upload failed',
+        message: error.message,
+        color: 'red',
+        autoClose: 5000,
+      });
+    },
+  });
+
+  const removeLogoMutation = api.workspace.removeLogo.useMutation({
+    onSuccess: () => {
+      refetchWorkspace();
+      void utils.workspace.list.invalidate();
+      void utils.workspace.getBySlug.invalidate();
+      notifications.show({
+        title: 'Logo removed',
+        message: 'Workspace will use the default logo.',
+        color: 'blue',
+        autoClose: 3000,
+      });
+    },
+  });
+
+  const handleLogoFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !workspaceId) return;
+
+    if (!file.type.startsWith('image/')) {
+      notifications.show({
+        title: 'Invalid file',
+        message: 'Please select an image file.',
+        color: 'red',
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      notifications.show({
+        title: 'File too large',
+        message: 'Please select an image under 5MB.',
+        color: 'red',
+      });
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string | null)?.split(',')[1];
+      if (!base64) {
+        setIsUploadingLogo(false);
+        return;
+      }
+      uploadLogoMutation.mutate(
+        { workspaceId, base64Data: base64, contentType: file.type },
+        {
+          onSettled: () => setIsUploadingLogo(false),
+        },
+      );
+    };
+    reader.onerror = () => {
+      setIsUploadingLogo(false);
+      notifications.show({
+        title: 'Upload failed',
+        message: 'Could not read the selected file.',
+        color: 'red',
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveLogo = () => {
+    if (!workspaceId) return;
+    removeLogoMutation.mutate({ workspaceId });
+  };
 
   const removeMemberMutation = api.workspace.removeMember.useMutation({
     onSuccess: () => {
@@ -412,6 +504,55 @@ export default function WorkspaceSettingsPage() {
             title="General"
             description="Identity for this workspace. Visible to members and in shared links."
           >
+            <SettingsField
+              label="Logo"
+              sublabel="Shown in the workspace switcher. PNG or JPG, up to 5MB."
+              action={
+                canEdit ? (
+                  <Group gap="xs">
+                    <SettingsFieldButton
+                      onClick={() => logoInputRef.current?.click()}
+                    >
+                      {isUploadingLogo
+                        ? 'Uploading…'
+                        : workspaceData?.logoUrl
+                          ? 'Replace'
+                          : 'Upload'}
+                    </SettingsFieldButton>
+                    {workspaceData?.logoUrl && (
+                      <SettingsFieldButton onClick={handleRemoveLogo}>
+                        Remove
+                      </SettingsFieldButton>
+                    )}
+                  </Group>
+                ) : null
+              }
+            >
+              <Group gap="sm" align="center">
+                <Avatar
+                  src={workspaceData?.logoUrl ?? null}
+                  size={48}
+                  radius="md"
+                  color="brand"
+                  className="bg-surface-tertiary text-text-primary"
+                >
+                  {workspace.name.charAt(0).toUpperCase()}
+                </Avatar>
+                <span className="text-text-muted text-[12px]">
+                  {workspaceData?.logoUrl
+                    ? 'Custom logo'
+                    : 'Using the default Exponential logo'}
+                </span>
+              </Group>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleLogoFileChange}
+              />
+            </SettingsField>
+
             <SettingsField
               label="Name"
               action={
