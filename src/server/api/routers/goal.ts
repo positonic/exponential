@@ -70,6 +70,7 @@ export const goalRouter = createTRPCRouter({
           projects: true,
           outcomes: true,
           childGoals: { select: { id: true, title: true, status: true, health: true } },
+          _count: { select: { keyResults: true } },
         },
         orderBy: { displayOrder: "asc" },
       });
