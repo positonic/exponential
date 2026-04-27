@@ -20,6 +20,7 @@ import {
   IconAlertCircleFilled,
   IconClockFilled,
   IconUsers,
+  IconChartBar,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -90,11 +91,13 @@ interface GoalRow {
   iconColor: string | null;
   projects: { id: string; name: string; progress: number; status: string }[];
   childGoals: { id: number; title: string; status: string; health: string | null }[];
+  _count?: { keyResults: number };
 }
 
 function InitiativeRow({ goal, workspaceSlug }: { goal: GoalRow; workspaceSlug: string }) {
   const projectCount = goal.projects.length;
   const activeProjectCount = goal.projects.filter(p => p.status === "ACTIVE").length;
+  const krCount = goal._count?.keyResults ?? 0;
 
   return (
     <Table.Tr
@@ -111,9 +114,21 @@ function InitiativeRow({ goal, workspaceSlug }: { goal: GoalRow; workspaceSlug: 
               <GoalIcon icon={goal.icon} iconColor={goal.iconColor} size={16} />
             </div>
             <div className="min-w-0">
-              <Text size="sm" fw={500} className="text-text-primary" truncate="end">
-                {goal.title}
-              </Text>
+              <Group gap={6} wrap="nowrap">
+                <Text size="sm" fw={500} className="text-text-primary" truncate="end">
+                  {goal.title}
+                </Text>
+                {krCount > 0 && (
+                  <Badge
+                    size="xs"
+                    variant="light"
+                    color="brand"
+                    leftSection={<IconChartBar size={10} />}
+                  >
+                    {krCount} KR{krCount === 1 ? "" : "s"}
+                  </Badge>
+                )}
+              </Group>
               {goal.description && (
                 <Text size="xs" c="dimmed" lineClamp={1}>
                   {goal.description}

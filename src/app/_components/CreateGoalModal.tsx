@@ -180,6 +180,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
           projects: [],
           outcomes: [],
           childGoals: [],
+          _count: { keyResults: 0 },
         };
         return old ? [...old, optimisticGoal] : [optimisticGoal];
       });

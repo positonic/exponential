@@ -19,6 +19,7 @@ import {
   Menu,
   Modal,
   Button,
+  Progress,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import {
@@ -36,6 +37,7 @@ import {
   IconAdjustments,
   IconEdit,
   IconTrash,
+  IconChartBar,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import Link from "next/link";
@@ -54,6 +56,9 @@ import { CreateProjectModal } from "../CreateProjectModal";
 import { ProjectViewTabs, type ProjectView } from "../ProjectViewTabs";
 import { ProjectsTasksView } from "../ProjectsTasksView/ProjectsTasksView";
 import { ProjectTimelineView } from "../ProjectTimelineView";
+import { useTerminology } from "~/hooks/useTerminology";
+import { EditKeyResultModal } from "~/plugins/okr/client/components/EditKeyResultModal";
+import { getCurrentQuarterType, getCurrentYear } from "~/plugins/okr/client/utils/periodUtils";
 
 function getTimeAgo(date: Date): string {
   const now = new Date();
@@ -442,6 +447,13 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                 />
               </div>
 
+              {/* Key Results */}
+              <KeyResultsSection
+                goalId={goal.id}
+                goalPeriod={goal.period}
+                workspaceId={goal.workspaceId}
+              />
+
               {/* Projects section (in overview) */}
               {goal.projects.length > 0 && (
                 <div>
@@ -686,5 +698,227 @@ function ProjectsTable({ projectsByStatus, statusOrder, workspaceSlug }: Project
         })}
       </Table.Tbody>
     </Table>
+  );
+}
+
+interface KeyResultItem {
+  id: string;
+  title: string;
+  description: string | null;
+  currentValue: number;
+  targetValue: number;
+  startValue: number;
+  unit: string;
+  unitLabel: string | null;
+  status: string;
+  confidence: number | null;
+  period: string;
+  userId: string;
+  driUserId: string | null;
+}
+
+function getKrStatusColor(status: string): string {
+  switch (status) {
+    case "on-track":
+      return "green";
+    case "achieved":
+      return "blue";
+    case "at-risk":
+      return "yellow";
+    case "off-track":
+      return "red";
+    default:
+      return "gray";
+  }
+}
+
+function formatKrStatus(status: string): string {
+  return status
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function getKrUnitDisplay(kr: Pick<KeyResultItem, "unit" | "unitLabel">): string {
+  if (kr.unit === "percent") return "%";
+  if (kr.unit === "currency") return "$";
+  return kr.unitLabel ?? "";
+}
+
+interface KeyResultsSectionProps {
+  goalId: number;
+  goalPeriod: string | null;
+  workspaceId: string | null;
+}
+
+function KeyResultsSection({ goalId, goalPeriod, workspaceId }: KeyResultsSectionProps) {
+  const terminology = useTerminology();
+  const utils = api.useUtils();
+  const [editingKr, setEditingKr] = useState<KeyResultItem | null>(null);
+  const [createOpen, { open: openCreate, close: closeCreate }] = useDisclosure(false);
+  const [editOpen, { open: openEdit, close: closeEdit }] = useDisclosure(false);
+
+  const { data: keyResults, isLoading } = api.okr.getAll.useQuery({ goalId });
+
+  if (!terminology.showKeyResults) return null;
+
+  const defaultPeriod = goalPeriod ?? `${getCurrentQuarterType()}-${getCurrentYear()}`;
+
+  const handleSuccess = () => {
+    void utils.okr.getAll.invalidate({ goalId });
+    void utils.okr.getByObjective.invalidate();
+    void utils.okr.getStats.invalidate();
+    void utils.goal.getById.invalidate({ id: goalId });
+  };
+
+  return (
+    <div>
+      <Group justify="space-between" mb="md">
+        <Group gap="xs">
+          <Title order={4} className="text-text-primary">
+            {terminology.keyResults}
+          </Title>
+          {keyResults && keyResults.length > 0 && (
+            <Badge variant="light" size="sm">
+              {keyResults.length}
+            </Badge>
+          )}
+        </Group>
+        {keyResults && keyResults.length > 0 && (
+          <Button
+            variant="subtle"
+            size="xs"
+            leftSection={<IconPlus size={14} />}
+            onClick={openCreate}
+          >
+            Add key result
+          </Button>
+        )}
+      </Group>
+
+      {isLoading ? (
+        <Skeleton height={80} />
+      ) : keyResults && keyResults.length > 0 ? (
+        <Stack gap="sm">
+          {keyResults.map((kr) => (
+            <KeyResultCard
+              key={kr.id}
+              keyResult={kr as KeyResultItem}
+              onEdit={() => {
+                setEditingKr(kr as KeyResultItem);
+                openEdit();
+              }}
+            />
+          ))}
+        </Stack>
+      ) : (
+        <Card
+          withBorder
+          radius="md"
+          p="lg"
+          className="border-border-primary text-center"
+        >
+          <IconChartBar size={32} className="text-text-muted mx-auto mb-2" />
+          <Text size="sm" className="text-text-secondary mb-3">
+            Add measurable key results to track this goal as an OKR.
+          </Text>
+          <Button
+            variant="light"
+            size="xs"
+            leftSection={<IconPlus size={14} />}
+            onClick={openCreate}
+          >
+            Add key result
+          </Button>
+        </Card>
+      )}
+
+      <EditKeyResultModal
+        mode="create"
+        goalId={goalId}
+        period={defaultPeriod}
+        workspaceId={workspaceId ?? undefined}
+        opened={createOpen}
+        onClose={closeCreate}
+        onSuccess={handleSuccess}
+      />
+
+      <EditKeyResultModal
+        mode="edit"
+        keyResult={editingKr}
+        opened={editOpen}
+        onClose={() => {
+          closeEdit();
+          setEditingKr(null);
+        }}
+        onSuccess={handleSuccess}
+      />
+    </div>
+  );
+}
+
+interface KeyResultCardProps {
+  keyResult: KeyResultItem;
+  onEdit: () => void;
+}
+
+function KeyResultCard({ keyResult, onEdit }: KeyResultCardProps) {
+  const range = keyResult.targetValue - keyResult.startValue;
+  const progress =
+    range !== 0
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            ((keyResult.currentValue - keyResult.startValue) / range) * 100,
+          ),
+        )
+      : 0;
+  const unitDisplay = getKrUnitDisplay(keyResult);
+  const formatValue = (value: number) =>
+    keyResult.unit === "currency"
+      ? `${unitDisplay}${value}`
+      : `${value}${unitDisplay}`;
+
+  return (
+    <Card withBorder padding="md" radius="md" className="border-border-primary">
+      <Group justify="space-between" wrap="nowrap" mb="xs" align="flex-start">
+        <div className="min-w-0 flex-1">
+          <Text size="sm" fw={500} className="text-text-primary">
+            {keyResult.title}
+          </Text>
+          {keyResult.description && (
+            <Text size="xs" c="dimmed" lineClamp={2} mt={2}>
+              {keyResult.description}
+            </Text>
+          )}
+        </div>
+        <Group gap="xs" wrap="nowrap">
+          <Badge size="xs" variant="light" color={getKrStatusColor(keyResult.status)}>
+            {formatKrStatus(keyResult.status)}
+          </Badge>
+          <Badge size="xs" variant="outline">
+            {keyResult.period}
+          </Badge>
+          <ActionIcon variant="subtle" size="sm" onClick={onEdit} aria-label="Edit key result">
+            <IconEdit size={14} />
+          </ActionIcon>
+        </Group>
+      </Group>
+      <Progress
+        value={progress}
+        size="sm"
+        mb="xs"
+        color={getKrStatusColor(keyResult.status)}
+      />
+      <Group justify="space-between">
+        <Text size="xs" c="dimmed">
+          {formatValue(keyResult.currentValue)} of {formatValue(keyResult.targetValue)}
+        </Text>
+        <Text size="xs" c="dimmed">
+          {Math.round(progress)}%
+        </Text>
+      </Group>
+    </Card>
   );
 }
