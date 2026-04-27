@@ -494,7 +494,7 @@
 .pr-goals-tabs {
   display: flex; gap: 4px;
   border-bottom: 1px solid var(--pr-border-subtle);
-  margin-bottom: 24px; overflow-x: auto;
+  margin-bottom: 24px; overflow-x: auto; overflow-y: hidden;
 }
 .pr-goal-tab {
   padding: 10px 14px;
