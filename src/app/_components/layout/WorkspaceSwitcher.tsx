@@ -18,6 +18,7 @@ import {
   IconLayoutKanban,
   IconDeviceProjector,
   IconWriting,
+  IconTarget,
 } from '@tabler/icons-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -67,6 +68,12 @@ export function WorkspaceSwitcher({
   } = useWorkspace();
   const { data: workspaces, isLoading: listLoading } =
     api.workspace.list.useQuery();
+  const { data: focusIds } =
+    api.portfolioReview.getCurrentWeekFocusIds.useQuery(undefined, {
+      refetchOnWindowFocus: false,
+      staleTime: 60 * 1000,
+      gcTime: 5 * 60 * 1000,
+    });
   const { data: actions } = api.action.getAll.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 30 * 1000,
@@ -109,6 +116,45 @@ export function WorkspaceSwitcher({
   const workspaceName = workspace?.name ?? 'Select Workspace';
   const logoSrc = theme?.logo;
   const isImageLogo = logoSrc?.includes('/');
+
+  const focusIdSet = new Set(focusIds ?? []);
+  const focusedWorkspaces = workspaces.filter((ws) => focusIdSet.has(ws.id));
+  const otherWorkspaces = workspaces.filter((ws) => !focusIdSet.has(ws.id));
+  const hasFocused = focusedWorkspaces.length > 0;
+
+  const renderWorkspaceItem = (ws: (typeof workspaces)[number]) => (
+    <Menu.Item
+      key={ws.id}
+      onClick={() => switchWorkspace(ws.slug)}
+      leftSection={
+        <Avatar
+          size="xs"
+          color="brand"
+          radius="sm"
+          className="bg-brand-primary text-white"
+        >
+          {ws.name.charAt(0).toUpperCase()}
+        </Avatar>
+      }
+      rightSection={
+        ws.slug === workspaceSlug ? (
+          <IconCheck size={14} className="text-brand-primary" />
+        ) : null
+      }
+      className="text-text-primary hover:bg-surface-hover"
+    >
+      <Group gap={4} wrap="nowrap">
+        <Text size="sm" truncate>
+          {ws.name}
+        </Text>
+        {ws.type === 'personal' && (
+          <Text size="xs" className="text-text-muted">
+            (Personal)
+          </Text>
+        )}
+      </Group>
+    </Menu.Item>
+  );
 
   return (
     <div
@@ -174,40 +220,20 @@ export function WorkspaceSwitcher({
         </Menu.Target>
 
         <Menu.Dropdown className="bg-surface-secondary border-border-primary">
-          <Menu.Label className="text-text-muted">Workspaces</Menu.Label>
-          {workspaces.map((ws) => (
-            <Menu.Item
-              key={ws.id}
-              onClick={() => switchWorkspace(ws.slug)}
-              leftSection={
-                <Avatar
-                  size="xs"
-                  color="brand"
-                  radius="sm"
-                  className="bg-brand-primary text-white"
-                >
-                  {ws.name.charAt(0).toUpperCase()}
-                </Avatar>
-              }
-              rightSection={
-                ws.slug === workspaceSlug ? (
-                  <IconCheck size={14} className="text-brand-primary" />
-                ) : null
-              }
-              className="text-text-primary hover:bg-surface-hover"
-            >
-              <Group gap={4} wrap="nowrap">
-                <Text size="sm" truncate>
-                  {ws.name}
-                </Text>
-                {ws.type === 'personal' && (
-                  <Text size="xs" className="text-text-muted">
-                    (Personal)
-                  </Text>
-                )}
-              </Group>
-            </Menu.Item>
-          ))}
+          {hasFocused && (
+            <>
+              <Menu.Label className="flex items-center gap-1.5 text-text-muted">
+                <IconTarget size={12} className="text-brand-primary" />
+                In Focus This Week
+              </Menu.Label>
+              {focusedWorkspaces.map(renderWorkspaceItem)}
+              <Menu.Divider className="border-border-primary" />
+            </>
+          )}
+          <Menu.Label className="text-text-muted">
+            {hasFocused ? 'Other Workspaces' : 'Workspaces'}
+          </Menu.Label>
+          {otherWorkspaces.map(renderWorkspaceItem)}
 
           <Menu.Divider className="border-border-primary" />
 

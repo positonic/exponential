@@ -445,6 +445,20 @@ export const portfolioReviewRouter = createTRPCRouter({
     }),
 
   /**
+   * Slim query for surfaces (e.g. WorkspaceSwitcher) that just need to know
+   * which workspaces the user marked as "in focus" for the current week.
+   */
+  getCurrentWeekFocusIds: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+    const weekStartDate = getSundayWeekStart(new Date());
+    const focuses = await ctx.db.workspaceWeeklyFocus.findMany({
+      where: { userId, weekStartDate, isInFocus: true },
+      select: { workspaceId: true },
+    });
+    return focuses.map((f) => f.workspaceId);
+  }),
+
+  /**
    * Has the current week's portfolio review been completed?
    */
   isCompletedThisWeek: protectedProcedure.query(async ({ ctx }) => {
