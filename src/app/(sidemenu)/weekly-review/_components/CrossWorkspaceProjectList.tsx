@@ -206,41 +206,6 @@ export function CrossWorkspaceProjectList({
 
   return (
     <div>
-      <FocusRecapCard
-        data={data}
-        focusedWorkspaces={focusedWorkspaces}
-        focuses={focuses}
-        projectCountByKrId={projectCountByKrId}
-        linkedProjectsByKrId={linkedProjectsByKrId}
-        workspaceByKrId={workspaceByKrId}
-        activeFocusFilter={focusFilter}
-        onSelectFocus={setFocusFilter}
-        onLinksChanged={() => void projectsQuery.refetch()}
-      />
-
-      {focusLinkedNotTop.length > 0 && (
-        <div className="pr-focus-banner">
-          <div className="pr-focus-banner__icon">
-            <IconBolt size={14} />
-          </div>
-          <div className="pr-focus-banner__text">
-            <strong>
-              {focusLinkedNotTop.length} project
-              {focusLinkedNotTop.length === 1 ? "" : "s"} link to your focus
-            </strong>{" "}
-            but {focusLinkedNotTop.length === 1 ? "isn't" : "aren't"} in Top
-            focus. Promote so the work matches what you said matters.
-          </div>
-          <button
-            type="button"
-            className="pr-focus-banner__cta"
-            onClick={promoteAllFocusLinked}
-          >
-            <IconChevronUp size={13} /> Promote all
-          </button>
-        </div>
-      )}
-
       <div className="pr-x-toolbar">
         <div className="pr-x-filters">
           <button
@@ -294,6 +259,41 @@ export function CrossWorkspaceProjectList({
           {visible.filter((p) => p.priority === "LOW").length} backlog
         </div>
       </div>
+
+      <FocusRecapCard
+        data={data}
+        focusedWorkspaces={focusedWorkspaces}
+        focuses={focuses}
+        projectCountByKrId={projectCountByKrId}
+        linkedProjectsByKrId={linkedProjectsByKrId}
+        workspaceByKrId={workspaceByKrId}
+        activeFocusFilter={focusFilter}
+        onSelectFocus={setFocusFilter}
+        onLinksChanged={() => void projectsQuery.refetch()}
+      />
+
+      {focusLinkedNotTop.length > 0 && (
+        <div className="pr-focus-banner">
+          <div className="pr-focus-banner__icon">
+            <IconBolt size={14} />
+          </div>
+          <div className="pr-focus-banner__text">
+            <strong>
+              {focusLinkedNotTop.length} project
+              {focusLinkedNotTop.length === 1 ? "" : "s"} link to your focus
+            </strong>{" "}
+            but {focusLinkedNotTop.length === 1 ? "isn't" : "aren't"} in Top
+            focus. Promote so the work matches what you said matters.
+          </div>
+          <button
+            type="button"
+            className="pr-focus-banner__cta"
+            onClick={promoteAllFocusLinked}
+          >
+            <IconChevronUp size={13} /> Promote all
+          </button>
+        </div>
+      )}
 
       <div className="pr-tier-list">
         {tiers.map((tier) => {
