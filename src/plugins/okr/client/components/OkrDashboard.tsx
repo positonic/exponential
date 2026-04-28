@@ -332,7 +332,7 @@ export function OkrDashboard() {
 
   if (isLoading) {
     return (
-      <Container size="xl" py="xl">
+      <Container size="xl" py="xl" px="xl">
         <Stack gap="lg">
           <Skeleton height={60} width={380} />
           <Skeleton height={48} />
@@ -344,7 +344,7 @@ export function OkrDashboard() {
   }
 
   return (
-    <Container size="xl" py="xl">
+    <Container size="xl" py="xl" px="xl">
       <Stack gap="lg">
         {/* Header */}
         <div className="border-b border-border-primary pb-4">
