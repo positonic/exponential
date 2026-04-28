@@ -649,6 +649,7 @@ model Project {
   notionProjectId       String?
   driId                 String?
   isPublic              Boolean                    @default(false)
+  isRestricted          Boolean                    @default(false)
   enableDetailedActions Boolean? // null = inherit from workspace
   enableBounties        Boolean? // null = inherit from workspace
   type                  String                     @default("standard") // "standard" | "pipeline"
@@ -879,6 +880,7 @@ model Note {
 model ProjectMember {
   id               String   @id @default(cuid())
   name             String
+  // Canonical roles: "admin" | "editor" | "viewer". Hierarchy lives in TS (PROJECT_ROLE_HIERARCHY).
   role             String
   responsibilities String[]
   avatarUrl        String?
@@ -887,6 +889,7 @@ model ProjectMember {
   project          Project  @relation(fields: [projectId], references: [id])
   user             User     @relation(fields: [userId], references: [id])
 
+  @@unique([projectId, userId])
   @@index([projectId])
   @@index([userId])
 }

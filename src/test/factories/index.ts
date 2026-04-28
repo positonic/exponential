@@ -76,6 +76,7 @@ interface ProjectAttrs {
   workspaceId?: string;
   teamId?: string;
   isPublic?: boolean;
+  isRestricted?: boolean;
 }
 
 export const projectFactory = Factory.define<ProjectAttrs>(({ sequence }) => ({
@@ -90,6 +91,30 @@ export async function createProject(
 ) {
   const attrs = projectFactory.build(overrides);
   return db.project.create({ data: attrs });
+}
+
+// ── Project Member ───────────────────────────────────────────────────
+
+export async function addProjectMember(
+  db: PrismaClient,
+  projectId: string,
+  userId: string,
+  role: string = "editor",
+  overrides: { name?: string; responsibilities?: string[] } = {},
+) {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { name: true, email: true },
+  });
+  return db.projectMember.create({
+    data: {
+      projectId,
+      userId,
+      role,
+      name: overrides.name ?? user?.name ?? user?.email ?? "Member",
+      responsibilities: overrides.responsibilities ?? [],
+    },
+  });
 }
 
 // ── Action Factory ───────────────────────────────────────────────────
