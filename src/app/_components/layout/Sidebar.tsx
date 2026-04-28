@@ -61,7 +61,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         `}>
 
         {/* Header with workspace switcher and collapse button */}
-        <div className="sb-workspace-divider flex-shrink-0 h-12 flex items-center mt-12 lg:mt-0">
+        <div className="sb-workspace-divider flex-shrink-0 h-14 flex items-center mt-12 lg:mt-0">
           <WorkspaceSwitcher
             theme={theme}
             onCollapse={() => setIsMenuOpen(false)}
