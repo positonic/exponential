@@ -589,6 +589,10 @@ export const actionRouter = createTRPCRouter({
         bountyDeadline: z.date().nullable().optional(),
         bountyMaxClaimants: z.number().int().min(1).optional(),
         bountyExternalUrl: z.string().url().nullable().optional(),
+        // Source attribution — set by agents and external integrations
+        // so we can track which channel last touched the action.
+        lastUpdatedBy: z.enum(["AGENT", "USER_EMAIL", "USER_WHATSAPP", "USER_UI"]).optional(),
+        lastUpdatedSource: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -2372,7 +2376,7 @@ export const actionRouter = createTRPCRouter({
             user: { select: { id: true, name: true, email: true, image: true } },
           },
         },
-        participantAssignees: true,
+        participantAssignees: { include: { participant: true } },
       } satisfies Prisma.ActionInclude;
 
       type CreatedAction = Prisma.ActionGetPayload<{ include: typeof includeShape }>;
@@ -2532,7 +2536,7 @@ export const actionRouter = createTRPCRouter({
               user: { select: { id: true, name: true, email: true, image: true } },
             },
           },
-          participantAssignees: true,
+          participantAssignees: { include: { participant: true } },
         },
         orderBy: { createdAt: "desc" },
         take: input.limit,
