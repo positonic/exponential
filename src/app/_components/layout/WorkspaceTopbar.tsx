@@ -17,12 +17,20 @@ const PAGE_LABELS: Record<string, string> = {
   goals: 'Goals',
   outcomes: 'Outcomes',
   products: 'Products',
+  today: 'Today',
+  inbox: 'Inbox',
 };
 
 function getCurrentPageLabel(pathname: string, workspaceSlug: string): string {
   const prefix = `/w/${workspaceSlug}/`;
-  if (!pathname.startsWith(prefix)) return '';
-  const segment = pathname.slice(prefix.length).split('/')[0] ?? '';
+  let segment = '';
+  if (pathname.startsWith(prefix)) {
+    segment = pathname.slice(prefix.length).split('/')[0] ?? '';
+  } else {
+    // Global routes like /today, /inbox: take the first non-empty path segment.
+    segment = pathname.replace(/^\//, '').split('/')[0] ?? '';
+  }
+  if (!segment) return '';
   return PAGE_LABELS[segment] ?? segment.charAt(0).toUpperCase() + segment.slice(1);
 }
 

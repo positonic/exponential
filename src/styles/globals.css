@@ -834,6 +834,84 @@
 }
 
 /* ==========================================================================
+   Today desktop surface (/today, redesigned shell) — scoped design tokens.
+   Consumed by src/app/_components/today-redesign/today-desktop.css.
+   Mirrors auth-surface / portfolio-review-surface: all hex lives here, the
+   feature CSS uses only var(). Pre-commit hook only allows hex in this file,
+   colors.ts, mantineTheme.ts, EmailService.ts.
+   ========================================================================== */
+.today-surface {
+  /* Core */
+  --td-accent: #F4B96A;
+  --td-accent-04: rgba(244, 185, 106, 0.04);
+  --td-accent-10: rgba(244, 185, 106, 0.10);
+  --td-accent-12: rgba(244, 185, 106, 0.12);
+  --td-accent-30: rgba(244, 185, 106, 0.30);
+  --td-accent-40: rgba(244, 185, 106, 0.40);
+
+  /* Page background tracks the global theme so /today matches the rest of
+     the workspace shell (workspace pages use --color-bg-primary). */
+  --td-bg: var(--color-bg-primary);
+  --td-sidebar: #0E1320;
+  --td-surface: #121826;
+  --td-surface-2: #1A2030;
+
+  --td-hair: rgba(255, 255, 255, 0.06);
+  --td-hair-2: rgba(255, 255, 255, 0.10);
+
+  --td-text: #EAECEF;
+  --td-muted: rgba(234, 236, 239, 0.55);
+  --td-faint: rgba(234, 236, 239, 0.32);
+  --td-dim: rgba(234, 236, 239, 0.18);
+  --td-check-border: rgba(255, 255, 255, 0.22);
+  --td-check-mark: #0B0F17;
+
+  /* Tag tones — five design presets we map workspace tag colors onto. */
+  --td-tag-sales-fg: #E8C9D5;
+  --td-tag-sales-bg: rgba(200, 120, 150, 0.10);
+  --td-tag-sales-dot: #D07C9B;
+
+  --td-tag-ops-fg: #C9D5E8;
+  --td-tag-ops-bg: rgba(120, 150, 200, 0.10);
+  --td-tag-ops-dot: #7C9BD0;
+
+  --td-tag-james-fg: #D4D9C9;
+  --td-tag-james-bg: rgba(180, 190, 140, 0.10);
+  --td-tag-james-dot: #A8B57A;
+
+  --td-tag-unas-fg: #C9C9D5;
+  --td-tag-unas-bg: rgba(140, 140, 170, 0.10);
+  --td-tag-unas-dot: #9292B0;
+
+  --td-tag-pipe-fg: var(--td-accent);
+  --td-tag-pipe-bg: var(--td-accent-10);
+  --td-tag-pipe-dot: var(--td-accent);
+
+  /* Priority — encodes the checkbox ring color.
+     Solid = priority hue. Dim = resting ring (~55-65% alpha). */
+  --td-prio-urgent:     #E47A6F;
+  --td-prio-urgent-dim: rgba(228, 122, 111, 0.55);
+  --td-prio-high:       #F4B96A;
+  --td-prio-high-dim:   rgba(244, 185, 106, 0.65);
+  --td-prio-normal:     #7C9BD0;
+  --td-prio-normal-dim: rgba(124, 155, 208, 0.60);
+  --td-prio-low:        #7A8294;
+  --td-prio-low-dim:    rgba(122, 130, 148, 0.55);
+
+  /* Agenda blue tone (non-amber events) */
+  --td-event-blue-bg: rgba(140, 170, 210, 0.12);
+  --td-event-blue-border: #7C9BD0;
+  --td-event-blue-title: #9DB5D8;
+
+  /* Layout */
+  --td-rail-w: 280px;
+  --td-hour-px: 48px;
+
+  /* Type */
+  --td-font: "Inter Tight", -apple-system, system-ui, sans-serif;
+}
+
+/* ==========================================================================
    Portfolio review surface (/weekly-review) — scoped design tokens.
    Consumed by src/app/(sidemenu)/weekly-review/_styles/portfolio-review.css.
    Mirrors the auth-surface pattern: all hex lives here, feature CSS uses var().
