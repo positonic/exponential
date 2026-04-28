@@ -4,13 +4,14 @@ import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Divider, Group, MultiSelect, Title, SegmentedControl, Modal, Text } from "@mantine/core";
-import { useDisclosure } from "@mantine/hooks";
+import { useDisclosure, useMediaQuery } from "@mantine/hooks";
 import { IconCalendarEvent, IconHash } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 import { TodayLayout } from "./actions/TodayLayout";
 import { ScoreBreakdown } from "./scoring/ScoreBreakdown";
 import { StreakBadge } from "./scoring/StreakBadge";
 import { ToolbarActions } from "./toolbar";
+import { MobileTodayHeader } from "./today-mobile/MobileTodayHeader";
 import { api } from "~/trpc/react";
 import { useDayRollover } from "~/hooks/useDayRollover";
 
@@ -112,6 +113,58 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
   };
 
   const showScore = filter === "today" && preferences?.showGamification !== false && score;
+
+  const isMobile = useMediaQuery("(max-width: 768px)");
+
+  // Mobile-only task count for header subtitle. Reuses the same query the
+  // TodayLayout uses, so React Query dedupes — no extra round-trip.
+  const { data: allActionsForMobile } = api.action.getAll.useQuery(
+    {},
+    { enabled: isMobile === true && filter === "today" },
+  );
+  const mobileTaskCount = useMemo(() => {
+    if (!allActionsForMobile) return 0;
+    const todayStr = today.toDateString();
+    return allActionsForMobile.filter((a) => {
+      if (a.status !== "ACTIVE") return false;
+      const due = a.dueDate ? new Date(a.dueDate) : null;
+      const sched = a.scheduledStart ? new Date(a.scheduledStart) : null;
+      const ref = sched ?? due;
+      return ref ? ref.toDateString() === todayStr : false;
+    }).length;
+  }, [allActionsForMobile, today]);
+
+  if (isMobile && filter === "today") {
+    return (
+      <div className="mobile-today-page w-full">
+        <MobileTodayHeader
+          filter={filter}
+          onFilterChange={handleFilterChange}
+          taskCount={mobileTaskCount}
+          score={score ?? null}
+          scoreColor={score ? getScoreColor(score.totalScore) : "var(--accent-okr)"}
+          onScoreClick={openBreakdown}
+          tagOptions={tagOptions}
+          selectedTagIds={selectedTagIds}
+          onTagSelect={setSelectedTagIds}
+        />
+
+        {score && (
+          <Modal
+            opened={breakdownOpened}
+            onClose={closeBreakdown}
+            title="Daily Productivity Score"
+            size="md"
+            overlayProps={{ backgroundOpacity: 0.55, blur: 3 }}
+          >
+            <ScoreBreakdown score={score} />
+          </Modal>
+        )}
+
+        <TodayLayout tagIds={selectedTagIds} />
+      </div>
+    );
+  }
 
   return (
     <>

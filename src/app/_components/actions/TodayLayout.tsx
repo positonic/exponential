@@ -11,6 +11,7 @@ import { useDayRollover } from "~/hooks/useDayRollover";
 import { addDays, hourFloat } from "~/lib/actions/dates";
 import type { Action } from "~/lib/actions/types";
 import { CreateActionModal } from "../CreateActionModal";
+import { MobileFAB } from "../today-mobile/MobileFAB";
 import { ActionsList } from "./ActionsList";
 import { TimelineRail, type RailBlock } from "./components/TimelineRail";
 import { ZoePanel } from "./components/ZoePanel";
@@ -251,17 +252,22 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
           )}
         </div>
 
-        <TimelineRail
-          dayLabel={dayLabel}
-          eventsCount={eventsCount}
-          focusCount={focusCount}
-          blocks={railBlocks}
-          range={railRange}
-          now={now}
-        />
+        <div className={styles.rail}>
+          <TimelineRail
+            dayLabel={dayLabel}
+            eventsCount={eventsCount}
+            focusCount={focusCount}
+            blocks={railBlocks}
+            range={railRange}
+            now={now}
+          />
+        </div>
       </div>
 
-      <CreateActionModal viewName="today" />
+      <div className={styles.desktopAddTask}>
+        <CreateActionModal viewName="today" />
+      </div>
+      <MobileFAB />
     </div>
   );
 }
