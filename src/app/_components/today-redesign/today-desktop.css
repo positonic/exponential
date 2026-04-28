@@ -263,8 +263,9 @@
   accent-color: var(--td-accent);
 }
 
-/* Checkbox */
-.td-checkbox {
+/* Checkbox — selectors prefixed with `.td ` to win over the
+   `.td button { border: none }` reset on line 16. */
+.td .td-checkbox {
   width: 18px;
   height: 18px;
   border-radius: 999px;
@@ -281,13 +282,13 @@
   transition: background 120ms, border-color 120ms;
 }
 
-.td-checkbox--prio-urgent { --_fill: var(--td-prio-urgent); }
-.td-checkbox--prio-high   { --_fill: var(--td-prio-high);   }
-.td-checkbox--prio-normal { --_fill: var(--td-prio-normal); }
-.td-checkbox--prio-low    { --_fill: var(--td-prio-low);    }
+.td .td-checkbox--prio-urgent { --_ring: var(--td-prio-urgent-dim); --_fill: var(--td-prio-urgent); border-color: var(--_ring); }
+.td .td-checkbox--prio-high   { --_ring: var(--td-prio-high-dim);   --_fill: var(--td-prio-high);   border-color: var(--_ring); }
+.td .td-checkbox--prio-normal { --_ring: var(--td-prio-normal-dim); --_fill: var(--td-prio-normal); border-color: var(--_ring); }
+.td .td-checkbox--prio-low    { --_ring: var(--td-prio-low-dim);    --_fill: var(--td-prio-low);    border-color: var(--_ring); }
 
-.td-checkbox--focused { border-color: var(--td-accent); }
-.td-checkbox--done    { background: var(--_fill); border-color: var(--_fill); }
+.td .td-checkbox--focused { border-color: var(--td-accent); }
+.td .td-checkbox--done    { background: var(--_fill); border-color: var(--_fill); }
 
 .td-task__body { min-width: 0; }
 
