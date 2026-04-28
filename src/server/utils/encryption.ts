@@ -19,14 +19,18 @@ function getKey(): Buffer {
   throw new Error('DATABASE_ENCRYPTION_KEY must be 32 bytes (raw) or base64-encoded 32 bytes');
 }
 
-export function encryptString(plaintext: string): Buffer {
+export function encryptString(plaintext: string): Uint8Array<ArrayBuffer> {
   const key = getKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(Buffer.from(plaintext, 'utf8')), cipher.final()]);
   const tag = cipher.getAuthTag();
   // store as iv + tag + encrypted
-  return Buffer.concat([iv, tag, encrypted]);
+  const buf = Buffer.concat([iv, tag, encrypted]);
+  // Copy into a fresh ArrayBuffer-backed Uint8Array to satisfy Prisma 6.19+ Bytes type
+  const out = new Uint8Array(buf.byteLength);
+  out.set(buf);
+  return out;
 }
 
 export function decryptBuffer(buf: Buffer | Uint8Array | null | undefined): string | null {
@@ -49,7 +53,7 @@ export function decryptBuffer(buf: Buffer | Uint8Array | null | undefined): stri
  */
 export function encryptToBase64(plaintext: string): string {
   const encrypted = encryptString(plaintext);
-  return encrypted.toString('base64');
+  return Buffer.from(encrypted).toString('base64');
 }
 
 /**

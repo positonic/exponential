@@ -85,8 +85,13 @@ export class WhatsAppNotificationService extends NotificationService {
 
     // Get credentials from the integration
     const accessTokenCred = integration.credentials.find(c => c.keyType === 'ACCESS_TOKEN');
-    
+
     if (!accessTokenCred) {
+      return null;
+    }
+
+    // Meta-specific fields are nullable (null for non-Meta providers like DIALOG_360)
+    if (!integration.whatsappConfig.phoneNumberId || !integration.whatsappConfig.businessAccountId) {
       return null;
     }
 
@@ -474,6 +479,14 @@ export class WhatsAppNotificationService extends NotificationService {
         return {
           success: false,
           error: 'No access token found',
+        };
+      }
+
+      // phoneNumberId is nullable (null for non-Meta providers like DIALOG_360)
+      if (!config.phoneNumberId) {
+        return {
+          success: false,
+          error: 'No phone number ID configured for this WhatsApp config',
         };
       }
 
