@@ -84,6 +84,9 @@ export function useActionMutations(
       if (context.viewName === "transcription-actions") {
         void utils.action.getByTranscription.invalidate();
       } else if (context.viewName.toLowerCase() === "today") {
+        // TodayLayout reads from getAll; getToday is still used by other
+        // surfaces (NextActions, MomentumWidget, TodayOverview) so refresh both.
+        void utils.action.getAll.invalidate();
         void utils.action.getToday.invalidate();
       } else if (projectIdFromResult) {
         void utils.action.getProjectActions.invalidate({

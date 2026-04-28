@@ -48,8 +48,10 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
     return () => window.clearInterval(id);
   }, []);
 
-  // Data — /today spans all workspaces (route is not workspace-scoped)
-  const actionsQuery = api.action.getAll.useQuery({}, { enabled: true });
+  // Data — /today spans all workspaces (route is not workspace-scoped).
+  // Use `undefined` (not `{}`) to share a cache key with optimistic updates
+  // in useActionMutations, which call setData(undefined, ...).
+  const actionsQuery = api.action.getAll.useQuery(undefined);
   const calendarEventsQuery = api.calendar.getTodayEvents.useQuery(undefined, {
     retry: false,
     refetchOnWindowFocus: false,

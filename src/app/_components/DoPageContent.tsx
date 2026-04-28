@@ -118,8 +118,9 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
 
   // Mobile-only task count for header subtitle. Reuses the same query the
   // TodayLayout uses, so React Query dedupes — no extra round-trip.
+  // Input must match TodayLayout (undefined, not {}) to share a cache key.
   const { data: allActionsForMobile } = api.action.getAll.useQuery(
-    {},
+    undefined,
     { enabled: isMobile === true && filter === "today" },
   );
   const mobileTaskCount = useMemo(() => {

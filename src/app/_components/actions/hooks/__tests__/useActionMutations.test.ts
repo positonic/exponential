@@ -81,16 +81,17 @@ describe("useActionMutations onSettled routing", () => {
     expect(invalidates.getToday).not.toHaveBeenCalled();
   });
 
-  test("today (lowercase) routes to getToday", () => {
+  test("today (lowercase) invalidates both getAll and getToday", () => {
     renderHook(() => useActionMutations({ viewName: "today" }));
     lastConfig.current?.onSettled?.({ projectId: null });
+    expect(invalidates.getAll).toHaveBeenCalledTimes(1);
     expect(invalidates.getToday).toHaveBeenCalledTimes(1);
-    expect(invalidates.getAll).not.toHaveBeenCalled();
   });
 
-  test("Today (mixed case) routes to getToday via toLowerCase", () => {
+  test("Today (mixed case) invalidates both via toLowerCase", () => {
     renderHook(() => useActionMutations({ viewName: "Today" }));
     lastConfig.current?.onSettled?.({ projectId: null });
+    expect(invalidates.getAll).toHaveBeenCalledTimes(1);
     expect(invalidates.getToday).toHaveBeenCalledTimes(1);
   });
 

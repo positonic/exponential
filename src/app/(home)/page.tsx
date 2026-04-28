@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { auth } from "~/server/auth";
 import { HeaderAuthButtons } from "~/app/_components/HeaderAuthButtons";
 import { LogoDisplay } from "~/app/_components/layout/LogoDisplay";
@@ -24,6 +25,11 @@ import {
 
 export default async function Home() {
   const session = await auth();
+
+  if (session?.user) {
+    redirect("/home");
+  }
+
   const domain = getThemeDomain();
   const theme = themes[domain];
 
