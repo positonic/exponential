@@ -144,15 +144,14 @@ export function OkrDashboard() {
     { enabled: !!workspaceId },
   );
 
-  // Pair each quarter with its parent Annual period so goals/KRs tracked at
-  // the Annual level still show up when a quarter tab is active. Matches the
-  // pre-redesign "Q1+Annual" combined view — without pairing, workspaces that
-  // only store Annual KRs show empty Q1–Q4 tabs.
+  // Each tab shows only goals/KRs whose period matches that tab. Annual goals
+  // belong on the Annual tab; pairing them into Q1–Q4 makes the quarterly tabs
+  // misrepresent what's being tracked at the quarter level.
   const { data: objectives, isLoading } = api.okr.getByObjective.useQuery(
     {
       workspaceId: workspaceId ?? undefined,
       period: effectivePeriod,
-      includePairedPeriod: true,
+      includePairedPeriod: false,
     },
     { enabled: !!workspaceId, placeholderData: keepPreviousData },
   );
