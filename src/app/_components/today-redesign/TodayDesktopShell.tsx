@@ -17,8 +17,14 @@ import { CreateActionModal } from "../CreateActionModal";
 import { EditActionModal } from "../EditActionModal";
 import { ScoreBreakdown } from "../scoring/ScoreBreakdown";
 import { ZoePanel } from "../actions/components/ZoePanel";
+import {
+  BulkEditToolbar,
+  type BulkActionDef,
+} from "../actions/components/BulkEditToolbar";
 import { useActionMutations } from "../actions/hooks/useActionMutations";
 import { useActionPartition } from "../actions/hooks/useActionPartition";
+import { useBulkActionMutations } from "../actions/hooks/useBulkActionMutations";
+import { useBulkSelection } from "../actions/hooks/useBulkSelection";
 import type { RailBlock } from "../actions/components/TimelineRail";
 import { ScoreRing } from "./ScoreRing";
 import { AgendaRail } from "./AgendaRail";
@@ -126,6 +132,9 @@ export function TodayDesktopShell({
 
   // ---- Mutations -----------------------------------------------------------
   const { updateAction } = useActionMutations({ viewName: "today" });
+  const { bulkReschedule, bulkDelete } = useBulkActionMutations({
+    viewName: "today",
+  });
   const handleComplete = (id: string) => {
     const a = filteredActions.find((x) => x.id === id);
     const nextStatus = a?.status === "COMPLETED" ? "ACTIVE" : "COMPLETED";
@@ -225,6 +234,36 @@ export function TodayDesktopShell({
     return [...overdue, ...todays];
   }, [partition.overdue, partition.todays]);
 
+  // ---- Bulk selection -----------------------------------------------------
+  const selection = useBulkSelection(
+    renderedActions as unknown as Action[],
+  );
+  const toggleBulkMode = () => {
+    setBulkMode((prev) => {
+      if (prev) selection.clear();
+      return !prev;
+    });
+  };
+  const bulkActionDefs: BulkActionDef[] = useMemo(
+    () => [
+      {
+        kind: "reschedule",
+        onReschedule: (date, ids) =>
+          bulkReschedule({
+            actionIds: ids,
+            dueDate: date,
+            fromOverdue: true,
+          }),
+      },
+      {
+        kind: "delete",
+        onDelete: (ids) =>
+          bulkDelete({ actionIds: ids, fromOverdue: true }),
+      },
+    ],
+    [bulkReschedule, bulkDelete],
+  );
+
   const tagSelectedLabel =
     selectedTagIds.length > 0
       ? `${selectedTagIds.length} tag${selectedTagIds.length === 1 ? "" : "s"}`
@@ -311,7 +350,7 @@ export function TodayDesktopShell({
                 <button
                   type="button"
                   className={`td-bulk-btn ${bulkMode ? "td-bulk-btn--active" : ""}`}
-                  onClick={() => setBulkMode((v) => !v)}
+                  onClick={toggleBulkMode}
                 >
                   {bulkMode ? "Exit bulk" : "Bulk edit"}
                 </button>
@@ -350,6 +389,16 @@ export function TodayDesktopShell({
                 </div>
               )}
 
+              {bulkMode && (
+                <div style={{ padding: "8px 24px 0" }}>
+                  <BulkEditToolbar
+                    selection={selection}
+                    allItems={renderedActions as unknown as Action[]}
+                    actions={bulkActionDefs}
+                  />
+                </div>
+              )}
+
               <div className="td-tasklist__rows">
                 {actionsQuery.isLoading ? (
                   <div className="td-tasklist__empty">Loading…</div>
@@ -361,6 +410,9 @@ export function TodayDesktopShell({
                       key={a.id}
                       action={a as unknown as Action}
                       isOverdue={partition.overdue.some((o) => o.id === a.id)}
+                      bulkMode={bulkMode}
+                      bulkSelected={selection.isSelected(a.id)}
+                      onBulkToggle={selection.toggle}
                       onComplete={handleComplete}
                       onOpen={handleOpen}
                       onTagClick={(tagId) => {

@@ -9,6 +9,9 @@ interface TaskRowProps {
   action: Action;
   isOverdue?: boolean;
   focused?: boolean;
+  bulkMode?: boolean;
+  bulkSelected?: boolean;
+  onBulkToggle?: (id: string) => void;
   onComplete: (id: string) => void;
   onOpen: (action: Action) => void;
   onReschedule?: (action: Action) => void;
@@ -19,6 +22,9 @@ export function TaskRow({
   action,
   isOverdue = false,
   focused = false,
+  bulkMode = false,
+  bulkSelected = false,
+  onBulkToggle,
   onComplete,
   onOpen,
   onReschedule,
@@ -35,22 +41,42 @@ export function TaskRow({
   const fallbackTagLabel = action.project?.name ?? "Unassigned";
   const fallbackTone = action.project ? "ops" : "unas";
 
+  const handleRowClick = () => {
+    if (bulkMode) {
+      onBulkToggle?.(action.id);
+      return;
+    }
+    onOpen(action);
+  };
+
   return (
     <div
       className={[
         "td-task",
+        bulkMode ? "td-task--bulk" : "",
+        bulkMode && bulkSelected ? "td-task--bulk-selected" : "",
         focused ? "td-task--focused" : "",
         isDone ? "td-task--done" : "",
       ]
         .filter(Boolean)
         .join(" ")}
-      onClick={() => onOpen(action)}
+      onClick={handleRowClick}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
-        if (e.key === "Enter") onOpen(action);
+        if (e.key === "Enter") handleRowClick();
       }}
     >
+      {bulkMode && (
+        <input
+          type="checkbox"
+          className="td-task__bulk-check"
+          checked={bulkSelected}
+          onChange={() => onBulkToggle?.(action.id)}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Select ${action.name}`}
+        />
+      )}
       <Checkbox
         done={isDone}
         focused={focused}

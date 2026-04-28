@@ -863,7 +863,7 @@
   --td-muted: rgba(234, 236, 239, 0.55);
   --td-faint: rgba(234, 236, 239, 0.32);
   --td-dim: rgba(234, 236, 239, 0.18);
-  --td-check-border: rgba(255, 255, 255, 0.22);
+  --td-check-border: rgba(255, 255, 255, 0.36);
   --td-check-mark: #0B0F17;
 
   /* Tag tones — five design presets we map workspace tag colors onto. */
